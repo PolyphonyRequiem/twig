@@ -1,0 +1,116 @@
+# EPIC Queue — format: plan_path | EPIC-NNN
+# Lines starting with # are skipped. Completed entries are auto-prefixed with "# DONE: "
+#
+# Usage:
+#   .\tools\run-epics.ps1              # run the queue
+#   .\tools\run-epics.ps1 -DryRun      # preview without running
+#   .\tools\run-epics.ps1 -NoCommit    # run but don't auto-commit
+#
+# Populate this file with your queue, then run the script.
+#
+
+# ============================================================
+# COMPLETED
+# ============================================================
+
+# --- State category cleanup (Theme A) ---
+# DONE: docs/projects/twig-state-category-cleanup.plan.md | EPIC-1
+# DONE: docs/projects/twig-state-category-cleanup.plan.md | EPIC-2
+# DONE: docs/projects/twig-state-category-cleanup.plan.md | EPIC-3
+
+# --- Icon/badge consolidation (Theme B) ---
+# DONE: docs/projects/twig-icon-cleanup.plan.md | EPIC-001
+# DONE: docs/projects/twig-icon-cleanup.plan.md | EPIC-002
+
+# --- Nerd font icons ---
+# DONE: docs/projects/twig-nerd-font-icons.plan.md | EPIC-001
+# DONE: docs/projects/twig-nerd-font-icons.plan.md | EPIC-002
+# DONE: docs/projects/twig-nerd-font-icons.plan.md | EPIC-003
+
+# --- Dynamic process (type system opened) ---
+# DONE: docs/projects/twig-dynamic-process.plan.md | EPIC-1
+# DONE: docs/projects/twig-dynamic-process.plan.md | EPIC-2
+# DONE: docs/projects/twig-dynamic-process.plan.md | EPIC-3
+# DONE: docs/projects/twig-dynamic-process.plan.md | EPIC-4
+# DONE: docs/projects/twig-dynamic-process.plan.md | EPIC-5
+
+# --- ADO type colors ---
+# DONE: docs/projects/twig-ado-type-colors.plan.md | EPIC-001
+# DONE: docs/projects/twig-ado-type-colors.plan.md | EPIC-002
+# DONE: docs/projects/twig-ado-type-colors.plan.md | EPIC-003
+
+# --- True color badges ---
+# DONE: docs/projects/twig-true-color-badges.plan.md | EPIC-001
+
+# ============================================================
+# ACTIVE — dependency-ordered execution
+# ============================================================
+
+# Phase 1: Color wiring (EPICs 003/004 already done)
+# DONE: docs/projects/twig-color-wiring.plan.md | EPIC-001
+# DONE: docs/projects/twig-color-wiring.plan.md | EPIC-002
+# DONE: docs/projects/twig-color-wiring.plan.md | EPIC-005
+
+# Phase 2: Conflict resolution cleanup — zero deps, no file overlap
+# DONE: docs/projects/twig-conflict-resolution-cleanup.plan.md | EPIC-001
+# DONE: docs/projects/twig-conflict-resolution-cleanup.plan.md | EPIC-002
+
+# Phase 3: Process sync cleanup — refactors Init/Refresh before convergence
+# DONE: docs/projects/twig-process-sync-cleanup.plan.md | EPIC-001
+# DONE: docs/projects/twig-process-sync-cleanup.plan.md | EPIC-002
+# DONE: docs/projects/twig-process-sync-cleanup.plan.md | EPIC-003
+
+# Phase 4: Type color cleanup — extracts color resolution before convergence
+# DONE: docs/projects/twig-type-color-cleanup.plan.md | EPIC-1
+# DONE: docs/projects/twig-type-color-cleanup.plan.md | EPIC-2
+# DONE: docs/projects/twig-type-color-cleanup.plan.md | EPIC-3
+
+# Phase 5: Dynamic convergence — retire ProcessTemplate, StateShorthand, KnownTypes
+# DONE: docs/projects/twig-dynamic-convergence.plan.md | EPIC-1
+# DONE: docs/projects/twig-dynamic-convergence.plan.md | EPIC-2
+# DONE: docs/projects/twig-dynamic-convergence.plan.md | EPIC-3
+# DONE: docs/projects/twig-dynamic-convergence.plan.md | EPIC-4
+# DONE: docs/projects/twig-dynamic-convergence.plan.md | EPIC-5
+
+# Phase 6: IconId glyph mapping — redesign IconSet by ADO iconId
+# DONE: docs/projects/twig-iconid-glyph-mapping.plan.md | EPIC-001
+# DONE: docs/projects/twig-iconid-glyph-mapping.plan.md | EPIC-002
+# DONE: docs/projects/twig-iconid-glyph-mapping.plan.md | EPIC-003
+# DONE: docs/projects/twig-iconid-glyph-mapping.plan.md | EPIC-004
+
+# --- Interactive UX (blocked on AOT spike) ---
+# DONE: docs/projects/twig-interactive-ux.plan.md | EPIC-001
+# DONE: docs/projects/twig-interactive-ux.plan.md | EPIC-002
+# DONE: docs/projects/twig-interactive-ux.plan.md | EPIC-003
+# DONE: docs/projects/twig-interactive-ux.plan.md | EPIC-004
+# DONE: docs/projects/twig-interactive-ux.plan.md | EPIC-005
+# DONE: docs/projects/twig-interactive-ux.plan.md | EPIC-006
+# DONE: docs/projects/twig-interactive-ux.plan.md | EPIC-007
+# DONE: docs/projects/twig-interactive-ux.plan.md | EPIC-008
+
+
+# ============================================================
+# BACKLOG
+# ============================================================
+
+# --- Git integration ---
+# docs/projects/twig-git-integration.plan.md | EPIC-001
+# docs/projects/twig-git-integration.plan.md | EPIC-002
+# docs/projects/twig-git-integration.plan.md | EPIC-003
+# docs/projects/twig-git-integration.plan.md | EPIC-004
+# docs/projects/twig-git-integration.plan.md | EPIC-005
+# docs/projects/twig-git-integration.plan.md | EPIC-006
+
+# --- Release & distribution ---
+# docs/projects/twig-release.plan.md | EPIC-001
+# docs/projects/twig-release.plan.md | EPIC-002
+# docs/projects/twig-release.plan.md | EPIC-003
+# docs/projects/twig-release.plan.md | EPIC-004
+# docs/projects/twig-release.plan.md | EPIC-005
+# docs/projects/twig-release.plan.md | EPIC-006
+
+# --- Oh My Posh integration (Tier 3 deferred) ---
+# docs/projects/twig-ohmyposh.plan.md | EPIC-001
+# docs/projects/twig-ohmyposh.plan.md | EPIC-002
+# docs/projects/twig-ohmyposh.plan.md | EPIC-003
+

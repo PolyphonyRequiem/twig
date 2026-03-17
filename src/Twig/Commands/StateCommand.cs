@@ -1,0 +1,142 @@
+using Twig.Domain.Enums;
+using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
+using Twig.Domain.ValueObjects;
+using Twig.Formatters;
+using Twig.Hints;
+using Twig.Infrastructure.Config;
+
+namespace Twig.Commands;
+
+/// <summary>
+/// Implements <c>twig state &lt;shorthand&gt;</c>: resolves shorthand, validates transition,
+/// prompts if backward/cut, pushes to ADO, auto-pushes pending notes, and updates cache.
+/// </summary>
+public sealed class StateCommand(
+    IContextStore contextStore,
+    IWorkItemRepository workItemRepo,
+    IAdoWorkItemService adoService,
+    IPendingChangeStore pendingChangeStore,
+    IProcessConfigurationProvider processConfigProvider,
+    IConsoleInput consoleInput,
+    OutputFormatterFactory formatterFactory,
+    HintEngine hintEngine)
+{
+    /// <summary>Change the state of the active work item using a shorthand code (p/c/s/d/x).</summary>
+    public async Task<int> ExecuteAsync(string shorthand, string outputFormat = "human")
+    {
+        var fmt = formatterFactory.GetFormatter(outputFormat);
+
+        if (string.IsNullOrWhiteSpace(shorthand) || shorthand.Length != 1)
+        {
+            Console.Error.WriteLine(fmt.FormatError("Usage: twig state <shorthand> (p/c/s/d/x)"));
+            return 2;
+        }
+
+        var activeId = await contextStore.GetActiveWorkItemIdAsync();
+        if (activeId is null)
+        {
+            Console.Error.WriteLine(fmt.FormatError("No active work item. Run 'twig set <id>' first."));
+            return 1;
+        }
+
+        var item = await workItemRepo.GetByIdAsync(activeId.Value);
+        if (item is null)
+        {
+            Console.Error.WriteLine(fmt.FormatError($"Work item #{activeId.Value} not found in cache."));
+            return 1;
+        }
+
+        // Get process configuration
+        var processConfig = processConfigProvider.GetConfiguration();
+
+        // Resolve shorthand to full state name using state entries from config
+        if (!processConfig.TypeConfigs.TryGetValue(item.Type, out var typeConfig))
+        {
+            Console.Error.WriteLine(fmt.FormatError($"No process configuration found for type '{item.Type}'."));
+            return 1;
+        }
+
+        var resolveResult = StateShorthand.Resolve(shorthand[0], typeConfig.StateEntries);
+        if (!resolveResult.IsSuccess)
+        {
+            Console.Error.WriteLine(fmt.FormatError(resolveResult.Error));
+            return 1;
+        }
+
+        var newState = resolveResult.Value;
+        if (string.Equals(item.State, newState, StringComparison.OrdinalIgnoreCase))
+        {
+            Console.WriteLine(fmt.FormatInfo($"Already in state '{newState}'."));
+            return 0;
+        }
+
+        // Validate transition
+        var transition = StateTransitionService.Evaluate(processConfig, item.Type, item.State, newState);
+
+        if (!transition.IsAllowed)
+        {
+            Console.Error.WriteLine(fmt.FormatError($"Transition from '{item.State}' to '{newState}' is not allowed."));
+            return 1;
+        }
+
+        // Prompt for confirmation on backward/cut transitions (Console.Write kept as-is)
+        if (transition.RequiresConfirmation)
+        {
+            var kind = transition.Kind == TransitionKind.Cut ? "REMOVE" : "move backward";
+            Console.Write($"This will {kind} #{item.Id} from '{item.State}' to '{newState}'. Continue? [y/N] ");
+            var response = consoleInput.ReadLine()?.Trim();
+            if (!string.Equals(response, "y", StringComparison.OrdinalIgnoreCase))
+            {
+                Console.WriteLine(fmt.FormatInfo("Cancelled."));
+                return 0;
+            }
+        }
+
+        // Fetch latest from ADO to check for conflicts
+        var remote = await adoService.FetchAsync(item.Id);
+
+        // FM-006: Conflict detection before state change
+        var conflictOutcome = await ConflictResolutionFlow.ResolveAsync(
+            item, remote, fmt, outputFormat, consoleInput, workItemRepo,
+            $"#{item.Id} updated from remote.");
+        if (conflictOutcome == ConflictOutcome.ConflictJsonEmitted)
+            return 1;
+        if (conflictOutcome is ConflictOutcome.AcceptedRemote or ConflictOutcome.Aborted)
+            return 0;
+
+        var changes = new[] { new FieldChange("System.State", item.State, newState) };
+        var newRevision = await adoService.PatchAsync(item.Id, changes, remote.Revision);
+
+        // Auto-push pending notes (preserve field changes)
+        await AutoPushNotesHelper.PushAndClearAsync(item.Id, pendingChangeStore, adoService);
+
+        // Update cache
+        item.ChangeState(newState);
+        item.ApplyCommands();
+        item.MarkSynced(newRevision);
+        await workItemRepo.SaveAsync(item);
+
+        // Gather siblings for hint engine
+        var siblings = item.ParentId.HasValue
+            ? await workItemRepo.GetChildrenAsync(item.ParentId.Value)
+            : Array.Empty<Domain.Aggregates.WorkItem>();
+
+        Console.WriteLine(fmt.FormatSuccess($"#{item.Id} → {newState}"));
+
+        var hints = hintEngine.GetHints("state",
+            item: item,
+            outputFormat: outputFormat,
+            stateShorthand: shorthand,
+            siblings: siblings);
+        foreach (var hint in hints)
+        {
+            var formatted = fmt.FormatHint(hint);
+            if (!string.IsNullOrEmpty(formatted))
+                Console.WriteLine(formatted);
+        }
+
+        return 0;
+    }
+
+}

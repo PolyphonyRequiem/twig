@@ -1,0 +1,92 @@
+project:
+  name: ""
+  description: ""
+  overview_path: ./docs/repository_overview.md
+ev2_deployer:
+  default_service: my_service
+  services:
+    my_service:
+      name: My Service Name
+      description: Description of your service
+      ev2:
+        service_id: 00000000-0000-0000-0000-000000000000
+        service_group_name: Microsoft.YourProduct.YourService
+        endpoint: Test
+      ado:
+        project_name: YourProjectName
+        pipeline_id: 0
+incident:
+  kusto:
+    clusters:
+      rpaas:
+        cluster: https://rpsaas.kusto.windows.net
+        database: RPaaSProd
+        provider_namespace: ""
+      telemetry:
+        cluster: https://resolutetelemetry.westus2.kusto.windows.net
+        database: Logs
+        k8s_namespace: ""
+        app_name: ""
+        handler_name: ""
+        service_domain: ""
+    thresholds:
+      p95_normal_ms: 5000
+      p95_elevated_ms: 15000
+      p95_high_ms: 30000
+      p95_critical_ms: 60000
+      failure_rate_warning: 1
+      failure_rate_critical: 5
+documentation:
+  output_path: ./docs/
+  template: documentation.template.md
+  include_diagrams: true
+  diagram_syntax: azure-devops
+research:
+  ado:
+    organization: ${ado_organization}
+    project: ${ado_project}
+  artifacts:
+    findings: .octane/research/findings
+    synthesis: .octane/research/synthesis
+    design: .octane/research/design
+    plans: .octane/research/plans
+tools:
+  code_search: code-search
+  ado: ado
+  work_iq: work-iq
+  enghub: enghub
+phases:
+  gather:
+    required_sources:
+      - ado
+      - workiq
+      - enghub
+      - codebase
+  synthesize:
+    outputs:
+      - problem_statement
+      - system_context
+      - stakeholder_map
+      - contracts
+      - constraints
+      - risks
+  design:
+    min_options: 2
+    max_options: 5
+    required_analysis:
+      - pros_cons
+      - contract_impact
+      - alignment_needs
+      - effort_estimate
+      - rollout_risk
+  plan:
+    required_sections:
+      - alignment_plan
+      - implementation_phases
+      - testing_strategy
+      - rollout_plan
+      - success_metrics
+planner:
+  artifacts:
+    requirements: ./docs/projects/
+    prd: ./docs/projects/

@@ -1,0 +1,85 @@
+using Twig.Domain.Aggregates;
+using Twig.Domain.Common;
+using Twig.Domain.ValueObjects;
+
+namespace Twig.Domain.Services;
+
+/// <summary>
+/// Creates seed work items, validating parent/child rules via <see cref="ProcessConfiguration"/>
+/// and inheriting area/iteration paths from the parent context.
+/// </summary>
+public static class SeedFactory
+{
+    /// <summary>
+    /// Creates a seed work item under the given parent context.
+    /// </summary>
+    /// <param name="title">Title for the new seed.</param>
+    /// <param name="parentContext">Optional parent work item — used for type inference and path inheritance.</param>
+    /// <param name="processConfig">Process configuration for validating parent/child rules.</param>
+    /// <param name="typeOverride">Explicit child type. If null, inferred from parent's allowed child types.</param>
+    public static Result<WorkItem> Create(
+        string title,
+        WorkItem? parentContext,
+        ProcessConfiguration processConfig,
+        WorkItemType? typeOverride = null)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+            return Result.Fail<WorkItem>("Seed title cannot be empty.");
+
+        // Determine the child type
+        WorkItemType childType;
+
+        if (parentContext is null)
+        {
+            // No parent — explicit type is required
+            if (typeOverride is null)
+                return Result.Fail<WorkItem>("Explicit type is required when no parent context is provided.");
+
+            childType = typeOverride.Value;
+        }
+        else
+        {
+            var allowedChildren = processConfig.GetAllowedChildTypes(parentContext.Type);
+
+            if (typeOverride is not null)
+            {
+                // Validate explicit override is allowed
+                if (!ContainsType(allowedChildren, typeOverride.Value))
+                    return Result.Fail<WorkItem>(
+                        $"Type '{typeOverride.Value}' is not an allowed child of '{parentContext.Type}'.");
+
+                childType = typeOverride.Value;
+            }
+            else
+            {
+                // Infer default child type
+                if (allowedChildren.Count == 0)
+                    return Result.Fail<WorkItem>(
+                        $"Type '{parentContext.Type}' does not allow child items.");
+
+                childType = allowedChildren[0];
+            }
+        }
+
+        // Create the seed, inheriting area/iteration paths and parent from the context
+        var seed = WorkItem.CreateSeed(
+            childType,
+            title,
+            parentContext?.Id,
+            parentContext?.AreaPath ?? default,
+            parentContext?.IterationPath ?? default);
+
+        return Result.Ok(seed);
+    }
+
+    private static bool ContainsType(IReadOnlyList<WorkItemType> types, WorkItemType target)
+    {
+        foreach (var t in types)
+        {
+            if (t == target)
+                return true;
+        }
+
+        return false;
+    }
+}

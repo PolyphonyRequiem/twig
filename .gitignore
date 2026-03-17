@@ -1,0 +1,55 @@
+## .NET / C# gitignore
+
+# Build output
+bin/
+obj/
+
+# Artifacts directory (AOT publish output, etc.)
+artifacts/
+
+# NuGet packages
+*.nupkg
+*.snupkg
+.nuget/
+
+# User-specific files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+
+# Visual Studio Code
+.vscode/settings.json
+.vscode/tasks.json
+.vscode/launch.json
+.vscode/*.log
+
+# Rider
+.idea/
+*.sln.iml
+
+# Logs and test results
+*.log
+TestResults/
+coverage/
+*.coverage
+*.coveragexml
+
+# Twig runtime files
+.twig/
+
+# Copilot / Octane agent infrastructure (user-level install)
+.github/agents/
+.github/docs/
+.github/instructions/
+.github/prompts/
+.github/skills/
+.github/templates/
+.github/.octane-metadata.json
+.config/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+desktop.ini

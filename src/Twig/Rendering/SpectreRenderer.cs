@@ -1,0 +1,507 @@
+using Spectre.Console;
+using Spectre.Console.Rendering;
+using Twig.Domain.Aggregates;
+using Twig.Domain.Common;
+using Twig.Domain.ReadModels;
+
+namespace Twig.Rendering;
+
+/// <summary>
+/// Spectre.Console implementation of <see cref="IAsyncRenderer"/>.
+/// Uses <see cref="LiveDisplayContext"/> for progressive workspace rendering.
+/// </summary>
+internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) : IAsyncRenderer
+{
+    private readonly IAnsiConsole _console = console;
+    private readonly SpectreTheme _theme = theme;
+
+    public async Task RenderWorkspaceAsync(
+        IAsyncEnumerable<WorkspaceDataChunk> data,
+        int staleDays,
+        CancellationToken ct)
+    {
+        var table = SpectreTheme.CreateWorkspaceTable();
+        string? savedCaption = null;
+        var loadingCleared = false;
+
+        await _console.Live(table)
+            .StartAsync(async ctx =>
+            {
+                table.AddRow("[dim]Loading workspace...[/]", "", "", "");
+                ctx.Refresh();
+
+                await foreach (var chunk in data.WithCancellation(ct))
+                {
+                    // Clear the loading placeholder on first real data chunk
+                    if (!loadingCleared)
+                    {
+                        table.Rows.Clear();
+                        loadingCleared = true;
+                    }
+
+                    switch (chunk)
+                    {
+                        case WorkspaceDataChunk.ContextLoaded(var contextItem):
+                            savedCaption = contextItem is not null
+                                ? $"Active: #{contextItem.Id} {Markup.Escape(contextItem.Title)}"
+                                : "[dim]No active context[/]";
+                            table.Caption(new TableTitle(savedCaption));
+                            ctx.Refresh();
+                            break;
+
+                        case WorkspaceDataChunk.SprintItemsLoaded(var items):
+                            foreach (var item in items)
+                                table.AddRow(
+                                    item.Id.ToString(),
+                                    _theme.FormatTypeBadge(item.Type),
+                                    Markup.Escape(item.Title),
+                                    _theme.FormatState(item.State));
+                            ctx.Refresh();
+                            break;
+
+                        case WorkspaceDataChunk.SeedsLoaded(var seeds):
+                            if (seeds.Count > 0)
+                            {
+                                // Visual separator between sprint items and seeds
+                                table.AddRow("[dim]───[/]", "[dim]───[/]", "[dim]Seeds[/]", "[dim]───[/]");
+                                foreach (var seed in seeds)
+                                {
+                                    var staleMarker = seed.SeedCreatedAt.HasValue
+                                        && seed.SeedCreatedAt.Value < DateTimeOffset.UtcNow.AddDays(-staleDays)
+                                        ? " [yellow]⚠ stale[/]" : "";
+                                    table.AddRow(
+                                        seed.Id < 0 ? $"[dim]{seed.Id}[/]" : seed.Id.ToString(),
+                                        _theme.FormatTypeBadge(seed.Type),
+                                        Markup.Escape(seed.Title) + staleMarker,
+                                        _theme.FormatState(seed.State));
+                                }
+                            }
+                            ctx.Refresh();
+                            break;
+
+                        case WorkspaceDataChunk.RefreshStarted:
+                            // Clear existing data rows so refreshed data replaces them
+                            table.Rows.Clear();
+                            table.Caption(new TableTitle("[yellow]⟳ refreshing...[/]"));
+                            ctx.Refresh();
+                            break;
+
+                        case WorkspaceDataChunk.RefreshCompleted:
+                            // Restore the original caption after refresh completes
+                            table.Caption(new TableTitle(savedCaption ?? "[green]✓ up to date[/]"));
+                            ctx.Refresh();
+                            break;
+                    }
+                }
+            });
+    }
+
+    public async Task RenderTreeAsync(
+        Func<Task<WorkItem?>> getFocusedItem,
+        Func<Task<IReadOnlyList<WorkItem>>> getParentChain,
+        Func<Task<IReadOnlyList<WorkItem>>> getChildren,
+        int maxChildren,
+        int? activeId,
+        CancellationToken ct)
+    {
+        // Stage 1: Load focused item and parent chain
+        var focusedItem = await getFocusedItem();
+        if (focusedItem is null)
+            return;
+
+        var parentChain = await getParentChain();
+
+        // Build the Spectre Tree rooted at the topmost parent (or focused item if no parents).
+        // focusContainer is the IHasTreeNodes where children should be appended.
+        var (tree, focusContainer) = BuildSpectreTree(focusedItem, parentChain, activeId);
+
+        // Stage 2: Render tree immediately (parent chain + focused item), then add children
+        await _console.Live(tree)
+            .StartAsync(async ctx =>
+            {
+                ctx.Refresh();
+
+                // Stage 3: Load children progressively
+                var children = await getChildren();
+                var displayCount = Math.Min(children.Count, maxChildren);
+                var hasMore = children.Count > maxChildren;
+
+                for (var i = 0; i < displayCount; i++)
+                {
+                    var child = children[i];
+                    var activeMarker = (activeId.HasValue && child.Id == activeId.Value)
+                        ? "[aqua]●[/] " : "";
+                    var dirty = child.IsDirty ? " [yellow]•[/]" : "";
+                    var label = $"{activeMarker}{_theme.FormatTypeBadge(child.Type)} #{child.Id} {Markup.Escape(child.Title)}{dirty} {_theme.FormatState(child.State)}";
+                    focusContainer.AddNode(label);
+                    ctx.Refresh();
+                }
+
+                if (hasMore)
+                {
+                    focusContainer.AddNode($"[dim]... and {children.Count - maxChildren} more[/]");
+                    ctx.Refresh();
+                }
+            });
+    }
+
+    /// <summary>
+    /// Builds a Spectre.Console <see cref="Tree"/> from the parent chain and focused item.
+    /// Parent chain nodes are dimmed; the focused item is bold.
+    /// Returns the tree and the <see cref="IHasTreeNodes"/> where children should be appended.
+    /// </summary>
+    internal (Tree Tree, IHasTreeNodes FocusContainer) BuildSpectreTree(
+        WorkItem focusedItem, IReadOnlyList<WorkItem> parentChain, int? activeId)
+    {
+        if (parentChain.Count == 0)
+        {
+            // Focused item is root — Tree itself is the container for children
+            var tree = new Tree(FormatFocusedNode(focusedItem, activeId));
+            return (tree, tree);
+        }
+
+        // Root is the topmost parent
+        var root = parentChain[0];
+        var tree2 = new Tree(FormatParentNode(root));
+        IHasTreeNodes current = tree2;
+
+        // Add remaining parents as nested nodes
+        for (var i = 1; i < parentChain.Count; i++)
+        {
+            current = current.AddNode(FormatParentNode(parentChain[i]));
+        }
+
+        // Add focused item as child of deepest parent
+        var focusNode = current.AddNode(FormatFocusedNode(focusedItem, activeId));
+        return (tree2, focusNode);
+    }
+
+    internal string FormatParentNode(WorkItem item) =>
+        $"{_theme.FormatTypeBadge(item.Type)} [dim]{Markup.Escape(item.Title)}[/] {_theme.FormatState(item.State)}";
+
+    internal string FormatFocusedNode(WorkItem item, int? activeId)
+    {
+        var marker = (activeId.HasValue && item.Id == activeId.Value) ? "[aqua]●[/] " : "";
+        var dirty = item.IsDirty ? " [yellow]•[/]" : "";
+        return $"{marker}{_theme.FormatTypeBadge(item.Type)} [bold]#{item.Id} {Markup.Escape(item.Title)}[/]{dirty} {_theme.FormatState(item.State)}";
+    }
+
+    public async Task RenderStatusAsync(
+        Func<Task<WorkItem?>> getItem,
+        Func<Task<IReadOnlyList<PendingChangeRecord>>> getPendingChanges,
+        CancellationToken ct)
+    {
+        var item = await getItem();
+        if (item is null)
+            return;
+
+        var pending = await getPendingChanges();
+
+        // Work item detail panel
+        var dirty = item.IsDirty ? " [yellow]•[/]" : "";
+        var itemGrid = new Grid().AddColumn().AddColumn();
+        itemGrid.AddRow("[dim]Type:[/]", _theme.FormatTypeBadge(item.Type) + " " + Markup.Escape(item.Type.ToString()));
+        itemGrid.AddRow("[dim]State:[/]", _theme.FormatState(item.State));
+        itemGrid.AddRow("[dim]Assigned:[/]", Markup.Escape(item.AssignedTo ?? "(unassigned)"));
+        itemGrid.AddRow("[dim]Area:[/]", Markup.Escape(item.AreaPath.ToString()));
+        itemGrid.AddRow("[dim]Iteration:[/]", Markup.Escape(item.IterationPath.ToString()));
+
+        var itemPanel = new Panel(itemGrid)
+            .Header($"[bold]#{item.Id} {Markup.Escape(item.Title)}[/]{dirty}")
+            .Border(BoxBorder.Rounded)
+            .Expand();
+
+        _console.Write(itemPanel);
+
+        // Pending changes panel (only if there are pending changes)
+        if (pending.Count > 0)
+        {
+            var noteCount = 0;
+            var fieldCount = 0;
+            foreach (var change in pending)
+            {
+                if (string.Equals(change.ChangeType, "note", StringComparison.OrdinalIgnoreCase))
+                    noteCount++;
+                else
+                    fieldCount++;
+            }
+
+            var changesGrid = new Grid().AddColumn().AddColumn();
+            changesGrid.AddRow("[dim]Field changes:[/]", fieldCount.ToString());
+            changesGrid.AddRow("[dim]Notes:[/]", noteCount.ToString());
+
+            var changesPanel = new Panel(changesGrid)
+                .Header("[bold]Pending Changes[/]")
+                .Border(BoxBorder.Rounded)
+                .Expand();
+
+            _console.Write(changesPanel);
+        }
+    }
+
+    public async Task RenderWorkItemAsync(
+        Func<Task<WorkItem?>> getItem,
+        bool showDirty,
+        CancellationToken ct)
+    {
+        // Stage 1: Load work item (core fields are available immediately)
+        var item = await getItem();
+        if (item is null)
+            return;
+
+        // Build initial panel with core fields only (type, state, assigned, area, iteration)
+        var dirty = showDirty && item.IsDirty ? " [yellow]•[/]" : "";
+        var grid = new Grid().AddColumn().AddColumn();
+        grid.AddRow("[dim]Type:[/]", _theme.FormatTypeBadge(item.Type) + " " + Markup.Escape(item.Type.ToString()));
+        grid.AddRow("[dim]State:[/]", _theme.FormatState(item.State));
+        grid.AddRow("[dim]Assigned:[/]", Markup.Escape(item.AssignedTo ?? "(unassigned)"));
+        grid.AddRow("[dim]Area:[/]", Markup.Escape(item.AreaPath.ToString()));
+        grid.AddRow("[dim]Iteration:[/]", Markup.Escape(item.IterationPath.ToString()));
+
+        // Stage 2: Progressively add extended fields from the Fields dictionary
+        await _console.Live(new Markup("[dim]Loading...[/]"))
+            .StartAsync(async ctx =>
+            {
+                Panel BuildPanel() => new Panel(grid)
+                    .Header($"[bold]#{item.Id} {Markup.Escape(item.Title)}[/]{dirty}")
+                    .Border(BoxBorder.Rounded)
+                    .Expand();
+
+                ctx.UpdateTarget(BuildPanel());
+                ctx.Refresh();
+
+                // Yield to allow the core panel to render before loading extended fields
+                await Task.Yield();
+                ct.ThrowIfCancellationRequested();
+
+                // Extended field: Description
+                if (item.Fields.TryGetValue("System.Description", out var description)
+                    && !string.IsNullOrWhiteSpace(description))
+                {
+                    grid.AddRow("[dim]Description:[/]", Markup.Escape(TruncateField(description, 200)));
+                    ctx.UpdateTarget(BuildPanel());
+                    ctx.Refresh();
+                }
+
+                // Extended field: History (latest comment)
+                if (item.Fields.TryGetValue("System.History", out var history)
+                    && !string.IsNullOrWhiteSpace(history))
+                {
+                    grid.AddRow("[dim]History:[/]", Markup.Escape(TruncateField(history, 200)));
+                    ctx.UpdateTarget(BuildPanel());
+                    ctx.Refresh();
+                }
+
+                // Extended field: Tags
+                if (item.Fields.TryGetValue("System.Tags", out var tags)
+                    && !string.IsNullOrWhiteSpace(tags))
+                {
+                    grid.AddRow("[dim]Tags:[/]", Markup.Escape(TruncateField(tags, 200)));
+                    ctx.UpdateTarget(BuildPanel());
+                    ctx.Refresh();
+                }
+            });
+    }
+
+    /// <summary>
+    /// Truncates a field value to the specified maximum length, appending "…" if truncated.
+    /// Strips HTML tags for clean display.
+    /// </summary>
+    internal static string TruncateField(string value, int maxLength)
+    {
+        // Strip basic HTML tags (ADO fields often contain HTML)
+        var stripped = StripHtmlTags(value).Trim();
+        if (stripped.Length <= maxLength)
+            return stripped;
+        return stripped[..(maxLength - 1)] + "…";
+    }
+
+    /// <summary>
+    /// Removes HTML tags from a string using a simple regex-free approach.
+    /// Handles unclosed '&lt;' by treating it as a literal character when no
+    /// matching '&gt;' is found before the next '&lt;' or end-of-string.
+    /// </summary>
+    internal static string StripHtmlTags(string input)
+    {
+        var result = new System.Text.StringBuilder(input.Length);
+        var buffer = new System.Text.StringBuilder();
+        var inTag = false;
+        foreach (var c in input)
+        {
+            if (c == '<')
+            {
+                if (inTag)
+                {
+                    // Previous '<' had no matching '>' — flush it as literal
+                    result.Append(buffer);
+                    buffer.Clear();
+                }
+                inTag = true;
+                buffer.Append(c);
+                continue;
+            }
+            if (c == '>' && inTag)
+            {
+                // Matched tag — discard buffer contents (the tag)
+                inTag = false;
+                buffer.Clear();
+                continue;
+            }
+            if (inTag)
+            {
+                buffer.Append(c);
+            }
+            else
+            {
+                result.Append(c);
+            }
+        }
+        // If we ended while inside an unclosed '<', flush buffered content as literal
+        if (inTag)
+            result.Append(buffer);
+        return result.ToString();
+    }
+
+    /// <summary>
+    /// Shows an interactive selection prompt using <see cref="LiveDisplayContext"/>.
+    /// Uses <c>System.Console.ReadKey</c> for keyboard input (AOT-safe — avoids
+    /// <c>SelectionPrompt&lt;T&gt;</c> which produces IL2067 trim warnings).
+    /// <para>
+    /// <b>Cancellation note</b>: <paramref name="ct"/> is checked at each loop
+    /// iteration boundary and also cancels the <c>Task.Run</c> wrapper around
+    /// <c>ReadKey</c>. If the token fires while <c>ReadKey</c> is blocking, the
+    /// resulting <see cref="OperationCanceledException"/> is caught and the prompt
+    /// exits cleanly (returning <c>null</c>).
+    /// </para>
+    /// </summary>
+    public async Task<(int Id, string Title)?> PromptDisambiguationAsync(
+        IReadOnlyList<(int Id, string Title)> matches,
+        CancellationToken ct)
+    {
+        if (matches.Count == 0)
+            return null;
+
+        var selectedIndex = 0;
+        var filterText = "";
+        var filtered = new List<(int Id, string Title)>(matches);
+        (int Id, string Title)? result = null;
+        var done = false;
+
+        // Custom Live()-based selection prompt (AOT-safe fallback — SelectionPrompt<T>
+        // produces IL2067 trim warnings via TypeConverterHelper, see ITEM-001A spike).
+        await _console.Live(new Markup("[dim]Loading...[/]"))
+            .StartAsync(async ctx =>
+            {
+                while (!done && !ct.IsCancellationRequested)
+                {
+                    ctx.UpdateTarget(BuildSelectionRenderable(filtered, selectedIndex, filterText));
+                    ctx.Refresh();
+
+                    ConsoleKeyInfo key;
+                    try
+                    {
+                        key = await Task.Run(() => System.Console.ReadKey(true), ct);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Token fired while ReadKey was blocking — exit cleanly
+                        done = true;
+                        break;
+                    }
+
+                    switch (key.Key)
+                    {
+                        case ConsoleKey.UpArrow:
+                            if (selectedIndex > 0) selectedIndex--;
+                            break;
+                        case ConsoleKey.DownArrow:
+                            if (selectedIndex < filtered.Count - 1) selectedIndex++;
+                            break;
+                        case ConsoleKey.Enter:
+                            if (filtered.Count > 0)
+                                result = filtered[selectedIndex];
+                            done = true;
+                            break;
+                        case ConsoleKey.Escape:
+                            done = true;
+                            break;
+                        case ConsoleKey.Backspace:
+                            if (filterText.Length > 0)
+                            {
+                                filterText = filterText[..^1];
+                                ApplyFilter(matches, filterText, ref filtered, ref selectedIndex);
+                            }
+                            break;
+                        default:
+                            if (!char.IsControl(key.KeyChar))
+                            {
+                                filterText += key.KeyChar;
+                                ApplyFilter(matches, filterText, ref filtered, ref selectedIndex);
+                            }
+                            break;
+                    }
+                }
+            });
+
+        return result;
+    }
+
+    private static void ApplyFilter(
+        IReadOnlyList<(int Id, string Title)> allMatches,
+        string filter,
+        ref List<(int Id, string Title)> filtered,
+        ref int selectedIndex)
+    {
+        filtered = string.IsNullOrEmpty(filter)
+            ? new List<(int Id, string Title)>(allMatches)
+            : allMatches
+                .Where(m => m.Title.Contains(filter, StringComparison.OrdinalIgnoreCase)
+                         || m.Id.ToString().Contains(filter, StringComparison.Ordinal))
+                .ToList();
+        selectedIndex = Math.Clamp(selectedIndex, 0, Math.Max(0, filtered.Count - 1));
+    }
+
+    internal static IRenderable BuildSelectionRenderable(
+        IReadOnlyList<(int Id, string Title)> items,
+        int selectedIndex,
+        string filterText)
+    {
+        var rows = new List<IRenderable>
+        {
+            new Markup("[bold]Multiple matches — select one:[/]")
+        };
+
+        if (!string.IsNullOrEmpty(filterText))
+            rows.Add(new Markup($"[dim]Filter: {Markup.Escape(filterText)}[/]"));
+
+        if (items.Count == 0)
+        {
+            rows.Add(new Markup("[yellow]No items match filter[/]"));
+        }
+        else
+        {
+            for (var i = 0; i < items.Count; i++)
+            {
+                var (id, title) = items[i];
+                var prefix = i == selectedIndex ? "[aqua]❯[/] " : "  ";
+                var style = i == selectedIndex ? "bold" : "dim";
+                rows.Add(new Markup($"{prefix}[{style}]#{id} {Markup.Escape(title)}[/]"));
+            }
+        }
+
+        rows.Add(new Markup("[dim]↑/↓ navigate · Enter select · Esc cancel · type to filter[/]"));
+
+        return new Rows(rows);
+    }
+
+    public void RenderHints(IReadOnlyList<string> hints)
+    {
+        if (hints.Count == 0)
+            return;
+
+        foreach (var hint in hints)
+        {
+            _console.MarkupLine($"[dim]  hint: {Markup.Escape(hint)}[/]");
+        }
+    }
+}

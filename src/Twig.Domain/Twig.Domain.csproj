@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Twig.Domain.Tests" />
+    <InternalsVisibleTo Include="Twig.Infrastructure" />
+    <InternalsVisibleTo Include="Twig.Infrastructure.Tests" />
+    <InternalsVisibleTo Include="Twig.Cli.Tests" />
+    <InternalsVisibleTo Include="Twig.Tui" />
+    <InternalsVisibleTo Include="Twig.Tui.Tests" />
+  </ItemGroup>
+
+</Project>

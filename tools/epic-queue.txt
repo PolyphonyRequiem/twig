@@ -94,23 +94,23 @@
 # ============================================================
 
 # --- Git integration ---
-# docs/projects/twig-git-integration.plan.md | EPIC-001
-# docs/projects/twig-git-integration.plan.md | EPIC-002
-# docs/projects/twig-git-integration.plan.md | EPIC-003
-# docs/projects/twig-git-integration.plan.md | EPIC-004
-# docs/projects/twig-git-integration.plan.md | EPIC-005
-# docs/projects/twig-git-integration.plan.md | EPIC-006
+# DONE: docs/projects/twig-git-integration.plan.md | EPIC-001
+docs/projects/twig-git-integration.plan.md | EPIC-002
+docs/projects/twig-git-integration.plan.md | EPIC-003
+docs/projects/twig-git-integration.plan.md | EPIC-004
+docs/projects/twig-git-integration.plan.md | EPIC-005
+docs/projects/twig-git-integration.plan.md | EPIC-006
 
 # --- Release & distribution ---
-# docs/projects/twig-release.plan.md | EPIC-001
-# docs/projects/twig-release.plan.md | EPIC-002
-# docs/projects/twig-release.plan.md | EPIC-003
-# docs/projects/twig-release.plan.md | EPIC-004
-# docs/projects/twig-release.plan.md | EPIC-005
-# docs/projects/twig-release.plan.md | EPIC-006
+docs/projects/twig-release.plan.md | EPIC-001
+docs/projects/twig-release.plan.md | EPIC-002
+docs/projects/twig-release.plan.md | EPIC-003
+docs/projects/twig-release.plan.md | EPIC-004
+docs/projects/twig-release.plan.md | EPIC-005
+docs/projects/twig-release.plan.md | EPIC-006
 
-# --- Oh My Posh integration (Tier 3 deferred) ---
-# docs/projects/twig-ohmyposh.plan.md | EPIC-001
-# docs/projects/twig-ohmyposh.plan.md | EPIC-002
-# docs/projects/twig-ohmyposh.plan.md | EPIC-003
+# --- Oh My Posh integration ---
+docs/projects/twig-ohmyposh.plan.md | EPIC-001
+docs/projects/twig-ohmyposh.plan.md | EPIC-002
+docs/projects/twig-ohmyposh.plan.md | EPIC-003
 

@@ -135,9 +135,26 @@ public sealed class TwigConfiguration
             case "git.branchpattern":
                 Git.BranchPattern = value;
                 return true;
+            case "git.committemplate":
+                Git.CommitTemplate = value;
+                return true;
             case "git.defaulttarget":
                 Git.DefaultTarget = value;
                 return true;
+            case "git.autolink":
+                if (bool.TryParse(value, out var autoLink))
+                {
+                    Git.AutoLink = autoLink;
+                    return true;
+                }
+                return false;
+            case "git.autotransition":
+                if (bool.TryParse(value, out var autoTransition))
+                {
+                    Git.AutoTransition = autoTransition;
+                    return true;
+                }
+                return false;
             case "git.project":
                 Git.Project = value;
                 return true;
@@ -223,9 +240,21 @@ public sealed class GitConfig
 {
     public string BranchTemplate { get; set; } = "feature/{id}-{title}";
     public string BranchPattern { get; set; } = @"(?:^|/)(?<id>\d{3,})(?:-|/|$)";
+    public string CommitTemplate { get; set; } = "{type}(#{id}): {message}";
     public string DefaultTarget { get; set; } = "main";
+    public bool AutoLink { get; set; } = true;
+    public bool AutoTransition { get; set; } = true;
+    public Dictionary<string, string>? TypeMap { get; set; }
+    public HooksConfig Hooks { get; set; } = new();
     public string? Project { get; set; }
     public string? Repository { get; set; }
+}
+
+public sealed class HooksConfig
+{
+    public bool PrepareCommitMsg { get; set; } = true;
+    public bool CommitMsg { get; set; } = true;
+    public bool PostCheckout { get; set; } = true;
 }
 
 public sealed class FlowConfig

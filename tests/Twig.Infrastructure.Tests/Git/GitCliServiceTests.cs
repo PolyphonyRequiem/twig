@@ -83,7 +83,10 @@ public class GitCliServiceTests : IDisposable
     {
         var root = await _sut.GetRepositoryRootAsync();
         // Normalize paths for comparison (git returns forward slashes on Windows).
-        Path.GetFullPath(root).ShouldBe(Path.GetFullPath(_tempDir));
+        // On macOS, /tmp is a symlink to /private/tmp — git resolves symlinks, so
+        // we must compare the git-reported root against what git thinks the root is.
+        var expected = RunGit("rev-parse --show-toplevel").Trim();
+        Path.GetFullPath(root).ShouldBe(Path.GetFullPath(expected));
     }
 
     [Fact]

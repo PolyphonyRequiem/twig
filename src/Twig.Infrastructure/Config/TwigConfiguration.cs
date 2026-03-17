@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Serialization;
 
 namespace Twig.Infrastructure.Config;
@@ -239,7 +240,7 @@ public sealed class UserConfig
 public sealed class GitConfig
 {
     public string BranchTemplate { get; set; } = "feature/{id}-{title}";
-    public string BranchPattern { get; set; } = @"(?:^|/)(?<id>\d{3,})(?:-|/|$)";
+    public string BranchPattern { get; set; } = BranchNameTemplate.DefaultPattern;
 
     /// <summary>
     /// Template for git commit messages used by <c>twig commit</c>.
@@ -266,7 +267,7 @@ public sealed class GitConfig
     /// <summary>
     /// Maps ADO work item types to conventional commit / branch name prefixes used by
     /// <c>twig branch</c> and <c>twig commit</c>.
-    /// Overrides the default type map (User Story→feature, Bug→fix, Task→task, etc.).
+    /// Overrides the default type map (User Story→feature, Bug→bug, Task→task, etc.).
     /// </summary>
     public Dictionary<string, string>? TypeMap { get; set; }
 

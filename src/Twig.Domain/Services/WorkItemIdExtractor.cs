@@ -14,8 +14,11 @@ public static class WorkItemIdExtractor
     /// Falls back to <see cref="BranchNameTemplate.DefaultPattern"/> when <paramref name="pattern"/> is null or empty.
     /// Returns <c>null</c> if no work item ID is found.
     /// </summary>
-    public static int? Extract(string branchName, string? pattern = null)
+    public static int? Extract(string? branchName, string? pattern = null)
     {
+        if (string.IsNullOrEmpty(branchName))
+            return null;
+
         var effectivePattern = string.IsNullOrWhiteSpace(pattern)
             ? BranchNameTemplate.DefaultPattern
             : pattern;

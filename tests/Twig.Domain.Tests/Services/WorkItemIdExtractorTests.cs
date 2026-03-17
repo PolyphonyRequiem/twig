@@ -69,7 +69,7 @@ public class WorkItemIdExtractorTests
     [InlineData(null)]
     public void Extract_EmptyOrNull_ReturnsNull(string? branchName)
     {
-        WorkItemIdExtractor.Extract(branchName!).ShouldBeNull();
+        WorkItemIdExtractor.Extract(branchName).ShouldBeNull();
     }
 
     // ═══════════════════════════════════════════════════════════════

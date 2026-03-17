@@ -297,6 +297,37 @@ public class PrCommandTests
         result.ShouldBe(0);
     }
 
+    // ── PR description format ───────────────────────────────────────
+
+    [Fact]
+    public async Task DefaultDescription_IncludesResolvesAbHashTypeAndState()
+    {
+        var item = CreateWorkItem(12345, "Add login", "Bug");
+        // Manually set state to Active via object initializer (done in CreateWorkItem)
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(12345);
+        _workItemRepo.GetByIdAsync(12345, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.FetchAsync(12345, Arg.Any<CancellationToken>()).Returns(item);
+        _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
+        _gitService.GetCurrentBranchAsync(Arg.Any<CancellationToken>()).Returns("bugfix/12345-add-login");
+        _adoGitService.CreatePullRequestAsync(Arg.Any<PullRequestCreate>(), Arg.Any<CancellationToken>())
+            .Returns(CreatePrInfo());
+        _adoGitService.GetProjectIdAsync(Arg.Any<CancellationToken>()).Returns("pid");
+        _adoGitService.GetRepositoryIdAsync(Arg.Any<CancellationToken>()).Returns("rid");
+
+        var cmd = CreateCommand(_gitService, _adoGitService);
+        var result = await cmd.ExecuteAsync();
+
+        result.ShouldBe(0);
+
+        await _adoGitService.Received().CreatePullRequestAsync(
+            Arg.Is<PullRequestCreate>(r =>
+                r.Description.StartsWith("Resolves AB#12345.") &&
+                r.Description.Contains("**Type:**") &&
+                r.Description.Contains("**State:**") &&
+                r.Description.Contains("Active")),
+            Arg.Any<CancellationToken>());
+    }
+
     // ── PR title from work item ─────────────────────────────────────
 
     [Fact]
@@ -415,5 +446,80 @@ public class PrCommandTests
         await _adoGitService.DidNotReceive().AddArtifactLinkAsync(
             Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string>(),
             Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    // ── HTTP 409 Conflict from ADO ──────────────────────────────────
+
+    [Fact]
+    public async Task PrCreationFails_WithHttpConflict_ReturnsError()
+    {
+        var item = CreateWorkItem(12345, "Test");
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(12345);
+        _workItemRepo.GetByIdAsync(12345, Arg.Any<CancellationToken>()).Returns(item);
+        _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
+        _gitService.GetCurrentBranchAsync(Arg.Any<CancellationToken>()).Returns("feature/12345-test");
+        _adoGitService.CreatePullRequestAsync(Arg.Any<PullRequestCreate>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException(
+                "An active pull request for the source and target branch already exists.",
+                null,
+                System.Net.HttpStatusCode.Conflict));
+
+        var cmd = CreateCommand(_gitService, _adoGitService);
+        var result = await cmd.ExecuteAsync();
+
+        result.ShouldBe(1);
+        await _adoGitService.DidNotReceive().AddArtifactLinkAsync(
+            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    // ── HTTP 429 Rate Limit from ADO ────────────────────────────────
+
+    [Fact]
+    public async Task PrCreationFails_WithHttpRateLimit_ReturnsError()
+    {
+        var item = CreateWorkItem(12345, "Test");
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(12345);
+        _workItemRepo.GetByIdAsync(12345, Arg.Any<CancellationToken>()).Returns(item);
+        _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
+        _gitService.GetCurrentBranchAsync(Arg.Any<CancellationToken>()).Returns("feature/12345-test");
+        _adoGitService.CreatePullRequestAsync(Arg.Any<PullRequestCreate>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException(
+                "Rate limit exceeded.",
+                null,
+                System.Net.HttpStatusCode.TooManyRequests));
+
+        var cmd = CreateCommand(_gitService, _adoGitService);
+        var result = await cmd.ExecuteAsync();
+
+        result.ShouldBe(1);
+    }
+
+    // ── ConfigDefaultTarget used when no --target specified ─────────
+
+    [Fact]
+    public async Task ConfigDefaultTarget_UsedWhenTargetNotSpecified()
+    {
+        _config.Git.DefaultTarget = "release/v2";
+
+        var item = CreateWorkItem(12345, "Add login");
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(12345);
+        _workItemRepo.GetByIdAsync(12345, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.FetchAsync(12345, Arg.Any<CancellationToken>()).Returns(item);
+        _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
+        _gitService.GetCurrentBranchAsync(Arg.Any<CancellationToken>()).Returns("feature/12345-add-login");
+        _adoGitService.CreatePullRequestAsync(Arg.Any<PullRequestCreate>(), Arg.Any<CancellationToken>())
+            .Returns(CreatePrInfo());
+        _adoGitService.GetProjectIdAsync(Arg.Any<CancellationToken>()).Returns("pid");
+        _adoGitService.GetRepositoryIdAsync(Arg.Any<CancellationToken>()).Returns("rid");
+
+        var cmd = CreateCommand(_gitService, _adoGitService);
+        var result = await cmd.ExecuteAsync(); // no target override
+
+        result.ShouldBe(0);
+
+        await _adoGitService.Received().CreatePullRequestAsync(
+            Arg.Is<PullRequestCreate>(r => r.TargetBranch == "refs/heads/release/v2"),
+            Arg.Any<CancellationToken>());
     }
 }

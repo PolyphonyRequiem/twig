@@ -110,6 +110,48 @@ public class GitCliServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task CommitWithArgsAsync_ReturnsCommitHash()
+    {
+        RunGit("commit --allow-empty -m \"initial\"");
+
+        var hash = await _sut.CommitWithArgsAsync("passthrough commit", ["--allow-empty"]);
+
+        hash.ShouldNotBeNullOrWhiteSpace();
+        hash.Length.ShouldBe(40);
+    }
+
+    [Fact]
+    public async Task CommitWithArgsAsync_WithAmend_UpdatesCommitMessage()
+    {
+        RunGit("commit --allow-empty -m \"original message\"");
+        var originalHash = RunGit("rev-parse HEAD");
+
+        var newHash = await _sut.CommitWithArgsAsync("amended message", ["--amend", "--allow-empty"]);
+
+        // Hash changes after amend
+        newHash.ShouldNotBe(originalHash);
+        // Commit message is the amended one
+        var log = RunGit("log -1 --format=%s");
+        log.ShouldBe("amended message");
+    }
+
+    [Fact]
+    public async Task CommitWithArgsAsync_WithPathspec_CommitsOnlyStagedFile()
+    {
+        RunGit("commit --allow-empty -m \"initial\"");
+        File.WriteAllText(Path.Combine(_tempDir, "tracked.txt"), "content");
+        File.WriteAllText(Path.Combine(_tempDir, "other.txt"), "other");
+        RunGit("add tracked.txt");
+
+        var hash = await _sut.CommitWithArgsAsync("partial commit", []);
+
+        hash.ShouldNotBeNullOrWhiteSpace();
+        hash.Length.ShouldBe(40);
+        var log = RunGit("log -1 --format=%s");
+        log.ShouldBe("partial commit");
+    }
+
+    [Fact]
     public async Task GetHeadCommitHash_ReturnsFullSha()
     {
         RunGit("commit --allow-empty -m \"initial\"");

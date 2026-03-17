@@ -368,6 +368,9 @@ var app = ConsoleApp.Create()
         services.AddSingleton<SelfUpdater>(sp => new SelfUpdater(sp.GetRequiredService<HttpClient>()));
         services.AddSingleton<SelfUpdateCommand>();
         services.AddSingleton<ChangelogCommand>();
+
+        // Prompt command — reads directly from SQLite, takes only TwigConfiguration
+        services.AddSingleton<PromptCommand>();
     });
 
 app.UseFilter<ExceptionFilter>();
@@ -649,6 +652,12 @@ public sealed class TwigCommands(IServiceProvider services)
     [Command("_hook")]
     public async Task<int> Hook([Argument] string hookName, params string[] args)
         => await services.GetRequiredService<HookHandlerCommand>().ExecuteAsync(hookName, args);
+
+    /// <summary>Internal prompt command: outputs compact work item summary for shell integrations.</summary>
+    [Hidden]
+    [Command("_prompt")]
+    public Task<int> Prompt(string format = "plain", int maxWidth = 40)
+        => Task.FromResult(services.GetRequiredService<PromptCommand>().Execute(format, maxWidth));
 
     /// <summary>Show the current version.</summary>
     public Task<int> Version()

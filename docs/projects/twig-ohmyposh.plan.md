@@ -319,7 +319,7 @@ This reuses the logic from `FormatterHelpers.GetShorthand()` but returns human-r
 
 ### Data Flow
 
-**`twig prompt` (plain format):**
+**`twig _prompt` (plain format):**
 
 ```
 1. Check: Directory.Exists(.twig/) → false → write "" to stdout, return 0
@@ -346,7 +346,7 @@ This reuses the logic from `FormatterHelpers.GetShorthand()` but returns human-r
 12. Write to stdout, close, return 0
 ```
 
-**`twig prompt --format json`:**
+**`twig _prompt --format json`:**
 
 Same data flow as above, but step 11 outputs a JSON object using `Utf8JsonWriter`:
 
@@ -356,7 +356,7 @@ Same data flow as above, but step 11 outputs a JSON object using `Utf8JsonWriter
 
 ### API Contracts
 
-#### CLI: `twig prompt`
+#### CLI: `twig _prompt`
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
@@ -434,7 +434,7 @@ Same data flow as above, but step 11 outputs a JSON object using `Utf8JsonWriter
 **PowerShell** (add to `$PROFILE`):
 ```powershell
 function Set-TwigPrompt {
-    $env:TWIG_PROMPT = (twig prompt 2>$null)
+    $env:TWIG_PROMPT = (twig _prompt 2>$null)
 }
 New-Alias -Name 'Set-PoshContext' -Value 'Set-TwigPrompt' -Scope Global -Force
 ```
@@ -442,21 +442,21 @@ New-Alias -Name 'Set-PoshContext' -Value 'Set-TwigPrompt' -Scope Global -Force
 **Bash** (add to `~/.bashrc` after `eval "$(oh-my-posh init bash)"`):
 ```bash
 set_poshcontext() {
-    export TWIG_PROMPT="$(twig prompt 2>/dev/null)"
+    export TWIG_PROMPT="$(twig _prompt 2>/dev/null)"
 }
 ```
 
 **Zsh** (add to `~/.zshrc` after `eval "$(oh-my-posh init zsh)"`):
 ```zsh
 set_poshcontext() {
-    export TWIG_PROMPT="$(twig prompt 2>/dev/null)"
+    export TWIG_PROMPT="$(twig _prompt 2>/dev/null)"
 }
 ```
 
 **Fish** (add to `~/.config/fish/config.fish` after OMP init):
 ```fish
 function set_poshcontext
-    set -gx TWIG_PROMPT (twig prompt 2>/dev/null)
+    set -gx TWIG_PROMPT (twig _prompt 2>/dev/null)
 end
 ```
 
@@ -659,38 +659,39 @@ With the env var approach, `twig prompt --format json` could output structured J
 
 ## Implementation Plan
 
-### EPIC-001: `twig prompt` command
+### EPIC-001: `twig _prompt` command
 
-**Goal**: Implement the core `twig prompt` command that reads from local SQLite and outputs a compact work item summary.
+**Goal**: Implement the core `twig _prompt` hidden command that reads from local SQLite and outputs a compact work item summary. The command is hidden from `--help` output using ConsoleAppFramework's `[Hidden]` attribute and the `_` prefix naming convention (matching `_hook`).
 
 **Prerequisites**: None — all infrastructure dependencies already exist.
 
 | Task | Type | Description | Files | Status |
 |------|------|-------------|-------|--------|
-| ITEM-001 | IMPL | Create `PromptCommand` class with direct SQLite access. Implement fast-path: check `.twig/` exists → use DI-injected config → resolve DB path **with legacy flat fallback** (replicate `Program.cs` lines 29-31: if `config.Organization` AND `config.Project` are non-empty → `TwigPaths.GetContextDbPath()`; else → `Path.Combine(twigDir, "twig.db")`) → check DB file exists → open read-only connection (`Mode=ReadOnly`, `busy_timeout=100`) → query context table → query work_items table (SELECT id, type, title, state, is_dirty) → read `is_dirty` from same row (**no** `pending_changes` query) → resolve git branch from `.git/HEAD` via file I/O → format output. Handle all graceful degradation cases (missing dir, missing DB, no active item, missing work item, locked DB). | `src/Twig/Commands/PromptCommand.cs` | TO DO |
-| ITEM-002 | IMPL | Add state category mapping — static method `GetStateCategory(string state)` that maps ADO state strings to categories: `Proposed`, `InProgress`, `Resolved`, `Completed`, `Removed`, `Unknown`. Reuse the same switch expression pattern as `FormatterHelpers.GetShorthand()` but with human-readable category names. Authoritative category values: `Proposed` (new/to do/proposed), `InProgress` (active/doing/committed/in progress/approved), `Resolved` (resolved), `Completed` (closed/done), `Removed` (removed), `Unknown` (fallback). Place in `PromptCommand.cs`. | `src/Twig/Commands/PromptCommand.cs` | TO DO |
-| ITEM-003 | IMPL | Create new `PromptBadges.GetBadge(string typeValue, string iconMode)` static utility method. **Cannot** reuse `HumanOutputFormatter.GetTypeBadge()` — it is `private static`, returns only Unicode glyphs (◆▪●✦□■), does not accept an icon mode parameter, and does not reference `display.icons`. The new method duplicates the Unicode switch and adds a nerd font branch: when `iconMode == "nerd"`, returns Nerd Font codepoints (e.g., `\uF0E8` sitemap for Epic, `\uF0E7` bolt for Feature, `\uF007` user for Story, `\uF188` bug for Bug, `\uF0AE` tasks for Task). When `iconMode != "nerd"`, returns Unicode glyphs matching `GetTypeBadge()`. | `src/Twig/Commands/PromptCommand.cs` | TO DO |
-| ITEM-003a | IMPL | Create `GitBranchReader.GetCurrentBranch(string workingDirectory)` static method. Read `.git/HEAD` via `File.ReadAllText()` — if starts with `ref: refs/heads/`, extract branch name. Return null for detached HEAD, missing `.git/`, or any `IOException`/`UnauthorizedAccessException`. MUST NOT spawn subprocess. Git worktree support (`.git` as file) deferred. | `src/Twig/Commands/PromptCommand.cs` | TO DO |
-| ITEM-004 | IMPL | Add title truncation — static method `TruncateTitle(string title, int maxWidth)` that truncates at `maxWidth - 1` and appends `…`. | `src/Twig/Commands/PromptCommand.cs` | TO DO |
-| ITEM-005 | IMPL | Implement JSON output format using `Utf8JsonWriter` (AOT-compatible, no reflection). Output keys: `id`, `type`, `typeBadge`, `title`, `state`, `stateCategory`, `isDirty`, `color`, `branch`. Color resolution: check `config.Display.TypeColors?[type]` first, then fall back to `config.TypeAppearances?.Find(t => t.Name == type)?.Color` (note: `TypeAppearances` is a top-level property on `TwigConfiguration`, **not** nested under `Display`). Branch resolution: `GitBranchReader.GetCurrentBranch()`. | `src/Twig/Commands/PromptCommand.cs` | TO DO |
-| ITEM-006 | IMPL | Register `PromptCommand` in DI container and add `Prompt()` method to `TwigCommands` in `Program.cs`. Wire `--format` and `--max-width` parameters. | `src/Twig/Program.cs` | TO DO |
-| ITEM-007 | TEST | Unit tests for `PromptCommand`: (a) returns empty when `.twig/` missing, (b) returns empty when no active item, (c) returns correct plain format, (d) returns correct JSON format with `branch` field, (e) title truncation at boundary, (f) dirty indicator present/absent (read from `is_dirty` column, not `pending_changes`), (g) nerd font badge when `display.icons=nerd`, (h) type color included in JSON when `display.typeColors` configured, (i) legacy flat DB path resolution when `config.Organization` is empty, (j) nested DB path resolution when `config.Organization` and `config.Project` are set, (k) branch is null when `.git/HEAD` is detached, (l) branch correctly extracted from `.git/HEAD` symbolic ref. | `tests/Twig.Cli.Tests/Commands/PromptCommandTests.cs` | TO DO |
-| ITEM-008 | TEST | Unit tests for state category mapping (`GetStateCategory`), title truncation (`TruncateTitle`), and `GitBranchReader.GetCurrentBranch()` helpers. Include all 6 category values: Proposed, InProgress, Resolved, Completed, Removed, Unknown. Git branch tests: symbolic ref parsing, detached HEAD, missing .git/, I/O error handling. | `tests/Twig.Cli.Tests/Commands/PromptCommandTests.cs` | TO DO |
+| ITEM-001 | IMPL | Create `PromptCommand` class with direct SQLite access. Implement fast-path: check `.twig/` exists → use DI-injected config → resolve DB path **with legacy flat fallback** (replicate `Program.cs` lines 29-31: if `config.Organization` AND `config.Project` are non-empty → `TwigPaths.GetContextDbPath()`; else → `Path.Combine(twigDir, "twig.db")`) → check DB file exists → open read-only connection (`Mode=ReadOnly`, `busy_timeout=100`) → query context table → query work_items table (SELECT id, type, title, state, is_dirty) → read `is_dirty` from same row (**no** `pending_changes` query) → resolve git branch from `.git/HEAD` via file I/O → format output. Handle all graceful degradation cases (missing dir, missing DB, no active item, missing work item, locked DB). | `src/Twig/Commands/PromptCommand.cs` | DONE |
+| ITEM-002 | IMPL | Add state category mapping — static method `GetStateCategory(string state)` that maps ADO state strings to categories: `Proposed`, `InProgress`, `Resolved`, `Completed`, `Removed`, `Unknown`. Reuse the same switch expression pattern as `FormatterHelpers.GetShorthand()` but with human-readable category names. Authoritative category values: `Proposed` (new/to do/proposed), `InProgress` (active/doing/committed/in progress/approved), `Resolved` (resolved), `Completed` (closed/done), `Removed` (removed), `Unknown` (fallback). Place in `PromptCommand.cs`. | `src/Twig/Commands/PromptCommand.cs` | DONE |
+| ITEM-003 | IMPL | Create new `PromptBadges.GetBadge(string typeValue, string iconMode)` static utility method. **Cannot** reuse `HumanOutputFormatter.GetTypeBadge()` — it is `private static`, returns only Unicode glyphs (◆▪●✦□■), does not accept an icon mode parameter, and does not reference `display.icons`. The new method duplicates the Unicode switch and adds a nerd font branch: when `iconMode == "nerd"`, returns Nerd Font codepoints (e.g., `\uF0E8` sitemap for Epic, `\uF0E7` bolt for Feature, `\uF007` user for Story, `\uF188` bug for Bug, `\uF0AE` tasks for Task). When `iconMode != "nerd"`, returns Unicode glyphs matching `GetTypeBadge()`. | `src/Twig/Commands/PromptCommand.cs` | DONE |
+| ITEM-003a | IMPL | Create `GitBranchReader.GetCurrentBranch(string workingDirectory)` static method. Read `.git/HEAD` via `File.ReadAllText()` — if starts with `ref: refs/heads/`, extract branch name. Return null for detached HEAD, missing `.git/`, or any `IOException`/`UnauthorizedAccessException`. MUST NOT spawn subprocess. Git worktree support (`.git` as file) deferred. | `src/Twig/Commands/PromptCommand.cs` | DONE |
+| ITEM-004 | IMPL | Add title truncation — static method `TruncateTitle(string title, int maxWidth)` that truncates at `maxWidth - 1` and appends `…`. | `src/Twig/Commands/PromptCommand.cs` | DONE |
+| ITEM-005 | IMPL | Implement JSON output format using `Utf8JsonWriter` (AOT-compatible, no reflection). Output keys: `id`, `type`, `typeBadge`, `title`, `state`, `stateCategory`, `isDirty`, `color`, `branch`. Color resolution: check `config.Display.TypeColors?[type]` first, then fall back to `config.TypeAppearances?.Find(t => t.Name == type)?.Color` (note: `TypeAppearances` is a top-level property on `TwigConfiguration`, **not** nested under `Display`). Branch resolution: `GitBranchReader.GetCurrentBranch()`. | `src/Twig/Commands/PromptCommand.cs` | DONE |
+| ITEM-006 | IMPL | Register `PromptCommand` in DI container and add `Prompt()` method to `TwigCommands` in `Program.cs` with `[Hidden]` and `[Command("_prompt")]` attributes (matching `_hook` convention). Wire `--format` and `--max-width` parameters. | `src/Twig/Program.cs` | DONE |
+| ITEM-007 | TEST | Unit tests for `PromptCommand`: (a) returns empty when `.twig/` missing, (b) returns empty when no active item, (c) returns correct plain format, (d) returns correct JSON format with `branch` field, (e) title truncation at boundary, (f) dirty indicator present/absent (read from `is_dirty` column, not `pending_changes`), (g) nerd font badge when `display.icons=nerd`, (h) type color included in JSON when `display.typeColors` configured, (i) legacy flat DB path resolution when `config.Organization` is empty, (j) nested DB path resolution when `config.Organization` and `config.Project` are set, (k) branch is null when `.git/HEAD` is detached, (l) branch correctly extracted from `.git/HEAD` symbolic ref. | `tests/Twig.Cli.Tests/Commands/PromptCommandTests.cs` | DONE |
+| ITEM-008 | TEST | Unit tests for state category mapping (`GetStateCategory`), title truncation (`TruncateTitle`), and `GitBranchReader.GetCurrentBranch()` helpers. Include all 6 category values: Proposed, InProgress, Resolved, Completed, Removed, Unknown. Git branch tests: symbolic ref parsing, detached HEAD, missing .git/, I/O error handling. | `tests/Twig.Cli.Tests/Commands/PromptCommandTests.cs` | DONE |
 
 **Acceptance Criteria**:
 
-- [ ] `twig prompt` outputs `◆ #12345 Implement login flow… [Active] •` for an active dirty Epic work item
-- [ ] `twig prompt` outputs empty string when `.twig/` does not exist
-- [ ] `twig prompt` outputs empty string when no active work item is set
-- [ ] `twig prompt --format json` outputs valid JSON with all specified keys including `stateCategory`, `branch`
-- [ ] `twig prompt --format json` includes `branch` with correct value when on a git branch
-- [ ] `twig prompt --format json` includes `branch: null` when HEAD is detached or `.git/` is missing
-- [ ] `twig prompt --max-width 20` truncates the title correctly
-- [ ] `twig prompt` works with legacy flat DB path (`.twig/twig.db`) when `config.Organization` is empty
-- [ ] `twig prompt` works with nested DB path (`.twig/{org}/{project}/twig.db`) when both `config.Organization` and `config.Project` are set
-- [ ] Dirty indicator reads from `work_items.is_dirty` column (only 2 SQLite queries, not 3)
-- [ ] All tests pass
-- [ ] AOT build succeeds
+- [x] `twig _prompt` outputs `◆ #12345 Implement login flow… [Active] •` for an active dirty Epic work item
+- [x] `twig _prompt` outputs empty string when `.twig/` does not exist
+- [x] `twig _prompt` outputs empty string when no active work item is set
+- [x] `twig _prompt --format json` outputs valid JSON with all specified keys including `stateCategory`, `branch`
+- [x] `twig _prompt --format json` includes `branch` with correct value when on a git branch
+- [x] `twig _prompt --format json` includes `branch: null` when HEAD is detached or `.git/` is missing
+- [x] `twig _prompt --max-width 20` truncates the title correctly
+- [x] `twig _prompt` works with legacy flat DB path (`.twig/twig.db`) when `config.Organization` is empty
+- [x] `twig _prompt` works with nested DB path (`.twig/{org}/{project}/twig.db`) when both `config.Organization` and `config.Project` are set
+- [x] `twig _prompt` is hidden from `--help` output via `[Hidden]` attribute
+- [x] Dirty indicator reads from `work_items.is_dirty` column (only 2 SQLite queries, not 3)
+- [x] All tests pass
+- [x] AOT build succeeds
 
 ---
 
@@ -702,7 +703,7 @@ With the env var approach, `twig prompt --format json` could output structured J
 
 | Task | Type | Description | Files | Status |
 |------|------|-------------|-------|--------|
-| ITEM-009 | IMPL | Create `OhMyPoshCommands` class with `Init()` method. Generate two outputs: (1) Shell hook function for the specified shell (`--shell pwsh\|bash\|zsh\|fish`): PowerShell uses `Set-PoshContext` alias pattern, bash/zsh uses `set_poshcontext()` function, fish uses `set_poshcontext` function. (2) Oh My Posh `text` segment JSON with `type: "text"`, specified style, colors, and `template: "{{ if .Env.TWIG_PROMPT }} {{ .Env.TWIG_PROMPT }} {{ end }}"`. Use `Utf8JsonWriter` with `Indented = true` for readable output. | `src/Twig/Commands/OhMyPoshCommands.cs` | TO DO |
+| ITEM-009 | IMPL | Create `OhMyPoshCommands` class with `Init()` method. Generate two outputs: (1) Shell hook function for the specified shell (`--shell pwsh\|bash\|zsh\|fish`): PowerShell uses `Set-PoshContext` alias pattern calling `twig _prompt`, bash/zsh uses `set_poshcontext()` function calling `twig _prompt`, fish uses `set_poshcontext` function calling `twig _prompt`. (2) Oh My Posh `text` segment JSON with `type: "text"`, specified style, colors, and `template: "{{ if .Env.TWIG_PROMPT }} {{ .Env.TWIG_PROMPT }} {{ end }}"`. Use `Utf8JsonWriter` with `Indented = true` for readable output. | `src/Twig/Commands/OhMyPoshCommands.cs` | TO DO |
 | ITEM-010 | IMPL | Register `OhMyPoshCommands` as a nested command group in `Program.cs` using ConsoleAppFramework v5's `app.Add<OhMyPoshCommands>("ohmyposh")` pattern. This makes `Init()` accessible as `twig ohmyposh init`. Register in DI: `services.AddSingleton<OhMyPoshCommands>()`. Wire `--style` and `--shell` parameters on `Init()`. | `src/Twig/Program.cs` | TO DO |
 | ITEM-011 | TEST | Unit tests for `OhMyPoshCommands`: (a) powerline style output contains valid JSON with `"type": "text"`, (b) plain style output, (c) diamond style output, (d) PowerShell hook contains `Set-PoshContext`, (e) bash hook contains `set_poshcontext()`, (f) fish hook uses `set -gx TWIG_PROMPT`, (g) template contains `{{ .Env.TWIG_PROMPT }}`, (h) no `"type": "command"` anywhere in output. | `tests/Twig.Cli.Tests/Commands/OhMyPoshCommandsTests.cs` | TO DO |
 

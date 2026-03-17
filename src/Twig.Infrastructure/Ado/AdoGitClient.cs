@@ -155,14 +155,6 @@ internal sealed class AdoGitClient : IAdoGitService
 
     // ── HTTP plumbing ───────────────────────────────────────────────
 
-    /// <summary>
-    /// Derives a human-readable display name for an ADO artifact link from its <c>vstfs:///</c> URI.
-    /// </summary>
-    private static string GetArtifactLinkDisplayName(string artifactUri) =>
-        artifactUri.Contains("/Git/Ref/", StringComparison.OrdinalIgnoreCase) ? "Branch" :
-        artifactUri.Contains("/Git/Commit/", StringComparison.OrdinalIgnoreCase) ? "Fixed in Commit" :
-        "Pull Request";
-
     private async Task<HttpResponseMessage> SendAsync(
         HttpMethod method,
         string url,

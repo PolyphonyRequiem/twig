@@ -371,7 +371,7 @@ public class BranchCommandTests
         result.ShouldBe(0);
     }
 
-    // ── No AdoGitService → skips linking ────────────────────────────
+    // ── State transition failure is best-effort ────────────────────
 
     [Fact]
     public async Task StateTransitionFailure_DoesNotFailCommand()
@@ -394,6 +394,8 @@ public class BranchCommandTests
         // Command succeeds — state transition is best-effort
         result.ShouldBe(0);
     }
+
+    // ── No AdoGitService → skips linking ────────────────────────────
 
     [Fact]
     public async Task NoAdoGitService_SkipsLinking()

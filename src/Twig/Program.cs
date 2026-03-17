@@ -242,6 +242,34 @@ var app = ConsoleApp.Create()
             sp.GetRequiredService<IProcessTypeStore>(),
             sp.GetRequiredService<RenderingPipelineFactory>()));
         services.AddSingleton<ConfigCommand>();
+        services.AddSingleton<BranchCommand>(sp => new BranchCommand(
+            sp.GetRequiredService<IContextStore>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IProcessConfigurationProvider>(),
+            sp.GetRequiredService<OutputFormatterFactory>(),
+            sp.GetRequiredService<HintEngine>(),
+            sp.GetRequiredService<TwigConfiguration>(),
+            sp.GetService<IGitService>(),
+            sp.GetService<IAdoGitService>()));
+        services.AddSingleton<CommitCommand>(sp => new CommitCommand(
+            sp.GetRequiredService<IContextStore>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<OutputFormatterFactory>(),
+            sp.GetRequiredService<HintEngine>(),
+            sp.GetRequiredService<TwigConfiguration>(),
+            sp.GetService<IGitService>(),
+            sp.GetService<IAdoGitService>()));
+        services.AddSingleton<PrCommand>(sp => new PrCommand(
+            sp.GetRequiredService<IContextStore>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<OutputFormatterFactory>(),
+            sp.GetRequiredService<HintEngine>(),
+            sp.GetRequiredService<TwigConfiguration>(),
+            sp.GetService<IGitService>(),
+            sp.GetService<IAdoGitService>()));
 
         // Flow lifecycle commands (EPIC-004)
         services.AddSingleton<FlowStartCommand>(sp => new FlowStartCommand(
@@ -484,6 +512,18 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <summary>Read or set a configuration value.</summary>
     public async Task<int> Config([Argument] string key, [Argument] string? value = null, string output = "human")
         => await services.GetRequiredService<ConfigCommand>().ExecuteAsync(key, value, output);
+
+    /// <summary>Create/checkout a branch for the active work item and optionally link it.</summary>
+    public async Task<int> Branch(bool noLink = false, bool noTransition = false, string output = "human")
+        => await services.GetRequiredService<BranchCommand>().ExecuteAsync(noLink, noTransition, output);
+
+    /// <summary>Commit with a work-item-enriched message and optionally link the commit.</summary>
+    public async Task<int> Commit([Argument] string? message = null, bool noLink = false, params string[] passthrough)
+        => await services.GetRequiredService<CommitCommand>().ExecuteAsync(message, noLink, passthrough);
+
+    /// <summary>Create an ADO pull request linked to the active work item.</summary>
+    public async Task<int> Pr(string? target = null, string? title = null, bool draft = false, string output = "human")
+        => await services.GetRequiredService<PrCommand>().ExecuteAsync(target, title, draft, output);
 
     /// <summary>Start working on a work item: set context, transition state, assign, create branch.</summary>
     [Command("flow-start")]

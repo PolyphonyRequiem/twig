@@ -20,7 +20,7 @@ jobs:
             os: ubuntu-latest
             archive: tar.gz
           - rid: osx-x64
-            os: macos-13
+            os: macos-15
             archive: tar.gz
           - rid: osx-arm64
             os: macos-latest
@@ -38,7 +38,7 @@ jobs:
         with:
           global-json-file: global.json
 
-      - run: dotnet restore
+      - run: dotnet restore -r ${{ matrix.rid }}
 
       - run: dotnet build --no-restore
 

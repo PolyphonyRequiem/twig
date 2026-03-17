@@ -429,4 +429,54 @@ public class PromptStateWriterTests : IDisposable
         var doc = JsonDocument.Parse(File.ReadAllText(PromptJsonPath));
         doc.RootElement.GetProperty("typeBadge").GetString().ShouldBe("C");
     }
+
+    // ── TruncateTitle unit tests ──────────────────────────────────────
+
+    [Theory]
+    [InlineData("Short title", 40, "Short title")]
+    [InlineData("Exactly forty characters long string!!!!", 40, "Exactly forty characters long string!!!!")]
+    [InlineData("This title is exactly forty-one chars long", 40, "This title is exactly forty-one chars l…")]
+    [InlineData("", 40, "")]
+    public void TruncateTitle_VariousInputs(string title, int maxWidth, string expected)
+    {
+        PromptStateWriter.TruncateTitle(title, maxWidth).ShouldBe(expected);
+    }
+
+    [Fact]
+    public void TruncateTitle_ZeroMaxWidth_ReturnsEmpty()
+    {
+        PromptStateWriter.TruncateTitle("Hello", 0).ShouldBe(string.Empty);
+    }
+
+    [Fact]
+    public void TruncateTitle_MaxWidthOne_ReturnsSingleEllipsis()
+    {
+        PromptStateWriter.TruncateTitle("Hello", 1).ShouldBe("…");
+    }
+
+    [Fact]
+    public void TruncateTitle_NullTitle_ReturnsEmpty()
+    {
+        PromptStateWriter.TruncateTitle(null!, 40).ShouldBe(string.Empty);
+    }
+
+    // ── Integration: title truncated at 40 chars in written JSON ──────
+
+    [Fact]
+    public void WritePromptState_TruncatesLongTitle()
+    {
+        var longTitle = new string('A', 50);
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>())
+            .Returns(CreateWorkItem(1, "Bug", longTitle, "Active"));
+
+        var writer = CreateWriter();
+        writer.WritePromptState();
+
+        var doc = JsonDocument.Parse(File.ReadAllText(PromptJsonPath));
+        var title = doc.RootElement.GetProperty("title").GetString()!;
+        title.Length.ShouldBe(40);
+        title.ShouldEndWith("…");
+        title.ShouldBe(new string('A', 39) + "…");
+    }
 }

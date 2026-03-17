@@ -251,6 +251,10 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         var fieldsJson = reader.GetString(reader.GetOrdinal("fields_json"));
         var fields = DeserializeFields(fieldsJson);
 
+        var lastSyncedAtStr = reader.IsDBNull(reader.GetOrdinal("last_synced_at"))
+            ? null
+            : reader.GetString(reader.GetOrdinal("last_synced_at"));
+
         var item = new WorkItem
         {
             Id = reader.GetInt32(reader.GetOrdinal("id")),
@@ -268,6 +272,9 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
             IsSeed = reader.GetInt32(reader.GetOrdinal("is_seed")) == 1,
             SeedCreatedAt = seedCreatedAtStr is not null
                 ? DateTimeOffset.Parse(seedCreatedAtStr, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind)
+                : null,
+            LastSyncedAt = lastSyncedAtStr is not null
+                ? DateTimeOffset.Parse(lastSyncedAtStr, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind)
                 : null,
         };
 

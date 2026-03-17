@@ -43,12 +43,24 @@ public static class BranchNamingService
 
     /// <summary>
     /// Resolves a work item type name to its branch token using the given map (or defaults).
+    /// Custom type maps are searched case-insensitively to match DefaultTypeMap behavior.
     /// Falls back to the raw type name (which will be slugified by the template engine).
     /// </summary>
-    internal static string ResolveType(string workItemType, IReadOnlyDictionary<string, string>? typeMap)
+    public static string ResolveType(string workItemType, IReadOnlyDictionary<string, string>? typeMap)
     {
-        if (typeMap is not null && typeMap.TryGetValue(workItemType, out var mapped))
-            return mapped;
+        if (typeMap is not null)
+        {
+            // Try exact match first, then case-insensitive fallback for user-supplied maps
+            // that may use the default (case-sensitive) comparer from JSON deserialization.
+            if (typeMap.TryGetValue(workItemType, out var mapped))
+                return mapped;
+
+            foreach (var kvp in typeMap)
+            {
+                if (string.Equals(kvp.Key, workItemType, StringComparison.OrdinalIgnoreCase))
+                    return kvp.Value;
+            }
+        }
 
         if (DefaultTypeMap.TryGetValue(workItemType, out var defaultMapped))
             return defaultMapped;

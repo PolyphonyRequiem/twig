@@ -185,6 +185,25 @@ public class BranchNamingServiceTests
     }
 
     [Fact]
+    public void ResolveType_CustomMap_CaseInsensitive()
+    {
+        // Simulates a JSON-deserialized dictionary (default case-sensitive comparer)
+        var custom = new Dictionary<string, string> { ["bug"] = "fix" };
+        BranchNamingService.ResolveType("Bug", custom).ShouldBe("fix");
+    }
+
+    [Fact]
+    public void Generate_CustomTypeMap_CaseInsensitive_MatchesWorkItemType()
+    {
+        // JSON-deserialized map uses lowercase key, but work item Type.Value is title-case
+        var customMap = new Dictionary<string, string> { ["bug"] = "fix" };
+        var wi = MakeWorkItem(100, "Bug", "Crash on startup");
+        var result = BranchNamingService.Generate(wi, "{type}/{id}-{title}", customMap);
+
+        result.ShouldStartWith("fix/100-");
+    }
+
+    [Fact]
     public void ResolveType_UnknownType_ReturnsRaw()
     {
         BranchNamingService.ResolveType("MyCustomType", null).ShouldBe("MyCustomType");

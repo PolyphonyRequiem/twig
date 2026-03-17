@@ -296,6 +296,64 @@ public class TwigConfigurationTests : IDisposable
         config.Git.DefaultTarget.ShouldBe("develop");
     }
 
+    [Fact]
+    public void SetValue_GitCommitTemplate_SetsValue()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("git.committemplate", "fix(#{id}): {message}").ShouldBeTrue();
+        config.Git.CommitTemplate.ShouldBe("fix(#{id}): {message}");
+    }
+
+    [Fact]
+    public void SetValue_GitAutoLink_True()
+    {
+        var config = new TwigConfiguration();
+        config.Git.AutoLink = false; // start from non-default
+        config.SetValue("git.autolink", "true").ShouldBeTrue();
+        config.Git.AutoLink.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void SetValue_GitAutoLink_False()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("git.autolink", "false").ShouldBeTrue();
+        config.Git.AutoLink.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void SetValue_GitAutoLink_Invalid_ReturnsFalse()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("git.autolink", "yes").ShouldBeFalse();
+        config.Git.AutoLink.ShouldBeTrue(); // unchanged from default
+    }
+
+    [Fact]
+    public void SetValue_GitAutoTransition_True()
+    {
+        var config = new TwigConfiguration();
+        config.Git.AutoTransition = false; // start from non-default
+        config.SetValue("git.autotransition", "true").ShouldBeTrue();
+        config.Git.AutoTransition.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void SetValue_GitAutoTransition_False()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("git.autotransition", "false").ShouldBeTrue();
+        config.Git.AutoTransition.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void SetValue_GitAutoTransition_Invalid_ReturnsFalse()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("git.autotransition", "maybe").ShouldBeFalse();
+        config.Git.AutoTransition.ShouldBeTrue(); // unchanged from default
+    }
+
     // --- FlowConfig SetValue tests ---
 
     [Theory]
@@ -384,7 +442,15 @@ public class TwigConfigurationTests : IDisposable
         config.Git.ShouldNotBeNull();
         config.Git.BranchTemplate.ShouldBe("feature/{id}-{title}");
         config.Git.BranchPattern.ShouldBe(@"(?:^|/)(?<id>\d{3,})(?:-|/|$)");
+        config.Git.CommitTemplate.ShouldBe("{type}(#{id}): {message}");
         config.Git.DefaultTarget.ShouldBe("main");
+        config.Git.AutoLink.ShouldBeTrue();
+        config.Git.AutoTransition.ShouldBeTrue();
+        config.Git.TypeMap.ShouldBeNull();
+        config.Git.Hooks.ShouldNotBeNull();
+        config.Git.Hooks.PrepareCommitMsg.ShouldBeTrue();
+        config.Git.Hooks.CommitMsg.ShouldBeTrue();
+        config.Git.Hooks.PostCheckout.ShouldBeTrue();
     }
 
     [Fact]
@@ -411,7 +477,21 @@ public class TwigConfigurationTests : IDisposable
             {
                 BranchTemplate = "bug/{id}-{title}",
                 BranchPattern = @"^fix/(?<id>\d+)",
+                CommitTemplate = "fix(#{id}): {message}",
                 DefaultTarget = "develop",
+                AutoLink = false,
+                AutoTransition = false,
+                TypeMap = new Dictionary<string, string>
+                {
+                    ["Bug"] = "fix",
+                    ["User Story"] = "feat",
+                },
+                Hooks = new HooksConfig
+                {
+                    PrepareCommitMsg = false,
+                    CommitMsg = true,
+                    PostCheckout = false,
+                },
             },
         };
 
@@ -421,7 +501,17 @@ public class TwigConfigurationTests : IDisposable
         loaded.Git.ShouldNotBeNull();
         loaded.Git.BranchTemplate.ShouldBe("bug/{id}-{title}");
         loaded.Git.BranchPattern.ShouldBe(@"^fix/(?<id>\d+)");
+        loaded.Git.CommitTemplate.ShouldBe("fix(#{id}): {message}");
         loaded.Git.DefaultTarget.ShouldBe("develop");
+        loaded.Git.AutoLink.ShouldBeFalse();
+        loaded.Git.AutoTransition.ShouldBeFalse();
+        loaded.Git.TypeMap.ShouldNotBeNull();
+        loaded.Git.TypeMap!["Bug"].ShouldBe("fix");
+        loaded.Git.TypeMap["User Story"].ShouldBe("feat");
+        loaded.Git.Hooks.ShouldNotBeNull();
+        loaded.Git.Hooks.PrepareCommitMsg.ShouldBeFalse();
+        loaded.Git.Hooks.CommitMsg.ShouldBeTrue();
+        loaded.Git.Hooks.PostCheckout.ShouldBeFalse();
     }
 
     [Fact]

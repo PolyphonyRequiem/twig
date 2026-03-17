@@ -684,7 +684,7 @@ Hook fires after: git checkout bug/12345-fix-crash
 - [x] Slugification handles unicode, long titles, and special characters
 - [x] Work item IDs are extracted from all common branch naming patterns
 
-**Completed:** 2026-03-17. All implementation and domain service tests pass. Added comprehensive infrastructure tests for `GitConfig` new properties (`CommitTemplate`, `AutoLink`, `AutoTransition`, `TypeMap`, `Hooks`): defaults validation, `SetValue` paths, full serialization round-trip. Build clean, all 563 domain tests and 64 infrastructure tests pass.
+**Completed:** 2026-03-17. All implementation and domain service tests pass. Added comprehensive infrastructure tests for `GitConfig` new properties (`CommitTemplate`, `AutoLink`, `AutoTransition`, `TypeMap`, `Hooks`): defaults validation, `SetValue` paths, full serialization round-trip. Fixed review issues: added missing SetValue tests for `git.committemplate`, `git.autolink`, `git.autotransition`; extended defaults and round-trip tests to cover all new properties; fixed case-sensitivity inconsistency in custom type map resolution; promoted `ResolveType` from internal to public. Build clean, all 570 domain tests and 353 infrastructure tests pass.
 
 ---
 
@@ -696,14 +696,14 @@ Hook fires after: git checkout bug/12345-fix-crash
 
 | Task | Type | Description | Files | Status |
 |---|---|---|---|---|
-| ITEM-011 | IMPL | Create `IAdoGitService` interface with `AddArtifactLinkAsync`, `CreatePullRequestAsync`, `GetPullRequestsForBranchAsync`, `GetRepositoryIdAsync`, `GetProjectIdAsync` | `src/Twig.Domain/Interfaces/IAdoGitService.cs` | TO DO |
-| ITEM-012 | IMPL | Create `PullRequestCreate` and `PullRequestInfo` value objects | `src/Twig.Domain/ValueObjects/PullRequestCreate.cs`, `src/Twig.Domain/ValueObjects/PullRequestInfo.cs` | TO DO |
-| ITEM-013 | IMPL | Implement `AdoGitClient`: repository/project ID lookup, artifact link PATCH (branch/commit/PR types), PR creation POST. Reuse `HttpClient` and `IAuthenticationProvider` patterns from `AdoRestClient` | `src/Twig.Infrastructure/Ado/AdoGitClient.cs` | TO DO |
-| ITEM-014 | IMPL | Create ADO Git REST DTOs: `AdoPullRequestRequest`, `AdoPullRequestResponse`, `AdoRepositoryResponse`, `AdoProjectResponse`. Add `[JsonSerializable]` entries to `TwigJsonContext` | `src/Twig.Infrastructure/Ado/Dtos/AdoPullRequestRequest.cs`, `src/Twig.Infrastructure/Ado/Dtos/AdoPullRequestResponse.cs`, `src/Twig.Infrastructure/Ado/Dtos/AdoRepositoryResponse.cs`, `src/Twig.Infrastructure/Ado/Dtos/AdoProjectResponse.cs`, `src/Twig.Infrastructure/Serialization/TwigJsonContext.cs` | TO DO |
-| ITEM-015 | IMPL | Implement `BranchCommand`: get active work item, generate branch name, create branch via `IGitService`, add artifact link via `IAdoGitService`, optionally auto-transition state. Support `--no-link` and `--no-transition` flags | `src/Twig/Commands/BranchCommand.cs` | TO DO |
-| ITEM-016 | IMPL | Register `IAdoGitService` → `AdoGitClient` and `BranchCommand` in `Program.cs`. Add `Branch` method to `TwigCommands` | `src/Twig/Program.cs` | TO DO |
-| ITEM-017 | TEST | Unit tests for `BranchCommand`: mock `IGitService`, `IAdoGitService`, `IContextStore`. Test branch creation, artifact linking, auto-transition, `--no-link` flag | `tests/Twig.Cli.Tests/Commands/BranchCommandTests.cs` | TO DO |
-| ITEM-018 | IMPL | Add hints for `branch` command to `HintEngine` | `src/Twig/Hints/HintEngine.cs` | TO DO |
+| ITEM-011 | IMPL | Create `IAdoGitService` interface with `AddArtifactLinkAsync`, `CreatePullRequestAsync`, `GetPullRequestsForBranchAsync`, `GetRepositoryIdAsync`, `GetProjectIdAsync` | `src/Twig.Domain/Interfaces/IAdoGitService.cs` | DONE |
+| ITEM-012 | IMPL | Create `PullRequestCreate` and `PullRequestInfo` value objects | `src/Twig.Domain/ValueObjects/PullRequestCreate.cs`, `src/Twig.Domain/ValueObjects/PullRequestInfo.cs` | DONE |
+| ITEM-013 | IMPL | Implement `AdoGitClient`: repository/project ID lookup, artifact link PATCH (branch/commit/PR types), PR creation POST. Reuse `HttpClient` and `IAuthenticationProvider` patterns from `AdoRestClient` | `src/Twig.Infrastructure/Ado/AdoGitClient.cs` | DONE |
+| ITEM-014 | IMPL | Create ADO Git REST DTOs: `AdoPullRequestRequest`, `AdoPullRequestResponse`, `AdoRepositoryResponse`, `AdoProjectResponse`. Add `[JsonSerializable]` entries to `TwigJsonContext` | `src/Twig.Infrastructure/Ado/Dtos/AdoPullRequestRequest.cs`, `src/Twig.Infrastructure/Ado/Dtos/AdoPullRequestResponse.cs`, `src/Twig.Infrastructure/Ado/Dtos/AdoRepositoryResponse.cs`, `src/Twig.Infrastructure/Ado/Dtos/AdoProjectResponse.cs`, `src/Twig.Infrastructure/Serialization/TwigJsonContext.cs` | DONE |
+| ITEM-015 | IMPL | Implement `BranchCommand`: get active work item, generate branch name, create branch via `IGitService`, add artifact link via `IAdoGitService`, optionally auto-transition state. Support `--no-link` and `--no-transition` flags | `src/Twig/Commands/BranchCommand.cs` | DONE |
+| ITEM-016 | IMPL | Register `IAdoGitService` → `AdoGitClient` and `BranchCommand` in `Program.cs`. Add `Branch` method to `TwigCommands` | `src/Twig/Program.cs` | DONE |
+| ITEM-017 | TEST | Unit tests for `BranchCommand`: mock `IGitService`, `IAdoGitService`, `IContextStore`. Test branch creation, artifact linking, auto-transition, `--no-link` flag | `tests/Twig.Cli.Tests/Commands/BranchCommandTests.cs` | DONE |
+| ITEM-018 | IMPL | Add hints for `branch` command to `HintEngine` | `src/Twig/Hints/HintEngine.cs` | DONE |
 
 **Acceptance Criteria:**
 - [ ] `twig branch` creates a correctly named branch and checks it out

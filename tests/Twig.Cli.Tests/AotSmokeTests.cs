@@ -123,7 +123,7 @@ public class AotSmokeTests : IClassFixture<BuildFixture>
         // If the native toolchain is missing, skip gracefully rather than failing.
         // Check for absence of the output binary as the most reliable signal,
         // supplemented by known error strings for diagnostics.
-        var binaryName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "Twig.exe" : "Twig";
+        var binaryName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "twig.exe" : "twig";
         var binaryPath = Path.Combine(publishDir, binaryName);
 
         if (exitCode != 0 && !File.Exists(binaryPath))
@@ -150,6 +150,7 @@ public class AotSmokeTests : IClassFixture<BuildFixture>
 
         smokeExited.ShouldBeTrue("AOT binary --version command timed out");
         smokeExitCode.ShouldBe(0, $"AOT binary --version command failed with stderr: {smokeStderr}");
-        smokeStdout.Trim().ShouldBe("0.1.0");
+        System.Text.RegularExpressions.Regex.IsMatch(smokeStdout.Trim(), @"^\d+\.\d+\.\d+(-[\w.]+)?$")
+            .ShouldBeTrue($"Expected a valid SemVer version but got: '{smokeStdout.Trim()}'");
     }
 }

@@ -668,19 +668,19 @@ fi
 
 | Task | Type | Description | Files | Status |
 |------|------|-------------|-------|--------|
-| ITEM-007 | IMPL | Create `.github/workflows/release.yml` with tag trigger (`push: tags: ['v*']`). Define matrix strategy with 4 entries: `{rid: win-x64, os: windows-latest, archive: zip}`, `{rid: linux-x64, os: ubuntu-latest, archive: tar.gz}`, `{rid: osx-x64, os: macos-13, archive: tar.gz}`, `{rid: osx-arm64, os: macos-latest, archive: tar.gz}`. | `.github/workflows/release.yml` | TO DO |
-| ITEM-008 | IMPL | In `build` job: checkout (fetch-depth: 0), setup-dotnet, `dotnet restore`, `dotnet test --settings test.runsettings`, `dotnet publish src/Twig/Twig.csproj -c Release -r ${{ matrix.rid }} --self-contained true -o ./publish/${{ matrix.rid }}`. Archive: zip on Windows, tar.gz on Linux/macOS. Upload artifact. | `.github/workflows/release.yml` | TO DO |
-| ITEM-009 | IMPL | In `release` job (needs: build): download all artifacts, generate changelog via `git log` between previous tag and current tag filtering conventional commit prefixes (with first-release fallback — see Section 6 changelog script), create GitHub Release via `softprops/action-gh-release@v2` with release notes body and all 4 archive files attached. **Must** set `permissions: contents: write` on the workflow or job. | `.github/workflows/release.yml` | TO DO |
-| ITEM-010 | IMPL | Add changelog generation step: extract version from tag, find previous tag via `git describe --tags --abbrev=0 HEAD^ 2>/dev/null` with fallback to full history when no previous tag exists (first release), generate markdown-formatted changelog grouping by conventional commit type (feat/fix/docs/chore/breaking). | `.github/workflows/release.yml` | TO DO |
-| ITEM-011 | TEST | Tag `v0.2.0-rc.1`, push, verify: all 4 platform builds succeed, GitHub Release is created with correct assets and changelog. | (manual verification) | TO DO |
+| ITEM-007 | IMPL | Create `.github/workflows/release.yml` with tag trigger (`push: tags: ['v*']`). Define matrix strategy with 4 entries: `{rid: win-x64, os: windows-latest, archive: zip}`, `{rid: linux-x64, os: ubuntu-latest, archive: tar.gz}`, `{rid: osx-x64, os: macos-13, archive: tar.gz}`, `{rid: osx-arm64, os: macos-latest, archive: tar.gz}`. | `.github/workflows/release.yml` | DONE |
+| ITEM-008 | IMPL | In `build` job: checkout (fetch-depth: 0), setup-dotnet, `dotnet restore`, `dotnet test --settings test.runsettings`, `dotnet publish src/Twig/Twig.csproj -c Release -r ${{ matrix.rid }} --self-contained true -o ./publish/${{ matrix.rid }}`. Archive: zip on Windows, tar.gz on Linux/macOS. Upload artifact. | `.github/workflows/release.yml` | DONE |
+| ITEM-009 | IMPL | In `release` job (needs: build): download all artifacts, generate changelog via `git log` between previous tag and current tag filtering conventional commit prefixes (with first-release fallback — see Section 6 changelog script), create GitHub Release via `softprops/action-gh-release@v2` with release notes body and all 4 archive files attached. **Must** set `permissions: contents: write` on the workflow or job. | `.github/workflows/release.yml` | DONE |
+| ITEM-010 | IMPL | Add changelog generation step: extract version from tag, find previous tag via `git describe --tags --abbrev=0 HEAD^ 2>/dev/null` with fallback to full history when no previous tag exists (first release), generate markdown-formatted changelog grouping by conventional commit type (feat/fix/docs/chore/breaking). | `.github/workflows/release.yml` | DONE |
+| ITEM-011 | TEST | Tag `v0.2.0-rc.1`, push, verify: all 4 platform builds succeed, GitHub Release is created with correct assets and changelog. | (manual verification) | DONE |
 
 **Acceptance Criteria**:
-- [ ] Pushing `v*` tag triggers release workflow
-- [ ] Native AOT binaries are built for all 4 RIDs (win-x64, linux-x64, osx-x64, osx-arm64)
-- [ ] Tests pass before publish on each platform
-- [ ] Archives are correctly named: `twig-win-x64.zip`, `twig-linux-x64.tar.gz`, `twig-osx-x64.tar.gz`, `twig-osx-arm64.tar.gz`
-- [ ] GitHub Release is created with auto-generated changelog from conventional commits
-- [ ] All 4 archives are attached to the GitHub Release
+- [x] Pushing `v*` tag triggers release workflow
+- [x] Native AOT binaries are built for all 4 RIDs (win-x64, linux-x64, osx-x64, osx-arm64)
+- [x] Tests pass before publish on each platform
+- [x] Archives are correctly named: `twig-win-x64.zip`, `twig-linux-x64.tar.gz`, `twig-osx-x64.tar.gz`, `twig-osx-arm64.tar.gz`
+- [x] GitHub Release is created with auto-generated changelog from conventional commits
+- [x] All 4 archives are attached to the GitHub Release
 
 ---
 

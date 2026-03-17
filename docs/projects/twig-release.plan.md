@@ -649,14 +649,14 @@ fi
 
 | Task | Type | Description | Files | Status |
 |------|------|-------------|-------|--------|
-| ITEM-005 | IMPL | Create `.github/workflows/ci.yml` with: trigger on `pull_request` and `push` to `main`; job `build-and-test` on `ubuntu-latest`; steps: checkout (fetch-depth: 0, filter: tree:0), setup-dotnet (from global.json), dotnet restore, dotnet build --no-restore, dotnet test --no-build --settings test.runsettings | `.github/workflows/ci.yml` | TO DO |
-| ITEM-006 | TEST | Push a test branch, open PR, verify CI runs successfully | (manual verification) | TO DO |
+| ITEM-005 | IMPL | Create `.github/workflows/ci.yml` with: trigger on `pull_request` and `push` to `main`; job `build-and-test` on `ubuntu-latest`; steps: checkout (fetch-depth: 0, filter: tree:0), setup-dotnet (from global.json), dotnet restore, dotnet build --no-restore, dotnet test --no-build --settings test.runsettings | `.github/workflows/ci.yml` | DONE |
+| ITEM-006 | TEST | Push a test branch, open PR, verify CI runs successfully | (manual verification) | DONE |
 
 **Acceptance Criteria**:
-- [ ] CI workflow triggers on pull_request to main
-- [ ] CI workflow triggers on push to main
-- [ ] Build and all tests pass on ubuntu-latest
-- [ ] MinVer resolves version correctly in CI (fetch-depth: 0)
+- [x] CI workflow triggers on pull_request to main
+- [x] CI workflow triggers on push to main
+- [x] Build and all tests pass on ubuntu-latest
+- [x] MinVer resolves version correctly in CI (fetch-depth: 0)
 
 ---
 

@@ -18,6 +18,9 @@ internal sealed class GitHubRelease
     [JsonPropertyName("body")]
     public string Body { get; set; } = "";
 
+    [JsonPropertyName("published_at")]
+    public string? PublishedAt { get; set; }
+
     [JsonPropertyName("assets")]
     public List<GitHubAsset> Assets { get; set; } = [];
 }

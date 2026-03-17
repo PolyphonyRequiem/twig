@@ -131,6 +131,14 @@ public sealed class HintEngine
                 hints.Add("PR created. Try: twig status, twig flow-done");
                 break;
 
+            case "hooks":
+                hints.Add("Try: twig context, twig branch, twig commit");
+                break;
+
+            case "context":
+                hints.Add("Try: twig set <id>, twig branch, twig hooks install");
+                break;
+
             case "workspace":
                 if (workspace is not null)
                 {

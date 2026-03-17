@@ -151,7 +151,7 @@ public class SelfUpdateCommandTests
     public void FindAsset_KnownRids_ReturnsCorrectAsset(string rid, string expectedAssetName)
     {
         var release = new GitHubReleaseInfo(
-            "v1.0.0", "Release 1.0.0", "",
+            "v1.0.0", "Release 1.0.0", "", null,
             new[]
             {
                 new GitHubReleaseAssetInfo("twig-win-x64.zip", "https://example.com/twig-win-x64.zip", 2048),
@@ -171,7 +171,7 @@ public class SelfUpdateCommandTests
     public void FindAsset_NoMatchingAsset_ReturnsNull()
     {
         var release = new GitHubReleaseInfo(
-            "v1.0.0", "Release 1.0.0", "",
+            "v1.0.0", "Release 1.0.0", "", null,
             new[]
             {
                 new GitHubReleaseAssetInfo("twig-win-x64.zip", "https://example.com/twig-win-x64.zip", 2048),
@@ -186,7 +186,7 @@ public class SelfUpdateCommandTests
     [Fact]
     public void FindAsset_WindowsRid_UsesZipExtension()
     {
-        var release = new GitHubReleaseInfo("v1.0.0", "R", "", []);
+        var release = new GitHubReleaseInfo("v1.0.0", "R", "", null, []);
         var (_, archiveName) = SelfUpdateCommand.FindAsset(release, "win-x64");
         archiveName.ShouldEndWith(".zip");
     }
@@ -194,7 +194,7 @@ public class SelfUpdateCommandTests
     [Fact]
     public void FindAsset_LinuxRid_UsesTarGzExtension()
     {
-        var release = new GitHubReleaseInfo("v1.0.0", "R", "", []);
+        var release = new GitHubReleaseInfo("v1.0.0", "R", "", null, []);
         var (_, archiveName) = SelfUpdateCommand.FindAsset(release, "linux-x64");
         archiveName.ShouldEndWith(".tar.gz");
     }
@@ -220,7 +220,7 @@ public class SelfUpdateCommandTests
         // We supply a release with the same version (or older) to trigger the "up to date" path.
         var currentVersion = VersionHelper.GetVersion();
         var release = new GitHubReleaseInfo(
-            currentVersion, $"Release {currentVersion}", "notes",
+            currentVersion, $"Release {currentVersion}", "notes", null,
             new[] { new GitHubReleaseAssetInfo("twig-win-x64.zip", "https://example.com/dl", 1024) });
 
         var stubService = new StubReleaseService(latestRelease: release);
@@ -237,7 +237,7 @@ public class SelfUpdateCommandTests
     {
         // Supply a release newer than current (which is "0.0.0" in test) with no matching asset
         var release = new GitHubReleaseInfo(
-            "v99.99.99", "Release 99.99.99", "notes",
+            "v99.99.99", "Release 99.99.99", "notes", null,
             new[] { new GitHubReleaseAssetInfo("twig-fake-platform.zip", "https://example.com/dl", 1024) });
 
         var stubService = new StubReleaseService(latestRelease: release);

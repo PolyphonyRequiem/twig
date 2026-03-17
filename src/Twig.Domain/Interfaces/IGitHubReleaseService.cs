@@ -12,6 +12,7 @@ public sealed record GitHubReleaseInfo(
     string Tag,
     string Name,
     string Body,
+    DateTimeOffset? PublishedAt,
     IReadOnlyList<GitHubReleaseAssetInfo> Assets);
 
 /// <summary>

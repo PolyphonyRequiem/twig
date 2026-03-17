@@ -367,6 +367,7 @@ var app = ConsoleApp.Create()
         });
         services.AddSingleton<SelfUpdater>(sp => new SelfUpdater(sp.GetRequiredService<HttpClient>()));
         services.AddSingleton<SelfUpdateCommand>();
+        services.AddSingleton<ChangelogCommand>();
     });
 
 app.UseFilter<ExceptionFilter>();
@@ -658,6 +659,10 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <summary>Check for and apply updates from GitHub Releases.</summary>
     public async Task<int> Upgrade(CancellationToken ct = default)
         => await services.GetRequiredService<SelfUpdateCommand>().ExecuteAsync(ct);
+
+    /// <summary>Display recent release notes from GitHub Releases.</summary>
+    public async Task<int> Changelog(int count = 5, CancellationToken ct = default)
+        => await services.GetRequiredService<ChangelogCommand>().ExecuteAsync(count, ct);
 
     /// <summary>Launch the full-screen TUI mode (requires twig-tui binary).</summary>
     public Task<int> Tui()

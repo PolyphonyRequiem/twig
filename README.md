@@ -95,7 +95,7 @@ twig flow-close --no-branch-cleanup    # keep branch after close
 | `flow-start` | Start work: context + state + assign + branch |
 | `flow-done` | Finish work: save + resolve + PR offer |
 | `flow-close` | Close work: guard + complete + branch cleanup |
-| `prompt` | Shell prompt segment (for PS1/Oh My Posh) |
+| `ohmyposh init` | Generate Oh My Posh shell hook and segment config |
 | `tui` | Launch full-screen TUI mode |
 | `version` | Show version |
 

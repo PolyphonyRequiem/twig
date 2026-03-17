@@ -16,6 +16,27 @@ using Twig.Rendering;
 
 SQLitePCL.Batteries.Init();
 
+// Fast-path: _prompt bypasses the full DI pipeline for <50ms prompt rendering.
+// Only needs TwigConfiguration + direct SQLite — no git subprocess, no service registration.
+if (args.Length >= 1 && args[0] == "_prompt")
+{
+    try { Console.OutputEncoding = System.Text.Encoding.UTF8; } catch { }
+    var twigDir = Path.Combine(Directory.GetCurrentDirectory(), ".twig");
+    var configPath = Path.Combine(twigDir, "config");
+    var config = File.Exists(configPath)
+        ? TwigConfiguration.LoadAsync(configPath).GetAwaiter().GetResult()
+        : new TwigConfiguration();
+    var promptCmd = new PromptCommand(config);
+    var format = "plain";
+    var maxWidth = 40;
+    for (int i = 1; i < args.Length; i++)
+    {
+        if (args[i] is "--format" && i + 1 < args.Length) format = args[++i];
+        else if (args[i] is "--max-width" && i + 1 < args.Length && int.TryParse(args[++i], out var w)) maxWidth = w;
+    }
+    return promptCmd.Execute(format, maxWidth);
+}
+
 // ITEM-154: Enable UTF-8 output so Unicode type badges render correctly on Windows.
 try
 {
@@ -371,11 +392,15 @@ var app = ConsoleApp.Create()
 
         // Prompt command — reads directly from SQLite, takes only TwigConfiguration
         services.AddSingleton<PromptCommand>();
+
+        // Oh My Posh helper — generates shell hooks and text segment JSON
+        services.AddSingleton<OhMyPoshCommands>();
     });
 
 app.UseFilter<ExceptionFilter>();
 
 app.Add<TwigCommands>();
+app.Add<OhMyPoshCommands>("ohmyposh");
 
 // Handle --version flag before ConsoleAppFramework parsing (ITEM-118)
 if (args.Length == 1 && args[0] == "--version")

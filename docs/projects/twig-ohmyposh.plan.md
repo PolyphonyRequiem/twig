@@ -703,21 +703,21 @@ With the env var approach, `twig prompt --format json` could output structured J
 
 | Task | Type | Description | Files | Status |
 |------|------|-------------|-------|--------|
-| ITEM-009 | IMPL | Create `OhMyPoshCommands` class with `Init()` method. Generate two outputs: (1) Shell hook function for the specified shell (`--shell pwsh\|bash\|zsh\|fish`): PowerShell uses `Set-PoshContext` alias pattern calling `twig _prompt`, bash/zsh uses `set_poshcontext()` function calling `twig _prompt`, fish uses `set_poshcontext` function calling `twig _prompt`. (2) Oh My Posh `text` segment JSON with `type: "text"`, specified style, colors, and `template: "{{ if .Env.TWIG_PROMPT }} {{ .Env.TWIG_PROMPT }} {{ end }}"`. Use `Utf8JsonWriter` with `Indented = true` for readable output. | `src/Twig/Commands/OhMyPoshCommands.cs` | TO DO |
-| ITEM-010 | IMPL | Register `OhMyPoshCommands` as a nested command group in `Program.cs` using ConsoleAppFramework v5's `app.Add<OhMyPoshCommands>("ohmyposh")` pattern. This makes `Init()` accessible as `twig ohmyposh init`. Register in DI: `services.AddSingleton<OhMyPoshCommands>()`. Wire `--style` and `--shell` parameters on `Init()`. | `src/Twig/Program.cs` | TO DO |
-| ITEM-011 | TEST | Unit tests for `OhMyPoshCommands`: (a) powerline style output contains valid JSON with `"type": "text"`, (b) plain style output, (c) diamond style output, (d) PowerShell hook contains `Set-PoshContext`, (e) bash hook contains `set_poshcontext()`, (f) fish hook uses `set -gx TWIG_PROMPT`, (g) template contains `{{ .Env.TWIG_PROMPT }}`, (h) no `"type": "command"` anywhere in output. | `tests/Twig.Cli.Tests/Commands/OhMyPoshCommandsTests.cs` | TO DO |
+| ITEM-009 | IMPL | Create `OhMyPoshCommands` class with `Init()` method. Generate two outputs: (1) Shell hook function for the specified shell (`--shell pwsh\|bash\|zsh\|fish`): PowerShell uses `Set-PoshContext` alias pattern calling `twig _prompt`, bash/zsh uses `set_poshcontext()` function calling `twig _prompt`, fish uses `set_poshcontext` function calling `twig _prompt`. (2) Oh My Posh `text` segment JSON with `type: "text"`, specified style, colors, and `template: "{{ if .Env.TWIG_PROMPT }} {{ .Env.TWIG_PROMPT }} {{ end }}"`. Use `Utf8JsonWriter` with `Indented = true` for readable output. | `src/Twig/Commands/OhMyPoshCommands.cs` | DONE |
+| ITEM-010 | IMPL | Register `OhMyPoshCommands` as a nested command group in `Program.cs` using ConsoleAppFramework v5's `app.Add<OhMyPoshCommands>("ohmyposh")` pattern. This makes `Init()` accessible as `twig ohmyposh init`. Register in DI: `services.AddSingleton<OhMyPoshCommands>()`. Wire `--style` and `--shell` parameters on `Init()`. | `src/Twig/Program.cs` | DONE |
+| ITEM-011 | TEST | Unit tests for `OhMyPoshCommands`: (a) powerline style output contains valid JSON with `"type": "text"`, (b) plain style output, (c) diamond style output, (d) PowerShell hook contains `Set-PoshContext`, (e) bash hook contains `set_poshcontext()`, (f) fish hook uses `set -gx TWIG_PROMPT`, (g) template contains `{{ .Env.TWIG_PROMPT }}`, (h) no `"type": "command"` anywhere in output. | `tests/Twig.Cli.Tests/Commands/OhMyPoshCommandsTests.cs` | DONE |
 
 **Acceptance Criteria**:
 
-- [ ] `twig ohmyposh init` outputs a valid shell hook function and Oh My Posh `text` segment JSON
-- [ ] `twig ohmyposh init --style plain` outputs plain style configuration
-- [ ] `twig ohmyposh init --style diamond` outputs diamond style configuration
-- [ ] `twig ohmyposh init --shell pwsh` outputs PowerShell `Set-PoshContext` alias
-- [ ] `twig ohmyposh init --shell bash` outputs bash `set_poshcontext()` function
-- [ ] `twig ohmyposh init --shell fish` outputs fish `set_poshcontext` function
-- [ ] Output JSON uses `"type": "text"` (not `"type": "command"`)
-- [ ] Output JSON is valid and parseable
-- [ ] All tests pass
+- [x] `twig ohmyposh init` outputs a valid shell hook function and Oh My Posh `text` segment JSON
+- [x] `twig ohmyposh init --style plain` outputs plain style configuration
+- [x] `twig ohmyposh init --style diamond` outputs diamond style configuration
+- [x] `twig ohmyposh init --shell pwsh` outputs PowerShell `Set-PoshContext` alias
+- [x] `twig ohmyposh init --shell bash` outputs bash `set_poshcontext()` function
+- [x] `twig ohmyposh init --shell fish` outputs fish `set_poshcontext` function
+- [x] Output JSON uses `"type": "text"` (not `"type": "command"`)
+- [x] Output JSON is valid and parseable
+- [x] All tests pass
 
 ---
 

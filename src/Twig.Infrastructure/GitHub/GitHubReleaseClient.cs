@@ -69,6 +69,9 @@ internal sealed class GitHubReleaseClient : IGitHubReleaseService
         var assets = new List<GitHubReleaseAssetInfo>(dto.Assets.Count);
         foreach (var a in dto.Assets)
             assets.Add(new GitHubReleaseAssetInfo(a.Name, a.BrowserDownloadUrl, a.Size));
-        return new GitHubReleaseInfo(dto.TagName, dto.Name, dto.Body, assets);
+        DateTimeOffset? publishedAt = null;
+        if (!string.IsNullOrEmpty(dto.PublishedAt) && DateTimeOffset.TryParse(dto.PublishedAt, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var parsed))
+            publishedAt = parsed;
+        return new GitHubReleaseInfo(dto.TagName, dto.Name, dto.Body, publishedAt, assets);
     }
 }

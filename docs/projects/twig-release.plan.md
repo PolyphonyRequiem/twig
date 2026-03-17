@@ -750,15 +750,21 @@ fi
 
 | Task | Type | Description | Files | Status |
 |------|------|-------------|-------|--------|
-| ITEM-027 | IMPL | Create `src/Twig/Commands/ChangelogCommand.cs`. Calls `IGitHubReleaseService.GetReleasesAsync(count: 5)`. Formats each release as: version header, date, body (release notes). Supports `--count N` flag. | `src/Twig/Commands/ChangelogCommand.cs` | TO DO |
-| ITEM-028 | IMPL | Add `Changelog` route to `TwigCommands` in `Program.cs`. Register `ChangelogCommand` in DI. | `src/Twig/Program.cs` | TO DO |
-| ITEM-029 | TEST | Unit test `ChangelogCommand` formatting with mocked release data. | `tests/Twig.Cli.Tests/Commands/ChangelogCommandTests.cs` | TO DO |
+| ITEM-027 | IMPL | Create `src/Twig/Commands/ChangelogCommand.cs`. Calls `IGitHubReleaseService.GetReleasesAsync(count: 5)`. Formats each release as: version header, date, body (release notes). Supports `--count N` flag. | `src/Twig/Commands/ChangelogCommand.cs` | DONE |
+| ITEM-028 | IMPL | Add `Changelog` route to `TwigCommands` in `Program.cs`. Register `ChangelogCommand` in DI. | `src/Twig/Program.cs` | DONE |
+| ITEM-029 | TEST | Unit test `ChangelogCommand` formatting with mocked release data. | `tests/Twig.Cli.Tests/Commands/ChangelogCommandTests.cs` | DONE |
 
 **Acceptance Criteria**:
-- [ ] `twig changelog` displays the last 5 releases with version, date, and notes
-- [ ] `twig changelog --count 10` shows more releases
-- [ ] Graceful error if no releases exist or API is unreachable
-- [ ] Output is formatted for terminal readability
+- [x] `twig changelog` displays the last 5 releases with version, date, and notes
+- [x] `twig changelog --count 10` shows more releases
+- [x] Graceful error if no releases exist or API is unreachable
+- [x] Output is formatted for terminal readability
+
+**Completion Notes** (2026-03-17):
+- Added input validation: returns exit code 1 with message 'count must be at least 1' when count < 1
+- Added upper-bound clamping: caps count at 100 (GitHub API per_page maximum)
+- Fixed `DateTimeOffset.TryParse` to use `CultureInfo.InvariantCulture` and `DateTimeStyles.RoundtripKind` for correct ISO 8601 parsing
+- Added 3 new unit tests for count validation and clamping behaviour
 
 ---
 

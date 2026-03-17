@@ -722,21 +722,21 @@ Hook fires after: git checkout bug/12345-fix-crash
 
 | Task | Type | Description | Files | Status |
 |---|---|---|---|---|
-| ITEM-019 | IMPL | Create `CommitMessageService` with `Format(WorkItem, string userMessage, string template)`. Map work item types to conventional commit prefixes. Handle template substitution (`{type}`, `{id}`, `{message}`, `{title}`) | `src/Twig.Domain/Services/CommitMessageService.cs` | TO DO |
-| ITEM-020 | TEST | Unit tests for `CommitMessageService`: template substitution, conventional commit mapping, edge cases (empty message, no template) | `tests/Twig.Domain.Tests/Services/CommitMessageServiceTests.cs` | TO DO |
-| ITEM-021 | IMPL | Implement `CommitCommand`: get active work item, format commit message via `CommitMessageService`, pass remaining args to `git commit`, optionally add commit artifact link. Support `--no-link` and pass-through of `git commit` flags (`--amend`, `--`, pathspecs) | `src/Twig/Commands/CommitCommand.cs` | TO DO |
-| ITEM-022 | TEST | Unit tests for `CommitCommand`: mock `IGitService` and `IAdoGitService`. Test message formatting, artifact linking, `--no-link`, `--amend` pass-through | `tests/Twig.Cli.Tests/Commands/CommitCommandTests.cs` | TO DO |
-| ITEM-023 | IMPL | Implement `PrCommand`: get active work item, determine source/target branches, build PR title/description from work item, call `IAdoGitService.CreatePullRequestAsync`, add PR artifact link. Support `--target`, `--title`, `--draft` flags | `src/Twig/Commands/PrCommand.cs` | TO DO |
-| ITEM-024 | TEST | Unit tests for `PrCommand`: mock services. Test PR creation, work item linking, `--draft` flag, `--target` override | `tests/Twig.Cli.Tests/Commands/PrCommandTests.cs` | TO DO |
-| ITEM-025 | IMPL | Register `CommitCommand` and `PrCommand` in `Program.cs`. Add `Commit` and `Pr` methods to `TwigCommands` | `src/Twig/Program.cs` | TO DO |
-| ITEM-026 | IMPL | Add hints for `commit` and `pr` commands to `HintEngine` | `src/Twig/Hints/HintEngine.cs` | TO DO |
+| ITEM-019 | IMPL | Create `CommitMessageService` with `Format(WorkItem, string userMessage, string template)`. Map work item types to conventional commit prefixes. Handle template substitution (`{type}`, `{id}`, `{message}`, `{title}`) | `src/Twig.Domain/Services/CommitMessageService.cs` | DONE |
+| ITEM-020 | TEST | Unit tests for `CommitMessageService`: template substitution, conventional commit mapping, edge cases (empty message, no template) | `tests/Twig.Domain.Tests/Services/CommitMessageServiceTests.cs` | DONE |
+| ITEM-021 | IMPL | Implement `CommitCommand`: get active work item, format commit message via `CommitMessageService`, pass remaining args to `git commit`, optionally add commit artifact link. Support `--no-link` and pass-through of `git commit` flags (`--amend`, `--`, pathspecs) | `src/Twig/Commands/CommitCommand.cs` | DONE |
+| ITEM-022 | TEST | Unit tests for `CommitCommand`: mock `IGitService` and `IAdoGitService`. Test message formatting, artifact linking, `--no-link`, `--amend` pass-through | `tests/Twig.Cli.Tests/Commands/CommitCommandTests.cs` | DONE |
+| ITEM-023 | IMPL | Implement `PrCommand`: get active work item, determine source/target branches, build PR title/description from work item, call `IAdoGitService.CreatePullRequestAsync`, add PR artifact link. Support `--target`, `--title`, `--draft` flags | `src/Twig/Commands/PrCommand.cs` | DONE |
+| ITEM-024 | TEST | Unit tests for `PrCommand`: mock services. Test PR creation, work item linking, `--draft` flag, `--target` override | `tests/Twig.Cli.Tests/Commands/PrCommandTests.cs` | DONE |
+| ITEM-025 | IMPL | Register `CommitCommand` and `PrCommand` in `Program.cs`. Add `Commit` and `Pr` methods to `TwigCommands` | `src/Twig/Program.cs` | DONE |
+| ITEM-026 | IMPL | Add hints for `commit` and `pr` commands to `HintEngine` | `src/Twig/Hints/HintEngine.cs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] `twig commit "message"` produces a commit with work-item-prefixed message
-- [ ] Commit hash is linked to ADO work item as artifact link
-- [ ] `twig pr` creates an ADO pull request linked to the active work item
-- [ ] PR title/description are populated from work item fields
-- [ ] `--draft` creates a draft PR
+- [x] `twig commit "message"` produces a commit with work-item-prefixed message
+- [x] Commit hash is linked to ADO work item as artifact link
+- [x] `twig pr` creates an ADO pull request linked to the active work item
+- [x] PR title/description are populated from work item fields
+- [x] `--draft` creates a draft PR
 
 ---
 

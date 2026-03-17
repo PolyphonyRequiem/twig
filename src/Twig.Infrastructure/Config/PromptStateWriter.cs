@@ -106,13 +106,14 @@ internal sealed class PromptStateWriter : IPromptStateWriter
             }
         }
 
-        var typeColor = ResolveColor(typeName);
+        var typeColor = NormalizeHexColor(ResolveColor(typeName));
+        var stateColorNorm = NormalizeHexColor(stateColor);
         var branch = GitBranchReader.GetCurrentBranch(Path.GetDirectoryName(_paths.TwigDir)!);
         var title = TruncateTitle(workItem.Title, DefaultMaxWidth);
         var text = FormatPlain(badge, workItem.Id, title, workItem.State, workItem.IsDirty);
 
         WriteFullState(targetPath, tmpPath, text, workItem.Id, typeName, badge, title,
-            workItem.State, stateCategory.ToString(), workItem.IsDirty, typeColor, stateColor, branch);
+            workItem.State, stateCategory.ToString(), workItem.IsDirty, typeColor, stateColorNorm, branch);
     }
 
     private void WriteEmptyState(string targetPath, string tmpPath)
@@ -200,6 +201,32 @@ internal sealed class PromptStateWriter : IPromptStateWriter
             .Where(a => !string.IsNullOrEmpty(a.Color))
             .ToDictionary(a => a.Name, a => a.Color);
         return TypeColorResolver.ResolveHex(typeName, _config.Display.TypeColors, appearanceColors);
+    }
+
+    /// <summary>
+    /// Normalizes a hex color to <c>#RRGGBB</c> format for OMP compatibility.
+    /// Handles: <c>FFF2CB1D</c> (ARGB no hash), <c>#FFF2CB1D</c> (ARGB with hash),
+    /// <c>F2CB1D</c> (RGB no hash), <c>#F2CB1D</c> (already correct).
+    /// </summary>
+    internal static string? NormalizeHexColor(string? color)
+    {
+        if (string.IsNullOrEmpty(color))
+            return null;
+
+        var span = color.AsSpan();
+        if (span[0] == '#')
+            span = span[1..];
+
+        // AARRGGBB (8 hex digits) → strip alpha, take last 6
+        if (span.Length == 8)
+            return string.Concat("#", span[2..].ToString());
+
+        // RRGGBB (6 hex digits) → add #
+        if (span.Length == 6)
+            return string.Concat("#", span.ToString());
+
+        // Already has # or unknown format — return as-is with #
+        return color.StartsWith('#') ? color : "#" + color;
     }
 }
 

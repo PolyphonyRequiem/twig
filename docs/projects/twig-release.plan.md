@@ -696,16 +696,16 @@ fi
 |------|------|-------------|-------|--------|
 | ITEM-012 | IMPL | Create `install.ps1`: Query GitHub API for latest release, find `twig-win-x64.zip` asset, download to temp, create `~/.twig/bin/`, extract `twig.exe`, add `~/.twig/bin` to user PATH via `[Environment]::SetEnvironmentVariable(..., 'User')` if not present, print version. Handle errors (no internet, API failure). | `install.ps1` | DONE |
 | ITEM-013 | IMPL | Create `install.sh`: Detect OS (`uname -s` → Linux/Darwin) and arch (`uname -m` → x86_64/arm64), map to RID, query GitHub API for latest release, find matching asset, download with curl, create `~/.twig/bin/`, extract with tar, chmod +x, detect shell (bash/zsh/fish) and append `export PATH="$HOME/.twig/bin:$PATH"` to profile if not present, print version. | `install.sh` | DONE |
-| ITEM-014 | TEST | Test `install.ps1` on Windows: clean machine (no prior install), verify binary works and is in PATH. Test idempotency (run twice). | (manual verification) | TO DO |
-| ITEM-015 | TEST | Test `install.sh` on Linux (x64) and macOS (arm64): clean machine, verify binary works and is in PATH. Test idempotency. | (manual verification) | TO DO |
+| ITEM-014 | TEST | Test `install.ps1` on Windows: clean machine (no prior install), verify binary works and is in PATH. Test idempotency (run twice). | (manual verification) | DONE |
+| ITEM-015 | TEST | Test `install.sh` on Linux (x64) and macOS (arm64): clean machine, verify binary works and is in PATH. Test idempotency. | (manual verification) | DONE |
 
 **Acceptance Criteria**:
-- [ ] `irm https://raw.githubusercontent.com/PolyphonyRequiem/twig/main/install.ps1 | iex` installs twig on Windows
-- [ ] `curl -fsSL https://raw.githubusercontent.com/PolyphonyRequiem/twig/main/install.sh | bash` installs twig on Linux/macOS
-- [ ] `~/.twig/bin/` is created and contains the binary
-- [ ] PATH is updated for the current user (persists across sessions)
-- [ ] Running install a second time succeeds (idempotent)
-- [ ] `twig --version` works after install
+- [x] `irm https://raw.githubusercontent.com/PolyphonyRequiem/twig/main/install.ps1 | iex` installs twig on Windows
+- [x] `curl -fsSL https://raw.githubusercontent.com/PolyphonyRequiem/twig/main/install.sh | bash` installs twig on Linux/macOS
+- [x] `~/.twig/bin/` is created and contains the binary
+- [x] PATH is updated for the current user (persists across sessions)
+- [x] Running install a second time succeeds (idempotent)
+- [x] `twig --version` works after install
 
 ---
 

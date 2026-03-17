@@ -42,18 +42,37 @@ fi
 
 # Query GitHub Releases API for latest release
 RELEASE_URL="https://api.github.com/repos/${REPO}/releases/latest"
+
+CURL_HEADERS=(-H "User-Agent: twig-installer")
+if [ -n "${GITHUB_TOKEN:-}" ]; then
+    CURL_HEADERS+=(-H "Authorization: Bearer $GITHUB_TOKEN")
+fi
+
 # Use -sSL (no -f) so the response body is captured even on HTTP 4xx errors
-RELEASE_JSON="$(curl -sSL -H "User-Agent: twig-installer" "$RELEASE_URL")" || true
+# Redirect stderr to /dev/null to suppress raw curl diagnostics on the terminal
+# (the script provides its own clean error message via the CURL_EXIT check below)
+CURL_EXIT=0
+RELEASE_JSON="$(curl -sSL "${CURL_HEADERS[@]}" "$RELEASE_URL" 2>/dev/null)" || CURL_EXIT=$?
+
+if [ "$CURL_EXIT" -ne 0 ]; then
+    echo "Error: Failed to reach GitHub API (curl exit code $CURL_EXIT). Check your internet connection." >&2
+    echo "  URL: $RELEASE_URL" >&2
+    exit 1
+fi
 
 # Check for GitHub API rate limiting (HTTP 403 with rate-limit message in body)
 if echo "$RELEASE_JSON" | grep -qi "API rate limit exceeded"; then
-    echo "Error: GitHub API rate limit exceeded. Try again later or set GITHUB_TOKEN." >&2
+    if [ -n "${GITHUB_TOKEN:-}" ]; then
+        echo "Error: GitHub API rate limit exceeded even with GITHUB_TOKEN. Try again later." >&2
+    else
+        echo "Error: GitHub API rate limit exceeded. Try again later or set the GITHUB_TOKEN environment variable to a GitHub personal access token." >&2
+    fi
     exit 1
 fi
 
 # Check for empty or error response
 if [ -z "$RELEASE_JSON" ]; then
-    echo "Error: Failed to query GitHub Releases API. Check your internet connection." >&2
+    echo "Error: Failed to query GitHub Releases API. Received empty response." >&2
     echo "  URL: $RELEASE_URL" >&2
     exit 1
 fi

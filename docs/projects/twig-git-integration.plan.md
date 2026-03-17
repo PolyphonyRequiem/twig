@@ -752,26 +752,28 @@ Hook fires after: git checkout bug/12345-fix-crash
 
 | Task | Type | Description | Files | Status |
 |---|---|---|---|---|
-| ITEM-027 | IMPL | Implement `HookInstaller` with `Install(string gitDir, HooksConfig)` and `Uninstall(string gitDir)`. Write marker-commented shell scripts for `prepare-commit-msg`, `commit-msg`, `post-checkout`. Detect and preserve existing hook content. Cross-platform scripts (bash for macOS/Linux, batch/PowerShell for Windows) | `src/Twig.Infrastructure/Git/HookInstaller.cs` | TO DO |
-| ITEM-028 | TEST | Unit tests for `HookInstaller`: install to temp `.git/hooks/`, verify script content, verify marker comments, test uninstall removes only Twig sections, test coexistence with existing hooks | `tests/Twig.Infrastructure.Tests/Git/HookInstallerTests.cs` | TO DO |
-| ITEM-029 | IMPL | Implement `HooksCommand`: `install` subcommand calls `HookInstaller.Install`, `uninstall` subcommand calls `HookInstaller.Uninstall`. Detect `.git/` directory path via `IGitService` | `src/Twig/Commands/HooksCommand.cs` | TO DO |
-| ITEM-030 | TEST | Unit tests for `HooksCommand`: mock `HookInstaller` and `IGitService` | `tests/Twig.Cli.Tests/Commands/HooksCommandTests.cs` | TO DO |
-| ITEM-031 | IMPL | Implement `GitContextCommand` (`twig context`): show active work item, current branch, detect work item from branch name, show linked PRs (via `IAdoGitService.GetPullRequestsForBranchAsync`) | `src/Twig/Commands/GitContextCommand.cs` | TO DO |
-| ITEM-032 | IMPL | Implement internal `_hook` command for hook scripts to invoke. Handle `post-checkout` (extract work item ID from branch, set context), `prepare-commit-msg` (prefix message file), `commit-msg` (validate reference) | `src/Twig/Commands/HookHandlerCommand.cs` | TO DO |
-| ITEM-033 | IMPL | Register `HooksCommand`, `GitContextCommand`, `HookHandlerCommand` in `Program.cs`. Add routing to `TwigCommands` | `src/Twig/Program.cs` | TO DO |
-| ITEM-034 | IMPL | Add hints for `hooks` and `context` commands to `HintEngine` | `src/Twig/Hints/HintEngine.cs` | TO DO |
+| ITEM-027 | IMPL | Implement `HookInstaller` with `Install(string gitDir, HooksConfig)` and `Uninstall(string gitDir)`. Write marker-commented shell scripts for `prepare-commit-msg`, `commit-msg`, `post-checkout`. Detect and preserve existing hook content. Cross-platform scripts (bash for macOS/Linux, batch/PowerShell for Windows) | `src/Twig.Infrastructure/Git/HookInstaller.cs` | DONE |
+| ITEM-028 | TEST | Unit tests for `HookInstaller`: install to temp `.git/hooks/`, verify script content, verify marker comments, test uninstall removes only Twig sections, test coexistence with existing hooks | `tests/Twig.Infrastructure.Tests/Git/HookInstallerTests.cs` | DONE |
+| ITEM-029 | IMPL | Implement `HooksCommand`: `install` subcommand calls `HookInstaller.Install`, `uninstall` subcommand calls `HookInstaller.Uninstall`. Detect `.git/` directory path via `IGitService` | `src/Twig/Commands/HooksCommand.cs` | DONE |
+| ITEM-030 | TEST | Unit tests for `HooksCommand`: mock `HookInstaller` and `IGitService` | `tests/Twig.Cli.Tests/Commands/HooksCommandTests.cs` | DONE |
+| ITEM-031 | IMPL | Implement `GitContextCommand` (`twig context`): show active work item, current branch, detect work item from branch name, show linked PRs (via `IAdoGitService.GetPullRequestsForBranchAsync`) | `src/Twig/Commands/GitContextCommand.cs` | DONE |
+| ITEM-032 | IMPL | Implement internal `_hook` command for hook scripts to invoke. Handle `post-checkout` (extract work item ID from branch, set context), `prepare-commit-msg` (prefix message file), `commit-msg` (validate reference) | `src/Twig/Commands/HookHandlerCommand.cs` | DONE |
+| ITEM-033 | IMPL | Register `HooksCommand`, `GitContextCommand`, `HookHandlerCommand` in `Program.cs`. Add routing to `TwigCommands` | `src/Twig/Program.cs` | DONE |
+| ITEM-034 | IMPL | Add hints for `hooks` and `context` commands to `HintEngine` | `src/Twig/Hints/HintEngine.cs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] `twig hooks install` writes hook scripts to `.git/hooks/` with `# twig-managed` markers
-- [ ] `twig hooks uninstall` removes only Twig-managed sections from hook files
-- [ ] Existing hook content is preserved during install
-- [ ] post-checkout hook auto-sets Twig context when switching to a branch with a work item ID
-- [ ] prepare-commit-msg hook prefixes commit messages with work item ID
-- [ ] `twig context` displays current branch ↔ work item ↔ PR linkage
+- [x] `twig hooks install` writes hook scripts to `.git/hooks/` with `# twig-managed` markers
+- [x] `twig hooks uninstall` removes only Twig-managed sections from hook files
+- [x] Existing hook content is preserved during install
+- [x] post-checkout hook auto-sets Twig context when switching to a branch with a work item ID
+- [x] prepare-commit-msg hook prefixes commit messages with work item ID
+- [x] `twig context` displays current branch ↔ work item ↔ PR linkage
+
+**Completed:** 2026-03-17. Implemented HookInstaller with marker-delimited shell scripts (# twig-managed-start/end) for safe coexistence with user hooks. HooksCommand provides install/uninstall subcommands via IGitService for .git directory resolution. GitContextCommand shows branch/work item/PR linkage with human/json/minimal output. HookHandlerCommand handles post-checkout (auto-context), prepare-commit-msg (prefix), and commit-msg (validation) hook invocations. All commands registered in Program.cs with DI and TwigCommands routing. HintEngine updated with hooks/context hints. 25 tests passing (18 HookInstaller + 7 HooksCommand).
 
 ---
 
-### EPIC-006: Status Enrichment & Secondary Commands
+### EPIC-006: Status Enrichment & Secondary Commands ✅ DONE
 
 **Goal:** Enrich `twig status` with git info and implement lower-priority git commands.
 
@@ -779,19 +781,21 @@ Hook fires after: git checkout bug/12345-fix-crash
 
 | Task | Type | Description | Files | Status |
 |---|---|---|---|---|
-| ITEM-035 | IMPL | Extend `StatusCommand` to show current branch, linked PRs (title + status), and build status when git context is available. Gracefully degrade when not in a git repo | `src/Twig/Commands/StatusCommand.cs` | TO DO |
-| ITEM-036 | IMPL | Implement `StashCommand` (`twig stash` / `twig stash pop`): wrap `git stash` with work item context in stash message, restore Twig context on pop | `src/Twig/Commands/StashCommand.cs` | TO DO |
-| ITEM-037 | IMPL | Implement `LogCommand` (`twig log`): parse git log, extract work item IDs from commit messages, annotate with work item type/state from cache. Support `--count` and `--work-item` filter flags | `src/Twig/Commands/LogCommand.cs` | TO DO |
-| ITEM-038 | IMPL | Add format methods to `IOutputFormatter` and implementations for git context display (branch info, PR info, annotated log entries) | `src/Twig/Formatters/IOutputFormatter.cs`, `src/Twig/Formatters/HumanOutputFormatter.cs`, `src/Twig/Formatters/JsonOutputFormatter.cs`, `src/Twig/Formatters/MinimalOutputFormatter.cs` | TO DO |
-| ITEM-039 | IMPL | Register `StashCommand` and `LogCommand` in `Program.cs`. Add routing to `TwigCommands` | `src/Twig/Program.cs` | TO DO |
-| ITEM-040 | TEST | Unit tests for status enrichment, stash command, and log command | `tests/Twig.Cli.Tests/Commands/StatusCommandGitTests.cs`, `tests/Twig.Cli.Tests/Commands/StashCommandTests.cs`, `tests/Twig.Cli.Tests/Commands/LogCommandTests.cs` | TO DO |
+| ITEM-035 | IMPL | Extend `StatusCommand` to show current branch, linked PRs (title + status), and build status when git context is available. Gracefully degrade when not in a git repo | `src/Twig/Commands/StatusCommand.cs` | DONE |
+| ITEM-036 | IMPL | Implement `StashCommand` (`twig stash` / `twig stash pop`): wrap `git stash` with work item context in stash message, restore Twig context on pop | `src/Twig/Commands/StashCommand.cs` | DONE |
+| ITEM-037 | IMPL | Implement `LogCommand` (`twig log`): parse git log, extract work item IDs from commit messages, annotate with work item type/state from cache. Support `--count` and `--work-item` filter flags | `src/Twig/Commands/LogCommand.cs` | DONE |
+| ITEM-038 | IMPL | Add format methods to `IOutputFormatter` and implementations for git context display (branch info, PR info, annotated log entries) | `src/Twig/Formatters/IOutputFormatter.cs`, `src/Twig/Formatters/HumanOutputFormatter.cs`, `src/Twig/Formatters/JsonOutputFormatter.cs`, `src/Twig/Formatters/MinimalOutputFormatter.cs` | DONE |
+| ITEM-039 | IMPL | Register `StashCommand` and `LogCommand` in `Program.cs`. Add routing to `TwigCommands` | `src/Twig/Program.cs` | DONE |
+| ITEM-040 | TEST | Unit tests for status enrichment, stash command, and log command | `tests/Twig.Cli.Tests/Commands/StatusCommandGitTests.cs`, `tests/Twig.Cli.Tests/Commands/StashCommandTests.cs`, `tests/Twig.Cli.Tests/Commands/LogCommandTests.cs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] `twig status` shows branch name and linked PR status alongside work item info
-- [ ] `twig stash` includes work item context in stash message
-- [ ] `twig log` annotates commits with work item type badges
-- [ ] `twig log --work-item 12345` filters to commits referencing that work item
-- [ ] All commands degrade gracefully when not in a git repo
+- [x] `twig status` shows branch name and linked PR status alongside work item info
+- [x] `twig stash` includes work item context in stash message
+- [x] `twig log` annotates commits with work item type badges
+- [x] `twig log --work-item 12345` filters to commits referencing that work item
+- [x] All commands degrade gracefully when not in a git repo
+
+**Completed:** 2026-03-17. Extended StatusCommand with IAdoGitService? optional dependency and WriteGitContextAsync helper (graceful degradation). Implemented StashCommand (twig stash / twig stash pop) wrapping git stash with work item context in message and restoring Twig context on pop. Implemented LogCommand parsing git log %H %s format, extracting work item IDs via #NNN and AB#NNN regex patterns, batch-looking up from cache, and annotating entries with type badges/state; supports --count and --work-item filters. Added FormatBranchInfo, FormatPrStatus, and FormatAnnotatedLogEntry to IOutputFormatter with Human (ANSI colors/badges), JSON (structured), and Minimal (compact) implementations. Registered StashCommand and LogCommand in Program.cs. 36 unit tests covering status enrichment, stash, and log commands.
 
 ---
 

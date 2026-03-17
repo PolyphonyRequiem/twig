@@ -199,7 +199,8 @@ var app = ConsoleApp.Create()
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<HintEngine>(),
             sp.GetRequiredService<RenderingPipelineFactory>(),
-            sp.GetService<IGitService>()));
+            sp.GetService<IGitService>(),
+            sp.GetService<IAdoGitService>()));
         services.AddSingleton<StateCommand>();
         services.AddSingleton<TreeCommand>(sp => new TreeCommand(
             sp.GetRequiredService<IContextStore>(),
@@ -269,6 +270,40 @@ var app = ConsoleApp.Create()
             sp.GetRequiredService<TwigConfiguration>(),
             sp.GetService<IGitService>(),
             sp.GetService<IAdoGitService>()));
+        services.AddSingleton<StashCommand>(sp => new StashCommand(
+            sp.GetRequiredService<IContextStore>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<OutputFormatterFactory>(),
+            sp.GetRequiredService<HintEngine>(),
+            sp.GetRequiredService<TwigConfiguration>(),
+            sp.GetService<IGitService>()));
+        services.AddSingleton<LogCommand>(sp => new LogCommand(
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<OutputFormatterFactory>(),
+            sp.GetRequiredService<HintEngine>(),
+            sp.GetService<IGitService>()));
+
+        // Git hooks & context commands (EPIC-005)
+        services.AddSingleton<HookInstaller>();
+        services.AddSingleton<HooksCommand>(sp => new HooksCommand(
+            sp.GetRequiredService<HookInstaller>(),
+            sp.GetRequiredService<OutputFormatterFactory>(),
+            sp.GetRequiredService<HintEngine>(),
+            sp.GetRequiredService<TwigConfiguration>(),
+            sp.GetService<IGitService>()));
+        services.AddSingleton<GitContextCommand>(sp => new GitContextCommand(
+            sp.GetRequiredService<IContextStore>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<OutputFormatterFactory>(),
+            sp.GetRequiredService<HintEngine>(),
+            sp.GetRequiredService<TwigConfiguration>(),
+            sp.GetService<IGitService>(),
+            sp.GetService<IAdoGitService>()));
+        services.AddSingleton<HookHandlerCommand>(sp => new HookHandlerCommand(
+            sp.GetRequiredService<IContextStore>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<TwigConfiguration>(),
+            sp.GetService<IGitService>()));
 
         // Flow lifecycle commands (EPIC-004)
         services.AddSingleton<FlowStartCommand>(sp => new FlowStartCommand(
@@ -524,6 +559,20 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> Pr(string? target = null, string? title = null, bool draft = false, string output = "human")
         => await services.GetRequiredService<PrCommand>().ExecuteAsync(target, title, draft, output);
 
+    /// <summary>Stash changes with work item context in the stash message.</summary>
+    [Command("stash")]
+    public async Task<int> Stash([Argument] string? message = null, string output = "human")
+        => await services.GetRequiredService<StashCommand>().ExecuteAsync(message, output);
+
+    /// <summary>Pop the most recent stash and restore Twig context.</summary>
+    [Command("stash pop")]
+    public async Task<int> StashPop(string output = "human")
+        => await services.GetRequiredService<StashCommand>().PopAsync(output);
+
+    /// <summary>Show annotated git log with work item context.</summary>
+    public async Task<int> Log(int count = 20, int? workItem = null, string output = "human")
+        => await services.GetRequiredService<LogCommand>().ExecuteAsync(count, workItem, output);
+
     /// <summary>Start working on a work item: set context, transition state, assign, create branch.</summary>
     [Command("flow-start")]
     public async Task<int> FlowStart(
@@ -556,6 +605,25 @@ public sealed class TwigCommands(IServiceProvider services)
         string output = "human")
         => await services.GetRequiredService<FlowCloseCommand>()
             .ExecuteAsync(id, force, noBranchCleanup, output);
+
+    /// <summary>Install Twig-managed git hooks.</summary>
+    [Command("hooks install")]
+    public async Task<int> HooksInstall(string output = "human")
+        => await services.GetRequiredService<HooksCommand>().InstallAsync(output);
+
+    /// <summary>Uninstall Twig-managed git hooks.</summary>
+    [Command("hooks uninstall")]
+    public async Task<int> HooksUninstall(string output = "human")
+        => await services.GetRequiredService<HooksCommand>().UninstallAsync(output);
+
+    /// <summary>Show git context: branch, work item, and PR linkage.</summary>
+    public async Task<int> Context(string output = "human")
+        => await services.GetRequiredService<GitContextCommand>().ExecuteAsync(output);
+
+    /// <summary>Internal hook handler invoked by git hook scripts.</summary>
+    [Command("_hook")]
+    public async Task<int> Hook([Argument] string hookName, params string[] args)
+        => await services.GetRequiredService<HookHandlerCommand>().ExecuteAsync(hookName, args);
 
     /// <summary>Show the current version.</summary>
     public Task<int> Version()

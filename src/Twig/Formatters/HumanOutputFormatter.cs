@@ -424,6 +424,41 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         return $"{Dim}{message}{Reset}";
     }
 
+    public string FormatBranchInfo(string branchName)
+    {
+        return $"  Branch:    {Cyan}{branchName}{Reset}";
+    }
+
+    public string FormatPrStatus(int prId, string title, string status)
+    {
+        var statusColor = status switch
+        {
+            "active" => Blue,
+            "completed" => Green,
+            "abandoned" => Red,
+            _ => Dim,
+        };
+        return $"  PR !{prId}: {title} [{statusColor}{status}{Reset}]";
+    }
+
+    public string FormatAnnotatedLogEntry(string hash, string message, string? workItemType, string? workItemState, int? workItemId)
+    {
+        var shortHash = hash.Length > 7 ? hash[..7] : hash;
+        if (workItemType is not null && workItemId.HasValue)
+        {
+            var typeResult = Domain.ValueObjects.WorkItemType.Parse(workItemType);
+            if (typeResult.IsSuccess)
+            {
+                var badge = GetTypeBadge(typeResult.Value);
+                var typeColor = GetTypeColor(typeResult.Value);
+                var stateStr = workItemState is not null ? $" [{workItemState}]" : "";
+                return $"{Yellow}{shortHash}{Reset} {message} {typeColor}{badge}{Reset} #{workItemId}{stateStr}";
+            }
+        }
+
+        return $"{Yellow}{shortHash}{Reset} {message}";
+    }
+
     private string GetTypeColor(WorkItemType type)
     {
         var hex = TypeColorResolver.ResolveHex(type.Value, _typeColors, _appearanceColors);

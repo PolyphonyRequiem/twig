@@ -193,4 +193,23 @@ public sealed class MinimalOutputFormatter : IOutputFormatter
         return sb.ToString();
     }
 
+    public string FormatBranchInfo(string branchName)
+    {
+        return $"BRANCH {branchName}";
+    }
+
+    public string FormatPrStatus(int prId, string title, string status)
+    {
+        return $"PR !{prId} {status} \"{title}\"";
+    }
+
+    public string FormatAnnotatedLogEntry(string hash, string message, string? workItemType, string? workItemState, int? workItemId)
+    {
+        var shortHash = hash.Length > 7 ? hash[..7] : hash;
+        if (workItemId.HasValue)
+            return $"{shortHash} {message} #{workItemId} {workItemType ?? ""} {workItemState ?? ""}".TrimEnd();
+
+        return $"{shortHash} {message}";
+    }
+
 }

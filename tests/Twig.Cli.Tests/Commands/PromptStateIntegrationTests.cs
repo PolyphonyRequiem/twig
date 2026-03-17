@@ -211,7 +211,8 @@ public class PromptStateIntegrationTests : IDisposable
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(99);
 
         var writer = CreateWriter();
-        var cmd = new StateCommand(_contextStore, _workItemRepo, _adoService,
+        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var cmd = new StateCommand(resolver, _workItemRepo, _adoService,
             _pendingChangeStore, _processConfigProvider, _consoleInput,
             _formatterFactory, _hintEngine, writer);
 
@@ -248,8 +249,9 @@ public class PromptStateIntegrationTests : IDisposable
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(55);
 
         var writer = CreateWriter();
+        var saveResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var cmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _contextStore, _consoleInput, _formatterFactory, _hintEngine, writer);
+            saveResolver, _consoleInput, _formatterFactory, _hintEngine, writer);
 
         var result = await cmd.ExecuteAsync();
 
@@ -335,8 +337,9 @@ public class PromptStateIntegrationTests : IDisposable
             .Returns(2);
 
         var writer = CreateWriter();
+        var flowSaveResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _contextStore, _consoleInput, _formatterFactory, _hintEngine);
+            flowSaveResolver, _consoleInput, _formatterFactory, _hintEngine);
         var cmd = new FlowDoneCommand(_workItemRepo, _adoService, _contextStore,
             _pendingChangeStore, _processConfigProvider, saveCmd, _consoleInput,
             _formatterFactory, _hintEngine, _config, promptStateWriter: writer);
@@ -373,8 +376,9 @@ public class PromptStateIntegrationTests : IDisposable
         // only FlowDoneCommand should call it once at the end.
         var mockWriter = Substitute.For<IPromptStateWriter>();
 
+        var flowDoneResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _contextStore, _consoleInput, _formatterFactory, _hintEngine, mockWriter);
+            flowDoneResolver, _consoleInput, _formatterFactory, _hintEngine, mockWriter);
         var cmd = new FlowDoneCommand(_workItemRepo, _adoService, _contextStore,
             _pendingChangeStore, _processConfigProvider, saveCmd, _consoleInput,
             _formatterFactory, _hintEngine, _config, promptStateWriter: mockWriter);
@@ -400,7 +404,8 @@ public class PromptStateIntegrationTests : IDisposable
             .Returns("Title: New title\n");
 
         var writer = CreateWriter();
-        var cmd = new EditCommand(_contextStore, _workItemRepo, _pendingChangeStore,
+        var editResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var cmd = new EditCommand(editResolver, _workItemRepo, _pendingChangeStore,
             editorLauncher, _formatterFactory, _hintEngine, writer);
 
         var result = await cmd.ExecuteAsync();
@@ -423,7 +428,8 @@ public class PromptStateIntegrationTests : IDisposable
         var editorLauncher = Substitute.For<IEditorLauncher>();
 
         var writer = CreateWriter();
-        var cmd = new NoteCommand(_contextStore, _workItemRepo, _pendingChangeStore,
+        var noteResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var cmd = new NoteCommand(noteResolver, _workItemRepo, _pendingChangeStore,
             editorLauncher, _formatterFactory, _hintEngine, writer);
 
         var result = await cmd.ExecuteAsync("A test note");
@@ -447,7 +453,8 @@ public class PromptStateIntegrationTests : IDisposable
             .Returns(2);
 
         var writer = CreateWriter();
-        var cmd = new UpdateCommand(_contextStore, _workItemRepo, _adoService,
+        var updateResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var cmd = new UpdateCommand(updateResolver, _workItemRepo, _adoService,
             _pendingChangeStore, _consoleInput, _formatterFactory, _hintEngine, writer);
 
         var result = await cmd.ExecuteAsync("System.Title", "New Title");
@@ -481,8 +488,9 @@ public class PromptStateIntegrationTests : IDisposable
             .Returns(Array.Empty<int>());
 
         var writer = CreateWriter();
+        var refreshProtectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
         var cmd = new RefreshCommand(_contextStore, _workItemRepo, _adoService, iterationService,
-            _pendingChangeStore, _config, _paths, _processTypeStore, _formatterFactory, _hintEngine, writer);
+            _pendingChangeStore, refreshProtectedWriter, _config, _paths, _processTypeStore, _formatterFactory, _hintEngine, writer);
 
         var result = await cmd.ExecuteAsync();
 

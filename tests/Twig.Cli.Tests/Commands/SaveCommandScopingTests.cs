@@ -4,6 +4,7 @@ using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -24,6 +25,7 @@ public class SaveCommandScopingTests
     private readonly IConsoleInput _consoleInput;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
+    private readonly ActiveItemResolver _resolver;
 
     public SaveCommandScopingTests()
     {
@@ -35,11 +37,12 @@ public class SaveCommandScopingTests
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
+        _resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
     }
 
     private SaveCommand CreateCommand() =>
         new(_workItemRepo, _adoService, _pendingChangeStore,
-            _contextStore, _consoleInput, _formatterFactory, _hintEngine);
+            _resolver, _consoleInput, _formatterFactory, _hintEngine);
 
     [Fact]
     public async Task ActiveWorkTree_SavesActiveItemAndDirtyChildrenOnly()
@@ -159,9 +162,40 @@ public class SaveCommandScopingTests
     }
 
     [Fact]
+    public async Task ActiveWorkTree_UnreachableActiveItem_ReturnsCacheMissError()
+    {
+        // Active item exists in context but is unreachable (not in cache, auto-fetch fails)
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
+            .Returns<WorkItem>(_ => throw new InvalidOperationException("network error"));
+
+        var cmd = CreateCommand();
+
+        var savedErr = Console.Error;
+        var stderr = new StringWriter();
+        Console.SetError(stderr);
+        try
+        {
+            var result = await cmd.ExecuteAsync(); // no targetId, no --all
+
+            result.ShouldBe(1);
+            var output = stderr.ToString();
+            output.ShouldContain("#42");
+            output.ShouldContain("not found in cache");
+            output.ShouldNotContain("No active work item");
+        }
+        finally
+        {
+            Console.SetError(savedErr);
+        }
+    }
+
+    [Fact]
     public async Task ActiveWorkTree_NoDirtyItems_ReturnsZero()
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(10);
+        _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(10, "Active Item"));
         _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<int>());
 
@@ -177,6 +211,7 @@ public class SaveCommandScopingTests
     {
         // Active item 10 is clean, but child 11 is dirty
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(10);
+        _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(10, "Active Item"));
         _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
             .Returns(new[] { 11 }); // only child is dirty
 
@@ -206,6 +241,7 @@ public class SaveCommandScopingTests
     {
         // Active item 10, dirty item 99 is not a child of 10
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(10);
+        _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(10, "Active Item"));
         _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
             .Returns(new[] { 99 });
 

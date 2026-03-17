@@ -5,6 +5,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -27,6 +28,7 @@ public class ConflictUxTests
     private readonly IProcessConfigurationProvider _processConfigProvider;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
+    private readonly Domain.Services.ActiveItemResolver _resolver;
 
     private static StateEntry[] S(params (string Name, StateCategory Cat)[] entries) =>
         entries.Select(e => new StateEntry(e.Name, e.Cat, null)).ToArray();
@@ -64,6 +66,7 @@ public class ConflictUxTests
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
+        _resolver = new Domain.Services.ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
     }
 
     [Fact]
@@ -83,7 +86,7 @@ public class ConflictUxTests
         _consoleInput.ReadLine().Returns("l"); // keep local
 
         var cmd = new StateCommand(
-            _contextStore, _workItemRepo, _adoService, _pendingChangeStore,
+            _resolver, _workItemRepo, _adoService, _pendingChangeStore,
             _processConfigProvider, _consoleInput, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("c"); // c = Active
@@ -107,7 +110,7 @@ public class ConflictUxTests
         _consoleInput.ReadLine().Returns("r"); // keep remote
 
         var cmd = new StateCommand(
-            _contextStore, _workItemRepo, _adoService, _pendingChangeStore,
+            _resolver, _workItemRepo, _adoService, _pendingChangeStore,
             _processConfigProvider, _consoleInput, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("c"); // c = Active
@@ -131,7 +134,7 @@ public class ConflictUxTests
         _consoleInput.ReadLine().Returns("a"); // abort
 
         var cmd = new StateCommand(
-            _contextStore, _workItemRepo, _adoService, _pendingChangeStore,
+            _resolver, _workItemRepo, _adoService, _pendingChangeStore,
             _processConfigProvider, _consoleInput, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("c");
@@ -156,7 +159,7 @@ public class ConflictUxTests
 
         _consoleInput.ReadLine().Returns("l"); // keep local
 
-        var cmd = new UpdateCommand(_contextStore, _workItemRepo, _adoService, _pendingChangeStore,
+        var cmd = new UpdateCommand(_resolver, _workItemRepo, _adoService, _pendingChangeStore,
             _consoleInput, _formatterFactory, _hintEngine);
         var result = await cmd.ExecuteAsync("System.Title", "New Title");
 
@@ -178,7 +181,7 @@ public class ConflictUxTests
 
         _consoleInput.ReadLine().Returns("r"); // keep remote
 
-        var cmd = new UpdateCommand(_contextStore, _workItemRepo, _adoService, _pendingChangeStore,
+        var cmd = new UpdateCommand(_resolver, _workItemRepo, _adoService, _pendingChangeStore,
             _consoleInput, _formatterFactory, _hintEngine);
         var result = await cmd.ExecuteAsync("System.Title", "New Title");
 
@@ -205,7 +208,7 @@ public class ConflictUxTests
         _consoleInput.ReadLine().Returns("r"); // keep remote
 
         var cmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _contextStore, _consoleInput, _formatterFactory, _hintEngine);
+            _resolver, _consoleInput, _formatterFactory, _hintEngine);
         var result = await cmd.ExecuteAsync(all: true);
 
         result.ShouldBe(0);
@@ -234,7 +237,7 @@ public class ConflictUxTests
         try
         {
             var cmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _contextStore, _consoleInput, _formatterFactory, _hintEngine);
+            _resolver, _consoleInput, _formatterFactory, _hintEngine);
             var result = await cmd.ExecuteAsync(all: true, outputFormat: "json");
 
             result.ShouldBe(1);

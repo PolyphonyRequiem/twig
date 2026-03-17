@@ -3,6 +3,7 @@ using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -26,6 +27,7 @@ public class RefreshDirtyGuardTests : IDisposable
     private readonly IAdoWorkItemService _adoService;
     private readonly IIterationService _iterationService;
     private readonly IPendingChangeStore _pendingChangeStore;
+    private readonly ProtectedCacheWriter _protectedCacheWriter;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
 
@@ -46,6 +48,7 @@ public class RefreshDirtyGuardTests : IDisposable
         _adoService = Substitute.For<IAdoWorkItemService>();
         _iterationService = Substitute.For<IIterationService>();
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
+        _protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
 
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
@@ -74,7 +77,7 @@ public class RefreshDirtyGuardTests : IDisposable
 
     private RefreshCommand CreateCommand() =>
         new(_contextStore, _workItemRepo, _adoService, _iterationService,
-            _pendingChangeStore, _config, _paths, _processTypeStore, _formatterFactory, _hintEngine);
+            _pendingChangeStore, _protectedCacheWriter, _config, _paths, _processTypeStore, _formatterFactory, _hintEngine);
 
     [Fact]
     public async Task CleanCache_RefreshesNormally()
@@ -100,9 +103,9 @@ public class RefreshDirtyGuardTests : IDisposable
     }
 
     [Fact]
-    public async Task DirtyItem_NewerRemoteRevision_HaltsRefresh()
+    public async Task DirtyItem_NewerRemoteRevision_SkipsProtectedItem()
     {
-        // Local item at revision 3, remote at revision 5 — should conflict
+        // Local item at revision 3, remote at revision 5 — should be skipped (not saved)
         var localItem = CreateWorkItem(1, "Local Item", revision: 3);
         localItem.SetDirty();
         _workItemRepo.GetDirtyItemsAsync(Arg.Any<CancellationToken>())
@@ -126,7 +129,8 @@ public class RefreshDirtyGuardTests : IDisposable
             var cmd = CreateCommand();
             var result = await cmd.ExecuteAsync();
 
-            result.ShouldBe(1);
+            // Per-item skip: protected items are skipped, refresh succeeds
+            result.ShouldBe(0);
             var output = stderr.ToString();
             output.ShouldContain("#1");
             output.ShouldContain("local rev 3");
@@ -137,14 +141,17 @@ public class RefreshDirtyGuardTests : IDisposable
             Console.SetError(savedErr);
         }
 
-        // SaveBatchAsync should NOT have been called
-        await _workItemRepo.DidNotReceive().SaveBatchAsync(Arg.Any<IReadOnlyList<WorkItem>>(), Arg.Any<CancellationToken>());
+        // SaveBatchAsync should NOT have been called with the protected item
+        await _workItemRepo.DidNotReceive().SaveBatchAsync(
+            Arg.Is<IReadOnlyList<WorkItem>>(items => items.Any(i => i.Id == 1)),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task DirtyItem_SameRevision_RefreshesNormally()
+    public async Task DirtyItem_SameRevision_SkippedByProtectedCacheWriter()
     {
-        // Local item at revision 5, remote also at revision 5 — safe (no remote changes)
+        // Local item at revision 5, remote also at revision 5 — previously saved,
+        // now skipped by ProtectedCacheWriter (dirty items are always protected)
         var localItem = CreateWorkItem(1, "Local Item", revision: 5);
         localItem.SetDirty();
         _workItemRepo.GetDirtyItemsAsync(Arg.Any<CancellationToken>())
@@ -164,7 +171,10 @@ public class RefreshDirtyGuardTests : IDisposable
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
-        await _workItemRepo.Received().SaveBatchAsync(Arg.Any<IReadOnlyList<WorkItem>>(), Arg.Any<CancellationToken>());
+        // Protected item is skipped — SaveBatchAsync should not save item 1
+        await _workItemRepo.DidNotReceive().SaveBatchAsync(
+            Arg.Is<IReadOnlyList<WorkItem>>(items => items.Any(i => i.Id == 1)),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -220,7 +230,8 @@ public class RefreshDirtyGuardTests : IDisposable
             var cmd = CreateCommand();
             var result = await cmd.ExecuteAsync();
 
-            result.ShouldBe(1);
+            // Per-item skip: protected item is skipped, refresh succeeds
+            result.ShouldBe(0);
             stderr.ToString().ShouldContain("#1");
         }
         finally
@@ -228,11 +239,14 @@ public class RefreshDirtyGuardTests : IDisposable
             Console.SetError(savedErr);
         }
 
-        await _workItemRepo.DidNotReceive().SaveBatchAsync(Arg.Any<IReadOnlyList<WorkItem>>(), Arg.Any<CancellationToken>());
+        // Protected item should not be saved
+        await _workItemRepo.DidNotReceive().SaveBatchAsync(
+            Arg.Is<IReadOnlyList<WorkItem>>(items => items.Any(i => i.Id == 1)),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task ActiveItemOutOfSprint_DirtyWithNewerRevision_HaltsRefresh()
+    public async Task ActiveItemOutOfSprint_DirtyWithNewerRevision_SkipsProtectedItem()
     {
         // Active item 42 is outside the sprint scope, dirty with newer remote revision
         var localItem = CreateWorkItem(42, "Active Out-of-Sprint", revision: 3);
@@ -265,7 +279,8 @@ public class RefreshDirtyGuardTests : IDisposable
             var cmd = CreateCommand();
             var result = await cmd.ExecuteAsync();
 
-            result.ShouldBe(1);
+            // Per-item skip: protected items are skipped, refresh succeeds
+            result.ShouldBe(0);
             var output = stderr.ToString();
             output.ShouldContain("#42");
             output.ShouldContain("local rev 3");
@@ -276,13 +291,17 @@ public class RefreshDirtyGuardTests : IDisposable
             Console.SetError(savedErr);
         }
 
-        // With atomic conflict checking, nothing should be saved when any scope has conflicts
-        await _workItemRepo.DidNotReceive().SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
-        await _workItemRepo.DidNotReceive().SaveBatchAsync(Arg.Any<IReadOnlyList<WorkItem>>(), Arg.Any<CancellationToken>());
+        // Sprint items (clean) should be saved; active item 42 (protected) should be skipped
+        await _workItemRepo.Received().SaveBatchAsync(
+            Arg.Is<IReadOnlyList<WorkItem>>(items => items.Any(i => i.Id == 1)),
+            Arg.Any<CancellationToken>());
+        // Protected active item should not be saved
+        await _workItemRepo.DidNotReceive().SaveAsync(
+            Arg.Is<WorkItem>(w => w.Id == 42), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task ChildrenOutOfSprint_DirtyWithNewerRevision_HaltsRefresh()
+    public async Task ChildrenOutOfSprint_DirtyWithNewerRevision_SkipsProtectedChild()
     {
         // Child item 99 is dirty with newer remote revision
         var localChild = CreateWorkItem(99, "Dirty Child", revision: 2);
@@ -316,7 +335,8 @@ public class RefreshDirtyGuardTests : IDisposable
             var cmd = CreateCommand();
             var result = await cmd.ExecuteAsync();
 
-            result.ShouldBe(1);
+            // Per-item skip: protected items are skipped, refresh succeeds
+            result.ShouldBe(0);
             var output = stderr.ToString();
             output.ShouldContain("#99");
             output.ShouldContain("local rev 2");
@@ -327,9 +347,13 @@ public class RefreshDirtyGuardTests : IDisposable
             Console.SetError(savedErr);
         }
 
-        // With atomic conflict checking, nothing should be saved when any scope has conflicts
-        await _workItemRepo.DidNotReceive().SaveBatchAsync(Arg.Any<IReadOnlyList<WorkItem>>(), Arg.Any<CancellationToken>());
-        await _workItemRepo.DidNotReceive().SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+        // Sprint items (clean) should be saved
+        await _workItemRepo.Received().SaveBatchAsync(
+            Arg.Is<IReadOnlyList<WorkItem>>(items => items.Any(i => i.Id == 1)),
+            Arg.Any<CancellationToken>());
+        // Active item (clean) should be saved
+        await _workItemRepo.Received().SaveAsync(
+            Arg.Is<WorkItem>(w => w.Id == 10), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -361,6 +385,114 @@ public class RefreshDirtyGuardTests : IDisposable
         result.ShouldBe(0);
         await _workItemRepo.Received().SaveAsync(
             Arg.Is<WorkItem>(w => w.Id == 42), Arg.Any<CancellationToken>());
+    }
+
+    // ── E5-T7: New tests for RefreshCommand behavioral change ──────────
+
+    [Fact]
+    public async Task ProtectedItem_NoRevisionConflict_IsNowSkipped()
+    {
+        // Protected item with same revision (no revision conflict) is now skipped
+        // by ProtectedCacheWriter. Previously this was saved during non-force refresh.
+        var localItem = CreateWorkItem(1, "Local Item", revision: 5);
+        localItem.SetDirty();
+        _workItemRepo.GetDirtyItemsAsync(Arg.Any<CancellationToken>())
+            .Returns(new[] { localItem });
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(localItem);
+
+        // Remote has same revision — no revision conflict
+        var remoteItem = CreateWorkItem(1, "Remote Item", revision: 5);
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { 1 });
+        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { remoteItem });
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync();
+
+        result.ShouldBe(0);
+        // Protected item should be skipped — no SaveBatchAsync with this item
+        await _workItemRepo.DidNotReceive().SaveBatchAsync(
+            Arg.Is<IReadOnlyList<WorkItem>>(items => items.Any(i => i.Id == 1)),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ProtectedItem_WithRevisionConflict_SkippedAndWarningShown()
+    {
+        // Protected item with newer remote revision — skipped with informational warning
+        var localItem = CreateWorkItem(1, "Local Item", revision: 3);
+        localItem.SetDirty();
+        _workItemRepo.GetDirtyItemsAsync(Arg.Any<CancellationToken>())
+            .Returns(new[] { localItem });
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(localItem);
+
+        var remoteItem = CreateWorkItem(1, "Remote Item", revision: 7);
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { 1 });
+        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { remoteItem });
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+
+        var savedErr = Console.Error;
+        var stderr = new StringWriter();
+        Console.SetError(stderr);
+        try
+        {
+            var cmd = CreateCommand();
+            var result = await cmd.ExecuteAsync();
+
+            result.ShouldBe(0); // No longer blocks — informational warning only
+            var output = stderr.ToString();
+            output.ShouldContain("Warning");
+            output.ShouldContain("#1");
+            output.ShouldContain("local rev 3");
+            output.ShouldContain("remote rev 7");
+            output.ShouldContain("twig save");
+        }
+        finally
+        {
+            Console.SetError(savedErr);
+        }
+
+        // Protected item not saved
+        await _workItemRepo.DidNotReceive().SaveBatchAsync(
+            Arg.Is<IReadOnlyList<WorkItem>>(items => items.Any(i => i.Id == 1)),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Force_SavesAllItems_IncludingProtected()
+    {
+        // --force saves everything including protected items
+        var localItem = CreateWorkItem(1, "Local Item", revision: 3);
+        localItem.SetDirty();
+        _workItemRepo.GetDirtyItemsAsync(Arg.Any<CancellationToken>())
+            .Returns(new[] { localItem });
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(localItem);
+
+        var remoteItem = CreateWorkItem(1, "Remote Item", revision: 7);
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { 1 });
+        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { remoteItem });
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync(force: true);
+
+        result.ShouldBe(0);
+        // --force bypasses ProtectedCacheWriter, saves all via raw SaveBatchAsync
+        await _workItemRepo.Received().SaveBatchAsync(
+            Arg.Is<IReadOnlyList<WorkItem>>(items => items.Any(i => i.Id == 1)),
+            Arg.Any<CancellationToken>());
     }
 
     private static WorkItem CreateWorkItem(int id, string title, int revision = 0)

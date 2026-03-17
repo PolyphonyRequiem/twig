@@ -1,4 +1,5 @@
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -14,7 +15,7 @@ public sealed class SaveCommand(
     IWorkItemRepository workItemRepo,
     IAdoWorkItemService adoService,
     IPendingChangeStore pendingChangeStore,
-    IContextStore contextStore,
+    ActiveItemResolver activeItemResolver,
     IConsoleInput consoleInput,
     OutputFormatterFactory formatterFactory,
     HintEngine hintEngine,
@@ -51,12 +52,31 @@ public sealed class SaveCommand(
         else
         {
             // Active work tree mode: active item + dirty children
-            var activeId = await contextStore.GetActiveWorkItemIdAsync();
-            if (!activeId.HasValue)
+            var activeResult = await activeItemResolver.GetActiveItemAsync();
+            if (activeResult is ActiveItemResult.NoContext)
             {
                 Console.Error.WriteLine(fmt.FormatError("No active work item. Use 'twig save --all' or 'twig save <id>'."));
                 return 1;
             }
+            if (activeResult is ActiveItemResult.Unreachable u)
+            {
+                Console.Error.WriteLine(fmt.FormatError($"Work item #{u.Id} not found in cache."));
+                return 1;
+            }
+
+            var activeItem = activeResult switch
+            {
+                ActiveItemResult.Found f => f.WorkItem,
+                ActiveItemResult.FetchedFromAdo f => f.WorkItem,
+                _ => null,
+            };
+            if (activeItem is null)
+            {
+                Console.Error.WriteLine(fmt.FormatError("No active work item. Use 'twig save --all' or 'twig save <id>'."));
+                return 1;
+            }
+
+            var activeId = activeItem.Id;
 
             var dirtyIds = await pendingChangeStore.GetDirtyItemIdsAsync();
             if (dirtyIds.Count == 0)
@@ -69,11 +89,11 @@ public sealed class SaveCommand(
             var workTreeIds = new List<int>();
 
             // Include active item if dirty
-            if (dirtySet.Contains(activeId.Value))
-                workTreeIds.Add(activeId.Value);
+            if (dirtySet.Contains(activeId))
+                workTreeIds.Add(activeId);
 
             // Include dirty children of the active item
-            var children = await workItemRepo.GetChildrenAsync(activeId.Value);
+            var children = await workItemRepo.GetChildrenAsync(activeId);
             foreach (var child in children)
             {
                 if (dirtySet.Contains(child.Id))

@@ -5,6 +5,7 @@ using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -100,7 +101,7 @@ public class OfflineModeTests
             .ThrowsAsync(new AdoOfflineException(new HttpRequestException("Connection refused")));
 
         var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _contextStore, _consoleInput, _formatterFactory, _hintEngine);
+            new ActiveItemResolver(_contextStore, _workItemRepo, _adoService), _consoleInput, _formatterFactory, _hintEngine);
 
         await Should.ThrowAsync<AdoOfflineException>(() => saveCmd.ExecuteAsync(all: true));
     }

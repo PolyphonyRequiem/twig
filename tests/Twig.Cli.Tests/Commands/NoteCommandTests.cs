@@ -3,6 +3,7 @@ using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -26,11 +27,13 @@ public class NoteCommandTests
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
         _editorLauncher = Substitute.For<IEditorLauncher>();
 
+        var adoService = Substitute.For<IAdoWorkItemService>();
         var formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
 
-        _cmd = new NoteCommand(_contextStore, _workItemRepo, _pendingChangeStore, _editorLauncher,
+        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, adoService);
+        _cmd = new NoteCommand(resolver, _workItemRepo, _pendingChangeStore, _editorLauncher,
             formatterFactory, hintEngine);
     }
 

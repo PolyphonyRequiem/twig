@@ -586,33 +586,35 @@ No new security boundaries are introduced. All data flows remain local (SQLite c
 
 **Goal**: Update `state`, `note`, `update`, `edit`, `save`, `refresh` to use `ActiveItemResolver`, `SyncCoordinator`, and `ProtectedCacheWriter`. Write commands still need conflict detection but display cached state first.
 
+**Status**: ✅ DONE
+
 **Prerequisites**: EPIC-001
 
 **Tasks**:
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E5-T1 | IMPL | **StateCommand**: Replace inline resolution (`contextStore.GetActiveWorkItemIdAsync()` line 37 → `workItemRepo.GetByIdAsync()` line 44) with `ActiveItemResolver.GetActiveItemAsync()`. Remove `IContextStore`, add `ActiveItemResolver`. Net param count: 9→9. | `src/Twig/Commands/StateCommand.cs` | TO DO |
+| E5-T1 | IMPL | **StateCommand**: Replace inline resolution (`contextStore.GetActiveWorkItemIdAsync()` line 37 → `workItemRepo.GetByIdAsync()` line 44) with `ActiveItemResolver.GetActiveItemAsync()`. Remove `IContextStore`, add `ActiveItemResolver`. Net param count: 9→9. | `src/Twig/Commands/StateCommand.cs` | DONE |
 
 > **E5-T1 implementation notes**: All other constructor dependencies remain actively used: `IWorkItemRepository` (SaveAsync, GetChildrenAsync), `IAdoWorkItemService` (FetchAsync for pre-patch conflict detection, PatchAsync for state mutation), `IPendingChangeStore` (AutoPushNotesHelper), `IProcessConfigurationProvider`, `IConsoleInput`, `OutputFormatterFactory`, `HintEngine`, `IPromptStateWriter?`. The benefit is pattern consolidation (replacing 4-line boilerplate), not parameter reduction.
-| E5-T2 | IMPL | **NoteCommand**: Replace inline resolution with `ActiveItemResolver`. No sync needed (local-only). | `src/Twig/Commands/NoteCommand.cs` | TO DO |
-| E5-T3 | IMPL | **UpdateCommand**: Replace inline resolution with `ActiveItemResolver`. Use `SyncCoordinator` for pre-patch fetch. | `src/Twig/Commands/UpdateCommand.cs` | TO DO |
-| E5-T4 | IMPL | **EditCommand**: Replace inline resolution with `ActiveItemResolver`. No sync needed (local-only). | `src/Twig/Commands/EditCommand.cs` | TO DO |
-| E5-T5 | IMPL | **SaveCommand**: Replace inline resolution with `ActiveItemResolver`. Replace `SaveBatchAsync` calls with `ProtectedCacheWriter` where applicable. Conflict resolution flow stays. | `src/Twig/Commands/SaveCommand.cs` | TO DO |
-| E5-T6a | IMPL | **RefreshCommand — protected save path**: Replace unguarded `SaveBatchAsync` calls (lines 158–163) with `ProtectedCacheWriter.SaveBatchProtectedAsync()`. `--force` bypasses protection (calls raw `SaveBatchAsync`). | `src/Twig/Commands/RefreshCommand.cs` | TO DO |
-| E5-T6b | IMPL | **RefreshCommand — conflict detection as informational**: Preserve `FindConflictsAsync` (lines 96–109) for user-facing diagnostic output. Change interaction: instead of conflicts blocking the save, they produce informational warnings alongside the skip. | `src/Twig/Commands/RefreshCommand.cs` | TO DO |
+| E5-T2 | IMPL | **NoteCommand**: Replace inline resolution with `ActiveItemResolver`. No sync needed (local-only). | `src/Twig/Commands/NoteCommand.cs` | DONE |
+| E5-T3 | IMPL | **UpdateCommand**: Replace inline resolution with `ActiveItemResolver`. Use `SyncCoordinator` for pre-patch fetch. | `src/Twig/Commands/UpdateCommand.cs` | DONE |
+| E5-T4 | IMPL | **EditCommand**: Replace inline resolution with `ActiveItemResolver`. No sync needed (local-only). | `src/Twig/Commands/EditCommand.cs` | DONE |
+| E5-T5 | IMPL | **SaveCommand**: Replace inline resolution with `ActiveItemResolver`. Replace `SaveBatchAsync` calls with `ProtectedCacheWriter` where applicable. Conflict resolution flow stays. | `src/Twig/Commands/SaveCommand.cs` | DONE |
+| E5-T6a | IMPL | **RefreshCommand — protected save path**: Replace unguarded `SaveBatchAsync` calls (lines 158–163) with `ProtectedCacheWriter.SaveBatchProtectedAsync()`. `--force` bypasses protection (calls raw `SaveBatchAsync`). | `src/Twig/Commands/RefreshCommand.cs` | DONE |
+| E5-T6b | IMPL | **RefreshCommand — conflict detection as informational**: Preserve `FindConflictsAsync` (lines 96–109) for user-facing diagnostic output. Change interaction: instead of conflicts blocking the save, they produce informational warnings alongside the skip. | `src/Twig/Commands/RefreshCommand.cs` | DONE |
 
 > **E5-T6 behavioral change**: The current code (lines 91–163) uses an **all-or-nothing** approach: computes `protectedIds` via `SyncGuard`, passes them to `FindConflictsAsync` for revision-conflict detection, then either aborts entirely if any conflict exists, or saves ALL items without filtering. Adopting `ProtectedCacheWriter` changes this to **per-item skip**: protected items are silently excluded from saves rather than blocking the entire refresh. This means a protected item with no revision conflict (currently saved during non-`--force` refresh) will be skipped after this change. This is the intended behavior (preventing any overwrite of dirty data), but it is a behavioral change, not a pure refactor.
-| E5-T7 | TEST | Update tests for all 6 write commands. Verify conflict detection, pending change preservation, `RefreshCommand` preserves `FindConflictsAsync` revision-conflict output. **New tests for RefreshCommand behavioral change** (E5-T6a/b): (a) protected item with no revision conflict is now skipped (previously saved), (b) protected item with revision conflict is skipped and warning shown, (c) `--force` saves all items including protected. | `tests/Twig.Cli.Tests/Commands/` | TO DO |
+| E5-T7 | TEST | Update tests for all 6 write commands. Verify conflict detection, pending change preservation, `RefreshCommand` preserves `FindConflictsAsync` revision-conflict output. **New tests for RefreshCommand behavioral change** (E5-T6a/b): (a) protected item with no revision conflict is now skipped (previously saved), (b) protected item with revision conflict is skipped and warning shown, (c) `--force` saves all items including protected. | `tests/Twig.Cli.Tests/Commands/` | DONE |
 
 **Acceptance Criteria**:
-- [ ] `StateCommand` constructor has 9 parameters
-- [ ] `RefreshCommand --force` bypasses `ProtectedCacheWriter` and saves all items
-- [ ] `RefreshCommand` (no --force) skips protected items via `ProtectedCacheWriter`
-- [ ] `RefreshCommand` preserves revision-conflict detection output as informational warnings for skipped items
-- [ ] Conflict detection still works in `StateCommand`, `UpdateCommand`, `SaveCommand`
-- [ ] Pending changes preserved during sync for all write commands
-- [ ] All existing tests pass
+- [x] `StateCommand` constructor has 9 parameters
+- [x] `RefreshCommand --force` bypasses `ProtectedCacheWriter` and saves all items
+- [x] `RefreshCommand` (no --force) skips protected items via `ProtectedCacheWriter`
+- [x] `RefreshCommand` preserves revision-conflict detection output as informational warnings for skipped items
+- [x] Conflict detection still works in `StateCommand`, `UpdateCommand`, `SaveCommand`
+- [x] Pending changes preserved during sync for all write commands
+- [x] All existing tests pass
 
 ---
 

@@ -47,6 +47,31 @@ public sealed class ProtectedCacheWriter
     }
 
     /// <summary>
+    /// Saves a batch of work items using pre-computed protected IDs, skipping any that are protected.
+    /// Avoids redundant <see cref="SyncGuard"/> queries when the caller has already computed protected IDs.
+    /// Returns the list of IDs that were skipped.
+    /// </summary>
+    public async Task<IReadOnlyList<int>> SaveBatchProtectedAsync(
+        IEnumerable<WorkItem> items, IReadOnlySet<int> protectedIds, CancellationToken ct = default)
+    {
+        var toSave = new List<WorkItem>();
+        var skippedIds = new List<int>();
+
+        foreach (var item in items)
+        {
+            if (protectedIds.Contains(item.Id))
+                skippedIds.Add(item.Id);
+            else
+                toSave.Add(item);
+        }
+
+        if (toSave.Count > 0)
+            await _workItemRepo.SaveBatchAsync(toSave, ct);
+
+        return skippedIds;
+    }
+
+    /// <summary>
     /// Saves a single work item if it is not protected.
     /// Returns <c>true</c> if saved, <c>false</c> if skipped.
     /// </summary>
@@ -54,6 +79,20 @@ public sealed class ProtectedCacheWriter
     {
         var protectedIds = await SyncGuard.GetProtectedItemIdsAsync(_workItemRepo, _pendingChangeStore, ct);
 
+        if (protectedIds.Contains(item.Id))
+            return false;
+
+        await _workItemRepo.SaveAsync(item, ct);
+        return true;
+    }
+
+    /// <summary>
+    /// Saves a single work item using pre-computed protected IDs.
+    /// Avoids redundant <see cref="SyncGuard"/> queries when the caller has already computed protected IDs.
+    /// Returns <c>true</c> if saved, <c>false</c> if skipped.
+    /// </summary>
+    public async Task<bool> SaveProtectedAsync(WorkItem item, IReadOnlySet<int> protectedIds, CancellationToken ct = default)
+    {
         if (protectedIds.Contains(item.Id))
             return false;
 

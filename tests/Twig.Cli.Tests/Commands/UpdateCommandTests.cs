@@ -4,6 +4,7 @@ using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -33,7 +34,8 @@ public class UpdateCommandTests
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
 
-        _cmd = new UpdateCommand(_contextStore, _workItemRepo, _adoService, _pendingChangeStore,
+        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        _cmd = new UpdateCommand(resolver, _workItemRepo, _adoService, _pendingChangeStore,
             _consoleInput, formatterFactory, hintEngine);
     }
 

@@ -39,7 +39,16 @@ public static class CommandRegistrationModule
             sp.GetService<IGitService>(),
             sp.GetService<IAdoGitService>(),
             sp.GetRequiredService<Domain.Services.ActiveItemResolver>()));
-        services.AddSingleton<StateCommand>();
+        services.AddSingleton<StateCommand>(sp => new StateCommand(
+            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IPendingChangeStore>(),
+            sp.GetRequiredService<IProcessConfigurationProvider>(),
+            sp.GetRequiredService<IConsoleInput>(),
+            sp.GetRequiredService<OutputFormatterFactory>(),
+            sp.GetRequiredService<HintEngine>(),
+            sp.GetRequiredService<IPromptStateWriter>()));
         services.AddSingleton<TreeCommand>(sp => new TreeCommand(
             sp.GetRequiredService<IContextStore>(),
             sp.GetRequiredService<IWorkItemRepository>(),
@@ -49,14 +58,36 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<Domain.Services.ActiveItemResolver>()));
         services.AddSingleton<NavigationCommands>();
         services.AddSingleton<SeedCommand>();
-        services.AddSingleton<NoteCommand>();
-        services.AddSingleton<UpdateCommand>();
-        services.AddSingleton<EditCommand>();
+        services.AddSingleton<NoteCommand>(sp => new NoteCommand(
+            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IPendingChangeStore>(),
+            sp.GetRequiredService<IEditorLauncher>(),
+            sp.GetRequiredService<OutputFormatterFactory>(),
+            sp.GetRequiredService<HintEngine>(),
+            sp.GetRequiredService<IPromptStateWriter>()));
+        services.AddSingleton<UpdateCommand>(sp => new UpdateCommand(
+            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IPendingChangeStore>(),
+            sp.GetRequiredService<IConsoleInput>(),
+            sp.GetRequiredService<OutputFormatterFactory>(),
+            sp.GetRequiredService<HintEngine>(),
+            sp.GetRequiredService<IPromptStateWriter>()));
+        services.AddSingleton<EditCommand>(sp => new EditCommand(
+            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IPendingChangeStore>(),
+            sp.GetRequiredService<IEditorLauncher>(),
+            sp.GetRequiredService<OutputFormatterFactory>(),
+            sp.GetRequiredService<HintEngine>(),
+            sp.GetRequiredService<IPromptStateWriter>()));
         services.AddSingleton<SaveCommand>(sp => new SaveCommand(
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IAdoWorkItemService>(),
             sp.GetRequiredService<IPendingChangeStore>(),
-            sp.GetRequiredService<IContextStore>(),
+            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
             sp.GetRequiredService<IConsoleInput>(),
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<HintEngine>(),
@@ -67,6 +98,7 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<IAdoWorkItemService>(),
             sp.GetRequiredService<IIterationService>(),
             sp.GetRequiredService<IPendingChangeStore>(),
+            sp.GetRequiredService<Domain.Services.ProtectedCacheWriter>(),
             sp.GetRequiredService<TwigConfiguration>(),
             sp.GetRequiredService<TwigPaths>(),
             sp.GetRequiredService<IProcessTypeStore>(),

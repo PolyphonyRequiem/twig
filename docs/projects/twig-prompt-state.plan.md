@@ -243,7 +243,7 @@ The `_prompt` command is deleted entirely (EPIC-003). The shell hook reads `.twi
 
 ## Implementation Plan
 
-### EPIC-001: PromptStateWriter service
+### EPIC-001: PromptStateWriter service — DONE
 
 **Goal**: Create the `IPromptStateWriter` service that generates and writes `.twig/prompt.json`.
 
@@ -251,24 +251,26 @@ The `_prompt` command is deleted entirely (EPIC-003). The shell hook reads `.twi
 
 | Task | Type | Description | Files | Status |
 |------|------|-------------|-------|--------|
-| ITEM-001 | IMPL | Create `IPromptStateWriter` interface with `void WritePromptState()` method. Place in Domain interfaces. | `src/Twig.Domain/Interfaces/IPromptStateWriter.cs` | TO DO |
-| ITEM-002 | IMPL | Create `PromptStateWriter` implementation. Dependencies: `IContextStore`, `IWorkItemRepository`, `TwigConfiguration`, `TwigPaths`, `IProcessTypeStore`. Reads active work item, resolves badge (via `IconSet`), color (via `TypeColorResolver`), state category (via `StateCategoryResolver`), branch (via `GitBranchReader`), and dirty flag (from `WorkItem.IsDirty`). Formats `text` field using same pattern as `PromptCommand.FormatPlain()`. Writes JSON atomically using `Utf8JsonWriter` to `.twig/prompt.json.tmp` then `File.Move(tmp, target, overwrite: true)`. Writes `{}` when no active work item. Catches all exceptions silently — prompt state write MUST NOT fail the parent command. | `src/Twig.Infrastructure/Config/PromptStateWriter.cs` | TO DO |
-| ITEM-003 | IMPL | Add `PromptStateData` record type to `TwigJsonContext` for AOT-compatible serialization. Fields: `text`, `id`, `type`, `typeBadge`, `title`, `state`, `stateCategory`, `isDirty`, `typeColor`, `stateColor`, `branch`. Register in `TwigJsonContext.cs`. | `src/Twig.Infrastructure/Serialization/TwigJsonContext.cs` | TO DO |
-| ITEM-004 | IMPL | Register `IPromptStateWriter` / `PromptStateWriter` as singleton in `TwigServiceRegistration.cs` (shared DI) so all commands can access it. | `src/Twig.Infrastructure/TwigServiceRegistration.cs` | TO DO |
-| ITEM-005 | TEST | Unit tests for `PromptStateWriter`: (a) writes valid JSON when active item exists, (b) writes `{}` when no active item, (c) includes correct `typeBadge` for unicode mode, (d) includes correct `typeBadge` for nerd mode, (e) includes `typeColor` from `display.typeColors` config, (f) includes `typeColor` from `TypeAppearances` fallback, (g) `text` field matches expected plain format, (h) `isDirty` reflects work item state, (i) `branch` populated from `.git/HEAD`, (j) `branch` is null when detached HEAD, (k) atomic write — partial write does not corrupt file, (l) exception in writer does not propagate. | `tests/Twig.Cli.Tests/Commands/PromptStateWriterTests.cs` | TO DO |
+| ITEM-001 | IMPL | Create `IPromptStateWriter` interface with `void WritePromptState()` method. Place in Domain interfaces. | `src/Twig.Domain/Interfaces/IPromptStateWriter.cs` | DONE |
+| ITEM-002 | IMPL | Create `PromptStateWriter` implementation. Dependencies: `IContextStore`, `IWorkItemRepository`, `TwigConfiguration`, `TwigPaths`, `IProcessTypeStore`. Reads active work item, resolves badge (via `IconSet`), color (via `TypeColorResolver`), state category (via `StateCategoryResolver`), branch (via `GitBranchReader`), and dirty flag (from `WorkItem.IsDirty`). Formats `text` field using same pattern as `PromptCommand.FormatPlain()`. Writes JSON atomically using `Utf8JsonWriter` to `.twig/prompt.json.tmp` then `File.Move(tmp, target, overwrite: true)`. Writes `{}` when no active work item. Catches all exceptions silently — prompt state write MUST NOT fail the parent command. | `src/Twig.Infrastructure/Config/PromptStateWriter.cs` | DONE |
+| ITEM-003 | IMPL | Add `PromptStateData` record type to `TwigJsonContext` for AOT-compatible serialization. Fields: `text`, `id`, `type`, `typeBadge`, `title`, `state`, `stateCategory`, `isDirty`, `typeColor`, `stateColor`, `branch`. Register in `TwigJsonContext.cs`. | `src/Twig.Infrastructure/Serialization/TwigJsonContext.cs` | DONE |
+| ITEM-004 | IMPL | Register `IPromptStateWriter` / `PromptStateWriter` as singleton in `TwigServiceRegistration.cs` (shared DI) so all commands can access it. | `src/Twig.Infrastructure/TwigServiceRegistration.cs` | DONE |
+| ITEM-005 | TEST | Unit tests for `PromptStateWriter`: (a) writes valid JSON when active item exists, (b) writes `{}` when no active item, (c) includes correct `typeBadge` for unicode mode, (d) includes correct `typeBadge` for nerd mode, (e) includes `typeColor` from `display.typeColors` config, (f) includes `typeColor` from `TypeAppearances` fallback, (g) `text` field matches expected plain format, (h) `isDirty` reflects work item state, (i) `branch` populated from `.git/HEAD`, (j) `branch` is null when detached HEAD, (k) atomic write — partial write does not corrupt file, (l) exception in writer does not propagate. | `tests/Twig.Cli.Tests/Commands/PromptStateWriterTests.cs` | DONE |
 
 **Acceptance Criteria**:
 
-- [ ] `PromptStateWriter.WritePromptState()` creates `.twig/prompt.json` with all schema fields
-- [ ] File is written atomically (tmp + move)
-- [ ] Writer exceptions are swallowed — never fails the parent command
-- [ ] Works with both legacy flat and nested context DB paths
-- [ ] `typeBadge` uses current `display.icons` config
-- [ ] All tests pass
+- [x] `PromptStateWriter.WritePromptState()` creates `.twig/prompt.json` with all schema fields
+- [x] File is written atomically (tmp + move)
+- [x] Writer exceptions are swallowed — never fails the parent command
+- [x] Works with both legacy flat and nested context DB paths
+- [x] `typeBadge` uses current `display.icons` config
+- [x] All tests pass
+
+**Completion Notes**: Addressed four review issues: (1) badge resolution uses `IconSet.ResolveTypeBadge()` with full 4-step chain + first-char fallback; (2) removed dead `PromptStateData` record and added schema doc comment to `WriteFullState`; (3) added `ProcessTypeStoreException_FallsThroughToHeuristic` test; (4) removed unused `InfraGitBranchReader` alias. Updated `TypeBadge_Nerd_Epic` test to exercise ADO icon ID path via `TypeAppearances`. Added `TypeBadge_CustomType_UsesFirstCharFallback` test.
 
 ---
 
-### EPIC-002: Wire prompt state writes into mutating commands
+### EPIC-002:Wire prompt state writes into mutating commands
 
 **Goal**: Every command that modifies prompt-visible state calls `_promptStateWriter.WritePromptState()` after its primary operation.
 

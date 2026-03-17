@@ -5,6 +5,7 @@ using Twig.Commands;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Config;
 using Xunit;
+using GitBranchReader = Twig.Commands.GitBranchReader;
 
 namespace Twig.Cli.Tests.Commands;
 

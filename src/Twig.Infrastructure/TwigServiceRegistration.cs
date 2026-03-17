@@ -77,6 +77,14 @@ public static class TwigServiceRegistration
         // runtime auto-detection of the git remote URL during DI composition.
         services.AddSingleton<IGitService, GitCliService>();
 
+        // Prompt state writer — writes .twig/prompt.json atomically after mutating commands.
+        services.AddSingleton<IPromptStateWriter>(sp => new PromptStateWriter(
+            sp.GetRequiredService<IContextStore>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<TwigConfiguration>(),
+            sp.GetRequiredService<TwigPaths>(),
+            sp.GetRequiredService<IProcessTypeStore>()));
+
         return services;
     }
 }

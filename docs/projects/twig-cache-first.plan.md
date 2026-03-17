@@ -494,6 +494,9 @@ No new security boundaries are introduced. All data flows remain local (SQLite c
 
 ### EPIC-002: DI Modularization
 
+**Status**: DONE
+**Completed**: 2026-03-17
+
 **Goal**: Extract the monolithic DI block in `Program.cs` into focused module methods. Pure structural refactor — no behavioral changes.
 
 **Prerequisites**: None (independent of EPIC-001)
@@ -502,18 +505,18 @@ No new security boundaries are introduced. All data flows remain local (SQLite c
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E2-T1 | IMPL | Create `NetworkServiceModule.cs` with `AddTwigNetworkServices(this IServiceCollection, TwigConfiguration)`. Move: `IAuthenticationProvider`, `HttpClient`, `IAdoWorkItemService`, `IAdoGitService` (conditional), `IIterationService`. | `src/Twig.Infrastructure/DependencyInjection/NetworkServiceModule.cs`, `src/Twig/Program.cs` | TO DO |
-| E2-T2 | IMPL | Create `RenderingServiceModule.cs` in `src/Twig/DependencyInjection/` (CLI layer, NOT Infrastructure — `Twig.Infrastructure` does not reference `Spectre.Console`) with `AddTwigRenderingServices(this IServiceCollection)`. Move: `HumanOutputFormatter`, `JsonOutputFormatter`, `MinimalOutputFormatter`, `OutputFormatterFactory`, `IAnsiConsole`, `SpectreTheme`, `IAsyncRenderer`, `RenderingPipelineFactory`. | `src/Twig/DependencyInjection/RenderingServiceModule.cs`, `src/Twig/Program.cs` | TO DO |
-| E2-T3 | IMPL | Create `CommandServiceModule.cs` with `AddTwigCommandServices(this IServiceCollection)`. Move: `HintEngine`, `IEditorLauncher`, `IConsoleInput`. **Register shared services from EPIC-001 here** (see DD-12): `ActiveItemResolver` (singleton), `ProtectedCacheWriter` (singleton), `SyncCoordinator` (singleton, via factory lambda: `sp => new SyncCoordinator(sp.GetRequiredService<IWorkItemRepository>(), sp.GetRequiredService<IAdoWorkItemService>(), sp.GetRequiredService<ProtectedCacheWriter>(), sp.GetRequiredService<TwigConfiguration>().Display.CacheStaleMinutes)` — see DD-13). This is the single registration point for these services — they are NOT registered in `TwigServiceRegistration.AddTwigCoreServices()`. | `src/Twig/DependencyInjection/CommandServiceModule.cs`, `src/Twig/Program.cs` | TO DO |
-| E2-T4 | IMPL | Create `CommandRegistrationModule.cs` with `AddTwigCommands(this IServiceCollection)`. Move ALL command class registrations. Preserve factory lambdas. | `src/Twig/DependencyInjection/CommandRegistrationModule.cs`, `src/Twig/Program.cs` | TO DO |
-| E2-T5 | IMPL | Update `Program.cs` to call module methods. DI section becomes ~30 lines: `AddTwigCoreServices()`, `AddTwigNetworkServices(config)`, `AddTwigRenderingServices()`, `AddTwigCommandServices()`, `AddTwigCommands()`. Legacy migration and git remote detection stay in `Program.cs`. | `src/Twig/Program.cs` | TO DO |
-| E2-T6 | TEST | Verify all existing tests pass. No behavioral change expected. | All test projects | TO DO |
+| E2-T1 | IMPL | Create `NetworkServiceModule.cs` with `AddTwigNetworkServices(this IServiceCollection, TwigConfiguration)`. Move: `IAuthenticationProvider`, `HttpClient`, `IAdoWorkItemService`, `IAdoGitService` (conditional), `IIterationService`. | `src/Twig.Infrastructure/DependencyInjection/NetworkServiceModule.cs`, `src/Twig/Program.cs` | DONE |
+| E2-T2 | IMPL | Create `RenderingServiceModule.cs` in `src/Twig/DependencyInjection/` (CLI layer, NOT Infrastructure — `Twig.Infrastructure` does not reference `Spectre.Console`) with `AddTwigRenderingServices(this IServiceCollection)`. Move: `HumanOutputFormatter`, `JsonOutputFormatter`, `MinimalOutputFormatter`, `OutputFormatterFactory`, `IAnsiConsole`, `SpectreTheme`, `IAsyncRenderer`, `RenderingPipelineFactory`. | `src/Twig/DependencyInjection/RenderingServiceModule.cs`, `src/Twig/Program.cs` | DONE |
+| E2-T3 | IMPL | Create `CommandServiceModule.cs` with `AddTwigCommandServices(this IServiceCollection)`. Move: `HintEngine`, `IEditorLauncher`, `IConsoleInput`. **Register shared services from EPIC-001 here** (see DD-12): `ActiveItemResolver` (singleton), `ProtectedCacheWriter` (singleton), `SyncCoordinator` (singleton, via factory lambda: `sp => new SyncCoordinator(sp.GetRequiredService<IWorkItemRepository>(), sp.GetRequiredService<IAdoWorkItemService>(), sp.GetRequiredService<ProtectedCacheWriter>(), sp.GetRequiredService<TwigConfiguration>().Display.CacheStaleMinutes)` — see DD-13). This is the single registration point for these services — they are NOT registered in `TwigServiceRegistration.AddTwigCoreServices()`. | `src/Twig/DependencyInjection/CommandServiceModule.cs`, `src/Twig/Program.cs` | DONE |
+| E2-T4 | IMPL | Create `CommandRegistrationModule.cs` with `AddTwigCommands(this IServiceCollection)`. Move ALL command class registrations. Preserve factory lambdas. | `src/Twig/DependencyInjection/CommandRegistrationModule.cs`, `src/Twig/Program.cs` | DONE |
+| E2-T5 | IMPL | Update `Program.cs` to call module methods. DI section becomes ~30 lines: `AddTwigCoreServices()`, `AddTwigNetworkServices(config)`, `AddTwigRenderingServices()`, `AddTwigCommandServices()`, `AddTwigCommands()`. Legacy migration and git remote detection stay in `Program.cs`. | `src/Twig/Program.cs` | DONE |
+| E2-T6 | TEST | Verify all existing tests pass. No behavioral change expected. | All test projects | DONE |
 
 **Acceptance Criteria**:
-- [ ] `Program.cs` DI section is ≤ 30 lines (excluding legacy migration and git remote detection)
-- [ ] Each module method is a static extension on `IServiceCollection`
-- [ ] All existing tests pass unchanged
-- [ ] AOT build succeeds (`dotnet publish` with trimming)
+- [x] `Program.cs` DI section is ≤ 30 lines (excluding legacy migration and git remote detection)
+- [x] Each module method is a static extension on `IServiceCollection`
+- [x] All existing tests pass unchanged
+- [x] AOT build succeeds (`dotnet publish` with trimming)
 
 ---
 

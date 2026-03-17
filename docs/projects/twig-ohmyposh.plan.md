@@ -729,16 +729,16 @@ With the env var approach, `twig prompt --format json` could output structured J
 
 | Task | Type | Description | Files | Status |
 |------|------|-------------|-------|--------|
-| ITEM-012 | IMPL | Add "Oh My Posh Integration" section to project documentation. Include: overview, quick start (3 steps: add hook to shell profile, add segment to OMP config, restart shell), sample configs for all three styles, PowerShell setup, bash/zsh setup, fish setup, troubleshooting. Explicitly state that the integration uses the environment variable + `text` segment pattern (not a `command` segment). | `docs/ohmyposh.md` | TO DO |
-| ITEM-013 | IMPL | Add example Oh My Posh theme file with Twig `text` segment pre-configured alongside common segments (path, git, time). Include the shell hook function comments. | `docs/examples/twig.omp.json` | TO DO |
+| ITEM-012 | IMPL | Add "Oh My Posh Integration" section to project documentation. Include: overview, quick start (3 steps: add hook to shell profile, add segment to OMP config, restart shell), sample configs for all three styles, PowerShell setup, bash/zsh setup, fish setup, troubleshooting. Explicitly state that the integration uses the environment variable + `text` segment pattern (not a `command` segment). | `docs/ohmyposh.md` | DONE |
+| ITEM-013 | IMPL | Add example Oh My Posh theme file with Twig `text` segment pre-configured alongside common segments (path, git, time). Include the shell hook function comments. | `docs/examples/twig.omp.json` | DONE |
 
 **Acceptance Criteria**:
 
-- [ ] Documentation covers PowerShell, bash, zsh, and fish setup
-- [ ] Sample Oh My Posh theme file is valid JSON with `"type": "text"` segments
-- [ ] Quick start guide is 3 steps or fewer
-- [ ] Troubleshooting section covers: segment not showing, stale data, performance
-- [ ] Documentation clearly explains the env var + hook pattern
+- [x] Documentation covers PowerShell, bash, zsh, and fish setup
+- [x] Sample Oh My Posh theme file is valid JSON with `"type": "text"` segments
+- [x] Quick start guide is 3 steps or fewer
+- [x] Troubleshooting section covers: segment not showing, stale data, performance
+- [x] Documentation clearly explains the env var + hook pattern
 
 ---
 

@@ -34,7 +34,8 @@ if (args.Length >= 1 && args[0] == "_prompt")
         if (args[i] is "--format" && i + 1 < args.Length) format = args[++i];
         else if (args[i] is "--max-width" && i + 1 < args.Length && int.TryParse(args[++i], out var w)) maxWidth = w;
     }
-    return promptCmd.Execute(format, maxWidth);
+    var exitCode = promptCmd.Execute(format, maxWidth);
+    Environment.Exit(exitCode);
 }
 
 // ITEM-154: Enable UTF-8 output so Unicode type badges render correctly on Windows.

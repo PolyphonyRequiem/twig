@@ -270,7 +270,7 @@ The `_prompt` command is deleted entirely (EPIC-003). The shell hook reads `.twi
 
 ---
 
-### EPIC-002:Wire prompt state writes into mutating commands
+### EPIC-002: Wire prompt state writes into mutating commands — DONE
 
 **Goal**: Every command that modifies prompt-visible state calls `_promptStateWriter.WritePromptState()` after its primary operation.
 
@@ -346,19 +346,19 @@ The `_prompt` command is deleted entirely (EPIC-003). The shell hook reads `.twi
 | Task | Type | Description | Files | Status |
 |------|------|-------------|-------|--------|
 | ITEM-027 | IMPL | Update `OhMyPoshCommands.Init()` to generate shell hooks that read `.twig/prompt.json` and set `$env:TWIG_PROMPT`, `$env:TWIG_TYPE_COLOR`, `$env:TWIG_STATE_CATEGORY`. Support `--shell pwsh|bash|zsh|fish`. PowerShell uses `Get-Content | ConvertFrom-Json`. Bash/zsh uses `jq` with fallback note. Fish uses `jq` or string parsing. | `src/Twig/Commands/OhMyPoshCommands.cs` | DONE (completed as part of EPIC-003) |
-| ITEM-028 | IMPL | Update OMP JSON segment snippets to include `foreground_templates` using `TWIG_TYPE_COLOR` env var for dynamic type coloring. | `src/Twig/Commands/OhMyPoshCommands.cs` | TO DO |
+| ITEM-028 | IMPL | Update OMP JSON segment snippets to include `foreground_templates` using `TWIG_TYPE_COLOR` env var for dynamic type coloring. | `src/Twig/Commands/OhMyPoshCommands.cs` | DONE |
 | ITEM-029 | IMPL | Update `docs/ohmyposh.md` to document the state file approach: how it works, that prompt data updates automatically on twig commands, troubleshooting (stale state = run any twig command like `twig status` to regenerate). | `docs/ohmyposh.md` | DONE (completed as part of EPIC-003) |
-| ITEM-030 | IMPL | Update `docs/examples/twig.omp.json` with `foreground_templates` using `TWIG_TYPE_COLOR`. | `docs/examples/twig.omp.json` | TO DO |
-| ITEM-031 | TEST | Update `OhMyPoshCommands` tests: (a) PowerShell hook reads `prompt.json` not `twig _prompt`, (b) bash hook reads `prompt.json`, (c) segment JSON includes `foreground_templates`. | `tests/Twig.Cli.Tests/Commands/OhMyPoshCommandsTests.cs` | DONE (hook tests completed as part of EPIC-003; foreground_templates pending ITEM-028) |
+| ITEM-030 | IMPL | Update `docs/examples/twig.omp.json` with `foreground_templates` using `TWIG_TYPE_COLOR`. | `docs/examples/twig.omp.json` | DONE |
+| ITEM-031 | TEST | Update `OhMyPoshCommands` tests: (a) PowerShell hook reads `prompt.json` not `twig _prompt`, (b) bash hook reads `prompt.json`, (c) segment JSON includes `foreground_templates`. | `tests/Twig.Cli.Tests/Commands/OhMyPoshCommandsTests.cs` | DONE |
 
 **Acceptance Criteria**:
 
-- [ ] `twig ohmyposh init --shell pwsh` outputs hook that reads `prompt.json`
-- [ ] `twig ohmyposh init --shell bash` outputs hook that reads `prompt.json`
-- [ ] Generated OMP segment includes `foreground_templates` for type coloring
-- [ ] Documentation explains state file approach (no subprocess needed)
-- [ ] Troubleshooting covers: stale data (run any twig command to refresh)
-- [ ] All tests pass
+- [x] `twig ohmyposh init --shell pwsh` outputs hook that reads `prompt.json`
+- [x] `twig ohmyposh init --shell bash` outputs hook that reads `prompt.json`
+- [x] Generated OMP segment includes `foreground_templates` for type coloring
+- [x] Documentation explains state file approach (no subprocess needed)
+- [x] Troubleshooting covers: stale data (run any twig command to refresh)
+- [x] All tests pass
 
 ---
 

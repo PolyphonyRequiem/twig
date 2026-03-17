@@ -227,22 +227,39 @@ twig config git.branchtemplate "feature/{id}-{title}"
 twig config flow.autoassign if-unassigned
 ```
 
+## Installation
+
+### Windows (PowerShell)
+
+```powershell
+irm https://raw.githubusercontent.com/PolyphonyRequiem/twig/main/install.ps1 | iex
+```
+
+### Linux / macOS
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/PolyphonyRequiem/twig/main/install.sh | bash
+```
+
+### Update
+
+```bash
+twig upgrade
+```
+
+Installs to `~/.twig/bin/` and adds it to your PATH. The installer is idempotent — safe to run again to reinstall or repair.
+
 ## Prerequisites
 
-- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
 - [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) (for authentication)
-- Windows with [Visual C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) (for AOT compilation)
 
-## Build & Test
+## Build from Source
+
+Requires [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0).
 
 ```bash
 dotnet build
 dotnet test
-```
-
-## Publish (Native AOT)
-
-```bash
 dotnet publish src/Twig -r win-x64 -c Release
 ```
 

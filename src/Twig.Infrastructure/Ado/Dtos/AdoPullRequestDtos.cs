@@ -112,6 +112,9 @@ internal sealed class AdoCreatePullRequestRequest
     [JsonPropertyName("description")]
     public string Description { get; set; } = string.Empty;
 
+    [JsonPropertyName("isDraft")]
+    public bool IsDraft { get; set; }
+
     [JsonPropertyName("workItemRefs")]
     public List<AdoWorkItemRef>? WorkItemRefs { get; set; }
 }

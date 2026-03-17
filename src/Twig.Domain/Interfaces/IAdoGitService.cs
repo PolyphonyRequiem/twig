@@ -8,7 +8,7 @@ namespace Twig.Domain.Interfaces;
 /// </summary>
 public interface IAdoGitService
 {
-    Task AddArtifactLinkAsync(int workItemId, string artifactUri, string linkType, int revision, CancellationToken ct = default);
+    Task AddArtifactLinkAsync(int workItemId, string artifactUri, string linkType, int revision, string? name = null, CancellationToken ct = default);
     Task<PullRequestInfo> CreatePullRequestAsync(PullRequestCreate request, CancellationToken ct = default);
 
     /// <summary>

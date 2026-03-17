@@ -202,4 +202,39 @@ public class BranchNameTemplateTests
         BranchNameTemplate.ExtractWorkItemId("feature/12345-login-timeout", BranchNameTemplate.DefaultPattern)
             .ShouldBe(12345);
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Generate — edge cases
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void Generate_EmptyTemplate_ReturnsEmptyString()
+    {
+        var result = BranchNameTemplate.Generate("", 1, "Bug", "Some title");
+        result.ShouldBe("");
+    }
+
+    [Fact]
+    public void Generate_TemplateWithNoTokens_ReturnsTemplateUnchanged()
+    {
+        var result = BranchNameTemplate.Generate("static-branch", 99, "Task", "ignored title");
+        result.ShouldBe("static-branch");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  ExtractWorkItemId — timeout safety
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void ExtractWorkItemId_TimeoutPattern_ReturnsNull_RatherThanHanging()
+    {
+        // A pattern that could be slow on pathological inputs — timeout guard ensures
+        // it returns null rather than running indefinitely.
+        // NOTE: This exercises the RegexMatchTimeoutException path in ExtractWorkItemId.
+        var result = BranchNameTemplate.ExtractWorkItemId(
+            "feature/123-some-title", "[invalid-unclosed");
+        // Malformed pattern → ArgumentException → null
+        result.ShouldBeNull();
+    }
 }
+

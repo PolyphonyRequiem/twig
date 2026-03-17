@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 
 namespace Twig.Domain.ValueObjects;
@@ -18,6 +19,9 @@ public static class BranchNameTemplate
     /// Matches 3+ digit sequences after a separator (<c>/</c>, <c>-</c>) or at start/end.
     /// </summary>
     public const string DefaultPattern = @"(?:^|/)(?<id>\d{3,})(?:-|/|$)";
+
+    // Cache compiled regexes keyed by pattern string to avoid recompiling on every invocation.
+    private static readonly ConcurrentDictionary<string, Regex> _regexCache = new();
 
     /// <summary>
     /// Generates a branch name by replacing tokens in the template.
@@ -44,7 +48,10 @@ public static class BranchNameTemplate
 
         try
         {
-            var match = Regex.Match(branchName, pattern);
+            var regex = _regexCache.GetOrAdd(pattern,
+                static p => new Regex(p, RegexOptions.Compiled, TimeSpan.FromSeconds(1)));
+
+            var match = regex.Match(branchName);
             if (match.Success && match.Groups["id"].Success &&
                 int.TryParse(match.Groups["id"].Value, out var id))
             {

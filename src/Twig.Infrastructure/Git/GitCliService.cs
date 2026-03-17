@@ -28,22 +28,38 @@ internal sealed class GitCliService : IGitService
     }
 
     /// <summary>
-    /// Runs a git command and returns trimmed stdout.
-    /// Throws <see cref="GitOperationException"/> on non-zero exit codes.
+    /// Creates a <see cref="ProcessStartInfo"/> for the git binary using either a pre-quoted
+    /// argument string or a verbatim argument list (for user-supplied values).
     /// </summary>
-    private async Task<string> RunGitAsync(string arguments, CancellationToken ct)
+    private ProcessStartInfo BuildGitPsi(string? arguments = null, string[]? argList = null)
     {
-        var psi = new ProcessStartInfo(_gitBinary, arguments)
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
+        var psi = arguments is not null
+            ? new ProcessStartInfo(_gitBinary, arguments)
+            : new ProcessStartInfo(_gitBinary);
+
+        psi.RedirectStandardOutput = true;
+        psi.RedirectStandardError = true;
+        psi.UseShellExecute = false;
+        psi.CreateNoWindow = true;
 
         if (_workingDirectory is not null)
             psi.WorkingDirectory = _workingDirectory;
 
+        if (argList is not null)
+            foreach (var arg in argList)
+                psi.ArgumentList.Add(arg);
+
+        return psi;
+    }
+
+    /// <summary>
+    /// Starts the process described by <paramref name="psi"/>, drains stdout and stderr
+    /// concurrently to avoid pipe-buffer deadlock, and returns the trimmed outputs and exit code.
+    /// Throws <see cref="GitOperationException"/> if the git binary cannot be found.
+    /// </summary>
+    private async Task<(string Stdout, string Stderr, int ExitCode)> RunProcessCoreAsync(
+        ProcessStartInfo psi, CancellationToken ct)
+    {
         Process process;
         try
         {
@@ -59,18 +75,48 @@ internal sealed class GitCliService : IGitService
 
         using (process)
         {
-            // Read both streams concurrently to avoid pipe-buffer deadlock.
             var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
             var stderrTask = process.StandardError.ReadToEndAsync(ct);
             await Task.WhenAll(stdoutTask, stderrTask);
             await process.WaitForExitAsync(ct);
-
-            if (process.ExitCode != 0)
-                throw new GitOperationException(
-                    $"git {arguments} failed: {stderrTask.Result.Trim()}", process.ExitCode);
-
-            return stdoutTask.Result.Trim();
+            return (stdoutTask.Result.Trim(), stderrTask.Result.Trim(), process.ExitCode);
         }
+    }
+
+    /// <summary>
+    /// Runs a git command and returns trimmed stdout.
+    /// Throws <see cref="GitOperationException"/> on non-zero exit codes.
+    /// </summary>
+    private async Task<string> RunGitAsync(string arguments, CancellationToken ct)
+    {
+        var (stdout, stderr, exitCode) = await RunProcessCoreAsync(BuildGitPsi(arguments: arguments), ct);
+        if (exitCode != 0)
+            throw new GitOperationException($"git {arguments} failed: {stderr}", exitCode);
+        return stdout;
+    }
+
+    /// <summary>
+    /// Runs a git command using <see cref="ProcessStartInfo.ArgumentList"/> so that
+    /// user-supplied values (messages, branch names, remote names) are passed verbatim
+    /// without any shell-quoting interpretation. Throws <see cref="GitOperationException"/>
+    /// on non-zero exit codes.
+    /// </summary>
+    private async Task<string> RunGitArgListAsync(string[] args, CancellationToken ct)
+    {
+        var (stdout, stderr, exitCode) = await RunProcessCoreAsync(BuildGitPsi(argList: args), ct);
+        if (exitCode != 0)
+            throw new GitOperationException($"git {string.Join(" ", args)} failed: {stderr}", exitCode);
+        return stdout;
+    }
+
+    /// <summary>
+    /// Runs a git command using <see cref="ProcessStartInfo.ArgumentList"/> and returns
+    /// true if exit code is 0, false otherwise. Does not throw on non-zero exit codes.
+    /// </summary>
+    private async Task<bool> RunGitBoolArgListAsync(string[] args, CancellationToken ct)
+    {
+        var (_, _, exitCode) = await RunProcessCoreAsync(BuildGitPsi(argList: args), ct);
+        return exitCode == 0;
     }
 
     /// <summary>
@@ -79,40 +125,8 @@ internal sealed class GitCliService : IGitService
     /// </summary>
     private async Task<bool> RunGitBoolAsync(string arguments, CancellationToken ct)
     {
-        var psi = new ProcessStartInfo(_gitBinary, arguments)
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-
-        if (_workingDirectory is not null)
-            psi.WorkingDirectory = _workingDirectory;
-
-        Process process;
-        try
-        {
-            process = Process.Start(psi)
-                ?? throw new InvalidOperationException("Failed to start git process.");
-        }
-        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 2 || ex.NativeErrorCode == 3)
-        {
-            // ERROR_FILE_NOT_FOUND (2) or ERROR_PATH_NOT_FOUND (3) / ENOENT (2) on Linux.
-            throw new GitOperationException(
-                "git binary not found. Ensure git is installed and on PATH.", ex);
-        }
-
-        using (process)
-        {
-            // Drain both streams concurrently to avoid pipe-buffer deadlock.
-            var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
-            var stderrTask = process.StandardError.ReadToEndAsync(ct);
-            await Task.WhenAll(stdoutTask, stderrTask);
-            await process.WaitForExitAsync(ct);
-
-            return process.ExitCode == 0;
-        }
+        var (_, _, exitCode) = await RunProcessCoreAsync(BuildGitPsi(arguments: arguments), ct);
+        return exitCode == 0;
     }
 
     public async Task<string> GetCurrentBranchAsync(CancellationToken ct = default)
@@ -128,22 +142,33 @@ internal sealed class GitCliService : IGitService
     }
 
     public async Task CreateBranchAsync(string branchName, CancellationToken ct = default)
-        => await RunGitAsync($"branch {branchName}", ct);
+        => await RunGitArgListAsync(["branch", branchName], ct);
 
     public async Task CheckoutAsync(string branchName, CancellationToken ct = default)
-        => await RunGitAsync($"checkout {branchName}", ct);
+        => await RunGitArgListAsync(["checkout", branchName], ct);
 
     public async Task<string> CommitAsync(string message, bool allowEmpty = false, CancellationToken ct = default)
     {
         var args = allowEmpty
-            ? $"commit --allow-empty -m \"{message}\""
-            : $"commit -m \"{message}\"";
-        await RunGitAsync(args, ct);
+            ? (string[])["commit", "--allow-empty", "-m", message]
+            : ["commit", "-m", message];
+        await RunGitArgListAsync(args, ct);
+        return await GetHeadCommitHashAsync(ct);
+    }
+
+    public async Task<string> CommitWithArgsAsync(string message, IReadOnlyList<string> extraArgs, CancellationToken ct = default)
+    {
+        var args = new List<string> { "commit" };
+        foreach (var arg in extraArgs)
+            args.Add(arg);
+        args.Add("-m");
+        args.Add(message);
+        await RunGitArgListAsync([.. args], ct);
         return await GetHeadCommitHashAsync(ct);
     }
 
     public async Task<string> GetRemoteUrlAsync(string remote = "origin", CancellationToken ct = default)
-        => await RunGitAsync($"remote get-url {remote}", ct);
+        => await RunGitArgListAsync(["remote", "get-url", remote], ct);
 
     public async Task<string?> GetConfigValueAsync(string key, CancellationToken ct = default)
     {
@@ -163,8 +188,10 @@ internal sealed class GitCliService : IGitService
 
     public async Task StashAsync(string? message = null, CancellationToken ct = default)
     {
-        var args = message is not null ? $"stash push -m \"{message}\"" : "stash";
-        await RunGitAsync(args, ct);
+        if (message is not null)
+            await RunGitArgListAsync(["stash", "push", "-m", message], ct);
+        else
+            await RunGitAsync("stash", ct);
     }
 
     public async Task StashPopAsync(CancellationToken ct = default)
@@ -207,10 +234,10 @@ internal sealed class GitCliService : IGitService
     }
 
     public async Task<bool> BranchExistsAsync(string branchName, CancellationToken ct = default)
-        => await RunGitBoolAsync($"rev-parse --verify refs/heads/{branchName}", ct);
+        => await RunGitBoolArgListAsync(["rev-parse", "--verify", "refs/heads/" + branchName], ct);
 
     public async Task DeleteBranchAsync(string branchName, CancellationToken ct = default)
-        => await RunGitAsync($"branch -D {branchName}", ct);
+        => await RunGitArgListAsync(["branch", "-D", branchName], ct);
 
     public async Task<bool> IsAheadOfAsync(string targetBranch, CancellationToken ct = default)
     {

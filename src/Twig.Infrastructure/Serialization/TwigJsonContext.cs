@@ -3,6 +3,7 @@ using Twig.Domain.Enums;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado.Dtos;
 using Twig.Infrastructure.Config;
+using Twig.Infrastructure.GitHub;
 
 namespace Twig.Infrastructure.Serialization;
 
@@ -43,6 +44,7 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(List<AreaPathEntry>))]
 [JsonSerializable(typeof(UserConfig))]
 [JsonSerializable(typeof(GitConfig))]
+[JsonSerializable(typeof(HooksConfig))]
 [JsonSerializable(typeof(FlowConfig))]
 [JsonSerializable(typeof(Dictionary<string, object?>))]
 // Dynamic process configuration DTOs (EPIC-2/4)
@@ -72,6 +74,9 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(StateEntry))]
 [JsonSerializable(typeof(List<StateEntry>))]
 [JsonSerializable(typeof(StateCategory))]
+// GitHub Release DTOs (EPIC-005 — self-update)
+[JsonSerializable(typeof(GitHubRelease))]
+[JsonSerializable(typeof(List<GitHubRelease>))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]

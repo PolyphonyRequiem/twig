@@ -260,6 +260,58 @@ public sealed class JsonOutputFormatter : IOutputFormatter
         return Encoding.UTF8.GetString(stream.ToArray());
     }
 
+    public string FormatBranchInfo(string branchName)
+    {
+        using var stream = new MemoryStream();
+        using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = false });
+
+        writer.WriteStartObject();
+        writer.WriteString("branch", branchName);
+        writer.WriteEndObject();
+
+        writer.Flush();
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    public string FormatPrStatus(int prId, string title, string status)
+    {
+        using var stream = new MemoryStream();
+        using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = false });
+
+        writer.WriteStartObject();
+        writer.WriteNumber("prId", prId);
+        writer.WriteString("title", title);
+        writer.WriteString("status", status);
+        writer.WriteEndObject();
+
+        writer.Flush();
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    public string FormatAnnotatedLogEntry(string hash, string message, string? workItemType, string? workItemState, int? workItemId)
+    {
+        using var stream = new MemoryStream();
+        using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = false });
+
+        writer.WriteStartObject();
+        writer.WriteString("hash", hash);
+        writer.WriteString("message", message);
+        if (workItemId.HasValue)
+        {
+            writer.WriteNumber("workItemId", workItemId.Value);
+            if (workItemType is not null) writer.WriteString("workItemType", workItemType);
+            if (workItemState is not null) writer.WriteString("workItemState", workItemState);
+        }
+        else
+        {
+            writer.WriteNull("workItemId");
+        }
+        writer.WriteEndObject();
+
+        writer.Flush();
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
     /// <summary>
     /// Writes a WorkItem as a JSON object for nested contexts (tree, workspace).
     /// Deliberately omits areaPath and iterationPath to keep nested payloads lean —

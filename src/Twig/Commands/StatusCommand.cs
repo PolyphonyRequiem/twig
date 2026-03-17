@@ -20,7 +20,8 @@ public sealed class StatusCommand(
     HintEngine hintEngine,
     // Optional — null for backward compat with tests that predate EPIC-004
     RenderingPipelineFactory? pipelineFactory = null,
-    IGitService? gitService = null)
+    IGitService? gitService = null,
+    IAdoGitService? adoGitService = null)
 {
     public async Task<int> ExecuteAsync(string outputFormat = "human", bool noLive = false)
     {
@@ -90,6 +91,9 @@ public sealed class StatusCommand(
         // Sync path — original implementation (JSON, minimal, --no-live, piped output)
         Console.WriteLine(fmt.FormatWorkItem(item, showDirty: true));
 
+        // Git context enrichment (EPIC-006) — additive, never changes existing behavior
+        await WriteGitContextAsync(fmt);
+
         var pending = await pendingChangeStore.GetChangesAsync(item.Id);
         if (pending.Count > 0)
         {
@@ -132,5 +136,46 @@ public sealed class StatusCommand(
         }
 
         return 0;
+    }
+
+    /// <summary>
+    /// Writes branch name and linked PR info to stdout.
+    /// Gracefully degrades when git is unavailable or not in a repo.
+    /// </summary>
+    private async Task WriteGitContextAsync(IOutputFormatter fmt)
+    {
+        if (gitService is null) return;
+
+        string? branchName = null;
+        try
+        {
+            var isInWorkTree = await gitService.IsInsideWorkTreeAsync();
+            if (!isInWorkTree) return;
+            branchName = await gitService.GetCurrentBranchAsync();
+        }
+        catch
+        {
+            return; // Git operations are best-effort
+        }
+
+        if (branchName is not null)
+        {
+            Console.WriteLine(fmt.FormatBranchInfo(branchName));
+        }
+
+        // Linked PRs
+        if (adoGitService is not null && branchName is not null)
+        {
+            try
+            {
+                var prs = await adoGitService.GetPullRequestsForBranchAsync(branchName);
+                foreach (var pr in prs)
+                    Console.WriteLine(fmt.FormatPrStatus(pr.PullRequestId, pr.Title, pr.Status));
+            }
+            catch
+            {
+                // PR lookup is best-effort
+            }
+        }
     }
 }

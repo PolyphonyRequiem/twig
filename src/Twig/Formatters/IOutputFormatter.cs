@@ -20,4 +20,15 @@ public interface IOutputFormatter
     string FormatDisambiguation(IReadOnlyList<(int Id, string Title)> matches);
     string FormatHint(string hint);
     string FormatInfo(string message);
+
+    // ── Git context formatting (EPIC-006) ───────────────────────────
+
+    /// <summary>Formats a branch info row for status enrichment.</summary>
+    string FormatBranchInfo(string branchName);
+
+    /// <summary>Formats a PR status row for status enrichment.</summary>
+    string FormatPrStatus(int prId, string title, string status);
+
+    /// <summary>Formats an annotated log entry with optional work item badge.</summary>
+    string FormatAnnotatedLogEntry(string hash, string message, string? workItemType, string? workItemState, int? workItemId);
 }

@@ -11,6 +11,7 @@ using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Git;
+using Twig.Infrastructure.GitHub;
 using Twig.Rendering;
 
 SQLitePCL.Batteries.Init();
@@ -24,6 +25,9 @@ catch
 {
     // InvariantGlobalization or restricted environment — Unicode bytes will still be emitted; rendering depends on terminal capabilities.
 }
+
+// EPIC-005: Clean up old binary left behind from a previous Windows self-update.
+SelfUpdater.CleanupOldBinary();
 
 var app = ConsoleApp.Create()
     .ConfigureServices(services =>
@@ -54,7 +58,6 @@ var app = ConsoleApp.Create()
         // HTTP client — singleton is acceptable for short-lived CLI process.
         // IHttpClientFactory would be preferable for long-running services (DNS refresh, connection pooling).
         services.AddSingleton<HttpClient>();
-        services.AddSingleton<IGitService, GitCliService>();
         services.AddSingleton<IAdoWorkItemService>(sp =>
         {
             var cfg = sp.GetRequiredService<TwigConfiguration>();
@@ -71,7 +74,8 @@ var app = ConsoleApp.Create()
             var gitProject = config.GetGitProject();
             var repository = config.Git.Repository;
 
-            // Auto-detect from git remote if not explicitly configured
+            // Auto-detect from git remote if not explicitly configured.
+            // Detection deferred to service factory (lazy) so it does not block DI startup.
             if (string.IsNullOrWhiteSpace(repository))
             {
                 try
@@ -86,9 +90,19 @@ var app = ConsoleApp.Create()
                     using var proc = System.Diagnostics.Process.Start(psi);
                     if (proc is not null)
                     {
-                        var remoteUrl = proc.StandardOutput.ReadToEnd().Trim();
-                        proc.WaitForExit();
-                        if (proc.ExitCode == 0 && !string.IsNullOrWhiteSpace(remoteUrl))
+                        // Drain both streams concurrently to prevent pipe-buffer deadlock,
+                        // then wait up to 2 s (local git op should complete well under that).
+                        var stdoutTask = proc.StandardOutput.ReadToEndAsync();
+                        var stderrTask = proc.StandardError.ReadToEndAsync();
+                        System.Threading.Tasks.Task.WhenAll(stdoutTask, stderrTask)
+                            .GetAwaiter().GetResult();
+                        var exited = proc.WaitForExit(2000);
+                        if (!exited)
+                        {
+                            try { proc.Kill(); } catch { }
+                        }
+                        var remoteUrl = stdoutTask.Result.Trim();
+                        if (exited && proc.ExitCode == 0 && !string.IsNullOrWhiteSpace(remoteUrl))
                         {
                             var parsed = AdoRemoteParser.Parse(remoteUrl);
                             if (parsed is not null)
@@ -189,7 +203,8 @@ var app = ConsoleApp.Create()
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<HintEngine>(),
             sp.GetRequiredService<RenderingPipelineFactory>(),
-            sp.GetService<IGitService>()));
+            sp.GetService<IGitService>(),
+            sp.GetService<IAdoGitService>()));
         services.AddSingleton<StateCommand>();
         services.AddSingleton<TreeCommand>(sp => new TreeCommand(
             sp.GetRequiredService<IContextStore>(),
@@ -231,6 +246,68 @@ var app = ConsoleApp.Create()
             sp.GetRequiredService<IProcessTypeStore>(),
             sp.GetRequiredService<RenderingPipelineFactory>()));
         services.AddSingleton<ConfigCommand>();
+        services.AddSingleton<BranchCommand>(sp => new BranchCommand(
+            sp.GetRequiredService<IContextStore>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IProcessConfigurationProvider>(),
+            sp.GetRequiredService<OutputFormatterFactory>(),
+            sp.GetRequiredService<HintEngine>(),
+            sp.GetRequiredService<TwigConfiguration>(),
+            sp.GetService<IGitService>(),
+            sp.GetService<IAdoGitService>()));
+        services.AddSingleton<CommitCommand>(sp => new CommitCommand(
+            sp.GetRequiredService<IContextStore>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<OutputFormatterFactory>(),
+            sp.GetRequiredService<HintEngine>(),
+            sp.GetRequiredService<TwigConfiguration>(),
+            sp.GetService<IGitService>(),
+            sp.GetService<IAdoGitService>()));
+        services.AddSingleton<PrCommand>(sp => new PrCommand(
+            sp.GetRequiredService<IContextStore>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<OutputFormatterFactory>(),
+            sp.GetRequiredService<HintEngine>(),
+            sp.GetRequiredService<TwigConfiguration>(),
+            sp.GetService<IGitService>(),
+            sp.GetService<IAdoGitService>()));
+        services.AddSingleton<StashCommand>(sp => new StashCommand(
+            sp.GetRequiredService<IContextStore>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<OutputFormatterFactory>(),
+            sp.GetRequiredService<HintEngine>(),
+            sp.GetRequiredService<TwigConfiguration>(),
+            sp.GetService<IGitService>()));
+        services.AddSingleton<LogCommand>(sp => new LogCommand(
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<OutputFormatterFactory>(),
+            sp.GetRequiredService<HintEngine>(),
+            sp.GetService<IGitService>()));
+
+        // Git hooks & context commands
+        services.AddSingleton<HookInstaller>();
+        services.AddSingleton<HooksCommand>(sp => new HooksCommand(
+            sp.GetRequiredService<HookInstaller>(),
+            sp.GetRequiredService<OutputFormatterFactory>(),
+            sp.GetRequiredService<HintEngine>(),
+            sp.GetRequiredService<TwigConfiguration>(),
+            sp.GetService<IGitService>()));
+        services.AddSingleton<GitContextCommand>(sp => new GitContextCommand(
+            sp.GetRequiredService<IContextStore>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<OutputFormatterFactory>(),
+            sp.GetRequiredService<HintEngine>(),
+            sp.GetRequiredService<TwigConfiguration>(),
+            sp.GetService<IGitService>(),
+            sp.GetService<IAdoGitService>()));
+        services.AddSingleton<HookHandlerCommand>(sp => new HookHandlerCommand(
+            sp.GetRequiredService<IContextStore>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<TwigConfiguration>(),
+            sp.GetService<IGitService>()));
 
         // Flow lifecycle commands (EPIC-004)
         services.AddSingleton<FlowStartCommand>(sp => new FlowStartCommand(
@@ -271,6 +348,26 @@ var app = ConsoleApp.Create()
             sp.GetRequiredService<TwigConfiguration>(),
             sp.GetService<IGitService>(),
             sp.GetService<IAdoGitService>()));
+
+        // Self-update services (EPIC-005)
+        services.AddSingleton<IGitHubReleaseService>(sp =>
+        {
+            var repoSlug = "PolyphonyRequiem/twig";
+            var attrs = typeof(TwigCommands).Assembly
+                .GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false);
+            foreach (var attr in attrs)
+            {
+                if (attr is System.Reflection.AssemblyMetadataAttribute meta && meta.Key == "GitHubRepo" && meta.Value is not null)
+                {
+                    repoSlug = meta.Value;
+                    break;
+                }
+            }
+            return new GitHubReleaseClient(sp.GetRequiredService<HttpClient>(), repoSlug);
+        });
+        services.AddSingleton<SelfUpdater>(sp => new SelfUpdater(sp.GetRequiredService<HttpClient>()));
+        services.AddSingleton<SelfUpdateCommand>();
+        services.AddSingleton<ChangelogCommand>();
     });
 
 app.UseFilter<ExceptionFilter>();
@@ -474,6 +571,32 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> Config([Argument] string key, [Argument] string? value = null, string output = "human")
         => await services.GetRequiredService<ConfigCommand>().ExecuteAsync(key, value, output);
 
+    /// <summary>Create/checkout a branch for the active work item and optionally link it.</summary>
+    public async Task<int> Branch(bool noLink = false, bool noTransition = false, string output = "human")
+        => await services.GetRequiredService<BranchCommand>().ExecuteAsync(noLink, noTransition, output);
+
+    /// <summary>Commit with a work-item-enriched message and optionally link the commit.</summary>
+    public async Task<int> Commit([Argument] string? message = null, bool noLink = false, string output = "human", params string[] passthrough)
+        => await services.GetRequiredService<CommitCommand>().ExecuteAsync(message, noLink, passthrough, output);
+
+    /// <summary>Create an ADO pull request linked to the active work item.</summary>
+    public async Task<int> Pr(string? target = null, string? title = null, bool draft = false, string output = "human")
+        => await services.GetRequiredService<PrCommand>().ExecuteAsync(target, title, draft, output);
+
+    /// <summary>Stash changes with work item context in the stash message.</summary>
+    [Command("stash")]
+    public async Task<int> Stash([Argument] string? message = null, string output = "human")
+        => await services.GetRequiredService<StashCommand>().ExecuteAsync(message, output);
+
+    /// <summary>Pop the most recent stash and restore Twig context.</summary>
+    [Command("stash pop")]
+    public async Task<int> StashPop(string output = "human")
+        => await services.GetRequiredService<StashCommand>().PopAsync(output);
+
+    /// <summary>Show annotated git log with work item context.</summary>
+    public async Task<int> Log(int count = 20, int? workItem = null, string output = "human")
+        => await services.GetRequiredService<LogCommand>().ExecuteAsync(count, workItem, output);
+
     /// <summary>Start working on a work item: set context, transition state, assign, create branch.</summary>
     [Command("flow-start")]
     public async Task<int> FlowStart(
@@ -507,12 +630,39 @@ public sealed class TwigCommands(IServiceProvider services)
         => await services.GetRequiredService<FlowCloseCommand>()
             .ExecuteAsync(id, force, noBranchCleanup, output);
 
+    /// <summary>Install Twig-managed git hooks.</summary>
+    [Command("hooks install")]
+    public async Task<int> HooksInstall(string output = "human")
+        => await services.GetRequiredService<HooksCommand>().InstallAsync(output);
+
+    /// <summary>Uninstall Twig-managed git hooks.</summary>
+    [Command("hooks uninstall")]
+    public async Task<int> HooksUninstall(string output = "human")
+        => await services.GetRequiredService<HooksCommand>().UninstallAsync(output);
+
+    /// <summary>Show git context: branch, work item, and PR linkage.</summary>
+    public async Task<int> Context(string output = "human")
+        => await services.GetRequiredService<GitContextCommand>().ExecuteAsync(output);
+
+    /// <summary>Internal hook handler invoked by git hook scripts.</summary>
+    [Command("_hook")]
+    public async Task<int> Hook([Argument] string hookName, params string[] args)
+        => await services.GetRequiredService<HookHandlerCommand>().ExecuteAsync(hookName, args);
+
     /// <summary>Show the current version.</summary>
     public Task<int> Version()
     {
         Console.WriteLine(VersionHelper.GetVersion());
         return Task.FromResult(0);
     }
+
+    /// <summary>Check for and apply updates from GitHub Releases.</summary>
+    public async Task<int> Upgrade(CancellationToken ct = default)
+        => await services.GetRequiredService<SelfUpdateCommand>().ExecuteAsync(ct);
+
+    /// <summary>Display recent release notes from GitHub Releases.</summary>
+    public async Task<int> Changelog(int count = 5, CancellationToken ct = default)
+        => await services.GetRequiredService<ChangelogCommand>().ExecuteAsync(count, ct);
 
     /// <summary>Launch the full-screen TUI mode (requires twig-tui binary).</summary>
     public Task<int> Tui()
@@ -523,7 +673,7 @@ public sealed class TwigCommands(IServiceProvider services)
 
 /// <summary>
 /// Shared version resolution helper. Reads from AssemblyInformationalVersionAttribute,
-/// strips build metadata (e.g. "+sha"), falls back to "0.1.0".
+/// strips build metadata (e.g. "+sha"), falls back to "0.0.0".
 /// </summary>
 internal static class VersionHelper
 {
@@ -533,7 +683,7 @@ internal static class VersionHelper
             .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
             is [System.Reflection.AssemblyInformationalVersionAttribute attr]
             ? attr.InformationalVersion
-            : "0.1.0";
+            : "0.0.0";
         var plusIndex = version.IndexOf('+');
         if (plusIndex >= 0) version = version[..plusIndex];
         return version;

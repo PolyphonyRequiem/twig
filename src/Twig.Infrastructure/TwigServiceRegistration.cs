@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Infrastructure.Config;
+using Twig.Infrastructure.Git;
 using Twig.Infrastructure.Persistence;
 
 namespace Twig.Infrastructure;
@@ -70,6 +71,11 @@ public static class TwigServiceRegistration
         // Domain services
         services.AddSingleton<IProcessTypeStore>(sp => new SqliteProcessTypeStore(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<IProcessConfigurationProvider>(sp => new DynamicProcessConfigProvider(sp.GetRequiredService<IProcessTypeStore>()));
+
+        // Git service — registers the local git CLI service shared by CLI and TUI entry points.
+        // IAdoGitService registration remains in the CLI Program.cs because it requires
+        // runtime auto-detection of the git remote URL during DI composition.
+        services.AddSingleton<IGitService, GitCliService>();
 
         return services;
     }

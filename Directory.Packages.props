@@ -3,6 +3,8 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
   <ItemGroup>
+    <!-- Versioning -->
+    <PackageVersion Include="MinVer" Version="7.0.0" />
     <!-- CLI Framework -->
     <PackageVersion Include="ConsoleAppFramework" Version="5.7.13" />
     <!-- SQLite -->

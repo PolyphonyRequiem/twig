@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Shouldly;
 using Xunit;
 
@@ -9,6 +10,9 @@ namespace Twig.Cli.Tests.Commands;
 [Trait("Category", "Interactive")]
 public class VersionDisplayTests : IClassFixture<BuildFixture>
 {
+    // Matches a SemVer version: major.minor.patch with optional pre-release suffix
+    private static readonly Regex SemVerPattern = new(@"^\d+\.\d+\.\d+(-[\w.]+)?$", RegexOptions.Compiled);
+
     private readonly BuildFixture _build;
 
     public VersionDisplayTests(BuildFixture build)
@@ -26,7 +30,8 @@ public class VersionDisplayTests : IClassFixture<BuildFixture>
 
         exited.ShouldBeTrue("Process timed out after 2 minutes");
         exitCode.ShouldBe(0, $"--version flag failed with stderr: {stderr}");
-        stdout.Trim().ShouldBe("0.1.0");
+        SemVerPattern.IsMatch(stdout.Trim()).ShouldBeTrue(
+            $"Expected a valid SemVer version but got: '{stdout.Trim()}'");
     }
 
     [Fact]
@@ -39,7 +44,8 @@ public class VersionDisplayTests : IClassFixture<BuildFixture>
 
         exited.ShouldBeTrue("Process timed out after 2 minutes");
         exitCode.ShouldBe(0, $"version command failed with stderr: {stderr}");
-        stdout.Trim().ShouldBe("0.1.0");
+        SemVerPattern.IsMatch(stdout.Trim()).ShouldBeTrue(
+            $"Expected a valid SemVer version but got: '{stdout.Trim()}'");
     }
 
 }

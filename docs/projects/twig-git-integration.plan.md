@@ -664,7 +664,7 @@ Hook fires after: git checkout bug/12345-fix-crash
 
 ---
 
-### EPIC-002: Configuration & Branch Naming
+### EPIC-002: Configuration & Branch Naming ✅ DONE
 
 **Goal:** Extend configuration with git settings and implement branch naming from work items.
 
@@ -672,21 +672,23 @@ Hook fires after: git checkout bug/12345-fix-crash
 
 | Task | Type | Description | Files | Status |
 |---|---|---|---|---|
-| ITEM-006 | IMPL | Add `GitConfig` class with `BranchPattern`, `CommitTemplate`, `DefaultTargetBranch`, `AutoLink`, `AutoTransition`, `TypeMap`, `HooksConfig` properties. Add `Git` property to `TwigConfiguration`. Extend `SetValue` switch for `git.*` paths | `src/Twig.Infrastructure/Config/TwigConfiguration.cs` | TO DO |
-| ITEM-007 | IMPL | Create `BranchNamingService` with `Generate(WorkItem, string pattern)` and `ExtractWorkItemId(string branchName)`. Implement slugification (lowercase, replace non-alphanumeric with hyphens, truncate, trim). Implement type mapping (User Story→feature, Bug→bug, etc.) | `src/Twig.Domain/Services/BranchNamingService.cs`, `src/Twig.Domain/Services/WorkItemIdExtractor.cs` | TO DO |
-| ITEM-008 | TEST | Unit tests for `BranchNamingService`: pattern substitution, slugification edge cases (unicode, long titles, special chars), type mapping | `tests/Twig.Domain.Tests/Services/BranchNamingServiceTests.cs` | TO DO |
-| ITEM-009 | TEST | Unit tests for `WorkItemIdExtractor`: various branch name formats (`feature/12345-desc`, `12345`, `bug/12345`, `users/name/12345-desc`), no-match cases | `tests/Twig.Domain.Tests/Services/WorkItemIdExtractorTests.cs` | TO DO |
-| ITEM-010 | IMPL | Add `[JsonSerializable(typeof(GitConfig))]` and related entries to `TwigJsonContext` | `src/Twig.Infrastructure/Serialization/TwigJsonContext.cs` | TO DO |
+| ITEM-006 | IMPL | Add `GitConfig` class with `BranchPattern`, `CommitTemplate`, `DefaultTargetBranch`, `AutoLink`, `AutoTransition`, `TypeMap`, `HooksConfig` properties. Add `Git` property to `TwigConfiguration`. Extend `SetValue` switch for `git.*` paths | `src/Twig.Infrastructure/Config/TwigConfiguration.cs` | DONE |
+| ITEM-007 | IMPL | Create `BranchNamingService` with `Generate(WorkItem, string pattern)` and `ExtractWorkItemId(string branchName)`. Implement slugification (lowercase, replace non-alphanumeric with hyphens, truncate, trim). Implement type mapping (User Story→feature, Bug→bug, etc.) | `src/Twig.Domain/Services/BranchNamingService.cs`, `src/Twig.Domain/Services/WorkItemIdExtractor.cs` | DONE |
+| ITEM-008 | TEST | Unit tests for `BranchNamingService`: pattern substitution, slugification edge cases (unicode, long titles, special chars), type mapping | `tests/Twig.Domain.Tests/Services/BranchNamingServiceTests.cs` | DONE |
+| ITEM-009 | TEST | Unit tests for `WorkItemIdExtractor`: various branch name formats (`feature/12345-desc`, `12345`, `bug/12345`, `users/name/12345-desc`), no-match cases | `tests/Twig.Domain.Tests/Services/WorkItemIdExtractorTests.cs` | DONE |
+| ITEM-010 | IMPL | Add `[JsonSerializable(typeof(GitConfig))]` and related entries to `TwigJsonContext` | `src/Twig.Infrastructure/Serialization/TwigJsonContext.cs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] `GitConfig` defaults are applied when `git` section is missing from config JSON
-- [ ] Branch names are generated correctly for all standard work item types
-- [ ] Slugification handles unicode, long titles, and special characters
-- [ ] Work item IDs are extracted from all common branch naming patterns
+- [x] `GitConfig` defaults are applied when `git` section is missing from config JSON
+- [x] Branch names are generated correctly for all standard work item types
+- [x] Slugification handles unicode, long titles, and special characters
+- [x] Work item IDs are extracted from all common branch naming patterns
+
+**Completed:** 2026-03-17. All implementation and domain service tests pass. Added comprehensive infrastructure tests for `GitConfig` new properties (`CommitTemplate`, `AutoLink`, `AutoTransition`, `TypeMap`, `Hooks`): defaults validation, `SetValue` paths, full serialization round-trip. Fixed review issues: added missing SetValue tests for `git.committemplate`, `git.autolink`, `git.autotransition`; extended defaults and round-trip tests to cover all new properties; fixed case-sensitivity inconsistency in custom type map resolution; promoted `ResolveType` from internal to public. Build clean, all 570 domain tests and 353 infrastructure tests pass. Post-review fixes: corrected `GitConfig.TypeMap` XML comment (`Bug→fix` → `Bug→bug`); changed `GitConfig.BranchPattern` default to reference `BranchNameTemplate.DefaultPattern` constant (added `using Twig.Domain.ValueObjects`); changed `WorkItemIdExtractor.Extract` parameter to `string?` and added `IsNullOrEmpty` null guard; removed null-forgiving `!` operator from `WorkItemIdExtractorTests`.
 
 ---
 
-### EPIC-003: `twig branch` Command & ADO Artifact Linking
+### EPIC-003: `twig branch` Command & ADO Artifact Linking ✅ DONE
 
 **Goal:** Implement the `twig branch` command with ADO artifact linking.
 
@@ -694,25 +696,27 @@ Hook fires after: git checkout bug/12345-fix-crash
 
 | Task | Type | Description | Files | Status |
 |---|---|---|---|---|
-| ITEM-011 | IMPL | Create `IAdoGitService` interface with `AddArtifactLinkAsync`, `CreatePullRequestAsync`, `GetPullRequestsForBranchAsync`, `GetRepositoryIdAsync`, `GetProjectIdAsync` | `src/Twig.Domain/Interfaces/IAdoGitService.cs` | TO DO |
-| ITEM-012 | IMPL | Create `PullRequestCreate` and `PullRequestInfo` value objects | `src/Twig.Domain/ValueObjects/PullRequestCreate.cs`, `src/Twig.Domain/ValueObjects/PullRequestInfo.cs` | TO DO |
-| ITEM-013 | IMPL | Implement `AdoGitClient`: repository/project ID lookup, artifact link PATCH (branch/commit/PR types), PR creation POST. Reuse `HttpClient` and `IAuthenticationProvider` patterns from `AdoRestClient` | `src/Twig.Infrastructure/Ado/AdoGitClient.cs` | TO DO |
-| ITEM-014 | IMPL | Create ADO Git REST DTOs: `AdoPullRequestRequest`, `AdoPullRequestResponse`, `AdoRepositoryResponse`, `AdoProjectResponse`. Add `[JsonSerializable]` entries to `TwigJsonContext` | `src/Twig.Infrastructure/Ado/Dtos/AdoPullRequestRequest.cs`, `src/Twig.Infrastructure/Ado/Dtos/AdoPullRequestResponse.cs`, `src/Twig.Infrastructure/Ado/Dtos/AdoRepositoryResponse.cs`, `src/Twig.Infrastructure/Ado/Dtos/AdoProjectResponse.cs`, `src/Twig.Infrastructure/Serialization/TwigJsonContext.cs` | TO DO |
-| ITEM-015 | IMPL | Implement `BranchCommand`: get active work item, generate branch name, create branch via `IGitService`, add artifact link via `IAdoGitService`, optionally auto-transition state. Support `--no-link` and `--no-transition` flags | `src/Twig/Commands/BranchCommand.cs` | TO DO |
-| ITEM-016 | IMPL | Register `IAdoGitService` → `AdoGitClient` and `BranchCommand` in `Program.cs`. Add `Branch` method to `TwigCommands` | `src/Twig/Program.cs` | TO DO |
-| ITEM-017 | TEST | Unit tests for `BranchCommand`: mock `IGitService`, `IAdoGitService`, `IContextStore`. Test branch creation, artifact linking, auto-transition, `--no-link` flag | `tests/Twig.Cli.Tests/Commands/BranchCommandTests.cs` | TO DO |
-| ITEM-018 | IMPL | Add hints for `branch` command to `HintEngine` | `src/Twig/Hints/HintEngine.cs` | TO DO |
+| ITEM-011 | IMPL | Create `IAdoGitService` interface with `AddArtifactLinkAsync`, `CreatePullRequestAsync`, `GetPullRequestsForBranchAsync`, `GetRepositoryIdAsync`, `GetProjectIdAsync` | `src/Twig.Domain/Interfaces/IAdoGitService.cs` | DONE |
+| ITEM-012 | IMPL | Create `PullRequestCreate` and `PullRequestInfo` value objects | `src/Twig.Domain/ValueObjects/PullRequestCreate.cs`, `src/Twig.Domain/ValueObjects/PullRequestInfo.cs` | DONE |
+| ITEM-013 | IMPL | Implement `AdoGitClient`: repository/project ID lookup, artifact link PATCH (branch/commit/PR types), PR creation POST. Reuse `HttpClient` and `IAuthenticationProvider` patterns from `AdoRestClient` | `src/Twig.Infrastructure/Ado/AdoGitClient.cs` | DONE |
+| ITEM-014 | IMPL | Create ADO Git REST DTOs: `AdoPullRequestRequest`, `AdoPullRequestResponse`, `AdoRepositoryResponse`, `AdoProjectResponse`. Add `[JsonSerializable]` entries to `TwigJsonContext` | `src/Twig.Infrastructure/Ado/Dtos/AdoPullRequestRequest.cs`, `src/Twig.Infrastructure/Ado/Dtos/AdoPullRequestResponse.cs`, `src/Twig.Infrastructure/Ado/Dtos/AdoRepositoryResponse.cs`, `src/Twig.Infrastructure/Ado/Dtos/AdoProjectResponse.cs`, `src/Twig.Infrastructure/Serialization/TwigJsonContext.cs` | DONE |
+| ITEM-015 | IMPL | Implement `BranchCommand`: get active work item, generate branch name, create branch via `IGitService`, add artifact link via `IAdoGitService`, optionally auto-transition state. Support `--no-link` and `--no-transition` flags | `src/Twig/Commands/BranchCommand.cs` | DONE |
+| ITEM-016 | IMPL | Register `IAdoGitService` → `AdoGitClient` and `BranchCommand` in `Program.cs`. Add `Branch` method to `TwigCommands` | `src/Twig/Program.cs` | DONE |
+| ITEM-017 | TEST | Unit tests for `BranchCommand`: mock `IGitService`, `IAdoGitService`, `IContextStore`. Test branch creation, artifact linking, auto-transition, `--no-link` flag | `tests/Twig.Cli.Tests/Commands/BranchCommandTests.cs` | DONE |
+| ITEM-018 | IMPL | Add hints for `branch` command to `HintEngine` | `src/Twig/Hints/HintEngine.cs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] `twig branch` creates a correctly named branch and checks it out
-- [ ] Branch is linked as an ArtifactLink on the ADO work item
-- [ ] Work item transitions to Active/In Progress when `autoTransition` is enabled
-- [ ] `--no-link` skips the ADO API call
-- [ ] Error when no active work item is set
+- [x] `twig branch` creates a correctly named branch and checks it out
+- [x] Branch is linked as an ArtifactLink on the ADO work item
+- [x] Work item transitions to Active/In Progress when `autoTransition` is enabled
+- [x] `--no-link` skips the ADO API call
+- [x] Error when no active work item is set
+
+**Completed:** 2026-03-17. Removed dead `GetArtifactLinkDisplayName` private static method from `AdoGitClient.cs` (display names are now passed explicitly via the `name` parameter). Fixed section comment banner mismatch in `BranchCommandTests.cs`. Registered `BranchCommand` in `Program.cs` DI container using `GetService<T>()` for optional `IGitService?` and `IAdoGitService?` dependencies, following the same pattern as `FlowDoneCommand`/`FlowCloseCommand`. Added `Branch` method to `TwigCommands` routing `twig branch` with `--no-link`, `--no-transition`, and `--output` parameters.
 
 ---
 
-### EPIC-004: `twig commit` & `twig pr` Commands
+### EPIC-004: `twig commit` & `twig pr` Commands ✅ DONE
 
 **Goal:** Implement commit enrichment and PR creation commands.
 
@@ -720,25 +724,27 @@ Hook fires after: git checkout bug/12345-fix-crash
 
 | Task | Type | Description | Files | Status |
 |---|---|---|---|---|
-| ITEM-019 | IMPL | Create `CommitMessageService` with `Format(WorkItem, string userMessage, string template)`. Map work item types to conventional commit prefixes. Handle template substitution (`{type}`, `{id}`, `{message}`, `{title}`) | `src/Twig.Domain/Services/CommitMessageService.cs` | TO DO |
-| ITEM-020 | TEST | Unit tests for `CommitMessageService`: template substitution, conventional commit mapping, edge cases (empty message, no template) | `tests/Twig.Domain.Tests/Services/CommitMessageServiceTests.cs` | TO DO |
-| ITEM-021 | IMPL | Implement `CommitCommand`: get active work item, format commit message via `CommitMessageService`, pass remaining args to `git commit`, optionally add commit artifact link. Support `--no-link` and pass-through of `git commit` flags (`--amend`, `--`, pathspecs) | `src/Twig/Commands/CommitCommand.cs` | TO DO |
-| ITEM-022 | TEST | Unit tests for `CommitCommand`: mock `IGitService` and `IAdoGitService`. Test message formatting, artifact linking, `--no-link`, `--amend` pass-through | `tests/Twig.Cli.Tests/Commands/CommitCommandTests.cs` | TO DO |
-| ITEM-023 | IMPL | Implement `PrCommand`: get active work item, determine source/target branches, build PR title/description from work item, call `IAdoGitService.CreatePullRequestAsync`, add PR artifact link. Support `--target`, `--title`, `--draft` flags | `src/Twig/Commands/PrCommand.cs` | TO DO |
-| ITEM-024 | TEST | Unit tests for `PrCommand`: mock services. Test PR creation, work item linking, `--draft` flag, `--target` override | `tests/Twig.Cli.Tests/Commands/PrCommandTests.cs` | TO DO |
-| ITEM-025 | IMPL | Register `CommitCommand` and `PrCommand` in `Program.cs`. Add `Commit` and `Pr` methods to `TwigCommands` | `src/Twig/Program.cs` | TO DO |
-| ITEM-026 | IMPL | Add hints for `commit` and `pr` commands to `HintEngine` | `src/Twig/Hints/HintEngine.cs` | TO DO |
+| ITEM-019 | IMPL | Create `CommitMessageService` with `Format(WorkItem, string userMessage, string template)`. Map work item types to conventional commit prefixes. Handle template substitution (`{type}`, `{id}`, `{message}`, `{title}`) | `src/Twig.Domain/Services/CommitMessageService.cs` | DONE |
+| ITEM-020 | TEST | Unit tests for `CommitMessageService`: template substitution, conventional commit mapping, edge cases (empty message, no template) | `tests/Twig.Domain.Tests/Services/CommitMessageServiceTests.cs` | DONE |
+| ITEM-021 | IMPL | Implement `CommitCommand`: get active work item, format commit message via `CommitMessageService`, pass remaining args to `git commit`, optionally add commit artifact link. Support `--no-link` and pass-through of `git commit` flags (`--amend`, `--`, pathspecs) | `src/Twig/Commands/CommitCommand.cs` | DONE |
+| ITEM-022 | TEST | Unit tests for `CommitCommand`: mock `IGitService` and `IAdoGitService`. Test message formatting, artifact linking, `--no-link`, `--amend` pass-through | `tests/Twig.Cli.Tests/Commands/CommitCommandTests.cs` | DONE |
+| ITEM-023 | IMPL | Implement `PrCommand`: get active work item, determine source/target branches, build PR title/description from work item, call `IAdoGitService.CreatePullRequestAsync`, add PR artifact link. Support `--target`, `--title`, `--draft` flags | `src/Twig/Commands/PrCommand.cs` | DONE |
+| ITEM-024 | TEST | Unit tests for `PrCommand`: mock services. Test PR creation, work item linking, `--draft` flag, `--target` override | `tests/Twig.Cli.Tests/Commands/PrCommandTests.cs` | DONE |
+| ITEM-025 | IMPL | Register `CommitCommand` and `PrCommand` in `Program.cs`. Add `Commit` and `Pr` methods to `TwigCommands` | `src/Twig/Program.cs` | DONE |
+| ITEM-026 | IMPL | Add hints for `commit` and `pr` commands to `HintEngine` | `src/Twig/Hints/HintEngine.cs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] `twig commit "message"` produces a commit with work-item-prefixed message
-- [ ] Commit hash is linked to ADO work item as artifact link
-- [ ] `twig pr` creates an ADO pull request linked to the active work item
-- [ ] PR title/description are populated from work item fields
-- [ ] `--draft` creates a draft PR
+- [x] `twig commit "message"` produces a commit with work-item-prefixed message
+- [x] Commit hash is linked to ADO work item as artifact link
+- [x] `twig pr` creates an ADO pull request linked to the active work item
+- [x] PR title/description are populated from work item fields
+- [x] `--draft` creates a draft PR
+
+**Completed:** 2026-03-17. Added missing `output` parameter to `TwigCommands.Commit()` facade (placed before `params string[] passthrough` as required by C# syntax) and forwarded it as `outputFormat` to `CommitCommand.ExecuteAsync`, aligning with `TwigCommands.Pr()` which already exposed the parameter. Added `EmptyPassthroughArray_UsesSimpleCommit` test covering the edge case where `params string[]` produces `Array.Empty<string>()` rather than `null`, verifying the empty array correctly routes to `CommitAsync` (not `CommitWithArgsAsync`).
 
 ---
 
-### EPIC-005: Git Hooks & Context Tracking
+### EPIC-005: Git Hooks & Context Tracking ✅ DONE
 
 **Goal:** Implement opt-in git hooks and automatic context switching.
 
@@ -746,26 +752,28 @@ Hook fires after: git checkout bug/12345-fix-crash
 
 | Task | Type | Description | Files | Status |
 |---|---|---|---|---|
-| ITEM-027 | IMPL | Implement `HookInstaller` with `Install(string gitDir, HooksConfig)` and `Uninstall(string gitDir)`. Write marker-commented shell scripts for `prepare-commit-msg`, `commit-msg`, `post-checkout`. Detect and preserve existing hook content. Cross-platform scripts (bash for macOS/Linux, batch/PowerShell for Windows) | `src/Twig.Infrastructure/Git/HookInstaller.cs` | TO DO |
-| ITEM-028 | TEST | Unit tests for `HookInstaller`: install to temp `.git/hooks/`, verify script content, verify marker comments, test uninstall removes only Twig sections, test coexistence with existing hooks | `tests/Twig.Infrastructure.Tests/Git/HookInstallerTests.cs` | TO DO |
-| ITEM-029 | IMPL | Implement `HooksCommand`: `install` subcommand calls `HookInstaller.Install`, `uninstall` subcommand calls `HookInstaller.Uninstall`. Detect `.git/` directory path via `IGitService` | `src/Twig/Commands/HooksCommand.cs` | TO DO |
-| ITEM-030 | TEST | Unit tests for `HooksCommand`: mock `HookInstaller` and `IGitService` | `tests/Twig.Cli.Tests/Commands/HooksCommandTests.cs` | TO DO |
-| ITEM-031 | IMPL | Implement `GitContextCommand` (`twig context`): show active work item, current branch, detect work item from branch name, show linked PRs (via `IAdoGitService.GetPullRequestsForBranchAsync`) | `src/Twig/Commands/GitContextCommand.cs` | TO DO |
-| ITEM-032 | IMPL | Implement internal `_hook` command for hook scripts to invoke. Handle `post-checkout` (extract work item ID from branch, set context), `prepare-commit-msg` (prefix message file), `commit-msg` (validate reference) | `src/Twig/Commands/HookHandlerCommand.cs` | TO DO |
-| ITEM-033 | IMPL | Register `HooksCommand`, `GitContextCommand`, `HookHandlerCommand` in `Program.cs`. Add routing to `TwigCommands` | `src/Twig/Program.cs` | TO DO |
-| ITEM-034 | IMPL | Add hints for `hooks` and `context` commands to `HintEngine` | `src/Twig/Hints/HintEngine.cs` | TO DO |
+| ITEM-027 | IMPL | Implement `HookInstaller` with `Install(string gitDir, HooksConfig)` and `Uninstall(string gitDir)`. Write marker-commented shell scripts for `prepare-commit-msg`, `commit-msg`, `post-checkout`. Detect and preserve existing hook content. Cross-platform scripts (bash for macOS/Linux, batch/PowerShell for Windows) | `src/Twig.Infrastructure/Git/HookInstaller.cs` | DONE |
+| ITEM-028 | TEST | Unit tests for `HookInstaller`: install to temp `.git/hooks/`, verify script content, verify marker comments, test uninstall removes only Twig sections, test coexistence with existing hooks | `tests/Twig.Infrastructure.Tests/Git/HookInstallerTests.cs` | DONE |
+| ITEM-029 | IMPL | Implement `HooksCommand`: `install` subcommand calls `HookInstaller.Install`, `uninstall` subcommand calls `HookInstaller.Uninstall`. Detect `.git/` directory path via `IGitService` | `src/Twig/Commands/HooksCommand.cs` | DONE |
+| ITEM-030 | TEST | Unit tests for `HooksCommand`: mock `HookInstaller` and `IGitService` | `tests/Twig.Cli.Tests/Commands/HooksCommandTests.cs` | DONE |
+| ITEM-031 | IMPL | Implement `GitContextCommand` (`twig context`): show active work item, current branch, detect work item from branch name, show linked PRs (via `IAdoGitService.GetPullRequestsForBranchAsync`) | `src/Twig/Commands/GitContextCommand.cs` | DONE |
+| ITEM-032 | IMPL | Implement internal `_hook` command for hook scripts to invoke. Handle `post-checkout` (extract work item ID from branch, set context), `prepare-commit-msg` (prefix message file), `commit-msg` (validate reference) | `src/Twig/Commands/HookHandlerCommand.cs` | DONE |
+| ITEM-033 | IMPL | Register `HooksCommand`, `GitContextCommand`, `HookHandlerCommand` in `Program.cs`. Add routing to `TwigCommands` | `src/Twig/Program.cs` | DONE |
+| ITEM-034 | IMPL | Add hints for `hooks` and `context` commands to `HintEngine` | `src/Twig/Hints/HintEngine.cs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] `twig hooks install` writes hook scripts to `.git/hooks/` with `# twig-managed` markers
-- [ ] `twig hooks uninstall` removes only Twig-managed sections from hook files
-- [ ] Existing hook content is preserved during install
-- [ ] post-checkout hook auto-sets Twig context when switching to a branch with a work item ID
-- [ ] prepare-commit-msg hook prefixes commit messages with work item ID
-- [ ] `twig context` displays current branch ↔ work item ↔ PR linkage
+- [x] `twig hooks install` writes hook scripts to `.git/hooks/` with `# twig-managed` markers
+- [x] `twig hooks uninstall` removes only Twig-managed sections from hook files
+- [x] Existing hook content is preserved during install
+- [x] post-checkout hook auto-sets Twig context when switching to a branch with a work item ID
+- [x] prepare-commit-msg hook prefixes commit messages with work item ID
+- [x] `twig context` displays current branch ↔ work item ↔ PR linkage
+
+**Completed:** 2026-03-17. Implemented HookInstaller with marker-delimited shell scripts (# twig-managed-start/end) for safe coexistence with user hooks. HooksCommand provides install/uninstall subcommands via IGitService for .git directory resolution. GitContextCommand shows branch/work item/PR linkage with human/json/minimal output. HookHandlerCommand handles post-checkout (auto-context), prepare-commit-msg (prefix), and commit-msg (validation) hook invocations. All commands registered in Program.cs with DI and TwigCommands routing. HintEngine updated with hooks/context hints. 25 tests passing (18 HookInstaller + 7 HooksCommand). Review fixes applied: removed redundant namespace qualification on `Regex.IsMatch` in HookHandlerCommand.cs (line 131) and strengthened `PrepareCommitMsg_LongerIdInMessage_StillPrefixes` test to assert both prefix application and original content preservation.
 
 ---
 
-### EPIC-006: Status Enrichment & Secondary Commands
+### EPIC-006: Status Enrichment & Secondary Commands ✅ DONE
 
 **Goal:** Enrich `twig status` with git info and implement lower-priority git commands.
 
@@ -773,19 +781,21 @@ Hook fires after: git checkout bug/12345-fix-crash
 
 | Task | Type | Description | Files | Status |
 |---|---|---|---|---|
-| ITEM-035 | IMPL | Extend `StatusCommand` to show current branch, linked PRs (title + status), and build status when git context is available. Gracefully degrade when not in a git repo | `src/Twig/Commands/StatusCommand.cs` | TO DO |
-| ITEM-036 | IMPL | Implement `StashCommand` (`twig stash` / `twig stash pop`): wrap `git stash` with work item context in stash message, restore Twig context on pop | `src/Twig/Commands/StashCommand.cs` | TO DO |
-| ITEM-037 | IMPL | Implement `LogCommand` (`twig log`): parse git log, extract work item IDs from commit messages, annotate with work item type/state from cache. Support `--count` and `--work-item` filter flags | `src/Twig/Commands/LogCommand.cs` | TO DO |
-| ITEM-038 | IMPL | Add format methods to `IOutputFormatter` and implementations for git context display (branch info, PR info, annotated log entries) | `src/Twig/Formatters/IOutputFormatter.cs`, `src/Twig/Formatters/HumanOutputFormatter.cs`, `src/Twig/Formatters/JsonOutputFormatter.cs`, `src/Twig/Formatters/MinimalOutputFormatter.cs` | TO DO |
-| ITEM-039 | IMPL | Register `StashCommand` and `LogCommand` in `Program.cs`. Add routing to `TwigCommands` | `src/Twig/Program.cs` | TO DO |
-| ITEM-040 | TEST | Unit tests for status enrichment, stash command, and log command | `tests/Twig.Cli.Tests/Commands/StatusCommandGitTests.cs`, `tests/Twig.Cli.Tests/Commands/StashCommandTests.cs`, `tests/Twig.Cli.Tests/Commands/LogCommandTests.cs` | TO DO |
+| ITEM-035 | IMPL | Extend `StatusCommand` to show current branch, linked PRs (title + status), and build status when git context is available. Gracefully degrade when not in a git repo | `src/Twig/Commands/StatusCommand.cs` | DONE |
+| ITEM-036 | IMPL | Implement `StashCommand` (`twig stash` / `twig stash pop`): wrap `git stash` with work item context in stash message, restore Twig context on pop | `src/Twig/Commands/StashCommand.cs` | DONE |
+| ITEM-037 | IMPL | Implement `LogCommand` (`twig log`): parse git log, extract work item IDs from commit messages, annotate with work item type/state from cache. Support `--count` and `--work-item` filter flags | `src/Twig/Commands/LogCommand.cs` | DONE |
+| ITEM-038 | IMPL | Add format methods to `IOutputFormatter` and implementations for git context display (branch info, PR info, annotated log entries) | `src/Twig/Formatters/IOutputFormatter.cs`, `src/Twig/Formatters/HumanOutputFormatter.cs`, `src/Twig/Formatters/JsonOutputFormatter.cs`, `src/Twig/Formatters/MinimalOutputFormatter.cs` | DONE |
+| ITEM-039 | IMPL | Register `StashCommand` and `LogCommand` in `Program.cs`. Add routing to `TwigCommands` | `src/Twig/Program.cs` | DONE |
+| ITEM-040 | TEST | Unit tests for status enrichment, stash command, and log command | `tests/Twig.Cli.Tests/Commands/StatusCommandGitTests.cs`, `tests/Twig.Cli.Tests/Commands/StashCommandTests.cs`, `tests/Twig.Cli.Tests/Commands/LogCommandTests.cs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] `twig status` shows branch name and linked PR status alongside work item info
-- [ ] `twig stash` includes work item context in stash message
-- [ ] `twig log` annotates commits with work item type badges
-- [ ] `twig log --work-item 12345` filters to commits referencing that work item
-- [ ] All commands degrade gracefully when not in a git repo
+- [x] `twig status` shows branch name and linked PR status alongside work item info
+- [x] `twig stash` includes work item context in stash message
+- [x] `twig log` annotates commits with work item type badges
+- [x] `twig log --work-item 12345` filters to commits referencing that work item
+- [x] All commands degrade gracefully when not in a git repo
+
+**Completed:** 2026-03-17. Extended StatusCommand with IAdoGitService? optional dependency and WriteGitContextAsync helper (graceful degradation). Implemented StashCommand (twig stash / twig stash pop) wrapping git stash with work item context in message and restoring Twig context on pop. Implemented LogCommand parsing git log %H %s format, extracting work item IDs via #NNN and AB#NNN regex patterns, batch-looking up from cache, and annotating entries with type badges/state; supports --count and --work-item filters. Added FormatBranchInfo, FormatPrStatus, and FormatAnnotatedLogEntry to IOutputFormatter with Human (ANSI colors/badges), JSON (structured), and Minimal (compact) implementations. Registered StashCommand and LogCommand in Program.cs. 36 unit tests covering status enrichment, stash, and log commands.
 
 ---
 

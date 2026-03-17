@@ -1,24 +1,24 @@
 # Oh My Posh Integration
 
-Twig integrates with [Oh My Posh](https://ohmyposh.dev/) to display your active Azure DevOps work item directly in your shell prompt. The integration uses the **environment variable + `text` segment** pattern — a shell hook runs `twig _prompt` before each prompt render, stores the output in the `TWIG_PROMPT` environment variable, and an Oh My Posh `text` segment reads it via `{{ .Env.TWIG_PROMPT }}`.
+Twig integrates with [Oh My Posh](https://ohmyposh.dev/) to display your active Azure DevOps work item directly in your shell prompt. The integration uses a **pre-computed state file** (`.twig/prompt.json`) — every twig command that modifies prompt-visible state writes this file as a side effect. A shell hook reads the file (~1ms) before each prompt render, sets environment variables, and an Oh My Posh `text` segment reads them via `{{ .Env.TWIG_PROMPT }}`.
 
-> **Note:** This integration does **not** use a `command` segment (Oh My Posh has no `command` segment type). It uses a `text` segment that reads an environment variable populated by a shell hook.
+> **Note:** This integration does **not** use a `command` segment or spawn a subprocess. It uses a `text` segment that reads environment variables populated by a shell hook that reads `.twig/prompt.json`.
 
 ## How It Works
 
 ```
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│  Shell Hook  │────▶│  TWIG_PROMPT │────▶│  OMP text    │
-│ twig _prompt │     │  env var     │     │  segment     │
-└──────────────┘     └──────────────┘     └──────────────┘
+┌───────────────────┐     ┌──────────────┐     ┌──────────────┐
+│  Shell Hook       │────▶│  TWIG_PROMPT │────▶│  OMP text    │
+│  reads prompt.json│     │  env vars    │     │  segment     │
+└───────────────────┘     └──────────────┘     └──────────────┘
 ```
 
-1. Before each prompt render, a shell hook function runs `twig _prompt`.
-2. `twig _prompt` reads the active work item from the local SQLite cache (no network calls) and outputs a compact summary.
-3. The output is stored in the `TWIG_PROMPT` environment variable.
+1. Every twig command that modifies prompt-visible state (e.g., `twig set`, `twig state`, `twig flow-start`) writes `.twig/prompt.json`.
+2. Before each prompt render, a shell hook function reads `.twig/prompt.json` (~1ms, no subprocess).
+3. The hook sets `TWIG_PROMPT`, `TWIG_TYPE_COLOR`, and `TWIG_STATE_CATEGORY` environment variables.
 4. Oh My Posh renders the `text` segment, which reads `{{ .Env.TWIG_PROMPT }}`.
 
-When there is no `.twig/` directory, no active work item, or the database is locked, `twig _prompt` outputs nothing and the segment is hidden.
+When there is no `.twig/prompt.json` file (no active work item, or twig not initialized), the hook sets empty variables and the segment is hidden.
 
 ## Quick Start
 
@@ -72,8 +72,20 @@ Your prompt will now show the active Twig work item context, e.g.:
 Add the following to your `$PROFILE` (run `notepad $PROFILE` to open it):
 
 ```powershell
-# Twig Oh My Posh hook — populates TWIG_PROMPT before each prompt render
-function Set-TwigPrompt { $env:TWIG_PROMPT = (twig _prompt 2>$null) }
+# Twig Oh My Posh hook — reads .twig/prompt.json before each prompt render
+function Set-TwigPrompt {
+    $f = Join-Path $PWD ".twig" "prompt.json"
+    if (Test-Path $f) {
+        $p = Get-Content $f -Raw | ConvertFrom-Json
+        $env:TWIG_PROMPT = $p.text
+        $env:TWIG_TYPE_COLOR = $p.typeColor
+        $env:TWIG_STATE_CATEGORY = $p.stateCategory
+    } else {
+        $env:TWIG_PROMPT = ""
+        $env:TWIG_TYPE_COLOR = ""
+        $env:TWIG_STATE_CATEGORY = ""
+    }
+}
 New-Alias -Name 'Set-PoshContext' -Value 'Set-TwigPrompt' -Scope Global -Force
 ```
 
@@ -84,22 +96,42 @@ Oh My Posh calls `Set-PoshContext` automatically before each prompt render. The 
 Add the following to `~/.bashrc`, **after** your Oh My Posh initialization line (`eval "$(oh-my-posh init bash)"`):
 
 ```bash
-# Twig Oh My Posh hook — populates TWIG_PROMPT before each prompt render
+# Twig Oh My Posh hook — reads .twig/prompt.json before each prompt render
 set_poshcontext() {
-    export TWIG_PROMPT="$(twig _prompt 2>/dev/null)"
+    local f="$PWD/.twig/prompt.json"
+    if [ -f "$f" ]; then
+        export TWIG_PROMPT=$(jq -r '.text // empty' "$f" 2>/dev/null)
+        export TWIG_TYPE_COLOR=$(jq -r '.typeColor // empty' "$f" 2>/dev/null)
+        export TWIG_STATE_CATEGORY=$(jq -r '.stateCategory // empty' "$f" 2>/dev/null)
+    else
+        export TWIG_PROMPT=""
+        export TWIG_TYPE_COLOR=""
+        export TWIG_STATE_CATEGORY=""
+    fi
 }
 ```
 
 Oh My Posh calls `set_poshcontext` automatically before each prompt render in bash.
+
+> **Note:** The bash/zsh hooks require [`jq`](https://jqlang.github.io/jq/) to parse `prompt.json`. Install it via your package manager (e.g., `apt install jq`, `brew install jq`).
 
 ### Zsh
 
 Add the following to `~/.zshrc`, **after** your Oh My Posh initialization line (`eval "$(oh-my-posh init zsh)"`):
 
 ```zsh
-# Twig Oh My Posh hook — populates TWIG_PROMPT before each prompt render
+# Twig Oh My Posh hook — reads .twig/prompt.json before each prompt render
 set_poshcontext() {
-    export TWIG_PROMPT="$(twig _prompt 2>/dev/null)"
+    local f="$PWD/.twig/prompt.json"
+    if [ -f "$f" ]; then
+        export TWIG_PROMPT=$(jq -r '.text // empty' "$f" 2>/dev/null)
+        export TWIG_TYPE_COLOR=$(jq -r '.typeColor // empty' "$f" 2>/dev/null)
+        export TWIG_STATE_CATEGORY=$(jq -r '.stateCategory // empty' "$f" 2>/dev/null)
+    else
+        export TWIG_PROMPT=""
+        export TWIG_TYPE_COLOR=""
+        export TWIG_STATE_CATEGORY=""
+    fi
 }
 ```
 
@@ -110,9 +142,18 @@ Oh My Posh calls `set_poshcontext` automatically before each prompt render in zs
 Add the following to `~/.config/fish/config.fish`, **after** your Oh My Posh initialization line (`oh-my-posh init fish | source`):
 
 ```fish
-# Twig Oh My Posh hook — populates TWIG_PROMPT before each prompt render
+# Twig Oh My Posh hook — reads .twig/prompt.json before each prompt render
 function set_poshcontext
-    set -gx TWIG_PROMPT (twig _prompt 2>/dev/null)
+    set -l f "$PWD/.twig/prompt.json"
+    if test -f "$f"
+        set -gx TWIG_PROMPT (jq -r '.text // empty' "$f" 2>/dev/null)
+        set -gx TWIG_TYPE_COLOR (jq -r '.typeColor // empty' "$f" 2>/dev/null)
+        set -gx TWIG_STATE_CATEGORY (jq -r '.stateCategory // empty' "$f" 2>/dev/null)
+    else
+        set -gx TWIG_PROMPT ""
+        set -gx TWIG_TYPE_COLOR ""
+        set -gx TWIG_STATE_CATEGORY ""
+    end
 end
 ```
 
@@ -185,10 +226,9 @@ See [`docs/examples/twig.omp.json`](examples/twig.omp.json) for a complete Oh My
 ### Segment not showing
 
 1. **Verify the hook is in your shell profile.** Open your profile file and confirm the hook function is present (see [Shell Setup](#shell-setup)).
-2. **Test `twig _prompt` manually.** Run `twig _prompt` in your terminal. If it produces output, the hook is working. If it produces no output:
+2. **Check that `.twig/prompt.json` exists.** Run any mutating twig command (e.g., `twig refresh` or `twig set <id>`) to regenerate the file. If no work item is active, the file will contain `{}` and the segment will be hidden.
    - Ensure you are in a directory with a `.twig/` folder (or a subdirectory of one).
    - Ensure you have an active work item set (`twig set <id>`).
-   - Run `twig status` to verify Twig is initialized and has data.
 3. **Check the environment variable.** After running the hook manually, check the variable:
    - PowerShell: `$env:TWIG_PROMPT`
    - Bash/Zsh: `echo $TWIG_PROMPT`
@@ -197,30 +237,25 @@ See [`docs/examples/twig.omp.json`](examples/twig.omp.json) for a complete Oh My
 
 ### Stale data
 
-The `TWIG_PROMPT` environment variable is updated on **every prompt render** via the shell hook. If you see stale data:
+Prompt data is updated whenever a twig command modifies prompt-visible state (e.g., `twig set`, `twig state`, `twig save`). If you see stale data:
 
+- Run any mutating twig command (e.g., `twig refresh`) to regenerate `.twig/prompt.json`.
 - Ensure the hook function is defined **after** the Oh My Posh init line in your profile (bash/zsh/fish). If defined before, Oh My Posh may overwrite it.
-- Run `twig refresh` to pull the latest data from Azure DevOps into the local cache.
 - The `cache` property in the segment config (`"duration": "30s"`) tells Oh My Posh to cache the rendered segment for 30 seconds. Reduce or remove the `cache` block if you need real-time updates.
 
 ### Performance
 
-`twig _prompt` is designed to execute in **under 50ms**:
+The shell hook reads `.twig/prompt.json` directly — **no subprocess is spawned**. This is typically under 2ms:
 
-- It is a Native AOT compiled binary (no JIT startup cost).
-- It reads only from the local SQLite cache (no network calls).
-- It executes exactly 2 SQL queries (active context + work item lookup).
-- Stderr is suppressed by the hook (`2>$null` / `2>/dev/null`), so errors don't pollute the prompt.
+- PowerShell: `Get-Content` + `ConvertFrom-Json` (~1-2ms for a <500 byte file).
+- Bash/Zsh/Fish: `jq` (~1ms).
+- No SQLite queries, no process startup, no network calls.
 
-If you experience slow prompts:
-
-- Run `twig _prompt` with timing: `Measure-Command { twig _prompt }` (PowerShell) or `time twig _prompt` (bash/zsh).
-- Ensure antivirus software is not scanning `.twig/twig.db` on every access.
-- The `cache` property in the segment config reduces how often Oh My Posh re-evaluates the segment, which can help if the hook itself is slow.
+If you experience slow prompts, the issue is likely elsewhere in your Oh My Posh configuration (e.g., git segment with `fetch_status: true` on large repos).
 
 ## Reference
 
-- `twig _prompt` — Hidden command (not shown in `--help`) that outputs the active work item summary for prompt use.
+- `.twig/prompt.json` — Pre-computed state file written by twig commands. Contains work item summary, type badge, colors, and branch info.
 - `twig ohmyposh init --shell <pwsh|bash|zsh|fish> --style <powerline|plain|diamond>` — Outputs shell hook function and Oh My Posh JSON segment snippet.
 - [Oh My Posh — Templates (Environment Variables)](https://ohmyposh.dev/docs/configuration/templates#environment-variables) — Official documentation for the `Set-PoshContext` / `set_poshcontext` hook mechanism.
 - [Oh My Posh — Text Segment](https://ohmyposh.dev/docs/segments/system/text) — Official documentation for the `text` segment type.

@@ -24,7 +24,8 @@ public sealed class FlowDoneCommand(
     HintEngine hintEngine,
     TwigConfiguration config,
     IGitService? gitService = null,
-    IAdoGitService? adoGitService = null)
+    IAdoGitService? adoGitService = null,
+    IPromptStateWriter? promptStateWriter = null)
 {
     /// <summary>Mark a work item as done: save work tree, transition to Resolved, offer PR.</summary>
     public async Task<int> ExecuteAsync(
@@ -76,7 +77,7 @@ public sealed class FlowDoneCommand(
             {
                 // Explicit ID: save single item only, do NOT change active context
                 hasDirtyItems = dirtyIds.Any(d => d == targetId);
-                saveResult = await saveCommand.ExecuteAsync(targetId: targetId, all: false, outputFormat: outputFormat);
+                saveResult = await saveCommand.ExecuteAsync(targetId: targetId, all: false, outputFormat: outputFormat, skipPromptWrite: true);
             }
             else
             {
@@ -84,7 +85,7 @@ public sealed class FlowDoneCommand(
                 var dirtySet = new HashSet<int>(dirtyIds);
                 var children = await workItemRepo.GetChildrenAsync(targetId);
                 hasDirtyItems = dirtySet.Contains(targetId) || children.Any(c => dirtySet.Contains(c.Id));
-                saveResult = await saveCommand.ExecuteAsync(targetId: null, all: false, outputFormat: outputFormat);
+                saveResult = await saveCommand.ExecuteAsync(targetId: null, all: false, outputFormat: outputFormat, skipPromptWrite: true);
             }
 
             if (saveResult != 0)
@@ -180,6 +181,8 @@ public sealed class FlowDoneCommand(
             foreach (var action in actionStrings)
                 Console.WriteLine(fmt.FormatInfo($"  {action}"));
         }
+
+        promptStateWriter?.WritePromptState();
 
         return 0;
     }

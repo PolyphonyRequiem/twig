@@ -20,7 +20,8 @@ public sealed class StateCommand(
     IProcessConfigurationProvider processConfigProvider,
     IConsoleInput consoleInput,
     OutputFormatterFactory formatterFactory,
-    HintEngine hintEngine)
+    HintEngine hintEngine,
+    IPromptStateWriter? promptStateWriter = null)
 {
     /// <summary>Change the state of the active work item using a shorthand code (p/c/s/d/x).</summary>
     public async Task<int> ExecuteAsync(string shorthand, string outputFormat = "human")
@@ -116,6 +117,8 @@ public sealed class StateCommand(
         item.ApplyCommands();
         item.MarkSynced(newRevision);
         await workItemRepo.SaveAsync(item);
+
+        promptStateWriter?.WritePromptState();
 
         // Gather siblings for hint engine
         var siblings = item.ParentId.HasValue

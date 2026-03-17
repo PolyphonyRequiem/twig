@@ -22,7 +22,8 @@ public sealed class RefreshCommand(
     TwigPaths paths,
     IProcessTypeStore processTypeStore,
     OutputFormatterFactory formatterFactory,
-    HintEngine hintEngine)
+    HintEngine hintEngine,
+    IPromptStateWriter? promptStateWriter = null)
 {
     /// <summary>Refresh the local cache from Azure DevOps.</summary>
     /// <param name="outputFormat">Output format: human, json, or minimal.</param>
@@ -216,6 +217,8 @@ public sealed class RefreshCommand(
 
         // Update cache freshness timestamp so subsequent reads don't show stale indicators
         await contextStore.SetValueAsync("last_refreshed_at", DateTimeOffset.UtcNow.ToString("O"));
+
+        promptStateWriter?.WritePromptState();
 
         return 0;
     }

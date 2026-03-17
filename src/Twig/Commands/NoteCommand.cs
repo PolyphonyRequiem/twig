@@ -15,7 +15,8 @@ public sealed class NoteCommand(
     IPendingChangeStore pendingChangeStore,
     IEditorLauncher editorLauncher,
     OutputFormatterFactory formatterFactory,
-    HintEngine hintEngine)
+    HintEngine hintEngine,
+    IPromptStateWriter? promptStateWriter = null)
 {
     /// <summary>Add a note/comment to the active work item.</summary>
     public async Task<int> ExecuteAsync(string? text = null, string outputFormat = "human")
@@ -77,6 +78,8 @@ public sealed class NoteCommand(
         await workItemRepo.SaveAsync(item);
 
         Console.WriteLine(fmt.FormatSuccess($"Note added to #{item.Id} (pending)."));
+
+        promptStateWriter?.WritePromptState();
 
         var hints = hintEngine.GetHints("note", outputFormat: outputFormat);
         foreach (var hint in hints)

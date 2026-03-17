@@ -278,38 +278,40 @@ The `_prompt` command is deleted entirely (EPIC-003). The shell hook reads `.twi
 
 | Task | Type | Description | Files | Status |
 |------|------|-------------|-------|--------|
-| ITEM-006 | IMPL | Add `IPromptStateWriter` parameter to `SetCommand` constructor. Call `WritePromptState()` after `SetActiveWorkItemIdAsync()` succeeds. | `src/Twig/Commands/SetCommand.cs` | TO DO |
-| ITEM-007 | IMPL | Add `IPromptStateWriter` to `NavigationCommands` (Up/Down). These delegate to `SetCommand` which now writes — verify no double-write needed, or call at the navigation level if `SetCommand` is called internally without the writer. | `src/Twig/Commands/NavigationCommands.cs` | TO DO |
-| ITEM-008 | IMPL | Add `IPromptStateWriter` to `FlowStartCommand`. Call after all operations (set context, state transition, assign, branch) complete. Single write at the end captures final state. | `src/Twig/Commands/FlowStartCommand.cs` | TO DO |
-| ITEM-009 | IMPL | Add `IPromptStateWriter` to `FlowDoneCommand`. Call after state transition (InProgress → Resolved). | `src/Twig/Commands/FlowDoneCommand.cs` | TO DO |
-| ITEM-010 | IMPL | Add `IPromptStateWriter` to `FlowCloseCommand`. Call after `ClearActiveWorkItemIdAsync()` — writes `{}`. | `src/Twig/Commands/FlowCloseCommand.cs` | TO DO |
-| ITEM-011 | IMPL | Add `IPromptStateWriter` to `StateCommand`. Call after state transition completes. | `src/Twig/Commands/StateCommand.cs` | TO DO |
-| ITEM-012 | IMPL | Add `IPromptStateWriter` to `SaveCommand`. Call after `ClearChangesAsync()` — dirty flag changes. | `src/Twig/Commands/SaveCommand.cs` | TO DO |
-| ITEM-013 | IMPL | Add `IPromptStateWriter` to `EditCommand` and `NoteCommand`. Call after `AddChangeAsync()` — dirty flag set. | `src/Twig/Commands/EditCommand.cs`, `src/Twig/Commands/NoteCommand.cs` | TO DO |
-| ITEM-014 | IMPL | Add `IPromptStateWriter` to `RefreshCommand`. Call after cache refresh completes — active item state/title may have changed. | `src/Twig/Commands/RefreshCommand.cs` | TO DO |
-| ITEM-015 | IMPL | Add `IPromptStateWriter` to `HookHandlerCommand`. Call after post-checkout sets context. Only write on post-checkout, not on prepare-commit-msg or commit-msg. | `src/Twig/Commands/HookHandlerCommand.cs` | TO DO |
-| ITEM-016 | IMPL | Add `IPromptStateWriter` to `StashCommand`. Call after `PopAsync` sets context (when WI# detected in stash). | `src/Twig/Commands/StashCommand.cs` | TO DO |
-| ITEM-017 | IMPL | Add `IPromptStateWriter` to `ConfigCommand`. Call after writing any `display.*` key — badge, color, or other display settings may affect prompt rendering. | `src/Twig/Commands/ConfigCommand.cs` | TO DO |
-| ITEM-018 | IMPL | Add `IPromptStateWriter` to `BranchCommand`. Call when auto-transition fires (state changes from Proposed to Active). | `src/Twig/Commands/BranchCommand.cs` | TO DO |
-| ITEM-019 | IMPL | Add `IPromptStateWriter` to `UpdateCommand`. Call after field update completes — title may have changed. | `src/Twig/Commands/UpdateCommand.cs` | TO DO |
-| ITEM-020 | IMPL | Update DI registrations in `Program.cs` to inject `IPromptStateWriter` into all modified command constructors. | `src/Twig/Program.cs` | TO DO |
-| ITEM-021 | TEST | Integration tests verifying prompt.json is written after: (a) `set`, (b) `flow-start`, (c) `flow-close` (writes `{}`), (d) `state` transition, (e) `save` (dirty cleared), (f) `config display.icons nerd` (badge changes). Use temp directories with `.twig/` setup. | `tests/Twig.Cli.Tests/Commands/PromptStateIntegrationTests.cs` | TO DO |
+| ITEM-006 | IMPL | Add `IPromptStateWriter` parameter to `SetCommand` constructor. Call `WritePromptState()` after `SetActiveWorkItemIdAsync()` succeeds. | `src/Twig/Commands/SetCommand.cs` | DONE |
+| ITEM-007 | IMPL | Add `IPromptStateWriter` to `NavigationCommands` (Up/Down). These delegate to `SetCommand` which now writes — verify no double-write needed, or call at the navigation level if `SetCommand` is called internally without the writer. | `src/Twig/Commands/NavigationCommands.cs` | DONE |
+| ITEM-008 | IMPL | Add `IPromptStateWriter` to `FlowStartCommand`. Call after all operations (set context, state transition, assign, branch) complete. Single write at the end captures final state. | `src/Twig/Commands/FlowStartCommand.cs` | DONE |
+| ITEM-009 | IMPL | Add `IPromptStateWriter` to `FlowDoneCommand`. Call after state transition (InProgress → Resolved). | `src/Twig/Commands/FlowDoneCommand.cs` | DONE |
+| ITEM-010 | IMPL | Add `IPromptStateWriter` to `FlowCloseCommand`. Call after `ClearActiveWorkItemIdAsync()` — writes `{}`. | `src/Twig/Commands/FlowCloseCommand.cs` | DONE |
+| ITEM-011 | IMPL | Add `IPromptStateWriter` to `StateCommand`. Call after state transition completes. | `src/Twig/Commands/StateCommand.cs` | DONE |
+| ITEM-012 | IMPL | Add `IPromptStateWriter` to `SaveCommand`. Call after `ClearChangesAsync()` — dirty flag changes. | `src/Twig/Commands/SaveCommand.cs` | DONE |
+| ITEM-013 | IMPL | Add `IPromptStateWriter` to `EditCommand` and `NoteCommand`. Call after `AddChangeAsync()` — dirty flag set. | `src/Twig/Commands/EditCommand.cs`, `src/Twig/Commands/NoteCommand.cs` | DONE |
+| ITEM-014 | IMPL | Add `IPromptStateWriter` to `RefreshCommand`. Call after cache refresh completes — active item state/title may have changed. | `src/Twig/Commands/RefreshCommand.cs` | DONE |
+| ITEM-015 | IMPL | Add `IPromptStateWriter` to `HookHandlerCommand`. Call after post-checkout sets context. Only write on post-checkout, not on prepare-commit-msg or commit-msg. | `src/Twig/Commands/HookHandlerCommand.cs` | DONE |
+| ITEM-016 | IMPL | Add `IPromptStateWriter` to `StashCommand`. Call after `PopAsync` sets context (when WI# detected in stash). | `src/Twig/Commands/StashCommand.cs` | DONE |
+| ITEM-017 | IMPL | Add `IPromptStateWriter` to `ConfigCommand`. Call after writing any `display.*` key — badge, color, or other display settings may affect prompt rendering. | `src/Twig/Commands/ConfigCommand.cs` | DONE |
+| ITEM-018 | IMPL | Add `IPromptStateWriter` to `BranchCommand`. Call when auto-transition fires (state changes from Proposed to Active). | `src/Twig/Commands/BranchCommand.cs` | DONE |
+| ITEM-019 | IMPL | Add `IPromptStateWriter` to `UpdateCommand`. Call after field update completes — title may have changed. | `src/Twig/Commands/UpdateCommand.cs` | DONE |
+| ITEM-020 | IMPL | Update DI registrations in `Program.cs` to inject `IPromptStateWriter` into all modified command constructors. | `src/Twig/Program.cs` | DONE |
+| ITEM-021 | TEST | Integration tests verifying prompt.json is written after: (a) `set`, (b) `flow-start`, (c) `flow-close` (writes `{}`), (d) `state` transition, (e) `save` (dirty cleared), (f) `config display.icons nerd` (badge changes). Use temp directories with `.twig/` setup. | `tests/Twig.Cli.Tests/Commands/PromptStateIntegrationTests.cs` | DONE |
 
 **Acceptance Criteria**:
 
-- [ ] `twig set 12345` writes `.twig/prompt.json` with work item #12345 data
-- [ ] `twig flow-close` writes `{}` to `.twig/prompt.json`
-- [ ] `twig state s` updates state in `prompt.json`
-- [ ] `twig save` updates `isDirty: false` in `prompt.json`
-- [ ] `twig config display.icons nerd` regenerates `prompt.json` with nerd font badge
-- [ ] `_hook post-checkout` writes `prompt.json` on branch switch
-- [ ] Prompt state write failure does not cause command failure
-- [ ] All tests pass
-- [ ] AOT build succeeds
+- [x] `twig set 12345` writes `.twig/prompt.json` with work item #12345 data
+- [x] `twig flow-close` writes `{}` to `.twig/prompt.json`
+- [x] `twig state s` updates state in `prompt.json`
+- [x] `twig save` updates `isDirty: false` in `prompt.json`
+- [x] `twig config display.icons nerd` regenerates `prompt.json` with nerd font badge
+- [x] `_hook post-checkout` writes `prompt.json` on branch switch
+- [x] Prompt state write failure does not cause command failure
+- [x] All tests pass
+- [x] AOT build succeeds
+
+**Completion Notes**: ITEM-007 (NavigationCommands) verified no modification needed — `up`/`down` delegate to `SetCommand.ExecuteAsync()` which now includes the writer call. No double-write. All 14 commands wired with `IPromptStateWriter?` as an optional parameter for backward compatibility with existing tests. DI registrations in `Program.cs` updated for all explicit-factory commands; auto-resolved commands (SetCommand, StateCommand, NavigationCommands, NoteCommand, UpdateCommand, EditCommand, ConfigCommand) pick up `IPromptStateWriter` from DI automatically. 21 integration tests covering all 14 wired commands including conditional-write guards (BranchCommand auto-transition, HookHandlerCommand post-checkout only, StashCommand pop-only). Review fixes: (1) eliminated double-write in FlowDoneCommand by adding `skipPromptWrite` parameter to SaveCommand.ExecuteAsync; (2) moved FlowDoneCommand WritePromptState() to after print-summary block for consistency with FlowStartCommand; (3) moved BranchCommand WritePromptState() outside try/catch to prevent misreporting transition state on writer failure. Review round 2 fixes: (4) added `FlowDoneCommand_WritesPromptJsonOnce_WhenDirtyItemsSaved` test exercising noSave:false path with mock writer verifying exactly 1 WritePromptState call (skipPromptWrite coverage); (5) fixed JsonDocument disposal leak in ReadPromptJson() by using JsonSerializer.Deserialize<JsonElement>(); (6) renamed misleading `noTransitionConfig` variable to `autoTransitionEnabledConfig`; (7) removed dead `_originalDir` field and no-op SetCurrentDirectory in Dispose().
 
 ---
 
-### EPIC-003: Remove `_prompt` command
+### EPIC-003: Remove `_prompt` command — DONE
 
 **Goal**: Remove the `_prompt` command entirely. The state file is the prompt mechanism — there is no need for a command. The shell hook reads `.twig/prompt.json` directly.
 
@@ -317,19 +319,21 @@ The `_prompt` command is deleted entirely (EPIC-003). The shell hook reads `.twi
 
 | Task | Type | Description | Files | Status |
 |------|------|-------------|-------|--------|
-| ITEM-022 | IMPL | Remove the `_prompt` fast-path block from `Program.cs` (the `if (args[0] == "_prompt")` section). | `src/Twig/Program.cs` | TO DO |
-| ITEM-023 | IMPL | Remove the `Prompt()` method and `[Command("_prompt")]` attribute from `TwigCommands` in `Program.cs`. Remove `PromptCommand` DI registration. | `src/Twig/Program.cs` | TO DO |
-| ITEM-024 | IMPL | Delete `PromptCommand.cs`. The `PromptBadges`, `GitBranchReader`, `TruncateTitle`, and `GetStateCategory` helpers that are reused by `PromptStateWriter` should be extracted to shared locations or inlined in the writer (EPIC-001 handles this). | `src/Twig/Commands/PromptCommand.cs` | TO DO |
-| ITEM-025 | IMPL | Delete or update `PromptCommandTests.cs` — remove tests for the deleted command. Prompt behavior is now tested via `PromptStateWriter` tests (EPIC-001) and integration tests (EPIC-002). | `tests/Twig.Cli.Tests/Commands/PromptCommandTests.cs` | TO DO |
-| ITEM-026 | IMPL | Remove `prompt` / `_prompt` from README command table if still present. | `README.md` | TO DO |
+| ITEM-022 | IMPL | Remove the `_prompt` fast-path block from `Program.cs` (the `if (args[0] == "_prompt")` section). | `src/Twig/Program.cs` | DONE |
+| ITEM-023 | IMPL | Remove the `Prompt()` method and `[Command("_prompt")]` attribute from `TwigCommands` in `Program.cs`. Remove `PromptCommand` DI registration. | `src/Twig/Program.cs` | DONE |
+| ITEM-024 | IMPL | Delete `PromptCommand.cs`. The `PromptBadges`, `GitBranchReader`, `TruncateTitle`, and `GetStateCategory` helpers that are reused by `PromptStateWriter` should be extracted to shared locations or inlined in the writer (EPIC-001 handles this). | `src/Twig/Commands/PromptCommand.cs` | DONE |
+| ITEM-025 | IMPL | Delete or update `PromptCommandTests.cs` — remove tests for the deleted command. Prompt behavior is now tested via `PromptStateWriter` tests (EPIC-001) and integration tests (EPIC-002). | `tests/Twig.Cli.Tests/Commands/PromptCommandTests.cs` | DONE |
+| ITEM-026 | IMPL | Remove `prompt` / `_prompt` from README command table if still present. | `README.md` | DONE (N/A — not present) |
 
 **Acceptance Criteria**:
 
-- [ ] `twig _prompt` returns "unknown command" error
-- [ ] `_prompt` does not appear in `--help` output
-- [ ] No `PromptCommand` class exists in the codebase
-- [ ] All tests pass
-- [ ] AOT build succeeds
+- [x] `twig _prompt` returns "unknown command" error
+- [x] `_prompt` does not appear in `--help` output
+- [x] No `PromptCommand` class exists in the codebase
+- [x] All tests pass
+- [x] AOT build succeeds
+
+**Completion Notes**: Removed the `_prompt` fast-path block (21 lines), `PromptCommand` DI registration, and `[Command("_prompt")]` method from `Program.cs`. Deleted `PromptCommand.cs` (256 lines) and `PromptCommandTests.cs` (646 lines). All helper utilities (`GitBranchReader`, `TruncateTitle`, `FormatPlain`, `StateCategoryResolver`) already exist in the Infrastructure project via EPIC-001's `PromptStateWriter`. Updated `OhMyPoshCommands.cs` shell hooks to read `.twig/prompt.json` instead of calling `twig _prompt` — hooks now set `TWIG_PROMPT`, `TWIG_TYPE_COLOR`, and `TWIG_STATE_CATEGORY` env vars from the state file. Updated `OhMyPoshCommandsTests.cs` to assert file-read approach. Updated `docs/ohmyposh.md` to document the state file mechanism. README did not contain `_prompt` references. Build: 0 errors, 0 warnings.
 
 ---
 
@@ -341,11 +345,11 @@ The `_prompt` command is deleted entirely (EPIC-003). The shell hook reads `.twi
 
 | Task | Type | Description | Files | Status |
 |------|------|-------------|-------|--------|
-| ITEM-027 | IMPL | Update `OhMyPoshCommands.Init()` to generate shell hooks that read `.twig/prompt.json` and set `$env:TWIG_PROMPT`, `$env:TWIG_TYPE_COLOR`, `$env:TWIG_STATE_CATEGORY`. Support `--shell pwsh|bash|zsh|fish`. PowerShell uses `Get-Content | ConvertFrom-Json`. Bash/zsh uses `jq` with fallback note. Fish uses `jq` or string parsing. | `src/Twig/Commands/OhMyPoshCommands.cs` | TO DO |
+| ITEM-027 | IMPL | Update `OhMyPoshCommands.Init()` to generate shell hooks that read `.twig/prompt.json` and set `$env:TWIG_PROMPT`, `$env:TWIG_TYPE_COLOR`, `$env:TWIG_STATE_CATEGORY`. Support `--shell pwsh|bash|zsh|fish`. PowerShell uses `Get-Content | ConvertFrom-Json`. Bash/zsh uses `jq` with fallback note. Fish uses `jq` or string parsing. | `src/Twig/Commands/OhMyPoshCommands.cs` | DONE (completed as part of EPIC-003) |
 | ITEM-028 | IMPL | Update OMP JSON segment snippets to include `foreground_templates` using `TWIG_TYPE_COLOR` env var for dynamic type coloring. | `src/Twig/Commands/OhMyPoshCommands.cs` | TO DO |
-| ITEM-029 | IMPL | Update `docs/ohmyposh.md` to document the state file approach: how it works, that prompt data updates automatically on twig commands, troubleshooting (stale state = run any twig command like `twig status` to regenerate). | `docs/ohmyposh.md` | TO DO |
+| ITEM-029 | IMPL | Update `docs/ohmyposh.md` to document the state file approach: how it works, that prompt data updates automatically on twig commands, troubleshooting (stale state = run any twig command like `twig status` to regenerate). | `docs/ohmyposh.md` | DONE (completed as part of EPIC-003) |
 | ITEM-030 | IMPL | Update `docs/examples/twig.omp.json` with `foreground_templates` using `TWIG_TYPE_COLOR`. | `docs/examples/twig.omp.json` | TO DO |
-| ITEM-031 | TEST | Update `OhMyPoshCommands` tests: (a) PowerShell hook reads `prompt.json` not `twig _prompt`, (b) bash hook reads `prompt.json`, (c) segment JSON includes `foreground_templates`. | `tests/Twig.Cli.Tests/Commands/OhMyPoshCommandsTests.cs` | TO DO |
+| ITEM-031 | TEST | Update `OhMyPoshCommands` tests: (a) PowerShell hook reads `prompt.json` not `twig _prompt`, (b) bash hook reads `prompt.json`, (c) segment JSON includes `foreground_templates`. | `tests/Twig.Cli.Tests/Commands/OhMyPoshCommandsTests.cs` | DONE (hook tests completed as part of EPIC-003; foreground_templates pending ITEM-028) |
 
 **Acceptance Criteria**:
 

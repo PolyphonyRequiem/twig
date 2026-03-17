@@ -16,28 +16,6 @@ using Twig.Rendering;
 
 SQLitePCL.Batteries.Init();
 
-// Fast-path: _prompt bypasses the full DI pipeline for <50ms prompt rendering.
-// Only needs TwigConfiguration + direct SQLite — no git subprocess, no service registration.
-if (args.Length >= 1 && args[0] == "_prompt")
-{
-    try { Console.OutputEncoding = System.Text.Encoding.UTF8; } catch { }
-    var twigDir = Path.Combine(Directory.GetCurrentDirectory(), ".twig");
-    var configPath = Path.Combine(twigDir, "config");
-    var config = File.Exists(configPath)
-        ? TwigConfiguration.LoadAsync(configPath).GetAwaiter().GetResult()
-        : new TwigConfiguration();
-    var promptCmd = new PromptCommand(config);
-    var format = "plain";
-    var maxWidth = 40;
-    for (int i = 1; i < args.Length; i++)
-    {
-        if (args[i] is "--format" && i + 1 < args.Length) format = args[++i];
-        else if (args[i] is "--max-width" && i + 1 < args.Length && int.TryParse(args[++i], out var w)) maxWidth = w;
-    }
-    var exitCode = promptCmd.Execute(format, maxWidth);
-    Environment.Exit(exitCode);
-}
-
 // ITEM-154: Enable UTF-8 output so Unicode type badges render correctly on Windows.
 try
 {
@@ -246,7 +224,8 @@ var app = ConsoleApp.Create()
             sp.GetRequiredService<IContextStore>(),
             sp.GetRequiredService<IConsoleInput>(),
             sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>()));
+            sp.GetRequiredService<HintEngine>(),
+            sp.GetRequiredService<IPromptStateWriter>()));
         services.AddSingleton<RefreshCommand>(sp => new RefreshCommand(
             sp.GetRequiredService<IContextStore>(),
             sp.GetRequiredService<IWorkItemRepository>(),
@@ -257,7 +236,8 @@ var app = ConsoleApp.Create()
             sp.GetRequiredService<TwigPaths>(),
             sp.GetRequiredService<IProcessTypeStore>(),
             sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>()));
+            sp.GetRequiredService<HintEngine>(),
+            sp.GetRequiredService<IPromptStateWriter>()));
         services.AddSingleton<WorkspaceCommand>(sp => new WorkspaceCommand(
             sp.GetRequiredService<IContextStore>(),
             sp.GetRequiredService<IWorkItemRepository>(),
@@ -277,7 +257,8 @@ var app = ConsoleApp.Create()
             sp.GetRequiredService<HintEngine>(),
             sp.GetRequiredService<TwigConfiguration>(),
             sp.GetService<IGitService>(),
-            sp.GetService<IAdoGitService>()));
+            sp.GetService<IAdoGitService>(),
+            sp.GetRequiredService<IPromptStateWriter>()));
         services.AddSingleton<CommitCommand>(sp => new CommitCommand(
             sp.GetRequiredService<IContextStore>(),
             sp.GetRequiredService<IWorkItemRepository>(),
@@ -302,7 +283,8 @@ var app = ConsoleApp.Create()
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<HintEngine>(),
             sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetService<IGitService>()));
+            sp.GetService<IGitService>(),
+            sp.GetRequiredService<IPromptStateWriter>()));
         services.AddSingleton<LogCommand>(sp => new LogCommand(
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<OutputFormatterFactory>(),
@@ -329,7 +311,8 @@ var app = ConsoleApp.Create()
             sp.GetRequiredService<IContextStore>(),
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetService<IGitService>()));
+            sp.GetService<IGitService>(),
+            sp.GetRequiredService<IPromptStateWriter>()));
 
         // Flow lifecycle commands (EPIC-004)
         services.AddSingleton<FlowStartCommand>(sp => new FlowStartCommand(
@@ -344,7 +327,8 @@ var app = ConsoleApp.Create()
             sp.GetRequiredService<TwigConfiguration>(),
             sp.GetRequiredService<RenderingPipelineFactory>(),
             sp.GetService<IGitService>(),
-            sp.GetService<IIterationService>()));
+            sp.GetService<IIterationService>(),
+            sp.GetRequiredService<IPromptStateWriter>()));
         services.AddSingleton<FlowDoneCommand>(sp => new FlowDoneCommand(
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IAdoWorkItemService>(),
@@ -357,7 +341,8 @@ var app = ConsoleApp.Create()
             sp.GetRequiredService<HintEngine>(),
             sp.GetRequiredService<TwigConfiguration>(),
             sp.GetService<IGitService>(),
-            sp.GetService<IAdoGitService>()));
+            sp.GetService<IAdoGitService>(),
+            sp.GetRequiredService<IPromptStateWriter>()));
         services.AddSingleton<FlowCloseCommand>(sp => new FlowCloseCommand(
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IAdoWorkItemService>(),
@@ -369,7 +354,8 @@ var app = ConsoleApp.Create()
             sp.GetRequiredService<HintEngine>(),
             sp.GetRequiredService<TwigConfiguration>(),
             sp.GetService<IGitService>(),
-            sp.GetService<IAdoGitService>()));
+            sp.GetService<IAdoGitService>(),
+            sp.GetRequiredService<IPromptStateWriter>()));
 
         // Self-update services (EPIC-005)
         services.AddSingleton<IGitHubReleaseService>(sp =>
@@ -390,9 +376,6 @@ var app = ConsoleApp.Create()
         services.AddSingleton<SelfUpdater>(sp => new SelfUpdater(sp.GetRequiredService<HttpClient>()));
         services.AddSingleton<SelfUpdateCommand>();
         services.AddSingleton<ChangelogCommand>();
-
-        // Prompt command — reads directly from SQLite, takes only TwigConfiguration
-        services.AddSingleton<PromptCommand>();
 
         // Oh My Posh helper — generates shell hooks and text segment JSON
         services.AddSingleton<OhMyPoshCommands>();
@@ -678,12 +661,6 @@ public sealed class TwigCommands(IServiceProvider services)
     [Command("_hook")]
     public async Task<int> Hook([Argument] string hookName, params string[] args)
         => await services.GetRequiredService<HookHandlerCommand>().ExecuteAsync(hookName, args);
-
-    /// <summary>Internal prompt command: outputs compact work item summary for shell integrations.</summary>
-    [Hidden]
-    [Command("_prompt")]
-    public Task<int> Prompt(string format = "plain", int maxWidth = 40)
-        => Task.FromResult(services.GetRequiredService<PromptCommand>().Execute(format, maxWidth));
 
     /// <summary>Show the current version.</summary>
     public Task<int> Version()

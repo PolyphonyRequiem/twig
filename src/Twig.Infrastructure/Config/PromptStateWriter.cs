@@ -172,7 +172,7 @@ internal sealed class PromptStateWriter : IPromptStateWriter
     }
 
     /// <summary>
-    /// Formats the plain text prompt string using the same pattern as <c>PromptCommand.FormatPlain()</c>.
+    /// Formats the plain text prompt string: badge + id + truncated title + state + dirty indicator.
     /// </summary>
     internal static string FormatPlain(string badge, int id, string title, string state, bool isDirty)
     {
@@ -205,7 +205,7 @@ internal sealed class PromptStateWriter : IPromptStateWriter
 
 /// <summary>
 /// Reads the current git branch from <c>.git/HEAD</c> via file I/O (no subprocess).
-/// Shared between <c>PromptCommand</c> (being removed in EPIC-003) and <see cref="PromptStateWriter"/>.
+/// Used by <see cref="PromptStateWriter"/> to populate the <c>branch</c> field in <c>prompt.json</c>.
 /// </summary>
 internal static class GitBranchReader
 {

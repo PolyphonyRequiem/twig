@@ -59,49 +59,65 @@ public class OhMyPoshCommandsTests
     // ── (d) PowerShell hook contains Set-PoshContext ────────────────────────
 
     [Fact]
-    public void PowerShellHook_ContainsSetPoshContext()
+    public void PowerShellHook_ReadsPromptJson()
     {
         var hook = OhMyPoshCommands.GenerateShellHook("pwsh");
 
         hook.ShouldContain("Set-PoshContext");
         hook.ShouldContain("Set-TwigPrompt");
-        hook.ShouldContain("twig _prompt");
+        hook.ShouldContain("prompt.json");
+        hook.ShouldContain("ConvertFrom-Json");
+        hook.ShouldContain("TWIG_TYPE_COLOR");
+        hook.ShouldContain("TWIG_STATE_CATEGORY");
+        hook.ShouldNotContain("twig _prompt");
     }
 
-    // ── (e) Bash hook contains set_poshcontext() ────────────────────────────
+    // ── (e) Bash hook reads prompt.json ─────────────────────────────────────
 
     [Fact]
-    public void BashHook_ContainsSetPoshContext()
+    public void BashHook_ReadsPromptJson()
     {
         var hook = OhMyPoshCommands.GenerateShellHook("bash");
 
         hook.ShouldContain("set_poshcontext()");
-        hook.ShouldContain("twig _prompt");
+        hook.ShouldContain("prompt.json");
+        hook.ShouldContain("jq");
         hook.ShouldContain("export TWIG_PROMPT");
+        hook.ShouldContain("TWIG_TYPE_COLOR");
+        hook.ShouldContain("TWIG_STATE_CATEGORY");
+        hook.ShouldNotContain("twig _prompt");
     }
 
-    // ── Zsh hook contains set_poshcontext() ─────────────────────────────────
+    // ── Zsh hook reads prompt.json ──────────────────────────────────────────
 
     [Fact]
-    public void ZshHook_ContainsSetPoshContext()
+    public void ZshHook_ReadsPromptJson()
     {
         var hook = OhMyPoshCommands.GenerateShellHook("zsh");
 
         hook.ShouldContain("set_poshcontext()");
-        hook.ShouldContain("twig _prompt");
+        hook.ShouldContain("prompt.json");
+        hook.ShouldContain("jq");
         hook.ShouldContain("export TWIG_PROMPT");
+        hook.ShouldContain("TWIG_TYPE_COLOR");
+        hook.ShouldContain("TWIG_STATE_CATEGORY");
+        hook.ShouldNotContain("twig _prompt");
     }
 
-    // ── (f) Fish hook uses set -gx TWIG_PROMPT ─────────────────────────────
+    // ── (f) Fish hook reads prompt.json ─────────────────────────────────────
 
     [Fact]
-    public void FishHook_ContainsSetGxTwigPrompt()
+    public void FishHook_ReadsPromptJson()
     {
         var hook = OhMyPoshCommands.GenerateShellHook("fish");
 
         hook.ShouldContain("set -gx TWIG_PROMPT");
         hook.ShouldContain("set_poshcontext");
-        hook.ShouldContain("twig _prompt");
+        hook.ShouldContain("prompt.json");
+        hook.ShouldContain("jq");
+        hook.ShouldContain("TWIG_TYPE_COLOR");
+        hook.ShouldContain("TWIG_STATE_CATEGORY");
+        hook.ShouldNotContain("twig _prompt");
     }
 
     // ── (g) Template contains {{ .Env.TWIG_PROMPT }} ────────────────────────

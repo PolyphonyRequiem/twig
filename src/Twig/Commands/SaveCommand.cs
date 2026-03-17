@@ -17,16 +17,20 @@ public sealed class SaveCommand(
     IContextStore contextStore,
     IConsoleInput consoleInput,
     OutputFormatterFactory formatterFactory,
-    HintEngine hintEngine)
+    HintEngine hintEngine,
+    IPromptStateWriter? promptStateWriter = null)
 {
     /// <summary>Push pending changes to Azure DevOps.</summary>
     /// <param name="targetId">When set, save only this single item.</param>
     /// <param name="all">When true, save all dirty items (legacy behavior).</param>
     /// <param name="outputFormat">Output format: human, json, or minimal.</param>
+    /// <param name="skipPromptWrite">When true, suppresses the prompt state write. Used by
+    /// <see cref="FlowDoneCommand"/> which performs its own write after state transition.</param>
     public async Task<int> ExecuteAsync(
         int? targetId = null,
         bool all = false,
-        string outputFormat = "human")
+        string outputFormat = "human",
+        bool skipPromptWrite = false)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
         _ = hintEngine; // No registered hints for save
@@ -86,6 +90,7 @@ public sealed class SaveCommand(
         }
 
         var hadErrors = false;
+        var anySaved = false;
 
         foreach (var itemId in itemsToSave)
         {
@@ -155,9 +160,13 @@ public sealed class SaveCommand(
             await pendingChangeStore.ClearChangesAsync(item.Id);
             var updated = await adoService.FetchAsync(item.Id);
             await workItemRepo.SaveAsync(updated);
+            anySaved = true;
 
             Console.WriteLine(fmt.FormatSuccess($"#{item.Id} saved and synced."));
         }
+
+        if (anySaved && !skipPromptWrite)
+            promptStateWriter?.WritePromptState();
 
         return hadErrors ? 1 : 0;
     }

@@ -1,3 +1,4 @@
+using Twig.Domain.Interfaces;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
@@ -11,7 +12,8 @@ public sealed class ConfigCommand(
     TwigConfiguration config,
     TwigPaths paths,
     OutputFormatterFactory formatterFactory,
-    HintEngine hintEngine)
+    HintEngine hintEngine,
+    IPromptStateWriter? promptStateWriter = null)
 {
     public async Task<int> ExecuteAsync(string key, string? value = null, string outputFormat = "human")
     {
@@ -46,6 +48,10 @@ public sealed class ConfigCommand(
 
         await config.SaveAsync(paths.ConfigPath);
         Console.WriteLine(fmt.FormatSuccess($"Set {key} = {value}"));
+
+        // Regenerate prompt state when display settings change (badge, color, icons)
+        if (key.StartsWith("display.", StringComparison.OrdinalIgnoreCase))
+            promptStateWriter?.WritePromptState();
 
         return 0;
     }

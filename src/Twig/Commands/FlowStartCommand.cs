@@ -26,7 +26,8 @@ public sealed class FlowStartCommand(
     TwigConfiguration config,
     RenderingPipelineFactory? pipelineFactory = null,
     IGitService? gitService = null,
-    IIterationService? iterationService = null)
+    IIterationService? iterationService = null,
+    IPromptStateWriter? promptStateWriter = null)
 {
     /// <summary>Begin working on a work item: set context, transition state, assign, create branch.</summary>
     public async Task<int> ExecuteAsync(
@@ -275,6 +276,8 @@ public sealed class FlowStartCommand(
             if (!string.IsNullOrEmpty(formatted))
                 Console.WriteLine(formatted);
         }
+
+        promptStateWriter?.WritePromptState();
 
         return 0;
     }

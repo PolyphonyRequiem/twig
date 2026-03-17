@@ -23,7 +23,8 @@ public sealed class FlowCloseCommand(
     HintEngine hintEngine,
     TwigConfiguration config,
     IGitService? gitService = null,
-    IAdoGitService? adoGitService = null)
+    IAdoGitService? adoGitService = null,
+    IPromptStateWriter? promptStateWriter = null)
 {
     /// <summary>Close a work item: guard, transition to Completed, delete branch, clear context.</summary>
     public async Task<int> ExecuteAsync(
@@ -176,6 +177,7 @@ public sealed class FlowCloseCommand(
 
         // 6. Clear context
         await contextStore.ClearActiveWorkItemIdAsync();
+        promptStateWriter?.WritePromptState();
 
         // 7. Print summary
         var actionStrings = new List<string>();

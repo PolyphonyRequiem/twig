@@ -110,7 +110,17 @@ internal sealed class OhMyPoshCommands
     {
         return """
             function Set-TwigPrompt {
-                $env:TWIG_PROMPT = (twig _prompt 2>$null)
+                $f = Join-Path $PWD ".twig" "prompt.json"
+                if (Test-Path $f) {
+                    $p = Get-Content $f -Raw | ConvertFrom-Json
+                    $env:TWIG_PROMPT = $p.text
+                    $env:TWIG_TYPE_COLOR = $p.typeColor
+                    $env:TWIG_STATE_CATEGORY = $p.stateCategory
+                } else {
+                    $env:TWIG_PROMPT = ""
+                    $env:TWIG_TYPE_COLOR = ""
+                    $env:TWIG_STATE_CATEGORY = ""
+                }
             }
             New-Alias -Name 'Set-PoshContext' -Value 'Set-TwigPrompt' -Scope Global -Force
             """;
@@ -120,7 +130,16 @@ internal sealed class OhMyPoshCommands
     {
         return """
             set_poshcontext() {
-                export TWIG_PROMPT="$(twig _prompt 2>/dev/null)"
+                local f="$PWD/.twig/prompt.json"
+                if [ -f "$f" ]; then
+                    export TWIG_PROMPT=$(jq -r '.text // empty' "$f" 2>/dev/null)
+                    export TWIG_TYPE_COLOR=$(jq -r '.typeColor // empty' "$f" 2>/dev/null)
+                    export TWIG_STATE_CATEGORY=$(jq -r '.stateCategory // empty' "$f" 2>/dev/null)
+                else
+                    export TWIG_PROMPT=""
+                    export TWIG_TYPE_COLOR=""
+                    export TWIG_STATE_CATEGORY=""
+                fi
             }
             """;
     }
@@ -132,7 +151,16 @@ internal sealed class OhMyPoshCommands
     {
         return """
             function set_poshcontext
-                set -gx TWIG_PROMPT (twig _prompt 2>/dev/null)
+                set -l f "$PWD/.twig/prompt.json"
+                if test -f "$f"
+                    set -gx TWIG_PROMPT (jq -r '.text // empty' "$f" 2>/dev/null)
+                    set -gx TWIG_TYPE_COLOR (jq -r '.typeColor // empty' "$f" 2>/dev/null)
+                    set -gx TWIG_STATE_CATEGORY (jq -r '.stateCategory // empty' "$f" 2>/dev/null)
+                else
+                    set -gx TWIG_PROMPT ""
+                    set -gx TWIG_TYPE_COLOR ""
+                    set -gx TWIG_STATE_CATEGORY ""
+                end
             end
             """;
     }

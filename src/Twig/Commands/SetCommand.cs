@@ -17,7 +17,8 @@ public sealed class SetCommand(
     OutputFormatterFactory formatterFactory,
     HintEngine hintEngine,
     // Optional — null for backward compat with tests that predate EPIC-005
-    RenderingPipelineFactory? pipelineFactory = null)
+    RenderingPipelineFactory? pipelineFactory = null,
+    IPromptStateWriter? promptStateWriter = null)
 {
     public async Task<int> ExecuteAsync(string idOrPattern, string outputFormat = "human", CancellationToken ct = default)
     {
@@ -106,6 +107,7 @@ public sealed class SetCommand(
 
         // Set as active context
         await contextStore.SetActiveWorkItemIdAsync(item.Id);
+        promptStateWriter?.WritePromptState();
 
         Console.WriteLine(fmt.FormatWorkItem(item, showDirty: false));
 

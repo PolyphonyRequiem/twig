@@ -14,7 +14,8 @@ public sealed class EditCommand(
     IPendingChangeStore pendingChangeStore,
     IEditorLauncher editorLauncher,
     OutputFormatterFactory formatterFactory,
-    HintEngine hintEngine)
+    HintEngine hintEngine,
+    IPromptStateWriter? promptStateWriter = null)
 {
     /// <summary>Edit work item fields in an external editor.</summary>
     public async Task<int> ExecuteAsync(string? field = null, string outputFormat = "human")
@@ -113,6 +114,8 @@ public sealed class EditCommand(
         await workItemRepo.SaveAsync(item);
 
         Console.WriteLine(fmt.FormatSuccess($"Staged {changesFound} change(s) for #{item.Id}."));
+
+        promptStateWriter?.WritePromptState();
 
         var hints = hintEngine.GetHints("edit", outputFormat: outputFormat);
         foreach (var hint in hints)

@@ -15,7 +15,8 @@ public sealed class HookHandlerCommand(
     IContextStore contextStore,
     IWorkItemRepository workItemRepo,
     TwigConfiguration config,
-    IGitService? gitService = null)
+    IGitService? gitService = null,
+    IPromptStateWriter? promptStateWriter = null)
 {
     /// <summary>Handle a git hook invocation.</summary>
     public async Task<int> ExecuteAsync(string hookName, string[] args)
@@ -58,6 +59,9 @@ public sealed class HookHandlerCommand(
                 return 0;
 
             await contextStore.SetActiveWorkItemIdAsync(workItemId.Value);
+
+            // Write prompt state after context change (post-checkout only)
+            promptStateWriter?.WritePromptState();
 
             // Try to get work item title for the notification
             var item = await workItemRepo.GetByIdAsync(workItemId.Value);

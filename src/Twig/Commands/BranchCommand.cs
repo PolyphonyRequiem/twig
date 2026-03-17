@@ -22,7 +22,8 @@ public sealed class BranchCommand(
     HintEngine hintEngine,
     TwigConfiguration config,
     IGitService? gitService = null,
-    IAdoGitService? adoGitService = null)
+    IAdoGitService? adoGitService = null,
+    IPromptStateWriter? promptStateWriter = null)
 {
     /// <summary>Create a branch from the active work item context.</summary>
     public async Task<int> ExecuteAsync(
@@ -152,6 +153,10 @@ public sealed class BranchCommand(
                         {
                             newState = null; // State transition is best-effort
                         }
+
+                        // Write prompt state outside try/catch — transition already committed if newState != null
+                        if (newState is not null)
+                            promptStateWriter?.WritePromptState();
                     }
                 }
             }

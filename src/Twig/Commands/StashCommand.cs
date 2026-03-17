@@ -16,7 +16,8 @@ public sealed class StashCommand(
     OutputFormatterFactory formatterFactory,
     HintEngine hintEngine,
     TwigConfiguration config,
-    IGitService? gitService = null)
+    IGitService? gitService = null,
+    IPromptStateWriter? promptStateWriter = null)
 {
     /// <summary>Stash changes with work item context in the message.</summary>
     public async Task<int> ExecuteAsync(string? message = null, string outputFormat = "human")
@@ -153,6 +154,7 @@ public sealed class StashCommand(
                 if (exists)
                 {
                     await contextStore.SetActiveWorkItemIdAsync(detectedId.Value);
+                    promptStateWriter?.WritePromptState();
                 }
                 else
                 {

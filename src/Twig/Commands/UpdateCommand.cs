@@ -16,7 +16,8 @@ public sealed class UpdateCommand(
     IPendingChangeStore pendingChangeStore,
     IConsoleInput consoleInput,
     OutputFormatterFactory formatterFactory,
-    HintEngine hintEngine)
+    HintEngine hintEngine,
+    IPromptStateWriter? promptStateWriter = null)
 {
     /// <summary>Update a field on the active work item and push to ADO.</summary>
     public async Task<int> ExecuteAsync(string field, string value, string outputFormat = "human")
@@ -66,6 +67,8 @@ public sealed class UpdateCommand(
         // Refresh cache with the latest from ADO
         var updated = await adoService.FetchAsync(local.Id);
         await workItemRepo.SaveAsync(updated);
+
+        promptStateWriter?.WritePromptState();
 
         Console.WriteLine(fmt.FormatSuccess($"#{local.Id} updated: {field} = '{value}'"));
 

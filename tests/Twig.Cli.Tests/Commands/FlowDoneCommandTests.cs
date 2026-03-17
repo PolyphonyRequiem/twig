@@ -274,9 +274,9 @@ public class FlowDoneCommandTests
 
             result.ShouldBe(0);
             var output = stdout.ToString();
-            output.ShouldContain("\"command\":\"flow done\"");
-            output.ShouldContain("\"itemId\":1");
-            output.ShouldContain("\"actions\":{");
+            output.ShouldContain("\"command\": \"flow done\"");
+            output.ShouldContain("\"itemId\": 1");
+            output.ShouldContain("\"actions\": {");
         }
         finally
         {
@@ -307,7 +307,7 @@ public class FlowDoneCommandTests
 
             result.ShouldBe(0);
             var output = stdout.ToString();
-            output.ShouldContain("\"saved\":true");
+            output.ShouldContain("\"saved\": true");
         }
         finally
         {
@@ -400,7 +400,7 @@ public class FlowDoneCommandTests
 
             result.ShouldBe(0);
             var output = stdout.ToString();
-            output.ShouldContain("\"saved\":true");
+            output.ShouldContain("\"saved\": true");
         }
         finally
         {

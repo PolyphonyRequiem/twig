@@ -236,7 +236,7 @@ public class LogCommandTests
             var result = await cmd.ExecuteAsync(outputFormat: "json");
             result.ShouldBe(0);
             var output = sw.ToString();
-            output.ShouldContain("\"command\":\"log\"");
+            output.ShouldContain("\"command\": \"log\"");
             output.ShouldContain("\"entries\"");
             output.ShouldContain("\"workItems\"");
         }

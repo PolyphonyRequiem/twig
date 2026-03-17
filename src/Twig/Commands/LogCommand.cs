@@ -179,7 +179,7 @@ public sealed class LogCommand(
         Dictionary<int, (string Type, string State)> workItemCache)
     {
         using var stream = new MemoryStream();
-        using var writer = new System.Text.Json.Utf8JsonWriter(stream);
+        using var writer = new System.Text.Json.Utf8JsonWriter(stream, new System.Text.Json.JsonWriterOptions { Indented = true });
         writer.WriteStartObject();
         writer.WriteString("command", "log");
         writer.WriteStartArray("entries");

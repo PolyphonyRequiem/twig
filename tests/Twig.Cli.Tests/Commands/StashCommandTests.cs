@@ -229,8 +229,8 @@ public class StashCommandTests
             var result = await cmd.ExecuteAsync(outputFormat: "json");
             result.ShouldBe(0);
             var output = sw.ToString();
-            output.ShouldContain("\"command\":\"stash\"");
-            output.ShouldContain("\"workItemId\":42");
+            output.ShouldContain("\"command\": \"stash\"");
+            output.ShouldContain("\"workItemId\": 42");
         }
         finally
         {

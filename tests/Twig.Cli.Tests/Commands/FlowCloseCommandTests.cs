@@ -238,10 +238,10 @@ public class FlowCloseCommandTests
 
             result.ShouldBe(0);
             var output = stdout.ToString();
-            output.ShouldContain("\"command\":\"flow close\"");
-            output.ShouldContain("\"itemId\":1");
-            output.ShouldContain("\"actions\":{");
-            output.ShouldContain("\"contextCleared\":true");
+            output.ShouldContain("\"command\": \"flow close\"");
+            output.ShouldContain("\"itemId\": 1");
+            output.ShouldContain("\"actions\": {");
+            output.ShouldContain("\"contextCleared\": true");
         }
         finally
         {

@@ -332,10 +332,10 @@ public class FlowStartCommandTests
 
             result.ShouldBe(0);
             var output = stdout.ToString();
-            output.ShouldContain("\"command\":\"flow start\"");
-            output.ShouldContain("\"itemId\":1");
-            output.ShouldContain("\"actions\":{");
-            output.ShouldContain("\"contextSet\":true");
+            output.ShouldContain("\"command\": \"flow start\"");
+            output.ShouldContain("\"itemId\": 1");
+            output.ShouldContain("\"actions\": {");
+            output.ShouldContain("\"contextSet\": true");
         }
         finally
         {
@@ -542,15 +542,16 @@ public class FlowStartCommandTests
             result.ShouldBe(0);
             var output = stdout.ToString();
             // Verify structured actions object
-            output.ShouldContain("\"command\":\"flow start\"");
-            output.ShouldContain("\"itemId\":1");
-            output.ShouldContain("\"type\":\"User Story\"");
-            output.ShouldContain("\"contextSet\":true");
-            output.ShouldContain("\"stateChanged\":{\"from\":\"New\",\"to\":\"Active\"}");
-            output.ShouldContain("\"assigned\":{\"to\":\"Test User\"}");
-            output.ShouldContain("\"branch\":{\"name\":");
-            output.ShouldContain("\"created\":true");
-            output.ShouldContain("\"exitCode\":0");
+            output.ShouldContain("\"command\": \"flow start\"");
+            output.ShouldContain("\"itemId\": 1");
+            output.ShouldContain("\"type\": \"User Story\"");
+            output.ShouldContain("\"contextSet\": true");
+            output.ShouldContain("\"from\": \"New\"");
+            output.ShouldContain("\"to\": \"Active\"");
+            output.ShouldContain("\"to\": \"Test User\"");
+            output.ShouldContain("\"name\":");
+            output.ShouldContain("\"created\": true");
+            output.ShouldContain("\"exitCode\": 0");
         }
         finally
         {

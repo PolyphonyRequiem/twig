@@ -467,9 +467,9 @@ public class BranchCommandTests
             var result = await cmd.ExecuteAsync(noLink: true, noTransition: true, outputFormat: "json");
             result.ShouldBe(0);
             var output = sw.ToString();
-            output.ShouldContain("\"command\":\"branch\"");
-            output.ShouldContain("\"itemId\":12345");
-            output.ShouldContain("\"created\":true");
+            output.ShouldContain("\"command\": \"branch\"");
+            output.ShouldContain("\"itemId\": 12345");
+            output.ShouldContain("\"created\": true");
         }
         finally
         {

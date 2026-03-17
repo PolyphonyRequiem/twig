@@ -214,12 +214,12 @@ public class GitContextCommandTests
         }
 
         var json = sw.ToString().Trim();
-        json.ShouldContain("\"command\":\"context\"");
-        json.ShouldContain("\"branch\":\"bug/42-fix-login\"");
+        json.ShouldContain("\"command\": \"context\"");
+        json.ShouldContain("\"branch\": \"bug/42-fix-login\"");
         json.ShouldContain("\"activeWorkItem\"");
-        json.ShouldContain("\"id\":42");
+        json.ShouldContain("\"id\": 42");
         json.ShouldContain("\"pullRequests\"");
-        json.ShouldContain("\"exitCode\":0");
+        json.ShouldContain("\"exitCode\": 0");
     }
 
     // ── JSON format: null git service ───────────────────────────────
@@ -246,9 +246,9 @@ public class GitContextCommandTests
         }
 
         var json = sw.ToString().Trim();
-        json.ShouldContain("\"branch\":null");
-        json.ShouldContain("\"activeWorkItem\":null");
-        json.ShouldContain("\"detectedWorkItemId\":null");
+        json.ShouldContain("\"branch\": null");
+        json.ShouldContain("\"activeWorkItem\": null");
+        json.ShouldContain("\"detectedWorkItemId\": null");
     }
 
     // ── Minimal format: shows branch and active ID ──────────────────

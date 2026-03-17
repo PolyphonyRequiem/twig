@@ -291,9 +291,9 @@ public class CommitCommandTests
             var result = await cmd.ExecuteAsync(message: "test", noLink: true, outputFormat: "json");
             result.ShouldBe(0);
             var output = sw.ToString();
-            output.ShouldContain("\"command\":\"commit\"");
-            output.ShouldContain("\"itemId\":12345");
-            output.ShouldContain("\"commitHash\":\"abc123def\"");
+            output.ShouldContain("\"command\": \"commit\"");
+            output.ShouldContain("\"itemId\": 12345");
+            output.ShouldContain("\"commitHash\": \"abc123def\"");
         }
         finally
         {

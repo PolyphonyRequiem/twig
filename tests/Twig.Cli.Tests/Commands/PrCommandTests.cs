@@ -382,9 +382,9 @@ public class PrCommandTests
             var result = await cmd.ExecuteAsync(outputFormat: "json");
             result.ShouldBe(0);
             var output = sw.ToString();
-            output.ShouldContain("\"command\":\"pr\"");
-            output.ShouldContain("\"itemId\":12345");
-            output.ShouldContain("\"id\":42");
+            output.ShouldContain("\"command\": \"pr\"");
+            output.ShouldContain("\"itemId\": 12345");
+            output.ShouldContain("\"id\": 42");
         }
         finally
         {

@@ -292,7 +292,7 @@ public class PromptStateWriterTests : IDisposable
         writer.WritePromptState();
 
         var firstContent = File.ReadAllText(PromptJsonPath);
-        firstContent.ShouldContain("\"id\":1");
+        firstContent.ShouldContain("\"id\": 1");
 
         // Write second state — verify file is valid
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>())
@@ -301,8 +301,8 @@ public class PromptStateWriterTests : IDisposable
         writer.WritePromptState();
 
         var secondContent = File.ReadAllText(PromptJsonPath);
-        secondContent.ShouldContain("\"title\":\"Updated item\"");
-        secondContent.ShouldContain("\"state\":\"Active\"");
+        secondContent.ShouldContain("\"title\": \"Updated item\"");
+        secondContent.ShouldContain("\"state\": \"Active\"");
 
         // Verify the tmp file is cleaned up
         File.Exists(PromptJsonPath + ".tmp").ShouldBeFalse();

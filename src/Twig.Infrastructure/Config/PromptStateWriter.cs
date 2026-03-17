@@ -136,7 +136,7 @@ internal sealed class PromptStateWriter : IPromptStateWriter
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions
         {
             Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-            Indented = false
+            Indented = true
         }))
         {
             writer.WriteStartObject();

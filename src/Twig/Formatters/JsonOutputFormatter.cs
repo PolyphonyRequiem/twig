@@ -12,10 +12,12 @@ namespace Twig.Formatters;
 /// </summary>
 public sealed class JsonOutputFormatter : IOutputFormatter
 {
+    private static readonly JsonWriterOptions WriterOptions = new() { Indented = true };
+
     public string FormatWorkItem(WorkItem item, bool showDirty)
     {
         using var stream = new MemoryStream();
-        using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = false });
+        using var writer = new Utf8JsonWriter(stream, WriterOptions);
 
         writer.WriteStartObject();
         writer.WriteNumber("id", item.Id);
@@ -42,7 +44,7 @@ public sealed class JsonOutputFormatter : IOutputFormatter
     public string FormatTree(WorkTree tree, int maxChildren, int? activeId)
     {
         using var stream = new MemoryStream();
-        using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = false });
+        using var writer = new Utf8JsonWriter(stream, WriterOptions);
 
         writer.WriteStartObject();
 
@@ -76,7 +78,7 @@ public sealed class JsonOutputFormatter : IOutputFormatter
     public string FormatWorkspace(Workspace ws, int staleDays)
     {
         using var stream = new MemoryStream();
-        using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = false });
+        using var writer = new Utf8JsonWriter(stream, WriterOptions);
 
         writer.WriteStartObject();
 
@@ -125,7 +127,7 @@ public sealed class JsonOutputFormatter : IOutputFormatter
     public string FormatSprintView(Workspace ws, int staleDays)
     {
         using var stream = new MemoryStream();
-        using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = false });
+        using var writer = new Utf8JsonWriter(stream, WriterOptions);
 
         writer.WriteStartObject();
 
@@ -183,7 +185,7 @@ public sealed class JsonOutputFormatter : IOutputFormatter
     public string FormatFieldChange(FieldChange change)
     {
         using var stream = new MemoryStream();
-        using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = false });
+        using var writer = new Utf8JsonWriter(stream, WriterOptions);
 
         writer.WriteStartObject();
         writer.WriteString("field", change.FieldName);
@@ -198,7 +200,7 @@ public sealed class JsonOutputFormatter : IOutputFormatter
     public string FormatError(string message)
     {
         using var stream = new MemoryStream();
-        using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = false });
+        using var writer = new Utf8JsonWriter(stream, WriterOptions);
 
         writer.WriteStartObject();
         writer.WriteString("error", message);
@@ -211,7 +213,7 @@ public sealed class JsonOutputFormatter : IOutputFormatter
     public string FormatSuccess(string message)
     {
         using var stream = new MemoryStream();
-        using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = false });
+        using var writer = new Utf8JsonWriter(stream, WriterOptions);
 
         writer.WriteStartObject();
         writer.WriteString("message", message);
@@ -224,7 +226,7 @@ public sealed class JsonOutputFormatter : IOutputFormatter
     public string FormatDisambiguation(IReadOnlyList<(int Id, string Title)> matches)
     {
         using var stream = new MemoryStream();
-        using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = false });
+        using var writer = new Utf8JsonWriter(stream, WriterOptions);
 
         writer.WriteStartObject();
         writer.WriteStartArray("matches");
@@ -250,7 +252,7 @@ public sealed class JsonOutputFormatter : IOutputFormatter
     public string FormatInfo(string message)
     {
         using var stream = new MemoryStream();
-        using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = false });
+        using var writer = new Utf8JsonWriter(stream, WriterOptions);
 
         writer.WriteStartObject();
         writer.WriteString("info", message);
@@ -263,7 +265,7 @@ public sealed class JsonOutputFormatter : IOutputFormatter
     public string FormatBranchInfo(string branchName)
     {
         using var stream = new MemoryStream();
-        using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = false });
+        using var writer = new Utf8JsonWriter(stream, WriterOptions);
 
         writer.WriteStartObject();
         writer.WriteString("branch", branchName);
@@ -276,7 +278,7 @@ public sealed class JsonOutputFormatter : IOutputFormatter
     public string FormatPrStatus(int prId, string title, string status)
     {
         using var stream = new MemoryStream();
-        using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = false });
+        using var writer = new Utf8JsonWriter(stream, WriterOptions);
 
         writer.WriteStartObject();
         writer.WriteNumber("prId", prId);
@@ -291,7 +293,7 @@ public sealed class JsonOutputFormatter : IOutputFormatter
     public string FormatAnnotatedLogEntry(string hash, string message, string? workItemType, string? workItemState, int? workItemId)
     {
         using var stream = new MemoryStream();
-        using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = false });
+        using var writer = new Utf8JsonWriter(stream, WriterOptions);
 
         writer.WriteStartObject();
         writer.WriteString("hash", hash);

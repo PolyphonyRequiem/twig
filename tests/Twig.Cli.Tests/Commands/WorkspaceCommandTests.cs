@@ -305,8 +305,8 @@ public class WorkspaceCommandTests
             json.ShouldContain("\"seeds\":");
             json.ShouldContain("\"staleSeeds\":");
             json.ShouldContain("\"dirtyCount\":");
-            json.ShouldContain("\"id\":1");
-            json.ShouldContain("\"title\":\"Active Item\"");
+            json.ShouldContain("\"id\": 1");
+            json.ShouldContain("\"title\": \"Active Item\"");
         }
         finally
         {

@@ -3,6 +3,7 @@ using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -32,7 +33,11 @@ public class TreeNavCommandTests
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         _adoService.FetchChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
-        _setCommand = new SetCommand(_workItemRepo, _adoService, _contextStore,
+        var activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var pendingChangeStore = Substitute.For<IPendingChangeStore>();
+        var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, pendingChangeStore);
+        var syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, protectedCacheWriter, 30);
+        _setCommand = new SetCommand(_workItemRepo, _contextStore, activeItemResolver, syncCoordinator,
             _formatterFactory, _hintEngine);
     }
 

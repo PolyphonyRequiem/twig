@@ -6,6 +6,7 @@ using Spectre.Console.Testing;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -20,6 +21,8 @@ public class SetCommandDisambiguationTests
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IAdoWorkItemService _adoService;
     private readonly IContextStore _contextStore;
+    private readonly ActiveItemResolver _activeItemResolver;
+    private readonly SyncCoordinator _syncCoordinator;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
     private readonly IAsyncRenderer _mockRenderer;
@@ -31,6 +34,10 @@ public class SetCommandDisambiguationTests
         _contextStore = Substitute.For<IContextStore>();
         _adoService.FetchChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
+        _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var pendingChangeStore = Substitute.For<IPendingChangeStore>();
+        var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, pendingChangeStore);
+        _syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, protectedCacheWriter, 30);
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
@@ -52,7 +59,7 @@ public class SetCommandDisambiguationTests
         new(_formatterFactory, _mockRenderer, isOutputRedirected: () => true);
 
     private SetCommand CreateCommand(RenderingPipelineFactory? pipelineFactory = null) =>
-        new(_workItemRepo, _adoService, _contextStore, _formatterFactory, _hintEngine, pipelineFactory);
+        new(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator, _formatterFactory, _hintEngine, pipelineFactory);
 
     // ── SetCommand: Interactive disambiguation (TTY + human) ────────
 
@@ -378,7 +385,7 @@ public class SetCommandDisambiguationTests
 
         var result = await navCmd.DownAsync(outputFormat: "json");
 
-        result.ShouldBe(0);
+        result.ShouldBe(1);
         await _mockRenderer.DidNotReceive().PromptDisambiguationAsync(
             Arg.Any<IReadOnlyList<(int Id, string Title)>>(),
             Arg.Any<CancellationToken>());

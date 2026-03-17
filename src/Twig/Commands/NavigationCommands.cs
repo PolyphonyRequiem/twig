@@ -16,7 +16,8 @@ public sealed class NavigationCommands(
     SetCommand setCommand,
     OutputFormatterFactory formatterFactory,
     // Optional — null for backward compat with tests that predate EPIC-005
-    RenderingPipelineFactory? pipelineFactory = null)
+    RenderingPipelineFactory? pipelineFactory = null,
+    ActiveItemResolver? activeItemResolver = null)
 {
     /// <summary>Navigate to the parent work item.</summary>
     // UpAsync: no disambiguation path — single parent, use formatter directly
@@ -31,11 +32,32 @@ public sealed class NavigationCommands(
             return 1;
         }
 
-        var item = await workItemRepo.GetByIdAsync(activeId.Value);
-        if (item is null)
+        // Resolve active item with auto-fetch on cache miss
+        Domain.Aggregates.WorkItem? item;
+        if (activeItemResolver is not null)
         {
-            Console.Error.WriteLine(fmt.FormatError($"Work item #{activeId.Value} not found in cache."));
-            return 1;
+            var resolveResult = await activeItemResolver.ResolveByIdAsync(activeId.Value, ct);
+            switch (resolveResult)
+            {
+                case ActiveItemResult.Found found:
+                    item = found.WorkItem;
+                    break;
+                case ActiveItemResult.FetchedFromAdo fetched:
+                    item = fetched.WorkItem;
+                    break;
+                default:
+                    Console.Error.WriteLine(fmt.FormatError($"Work item #{activeId.Value} not found in cache."));
+                    return 1;
+            }
+        }
+        else
+        {
+            item = await workItemRepo.GetByIdAsync(activeId.Value);
+            if (item is null)
+            {
+                Console.Error.WriteLine(fmt.FormatError($"Work item #{activeId.Value} not found in cache."));
+                return 1;
+            }
         }
 
         var parentChain = item.ParentId.HasValue
@@ -69,11 +91,32 @@ public sealed class NavigationCommands(
             return 1;
         }
 
-        var item = await workItemRepo.GetByIdAsync(activeId.Value);
-        if (item is null)
+        // Resolve active item with auto-fetch on cache miss
+        Domain.Aggregates.WorkItem? item;
+        if (activeItemResolver is not null)
         {
-            Console.Error.WriteLine(fmt.FormatError($"Work item #{activeId.Value} not found in cache."));
-            return 1;
+            var resolveResult = await activeItemResolver.ResolveByIdAsync(activeId.Value, ct);
+            switch (resolveResult)
+            {
+                case ActiveItemResult.Found found:
+                    item = found.WorkItem;
+                    break;
+                case ActiveItemResult.FetchedFromAdo fetched:
+                    item = fetched.WorkItem;
+                    break;
+                default:
+                    Console.Error.WriteLine(fmt.FormatError($"Work item #{activeId.Value} not found in cache."));
+                    return 1;
+            }
+        }
+        else
+        {
+            item = await workItemRepo.GetByIdAsync(activeId.Value);
+            if (item is null)
+            {
+                Console.Error.WriteLine(fmt.FormatError($"Work item #{activeId.Value} not found in cache."));
+                return 1;
+            }
         }
 
         var parentChain = item.ParentId.HasValue
@@ -103,7 +146,7 @@ public sealed class NavigationCommands(
                 return 1;
             }
             Console.Error.WriteLine(fmt.FormatDisambiguation(candidates));
-            return 0;
+            return 1;
         }
 
         // DD-012: Use FindByPattern directly to preserve candidate list for disambiguation

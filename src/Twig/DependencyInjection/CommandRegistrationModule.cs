@@ -37,14 +37,16 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<HintEngine>(),
             sp.GetRequiredService<RenderingPipelineFactory>(),
             sp.GetService<IGitService>(),
-            sp.GetService<IAdoGitService>()));
+            sp.GetService<IAdoGitService>(),
+            sp.GetRequiredService<Domain.Services.ActiveItemResolver>()));
         services.AddSingleton<StateCommand>();
         services.AddSingleton<TreeCommand>(sp => new TreeCommand(
             sp.GetRequiredService<IContextStore>(),
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<TwigConfiguration>(),
             sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<RenderingPipelineFactory>()));
+            sp.GetRequiredService<RenderingPipelineFactory>(),
+            sp.GetRequiredService<Domain.Services.ActiveItemResolver>()));
         services.AddSingleton<NavigationCommands>();
         services.AddSingleton<SeedCommand>();
         services.AddSingleton<NoteCommand>();
@@ -79,7 +81,8 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<HintEngine>(),
             sp.GetRequiredService<IProcessTypeStore>(),
-            sp.GetRequiredService<RenderingPipelineFactory>()));
+            sp.GetRequiredService<RenderingPipelineFactory>(),
+            sp.GetRequiredService<Domain.Services.ActiveItemResolver>()));
         services.AddSingleton<ConfigCommand>();
         services.AddSingleton<BranchCommand>(sp => new BranchCommand(
             sp.GetRequiredService<IContextStore>(),

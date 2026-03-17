@@ -6,6 +6,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -122,7 +123,10 @@ public class PromptStateIntegrationTests : IDisposable
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(12345);
 
         var writer = CreateWriter();
-        var cmd = new SetCommand(_workItemRepo, _adoService, _contextStore,
+        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var protectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
+        var syncCoord = new SyncCoordinator(_workItemRepo, _adoService, protectedWriter, 30);
+        var cmd = new SetCommand(_workItemRepo, _contextStore, resolver, syncCoord,
             _formatterFactory, _hintEngine, promptStateWriter: writer);
 
         var result = await cmd.ExecuteAsync("12345");
@@ -304,7 +308,10 @@ public class PromptStateIntegrationTests : IDisposable
             Path.Combine(_tempDir, "nonexistent", "twig.db"));
         var failWriter = new PromptStateWriter(_contextStore, _workItemRepo, _config, badPaths, _processTypeStore);
 
-        var cmd = new SetCommand(_workItemRepo, _adoService, _contextStore,
+        var resolver2 = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var protectedWriter2 = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
+        var syncCoord2 = new SyncCoordinator(_workItemRepo, _adoService, protectedWriter2, 30);
+        var cmd = new SetCommand(_workItemRepo, _contextStore, resolver2, syncCoord2,
             _formatterFactory, _hintEngine, promptStateWriter: failWriter);
 
         var result = await cmd.ExecuteAsync("42");

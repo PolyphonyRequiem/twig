@@ -1,5 +1,6 @@
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
+using Twig.Domain.Services;
 using Twig.Formatters;
 using Twig.Infrastructure.Config;
 using Twig.Rendering;
@@ -15,7 +16,8 @@ public sealed class TreeCommand(
     TwigConfiguration config,
     OutputFormatterFactory formatterFactory,
     // Optional — null for backward compat with tests that predate EPIC-003
-    RenderingPipelineFactory? pipelineFactory = null)
+    RenderingPipelineFactory? pipelineFactory = null,
+    ActiveItemResolver? activeItemResolver = null)
 {
     /// <summary>Display the work item hierarchy as a tree.</summary>
     public async Task<int> ExecuteAsync(string outputFormat = "human", int? depth = null, bool all = false, bool noLive = false)
@@ -36,25 +38,43 @@ public sealed class TreeCommand(
         var maxChildren = all ? int.MaxValue
             : depth ?? config.Display.TreeDepth;
 
+        // Resolve active item with auto-fetch on cache miss (G-3)
+        Domain.Aggregates.WorkItem? resolvedItem;
+        if (activeItemResolver is not null)
+        {
+            var resolveResult = await activeItemResolver.ResolveByIdAsync(activeId.Value);
+            switch (resolveResult)
+            {
+                case ActiveItemResult.Found found:
+                    resolvedItem = found.WorkItem;
+                    break;
+                case ActiveItemResult.FetchedFromAdo fetched:
+                    resolvedItem = fetched.WorkItem;
+                    break;
+                default:
+                    Console.Error.WriteLine(fmt.FormatError($"Work item #{activeId.Value} not found in cache."));
+                    return 1;
+            }
+        }
+        else
+        {
+            resolvedItem = await workItemRepo.GetByIdAsync(activeId.Value);
+            if (resolvedItem is null)
+            {
+                Console.Error.WriteLine(fmt.FormatError($"Work item #{activeId.Value} not found in cache."));
+                return 1;
+            }
+        }
+
         if (renderer is not null)
         {
             // Async progressive rendering path — delegates to SpectreRenderer.RenderTreeAsync.
-            // Hoist the focused item fetch so getParentChain can close over item.ParentId
-            // without a redundant GetByIdAsync round-trip.
-            var capturedActiveId = activeId.Value;
-            var focusedItem = await workItemRepo.GetByIdAsync(capturedActiveId);
-            if (focusedItem is null)
-            {
-                Console.Error.WriteLine(fmt.FormatError($"Work item #{capturedActiveId} not found in cache."));
-                return 1;
-            }
-
             await renderer.RenderTreeAsync(
-                getFocusedItem: () => Task.FromResult<Domain.Aggregates.WorkItem?>(focusedItem),
-                getParentChain: async () => focusedItem?.ParentId is null
+                getFocusedItem: () => Task.FromResult<Domain.Aggregates.WorkItem?>(resolvedItem),
+                getParentChain: async () => resolvedItem?.ParentId is null
                     ? Array.Empty<Domain.Aggregates.WorkItem>()
-                    : await workItemRepo.GetParentChainAsync(focusedItem.ParentId.Value),
-                getChildren: () => workItemRepo.GetChildrenAsync(capturedActiveId),
+                    : await workItemRepo.GetParentChainAsync(resolvedItem.ParentId.Value),
+                getChildren: () => workItemRepo.GetChildrenAsync(activeId.Value),
                 maxChildren: maxChildren,
                 activeId: activeId,
                 ct: CancellationToken.None);
@@ -63,12 +83,7 @@ public sealed class TreeCommand(
         }
 
         // Sync path — original implementation (JSON, minimal, --no-live, piped output)
-        var item = await workItemRepo.GetByIdAsync(activeId.Value);
-        if (item is null)
-        {
-            Console.Error.WriteLine(fmt.FormatError($"Work item #{activeId.Value} not found in cache."));
-            return 1;
-        }
+        var item = resolvedItem;
 
         // Build parent chain
         var parentChain = item.ParentId.HasValue

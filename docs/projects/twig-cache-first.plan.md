@@ -552,35 +552,37 @@ No new security boundaries are introduced. All data flows remain local (SQLite c
 
 **Prerequisites**: EPIC-001, EPIC-003
 
+**Status**: DONE
+
 **Tasks**:
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E4-T1a | IMPL | **SetCommand — numeric-ID resolution**: Replace inline `workItemRepo.GetByIdAsync` + `adoService.FetchAsync` (lines 37–46) with `ActiveItemResolver.ResolveByIdAsync(id)`. | `src/Twig/Commands/SetCommand.cs` | TO DO |
-| E4-T1b | IMPL | **SetCommand — parent chain hydration**: Replace inline `adoService.FetchAsync(parentId)` + `workItemRepo.SaveAsync(parent)` (lines 90–101) with `ActiveItemResolver.ResolveByIdAsync(parentId)`. | `src/Twig/Commands/SetCommand.cs` | TO DO |
-| E4-T1c | IMPL | **SetCommand — children sync**: Replace `FetchChildrenAsync` (line 104) + `SaveBatchAsync` (line 106) with `SyncCoordinator.SyncChildrenAsync`. TTY path uses `RenderWithSyncAsync`; non-TTY calls `SyncChildrenAsync` synchronously (always fetches — see DD-15). | `src/Twig/Commands/SetCommand.cs` | TO DO |
-| E4-T1d | IMPL | **SetCommand — constructor cleanup**: Remove `IAdoWorkItemService` (all 3 usages absorbed by sub-tasks above). Add `ActiveItemResolver`, `SyncCoordinator`. Pattern-match disambiguation (lines 48–87) remains inline per DD-10. | `src/Twig/Commands/SetCommand.cs` | TO DO |
-| E4-T2 | IMPL | **StatusCommand**: Replace inline `GetByIdAsync` + null check with `ActiveItemResolver.GetActiveItemAsync()`. Handle all result variants. Add sync indicator via `RenderWithSyncAsync` wrapper. | `src/Twig/Commands/StatusCommand.cs` | TO DO |
-| E4-T3 | IMPL | **TreeCommand**: Replace inline active-item resolution with `ActiveItemResolver`. Tree is read-only from cache — no background sync needed. `ActiveItemResolver.GetActiveItemAsync()` provides auto-fetch-on-miss for the active item (G-3). Add stale hint if cache is stale. | `src/Twig/Commands/TreeCommand.cs` | TO DO |
-| E4-T4 | IMPL | **NavigationCommands (Up/Down)**: Replace inline active-item resolution with `ActiveItemResolver`. Navigation delegates to `SetCommand` for sync. | `src/Twig/Commands/NavigationCommands.cs` | TO DO |
-| E4-T5 | IMPL | **WorkspaceCommand**: Adopt `ActiveItemResolver` for initial active-item resolution (line 51). Keep existing `StreamWorkspaceData` stale-while-revalidate pattern as-is (DD-9). | `src/Twig/Commands/WorkspaceCommand.cs` | TO DO |
+| E4-T1a | IMPL | **SetCommand — numeric-ID resolution**: Replace inline `workItemRepo.GetByIdAsync` + `adoService.FetchAsync` (lines 37–46) with `ActiveItemResolver.ResolveByIdAsync(id)`. | `src/Twig/Commands/SetCommand.cs` | DONE |
+| E4-T1b | IMPL | **SetCommand — parent chain hydration**: Replace inline `adoService.FetchAsync(parentId)` + `workItemRepo.SaveAsync(parent)` (lines 90–101) with `ActiveItemResolver.ResolveByIdAsync(parentId)`. | `src/Twig/Commands/SetCommand.cs` | DONE |
+| E4-T1c | IMPL | **SetCommand — children sync**: Replace `FetchChildrenAsync` (line 104) + `SaveBatchAsync` (line 106) with `SyncCoordinator.SyncChildrenAsync`. TTY path uses `RenderWithSyncAsync`; non-TTY calls `SyncChildrenAsync` synchronously (always fetches — see DD-15). | `src/Twig/Commands/SetCommand.cs` | DONE |
+| E4-T1d | IMPL | **SetCommand — constructor cleanup**: Remove `IAdoWorkItemService` (all 3 usages absorbed by sub-tasks above). Add `ActiveItemResolver`, `SyncCoordinator`. Pattern-match disambiguation (lines 48–87) remains inline per DD-10. | `src/Twig/Commands/SetCommand.cs` | DONE |
+| E4-T2 | IMPL | **StatusCommand**: Replace inline `GetByIdAsync` + null check with `ActiveItemResolver.GetActiveItemAsync()`. Handle all result variants. Add sync indicator via `RenderWithSyncAsync` wrapper. | `src/Twig/Commands/StatusCommand.cs` | DONE |
+| E4-T3 | IMPL | **TreeCommand**: Replace inline active-item resolution with `ActiveItemResolver`. Tree is read-only from cache — no background sync needed. `ActiveItemResolver.GetActiveItemAsync()` provides auto-fetch-on-miss for the active item (G-3). Add stale hint if cache is stale. | `src/Twig/Commands/TreeCommand.cs` | DONE |
+| E4-T4 | IMPL | **NavigationCommands (Up/Down)**: Replace inline active-item resolution with `ActiveItemResolver`. Navigation delegates to `SetCommand` for sync. | `src/Twig/Commands/NavigationCommands.cs` | DONE |
+| E4-T5 | IMPL | **WorkspaceCommand**: Adopt `ActiveItemResolver` for initial active-item resolution (line 51). Keep existing `StreamWorkspaceData` stale-while-revalidate pattern as-is (DD-9). | `src/Twig/Commands/WorkspaceCommand.cs` | DONE |
 
 > **E4-T5 implementation notes**: The refresh path (lines 67–112) re-reads item data from cache (`GetByIterationAsync`, `GetSeedsAsync`) and calls `iterationService.GetCurrentIterationAsync()` at line 81 — an ADO network call for iteration metadata, not work item data. This path never calls `SaveAsync`/`SaveBatchAsync`, so `ProtectedCacheWriter` is not applicable. The `IsCacheStale` static method remains. Only the initial active-item resolution at line 51 changes to use `ActiveItemResolver.GetActiveItemAsync()` for auto-fetch-on-miss behavior.
 >
 > **UX note**: `WorkspaceCommand`'s refresh path re-queries local cache after getting a fresh iteration path — it does not fetch fresh work item data from ADO. Users who need updated field values (e.g., state changes made in ADO web) must still run `twig refresh`. This is existing behavior, unchanged by this plan.
-| E4-T6 | TEST | Update tests for all 5 read commands. Verify: (a) cached data displayed immediately, (b) stale data + successful sync, (c) stale data + failed sync, (d) dirty items not overwritten, (e) JSON output parity, (f) auto-fetch on cache miss. | `tests/Twig.Cli.Tests/Commands/` | TO DO |
+| E4-T6 | TEST | Update tests for all 5 read commands. Verify: (a) cached data displayed immediately, (b) stale data + successful sync, (c) stale data + failed sync, (d) dirty items not overwritten, (e) JSON output parity, (f) auto-fetch on cache miss. | `tests/Twig.Cli.Tests/Commands/` | DONE |
 
 **Acceptance Criteria**:
-- [ ] `twig status` displays output from cache with no ADO calls
-- [ ] `twig set <cached-id>` with stale children fetches in background and does NOT overwrite dirty children
-- [ ] `twig status` auto-fetches when active item not in cache
-- [ ] JSON output mode produces identical output pre/post refactor
-- [ ] Non-TTY output works without `Live()` rendering
-- [ ] All existing tests pass
+- [x] `twig status` displays output from cache with no ADO calls
+- [x] `twig set <cached-id>` with stale children fetches in background and does NOT overwrite dirty children
+- [x] `twig status` auto-fetches when active item not in cache
+- [x] JSON output mode produces identical output pre/post refactor
+- [x] Non-TTY output works without `Live()` rendering
+- [x] All existing tests pass
 
 ---
 
-### EPIC-005: Adopt Shared Services in Write Commands
+### EPIC-005:Adopt Shared Services in Write Commands
 
 **Goal**: Update `state`, `note`, `update`, `edit`, `save`, `refresh` to use `ActiveItemResolver`, `SyncCoordinator`, and `ProtectedCacheWriter`. Write commands still need conflict detection but display cached state first.
 
@@ -660,3 +662,4 @@ No new security boundaries are introduced. All data flows remain local (SQLite c
 | 4.0 | 2026-03-17 | Initial architecture with corrected constructor counts, resolved OQ-1 and OQ-3, added DD-8 through DD-14. |
 | 5.0 | 2026-03-17 | Readability revision: rewrote executive summary for user-benefit-first framing; decomposed dense task descriptions (E4-T1, E5-T1, E5-T6, E6-T1) into sub-tasks with prose notes beneath tables; simplified Modified Files entries to describe *what* changes (not implementation guidance); cleaned acceptance criteria in EPIC-005 and EPIC-006 to remove inline rationale; condensed DD-8 and DD-9 rationale; added Security Considerations section; added this Revision History. |
 | 6.0 | 2026-03-17 | Addressed technical and readability review feedback: (1) Added DD-15 resolving SyncChildrenAsync staleness inconsistency — children always fetch unconditionally, removed "if stale" from E4-T1c; (2) Corrected DI line count from ~260 to ~330 (Program.cs lines 33–382); (3) Added ActiveItemResult.cs to New Files table and E1-T1-ar task; (4) Added Twig.Tui to Impact Analysis with confirmation that AddTwigCoreServices() method name is preserved; (5) Simplified remaining implementation-heavy Modified Files entries (Program.cs, RefreshCommand, StateCommand); (6) Removed parenthetical commentary from EPIC-005 acceptance criteria; (7) Added API note about CancellationToken closure capture in RenderWithSyncAsync; (8) Clarified TreeCommand auto-fetch-on-miss via ActiveItemResolver in E4-T3. |
+| 7.0 | 2026-03-17 | EPIC-004 complete. Fixed 6 review defects: (1) DownAsync non-TTY multiple-children path returns 1 (NavigationCommands.cs); (2) dirty-item protection assertion added to SetCommand_DirtyChildren_NotOverwritten (FR-002/G-2); (3) removed unreachable NoContext branch from StatusCommand; (4) Task.FromResult replaces unnecessary async lambda in SetCommand; (5) [Collection("ConsoleRedirect")] added to CacheFirstReadCommandTests; (6) TreeCommand_Unreachable_ReturnsError test added. All acceptance criteria verified. |

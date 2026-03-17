@@ -26,7 +26,8 @@ public sealed class WorkspaceCommand(
     HintEngine hintEngine,
     IProcessTypeStore processTypeStore,
     // Optional — null for backward compat with tests that predate EPIC-002
-    RenderingPipelineFactory? pipelineFactory = null)
+    RenderingPipelineFactory? pipelineFactory = null,
+    ActiveItemResolver? activeItemResolver = null)
 {
     public async Task<int> ExecuteAsync(string outputFormat = "human", bool all = false, bool noLive = false)
     {
@@ -45,10 +46,25 @@ public sealed class WorkspaceCommand(
             async IAsyncEnumerable<WorkspaceDataChunk> StreamWorkspaceData(
                 [EnumeratorCancellation] CancellationToken ct)
             {
-                // Stage 1: Context
+                // Stage 1: Context — auto-fetch on cache miss via ActiveItemResolver (G-3)
                 var activeId = await contextStore.GetActiveWorkItemIdAsync(ct);
                 if (activeId.HasValue)
-                    contextItem = await workItemRepo.GetByIdAsync(activeId.Value, ct);
+                {
+                    if (activeItemResolver is not null)
+                    {
+                        var resolveResult = await activeItemResolver.ResolveByIdAsync(activeId.Value, ct);
+                        contextItem = resolveResult switch
+                        {
+                            ActiveItemResult.Found found => found.WorkItem,
+                            ActiveItemResult.FetchedFromAdo fetched => fetched.WorkItem,
+                            _ => null,
+                        };
+                    }
+                    else
+                    {
+                        contextItem = await workItemRepo.GetByIdAsync(activeId.Value, ct);
+                    }
+                }
                 yield return new WorkspaceDataChunk.ContextLoaded(contextItem);
 
                 // Stage 2: Sprint items
@@ -132,11 +148,26 @@ public sealed class WorkspaceCommand(
 
     private async Task<int> ExecuteSyncAsync(IOutputFormatter fmt, bool all)
     {
-        // Get active context (nullable)
+        // Get active context (nullable) — auto-fetch on cache miss via ActiveItemResolver
         var activeId = await contextStore.GetActiveWorkItemIdAsync();
         Domain.Aggregates.WorkItem? contextItem = null;
         if (activeId.HasValue)
-            contextItem = await workItemRepo.GetByIdAsync(activeId.Value);
+        {
+            if (activeItemResolver is not null)
+            {
+                var resolveResult = await activeItemResolver.ResolveByIdAsync(activeId.Value);
+                contextItem = resolveResult switch
+                {
+                    ActiveItemResult.Found found => found.WorkItem,
+                    ActiveItemResult.FetchedFromAdo fetched => fetched.WorkItem,
+                    _ => null,
+                };
+            }
+            else
+            {
+                contextItem = await workItemRepo.GetByIdAsync(activeId.Value);
+            }
+        }
 
         // Get current iteration items — scoped to user by default, all team items with --all
         var iteration = await iterationService.GetCurrentIterationAsync();

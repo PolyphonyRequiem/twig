@@ -1,6 +1,7 @@
 using System.Globalization;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
+using Twig.Domain.Services;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
@@ -21,7 +22,8 @@ public sealed class StatusCommand(
     // Optional — null for backward compat with tests that predate EPIC-004
     RenderingPipelineFactory? pipelineFactory = null,
     IGitService? gitService = null,
-    IAdoGitService? adoGitService = null)
+    IAdoGitService? adoGitService = null,
+    ActiveItemResolver? activeItemResolver = null)
 {
     public async Task<int> ExecuteAsync(string outputFormat = "human", bool noLive = false)
     {
@@ -50,11 +52,36 @@ public sealed class StatusCommand(
             return 1;
         }
 
-        var item = await workItemRepo.GetByIdAsync(activeId.Value);
-        if (item is null)
+        // Use ActiveItemResolver for auto-fetch on cache miss (G-3)
+        Domain.Aggregates.WorkItem? item;
+        if (activeItemResolver is not null)
         {
-            Console.Error.WriteLine(fmt.FormatError($"Work item #{activeId.Value} not found in cache. Run 'twig set {activeId.Value}' to refresh."));
-            return 1;
+            var resolveResult = await activeItemResolver.GetActiveItemAsync();
+            switch (resolveResult)
+            {
+                case ActiveItemResult.Found found:
+                    item = found.WorkItem;
+                    break;
+                case ActiveItemResult.FetchedFromAdo fetched:
+                    item = fetched.WorkItem;
+                    break;
+                case ActiveItemResult.Unreachable unreachable:
+                    Console.Error.WriteLine(fmt.FormatError($"Work item #{unreachable.Id} not found in cache and could not be fetched. Run 'twig set {unreachable.Id}' to refresh."));
+                    return 1;
+                default:
+                    Console.Error.WriteLine(fmt.FormatError($"Work item #{activeId.Value} not found in cache. Run 'twig set {activeId.Value}' to refresh."));
+                    return 1;
+            }
+        }
+        else
+        {
+            // Fallback for backward compat with tests that don't inject ActiveItemResolver
+            item = await workItemRepo.GetByIdAsync(activeId.Value);
+            if (item is null)
+            {
+                Console.Error.WriteLine(fmt.FormatError($"Work item #{activeId.Value} not found in cache. Run 'twig set {activeId.Value}' to refresh."));
+                return 1;
+            }
         }
 
         if (renderer is not null)

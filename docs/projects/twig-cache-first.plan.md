@@ -522,6 +522,9 @@ No new security boundaries are introduced. All data flows remain local (SQLite c
 
 ### EPIC-003: Rendering — In-Place Sync Status
 
+**Status**: DONE
+**Completed**: 2026-03-17
+
 **Goal**: Add the `RenderWithSyncAsync` rendering primitive that commands will use for cache-render-fetch-revise.
 
 **Prerequisites**: EPIC-001 (needs `SyncResult` type)
@@ -530,16 +533,16 @@ No new security boundaries are introduced. All data flows remain local (SQLite c
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E3-T1 | IMPL | Add `RenderWithSyncAsync` to `IAsyncRenderer` interface. Signature: `Task RenderWithSyncAsync(Func<Task<IRenderable>> buildCachedView, Func<Task<SyncResult>> performSync, Func<SyncResult, Task<IRenderable?>> buildRevisedView, CancellationToken ct)`. | `src/Twig/Rendering/IAsyncRenderer.cs` | TO DO |
-| E3-T2 | IMPL | Implement `RenderWithSyncAsync` in `SpectreRenderer`. Pattern: (1) render cached view via `Live()`, (2) show `[dim]⟳ syncing...[/]` status below, (3) call `performSync()`, (4) on `UpToDate` show `✓ up to date` then clear, (5) on `Updated` revise view and show count, (6) on `Failed` show `⚠ sync failed` and persist, (7) on `Skipped` show `✓ up to date`. | `src/Twig/Rendering/SpectreRenderer.cs` | TO DO |
-| E3-T3 | TEST | Rendering tests using `TestConsole`: (a) cached view rendered before sync, (b) `UpToDate` shows and clears, (c) `Updated` replaces content, (d) `Failed` shows warning and persists. | `tests/Twig.Cli.Tests/Rendering/RenderWithSyncTests.cs` | TO DO |
+| E3-T1 | IMPL | Add `RenderWithSyncAsync` to `IAsyncRenderer` interface. Signature: `Task RenderWithSyncAsync(Func<Task<IRenderable>> buildCachedView, Func<Task<SyncResult>> performSync, Func<SyncResult, Task<IRenderable?>> buildRevisedView, CancellationToken ct)`. | `src/Twig/Rendering/IAsyncRenderer.cs` | DONE |
+| E3-T2 | IMPL | Implement `RenderWithSyncAsync` in `SpectreRenderer`. Pattern: (1) render cached view via `Live()`, (2) show `[dim]⟳ syncing...[/]` status below, (3) call `performSync()`, (4) on `UpToDate` show `✓ up to date` then clear, (5) on `Updated` revise view and show count, (6) on `Failed` show `⚠ sync failed` and persist, (7) on `Skipped` show `✓ up to date`. | `src/Twig/Rendering/SpectreRenderer.cs` | DONE |
+| E3-T3 | TEST | Rendering tests using `TestConsole`: (a) cached view rendered before sync, (b) `UpToDate` shows and clears, (c) `Updated` replaces content, (d) `Failed` shows warning and persists. | `tests/Twig.Cli.Tests/Rendering/RenderWithSyncTests.cs` | DONE |
 
 **Acceptance Criteria**:
-- [ ] `RenderWithSyncAsync` renders cached view before calling sync
-- [ ] Sync indicator replaces in-place (not appended as new lines)
-- [ ] `UpToDate` status clears after brief delay
-- [ ] `Failed` status persists (not cleared)
-- [ ] Non-TTY path never calls `RenderWithSyncAsync`
+- [x] `RenderWithSyncAsync` renders cached view before calling sync
+- [x] Sync indicator replaces in-place (not appended as new lines)
+- [x] `UpToDate` status clears after brief delay
+- [x] `Failed` status persists (not cleared)
+- [x] Non-TTY path never calls `RenderWithSyncAsync`
 
 ---
 

@@ -1,6 +1,8 @@
+using Spectre.Console.Rendering;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.ReadModels;
+using Twig.Domain.Services;
 
 namespace Twig.Rendering;
 
@@ -39,6 +41,16 @@ public interface IAsyncRenderer
         CancellationToken ct);
 
     void RenderHints(IReadOnlyList<string> hints);
+
+    /// <summary>
+    /// Cache-render-fetch-revise primitive. Renders the cached view immediately,
+    /// performs a background sync, then revises the display in-place based on the result.
+    /// </summary>
+    Task RenderWithSyncAsync(
+        Func<Task<IRenderable>> buildCachedView,
+        Func<Task<SyncResult>> performSync,
+        Func<SyncResult, Task<IRenderable?>> buildRevisedView,
+        CancellationToken ct);
 }
 
 /// <summary>

@@ -3,6 +3,7 @@ using Spectre.Console.Rendering;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.ReadModels;
+using Twig.Domain.Services;
 
 namespace Twig.Rendering;
 
@@ -492,6 +493,73 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         rows.Add(new Markup("[dim]↑/↓ navigate · Enter select · Esc cancel · type to filter[/]"));
 
         return new Rows(rows);
+    }
+
+    /// <summary>
+    /// Delay before clearing transient sync status messages. Exposed as internal for test overrides.
+    /// </summary>
+    internal TimeSpan SyncStatusDelay { get; set; } = TimeSpan.FromMilliseconds(800);
+
+    public async Task RenderWithSyncAsync(
+        Func<Task<IRenderable>> buildCachedView,
+        Func<Task<SyncResult>> performSync,
+        Func<SyncResult, Task<IRenderable?>> buildRevisedView,
+        CancellationToken ct)
+    {
+        var cachedView = await buildCachedView();
+
+        await _console.Live(cachedView)
+            .StartAsync(async ctx =>
+            {
+                ctx.Refresh();
+
+                // Show syncing indicator below cached data
+                ctx.UpdateTarget(new Rows(cachedView, new Markup("[dim]⟳ syncing...[/]")));
+                ctx.Refresh();
+
+                var result = await performSync();
+
+                switch (result)
+                {
+                    case SyncResult.UpToDate:
+                        ctx.UpdateTarget(new Rows(cachedView, new Markup("[dim]✓ up to date[/]")));
+                        ctx.Refresh();
+                        await Task.Delay(SyncStatusDelay, ct);
+                        ctx.UpdateTarget(cachedView);
+                        ctx.Refresh();
+                        break;
+
+                    case SyncResult.Updated updated:
+                        var revisedView = await buildRevisedView(updated);
+                        var displayView = revisedView ?? cachedView;
+                        var countLabel = updated.ChangedCount == 1
+                            ? "1 item updated"
+                            : $"{updated.ChangedCount} items updated";
+                        ctx.UpdateTarget(new Rows(displayView, new Markup($"[green]✓ {countLabel}[/]")));
+                        ctx.Refresh();
+                        await Task.Delay(SyncStatusDelay, ct);
+                        ctx.UpdateTarget(displayView);
+                        ctx.Refresh();
+                        break;
+
+                    case SyncResult.Failed:
+                        ctx.UpdateTarget(new Rows(cachedView, new Markup("[yellow]⚠ sync failed (offline)[/]")));
+                        ctx.Refresh();
+                        // Failed status persists — no delay/clear
+                        break;
+
+                    case SyncResult.Skipped:
+                        ctx.UpdateTarget(new Rows(cachedView, new Markup("[dim]✓ up to date[/]")));
+                        ctx.Refresh();
+                        await Task.Delay(SyncStatusDelay, ct);
+                        ctx.UpdateTarget(cachedView);
+                        ctx.Refresh();
+                        break;
+
+                    default:
+                        throw new System.Diagnostics.UnreachableException($"Unhandled SyncResult: {result.GetType().Name}");
+                }
+            });
     }
 
     public void RenderHints(IReadOnlyList<string> hints)

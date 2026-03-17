@@ -10,6 +10,7 @@ namespace Twig.Commands;
 internal sealed class OhMyPoshCommands
 {
     private const string Template = "{{ if .Env.TWIG_PROMPT }} {{ .Env.TWIG_PROMPT }} {{ end }}";
+    private const string ForegroundTemplate = "{{ if .Env.TWIG_TYPE_COLOR }}{{ .Env.TWIG_TYPE_COLOR }}{{ end }}";
     private const string DefaultForeground = "#ffffff";
     private const string AzureBlue = "#0078D4";
     private const string PowerlineSymbol = "\uE0B0";
@@ -67,6 +68,7 @@ internal sealed class OhMyPoshCommands
                 break;
         }
 
+        WriteForegroundTemplates(writer);
         writer.WriteString("template", Template);
         WriteCache(writer);
         writer.WriteEndObject();
@@ -104,6 +106,13 @@ internal sealed class OhMyPoshCommands
         writer.WriteString("duration", "30s");
         writer.WriteString("strategy", "folder");
         writer.WriteEndObject();
+    }
+
+    private static void WriteForegroundTemplates(Utf8JsonWriter writer)
+    {
+        writer.WriteStartArray("foreground_templates");
+        writer.WriteStringValue(ForegroundTemplate);
+        writer.WriteEndArray();
     }
 
     private static string GeneratePowerShellHook()

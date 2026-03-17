@@ -37,6 +37,9 @@
           "style": "powerline",
           "powerline_symbol": "\uE0B0",
           "foreground": "#ffffff",
+          "foreground_templates": [
+            "{{ if .Env.TWIG_TYPE_COLOR }}{{ .Env.TWIG_TYPE_COLOR }}{{ end }}"
+          ],
           "background": "#0078D4",
           "template": "{{ if .Env.TWIG_PROMPT }} {{ .Env.TWIG_PROMPT }} {{ end }}",
           "cache": {

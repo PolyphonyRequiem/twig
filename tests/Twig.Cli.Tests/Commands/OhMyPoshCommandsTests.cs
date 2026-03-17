@@ -147,6 +147,23 @@ public class OhMyPoshCommandsTests
         json.ShouldNotContain("\"type\":\"command\"");
     }
 
+    // ── (i) Segment includes foreground_templates for type coloring ─────────
+
+    [Theory]
+    [InlineData("powerline")]
+    [InlineData("plain")]
+    [InlineData("diamond")]
+    public void AllStyles_ContainsForegroundTemplates(string style)
+    {
+        var json = OhMyPoshCommands.GenerateSegmentJson(style);
+        var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        var templates = root.GetProperty("foreground_templates");
+        templates.GetArrayLength().ShouldBe(1);
+        templates[0].GetString().ShouldBe("{{ if .Env.TWIG_TYPE_COLOR }}{{ .Env.TWIG_TYPE_COLOR }}{{ end }}");
+    }
+
     // ── Cache section present ───────────────────────────────────────────────
 
     [Theory]

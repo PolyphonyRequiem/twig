@@ -337,7 +337,7 @@ The `_prompt` command is deleted entirely (EPIC-003). The shell hook reads `.twi
 
 ---
 
-### EPIC-004: Update `ohmyposh init` and documentation
+### EPIC-004: Update `ohmyposh init` and documentation — DONE
 
 **Goal**: Update the `ohmyposh init` helper to generate shell hooks that read `prompt.json` instead of running `twig _prompt`. Update documentation.
 
@@ -359,6 +359,8 @@ The `_prompt` command is deleted entirely (EPIC-003). The shell hook reads `.twi
 - [x] Documentation explains state file approach (no subprocess needed)
 - [x] Troubleshooting covers: stale data (run any twig command to refresh)
 - [x] All tests pass
+
+**Completion Notes**: Added `ForegroundTemplate` private constant (`"{{ if .Env.TWIG_TYPE_COLOR }}{{ .Env.TWIG_TYPE_COLOR }}{{ end }}"`) and `WriteForegroundTemplates()` helper method to `OhMyPoshCommands.cs`. Called from `GenerateSegmentJson()` so all three styles (powerline, plain, diamond) include `foreground_templates`. Updated `docs/examples/twig.omp.json` to include the `foreground_templates` array. Added `AllStyles_ContainsForegroundTemplates` theory test covering all three styles with `[InlineData]`. ITEM-027 and ITEM-029 were completed as part of EPIC-003. The Go template evaluates to empty string when `TWIG_TYPE_COLOR` is unset, causing OMP to fall back to the static `foreground` value — graceful degradation when no work item is active.
 
 ---
 

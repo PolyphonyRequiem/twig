@@ -122,4 +122,77 @@ public class AdoRemoteParserTests
         result.ShouldNotBeNull();
         result.Repository.ShouldBe("my-cool-repo");
     }
+
+    // ── Edge cases ──────────────────────────────────────────────────
+
+    [Fact]
+    public void Parse_OrgWithHyphensAndNumbers_ExtractsComponents()
+    {
+        var result = AdoRemoteParser.Parse("https://dev.azure.com/my-org-123/BackendService/_git/twig");
+
+        result.ShouldNotBeNull();
+        result.Organization.ShouldBe("my-org-123");
+        result.Project.ShouldBe("BackendService");
+        result.Repository.ShouldBe("twig");
+    }
+
+    [Fact]
+    public void Parse_ProjectWithDots_ExtractsComponents()
+    {
+        var result = AdoRemoteParser.Parse("https://dev.azure.com/contoso/My.Project.v2/_git/api-service");
+
+        result.ShouldNotBeNull();
+        result.Project.ShouldBe("My.Project.v2");
+        result.Repository.ShouldBe("api-service");
+    }
+
+    [Fact]
+    public void Parse_UrlWithNonStandardPort_ReturnsNull()
+    {
+        // The patterns require dev.azure.com/ with no port; a port breaks the match.
+        var result = AdoRemoteParser.Parse("https://dev.azure.com:8080/org/proj/_git/repo");
+
+        result.ShouldBeNull();
+    }
+
+    [Fact]
+    public void Parse_SshWithHyphensInAllSegments_ExtractsComponents()
+    {
+        var result = AdoRemoteParser.Parse("git@ssh.dev.azure.com:v3/my-org/my-project/my-repo");
+
+        result.ShouldNotBeNull();
+        result.Organization.ShouldBe("my-org");
+        result.Project.ShouldBe("my-project");
+        result.Repository.ShouldBe("my-repo");
+    }
+
+    [Fact]
+    public void Parse_HttpsWithUrlEncodedHyphenInRepo_DecodesCorrectly()
+    {
+        // %2D is the URL-encoded form of '-'
+        var result = AdoRemoteParser.Parse("https://dev.azure.com/contoso/MyProject/_git/my%2Drepo");
+
+        result.ShouldNotBeNull();
+        result.Repository.ShouldBe("my-repo");
+    }
+
+    [Fact]
+    public void Parse_LegacyHttps_NumericPrefixedOrg_ExtractsComponents()
+    {
+        var result = AdoRemoteParser.Parse("https://123contoso.visualstudio.com/BackendService/_git/twig");
+
+        result.ShouldNotBeNull();
+        result.Organization.ShouldBe("123contoso");
+        result.Project.ShouldBe("BackendService");
+        result.Repository.ShouldBe("twig");
+    }
+
+    [Fact]
+    public void Parse_UrlWithEmbeddedCredentials_ReturnsNull()
+    {
+        // Credentials before the host should not match the dev.azure.com pattern.
+        var result = AdoRemoteParser.Parse("https://user:token@dev.azure.com/org/proj/_git/repo");
+
+        result.ShouldBeNull();
+    }
 }

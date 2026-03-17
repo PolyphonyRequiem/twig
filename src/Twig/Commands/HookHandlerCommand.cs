@@ -22,19 +22,26 @@ public sealed class HookHandlerCommand(
     {
         return hookName switch
         {
-            "post-checkout" => await HandlePostCheckoutAsync(args),
-            "prepare-commit-msg" => await HandlePrepareCommitMsgAsync(args),
-            "commit-msg" => await HandleCommitMsgAsync(args),
+            "post-checkout" => await HandlePostCheckoutAsync(hookName, args),
+            "prepare-commit-msg" => await HandlePrepareCommitMsgAsync(hookName, args),
+            "commit-msg" => await HandleCommitMsgAsync(hookName, args),
             _ => 0, // Unknown hooks are silently ignored
         };
     }
+
+    /// <summary>
+    /// Returns true if <c>TWIG_DEBUG</c> is set to any non-empty value, enabling
+    /// verbose error logging from hook handlers to stderr.
+    /// </summary>
+    private static bool IsDebugEnabled() =>
+        !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("TWIG_DEBUG"));
 
     /// <summary>
     /// post-checkout: extract work item ID from new branch, set context.
     /// Args: [old-ref] [new-ref] [branch-flag]
     /// branch-flag = "1" means a branch switch (vs file checkout).
     /// </summary>
-    private async Task<int> HandlePostCheckoutAsync(string[] args)
+    private async Task<int> HandlePostCheckoutAsync(string hookName, string[] args)
     {
         // args[2] is the branch flag: "1" = branch switch, "0" = file checkout
         if (args.Length < 3 || args[2] != "1")
@@ -59,9 +66,11 @@ public sealed class HookHandlerCommand(
             else
                 Console.Error.WriteLine($"Twig context → #{workItemId.Value}");
         }
-        catch
+        catch (Exception ex)
         {
-            // Hook failures must not break git operations
+            if (IsDebugEnabled())
+                Console.Error.WriteLine($"[twig debug] {hookName} hook error: {ex}");
+            // Hook failures must never break git operations
         }
 
         return 0;
@@ -71,7 +80,7 @@ public sealed class HookHandlerCommand(
     /// prepare-commit-msg: prefix the commit message file with work item ID.
     /// Args: [commit-msg-file]
     /// </summary>
-    private async Task<int> HandlePrepareCommitMsgAsync(string[] args)
+    private async Task<int> HandlePrepareCommitMsgAsync(string hookName, string[] args)
     {
         if (args.Length < 1)
             return 0;
@@ -97,9 +106,11 @@ public sealed class HookHandlerCommand(
 
             await File.WriteAllTextAsync(msgFile, prefix + content);
         }
-        catch
+        catch (Exception ex)
         {
-            // Hook failures must not break git operations
+            if (IsDebugEnabled())
+                Console.Error.WriteLine($"[twig debug] {hookName} hook error: {ex}");
+            // Hook failures must never break git operations
         }
 
         return 0;
@@ -109,7 +120,7 @@ public sealed class HookHandlerCommand(
     /// commit-msg: validate that the commit message contains a work item reference.
     /// Args: [commit-msg-file]
     /// </summary>
-    private async Task<int> HandleCommitMsgAsync(string[] args)
+    private async Task<int> HandleCommitMsgAsync(string hookName, string[] args)
     {
         if (args.Length < 1)
             return 0;
@@ -133,9 +144,11 @@ public sealed class HookHandlerCommand(
                 Console.Error.WriteLine($"Warning: commit message does not reference a work item (e.g., #{activeId.Value}).");
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Hook failures must not break git operations
+            if (IsDebugEnabled())
+                Console.Error.WriteLine($"[twig debug] {hookName} hook error: {ex}");
+            // Hook failures must never break git operations
         }
 
         return 0;

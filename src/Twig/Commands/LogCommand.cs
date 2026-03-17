@@ -54,10 +54,12 @@ public sealed class LogCommand(
         }
 
         // 2. Get git log entries (hash + message)
+        // Use a tab separator (%x09) between the full hash and subject so that spaces
+        // inside the commit subject don't interfere with parsing.
         IReadOnlyList<string> logEntries;
         try
         {
-            logEntries = await gitService.GetLogAsync(count, "%H %s");
+            logEntries = await gitService.GetLogAsync(count, "%H%x09%s");
         }
         catch (Exception ex)
         {
@@ -75,15 +77,15 @@ public sealed class LogCommand(
         var parsed = new List<LogEntry>(logEntries.Count);
         foreach (var entry in logEntries)
         {
-            var spaceIdx = entry.IndexOf(' ');
-            if (spaceIdx <= 0)
+            var tabIdx = entry.IndexOf('\t');
+            if (tabIdx <= 0)
             {
                 parsed.Add(new LogEntry(entry, "", null));
                 continue;
             }
 
-            var hash = entry[..spaceIdx];
-            var message = entry[(spaceIdx + 1)..];
+            var hash = entry[..tabIdx];
+            var message = entry[(tabIdx + 1)..];
             var ids = ExtractWorkItemIds(message);
             parsed.Add(new LogEntry(hash, message, ids.Count > 0 ? ids : null));
         }

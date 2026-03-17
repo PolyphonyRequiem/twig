@@ -50,11 +50,11 @@ public class LogCommandTests
     public async Task Log_AnnotatesCommitsWithWorkItemInfo()
     {
         _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
-        _gitService.GetLogAsync(20, "%H %s", Arg.Any<CancellationToken>())
+        _gitService.GetLogAsync(20, "%H%x09%s", Arg.Any<CancellationToken>())
             .Returns(new[]
             {
-                "abc1234567890 feat(#42): add login",
-                "def1234567890 chore: update deps",
+                "abc1234567890\tfeat(#42): add login",
+                "def1234567890\tchore: update deps",
             });
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
             .Returns(CreateWorkItem(42, "Login feature"));
@@ -84,12 +84,12 @@ public class LogCommandTests
     public async Task Log_WorkItemFilter_ShowsOnlyMatchingCommits()
     {
         _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
-        _gitService.GetLogAsync(20, "%H %s", Arg.Any<CancellationToken>())
+        _gitService.GetLogAsync(20, "%H%x09%s", Arg.Any<CancellationToken>())
             .Returns(new[]
             {
-                "abc1234567890 feat(#42): add login",
-                "def1234567890 chore: update deps",
-                "ghi1234567890 fix(#99): fix bug",
+                "abc1234567890\tfeat(#42): add login",
+                "def1234567890\tchore: update deps",
+                "ghi1234567890\tfix(#99): fix bug",
             });
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
             .Returns(CreateWorkItem(42, "Login feature"));
@@ -121,8 +121,8 @@ public class LogCommandTests
     public async Task Log_RecognizesABHashPattern()
     {
         _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
-        _gitService.GetLogAsync(20, "%H %s", Arg.Any<CancellationToken>())
-            .Returns(new[] { "abc1234567890 Resolves AB#42 login feature" });
+        _gitService.GetLogAsync(20, "%H%x09%s", Arg.Any<CancellationToken>())
+            .Returns(new[] { "abc1234567890\tResolves AB#42 login feature" });
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
             .Returns(CreateWorkItem(42, "Login feature"));
 
@@ -148,7 +148,7 @@ public class LogCommandTests
     public async Task Log_CountParameter_PassedToGit()
     {
         _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
-        _gitService.GetLogAsync(5, "%H %s", Arg.Any<CancellationToken>())
+        _gitService.GetLogAsync(5, "%H%x09%s", Arg.Any<CancellationToken>())
             .Returns(Array.Empty<string>());
 
         var cmd = CreateCommand(_gitService);
@@ -161,7 +161,7 @@ public class LogCommandTests
         {
             var result = await cmd.ExecuteAsync(count: 5);
             result.ShouldBe(0);
-            await _gitService.Received().GetLogAsync(5, "%H %s", Arg.Any<CancellationToken>());
+            await _gitService.Received().GetLogAsync(5, "%H%x09%s", Arg.Any<CancellationToken>());
         }
         finally
         {
@@ -208,7 +208,7 @@ public class LogCommandTests
     public async Task Log_EmptyLog_ReturnsSuccess()
     {
         _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
-        _gitService.GetLogAsync(20, "%H %s", Arg.Any<CancellationToken>())
+        _gitService.GetLogAsync(20, "%H%x09%s", Arg.Any<CancellationToken>())
             .Returns(Array.Empty<string>());
 
         var cmd = CreateCommand(_gitService);
@@ -222,8 +222,8 @@ public class LogCommandTests
     public async Task Log_JsonOutput_ContainsStructuredFields()
     {
         _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
-        _gitService.GetLogAsync(20, "%H %s", Arg.Any<CancellationToken>())
-            .Returns(new[] { "abc1234567890 feat(#42): add login" });
+        _gitService.GetLogAsync(20, "%H%x09%s", Arg.Any<CancellationToken>())
+            .Returns(new[] { "abc1234567890\tfeat(#42): add login" });
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
             .Returns(CreateWorkItem(42, "Login feature"));
 
@@ -266,8 +266,8 @@ public class LogCommandTests
     public async Task Log_MinimalOutput_ShowsCompactEntries()
     {
         _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
-        _gitService.GetLogAsync(20, "%H %s", Arg.Any<CancellationToken>())
-            .Returns(new[] { "abc1234567890 feat(#42): add login" });
+        _gitService.GetLogAsync(20, "%H%x09%s", Arg.Any<CancellationToken>())
+            .Returns(new[] { "abc1234567890\tfeat(#42): add login" });
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
             .Returns(CreateWorkItem(42, "Login feature"));
 
@@ -295,8 +295,8 @@ public class LogCommandTests
     public async Task Log_WorkItemNotInCache_StillShowsEntry()
     {
         _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
-        _gitService.GetLogAsync(20, "%H %s", Arg.Any<CancellationToken>())
-            .Returns(new[] { "abc1234567890 feat(#42): add login" });
+        _gitService.GetLogAsync(20, "%H%x09%s", Arg.Any<CancellationToken>())
+            .Returns(new[] { "abc1234567890\tfeat(#42): add login" });
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
             .Returns((WorkItem?)null);
 

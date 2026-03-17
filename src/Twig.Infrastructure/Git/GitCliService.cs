@@ -28,22 +28,38 @@ internal sealed class GitCliService : IGitService
     }
 
     /// <summary>
-    /// Runs a git command and returns trimmed stdout.
-    /// Throws <see cref="GitOperationException"/> on non-zero exit codes.
+    /// Creates a <see cref="ProcessStartInfo"/> for the git binary using either a pre-quoted
+    /// argument string or a verbatim argument list (for user-supplied values).
     /// </summary>
-    private async Task<string> RunGitAsync(string arguments, CancellationToken ct)
+    private ProcessStartInfo BuildGitPsi(string? arguments = null, string[]? argList = null)
     {
-        var psi = new ProcessStartInfo(_gitBinary, arguments)
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
+        var psi = arguments is not null
+            ? new ProcessStartInfo(_gitBinary, arguments)
+            : new ProcessStartInfo(_gitBinary);
+
+        psi.RedirectStandardOutput = true;
+        psi.RedirectStandardError = true;
+        psi.UseShellExecute = false;
+        psi.CreateNoWindow = true;
 
         if (_workingDirectory is not null)
             psi.WorkingDirectory = _workingDirectory;
 
+        if (argList is not null)
+            foreach (var arg in argList)
+                psi.ArgumentList.Add(arg);
+
+        return psi;
+    }
+
+    /// <summary>
+    /// Starts the process described by <paramref name="psi"/>, drains stdout and stderr
+    /// concurrently to avoid pipe-buffer deadlock, and returns the trimmed outputs and exit code.
+    /// Throws <see cref="GitOperationException"/> if the git binary cannot be found.
+    /// </summary>
+    private async Task<(string Stdout, string Stderr, int ExitCode)> RunProcessCoreAsync(
+        ProcessStartInfo psi, CancellationToken ct)
+    {
         Process process;
         try
         {
@@ -59,18 +75,24 @@ internal sealed class GitCliService : IGitService
 
         using (process)
         {
-            // Read both streams concurrently to avoid pipe-buffer deadlock.
             var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
             var stderrTask = process.StandardError.ReadToEndAsync(ct);
             await Task.WhenAll(stdoutTask, stderrTask);
             await process.WaitForExitAsync(ct);
-
-            if (process.ExitCode != 0)
-                throw new GitOperationException(
-                    $"git {arguments} failed: {stderrTask.Result.Trim()}", process.ExitCode);
-
-            return stdoutTask.Result.Trim();
+            return (stdoutTask.Result.Trim(), stderrTask.Result.Trim(), process.ExitCode);
         }
+    }
+
+    /// <summary>
+    /// Runs a git command and returns trimmed stdout.
+    /// Throws <see cref="GitOperationException"/> on non-zero exit codes.
+    /// </summary>
+    private async Task<string> RunGitAsync(string arguments, CancellationToken ct)
+    {
+        var (stdout, stderr, exitCode) = await RunProcessCoreAsync(BuildGitPsi(arguments: arguments), ct);
+        if (exitCode != 0)
+            throw new GitOperationException($"git {arguments} failed: {stderr}", exitCode);
+        return stdout;
     }
 
     /// <summary>
@@ -81,47 +103,10 @@ internal sealed class GitCliService : IGitService
     /// </summary>
     private async Task<string> RunGitArgListAsync(string[] args, CancellationToken ct)
     {
-        var psi = new ProcessStartInfo(_gitBinary)
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-
-        foreach (var arg in args)
-            psi.ArgumentList.Add(arg);
-
-        if (_workingDirectory is not null)
-            psi.WorkingDirectory = _workingDirectory;
-
-        Process process;
-        try
-        {
-            process = Process.Start(psi)
-                ?? throw new InvalidOperationException("Failed to start git process.");
-        }
-        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 2 || ex.NativeErrorCode == 3)
-        {
-            // ERROR_FILE_NOT_FOUND (2) or ERROR_PATH_NOT_FOUND (3) / ENOENT (2) on Linux.
-            throw new GitOperationException(
-                "git binary not found. Ensure git is installed and on PATH.", ex);
-        }
-
-        using (process)
-        {
-            // Read both streams concurrently to avoid pipe-buffer deadlock.
-            var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
-            var stderrTask = process.StandardError.ReadToEndAsync(ct);
-            await Task.WhenAll(stdoutTask, stderrTask);
-            await process.WaitForExitAsync(ct);
-
-            if (process.ExitCode != 0)
-                throw new GitOperationException(
-                    $"git {string.Join(" ", args)} failed: {stderrTask.Result.Trim()}", process.ExitCode);
-
-            return stdoutTask.Result.Trim();
-        }
+        var (stdout, stderr, exitCode) = await RunProcessCoreAsync(BuildGitPsi(argList: args), ct);
+        if (exitCode != 0)
+            throw new GitOperationException($"git {string.Join(" ", args)} failed: {stderr}", exitCode);
+        return stdout;
     }
 
     /// <summary>
@@ -130,43 +115,8 @@ internal sealed class GitCliService : IGitService
     /// </summary>
     private async Task<bool> RunGitBoolArgListAsync(string[] args, CancellationToken ct)
     {
-        var psi = new ProcessStartInfo(_gitBinary)
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-
-        foreach (var arg in args)
-            psi.ArgumentList.Add(arg);
-
-        if (_workingDirectory is not null)
-            psi.WorkingDirectory = _workingDirectory;
-
-        Process process;
-        try
-        {
-            process = Process.Start(psi)
-                ?? throw new InvalidOperationException("Failed to start git process.");
-        }
-        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 2 || ex.NativeErrorCode == 3)
-        {
-            // ERROR_FILE_NOT_FOUND (2) or ERROR_PATH_NOT_FOUND (3) / ENOENT (2) on Linux.
-            throw new GitOperationException(
-                "git binary not found. Ensure git is installed and on PATH.", ex);
-        }
-
-        using (process)
-        {
-            // Drain both streams concurrently to avoid pipe-buffer deadlock.
-            var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
-            var stderrTask = process.StandardError.ReadToEndAsync(ct);
-            await Task.WhenAll(stdoutTask, stderrTask);
-            await process.WaitForExitAsync(ct);
-
-            return process.ExitCode == 0;
-        }
+        var (_, _, exitCode) = await RunProcessCoreAsync(BuildGitPsi(argList: args), ct);
+        return exitCode == 0;
     }
 
     /// <summary>
@@ -175,40 +125,8 @@ internal sealed class GitCliService : IGitService
     /// </summary>
     private async Task<bool> RunGitBoolAsync(string arguments, CancellationToken ct)
     {
-        var psi = new ProcessStartInfo(_gitBinary, arguments)
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-
-        if (_workingDirectory is not null)
-            psi.WorkingDirectory = _workingDirectory;
-
-        Process process;
-        try
-        {
-            process = Process.Start(psi)
-                ?? throw new InvalidOperationException("Failed to start git process.");
-        }
-        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 2 || ex.NativeErrorCode == 3)
-        {
-            // ERROR_FILE_NOT_FOUND (2) or ERROR_PATH_NOT_FOUND (3) / ENOENT (2) on Linux.
-            throw new GitOperationException(
-                "git binary not found. Ensure git is installed and on PATH.", ex);
-        }
-
-        using (process)
-        {
-            // Drain both streams concurrently to avoid pipe-buffer deadlock.
-            var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
-            var stderrTask = process.StandardError.ReadToEndAsync(ct);
-            await Task.WhenAll(stdoutTask, stderrTask);
-            await process.WaitForExitAsync(ct);
-
-            return process.ExitCode == 0;
-        }
+        var (_, _, exitCode) = await RunProcessCoreAsync(BuildGitPsi(arguments: arguments), ct);
+        return exitCode == 0;
     }
 
     public async Task<string> GetCurrentBranchAsync(CancellationToken ct = default)

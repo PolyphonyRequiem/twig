@@ -733,4 +733,89 @@ public class TwigConfigurationTests : IDisposable
         config.Git.Repository.ShouldBeNull();
         config.Git.BranchTemplate.ShouldBe("feature/{id}-{title}");
     }
+
+    // --- git.hooks.* SetValue tests ---
+
+    [Fact]
+    public void SetValue_GitHooksPrepareCommitMsg_False()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("git.hooks.preparecommitmsg", "false").ShouldBeTrue();
+        config.Git.Hooks.PrepareCommitMsg.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void SetValue_GitHooksPrepareCommitMsg_True()
+    {
+        var config = new TwigConfiguration();
+        config.Git.Hooks.PrepareCommitMsg = false;
+        config.SetValue("git.hooks.preparecommitmsg", "true").ShouldBeTrue();
+        config.Git.Hooks.PrepareCommitMsg.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void SetValue_GitHooksPrepareCommitMsg_Invalid_ReturnsFalse()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("git.hooks.preparecommitmsg", "yes").ShouldBeFalse();
+        config.Git.Hooks.PrepareCommitMsg.ShouldBeTrue(); // unchanged from default
+    }
+
+    [Fact]
+    public void SetValue_GitHooksCommitMsg_False()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("git.hooks.commitmsg", "false").ShouldBeTrue();
+        config.Git.Hooks.CommitMsg.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void SetValue_GitHooksCommitMsg_True()
+    {
+        var config = new TwigConfiguration();
+        config.Git.Hooks.CommitMsg = false;
+        config.SetValue("git.hooks.commitmsg", "true").ShouldBeTrue();
+        config.Git.Hooks.CommitMsg.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void SetValue_GitHooksCommitMsg_Invalid_ReturnsFalse()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("git.hooks.commitmsg", "no").ShouldBeFalse();
+        config.Git.Hooks.CommitMsg.ShouldBeTrue(); // unchanged from default
+    }
+
+    [Fact]
+    public void SetValue_GitHooksPostCheckout_False()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("git.hooks.postcheckout", "false").ShouldBeTrue();
+        config.Git.Hooks.PostCheckout.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void SetValue_GitHooksPostCheckout_True()
+    {
+        var config = new TwigConfiguration();
+        config.Git.Hooks.PostCheckout = false;
+        config.SetValue("git.hooks.postcheckout", "true").ShouldBeTrue();
+        config.Git.Hooks.PostCheckout.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void SetValue_GitHooksPostCheckout_Invalid_ReturnsFalse()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("git.hooks.postcheckout", "maybe").ShouldBeFalse();
+        config.Git.Hooks.PostCheckout.ShouldBeTrue(); // unchanged from default
+    }
+
+    [Fact]
+    public void SetValue_GitHooks_CaseInsensitiveKey()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("GIT.HOOKS.PREPARECOMMITMSG", "false").ShouldBeTrue();
+        config.Git.Hooks.PrepareCommitMsg.ShouldBeFalse();
+    }
 }

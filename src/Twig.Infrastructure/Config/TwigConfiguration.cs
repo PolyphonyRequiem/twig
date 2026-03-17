@@ -162,6 +162,27 @@ public sealed class TwigConfiguration
             case "git.repository":
                 Git.Repository = value;
                 return true;
+            case "git.hooks.preparecommitmsg":
+                if (bool.TryParse(value, out var prepareCommitMsg))
+                {
+                    Git.Hooks.PrepareCommitMsg = prepareCommitMsg;
+                    return true;
+                }
+                return false;
+            case "git.hooks.commitmsg":
+                if (bool.TryParse(value, out var commitMsg))
+                {
+                    Git.Hooks.CommitMsg = commitMsg;
+                    return true;
+                }
+                return false;
+            case "git.hooks.postcheckout":
+                if (bool.TryParse(value, out var postCheckout))
+                {
+                    Git.Hooks.PostCheckout = postCheckout;
+                    return true;
+                }
+                return false;
             case "flow.autoassign":
                 var autoAssignLower = value.ToLowerInvariant();
                 if (autoAssignLower is "if-unassigned" or "always" or "never")
@@ -272,8 +293,8 @@ public sealed class GitConfig
     public Dictionary<string, string>? TypeMap { get; set; }
 
     /// <summary>
-    /// Controls which git hooks are installed by <c>twig hooks install</c> (EPIC-005).
-    /// Currently settable but not consumed — hook installation is not yet implemented.
+    /// Controls which git hooks are installed by <c>twig hooks install</c>.
+    /// Each boolean toggles installation of the corresponding hook script.
     /// </summary>
     public HooksConfig Hooks { get; set; } = new();
 

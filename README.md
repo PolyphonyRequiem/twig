@@ -86,6 +86,12 @@ twig flow-close --no-branch-cleanup    # keep branch after close
 | `branch` | Create a git branch named from the active work item |
 | `commit` | Commit with a work-item-enriched message and link to ADO |
 | `pr` | Create an ADO pull request linked to the active work item |
+| `hooks install` | Install Twig-managed git hooks into `.git/hooks/` |
+| `hooks uninstall` | Remove Twig-managed git hooks from `.git/hooks/` |
+| `stash` | Stash changes with work item context in the stash message |
+| `stash pop` | Pop the most recent stash and restore Twig context |
+| `log` | Show annotated git log with work item type/state badges |
+| `context` | Show current branch, active work item, and linked PRs |
 | `flow-start` | Start work: context + state + assign + branch |
 | `flow-done` | Finish work: save + resolve + PR offer |
 | `flow-close` | Close work: guard + complete + branch cleanup |
@@ -128,6 +134,24 @@ twig commit --amend -m "fix typo"  # amend with enriched message
 twig pr                            # create PR targeting git.defaultTarget
 twig pr --target develop           # create PR targeting a specific branch
 twig pr --draft                    # create a draft PR
+
+# Git hooks — auto-set context and prefix commit messages on every branch switch and commit
+twig hooks install                     # install prepare-commit-msg, commit-msg, post-checkout
+twig hooks uninstall                   # remove Twig-managed hook sections
+
+# Stash changes with work item context embedded in the stash message
+twig stash                             # stash → message: "[#12345 Implement auth]"
+twig stash -m "wip: half done"         # stash → "[#12345 Implement auth] wip: half done"
+twig stash pop                         # pop stash and restore Twig context from branch name
+
+# Annotated log — work item type/state badges alongside each commit
+twig log                               # last 20 commits, annotated with work item info
+twig log --count 10                    # limit to 10 commits
+twig log --work-item 12345             # filter to commits referencing #12345
+
+# Git context — shows current branch, active work item, and linked PRs
+twig context                           # show current git context summary
+twig context --output json             # machine-readable context
 ```
 
 ### Git Configuration
@@ -158,6 +182,22 @@ twig config git.repository my-api-repo
 twig config git.committemplate "{type}(#{id}): {message}"
 twig config git.autolink false
 twig config git.autotransition false
+```
+
+### Hooks Configuration
+
+The three git hooks installed by `twig hooks install` are individually enabled by default and can be toggled:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `git.hooks.preparecommitmsg` | `true` | Auto-prefix commit messages with `#{workItemId}` |
+| `git.hooks.commitmsg` | `true` | Warn when a commit message doesn't reference a work item |
+| `git.hooks.postcheckout` | `true` | Auto-set Twig context on branch switch |
+
+```bash
+twig config git.hooks.preparecommitmsg false   # disable commit message prefixing
+twig config git.hooks.commitmsg false           # disable work item reference warning
+twig config git.hooks.postcheckout false        # disable auto context on branch switch
 ```
 
 ### Flow Configuration

@@ -671,7 +671,7 @@ fi
 | ITEM-007 | IMPL | Create `.github/workflows/release.yml` with tag trigger (`push: tags: ['v*']`). Define matrix strategy with 4 entries: `{rid: win-x64, os: windows-latest, archive: zip}`, `{rid: linux-x64, os: ubuntu-latest, archive: tar.gz}`, `{rid: osx-x64, os: macos-13, archive: tar.gz}`, `{rid: osx-arm64, os: macos-latest, archive: tar.gz}`. | `.github/workflows/release.yml` | DONE |
 | ITEM-008 | IMPL | In `build` job: checkout (fetch-depth: 0), setup-dotnet, `dotnet restore`, `dotnet test --settings test.runsettings`, `dotnet publish src/Twig/Twig.csproj -c Release -r ${{ matrix.rid }} --self-contained true -o ./publish/${{ matrix.rid }}`. Archive: zip on Windows, tar.gz on Linux/macOS. Upload artifact. | `.github/workflows/release.yml` | DONE |
 | ITEM-009 | IMPL | In `release` job (needs: build): download all artifacts, generate changelog via `git log` between previous tag and current tag filtering conventional commit prefixes (with first-release fallback — see Section 6 changelog script), create GitHub Release via `softprops/action-gh-release@v2` with release notes body and all 4 archive files attached. **Must** set `permissions: contents: write` on the workflow or job. | `.github/workflows/release.yml` | DONE |
-| ITEM-010 | IMPL | Add changelog generation step: extract version from tag, find previous tag via `git describe --tags --abbrev=0 HEAD^ 2>/dev/null` with fallback to full history when no previous tag exists (first release), generate markdown-formatted changelog grouping by conventional commit type (feat/fix/docs/chore/breaking). | `.github/workflows/release.yml` | DONE |
+| ITEM-010 | IMPL | Add changelog generation step: extract version from tag, find previous tag via `git describe --tags --abbrev=0 HEAD^ 2>/dev/null` with fallback to full history when no previous tag exists (first release), generate markdown-formatted changelog grouping by conventional commit type (feat/fix/docs/chore/breaking). Captures both `breaking:` prefix and `type!:` Conventional Commits notation under breaking section. | `.github/workflows/release.yml` | DONE |
 | ITEM-011 | TEST | Tag `v0.2.0-rc.1`, push, verify: all 4 platform builds succeed, GitHub Release is created with correct assets and changelog. | (manual verification) | DONE |
 
 **Acceptance Criteria**:
@@ -681,6 +681,8 @@ fi
 - [x] Archives are correctly named: `twig-win-x64.zip`, `twig-linux-x64.tar.gz`, `twig-osx-x64.tar.gz`, `twig-osx-arm64.tar.gz`
 - [x] GitHub Release is created with auto-generated changelog from conventional commits
 - [x] All 4 archives are attached to the GitHub Release
+- [x] Breaking-change commits using `type!:` notation are captured in the breaking section
+- [x] No duplicate entries between breaking and per-type sections
 
 ---
 
@@ -692,8 +694,8 @@ fi
 
 | Task | Type | Description | Files | Status |
 |------|------|-------------|-------|--------|
-| ITEM-012 | IMPL | Create `install.ps1`: Query GitHub API for latest release, find `twig-win-x64.zip` asset, download to temp, create `~/.twig/bin/`, extract `twig.exe`, add `~/.twig/bin` to user PATH via `[Environment]::SetEnvironmentVariable(..., 'User')` if not present, print version. Handle errors (no internet, API failure). | `install.ps1` | TO DO |
-| ITEM-013 | IMPL | Create `install.sh`: Detect OS (`uname -s` → Linux/Darwin) and arch (`uname -m` → x86_64/arm64), map to RID, query GitHub API for latest release, find matching asset, download with curl, create `~/.twig/bin/`, extract with tar, chmod +x, detect shell (bash/zsh/fish) and append `export PATH="$HOME/.twig/bin:$PATH"` to profile if not present, print version. | `install.sh` | TO DO |
+| ITEM-012 | IMPL | Create `install.ps1`: Query GitHub API for latest release, find `twig-win-x64.zip` asset, download to temp, create `~/.twig/bin/`, extract `twig.exe`, add `~/.twig/bin` to user PATH via `[Environment]::SetEnvironmentVariable(..., 'User')` if not present, print version. Handle errors (no internet, API failure). | `install.ps1` | DONE |
+| ITEM-013 | IMPL | Create `install.sh`: Detect OS (`uname -s` → Linux/Darwin) and arch (`uname -m` → x86_64/arm64), map to RID, query GitHub API for latest release, find matching asset, download with curl, create `~/.twig/bin/`, extract with tar, chmod +x, detect shell (bash/zsh/fish) and append `export PATH="$HOME/.twig/bin:$PATH"` to profile if not present, print version. | `install.sh` | DONE |
 | ITEM-014 | TEST | Test `install.ps1` on Windows: clean machine (no prior install), verify binary works and is in PATH. Test idempotency (run twice). | (manual verification) | TO DO |
 | ITEM-015 | TEST | Test `install.sh` on Linux (x64) and macOS (arm64): clean machine, verify binary works and is in PATH. Test idempotency. | (manual verification) | TO DO |
 

@@ -84,9 +84,14 @@ jobs:
           else
             RANGE="${PREV_TAG}..${CURRENT_TAG}"
           fi
+          COMMITS=$(git log ${RANGE} --pretty=format:"- %s (%h)")
           : > release_notes.md
           for TYPE in breaking feat fix docs chore refactor perf test ci build; do
-            LINES=$(git log ${RANGE} --pretty=format:"- %s (%h)" | grep -E "^- ${TYPE}[:(]" || true)
+            if [ "$TYPE" = "breaking" ]; then
+              LINES=$(echo "$COMMITS" | grep -E "^- (breaking[:(]|[a-z]+![:(])" || true)
+            else
+              LINES=$(echo "$COMMITS" | grep -E "^- ${TYPE}[:(]" || true)
+            fi
             if [ -n "$LINES" ]; then
               echo "### ${TYPE}" >> release_notes.md
               echo "$LINES" >> release_notes.md
@@ -101,7 +106,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           body_path: release_notes.md
-          generate_release_notes: true
           files: |
             ./artifacts/twig-win-x64.zip
             ./artifacts/twig-linux-x64.tar.gz

@@ -107,13 +107,14 @@ internal sealed class PromptStateWriter : IPromptStateWriter
         }
 
         var typeColor = NormalizeHexColor(ResolveColor(typeName));
+        var typeTextColor = ContrastingTextColor(typeColor);
         var stateColorNorm = NormalizeHexColor(stateColor);
         var branch = GitBranchReader.GetCurrentBranch(Path.GetDirectoryName(_paths.TwigDir)!);
         var title = TruncateTitle(workItem.Title, DefaultMaxWidth);
         var text = FormatPlain(badge, workItem.Id, title, workItem.State, workItem.IsDirty);
 
         WriteFullState(targetPath, tmpPath, text, workItem.Id, typeName, badge, title,
-            workItem.State, stateCategory.ToString(), workItem.IsDirty, typeColor, stateColorNorm, branch);
+            workItem.State, stateCategory.ToString(), workItem.IsDirty, typeColor, typeTextColor, stateColorNorm, branch);
     }
 
     private void WriteEmptyState(string targetPath, string tmpPath)
@@ -131,7 +132,7 @@ internal sealed class PromptStateWriter : IPromptStateWriter
         string targetPath, string tmpPath,
         string text, int id, string type, string typeBadge, string title,
         string state, string stateCategory, bool isDirty,
-        string? typeColor, string? stateColor, string? branch)
+        string? typeColor, string? typeTextColor, string? stateColor, string? branch)
     {
         using (var stream = File.Create(tmpPath))
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions
@@ -154,6 +155,11 @@ internal sealed class PromptStateWriter : IPromptStateWriter
                 writer.WriteString("typeColor", typeColor);
             else
                 writer.WriteNull("typeColor");
+
+            if (typeTextColor is not null)
+                writer.WriteString("typeTextColor", typeTextColor);
+            else
+                writer.WriteNull("typeTextColor");
 
             if (stateColor is not null)
                 writer.WriteString("stateColor", stateColor);
@@ -208,6 +214,31 @@ internal sealed class PromptStateWriter : IPromptStateWriter
     /// Handles: <c>FFF2CB1D</c> (ARGB no hash), <c>#FFF2CB1D</c> (ARGB with hash),
     /// <c>F2CB1D</c> (RGB no hash), <c>#F2CB1D</c> (already correct).
     /// </summary>
+    /// <summary>
+    /// Returns <c>#000000</c> or <c>#ffffff</c> — whichever has better contrast against the given background.
+    /// Uses ITU-R BT.601 perceived brightness.
+    /// </summary>
+    internal static string? ContrastingTextColor(string? hexColor)
+    {
+        if (string.IsNullOrEmpty(hexColor))
+            return null;
+
+        var hex = hexColor.AsSpan().TrimStart('#');
+        if (hex.Length < 6)
+            return "#ffffff";
+
+        // Take last 6 chars (handles both RRGGBB and AARRGGBB)
+        if (hex.Length > 6)
+            hex = hex[^6..];
+
+        var r = int.Parse(hex[..2], System.Globalization.NumberStyles.HexNumber);
+        var g = int.Parse(hex[2..4], System.Globalization.NumberStyles.HexNumber);
+        var b = int.Parse(hex[4..6], System.Globalization.NumberStyles.HexNumber);
+
+        var luminance = (0.299 * r) + (0.587 * g) + (0.114 * b);
+        return luminance > 128 ? "#000000" : "#ffffff";
+    }
+
     internal static string? NormalizeHexColor(string? color)
     {
         if (string.IsNullOrEmpty(color))

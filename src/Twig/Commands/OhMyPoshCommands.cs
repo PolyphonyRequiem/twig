@@ -10,7 +10,8 @@ namespace Twig.Commands;
 internal sealed class OhMyPoshCommands
 {
     private const string Template = "{{ if .Env.TWIG_PROMPT }} {{ .Env.TWIG_PROMPT }} {{ end }}";
-    private const string ForegroundTemplate = "{{ if .Env.TWIG_TYPE_COLOR }}{{ .Env.TWIG_TYPE_COLOR }}{{ end }}";
+    private const string ForegroundTemplate = "{{ if .Env.TWIG_TYPE_TEXT_COLOR }}{{ .Env.TWIG_TYPE_TEXT_COLOR }}{{ end }}";
+    private const string BackgroundTemplate = "{{ if .Env.TWIG_TYPE_COLOR }}{{ .Env.TWIG_TYPE_COLOR }}{{ end }}";
     private const string DefaultForeground = "#ffffff";
     private const string AzureBlue = "#0078D4";
     private const string PowerlineSymbol = "\uE0B0";
@@ -68,6 +69,7 @@ internal sealed class OhMyPoshCommands
                 break;
         }
 
+        WriteBackgroundTemplates(writer);
         WriteForegroundTemplates(writer);
         writer.WriteString("template", Template);
         WriteCache(writer);
@@ -115,6 +117,13 @@ internal sealed class OhMyPoshCommands
         writer.WriteEndArray();
     }
 
+    private static void WriteBackgroundTemplates(Utf8JsonWriter writer)
+    {
+        writer.WriteStartArray("background_templates");
+        writer.WriteStringValue(BackgroundTemplate);
+        writer.WriteEndArray();
+    }
+
     private static string GeneratePowerShellHook()
     {
         return """
@@ -124,10 +133,12 @@ internal sealed class OhMyPoshCommands
                     $p = Get-Content $f -Raw | ConvertFrom-Json
                     $env:TWIG_PROMPT = $p.text
                     $env:TWIG_TYPE_COLOR = $p.typeColor
+                    $env:TWIG_TYPE_TEXT_COLOR = $p.typeTextColor
                     $env:TWIG_STATE_CATEGORY = $p.stateCategory
                 } else {
                     $env:TWIG_PROMPT = ""
                     $env:TWIG_TYPE_COLOR = ""
+                    $env:TWIG_TYPE_TEXT_COLOR = ""
                     $env:TWIG_STATE_CATEGORY = ""
                 }
             }
@@ -143,10 +154,12 @@ internal sealed class OhMyPoshCommands
                 if [ -f "$f" ]; then
                     export TWIG_PROMPT=$(jq -r '.text // empty' "$f" 2>/dev/null)
                     export TWIG_TYPE_COLOR=$(jq -r '.typeColor // empty' "$f" 2>/dev/null)
+                    export TWIG_TYPE_TEXT_COLOR=$(jq -r '.typeTextColor // empty' "$f" 2>/dev/null)
                     export TWIG_STATE_CATEGORY=$(jq -r '.stateCategory // empty' "$f" 2>/dev/null)
                 else
                     export TWIG_PROMPT=""
                     export TWIG_TYPE_COLOR=""
+                    export TWIG_TYPE_TEXT_COLOR=""
                     export TWIG_STATE_CATEGORY=""
                 fi
             }
@@ -164,10 +177,12 @@ internal sealed class OhMyPoshCommands
                 if test -f "$f"
                     set -gx TWIG_PROMPT (jq -r '.text // empty' "$f" 2>/dev/null)
                     set -gx TWIG_TYPE_COLOR (jq -r '.typeColor // empty' "$f" 2>/dev/null)
+                    set -gx TWIG_TYPE_TEXT_COLOR (jq -r '.typeTextColor // empty' "$f" 2>/dev/null)
                     set -gx TWIG_STATE_CATEGORY (jq -r '.stateCategory // empty' "$f" 2>/dev/null)
                 else
                     set -gx TWIG_PROMPT ""
                     set -gx TWIG_TYPE_COLOR ""
+                    set -gx TWIG_TYPE_TEXT_COLOR ""
                     set -gx TWIG_STATE_CATEGORY ""
                 end
             end

@@ -159,9 +159,13 @@ public class OhMyPoshCommandsTests
         var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
 
-        var templates = root.GetProperty("foreground_templates");
-        templates.GetArrayLength().ShouldBe(1);
-        templates[0].GetString().ShouldBe("{{ if .Env.TWIG_TYPE_COLOR }}{{ .Env.TWIG_TYPE_COLOR }}{{ end }}");
+        var fgTemplates = root.GetProperty("foreground_templates");
+        fgTemplates.GetArrayLength().ShouldBe(1);
+        fgTemplates[0].GetString().ShouldBe("{{ if .Env.TWIG_TYPE_TEXT_COLOR }}{{ .Env.TWIG_TYPE_TEXT_COLOR }}{{ end }}");
+
+        var bgTemplates = root.GetProperty("background_templates");
+        bgTemplates.GetArrayLength().ShouldBe(1);
+        bgTemplates[0].GetString().ShouldBe("{{ if .Env.TWIG_TYPE_COLOR }}{{ .Env.TWIG_TYPE_COLOR }}{{ end }}");
     }
 
     // ── Cache section present ───────────────────────────────────────────────

@@ -744,7 +744,7 @@ Hook fires after: git checkout bug/12345-fix-crash
 
 ---
 
-### EPIC-005: Git Hooks & Context Tracking
+### EPIC-005: Git Hooks & Context Tracking ✅ DONE
 
 **Goal:** Implement opt-in git hooks and automatic context switching.
 
@@ -769,7 +769,7 @@ Hook fires after: git checkout bug/12345-fix-crash
 - [x] prepare-commit-msg hook prefixes commit messages with work item ID
 - [x] `twig context` displays current branch ↔ work item ↔ PR linkage
 
-**Completed:** 2026-03-17. Implemented HookInstaller with marker-delimited shell scripts (# twig-managed-start/end) for safe coexistence with user hooks. HooksCommand provides install/uninstall subcommands via IGitService for .git directory resolution. GitContextCommand shows branch/work item/PR linkage with human/json/minimal output. HookHandlerCommand handles post-checkout (auto-context), prepare-commit-msg (prefix), and commit-msg (validation) hook invocations. All commands registered in Program.cs with DI and TwigCommands routing. HintEngine updated with hooks/context hints. 25 tests passing (18 HookInstaller + 7 HooksCommand).
+**Completed:** 2026-03-17. Implemented HookInstaller with marker-delimited shell scripts (# twig-managed-start/end) for safe coexistence with user hooks. HooksCommand provides install/uninstall subcommands via IGitService for .git directory resolution. GitContextCommand shows branch/work item/PR linkage with human/json/minimal output. HookHandlerCommand handles post-checkout (auto-context), prepare-commit-msg (prefix), and commit-msg (validation) hook invocations. All commands registered in Program.cs with DI and TwigCommands routing. HintEngine updated with hooks/context hints. 25 tests passing (18 HookInstaller + 7 HooksCommand). Review fixes applied: removed redundant namespace qualification on `Regex.IsMatch` in HookHandlerCommand.cs (line 131) and strengthened `PrepareCommitMsg_LongerIdInMessage_StillPrefixes` test to assert both prefix application and original content preservation.
 
 ---
 

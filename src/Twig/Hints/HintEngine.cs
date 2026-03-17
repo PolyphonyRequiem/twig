@@ -119,6 +119,18 @@ public sealed class HintEngine
                 hints.Add("Run 'twig set <id>' to set your active work item.");
                 break;
 
+            case "branch":
+                hints.Add("Try: twig status, twig save");
+                break;
+
+            case "commit":
+                hints.Add("Try: twig pr, twig status");
+                break;
+
+            case "pr":
+                hints.Add("PR created. Try: twig status, twig flow-done");
+                break;
+
             case "workspace":
                 if (workspace is not null)
                 {

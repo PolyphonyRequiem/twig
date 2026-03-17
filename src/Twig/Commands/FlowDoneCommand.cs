@@ -153,7 +153,7 @@ public sealed class FlowDoneCommand(
                     }
                 }
             }
-            catch (Exception)
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 // Git/PR operations are best-effort
             }

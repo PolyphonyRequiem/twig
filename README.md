@@ -32,6 +32,8 @@ Twig provides an opinionated lifecycle for working on items:
 ```bash
 # Start: set context → transition to InProgress → self-assign → create git branch
 twig flow-start 12345
+# Or pick interactively from the current sprint:
+twig flow-start
 
 # Work on your code...
 
@@ -40,6 +42,26 @@ twig flow-done
 
 # Close: guard open PRs → transition to Completed → delete branch → clear context
 twig flow-close
+```
+
+### Flow Command Options
+
+```bash
+# flow-start
+twig flow-start 12345 --no-branch      # skip branch creation
+twig flow-start 12345 --no-state       # skip state transition
+twig flow-start 12345 --no-assign      # skip self-assignment
+twig flow-start 12345 --force          # proceed with uncommitted changes
+twig flow-start 12345 --output json    # structured output for scripts
+
+# flow-done
+twig flow-done --no-save               # skip saving pending changes
+twig flow-done --no-pr                 # skip PR creation prompt
+twig flow-done --output minimal        # emit PR URL only (for shell capture)
+
+# flow-close
+twig flow-close --force                # bypass guards (unsaved changes, open PRs)
+twig flow-close --no-branch-cleanup    # keep branch after close
 ```
 
 ## Commands
@@ -75,6 +97,59 @@ All commands support `--output human|json|minimal`:
 - **human** — ANSI-colored with type badges, state colors, and contextual hints
 - **json** — machine-readable, no ANSI escapes (pipe to `jq` or AI agents)
 - **minimal** — plain text for scripting and `grep`
+
+## Git Integration
+
+Twig integrates with git to automate branch management and PR creation during the developer flow:
+
+```bash
+# flow-start creates a branch named from the active work item
+twig flow-start 12345
+# → creates branch: feature/12345-add-login (configurable template)
+
+# flow-done offers to create a PR when the branch is ahead of the target
+twig flow-done
+# → prompts: Branch 'feature/12345-add-login' is ahead of 'main'. Create PR? [y/N]
+
+# flow-close deletes the local branch after confirming
+twig flow-close
+# → prompts: Delete branch 'feature/12345-add-login'? [y/N]
+```
+
+### Git Configuration
+
+All `git.*` settings live in `.twig/config`:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `git.branchTemplate` | `feature/{id}-{title}` | Branch name template. Tokens: `{id}`, `{type}`, `{title}` |
+| `git.branchPattern` | `(?:^|/)(?<id>\d{3,})(?:-|/|$)` | Regex to extract work item ID from branch name |
+| `git.defaultTarget` | `main` | Target branch for PRs |
+| `git.project` | *(from `project`)* | ADO project containing the git repository (if different from backlog project) |
+| `git.repository` | *(auto-detected)* | Git repository name (auto-detected from `git remote get-url origin`) |
+
+The following settings are accepted by `twig config` but are **reserved for future commands** and do not currently affect behavior:
+
+| Setting | Default | Planned Use |
+|---------|---------|-------------|
+| `git.committemplate` | `{type}(#{id}): {message}` | Commit message format for planned `twig commit` command |
+| `git.autolink` | `true` | Auto-link branches/commits to ADO work items |
+| `git.autotransition` | `true` | Auto-transition state on branch creation |
+
+```bash
+twig config git.branchtemplate "{type}/{id}-{title}"
+twig config git.defaulttarget develop
+twig config git.project BackendService
+twig config git.repository my-api-repo
+```
+
+### Flow Configuration
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `flow.autoassign` | `if-unassigned` | Assignment in `flow-start`: `if-unassigned`, `always`, `never` |
+| `flow.autosaveondone` | `true` | Auto-save pending changes in `flow-done` |
+| `flow.offerprondone` | `true` | Show PR creation prompt in `flow-done` |
 
 ## Cross-Project Support
 

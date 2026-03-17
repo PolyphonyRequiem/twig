@@ -264,6 +264,99 @@ public class GitCliServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task GetRemoteUrlAsync_ReturnsUrl_WhenRemoteIsConfigured()
+    {
+        RunGit("commit --allow-empty -m \"initial\"");
+        RunGit("remote add origin https://dev.azure.com/myorg/myproject/_git/myrepo");
+
+        var url = await _sut.GetRemoteUrlAsync("origin");
+
+        url.ShouldBe("https://dev.azure.com/myorg/myproject/_git/myrepo");
+    }
+
+    [Fact]
+    public async Task CommitAsync_MessageWithDoubleQuotes_CommitsSuccessfully()
+    {
+        RunGit("commit --allow-empty -m \"initial\"");
+        var message = "fix: resolve issue with \"quoted\" paths";
+
+        // Should not throw — this is the primary assertion: quoting fix prevents GitOperationException
+        var hash = await _sut.CommitAsync(message, allowEmpty: true);
+
+        hash.ShouldNotBeNullOrWhiteSpace();
+        hash.Length.ShouldBe(40); // full SHA-1 hash
+    }
+
+    [Fact]
+    public async Task CommitAsync_MessageWithBackslash_CommitsSuccessfully()
+    {
+        RunGit("commit --allow-empty -m \"initial\"");
+        var message = @"fix: path with \backslash";
+
+        // Should not throw — this is the primary assertion: quoting fix prevents GitOperationException
+        var hash = await _sut.CommitAsync(message, allowEmpty: true);
+
+        hash.ShouldNotBeNullOrWhiteSpace();
+        hash.Length.ShouldBe(40);
+    }
+
+    [Fact]
+    public async Task StashAsync_WithMessage_CreatesStash()
+    {
+        RunGit("commit --allow-empty -m \"initial\"");
+        File.WriteAllText(Path.Combine(_tempDir, "stash-file.txt"), "pending work");
+        RunGit("add .");
+
+        await _sut.StashAsync("my stash message");
+
+        // After stash, working tree should be clean
+        var hasUncommitted = await _sut.HasUncommittedChangesAsync();
+        hasUncommitted.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task StashAsync_MessageWithSpecialChars_DoesNotThrow()
+    {
+        RunGit("commit --allow-empty -m \"initial\"");
+        File.WriteAllText(Path.Combine(_tempDir, "stash-file2.txt"), "pending work");
+        RunGit("add .");
+
+        // Should not throw despite special characters in message
+        await _sut.StashAsync("message with \"quotes\" and \\backslash");
+
+        var hasUncommitted = await _sut.HasUncommittedChangesAsync();
+        hasUncommitted.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task StashAsync_NoMessage_CreatesStash()
+    {
+        RunGit("commit --allow-empty -m \"initial\"");
+        File.WriteAllText(Path.Combine(_tempDir, "stash-file3.txt"), "pending work");
+        RunGit("add .");
+
+        await _sut.StashAsync();
+
+        var hasUncommitted = await _sut.HasUncommittedChangesAsync();
+        hasUncommitted.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task StashPopAsync_RestoresStashedChanges()
+    {
+        RunGit("commit --allow-empty -m \"initial\"");
+        File.WriteAllText(Path.Combine(_tempDir, "stash-pop-file.txt"), "pending work");
+        RunGit("add .");
+        await _sut.StashAsync("pop test");
+
+        await _sut.StashPopAsync();
+
+        // Restored file should appear as uncommitted
+        var hasUncommitted = await _sut.HasUncommittedChangesAsync();
+        hasUncommitted.ShouldBeTrue();
+    }
+
+    [Fact]
     public async Task RunGitAsync_ThrowsGitOperationException_WhenBinaryNotFound()
     {
         // Use a non-existent binary name to exercise the Win32Exception → GitOperationException path.

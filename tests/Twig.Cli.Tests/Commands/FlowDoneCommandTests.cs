@@ -591,4 +591,28 @@ public class FlowDoneCommandTests
             Console.SetOut(savedOut);
         }
     }
+
+    // ── Null IAdoGitService (unresolved git project/repository) ───────
+
+    [Fact]
+    public async Task NullAdoGitService_SkipsPrOperationsGracefully()
+    {
+        // Simulates the case where git project/repository cannot be resolved at startup,
+        // so IAdoGitService is not registered and resolves to null.
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        var item = CreateWorkItem(1, "Test", "Active");
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+        _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
+        _gitService.GetCurrentBranchAsync(Arg.Any<CancellationToken>()).Returns("feature/1-test");
+        _gitService.IsAheadOfAsync("main", Arg.Any<CancellationToken>()).Returns(true);
+
+        // No adoGitService injected → null path
+        var cmd = CreateCommand(gitService: _gitService, adoGitService: null);
+        var result = await cmd.ExecuteAsync(noSave: true);
+
+        // Should succeed and not attempt PR creation
+        result.ShouldBe(0);
+    }
 }

@@ -110,7 +110,7 @@ public sealed class FlowCloseCommand(
                     }
                 }
             }
-            catch (Exception)
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 // Git/PR operations are best-effort
             }
@@ -168,7 +168,7 @@ public sealed class FlowCloseCommand(
                     }
                 }
             }
-            catch (Exception)
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 // DD-007: Git operations are skipped, not errored
             }

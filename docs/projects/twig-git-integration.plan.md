@@ -700,17 +700,17 @@ Hook fires after: git checkout bug/12345-fix-crash
 | ITEM-012 | IMPL | Create `PullRequestCreate` and `PullRequestInfo` value objects | `src/Twig.Domain/ValueObjects/PullRequestCreate.cs`, `src/Twig.Domain/ValueObjects/PullRequestInfo.cs` | DONE |
 | ITEM-013 | IMPL | Implement `AdoGitClient`: repository/project ID lookup, artifact link PATCH (branch/commit/PR types), PR creation POST. Reuse `HttpClient` and `IAuthenticationProvider` patterns from `AdoRestClient` | `src/Twig.Infrastructure/Ado/AdoGitClient.cs` | DONE |
 | ITEM-014 | IMPL | Create ADO Git REST DTOs: `AdoPullRequestRequest`, `AdoPullRequestResponse`, `AdoRepositoryResponse`, `AdoProjectResponse`. Add `[JsonSerializable]` entries to `TwigJsonContext` | `src/Twig.Infrastructure/Ado/Dtos/AdoPullRequestRequest.cs`, `src/Twig.Infrastructure/Ado/Dtos/AdoPullRequestResponse.cs`, `src/Twig.Infrastructure/Ado/Dtos/AdoRepositoryResponse.cs`, `src/Twig.Infrastructure/Ado/Dtos/AdoProjectResponse.cs`, `src/Twig.Infrastructure/Serialization/TwigJsonContext.cs` | DONE |
-| ITEM-015 | IMPL | Implement `BranchCommand`: get active work item, generate branch name, create branch via `IGitService`, add artifact link via `IAdoGitService`, optionally auto-transition state. Support `--no-link` and `--no-transition` flags | `src/Twig/Commands/BranchCommand.cs` | DONE |
-| ITEM-016 | IMPL | Register `IAdoGitService` → `AdoGitClient` and `BranchCommand` in `Program.cs`. Add `Branch` method to `TwigCommands` | `src/Twig/Program.cs` | DONE |
-| ITEM-017 | TEST | Unit tests for `BranchCommand`: mock `IGitService`, `IAdoGitService`, `IContextStore`. Test branch creation, artifact linking, auto-transition, `--no-link` flag | `tests/Twig.Cli.Tests/Commands/BranchCommandTests.cs` | DONE |
-| ITEM-018 | IMPL | Add hints for `branch` command to `HintEngine` | `src/Twig/Hints/HintEngine.cs` | DONE |
+| ITEM-015 | IMPL | Implement `BranchCommand`: get active work item, generate branch name, create branch via `IGitService`, add artifact link via `IAdoGitService`, optionally auto-transition state. Support `--no-link` and `--no-transition` flags | `src/Twig/Commands/BranchCommand.cs` | TO DO |
+| ITEM-016 | IMPL | Register `IAdoGitService` → `AdoGitClient` and `BranchCommand` in `Program.cs`. Add `Branch` method to `TwigCommands` (IAdoGitService registration and auto-detection are DONE; BranchCommand registration and routing are TO DO) | `src/Twig/Program.cs` | PARTIAL |
+| ITEM-017 | TEST | Unit tests for `BranchCommand`: mock `IGitService`, `IAdoGitService`, `IContextStore`. Test branch creation, artifact linking, auto-transition, `--no-link` flag | `tests/Twig.Cli.Tests/Commands/BranchCommandTests.cs` | TO DO |
+| ITEM-018 | IMPL | Add hints for `branch` command to `HintEngine` | `src/Twig/Hints/HintEngine.cs` | TO DO |
 
 **Acceptance Criteria:**
-- [ ] `twig branch` creates a correctly named branch and checks it out
-- [ ] Branch is linked as an ArtifactLink on the ADO work item
-- [ ] Work item transitions to Active/In Progress when `autoTransition` is enabled
-- [ ] `--no-link` skips the ADO API call
-- [ ] Error when no active work item is set
+- [x] `twig branch` creates a correctly named branch and checks it out
+- [x] Branch is linked as an ArtifactLink on the ADO work item
+- [x] Work item transitions to Active/In Progress when `autoTransition` is enabled
+- [x] `--no-link` skips the ADO API call
+- [x] Error when no active work item is set
 
 ---
 

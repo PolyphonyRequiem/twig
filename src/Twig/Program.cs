@@ -71,7 +71,8 @@ var app = ConsoleApp.Create()
             var gitProject = config.GetGitProject();
             var repository = config.Git.Repository;
 
-            // Auto-detect from git remote if not explicitly configured
+            // Auto-detect from git remote if not explicitly configured.
+            // Detection deferred to service factory (lazy) so it does not block DI startup.
             if (string.IsNullOrWhiteSpace(repository))
             {
                 try
@@ -86,9 +87,19 @@ var app = ConsoleApp.Create()
                     using var proc = System.Diagnostics.Process.Start(psi);
                     if (proc is not null)
                     {
-                        var remoteUrl = proc.StandardOutput.ReadToEnd().Trim();
-                        proc.WaitForExit();
-                        if (proc.ExitCode == 0 && !string.IsNullOrWhiteSpace(remoteUrl))
+                        // Drain both streams concurrently to prevent pipe-buffer deadlock,
+                        // then wait up to 2 s (local git op should complete well under that).
+                        var stdoutTask = proc.StandardOutput.ReadToEndAsync();
+                        var stderrTask = proc.StandardError.ReadToEndAsync();
+                        System.Threading.Tasks.Task.WhenAll(stdoutTask, stderrTask)
+                            .GetAwaiter().GetResult();
+                        var exited = proc.WaitForExit(2000);
+                        if (!exited)
+                        {
+                            try { proc.Kill(); } catch { }
+                        }
+                        var remoteUrl = stdoutTask.Result.Trim();
+                        if (exited && proc.ExitCode == 0 && !string.IsNullOrWhiteSpace(remoteUrl))
                         {
                             var parsed = AdoRemoteParser.Parse(remoteUrl);
                             if (parsed is not null)

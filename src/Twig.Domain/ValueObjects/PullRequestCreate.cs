@@ -5,4 +5,4 @@ namespace Twig.Domain.ValueObjects;
 /// </summary>
 public sealed record PullRequestCreate(
     string SourceBranch, string TargetBranch, string Title,
-    string Description, int? WorkItemId);
+    string Description, int? WorkItemId, bool IsDraft = false);

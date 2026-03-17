@@ -81,6 +81,7 @@ internal sealed class AdoGitClient : IAdoGitService
             TargetRefName = request.TargetBranch,
             Title = request.Title,
             Description = request.Description,
+            IsDraft = request.IsDraft,
         };
 
         if (request.WorkItemId.HasValue)
@@ -123,7 +124,7 @@ internal sealed class AdoGitClient : IAdoGitService
         return project?.Id;
     }
 
-    public async Task AddArtifactLinkAsync(int workItemId, string artifactUri, string linkType, int revision, CancellationToken ct = default)
+    public async Task AddArtifactLinkAsync(int workItemId, string artifactUri, string linkType, int revision, string? name = null, CancellationToken ct = default)
     {
         var url = $"{_orgUrl}/{Uri.EscapeDataString(_backlogProject)}/_apis/wit/workitems/{workItemId}?api-version={ApiVersion}";
         var relationValue = JsonSerializer.SerializeToNode(
@@ -131,7 +132,7 @@ internal sealed class AdoGitClient : IAdoGitService
             {
                 Rel = linkType,
                 Url = artifactUri,
-                Attributes = new AdoArtifactLinkAttributes { Name = "Pull Request" }
+                Attributes = new AdoArtifactLinkAttributes { Name = name ?? "Pull Request" }
             },
             TwigJsonContext.Default.AdoArtifactLinkRelation);
 
@@ -153,6 +154,14 @@ internal sealed class AdoGitClient : IAdoGitService
     }
 
     // ── HTTP plumbing ───────────────────────────────────────────────
+
+    /// <summary>
+    /// Derives a human-readable display name for an ADO artifact link from its <c>vstfs:///</c> URI.
+    /// </summary>
+    private static string GetArtifactLinkDisplayName(string artifactUri) =>
+        artifactUri.Contains("/Git/Ref/", StringComparison.OrdinalIgnoreCase) ? "Branch" :
+        artifactUri.Contains("/Git/Commit/", StringComparison.OrdinalIgnoreCase) ? "Fixed in Commit" :
+        "Pull Request";
 
     private async Task<HttpResponseMessage> SendAsync(
         HttpMethod method,

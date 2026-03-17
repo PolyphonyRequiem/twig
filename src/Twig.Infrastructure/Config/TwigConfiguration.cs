@@ -240,12 +240,43 @@ public sealed class GitConfig
 {
     public string BranchTemplate { get; set; } = "feature/{id}-{title}";
     public string BranchPattern { get; set; } = @"(?:^|/)(?<id>\d{3,})(?:-|/|$)";
+
+    /// <summary>
+    /// Template for git commit messages. Reserved for future use by the planned
+    /// <c>twig commit</c> command (EPIC-004). Currently settable but not consumed.
+    /// Example: <c>{type}(#{id}): {message}</c>
+    /// </summary>
     public string CommitTemplate { get; set; } = "{type}(#{id}): {message}";
+
     public string DefaultTarget { get; set; } = "main";
+
+    /// <summary>
+    /// When true, automatically add ADO artifact links for branches and commits.
+    /// Reserved for future use by <c>twig branch</c> and <c>twig commit</c> commands (EPIC-003/004).
+    /// Currently settable but not consumed.
+    /// </summary>
     public bool AutoLink { get; set; } = true;
+
+    /// <summary>
+    /// When true, automatically transition work item state on branch creation.
+    /// Reserved for future use by the <c>twig branch</c> command (EPIC-003).
+    /// Currently settable but not consumed.
+    /// </summary>
     public bool AutoTransition { get; set; } = true;
+
+    /// <summary>
+    /// Maps ADO work item types to conventional commit / branch name prefixes.
+    /// Reserved for future use by <c>twig branch</c> and <c>twig commit</c> commands (EPIC-003/004).
+    /// Currently settable but not consumed.
+    /// </summary>
     public Dictionary<string, string>? TypeMap { get; set; }
+
+    /// <summary>
+    /// Controls which git hooks are installed by <c>twig hooks install</c> (EPIC-005).
+    /// Currently settable but not consumed — hook installation is not yet implemented.
+    /// </summary>
     public HooksConfig Hooks { get; set; } = new();
+
     public string? Project { get; set; }
     public string? Repository { get; set; }
 }

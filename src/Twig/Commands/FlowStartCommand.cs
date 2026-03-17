@@ -144,7 +144,7 @@ public sealed class FlowStartCommand(
                     }
                 }
             }
-            catch (Exception)
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 // DD-007: Git operations are skipped, not errored
             }
@@ -236,7 +236,7 @@ public sealed class FlowStartCommand(
                     branchCreated = true;
                 }
             }
-            catch (Exception)
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 // DD-007: Git operations are skipped, not errored
             }

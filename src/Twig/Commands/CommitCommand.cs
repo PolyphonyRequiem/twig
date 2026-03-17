@@ -122,7 +122,7 @@ public sealed class CommitCommand(
         else
         {
             Console.WriteLine(fmt.FormatSuccess($"Committed: {formattedMessage}"));
-            Console.WriteLine(fmt.FormatInfo($"  {commitHash[..Math.Min(8, commitHash.Length)]}"));
+            Console.WriteLine(fmt.FormatInfo($"  {commitHash[..Math.Min(7, commitHash.Length)]}"));
 
             if (linked)
                 Console.WriteLine(fmt.FormatInfo("  Commit linked to work item"));
@@ -141,46 +141,19 @@ public sealed class CommitCommand(
 
     private async Task<string> ExecuteGitCommitAsync(string formattedMessage, string[]? passthrough)
     {
-        // Check for --amend in passthrough args
-        var hasAmend = false;
         var extraArgs = new List<string>();
 
         if (passthrough is not null)
         {
             foreach (var arg in passthrough)
-            {
-                if (string.Equals(arg, "--amend", StringComparison.OrdinalIgnoreCase))
-                    hasAmend = true;
                 extraArgs.Add(arg);
-            }
         }
 
-        // Use IGitService.CommitAsync for basic commits, but for --amend or other
-        // pass-through args, we need to shell out directly via the commit interface.
-        // Since IGitService.CommitAsync only supports message and allowEmpty,
-        // we use it for simple commits and fall back to direct git for complex cases.
         if (extraArgs.Count == 0)
-        {
             return await gitService!.CommitAsync(formattedMessage);
-        }
 
-        // For pass-through args, build the full argument list manually.
-        // This requires shelling out to git directly — we reconstruct via CommitAsync
-        // with the message embedded. For --amend, we pass allowEmpty=false.
-        // Note: IGitService only supports -m and --allow-empty, so for pass-through
-        // we still use CommitAsync and accept that advanced pass-through requires
-        // the user to use git directly. For --amend specifically, we handle it.
-        if (hasAmend)
-        {
-            // For amend, we can't use IGitService.CommitAsync directly.
-            // Instead, commit with the new message — amend requires direct git access.
-            // Since the interface doesn't support amend, we do a best-effort approach:
-            // use the formatted message with a regular commit.
-            // Users needing --amend should use git commit directly.
-            return await gitService!.CommitAsync(formattedMessage);
-        }
-
-        return await gitService!.CommitAsync(formattedMessage);
+        // Forward all passthrough args (--amend, --, pathspecs, etc.) to git.
+        return await gitService!.CommitWithArgsAsync(formattedMessage, extraArgs);
     }
 
     private static string FormatJsonSummary(int itemId, string message, string commitHash, bool linked)

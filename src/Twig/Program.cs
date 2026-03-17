@@ -518,8 +518,8 @@ public sealed class TwigCommands(IServiceProvider services)
         => await services.GetRequiredService<BranchCommand>().ExecuteAsync(noLink, noTransition, output);
 
     /// <summary>Commit with a work-item-enriched message and optionally link the commit.</summary>
-    public async Task<int> Commit([Argument] string? message = null, bool noLink = false, params string[] passthrough)
-        => await services.GetRequiredService<CommitCommand>().ExecuteAsync(message, noLink, passthrough);
+    public async Task<int> Commit([Argument] string? message = null, bool noLink = false, string output = "human", params string[] passthrough)
+        => await services.GetRequiredService<CommitCommand>().ExecuteAsync(message, noLink, passthrough, output);
 
     /// <summary>Create an ADO pull request linked to the active work item.</summary>
     public async Task<int> Pr(string? target = null, string? title = null, bool draft = false, string output = "human")

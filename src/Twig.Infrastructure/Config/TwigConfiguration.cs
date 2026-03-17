@@ -242,8 +242,9 @@ public sealed class GitConfig
     public string BranchPattern { get; set; } = @"(?:^|/)(?<id>\d{3,})(?:-|/|$)";
 
     /// <summary>
-    /// Template for git commit messages. Reserved for future use by the planned
-    /// <c>twig commit</c> command (EPIC-004). Currently settable but not consumed.
+    /// Template for git commit messages used by <c>twig commit</c>.
+    /// Tokens: <c>{type}</c> (conventional-commit prefix), <c>#{id}</c> (work item ID),
+    /// <c>{message}</c> (user-supplied commit body).
     /// Example: <c>{type}(#{id}): {message}</c>
     /// </summary>
     public string CommitTemplate { get; set; } = "{type}(#{id}): {message}";
@@ -251,23 +252,21 @@ public sealed class GitConfig
     public string DefaultTarget { get; set; } = "main";
 
     /// <summary>
-    /// When true, automatically add ADO artifact links for branches and commits.
-    /// Reserved for future use by <c>twig branch</c> and <c>twig commit</c> commands (EPIC-003/004).
-    /// Currently settable but not consumed.
+    /// When true, automatically add ADO artifact links for branches created by
+    /// <c>twig branch</c> and commits created by <c>twig commit</c>.
     /// </summary>
     public bool AutoLink { get; set; } = true;
 
     /// <summary>
-    /// When true, automatically transition work item state on branch creation.
-    /// Reserved for future use by the <c>twig branch</c> command (EPIC-003).
-    /// Currently settable but not consumed.
+    /// When true, automatically transition work item state on branch creation via
+    /// <c>twig branch</c> (moves Proposed items to In Progress).
     /// </summary>
     public bool AutoTransition { get; set; } = true;
 
     /// <summary>
-    /// Maps ADO work item types to conventional commit / branch name prefixes.
-    /// Reserved for future use by <c>twig branch</c> and <c>twig commit</c> commands (EPIC-003/004).
-    /// Currently settable but not consumed.
+    /// Maps ADO work item types to conventional commit / branch name prefixes used by
+    /// <c>twig branch</c> and <c>twig commit</c>.
+    /// Overrides the default type map (User Story→feature, Bug→fix, Task→task, etc.).
     /// </summary>
     public Dictionary<string, string>? TypeMap { get; set; }
 

@@ -15,6 +15,7 @@ public interface IGitService
     Task CreateBranchAsync(string branchName, CancellationToken ct = default);
     Task CheckoutAsync(string branchName, CancellationToken ct = default);
     Task<string> CommitAsync(string message, bool allowEmpty = false, CancellationToken ct = default);
+    Task<string> CommitWithArgsAsync(string message, IReadOnlyList<string> extraArgs, CancellationToken ct = default);
     Task<string> GetRemoteUrlAsync(string remote = "origin", CancellationToken ct = default);
     Task<string?> GetConfigValueAsync(string key, CancellationToken ct = default);
     Task<string> GetHeadCommitHashAsync(CancellationToken ct = default);

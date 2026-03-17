@@ -120,7 +120,7 @@ public sealed class HintEngine
                 break;
 
             case "branch":
-                hints.Add("Try: twig status, twig save");
+                hints.Add("Try: twig commit, twig status");
                 break;
 
             case "commit":

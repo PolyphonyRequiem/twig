@@ -83,6 +83,9 @@ twig flow-close --no-branch-cleanup    # keep branch after close
 | `seed` | Create a child work item stub |
 | `up` / `down` | Navigate parent/child hierarchy |
 | `config` | Read/write configuration values |
+| `branch` | Create a git branch named from the active work item |
+| `commit` | Commit with a work-item-enriched message and link to ADO |
+| `pr` | Create an ADO pull request linked to the active work item |
 | `flow-start` | Start work: context + state + assign + branch |
 | `flow-done` | Finish work: save + resolve + PR offer |
 | `flow-close` | Close work: guard + complete + branch cleanup |
@@ -116,6 +119,17 @@ twig flow-close
 # → prompts: Delete branch 'feature/12345-add-login'? [y/N]
 ```
 
+Git commands are also available as standalone operations:
+
+```bash
+twig branch                        # create branch from active work item
+twig commit -m "add validation"    # commit with enriched message (e.g. feat(#12345): add validation)
+twig commit --amend -m "fix typo"  # amend with enriched message
+twig pr                            # create PR targeting git.defaultTarget
+twig pr --target develop           # create PR targeting a specific branch
+twig pr --draft                    # create a draft PR
+```
+
 ### Git Configuration
 
 All `git.*` settings live in `.twig/config`:
@@ -128,19 +142,22 @@ All `git.*` settings live in `.twig/config`:
 | `git.project` | *(from `project`)* | ADO project containing the git repository (if different from backlog project) |
 | `git.repository` | *(auto-detected)* | Git repository name (auto-detected from `git remote get-url origin`) |
 
-The following settings are accepted by `twig config` but are **reserved for future commands** and do not currently affect behavior:
+The following settings are also active and used by the implemented `twig branch`, `twig commit`, and `twig pr` commands:
 
-| Setting | Default | Planned Use |
-|---------|---------|-------------|
-| `git.committemplate` | `{type}(#{id}): {message}` | Commit message format for planned `twig commit` command |
-| `git.autolink` | `true` | Auto-link branches/commits to ADO work items |
-| `git.autotransition` | `true` | Auto-transition state on branch creation |
+| Setting | Default | Used by |
+|---------|---------|---------|
+| `git.committemplate` | `{type}(#{id}): {message}` | `twig commit` — commit message format. Tokens: `{type}` (conventional prefix), `#{id}` (work item), `{message}` (body) |
+| `git.autolink` | `true` | `twig branch`, `twig commit`, `twig pr` — automatically add ADO artifact links to the work item |
+| `git.autotransition` | `true` | `twig branch` — automatically transition Proposed items to Active on branch creation |
 
 ```bash
 twig config git.branchtemplate "{type}/{id}-{title}"
 twig config git.defaulttarget develop
 twig config git.project BackendService
 twig config git.repository my-api-repo
+twig config git.committemplate "{type}(#{id}): {message}"
+twig config git.autolink false
+twig config git.autotransition false
 ```
 
 ### Flow Configuration

@@ -345,4 +345,70 @@ public class CommitCommandTests
 
         result.ShouldBe(1);
     }
+
+    // ── Passthrough args forwarded ──────────────────────────────────
+
+    [Fact]
+    public async Task PassthroughArgs_ForwardedViaCommitWithArgs()
+    {
+        var item = CreateWorkItem(12345, "Add login");
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(12345);
+        _workItemRepo.GetByIdAsync(12345, Arg.Any<CancellationToken>()).Returns(item);
+        _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
+        _gitService.CommitWithArgsAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns("abc123");
+
+        var cmd = CreateCommand(_gitService);
+        var result = await cmd.ExecuteAsync(message: "test", noLink: true, passthrough: new[] { "--amend" });
+
+        result.ShouldBe(0);
+        await _gitService.Received().CommitWithArgsAsync(
+            "feat(#12345): test",
+            Arg.Is<IReadOnlyList<string>>(args => args.Count == 1 && args[0] == "--amend"),
+            Arg.Any<CancellationToken>());
+        // Should NOT call the simple CommitAsync
+        await _gitService.DidNotReceive().CommitAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task NoPassthroughArgs_UsesSimpleCommit()
+    {
+        var item = CreateWorkItem(12345, "Add login");
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(12345);
+        _workItemRepo.GetByIdAsync(12345, Arg.Any<CancellationToken>()).Returns(item);
+        _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
+        _gitService.CommitAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns("abc123");
+
+        var cmd = CreateCommand(_gitService);
+        var result = await cmd.ExecuteAsync(message: "test", noLink: true, passthrough: null);
+
+        result.ShouldBe(0);
+        await _gitService.Received().CommitAsync(
+            "feat(#12345): test",
+            Arg.Any<bool>(), Arg.Any<CancellationToken>());
+        await _gitService.DidNotReceive().CommitWithArgsAsync(
+            Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>());
+    }
+
+    // ── Empty passthrough array (params produces empty array, not null) ──
+
+    [Fact]
+    public async Task EmptyPassthroughArray_UsesSimpleCommit()
+    {
+        var item = CreateWorkItem(12345, "Add login");
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(12345);
+        _workItemRepo.GetByIdAsync(12345, Arg.Any<CancellationToken>()).Returns(item);
+        _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
+        _gitService.CommitAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns("abc123");
+
+        var cmd = CreateCommand(_gitService);
+        var result = await cmd.ExecuteAsync(message: "test", noLink: true, passthrough: Array.Empty<string>());
+
+        result.ShouldBe(0);
+        await _gitService.Received().CommitAsync(
+            "feat(#12345): test",
+            Arg.Any<bool>(), Arg.Any<CancellationToken>());
+        await _gitService.DidNotReceive().CommitWithArgsAsync(
+            Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>());
+    }
 }

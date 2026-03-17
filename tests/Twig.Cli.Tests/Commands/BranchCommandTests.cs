@@ -494,8 +494,9 @@ public class BranchCommandTests
         var result = await cmd.ExecuteAsync(noLink: true, noTransition: true);
 
         result.ShouldBe(0);
+        // "User Story" maps to "feature" via the default type map in BranchNamingService
         await _gitService.Received().CreateBranchAsync(
-            Arg.Is<string>(s => s.StartsWith("users/user-story/42-")),
+            Arg.Is<string>(s => s.StartsWith("users/feature/42-")),
             Arg.Any<CancellationToken>());
     }
 
@@ -524,6 +525,37 @@ public class BranchCommandTests
                 s.Contains("my-project-id") &&
                 s.Contains("my-repo-id") &&
                 s.StartsWith("vstfs:///Git/Ref/")),
+            "ArtifactLink",
+            Arg.Any<int>(),
+            "Branch",
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ArtifactUri_IncludesGBPrefixOnBranchRef()
+    {
+        // The ADO vstfs URI for a branch ref must include the 'GB' prefix before the
+        // branch name: vstfs:///Git/Ref/{projectId}/{repoId}/GB{branchName}
+        var item = CreateWorkItem(777, "GB Test", "New");
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(777);
+        _workItemRepo.GetByIdAsync(777, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.FetchAsync(777, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(777, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+        _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
+        _gitService.BranchExistsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(false);
+        _adoGitService.GetProjectIdAsync(Arg.Any<CancellationToken>()).Returns("proj-123");
+        _adoGitService.GetRepositoryIdAsync(Arg.Any<CancellationToken>()).Returns("repo-456");
+
+        var cmd = CreateCommand(_gitService, _adoGitService);
+        var result = await cmd.ExecuteAsync(noTransition: true);
+
+        result.ShouldBe(0);
+
+        // Full format: vstfs:///Git/Ref/{projectId}/{repoId}/GB{encodedBranchName}
+        await _adoGitService.Received().AddArtifactLinkAsync(
+            777,
+            Arg.Is<string>(s =>
+                s.StartsWith("vstfs:///Git/Ref/proj-123/repo-456/GB")),
             "ArtifactLink",
             Arg.Any<int>(),
             "Branch",

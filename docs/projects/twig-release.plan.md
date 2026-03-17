@@ -256,7 +256,7 @@ dotnet publish src/Twig/Twig.csproj -c Release -r ${{ matrix.rid }} \
 
 **Design**:
 ```
-1. Query GitHub Releases API: GET /repos/{owner}/{repo}/releases/latest
+1. Query GitHub Releases API: GET /repos/PolyphonyRequiem/twig/releases/latest
 2. Find asset named 'twig-win-x64.zip'
 3. Download to temp
 4. Create ~/.twig/bin/ if not exists
@@ -267,7 +267,7 @@ dotnet publish src/Twig/Twig.csproj -c Release -r ${{ matrix.rid }} \
 
 **Idempotency**: Checks if `~/.twig/bin` is already in PATH before adding. Overwrites existing binary.
 
-**Usage**: `irm https://raw.githubusercontent.com/{owner}/{repo}/main/install.ps1 | iex`
+**Usage**: `irm https://raw.githubusercontent.com/PolyphonyRequiem/twig/main/install.ps1 | iex`
 
 ##### `install.sh` (Linux/macOS)
 
@@ -285,7 +285,7 @@ dotnet publish src/Twig/Twig.csproj -c Release -r ${{ matrix.rid }} \
 8. Verify
 ```
 
-**Usage**: `curl -fsSL https://raw.githubusercontent.com/{owner}/{repo}/main/install.sh | bash`
+**Usage**: `curl -fsSL https://raw.githubusercontent.com/PolyphonyRequiem/twig/main/install.sh | bash`
 
 #### 5. Self-Update Command (`twig upgrade`)
 
@@ -303,7 +303,7 @@ SelfUpdateCommand
     ├── Get current version (VersionHelper.GetVersion())
     │
     ├── IGitHubReleaseService.GetLatestReleaseAsync()
-    │   └── GET https://api.github.com/repos/{owner}/{repo}/releases/latest
+    │   └── GET https://api.github.com/repos/PolyphonyRequiem/twig/releases/latest
     │       → { tag_name: "v1.2.0", assets: [...], body: "changelog..." }
     │
     ├── Compare versions (SemVerComparer — see DD-12)
@@ -549,14 +549,14 @@ fi
 
 ## Open Questions
 
-| ID | Question | Impact | Owner |
-|----|----------|--------|-------|
-| OQ-1 | What is the GitHub repository `{owner}/{repo}` name? | Needed for install script URLs and self-update API endpoint | Project owner |
-| OQ-2 | Should `twig upgrade` prompt for confirmation before downloading? | UX decision — silent vs. interactive | Project owner |
-| OQ-3 | Should checksums (SHA256) be generated and verified during install/update? | Security hardening — adds complexity | Project owner |
-| OQ-4 | Should the release workflow commit `CHANGELOG.md` back to the repo? | Changelog-in-repo vs. GitHub-Release-only | Project owner |
-| OQ-5 | What is the minimum macOS version to support? (affects runner choice for osx-x64) | `macos-13` (Intel) vs `macos-14` (ARM) | Project owner |
-| OQ-6 | Should `twig upgrade --pre` allow updating to pre-release versions? | Feature scope | Project owner |
+| ID | Question | Impact | Owner | Status |
+|----|----------|--------|-------|--------|
+| OQ-1 | What is the GitHub repository `{owner}/{repo}` name? | Needed for install script URLs and self-update API endpoint | Project owner | **Resolved**: `PolyphonyRequiem/twig` |
+| OQ-2 | Should `twig upgrade` prompt for confirmation before downloading? | UX decision — silent vs. interactive | Project owner | **Resolved**: No prompt (auto-upgrade). User explicitly invoked `upgrade`. Add `--check` flag for peek-only. |
+| OQ-3 | Should checksums (SHA256) be generated and verified during install/update? | Security hardening — adds complexity | Project owner | **Resolved**: Defer. Trust HTTPS transport security. Layer checksums/signing later. |
+| OQ-4 | Should the release workflow commit `CHANGELOG.md` back to the repo? | Changelog-in-repo vs. GitHub-Release-only | Project owner | **Resolved**: GitHub Release only. `twig changelog` fetches from API. No commit-back complexity. |
+| OQ-5 | What is the minimum macOS version to support? (affects runner choice for osx-x64) | `macos-13` (Intel) vs `macos-14` (ARM) | Project owner | **Resolved**: Keep all 4 RIDs. `macos-13` for osx-x64, `macos-latest` for osx-arm64. Drop osx-x64 when GitHub deprecates macos-13 runners. |
+| OQ-6 | Should `twig upgrade --pre` allow updating to pre-release versions? | Feature scope | Project owner | **Resolved**: No. Defer `--pre` flag. Pre-releases are for source builds only. |
 
 ---
 
@@ -625,19 +625,19 @@ fi
 
 | Task | Type | Description | Files | Status |
 |------|------|-------------|-------|--------|
-| ITEM-001 | IMPL | Add `MinVer` v7.0.0 to `Directory.Packages.props` as a centrally managed package version | `Directory.Packages.props` | TO DO |
-| ITEM-002 | IMPL | Remove `<Version>0.1.0</Version>` from `Directory.Build.props`; add `<PackageReference Include="MinVer" PrivateAssets="All" />` to `Directory.Build.props`; set `<MinVerTagPrefix>v</MinVerTagPrefix>` | `Directory.Build.props` | TO DO |
-| ITEM-002a | IMPL | Update `VersionHelper.GetVersion()` fallback in `Program.cs` from `"0.1.0"` to `"0.0.0"`. After MinVer integration, the `AssemblyInformationalVersionAttribute` is always set, so this fallback is effectively dead code. Changing it to `"0.0.0"` avoids confusion if MinVer is ever misconfigured — the hardcoded `"0.1.0"` could be mistaken for a valid version. | `src/Twig/Program.cs` | TO DO |
-| ITEM-002b | IMPL | Add `<AssemblyName>twig</AssemblyName>` to `src/Twig/Twig.csproj` to produce lowercase binary names (`twig` / `twig.exe`). Without this, the .NET SDK derives the assembly name from the project file name, producing `Twig.exe` (Windows) and `Twig` (Linux/macOS). Install scripts reference lowercase `twig`; on case-sensitive Linux/macOS, `chmod +x ~/.twig/bin/twig` would fail because tar extraction produces `Twig`. See DD-11. | `src/Twig/Twig.csproj` | TO DO |
-| ITEM-003 | TEST | Verify `dotnet build` produces version from git tag: create a local tag `v0.2.0`, build, check `AssemblyInformationalVersionAttribute`. Verify `VersionHelper.GetVersion()` returns `"0.2.0"`. | (manual verification) | TO DO |
-| ITEM-004 | TEST | Verify version falls back to `0.0.0-alpha.0.{height}` when no tags exist (clean clone). Verify `--version` flag still works. | (manual verification) | TO DO |
+| ITEM-001 | IMPL | Add `MinVer` v7.0.0 to `Directory.Packages.props` as a centrally managed package version | `Directory.Packages.props` | DONE |
+| ITEM-002 | IMPL | Remove `<Version>0.1.0</Version>` from `Directory.Build.props`; add `<PackageReference Include="MinVer" PrivateAssets="All" />` to `Directory.Build.props`; set `<MinVerTagPrefix>v</MinVerTagPrefix>` | `Directory.Build.props` | DONE |
+| ITEM-002a | IMPL | Update `VersionHelper.GetVersion()` fallback in `Program.cs` from `"0.1.0"` to `"0.0.0"`. After MinVer integration, the `AssemblyInformationalVersionAttribute` is always set, so this fallback is effectively dead code. Changing it to `"0.0.0"` avoids confusion if MinVer is ever misconfigured — the hardcoded `"0.1.0"` could be mistaken for a valid version. | `src/Twig/Program.cs` | DONE |
+| ITEM-002b | IMPL | Add `<AssemblyName>twig</AssemblyName>` to `src/Twig/Twig.csproj` to produce lowercase binary names (`twig` / `twig.exe`). Without this, the .NET SDK derives the assembly name from the project file name, producing `Twig.exe` (Windows) and `Twig` (Linux/macOS). Install scripts reference lowercase `twig`; on case-sensitive Linux/macOS, `chmod +x ~/.twig/bin/twig` would fail because tar extraction produces `Twig`. See DD-11. | `src/Twig/Twig.csproj` | DONE |
+| ITEM-003 | TEST | Verify `dotnet build` produces version from git tag: create a local tag `v0.2.0`, build, check `AssemblyInformationalVersionAttribute`. Verify `VersionHelper.GetVersion()` returns `"0.2.0"`. | (manual verification) | DONE |
+| ITEM-004 | TEST | Verify version falls back to `0.0.0-alpha.0.{height}` when no tags exist (clean clone). Verify `--version` flag still works. | (manual verification) | DONE |
 
 **Acceptance Criteria**:
-- [ ] No hardcoded version string in any `.props`, `.csproj`, or `.cs` file (including `VersionHelper` fallback updated from `"0.1.0"` to `"0.0.0"`)
-- [ ] `<AssemblyName>twig</AssemblyName>` is present in `Twig.csproj`, producing lowercase binary names on all platforms
-- [ ] `dotnet build` succeeds and assembly version matches latest git tag
-- [ ] `twig --version` outputs MinVer-derived version
-- [ ] `twig version` subcommand outputs MinVer-derived version
+- [x] No hardcoded version string in any `.props`, `.csproj`, or `.cs` file (including `VersionHelper` fallback updated from `"0.1.0"` to `"0.0.0"`)
+- [x] `<AssemblyName>twig</AssemblyName>` is present in `Twig.csproj`, producing lowercase binary names on all platforms
+- [x] `dotnet build` succeeds and assembly version matches latest git tag
+- [x] `twig --version` outputs MinVer-derived version
+- [x] `twig version` subcommand outputs MinVer-derived version
 
 ---
 
@@ -698,8 +698,8 @@ fi
 | ITEM-015 | TEST | Test `install.sh` on Linux (x64) and macOS (arm64): clean machine, verify binary works and is in PATH. Test idempotency. | (manual verification) | TO DO |
 
 **Acceptance Criteria**:
-- [ ] `irm https://raw.githubusercontent.com/{owner}/{repo}/main/install.ps1 | iex` installs twig on Windows
-- [ ] `curl -fsSL https://raw.githubusercontent.com/{owner}/{repo}/main/install.sh | bash` installs twig on Linux/macOS
+- [ ] `irm https://raw.githubusercontent.com/PolyphonyRequiem/twig/main/install.ps1 | iex` installs twig on Windows
+- [ ] `curl -fsSL https://raw.githubusercontent.com/PolyphonyRequiem/twig/main/install.sh | bash` installs twig on Linux/macOS
 - [ ] `~/.twig/bin/` is created and contains the binary
 - [ ] PATH is updated for the current user (persists across sessions)
 - [ ] Running install a second time succeeds (idempotent)
@@ -717,7 +717,7 @@ fi
 |------|------|-------------|-------|--------|
 | ITEM-016 | IMPL | Create `src/Twig.Domain/Interfaces/IGitHubReleaseService.cs` with methods: `Task<GitHubReleaseInfo?> GetLatestReleaseAsync(CancellationToken)` and `Task<IReadOnlyList<GitHubReleaseInfo>> GetReleasesAsync(int count, CancellationToken)`. Define `GitHubReleaseInfo` record in Domain (tag, name, body, assets list). | `src/Twig.Domain/Interfaces/IGitHubReleaseService.cs` | TO DO |
 | ITEM-017 | IMPL | Create `src/Twig.Infrastructure/GitHub/GitHubDtos.cs` with `GitHubRelease` and `GitHubAsset` DTOs for JSON deserialization. **MUST** use `internal sealed class` (matching the established ADO DTO pattern — `AdoWorkItemResponse`, `AdoIterationResponse`, etc.) and **MUST** add explicit `[JsonPropertyName]` attributes on every property to handle the GitHub API's snake_case naming (e.g., `[JsonPropertyName("tag_name")]` on `TagName`, `[JsonPropertyName("browser_download_url")]` on `BrowserDownloadUrl`). The existing `TwigJsonContext` uses `CamelCase` naming policy — without explicit `[JsonPropertyName]`, `TagName` would deserialize from `tagName` (which doesn't exist in GitHub responses; the actual key is `tag_name`), causing both version comparison and download URL resolution to silently fail with empty strings. Add to `TwigJsonContext`: `[JsonSerializable(typeof(GitHubRelease))]` and `[JsonSerializable(typeof(List<GitHubRelease>))]`. **`List<GitHubRelease>` is required** because the `/releases?per_page={count}` endpoint returns a raw JSON array (not a wrapper object) — without this registration, the source-generated context has no metadata for the collection type, causing `NotSupportedException` at runtime in AOT mode (breaking `twig changelog` and the multi-version upgrade delta). `GitHubAsset` and `List<GitHubAsset>` do **NOT** need explicit registration — source generation automatically handles property types of already-registered types (consistent with how `AdoBatchWorkItemResponse` contains `List<AdoWorkItemResponse>` without separate registration). | `src/Twig.Infrastructure/GitHub/GitHubDtos.cs`, `src/Twig.Infrastructure/Serialization/TwigJsonContext.cs` | TO DO |
-| ITEM-018 | IMPL | Create `src/Twig.Infrastructure/GitHub/GitHubReleaseClient.cs` implementing `IGitHubReleaseService`. Use `HttpClient` to call `https://api.github.com/repos/{owner}/{repo}/releases/latest` and `/releases?per_page={count}`. Set `User-Agent: twig-cli` header (required by GitHub API). Map DTOs to domain records. | `src/Twig.Infrastructure/GitHub/GitHubReleaseClient.cs` | TO DO |
+| ITEM-018 | IMPL | Create `src/Twig.Infrastructure/GitHub/GitHubReleaseClient.cs` implementing `IGitHubReleaseService`. Use `HttpClient` to call `https://api.github.com/repos/PolyphonyRequiem/twig/releases/latest` and `/releases?per_page={count}`. Set `User-Agent: twig-cli` header (required by GitHub API). Map DTOs to domain records. | `src/Twig.Infrastructure/GitHub/GitHubReleaseClient.cs` | TO DO |
 | ITEM-019 | IMPL | Create `src/Twig.Infrastructure/GitHub/SelfUpdater.cs` with method `Task UpdateBinaryAsync(string downloadUrl, string archiveName, CancellationToken)`. Detect current exe path via `Environment.ProcessPath`. On Windows: rename current exe → `.old`, extract new exe. On Unix: extract directly, `chmod +x`. Return path to new binary. | `src/Twig.Infrastructure/GitHub/SelfUpdater.cs` | TO DO |
 | ITEM-020 | IMPL | Create `src/Twig/Commands/SelfUpdateCommand.cs`. Logic: get current version, call `IGitHubReleaseService.GetLatestReleaseAsync()`, compare versions using a minimal AOT-safe `SemVerComparer` (see DD-12), determine RID from `RuntimeInformation`, find matching asset, download via `SelfUpdater`, display changelog delta (release body), print success message. **SemVer comparison strategy**: Implement a static `SemVerComparer.Compare(string a, string b)` method (~20 lines, no dependencies) that: (1) strips `v` prefix if present, (2) splits on `-` to separate `major.minor.patch` from pre-release suffix, (3) parses the numeric `major.minor.patch` portion via `System.Version` (which handles 3-part version strings), (4) if numeric parts are equal, a version WITH a pre-release suffix (e.g., `1.0.1-alpha.0.3`) is LESS THAN one without (per SemVer §11). Pre-release-to-pre-release ordering is not needed — `twig upgrade` only offers upgrade to release versions (GitHub Release tags). This avoids `FormatException` from `System.Version.Parse("1.0.1-alpha.0.3")` and avoids any third-party SemVer library with unknown AOT compatibility. | `src/Twig/Commands/SelfUpdateCommand.cs` | TO DO |
 | ITEM-021 | IMPL | Add `<TwigGitHubRepo>` MSBuild property to `src/Twig/Twig.csproj` (default to placeholder, overridable). Generate `AssemblyMetadataAttribute` with key `"GitHubRepo"`. Read in `SelfUpdateCommand` at runtime. | `src/Twig/Twig.csproj` | TO DO |

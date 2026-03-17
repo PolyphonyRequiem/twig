@@ -641,7 +641,7 @@ public sealed class TwigCommands(IServiceProvider services)
 
 /// <summary>
 /// Shared version resolution helper. Reads from AssemblyInformationalVersionAttribute,
-/// strips build metadata (e.g. "+sha"), falls back to "0.1.0".
+/// strips build metadata (e.g. "+sha"), falls back to "0.0.0".
 /// </summary>
 internal static class VersionHelper
 {
@@ -651,7 +651,7 @@ internal static class VersionHelper
             .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
             is [System.Reflection.AssemblyInformationalVersionAttribute attr]
             ? attr.InformationalVersion
-            : "0.1.0";
+            : "0.0.0";
         var plusIndex = version.IndexOf('+');
         if (plusIndex >= 0) version = version[..plusIndex];
         return version;

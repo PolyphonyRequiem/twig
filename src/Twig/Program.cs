@@ -54,7 +54,6 @@ var app = ConsoleApp.Create()
         // HTTP client — singleton is acceptable for short-lived CLI process.
         // IHttpClientFactory would be preferable for long-running services (DNS refresh, connection pooling).
         services.AddSingleton<HttpClient>();
-        services.AddSingleton<IGitService, GitCliService>();
         services.AddSingleton<IAdoWorkItemService>(sp =>
         {
             var cfg = sp.GetRequiredService<TwigConfiguration>();

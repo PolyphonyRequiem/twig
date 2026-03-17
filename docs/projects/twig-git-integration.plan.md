@@ -716,7 +716,7 @@ Hook fires after: git checkout bug/12345-fix-crash
 
 ---
 
-### EPIC-004: `twig commit` & `twig pr` Commands
+### EPIC-004: `twig commit` & `twig pr` Commands ✅ DONE
 
 **Goal:** Implement commit enrichment and PR creation commands.
 
@@ -739,6 +739,8 @@ Hook fires after: git checkout bug/12345-fix-crash
 - [x] `twig pr` creates an ADO pull request linked to the active work item
 - [x] PR title/description are populated from work item fields
 - [x] `--draft` creates a draft PR
+
+**Completed:** 2026-03-17. Added missing `output` parameter to `TwigCommands.Commit()` facade (placed before `params string[] passthrough` as required by C# syntax) and forwarded it as `outputFormat` to `CommitCommand.ExecuteAsync`, aligning with `TwigCommands.Pr()` which already exposed the parameter. Added `EmptyPassthroughArray_UsesSimpleCommit` test covering the edge case where `params string[]` produces `Array.Empty<string>()` rather than `null`, verifying the empty array correctly routes to `CommitAsync` (not `CommitWithArgsAsync`).
 
 ---
 

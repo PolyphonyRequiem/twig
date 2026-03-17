@@ -56,7 +56,7 @@ public sealed class NavigationCommands(
     }
 
     /// <summary>Navigate to a child work item by ID or pattern.</summary>
-    public async Task<int> DownAsync(string idOrPattern, string outputFormat = "human", CancellationToken ct = default)
+    public async Task<int> DownAsync(string? idOrPattern = null, string outputFormat = "human", CancellationToken ct = default)
     {
         var (fmt, renderer) = pipelineFactory is not null
             ? pipelineFactory.Resolve(outputFormat)
@@ -82,6 +82,29 @@ public sealed class NavigationCommands(
 
         var children = await workItemRepo.GetChildrenAsync(item.Id);
         var tree = WorkTree.Build(item, parentChain, children);
+
+        // No argument: present all children interactively (or auto-navigate if only one)
+        if (string.IsNullOrEmpty(idOrPattern))
+        {
+            var candidates = children.Select(c => (c.Id, c.Title)).ToList();
+            if (candidates.Count == 0)
+            {
+                Console.Error.WriteLine(fmt.FormatError("No children to navigate to."));
+                return 1;
+            }
+            if (candidates.Count == 1)
+                return await setCommand.ExecuteAsync(candidates[0].Id.ToString(), outputFormat, ct);
+
+            if (renderer is not null)
+            {
+                var selected = await renderer.PromptDisambiguationAsync(candidates, ct);
+                if (selected is not null)
+                    return await setCommand.ExecuteAsync(selected.Value.Id.ToString(), outputFormat, ct);
+                return 1;
+            }
+            Console.Error.WriteLine(fmt.FormatDisambiguation(candidates));
+            return 0;
+        }
 
         // DD-012: Use FindByPattern directly to preserve candidate list for disambiguation
         var matchResult = tree.FindByPattern(idOrPattern);

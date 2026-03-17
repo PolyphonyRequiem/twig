@@ -157,6 +157,42 @@ public class TreeNavCommandTests
         result.ShouldBe(1);
     }
 
+    [Fact]
+    public async Task Down_NoArg_NoChildren_ReturnsError()
+    {
+        var parent = CreateWorkItem(1, "Parent", parentId: null);
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(parent);
+        _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var navCmd = new NavigationCommands(_contextStore, _workItemRepo, _setCommand, _formatterFactory);
+        var result = await navCmd.DownAsync();
+
+        result.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Down_NoArg_SingleChild_AutoNavigates()
+    {
+        var parent = CreateWorkItem(1, "Parent", parentId: null);
+        var child = CreateWorkItem(2, "Only Child", parentId: 1);
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(parent);
+        _workItemRepo.GetByIdAsync(2, Arg.Any<CancellationToken>()).Returns(child);
+        _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { child });
+        _adoService.FetchChildrenAsync(2, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var navCmd = new NavigationCommands(_contextStore, _workItemRepo, _setCommand, _formatterFactory);
+        var result = await navCmd.DownAsync();
+
+        result.ShouldBe(0);
+        await _contextStore.Received().SetActiveWorkItemIdAsync(2, Arg.Any<CancellationToken>());
+    }
+
     private static WorkItem CreateWorkItem(int id, string title, int? parentId)
     {
         return new WorkItem

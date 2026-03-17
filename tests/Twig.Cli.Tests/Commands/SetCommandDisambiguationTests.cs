@@ -298,6 +298,92 @@ public class SetCommandDisambiguationTests
         result.ShouldBe(1);
     }
 
+    // ── NavigationCommands.DownAsync: No-arg interactive child selection ─
+
+    [Fact]
+    public async Task Down_NoArg_MultipleChildren_Tty_PromptsAndSelectsChild()
+    {
+        var parent = CreateWorkItem(1, "Parent", parentId: null);
+        var child1 = CreateWorkItem(10, "Design mockups", parentId: 1);
+        var child2 = CreateWorkItem(11, "Implement API", parentId: 1);
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(parent);
+        _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { child1, child2 });
+
+        _mockRenderer.PromptDisambiguationAsync(
+                Arg.Any<IReadOnlyList<(int Id, string Title)>>(),
+                Arg.Any<CancellationToken>())
+            .Returns((11, "Implement API"));
+
+        _workItemRepo.GetByIdAsync(11, Arg.Any<CancellationToken>()).Returns(child2);
+        _workItemRepo.GetParentChainAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { parent });
+        _adoService.FetchChildrenAsync(11, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var setCmd = CreateCommand(CreateTtyPipelineFactory());
+        var navCmd = new NavigationCommands(
+            _contextStore, _workItemRepo, setCmd, _formatterFactory, CreateTtyPipelineFactory());
+
+        var result = await navCmd.DownAsync();
+
+        result.ShouldBe(0);
+        await _contextStore.Received().SetActiveWorkItemIdAsync(11, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Down_NoArg_MultipleChildren_Tty_UserCancels_ReturnsExitCode1()
+    {
+        var parent = CreateWorkItem(1, "Parent", parentId: null);
+        var child1 = CreateWorkItem(10, "Design mockups", parentId: 1);
+        var child2 = CreateWorkItem(11, "Implement API", parentId: 1);
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(parent);
+        _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { child1, child2 });
+
+        _mockRenderer.PromptDisambiguationAsync(
+                Arg.Any<IReadOnlyList<(int Id, string Title)>>(),
+                Arg.Any<CancellationToken>())
+            .Returns(((int Id, string Title)?)null);
+
+        var setCmd = CreateCommand(CreateTtyPipelineFactory());
+        var navCmd = new NavigationCommands(
+            _contextStore, _workItemRepo, setCmd, _formatterFactory, CreateTtyPipelineFactory());
+
+        var result = await navCmd.DownAsync();
+
+        result.ShouldBe(1);
+        await _contextStore.DidNotReceive().SetActiveWorkItemIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Down_NoArg_MultipleChildren_NonTty_ReturnsStaticList()
+    {
+        var parent = CreateWorkItem(1, "Parent", parentId: null);
+        var child1 = CreateWorkItem(10, "Design mockups", parentId: 1);
+        var child2 = CreateWorkItem(11, "Implement API", parentId: 1);
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(parent);
+        _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { child1, child2 });
+
+        var setCmd = CreateCommand(CreateTtyPipelineFactory());
+        var navCmd = new NavigationCommands(
+            _contextStore, _workItemRepo, setCmd, _formatterFactory, CreateTtyPipelineFactory());
+
+        var result = await navCmd.DownAsync(outputFormat: "json");
+
+        result.ShouldBe(0);
+        await _mockRenderer.DidNotReceive().PromptDisambiguationAsync(
+            Arg.Any<IReadOnlyList<(int Id, string Title)>>(),
+            Arg.Any<CancellationToken>());
+    }
+
     // ── SpectreRenderer.BuildSelectionRenderable unit tests ──────────
 
     [Fact]

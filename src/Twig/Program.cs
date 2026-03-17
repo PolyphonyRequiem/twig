@@ -645,6 +645,7 @@ public sealed class TwigCommands(IServiceProvider services)
         => await services.GetRequiredService<GitContextCommand>().ExecuteAsync(output);
 
     /// <summary>Internal hook handler invoked by git hook scripts.</summary>
+    [Hidden]
     [Command("_hook")]
     public async Task<int> Hook([Argument] string hookName, params string[] args)
         => await services.GetRequiredService<HookHandlerCommand>().ExecuteAsync(hookName, args);

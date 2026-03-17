@@ -96,7 +96,7 @@
 # --- Git integration ---
 # DONE: docs/projects/twig-git-integration.plan.md | EPIC-001
 # DONE: docs/projects/twig-git-integration.plan.md | EPIC-002
-docs/projects/twig-git-integration.plan.md | EPIC-003
+# FAILED: docs/projects/twig-git-integration.plan.md | EPIC-003
 docs/projects/twig-git-integration.plan.md | EPIC-004
 docs/projects/twig-git-integration.plan.md | EPIC-005
 docs/projects/twig-git-integration.plan.md | EPIC-006

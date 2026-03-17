@@ -11,6 +11,7 @@ using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Git;
+using Twig.Infrastructure.GitHub;
 using Twig.Rendering;
 
 SQLitePCL.Batteries.Init();
@@ -24,6 +25,9 @@ catch
 {
     // InvariantGlobalization or restricted environment — Unicode bytes will still be emitted; rendering depends on terminal capabilities.
 }
+
+// EPIC-005: Clean up old binary left behind from a previous Windows self-update.
+SelfUpdater.CleanupOldBinary();
 
 var app = ConsoleApp.Create()
     .ConfigureServices(services =>
@@ -283,7 +287,7 @@ var app = ConsoleApp.Create()
             sp.GetRequiredService<HintEngine>(),
             sp.GetService<IGitService>()));
 
-        // Git hooks & context commands (EPIC-005)
+        // Git hooks & context commands
         services.AddSingleton<HookInstaller>();
         services.AddSingleton<HooksCommand>(sp => new HooksCommand(
             sp.GetRequiredService<HookInstaller>(),
@@ -344,6 +348,25 @@ var app = ConsoleApp.Create()
             sp.GetRequiredService<TwigConfiguration>(),
             sp.GetService<IGitService>(),
             sp.GetService<IAdoGitService>()));
+
+        // Self-update services (EPIC-005)
+        services.AddSingleton<IGitHubReleaseService>(sp =>
+        {
+            var repoSlug = "PolyphonyRequiem/twig";
+            var attrs = typeof(TwigCommands).Assembly
+                .GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false);
+            foreach (var attr in attrs)
+            {
+                if (attr is System.Reflection.AssemblyMetadataAttribute meta && meta.Key == "GitHubRepo" && meta.Value is not null)
+                {
+                    repoSlug = meta.Value;
+                    break;
+                }
+            }
+            return new GitHubReleaseClient(sp.GetRequiredService<HttpClient>(), repoSlug);
+        });
+        services.AddSingleton<SelfUpdater>(sp => new SelfUpdater(sp.GetRequiredService<HttpClient>()));
+        services.AddSingleton<SelfUpdateCommand>();
     });
 
 app.UseFilter<ExceptionFilter>();
@@ -631,6 +654,10 @@ public sealed class TwigCommands(IServiceProvider services)
         Console.WriteLine(VersionHelper.GetVersion());
         return Task.FromResult(0);
     }
+
+    /// <summary>Check for and apply updates from GitHub Releases.</summary>
+    public async Task<int> Upgrade(CancellationToken ct = default)
+        => await services.GetRequiredService<SelfUpdateCommand>().ExecuteAsync(ct);
 
     /// <summary>Launch the full-screen TUI mode (requires twig-tui binary).</summary>
     public Task<int> Tui()

@@ -664,7 +664,7 @@ Hook fires after: git checkout bug/12345-fix-crash
 
 ---
 
-### EPIC-002: Configuration & Branch Naming
+### EPIC-002: Configuration & Branch Naming ✅ DONE
 
 **Goal:** Extend configuration with git settings and implement branch naming from work items.
 
@@ -672,17 +672,19 @@ Hook fires after: git checkout bug/12345-fix-crash
 
 | Task | Type | Description | Files | Status |
 |---|---|---|---|---|
-| ITEM-006 | IMPL | Add `GitConfig` class with `BranchPattern`, `CommitTemplate`, `DefaultTargetBranch`, `AutoLink`, `AutoTransition`, `TypeMap`, `HooksConfig` properties. Add `Git` property to `TwigConfiguration`. Extend `SetValue` switch for `git.*` paths | `src/Twig.Infrastructure/Config/TwigConfiguration.cs` | TO DO |
-| ITEM-007 | IMPL | Create `BranchNamingService` with `Generate(WorkItem, string pattern)` and `ExtractWorkItemId(string branchName)`. Implement slugification (lowercase, replace non-alphanumeric with hyphens, truncate, trim). Implement type mapping (User Story→feature, Bug→bug, etc.) | `src/Twig.Domain/Services/BranchNamingService.cs`, `src/Twig.Domain/Services/WorkItemIdExtractor.cs` | TO DO |
-| ITEM-008 | TEST | Unit tests for `BranchNamingService`: pattern substitution, slugification edge cases (unicode, long titles, special chars), type mapping | `tests/Twig.Domain.Tests/Services/BranchNamingServiceTests.cs` | TO DO |
-| ITEM-009 | TEST | Unit tests for `WorkItemIdExtractor`: various branch name formats (`feature/12345-desc`, `12345`, `bug/12345`, `users/name/12345-desc`), no-match cases | `tests/Twig.Domain.Tests/Services/WorkItemIdExtractorTests.cs` | TO DO |
-| ITEM-010 | IMPL | Add `[JsonSerializable(typeof(GitConfig))]` and related entries to `TwigJsonContext` | `src/Twig.Infrastructure/Serialization/TwigJsonContext.cs` | TO DO |
+| ITEM-006 | IMPL | Add `GitConfig` class with `BranchPattern`, `CommitTemplate`, `DefaultTargetBranch`, `AutoLink`, `AutoTransition`, `TypeMap`, `HooksConfig` properties. Add `Git` property to `TwigConfiguration`. Extend `SetValue` switch for `git.*` paths | `src/Twig.Infrastructure/Config/TwigConfiguration.cs` | DONE |
+| ITEM-007 | IMPL | Create `BranchNamingService` with `Generate(WorkItem, string pattern)` and `ExtractWorkItemId(string branchName)`. Implement slugification (lowercase, replace non-alphanumeric with hyphens, truncate, trim). Implement type mapping (User Story→feature, Bug→bug, etc.) | `src/Twig.Domain/Services/BranchNamingService.cs`, `src/Twig.Domain/Services/WorkItemIdExtractor.cs` | DONE |
+| ITEM-008 | TEST | Unit tests for `BranchNamingService`: pattern substitution, slugification edge cases (unicode, long titles, special chars), type mapping | `tests/Twig.Domain.Tests/Services/BranchNamingServiceTests.cs` | DONE |
+| ITEM-009 | TEST | Unit tests for `WorkItemIdExtractor`: various branch name formats (`feature/12345-desc`, `12345`, `bug/12345`, `users/name/12345-desc`), no-match cases | `tests/Twig.Domain.Tests/Services/WorkItemIdExtractorTests.cs` | DONE |
+| ITEM-010 | IMPL | Add `[JsonSerializable(typeof(GitConfig))]` and related entries to `TwigJsonContext` | `src/Twig.Infrastructure/Serialization/TwigJsonContext.cs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] `GitConfig` defaults are applied when `git` section is missing from config JSON
-- [ ] Branch names are generated correctly for all standard work item types
-- [ ] Slugification handles unicode, long titles, and special characters
-- [ ] Work item IDs are extracted from all common branch naming patterns
+- [x] `GitConfig` defaults are applied when `git` section is missing from config JSON
+- [x] Branch names are generated correctly for all standard work item types
+- [x] Slugification handles unicode, long titles, and special characters
+- [x] Work item IDs are extracted from all common branch naming patterns
+
+**Completed:** 2026-03-17. All implementation and domain service tests pass. Added comprehensive infrastructure tests for `GitConfig` new properties (`CommitTemplate`, `AutoLink`, `AutoTransition`, `TypeMap`, `Hooks`): defaults validation, `SetValue` paths, full serialization round-trip. Build clean, all 563 domain tests and 64 infrastructure tests pass.
 
 ---
 

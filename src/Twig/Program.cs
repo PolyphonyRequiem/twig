@@ -1,18 +1,12 @@
 using ConsoleAppFramework;
 using Microsoft.Extensions.DependencyInjection;
-using Spectre.Console;
 using Twig.Commands;
-using Twig.Domain.Interfaces;
-using Twig.Domain.ValueObjects;
-using Twig.Formatters;
-using Twig.Hints;
+using Twig.DependencyInjection;
 using Twig.Infrastructure;
 using Twig.Infrastructure.Ado;
-using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
-using Twig.Infrastructure.Git;
+using Twig.Infrastructure.DependencyInjection;
 using Twig.Infrastructure.GitHub;
-using Twig.Rendering;
 
 SQLitePCL.Batteries.Init();
 
@@ -46,339 +40,53 @@ var app = ConsoleApp.Create()
             : new TwigConfiguration();
         LegacyDbMigrator.MigrateIfNeeded(twigDir, config);
 
-        // Auth provider (resolve from config)
-        services.AddSingleton<IAuthenticationProvider>(sp =>
+        // Git remote auto-detection (stays in Program.cs — runtime environment probe)
+        var gitProject = config.GetGitProject();
+        var repository = config.Git.Repository;
+        if (string.IsNullOrWhiteSpace(repository))
         {
-            var cfg = sp.GetRequiredService<TwigConfiguration>();
-            if (string.Equals(cfg.Auth.Method, "pat", StringComparison.OrdinalIgnoreCase))
-                return new PatAuthProvider();
-            return new AzCliAuthProvider();
-        });
-
-        // HTTP client — singleton is acceptable for short-lived CLI process.
-        // IHttpClientFactory would be preferable for long-running services (DNS refresh, connection pooling).
-        services.AddSingleton<HttpClient>();
-        services.AddSingleton<IAdoWorkItemService>(sp =>
-        {
-            var cfg = sp.GetRequiredService<TwigConfiguration>();
-            return new AdoRestClient(
-                sp.GetRequiredService<HttpClient>(),
-                sp.GetRequiredService<IAuthenticationProvider>(),
-                cfg.Organization,
-                cfg.Project);
-        });
-        // IAdoGitService — uses git-specific project (may differ from backlog project).
-        // Only registered when both git project and repository can be resolved;
-        // FlowDoneCommand/FlowCloseCommand accept IAdoGitService? and handle null gracefully.
-        {
-            var gitProject = config.GetGitProject();
-            var repository = config.Git.Repository;
-
-            // Auto-detect from git remote if not explicitly configured.
-            // Detection deferred to service factory (lazy) so it does not block DI startup.
-            if (string.IsNullOrWhiteSpace(repository))
+            try
             {
-                try
+                var psi = new System.Diagnostics.ProcessStartInfo("git", "remote get-url origin")
                 {
-                    var psi = new System.Diagnostics.ProcessStartInfo("git", "remote get-url origin")
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                };
+                using var proc = System.Diagnostics.Process.Start(psi);
+                if (proc is not null)
+                {
+                    var stdoutTask = proc.StandardOutput.ReadToEndAsync();
+                    var stderrTask = proc.StandardError.ReadToEndAsync();
+                    System.Threading.Tasks.Task.WhenAll(stdoutTask, stderrTask)
+                        .GetAwaiter().GetResult();
+                    var exited = proc.WaitForExit(2000);
+                    if (!exited)
                     {
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                    };
-                    using var proc = System.Diagnostics.Process.Start(psi);
-                    if (proc is not null)
+                        try { proc.Kill(); } catch { }
+                    }
+                    var remoteUrl = stdoutTask.Result.Trim();
+                    if (exited && proc.ExitCode == 0 && !string.IsNullOrWhiteSpace(remoteUrl))
                     {
-                        // Drain both streams concurrently to prevent pipe-buffer deadlock,
-                        // then wait up to 2 s (local git op should complete well under that).
-                        var stdoutTask = proc.StandardOutput.ReadToEndAsync();
-                        var stderrTask = proc.StandardError.ReadToEndAsync();
-                        System.Threading.Tasks.Task.WhenAll(stdoutTask, stderrTask)
-                            .GetAwaiter().GetResult();
-                        var exited = proc.WaitForExit(2000);
-                        if (!exited)
+                        var parsed = AdoRemoteParser.Parse(remoteUrl);
+                        if (parsed is not null)
                         {
-                            try { proc.Kill(); } catch { }
-                        }
-                        var remoteUrl = stdoutTask.Result.Trim();
-                        if (exited && proc.ExitCode == 0 && !string.IsNullOrWhiteSpace(remoteUrl))
-                        {
-                            var parsed = AdoRemoteParser.Parse(remoteUrl);
-                            if (parsed is not null)
-                            {
-                                repository = parsed.Repository;
-                                if (string.IsNullOrWhiteSpace(config.Git.Project))
-                                    gitProject = parsed.Project;
-                            }
+                            repository = parsed.Repository;
+                            if (string.IsNullOrWhiteSpace(config.Git.Project))
+                                gitProject = parsed.Project;
                         }
                     }
                 }
-                catch (Exception) { /* git operations are best-effort */ }
             }
-
-            if (!string.IsNullOrWhiteSpace(gitProject) && !string.IsNullOrWhiteSpace(repository))
-            {
-                var capturedGitProject = gitProject;
-                var capturedRepository = repository;
-                services.AddSingleton<IAdoGitService>(sp =>
-                    new AdoGitClient(
-                        sp.GetRequiredService<HttpClient>(),
-                        sp.GetRequiredService<IAuthenticationProvider>(),
-                        sp.GetRequiredService<TwigConfiguration>().Organization,
-                        capturedGitProject,
-                        capturedRepository,
-                        sp.GetRequiredService<TwigConfiguration>().Project));
-            }
+            catch (Exception) { /* git operations are best-effort */ }
         }
-        services.AddSingleton<IIterationService>(sp =>
-        {
-            var cfg = sp.GetRequiredService<TwigConfiguration>();
-            var team = string.IsNullOrWhiteSpace(cfg.Team) ? $"{cfg.Project} Team" : cfg.Team;
-            return new AdoIterationService(
-                sp.GetRequiredService<HttpClient>(),
-                sp.GetRequiredService<IAuthenticationProvider>(),
-                cfg.Organization,
-                cfg.Project,
-                team);
-        });
 
-        // Editor launcher (minimal working implementation)
-        services.AddSingleton<IEditorLauncher, EditorLauncher>();
-        services.AddSingleton<IConsoleInput, ConsoleInput>();
-
-        // Output formatters and factory
-        services.AddSingleton<HumanOutputFormatter>(sp =>
-        {
-            var cfg = sp.GetRequiredService<TwigConfiguration>();
-            return new HumanOutputFormatter(cfg.Display, cfg.TypeAppearances);
-        });
-        services.AddSingleton<JsonOutputFormatter>();
-        services.AddSingleton<MinimalOutputFormatter>();
-        services.AddSingleton<OutputFormatterFactory>();
-
-        // Hint engine — reads display config at startup
-        services.AddSingleton<HintEngine>(sp =>
-            new HintEngine(sp.GetRequiredService<TwigConfiguration>().Display));
-
-        // Spectre.Console rendering pipeline
-        services.AddSingleton<IAnsiConsole>(AnsiConsole.Console);
-        services.AddSingleton<SpectreTheme>(sp =>
-        {
-            var cfg = sp.GetRequiredService<TwigConfiguration>();
-            IReadOnlyList<StateEntry>? stateEntries = null;
-            try
-            {
-                var processTypeStore = sp.GetRequiredService<IProcessTypeStore>();
-                var records = Task.Run(() => processTypeStore.GetAllAsync()).GetAwaiter().GetResult();
-                stateEntries = records.SelectMany(r => r.States).ToList();
-            }
-            catch (InvalidOperationException)
-            {
-                // SqliteCacheStore uninitialized (e.g. twig init) — fall through with null
-            }
-
-            return new SpectreTheme(cfg.Display, cfg.TypeAppearances, stateEntries);
-        });
-        services.AddSingleton<IAsyncRenderer>(sp => new SpectreRenderer(
-            sp.GetRequiredService<IAnsiConsole>(),
-            sp.GetRequiredService<SpectreTheme>()));
-        services.AddSingleton<RenderingPipelineFactory>();
-
-        // Command services — InitCommand uses a factory to inject auth + HTTP
-        // (instead of IIterationService) so it can construct an AdoIterationService
-        // with the org/project args supplied at invocation time.
-        services.AddSingleton<InitCommand>(sp => new InitCommand(
-            sp.GetRequiredService<IAuthenticationProvider>(),
-            sp.GetRequiredService<HttpClient>(),
-            sp.GetRequiredService<TwigPaths>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>()));
-        services.AddSingleton<SetCommand>();
-        services.AddSingleton<StatusCommand>(sp => new StatusCommand(
-            sp.GetRequiredService<IContextStore>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IPendingChangeStore>(),
-            sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
-            sp.GetRequiredService<RenderingPipelineFactory>(),
-            sp.GetService<IGitService>(),
-            sp.GetService<IAdoGitService>()));
-        services.AddSingleton<StateCommand>();
-        services.AddSingleton<TreeCommand>(sp => new TreeCommand(
-            sp.GetRequiredService<IContextStore>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<RenderingPipelineFactory>()));
-        services.AddSingleton<NavigationCommands>();
-        services.AddSingleton<SeedCommand>();
-        services.AddSingleton<NoteCommand>();
-        services.AddSingleton<UpdateCommand>();
-        services.AddSingleton<EditCommand>();
-        services.AddSingleton<SaveCommand>(sp => new SaveCommand(
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
-            sp.GetRequiredService<IPendingChangeStore>(),
-            sp.GetRequiredService<IContextStore>(),
-            sp.GetRequiredService<IConsoleInput>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
-            sp.GetRequiredService<IPromptStateWriter>()));
-        services.AddSingleton<RefreshCommand>(sp => new RefreshCommand(
-            sp.GetRequiredService<IContextStore>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
-            sp.GetRequiredService<IIterationService>(),
-            sp.GetRequiredService<IPendingChangeStore>(),
-            sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetRequiredService<TwigPaths>(),
-            sp.GetRequiredService<IProcessTypeStore>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
-            sp.GetRequiredService<IPromptStateWriter>()));
-        services.AddSingleton<WorkspaceCommand>(sp => new WorkspaceCommand(
-            sp.GetRequiredService<IContextStore>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IIterationService>(),
-            sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
-            sp.GetRequiredService<IProcessTypeStore>(),
-            sp.GetRequiredService<RenderingPipelineFactory>()));
-        services.AddSingleton<ConfigCommand>();
-        services.AddSingleton<BranchCommand>(sp => new BranchCommand(
-            sp.GetRequiredService<IContextStore>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
-            sp.GetRequiredService<IProcessConfigurationProvider>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
-            sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetService<IGitService>(),
-            sp.GetService<IAdoGitService>(),
-            sp.GetRequiredService<IPromptStateWriter>()));
-        services.AddSingleton<CommitCommand>(sp => new CommitCommand(
-            sp.GetRequiredService<IContextStore>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
-            sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetService<IGitService>(),
-            sp.GetService<IAdoGitService>()));
-        services.AddSingleton<PrCommand>(sp => new PrCommand(
-            sp.GetRequiredService<IContextStore>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
-            sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetService<IGitService>(),
-            sp.GetService<IAdoGitService>()));
-        services.AddSingleton<StashCommand>(sp => new StashCommand(
-            sp.GetRequiredService<IContextStore>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
-            sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetService<IGitService>(),
-            sp.GetRequiredService<IPromptStateWriter>()));
-        services.AddSingleton<LogCommand>(sp => new LogCommand(
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
-            sp.GetService<IGitService>()));
-
-        // Git hooks & context commands
-        services.AddSingleton<HookInstaller>();
-        services.AddSingleton<HooksCommand>(sp => new HooksCommand(
-            sp.GetRequiredService<HookInstaller>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
-            sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetService<IGitService>()));
-        services.AddSingleton<GitContextCommand>(sp => new GitContextCommand(
-            sp.GetRequiredService<IContextStore>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
-            sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetService<IGitService>(),
-            sp.GetService<IAdoGitService>()));
-        services.AddSingleton<HookHandlerCommand>(sp => new HookHandlerCommand(
-            sp.GetRequiredService<IContextStore>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetService<IGitService>(),
-            sp.GetRequiredService<IPromptStateWriter>()));
-
-        // Flow lifecycle commands (EPIC-004)
-        services.AddSingleton<FlowStartCommand>(sp => new FlowStartCommand(
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
-            sp.GetRequiredService<IContextStore>(),
-            sp.GetRequiredService<IPendingChangeStore>(),
-            sp.GetRequiredService<IProcessConfigurationProvider>(),
-            sp.GetRequiredService<IConsoleInput>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
-            sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetRequiredService<RenderingPipelineFactory>(),
-            sp.GetService<IGitService>(),
-            sp.GetService<IIterationService>(),
-            sp.GetRequiredService<IPromptStateWriter>()));
-        services.AddSingleton<FlowDoneCommand>(sp => new FlowDoneCommand(
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
-            sp.GetRequiredService<IContextStore>(),
-            sp.GetRequiredService<IPendingChangeStore>(),
-            sp.GetRequiredService<IProcessConfigurationProvider>(),
-            sp.GetRequiredService<SaveCommand>(),
-            sp.GetRequiredService<IConsoleInput>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
-            sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetService<IGitService>(),
-            sp.GetService<IAdoGitService>(),
-            sp.GetRequiredService<IPromptStateWriter>()));
-        services.AddSingleton<FlowCloseCommand>(sp => new FlowCloseCommand(
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
-            sp.GetRequiredService<IContextStore>(),
-            sp.GetRequiredService<IPendingChangeStore>(),
-            sp.GetRequiredService<IProcessConfigurationProvider>(),
-            sp.GetRequiredService<IConsoleInput>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
-            sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetService<IGitService>(),
-            sp.GetService<IAdoGitService>(),
-            sp.GetRequiredService<IPromptStateWriter>()));
-
-        // Self-update services (EPIC-005)
-        services.AddSingleton<IGitHubReleaseService>(sp =>
-        {
-            var repoSlug = "PolyphonyRequiem/twig";
-            var attrs = typeof(TwigCommands).Assembly
-                .GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false);
-            foreach (var attr in attrs)
-            {
-                if (attr is System.Reflection.AssemblyMetadataAttribute meta && meta.Key == "GitHubRepo" && meta.Value is not null)
-                {
-                    repoSlug = meta.Value;
-                    break;
-                }
-            }
-            return new GitHubReleaseClient(sp.GetRequiredService<HttpClient>(), repoSlug);
-        });
-        services.AddSingleton<SelfUpdater>(sp => new SelfUpdater(sp.GetRequiredService<HttpClient>()));
-        services.AddSingleton<SelfUpdateCommand>();
-        services.AddSingleton<ChangelogCommand>();
-
-        // Oh My Posh helper — generates shell hooks and text segment JSON
-        services.AddSingleton<OhMyPoshCommands>();
+        // Modular DI registration
+        services.AddTwigNetworkServices(config, gitProject, repository);
+        services.AddTwigRenderingServices();
+        services.AddTwigCommandServices();
+        services.AddTwigCommands();
     });
 
 app.UseFilter<ExceptionFilter>();

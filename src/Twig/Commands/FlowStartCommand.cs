@@ -18,7 +18,8 @@ public sealed class FlowStartCommand(
     IWorkItemRepository workItemRepo,
     IAdoWorkItemService adoService,
     IContextStore contextStore,
-    IPendingChangeStore pendingChangeStore,
+    ActiveItemResolver activeItemResolver,
+    ProtectedCacheWriter protectedCacheWriter,
     IProcessConfigurationProvider processConfigProvider,
     IConsoleInput consoleInput,
     OutputFormatterFactory formatterFactory,
@@ -39,8 +40,6 @@ public sealed class FlowStartCommand(
         bool force = false,
         string outputFormat = "human")
     {
-        _ = pendingChangeStore; // Reserved for future SyncGuard integration
-
         var (fmt, renderer) = pipelineFactory is not null
             ? pipelineFactory.Resolve(outputFormat)
             : (formatterFactory.GetFormatter(outputFormat), null);
@@ -61,17 +60,27 @@ public sealed class FlowStartCommand(
             idOrPattern = pickerResult.Value.Id.ToString();
         }
 
-        // 1. Resolve item (SetCommand-style resolution)
+        // 1. Resolve item via ActiveItemResolver (cache → auto-fetch)
         Domain.Aggregates.WorkItem? item = null;
 
         if (int.TryParse(idOrPattern, out var id))
         {
-            item = await workItemRepo.GetByIdAsync(id);
-            if (item is null)
+            var resolved = await activeItemResolver.ResolveByIdAsync(id);
+            switch (resolved)
             {
-                Console.WriteLine(fmt.FormatInfo($"Fetching work item {id} from ADO..."));
-                item = await adoService.FetchAsync(id);
-                await workItemRepo.SaveAsync(item);
+                case ActiveItemResult.Found found:
+                    item = found.WorkItem;
+                    break;
+                case ActiveItemResult.FetchedFromAdo fetched:
+                    Console.WriteLine(fmt.FormatInfo($"Fetching work item {id} from ADO..."));
+                    item = fetched.WorkItem;
+                    break;
+                case ActiveItemResult.Unreachable unreachable:
+                    Console.Error.WriteLine(fmt.FormatError($"Work item #{unreachable.Id} could not be fetched: {unreachable.Reason}"));
+                    return 1;
+                default:
+                    Console.Error.WriteLine(fmt.FormatError($"Work item #{id} not found."));
+                    return 1;
             }
         }
         else
@@ -174,7 +183,7 @@ public sealed class FlowStartCommand(
                         item.ChangeState(newState);
                         item.ApplyCommands();
                         item.MarkSynced(currentRevision);
-                        await workItemRepo.SaveAsync(item);
+                        await protectedCacheWriter.SaveProtectedAsync(item);
                     }
                 }
             }
@@ -209,7 +218,7 @@ public sealed class FlowStartCommand(
                     currentRevision = await adoService.PatchAsync(item.Id, assignChanges, currentRevision);
                     // Re-fetch to update cache with new assignee (AssignedTo is init-only)
                     var refreshed = await adoService.FetchAsync(item.Id);
-                    await workItemRepo.SaveAsync(refreshed);
+                    await protectedCacheWriter.SaveProtectedAsync(refreshed);
                     item = refreshed;
                 }
             }

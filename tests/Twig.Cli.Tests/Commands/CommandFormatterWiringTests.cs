@@ -5,6 +5,7 @@ using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -127,7 +128,11 @@ public class CommandFormatterWiringTests
         var factory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = true });
-        var cmd = new SetCommand(workItemRepo, adoService, contextStore, factory, hintEngine);
+        var resolver = new ActiveItemResolver(contextStore, workItemRepo, adoService);
+        var pendingChangeStore = Substitute.For<IPendingChangeStore>();
+        var protectedWriter = new ProtectedCacheWriter(workItemRepo, pendingChangeStore);
+        var syncCoord = new SyncCoordinator(workItemRepo, adoService, protectedWriter, 30);
+        var cmd = new SetCommand(workItemRepo, contextStore, resolver, syncCoord, factory, hintEngine);
 
         var output = await CaptureStdout(() => cmd.ExecuteAsync("42", "human"));
 

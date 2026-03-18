@@ -18,6 +18,7 @@ public sealed class RefreshCommand(
     IAdoWorkItemService adoService,
     IIterationService iterationService,
     IPendingChangeStore pendingChangeStore,
+    ProtectedCacheWriter protectedCacheWriter,
     TwigConfiguration config,
     TwigPaths paths,
     IProcessTypeStore processTypeStore,
@@ -87,12 +88,12 @@ public sealed class RefreshCommand(
             // Fetch items in batch (skip seeds which have negative IDs)
             var realIds = ids.Where(id => id > 0).ToList();
 
-            // SyncGuard: compute protected IDs once for all save paths
+            // Compute protected IDs for informational conflict detection
             var protectedIds = !force
                 ? await SyncGuard.GetProtectedItemIdsAsync(workItemRepo, pendingChangeStore)
                 : (IReadOnlySet<int>)new HashSet<int>();
 
-            // Local helper: find conflicts between remote items and protected local items
+            // Local helper: find revision conflicts between remote items and protected local items
             async Task<List<(int Id, int LocalRev, int RemoteRev)>> FindConflictsAsync(
                 IEnumerable<WorkItem> remoteItems)
             {
@@ -108,17 +109,16 @@ public sealed class RefreshCommand(
                 return conflicts;
             }
 
-            // Local helper: print conflict details to stderr
-            void PrintConflictErrors(List<(int Id, int LocalRev, int RemoteRev)> conflicts)
+            // Local helper: print conflict details as informational warnings
+            void PrintConflictWarnings(List<(int Id, int LocalRev, int RemoteRev)> conflicts)
             {
-                Console.Error.WriteLine(fmt.FormatError("Refresh blocked: the following items have unsaved local changes that would be overwritten:"));
+                Console.Error.WriteLine(fmt.FormatError("Warning: the following protected items have newer remote revisions (skipped):"));
                 foreach (var (id, localRev, remoteRev) in conflicts)
                     Console.Error.WriteLine(fmt.FormatError($"  #{id}: local rev {localRev} → remote rev {remoteRev}"));
                 Console.Error.WriteLine(fmt.FormatError("Run 'twig save' first, or use 'twig refresh --force' to overwrite."));
             }
 
-            // Fetch all scopes first, then check all conflicts before persisting anything.
-            // This avoids a partially-updated cache when a later scope has conflicts.
+            // Fetch all scopes first, then save through appropriate path.
             IReadOnlyList<WorkItem> sprintItems = [];
             WorkItem? activeItem = null;
             IReadOnlyList<WorkItem> childItems = [];
@@ -141,7 +141,7 @@ public sealed class RefreshCommand(
                 childItems = await adoService.FetchChildrenAsync(activeId.Value);
             }
 
-            // Check all conflicts across all scopes before saving anything
+            // Detect revision conflicts for informational output
             var allConflicts = new List<(int Id, int LocalRev, int RemoteRev)>();
             allConflicts.AddRange(await FindConflictsAsync(sprintItems));
             if (activeItem is not null)
@@ -149,18 +149,28 @@ public sealed class RefreshCommand(
             allConflicts.AddRange(await FindConflictsAsync(childItems));
 
             if (allConflicts.Count > 0)
-            {
-                PrintConflictErrors(allConflicts);
-                return 1;
-            }
+                PrintConflictWarnings(allConflicts);
 
-            // All clear — persist fetched data
-            if (sprintItems.Count > 0)
-                await workItemRepo.SaveBatchAsync(sprintItems);
-            if (activeItem is not null)
-                await workItemRepo.SaveAsync(activeItem);
-            if (childItems.Count > 0)
-                await workItemRepo.SaveBatchAsync(childItems);
+            // Persist fetched data: --force bypasses protection, otherwise use ProtectedCacheWriter
+            if (force)
+            {
+                if (sprintItems.Count > 0)
+                    await workItemRepo.SaveBatchAsync(sprintItems);
+                if (activeItem is not null)
+                    await workItemRepo.SaveAsync(activeItem);
+                if (childItems.Count > 0)
+                    await workItemRepo.SaveBatchAsync(childItems);
+            }
+            else
+            {
+                // Reuse the pre-computed protectedIds to avoid redundant SyncGuard queries
+                if (sprintItems.Count > 0)
+                    await protectedCacheWriter.SaveBatchProtectedAsync(sprintItems, protectedIds);
+                if (activeItem is not null)
+                    await protectedCacheWriter.SaveProtectedAsync(activeItem, protectedIds);
+                if (childItems.Count > 0)
+                    await protectedCacheWriter.SaveBatchProtectedAsync(childItems, protectedIds);
+            }
 
             Console.WriteLine(fmt.FormatSuccess($"Refreshed {fetched} item(s)."));
         }

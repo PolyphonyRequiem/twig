@@ -101,12 +101,12 @@ public static class IconSet
     public static IReadOnlyDictionary<string, string> NerdFontIconsByIconId { get; } =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            ["icon_crown"]            = "\ueb59",         // nf-cod-star_full (U+EB59)
+            ["icon_crown"]            = "\udb80\udda5",   // nf-md-crown (U+F01A5)
             ["icon_insect"]           = "\ueaaf",         // nf-cod-bug (U+EAAF)
             ["icon_check_box"]        = "\ueab3",         // nf-cod-checklist (U+EAB3)
             ["icon_book"]             = "\ueaa4",         // nf-cod-book (U+EAA4)
             ["icon_clipboard"]        = "\ueac0",         // nf-cod-clippy (U+EAC0)
-            ["icon_trophy"]           = "\ueb20",         // nf-cod-milestone (U+EB20)
+            ["icon_trophy"]           = "\udb81\udd3b",   // nf-md-trophy_variant (U+EB20)
             ["icon_gift"]             = "\ueaf9",         // nf-cod-gift (U+EAF9)
             ["icon_chart"]            = "\ueb03",         // nf-cod-graph (U+EB03)
             ["icon_diamond"]          = "\udb80\uddc8",   // nf-md-diamond_stone (U+F01C8)

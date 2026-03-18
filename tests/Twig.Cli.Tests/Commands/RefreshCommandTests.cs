@@ -3,6 +3,7 @@ using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -22,6 +23,7 @@ public class RefreshCommandTests : IDisposable
     private readonly IAdoWorkItemService _adoService;
     private readonly IIterationService _iterationService;
     private readonly IPendingChangeStore _pendingChangeStore;
+    private readonly ProtectedCacheWriter _protectedCacheWriter;
     private readonly RefreshCommand _cmd;
 
     public RefreshCommandTests()
@@ -42,6 +44,7 @@ public class RefreshCommandTests : IDisposable
         _adoService = Substitute.For<IAdoWorkItemService>();
         _iterationService = Substitute.For<IIterationService>();
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
+        _protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
 
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
@@ -65,7 +68,7 @@ public class RefreshCommandTests : IDisposable
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
 
         _cmd = new RefreshCommand(_contextStore, _workItemRepo, _adoService, _iterationService,
-            _pendingChangeStore, _config, _paths, _processTypeStore, formatterFactory, hintEngine);
+            _pendingChangeStore, _protectedCacheWriter, _config, _paths, _processTypeStore, formatterFactory, hintEngine);
     }
 
     public void Dispose()
@@ -414,7 +417,7 @@ public class RefreshCommandTests : IDisposable
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         var cmd = new RefreshCommand(_contextStore, _workItemRepo, _adoService, _iterationService,
-            _pendingChangeStore, _config, _paths, _processTypeStore, formatterFactory, hintEngine);
+            _pendingChangeStore, _protectedCacheWriter, _config, _paths, _processTypeStore, formatterFactory, hintEngine);
 
         var originalErr = Console.Error;
         var sw = new StringWriter();
@@ -448,7 +451,7 @@ public class RefreshCommandTests : IDisposable
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         var cmd = new RefreshCommand(_contextStore, _workItemRepo, _adoService, _iterationService,
-            _pendingChangeStore, _config, _paths, _processTypeStore, formatterFactory, hintEngine);
+            _pendingChangeStore, _protectedCacheWriter, _config, _paths, _processTypeStore, formatterFactory, hintEngine);
 
         var originalErr = Console.Error;
         var sw = new StringWriter();

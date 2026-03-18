@@ -5,6 +5,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -69,8 +70,9 @@ public class StateCommandTests
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
 
+        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         _cmd = new StateCommand(
-            _contextStore, _workItemRepo, _adoService,
+            resolver, _workItemRepo, _adoService,
             _pendingChangeStore, _processConfigProvider, _consoleInput,
             formatterFactory, hintEngine);
     }

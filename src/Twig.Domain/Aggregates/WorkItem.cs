@@ -49,6 +49,9 @@ public sealed class WorkItem
     public bool IsSeed { get; init; }
     public DateTimeOffset? SeedCreatedAt { get; init; }
 
+    // ── Cache staleness ─────────────────────────────────────────────
+    public DateTimeOffset? LastSyncedAt { get; init; }
+
     // ── Arbitrary field storage (read-only public surface) ──────────
     public IReadOnlyDictionary<string, string?> Fields => _fieldsView;
 

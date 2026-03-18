@@ -13,7 +13,7 @@ namespace Twig.Commands;
 /// prompts if backward/cut, pushes to ADO, auto-pushes pending notes, and updates cache.
 /// </summary>
 public sealed class StateCommand(
-    IContextStore contextStore,
+    ActiveItemResolver activeItemResolver,
     IWorkItemRepository workItemRepo,
     IAdoWorkItemService adoService,
     IPendingChangeStore pendingChangeStore,
@@ -34,19 +34,26 @@ public sealed class StateCommand(
             return 2;
         }
 
-        var activeId = await contextStore.GetActiveWorkItemIdAsync();
-        if (activeId is null)
+        var resolved = await activeItemResolver.GetActiveItemAsync();
+        if (resolved is ActiveItemResult.NoContext)
         {
             Console.Error.WriteLine(fmt.FormatError("No active work item. Run 'twig set <id>' first."));
             return 1;
         }
-
-        var item = await workItemRepo.GetByIdAsync(activeId.Value);
-        if (item is null)
+        if (resolved is ActiveItemResult.Unreachable u)
         {
-            Console.Error.WriteLine(fmt.FormatError($"Work item #{activeId.Value} not found in cache."));
+            Console.Error.WriteLine(fmt.FormatError($"Work item #{u.Id} not found in cache."));
             return 1;
         }
+
+        var item = resolved switch
+        {
+            ActiveItemResult.Found f => f.WorkItem,
+            ActiveItemResult.FetchedFromAdo f => f.WorkItem,
+            _ => null,
+        };
+        if (item is null)
+            return 1;
 
         // Get process configuration
         var processConfig = processConfigProvider.GetConfiguration();

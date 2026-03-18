@@ -3,6 +3,7 @@ using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -16,6 +17,8 @@ public class SetCommandTests
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IAdoWorkItemService _adoService;
     private readonly IContextStore _contextStore;
+    private readonly ActiveItemResolver _activeItemResolver;
+    private readonly SyncCoordinator _syncCoordinator;
     private readonly SetCommand _cmd;
 
     public SetCommandTests()
@@ -25,10 +28,14 @@ public class SetCommandTests
         _contextStore = Substitute.For<IContextStore>();
         _adoService.FetchChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
+        _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var pendingChangeStore = Substitute.For<IPendingChangeStore>();
+        var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, pendingChangeStore);
+        _syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, protectedCacheWriter, 30);
         var formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
-        _cmd = new SetCommand(_workItemRepo, _adoService, _contextStore,
+        _cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
             formatterFactory, hintEngine);
     }
 

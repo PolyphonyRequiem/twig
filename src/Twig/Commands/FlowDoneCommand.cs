@@ -15,7 +15,6 @@ namespace Twig.Commands;
 public sealed class FlowDoneCommand(
     IWorkItemRepository workItemRepo,
     IAdoWorkItemService adoService,
-    IContextStore contextStore,
     IPendingChangeStore pendingChangeStore,
     IProcessConfigurationProvider processConfigProvider,
     SaveCommand saveCommand,
@@ -23,6 +22,8 @@ public sealed class FlowDoneCommand(
     OutputFormatterFactory formatterFactory,
     HintEngine hintEngine,
     TwigConfiguration config,
+    ActiveItemResolver activeItemResolver,
+    ProtectedCacheWriter protectedCacheWriter,
     IGitService? gitService = null,
     IAdoGitService? adoGitService = null,
     IPromptStateWriter? promptStateWriter = null)
@@ -38,30 +39,53 @@ public sealed class FlowDoneCommand(
 
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
-        // 1. Resolve target
+        // 1. Resolve target via ActiveItemResolver
         int targetId;
         bool isExplicitId = id.HasValue;
+        Domain.Aggregates.WorkItem item;
 
         if (id.HasValue)
         {
-            targetId = id.Value;
+            var resolved = await activeItemResolver.ResolveByIdAsync(id.Value);
+            switch (resolved)
+            {
+                case ActiveItemResult.Found found:
+                    item = found.WorkItem;
+                    break;
+                case ActiveItemResult.FetchedFromAdo fetched:
+                    item = fetched.WorkItem;
+                    break;
+                case ActiveItemResult.Unreachable unreachable:
+                    Console.Error.WriteLine(fmt.FormatError($"Work item #{unreachable.Id} could not be fetched: {unreachable.Reason}"));
+                    return 1;
+                default:
+                    Console.Error.WriteLine(fmt.FormatError($"Work item #{id.Value} not found in cache."));
+                    return 1;
+            }
+            targetId = item.Id;
         }
         else
         {
-            var activeId = await contextStore.GetActiveWorkItemIdAsync();
-            if (!activeId.HasValue)
+            var activeResult = await activeItemResolver.GetActiveItemAsync();
+            switch (activeResult)
             {
-                Console.Error.WriteLine(fmt.FormatError("No active work item. Run 'twig flow-start <id>' first."));
-                return 1;
+                case ActiveItemResult.NoContext:
+                    Console.Error.WriteLine(fmt.FormatError("No active work item. Run 'twig flow-start <id>' first."));
+                    return 1;
+                case ActiveItemResult.Found found:
+                    item = found.WorkItem;
+                    break;
+                case ActiveItemResult.FetchedFromAdo fetched:
+                    item = fetched.WorkItem;
+                    break;
+                case ActiveItemResult.Unreachable unreachable:
+                    Console.Error.WriteLine(fmt.FormatError($"Work item #{unreachable.Id} could not be fetched: {unreachable.Reason}"));
+                    return 1;
+                default:
+                    Console.Error.WriteLine(fmt.FormatError("No active work item. Run 'twig flow-start <id>' first."));
+                    return 1;
             }
-            targetId = activeId.Value;
-        }
-
-        var item = await workItemRepo.GetByIdAsync(targetId);
-        if (item is null)
-        {
-            Console.Error.WriteLine(fmt.FormatError($"Work item #{targetId} not found in cache."));
-            return 1;
+            targetId = item.Id;
         }
 
         // 2. Save work tree (if not --no-save)
@@ -120,7 +144,7 @@ public sealed class FlowDoneCommand(
                     item.ChangeState(newState);
                     item.ApplyCommands();
                     item.MarkSynced(newRevision);
-                    await workItemRepo.SaveAsync(item);
+                    await protectedCacheWriter.SaveProtectedAsync(item);
                 }
             }
         }

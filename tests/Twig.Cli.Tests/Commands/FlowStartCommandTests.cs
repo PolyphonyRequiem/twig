@@ -4,6 +4,7 @@ using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -18,6 +19,8 @@ public class FlowStartCommandTests
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IAdoWorkItemService _adoService;
     private readonly IContextStore _contextStore;
+    private readonly ActiveItemResolver _activeItemResolver;
+    private readonly ProtectedCacheWriter _protectedCacheWriter;
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IProcessConfigurationProvider _processConfigProvider;
     private readonly IConsoleInput _consoleInput;
@@ -60,6 +63,12 @@ public class FlowStartCommandTests
         _gitService = Substitute.For<IGitService>();
         _iterationService = Substitute.For<IIterationService>();
 
+        _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        _protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
+
+        // Default: no dirty items (for ProtectedCacheWriter)
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());
+
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
@@ -73,7 +82,7 @@ public class FlowStartCommandTests
     }
 
     private FlowStartCommand CreateCommand(IGitService? gitService = null, IIterationService? iterationService = null) =>
-        new(_workItemRepo, _adoService, _contextStore, _pendingChangeStore,
+        new(_workItemRepo, _adoService, _contextStore, _activeItemResolver, _protectedCacheWriter,
             _processConfigProvider, _consoleInput, _formatterFactory, _hintEngine, _config,
             pipelineFactory: null, gitService: gitService, iterationService: iterationService);
 
@@ -82,7 +91,7 @@ public class FlowStartCommandTests
     {
         var pipelineFactory = new RenderingPipelineFactory(
             _formatterFactory, renderer, isOutputRedirected: () => false);
-        return new(_workItemRepo, _adoService, _contextStore, _pendingChangeStore,
+        return new(_workItemRepo, _adoService, _contextStore, _activeItemResolver, _protectedCacheWriter,
             _processConfigProvider, _consoleInput, _formatterFactory, _hintEngine, _config,
             pipelineFactory: pipelineFactory, gitService: gitService, iterationService: iterationService);
     }
@@ -366,6 +375,34 @@ public class FlowStartCommandTests
         await _adoService.DidNotReceive().PatchAsync(1,
             Arg.Is<IReadOnlyList<FieldChange>>(c => c.Any(f => f.FieldName == "System.AssignedTo")),
             Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task FetchedFromAdo_CacheMiss_AutoFetchesAndProceeds()
+    {
+        // Item not in cache — ActiveItemResolver auto-fetches from ADO
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        var item = CreateWorkItem(1, "Auto-fetched item", "New");
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+
+        var savedOut = Console.Out;
+        var stdout = new StringWriter();
+        Console.SetOut(stdout);
+        try
+        {
+            var cmd = CreateCommand();
+            var result = await cmd.ExecuteAsync("1");
+
+            result.ShouldBe(0);
+            await _contextStore.Received().SetActiveWorkItemIdAsync(1, Arg.Any<CancellationToken>());
+            // Verify the info message about fetching from ADO was emitted
+            stdout.ToString().ShouldContain("Fetching work item 1 from ADO");
+        }
+        finally
+        {
+            Console.SetOut(savedOut);
+        }
     }
 
     // ── Interactive Picker (ITEM-029/030) ──────────────────────────────

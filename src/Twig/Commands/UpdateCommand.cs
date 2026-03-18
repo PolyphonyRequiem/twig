@@ -1,4 +1,5 @@
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -10,7 +11,7 @@ namespace Twig.Commands;
 /// conflict-resolves, applies change, pushes, auto-pushes notes, clears pending, updates cache.
 /// </summary>
 public sealed class UpdateCommand(
-    IContextStore contextStore,
+    ActiveItemResolver activeItemResolver,
     IWorkItemRepository workItemRepo,
     IAdoWorkItemService adoService,
     IPendingChangeStore pendingChangeStore,
@@ -31,19 +32,26 @@ public sealed class UpdateCommand(
             return 2;
         }
 
-        var activeId = await contextStore.GetActiveWorkItemIdAsync();
-        if (activeId is null)
+        var resolved = await activeItemResolver.GetActiveItemAsync();
+        if (resolved is ActiveItemResult.NoContext)
         {
             Console.Error.WriteLine(fmt.FormatError("No active work item. Run 'twig set <id>' first."));
             return 1;
         }
-
-        var local = await workItemRepo.GetByIdAsync(activeId.Value);
-        if (local is null)
+        if (resolved is ActiveItemResult.Unreachable u)
         {
-            Console.Error.WriteLine(fmt.FormatError($"Work item #{activeId.Value} not found in cache."));
+            Console.Error.WriteLine(fmt.FormatError($"Work item #{u.Id} not found in cache."));
             return 1;
         }
+
+        var local = resolved switch
+        {
+            ActiveItemResult.Found f => f.WorkItem,
+            ActiveItemResult.FetchedFromAdo f => f.WorkItem,
+            _ => null,
+        };
+        if (local is null)
+            return 1;
 
         // Pull latest from ADO
         var remote = await adoService.FetchAsync(local.Id);

@@ -4,6 +4,7 @@ using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -25,6 +26,8 @@ public class FlowCloseCommandTests
     private readonly TwigConfiguration _config;
     private readonly IGitService _gitService;
     private readonly IAdoGitService _adoGitService;
+    private readonly ActiveItemResolver _activeItemResolver;
+    private readonly ProtectedCacheWriter _protectedCacheWriter;
 
     private static StateEntry[] AgileUserStoryStates =>
     [
@@ -55,6 +58,9 @@ public class FlowCloseCommandTests
         _gitService = Substitute.For<IGitService>();
         _adoGitService = Substitute.For<IAdoGitService>();
 
+        _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        _protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
+
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
@@ -73,8 +79,9 @@ public class FlowCloseCommandTests
     }
 
     private FlowCloseCommand CreateCommand(IGitService? gitService = null, IAdoGitService? adoGitService = null) =>
-        new(_workItemRepo, _adoService, _contextStore, _pendingChangeStore,
+        new(_adoService, _contextStore, _pendingChangeStore,
             _processConfigProvider, _consoleInput, _formatterFactory, _hintEngine, _config,
+            _activeItemResolver, _protectedCacheWriter,
             gitService, adoGitService);
 
     private static WorkItem CreateWorkItem(int id, string title, string state) => new()

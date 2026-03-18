@@ -462,6 +462,7 @@ None. No new NuGet packages required.
 
 ### Phase 1: Domain Model & Infrastructure (EPIC-001)
 **Exit Criteria**: `WorkingSet` value object and `WorkingSetService` exist with unit tests. `EvictExceptAsync` is implemented and tested. No command changes yet.
+**Status**: DONE
 
 ### Phase 2: Sync Coordinator Extension (EPIC-002)
 **Exit Criteria**: `SyncWorkingSetAsync` exists on `SyncCoordinator` with unit tests covering fresh/stale/mixed/failure scenarios.
@@ -486,7 +487,7 @@ None. No new NuGet packages required.
 | `src/Twig.Domain/Services/WorkingSet.cs` | Value object — computed working set with `AllIds` |
 | `src/Twig.Domain/Services/WorkingSetService.cs` | Domain service — computes working set from cache state |
 | `tests/Twig.Domain.Tests/Services/WorkingSetServiceTests.cs` | Unit tests for working set computation |
-| `tests/Twig.Domain.Tests/Services/WorkingSetEvictionTests.cs` | Unit tests for eviction + dirty item preservation |
+| `tests/Twig.Domain.Tests/Services/WorkingSetAllIdsTests.cs` | Unit tests for `WorkingSet.AllIds` computation |
 | `tests/Twig.Cli.Tests/Commands/WorkingSetCommandTests.cs` | Integration tests for SetCommand eviction behavior |
 
 ### Modified Files
@@ -545,19 +546,19 @@ None. No new NuGet packages required.
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| WS-001 | IMPL | Create `WorkingSet` record with `ActiveItemId`, `ParentChainIds`, `ChildrenIds`, `SprintItemIds`, `SeedIds`, `DirtyItemIds`, `IterationPath`, and computed `AllIds` (union of all ID sets). Use constructor to compute `AllIds` once. | `src/Twig.Domain/Services/WorkingSet.cs` | TO DO |
-| WS-002 | IMPL | Create `WorkingSetService` with constructor: `IContextStore`, `IWorkItemRepository`, `IPendingChangeStore`, `IIterationService`, `string? userDisplayName`. Method `ComputeAsync(IterationPath? iterationPath = null, CancellationToken ct = default)` → `WorkingSet`: if `iterationPath` is provided, uses it directly (no network call); otherwise calls `IIterationService.GetCurrentIterationAsync()` (ADO REST). Reads active ID, queries parent chain/children/sprint items/seeds/dirty IDs from cache. Sprint items filtered by `userDisplayName` when non-null. | `src/Twig.Domain/Services/WorkingSetService.cs` | TO DO |
-| WS-003 | IMPL | Add `EvictExceptAsync(IReadOnlySet<int> keepIds, CancellationToken)` to `IWorkItemRepository` interface. | `src/Twig.Domain/Interfaces/IWorkItemRepository.cs` | TO DO |
-| WS-004 | IMPL | Implement `EvictExceptAsync` in `SqliteWorkItemRepository` — single parameterized `DELETE FROM work_items WHERE id NOT IN (...)`. Handle empty keep set (delete all) and large keep sets (>900 → temp table). | `src/Twig.Infrastructure/Persistence/SqliteWorkItemRepository.cs` | TO DO |
-| WS-005 | TEST | Unit tests for `WorkingSetService.ComputeAsync`: correct membership for each category, empty cache, no active item, missing parent chain, no sprint items, assignee filtering, IterationPath passthrough (verify `GetCurrentIterationAsync` NOT called when `iterationPath` is provided). | `tests/Twig.Domain.Tests/Services/WorkingSetServiceTests.cs` | TO DO |
-| WS-006 | TEST | Unit tests for `EvictExceptAsync`: deletes non-kept items, preserves kept items, handles empty keep set, handles all-kept (deletes nothing). | `tests/Twig.Domain.Tests/Services/WorkingSetEvictionTests.cs` | TO DO |
+| WS-001 | IMPL | Create `WorkingSet` record with `ActiveItemId`, `ParentChainIds`, `ChildrenIds`, `SprintItemIds`, `SeedIds`, `DirtyItemIds`, `IterationPath`, and computed `AllIds` (union of all ID sets). Computed `AllIds` property iterates all ID collections fresh on each access to avoid stale results after `with` expressions. | `src/Twig.Domain/Services/WorkingSet.cs` | DONE |
+| WS-002 | IMPL | Create `WorkingSetService` with constructor: `IContextStore`, `IWorkItemRepository`, `IPendingChangeStore`, `IIterationService`, `string? userDisplayName`. Method `ComputeAsync(IterationPath? iterationPath = null, CancellationToken ct = default)` → `WorkingSet`: if `iterationPath` is provided, uses it directly (no network call); otherwise calls `IIterationService.GetCurrentIterationAsync()` (ADO REST). Reads active ID, queries parent chain/children/sprint items/seeds/dirty IDs from cache. Sprint items filtered by `userDisplayName` when non-null. | `src/Twig.Domain/Services/WorkingSetService.cs` | DONE |
+| WS-003 | IMPL | Add `EvictExceptAsync(IReadOnlySet<int> keepIds, CancellationToken)` to `IWorkItemRepository` interface. | `src/Twig.Domain/Interfaces/IWorkItemRepository.cs` | DONE |
+| WS-004 | IMPL | Implement `EvictExceptAsync` in `SqliteWorkItemRepository` — single parameterized `DELETE FROM work_items WHERE id NOT IN (...)`. Handle empty keep set (delete all) and large keep sets (>900 → temp table). | `src/Twig.Infrastructure/Persistence/SqliteWorkItemRepository.cs` | DONE |
+| WS-005 | TEST | Unit tests for `WorkingSetService.ComputeAsync`: correct membership for each category, empty cache, no active item, missing parent chain, no sprint items, assignee filtering, IterationPath passthrough (verify `GetCurrentIterationAsync` NOT called when `iterationPath` is provided). | `tests/Twig.Domain.Tests/Services/WorkingSetServiceTests.cs` | DONE |
+| WS-006 | TEST | Unit tests for `WorkingSet.AllIds` computation: active item inclusion, empty set, union of all categories, deduplication of overlapping IDs, null active item exclusion, `with`-expression freshness. | `tests/Twig.Domain.Tests/Services/WorkingSetAllIdsTests.cs` | DONE |
 
 **Acceptance Criteria**:
-- [ ] `WorkingSet.AllIds` contains the union of all ID sets
-- [ ] `WorkingSetService.ComputeAsync` returns correct IDs for all membership categories
-- [ ] `EvictExceptAsync` deletes only items NOT in the keep set
-- [ ] All new unit tests pass
-- [ ] Build succeeds (`dotnet build`)
+- [x] `WorkingSet.AllIds` contains the union of all ID sets
+- [x] `WorkingSetService.ComputeAsync` returns correct IDs for all membership categories
+- [x] `EvictExceptAsync` deletes only items NOT in the keep set
+- [x] All new unit tests pass
+- [x] Build succeeds (`dotnet build`)
 
 ---
 

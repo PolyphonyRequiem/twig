@@ -1,6 +1,8 @@
 using Twig.Domain.Aggregates;
+using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Config;
 
@@ -27,7 +29,7 @@ public sealed class HintEngine
     /// <param name="item">The active work item, if available.</param>
     /// <param name="workspace">The workspace model, if available.</param>
     /// <param name="outputFormat">The output format being used ("human", "json", "minimal").</param>
-    /// <param name="stateShorthand">The state shorthand code used (for "state" command).</param>
+    /// <param name="newStateName">The resolved state name (for "state" command).</param>
     /// <param name="createdId">The ID of a newly created item (for "seed" command).</param>
     /// <param name="siblings">Sibling work items (for "state d" hint about all siblings done).</param>
     /// <param name="staleSeedCount">Number of stale seeds (for "status" command).</param>
@@ -36,7 +38,7 @@ public sealed class HintEngine
         WorkItem? item = null,
         Workspace? workspace = null,
         string outputFormat = "human",
-        string? stateShorthand = null,
+        string? newStateName = null,
         int? createdId = null,
         IReadOnlyList<WorkItem>? siblings = null,
         int staleSeedCount = 0)
@@ -54,11 +56,13 @@ public sealed class HintEngine
         switch (commandName.ToLowerInvariant())
         {
             case "set":
-                hints.Add("Try: twig status, twig tree, twig state <shorthand>");
+                hints.Add("Try: twig status, twig tree, twig state <name>");
                 break;
 
             case "state":
-                if (string.Equals(stateShorthand, "d", StringComparison.OrdinalIgnoreCase))
+            {
+                var category = StateCategoryResolver.Resolve(newStateName, null);
+                if (category == StateCategory.Completed)
                 {
                     // Check if all siblings are done
                     if (siblings is not null && siblings.Count > 0)
@@ -76,7 +80,7 @@ public sealed class HintEngine
 
                         if (allSiblingsDone)
                         {
-                            hints.Add("All sibling tasks complete. Consider: twig up then twig state d");
+                            hints.Add("All sibling tasks complete. Consider: twig up then twig state Closed");
                         }
                     }
 
@@ -86,11 +90,12 @@ public sealed class HintEngine
                         hints.Add($"You have {item.PendingNotes.Count} pending notes. Run twig save to push them.");
                     }
                 }
-                else if (string.Equals(stateShorthand, "x", StringComparison.OrdinalIgnoreCase))
+                else if (category == StateCategory.Removed)
                 {
                     hints.Add("Item cut. Consider: twig up to return to parent");
                 }
                 break;
+            }
 
             case "seed":
                 if (createdId.HasValue)

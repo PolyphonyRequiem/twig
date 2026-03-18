@@ -70,7 +70,7 @@ public class HintEngineTests
             CreateWorkItem(3, "Sibling 2", "Done"),
         };
 
-        var hints = engine.GetHints("state", stateShorthand: "d", siblings: siblings);
+        var hints = engine.GetHints("state", newStateName: "Closed", siblings: siblings);
 
         hints.ShouldContain(h => h.Contains("All sibling tasks complete"));
         hints.ShouldContain(h => h.Contains("twig up"));
@@ -86,7 +86,7 @@ public class HintEngineTests
             CreateWorkItem(3, "Sibling 2", "Done"),
         };
 
-        var hints = engine.GetHints("state", stateShorthand: "d", siblings: siblings);
+        var hints = engine.GetHints("state", newStateName: "Closed", siblings: siblings);
 
         hints.ShouldNotContain(h => h.Contains("All sibling tasks complete"));
     }
@@ -99,7 +99,7 @@ public class HintEngineTests
         item.AddNote(new PendingNote("note text", DateTimeOffset.UtcNow, false));
         item.ApplyCommands();
 
-        var hints = engine.GetHints("state", item: item, stateShorthand: "d");
+        var hints = engine.GetHints("state", item: item, newStateName: "Closed");
 
         hints.ShouldContain(h => h.Contains("pending notes"));
         hints.ShouldContain(h => h.Contains("twig save"));
@@ -110,7 +110,7 @@ public class HintEngineTests
     {
         var engine = CreateEngine();
 
-        var hints = engine.GetHints("state", stateShorthand: "x");
+        var hints = engine.GetHints("state", newStateName: "Removed");
 
         hints.Count.ShouldBe(1);
         hints[0].ShouldContain("Item cut");

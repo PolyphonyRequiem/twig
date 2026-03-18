@@ -121,14 +121,14 @@ public class MinimalOutputFormatterTests
     }
 
     [Fact]
-    public void FormatTree_ShowsShorthandState()
+    public void FormatTree_ShowsStateName()
     {
         var focus = CreateWorkItem(1, "Focus", "Active");
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), Array.Empty<WorkItem>());
 
         var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
 
-        result.ShouldContain("[c]"); // Active -> c
+        result.ShouldContain("[Active]");
     }
 
     [Fact]

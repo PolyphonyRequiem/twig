@@ -225,7 +225,7 @@ public class PromptStateIntegrationTests : IDisposable
             _pendingChangeStore, _processConfigProvider, _consoleInput,
             _formatterFactory, _hintEngine, writer);
 
-        var result = await cmd.ExecuteAsync("s"); // Resolved
+        var result = await cmd.ExecuteAsync("Resolved");
 
         result.ShouldBe(0);
         File.Exists(PromptJsonPath).ShouldBeTrue();

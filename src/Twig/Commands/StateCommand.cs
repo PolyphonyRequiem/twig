@@ -9,8 +9,9 @@ using Twig.Infrastructure.Config;
 namespace Twig.Commands;
 
 /// <summary>
-/// Implements <c>twig state &lt;shorthand&gt;</c>: resolves shorthand, validates transition,
-/// prompts if backward/cut, pushes to ADO, auto-pushes pending notes, and updates cache.
+/// Implements <c>twig state &lt;name&gt;</c>: resolves a full or partial state name,
+/// validates transition, prompts if backward/cut, pushes to ADO, auto-pushes pending notes,
+/// and updates cache.
 /// </summary>
 public sealed class StateCommand(
     ActiveItemResolver activeItemResolver,
@@ -23,14 +24,14 @@ public sealed class StateCommand(
     HintEngine hintEngine,
     IPromptStateWriter? promptStateWriter = null)
 {
-    /// <summary>Change the state of the active work item using a shorthand code (p/c/s/d/x).</summary>
-    public async Task<int> ExecuteAsync(string shorthand, string outputFormat = "human")
+    /// <summary>Change the state of the active work item by full or partial state name.</summary>
+    public async Task<int> ExecuteAsync(string stateName, string outputFormat = "human")
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
-        if (string.IsNullOrWhiteSpace(shorthand) || shorthand.Length != 1)
+        if (string.IsNullOrWhiteSpace(stateName))
         {
-            Console.Error.WriteLine(fmt.FormatError("Usage: twig state <shorthand> (p/c/s/d/x)"));
+            Console.Error.WriteLine(fmt.FormatError("Usage: twig state <name> (e.g. Active, Closed, Res…)"));
             return 2;
         }
 
@@ -58,14 +59,14 @@ public sealed class StateCommand(
         // Get process configuration
         var processConfig = processConfigProvider.GetConfiguration();
 
-        // Resolve shorthand to full state name using state entries from config
+        // Resolve state name (exact or unambiguous prefix)
         if (!processConfig.TypeConfigs.TryGetValue(item.Type, out var typeConfig))
         {
             Console.Error.WriteLine(fmt.FormatError($"No process configuration found for type '{item.Type}'."));
             return 1;
         }
 
-        var resolveResult = StateShorthand.Resolve(shorthand[0], typeConfig.StateEntries);
+        var resolveResult = StateResolver.ResolveByName(stateName, typeConfig.StateEntries);
         if (!resolveResult.IsSuccess)
         {
             Console.Error.WriteLine(fmt.FormatError(resolveResult.Error));
@@ -137,7 +138,7 @@ public sealed class StateCommand(
         var hints = hintEngine.GetHints("state",
             item: item,
             outputFormat: outputFormat,
-            stateShorthand: shorthand,
+            newStateName: newState,
             siblings: siblings);
         foreach (var hint in hints)
         {

@@ -88,7 +88,7 @@ public class StateCommandTests
         _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<PendingChangeRecord>());
 
-        var result = await _cmd.ExecuteAsync("c"); // c = Active (forward from New)
+        var result = await _cmd.ExecuteAsync("Active"); // Active (forward from New)
 
         result.ShouldBe(0);
         await _adoService.Received().PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
@@ -100,19 +100,19 @@ public class StateCommandTests
         var item = CreateWorkItem(1, "Test", "Active", WorkItemType.UserStory);
         SetupActiveItem(item);
 
-        var result = await _cmd.ExecuteAsync("c"); // c = Active, already Active
+        var result = await _cmd.ExecuteAsync("Active"); // Active, already Active
 
         result.ShouldBe(0);
         await _adoService.DidNotReceive().PatchAsync(Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task State_InvalidShorthand_ReturnsError()
+    public async Task State_InvalidState_ReturnsError()
     {
         var item = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
         SetupActiveItem(item);
 
-        var result = await _cmd.ExecuteAsync("z"); // z is invalid
+        var result = await _cmd.ExecuteAsync("Nonexistent"); // no match
 
         result.ShouldBe(1);
     }
@@ -122,7 +122,7 @@ public class StateCommandTests
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
-        var result = await _cmd.ExecuteAsync("c");
+        var result = await _cmd.ExecuteAsync("Active");
 
         result.ShouldBe(1);
     }
@@ -140,7 +140,7 @@ public class StateCommandTests
         _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
             .Returns(new[] { pendingNote });
 
-        var result = await _cmd.ExecuteAsync("c");
+        var result = await _cmd.ExecuteAsync("Active");
 
         result.ShouldBe(0);
         await _adoService.Received().AddCommentAsync(1, "Test note", Arg.Any<CancellationToken>());
@@ -160,7 +160,7 @@ public class StateCommandTests
         _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
             .Returns(new[] { pendingField });
 
-        var result = await _cmd.ExecuteAsync("c");
+        var result = await _cmd.ExecuteAsync("Active");
 
         result.ShouldBe(0);
         // Field changes should NOT be cleared
@@ -181,7 +181,7 @@ public class StateCommandTests
             .Returns(Array.Empty<PendingChangeRecord>());
         _consoleInput.ReadLine().Returns("y");
 
-        var result = await _cmd.ExecuteAsync("p"); // p = New (backward from Active)
+        var result = await _cmd.ExecuteAsync("New"); // New (backward from Active)
 
         result.ShouldBe(0);
         await _adoService.Received().PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
@@ -195,7 +195,7 @@ public class StateCommandTests
         SetupActiveItem(item);
         _consoleInput.ReadLine().Returns("n");
 
-        var result = await _cmd.ExecuteAsync("p"); // p = New (backward from Active)
+        var result = await _cmd.ExecuteAsync("New"); // New (backward from Active)
 
         result.ShouldBe(0);
         await _adoService.DidNotReceive().PatchAsync(Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
@@ -214,7 +214,7 @@ public class StateCommandTests
             .Returns(Array.Empty<PendingChangeRecord>());
         _consoleInput.ReadLine().Returns("y");
 
-        var result = await _cmd.ExecuteAsync("x"); // x = Removed (cut from New)
+        var result = await _cmd.ExecuteAsync("Removed"); // Removed (cut from New)
 
         result.ShouldBe(0);
         await _adoService.Received().PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());

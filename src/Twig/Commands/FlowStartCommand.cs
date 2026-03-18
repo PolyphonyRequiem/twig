@@ -174,7 +174,7 @@ public sealed class FlowStartCommand(
                 var category = StateCategoryResolver.Resolve(item.State, typeConfig.StateEntries);
                 if (category == StateCategory.Proposed)
                 {
-                    var resolveResult = StateShorthand.Resolve('c', typeConfig.StateEntries);
+                    var resolveResult = StateResolver.ResolveByCategory(StateCategory.InProgress, typeConfig.StateEntries);
                     if (resolveResult.IsSuccess)
                     {
                         newState = resolveResult.Value;

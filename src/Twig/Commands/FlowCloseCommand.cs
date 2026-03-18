@@ -152,7 +152,7 @@ public sealed class FlowCloseCommand(
             // Skip if already Completed
             if (category != StateCategory.Completed)
             {
-                var resolveResult = StateShorthand.Resolve('d', typeConfig.StateEntries);
+                var resolveResult = StateResolver.ResolveByCategory(StateCategory.Completed, typeConfig.StateEntries);
                 if (resolveResult.IsSuccess)
                 {
                     newState = resolveResult.Value;

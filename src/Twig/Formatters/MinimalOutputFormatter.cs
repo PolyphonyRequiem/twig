@@ -30,15 +30,15 @@ public sealed class MinimalOutputFormatter : IOutputFormatter
         {
             var parent = tree.ParentChain[i];
             var indent = new string(' ', i * 2);
-            var shorthand = FormatterHelpers.GetShorthand(parent.State);
-            sb.AppendLine($"{indent}  #{parent.Id} [{shorthand}] {parent.Title}");
+            var stateLabel = FormatterHelpers.GetStateLabel(parent.State);
+            sb.AppendLine($"{indent}  #{parent.Id} [{stateLabel}] {parent.Title}");
         }
 
         // Focused item (marked with >) at its natural depth
         var focusIndent = new string(' ', focusDepth * 2);
-        var focusShorthand = FormatterHelpers.GetShorthand(tree.FocusedItem.State);
+        var focusLabel = FormatterHelpers.GetStateLabel(tree.FocusedItem.State);
         var focusDirty = tree.FocusedItem.IsDirty ? " *" : "";
-        sb.AppendLine($"{focusIndent}> #{tree.FocusedItem.Id} [{focusShorthand}] {tree.FocusedItem.Title}{focusDirty}");
+        sb.AppendLine($"{focusIndent}> #{tree.FocusedItem.Id} [{focusLabel}] {tree.FocusedItem.Title}{focusDirty}");
 
         // Children at focused+1 depth
         var childIndent = new string(' ', (focusDepth + 1) * 2);
@@ -47,9 +47,9 @@ public sealed class MinimalOutputFormatter : IOutputFormatter
         for (var i = 0; i < displayCount; i++)
         {
             var child = tree.Children[i];
-            var shorthand = FormatterHelpers.GetShorthand(child.State);
+            var stateLabel = FormatterHelpers.GetStateLabel(child.State);
             var dirty = child.IsDirty ? " *" : "";
-            sb.AppendLine($"{childIndent}#{child.Id} [{shorthand}] {child.Title}{dirty}");
+            sb.AppendLine($"{childIndent}#{child.Id} [{stateLabel}] {child.Title}{dirty}");
         }
 
         if (hasMore)
@@ -83,8 +83,8 @@ public sealed class MinimalOutputFormatter : IOutputFormatter
         foreach (var item in ws.SprintItems)
         {
             var dirty = item.IsDirty ? " *" : "";
-            var shorthand = FormatterHelpers.GetShorthand(item.State);
-            sb.AppendLine($"SPR #{item.Id} [{shorthand}] {item.Title}{dirty}");
+            var stateLabel = FormatterHelpers.GetStateLabel(item.State);
+            sb.AppendLine($"SPR #{item.Id} [{stateLabel}] {item.Title}{dirty}");
         }
 
         // Seeds
@@ -126,9 +126,9 @@ public sealed class MinimalOutputFormatter : IOutputFormatter
         foreach (var item in ws.SprintItems)
         {
             var dirty = item.IsDirty ? " *" : "";
-            var shorthand = FormatterHelpers.GetShorthand(item.State);
+            var stateLabel = FormatterHelpers.GetStateLabel(item.State);
             var assigned = item.AssignedTo is not null ? $" @{item.AssignedTo}" : "";
-            sb.AppendLine($"SPR #{item.Id} [{shorthand}] {item.Title}{assigned}{dirty}");
+            sb.AppendLine($"SPR #{item.Id} [{stateLabel}] {item.Title}{assigned}{dirty}");
         }
 
         // Seeds

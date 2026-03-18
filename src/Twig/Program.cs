@@ -236,9 +236,9 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> Status(string output = "human", bool noLive = false)
         => await services.GetRequiredService<StatusCommand>().ExecuteAsync(output, noLive);
 
-    /// <summary>Change the state of the active work item (p/c/s/d/x).</summary>
-    public async Task<int> State([Argument] string shorthand, string output = "human")
-        => await services.GetRequiredService<StateCommand>().ExecuteAsync(shorthand, output);
+    /// <summary>Change the state of the active work item by name.</summary>
+    public async Task<int> State([Argument] string name, string output = "human")
+        => await services.GetRequiredService<StateCommand>().ExecuteAsync(name, output);
 
     /// <summary>Display the work item tree hierarchy.</summary>
     public async Task<int> Tree(string output = "human", int? depth = null, bool all = false, bool noLive = false)
@@ -446,7 +446,7 @@ Navigation:
   down [pattern]       Navigate to a child work item.
 
 Work Items:
-  state <shorthand>    Change the state (p/c/s/d/x).
+  state <name>         Change the state (e.g. Active, Closed).
   note                 Add a note to the active work item.
   update <field> <v>   Update a field on the active work item.
   edit                 Edit work item fields in an external editor.

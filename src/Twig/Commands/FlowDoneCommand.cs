@@ -130,9 +130,9 @@ public sealed class FlowDoneCommand(
             if (category is not (StateCategory.Resolved or StateCategory.Completed))
             {
                 // Try Resolved first ('s'), fall back to Completed ('d')
-                var resolveResult = StateShorthand.Resolve('s', typeConfig.StateEntries);
+                var resolveResult = StateResolver.ResolveByCategory(StateCategory.Resolved, typeConfig.StateEntries);
                 if (!resolveResult.IsSuccess)
-                    resolveResult = StateShorthand.Resolve('d', typeConfig.StateEntries);
+                    resolveResult = StateResolver.ResolveByCategory(StateCategory.Completed, typeConfig.StateEntries);
 
                 if (resolveResult.IsSuccess)
                 {

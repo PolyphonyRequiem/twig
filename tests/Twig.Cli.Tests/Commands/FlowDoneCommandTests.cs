@@ -28,6 +28,8 @@ public class FlowDoneCommandTests
     private readonly TwigConfiguration _config;
     private readonly IGitService _gitService;
     private readonly IAdoGitService _adoGitService;
+    private readonly ActiveItemResolver _activeItemResolver;
+    private readonly ProtectedCacheWriter _protectedCacheWriter;
 
     private static StateEntry[] AgileUserStoryStates =>
     [
@@ -62,6 +64,9 @@ public class FlowDoneCommandTests
         _gitService = Substitute.For<IGitService>();
         _adoGitService = Substitute.For<IAdoGitService>();
 
+        _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        _protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
+
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
@@ -78,12 +83,13 @@ public class FlowDoneCommandTests
         _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());
 
         _saveCommand = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            new ActiveItemResolver(_contextStore, _workItemRepo, _adoService), _consoleInput, _formatterFactory, _hintEngine);
+            _activeItemResolver, _consoleInput, _formatterFactory, _hintEngine);
     }
 
     private FlowDoneCommand CreateCommand(IGitService? gitService = null, IAdoGitService? adoGitService = null) =>
-        new(_workItemRepo, _adoService, _contextStore, _pendingChangeStore,
+        new(_workItemRepo, _adoService, _pendingChangeStore,
             _processConfigProvider, _saveCommand, _consoleInput, _formatterFactory, _hintEngine, _config,
+            _activeItemResolver, _protectedCacheWriter,
             gitService, adoGitService);
 
     private static WorkItem CreateWorkItem(int id, string title, string state) => new()
@@ -136,8 +142,8 @@ public class FlowDoneCommandTests
         var result = await cmd.ExecuteAsync(noSave: true);
 
         result.ShouldBe(0);
-        // SaveCommand should not have been invoked (no dirty items call)
-        await _pendingChangeStore.DidNotReceive().GetDirtyItemIdsAsync(Arg.Any<CancellationToken>());
+        // SaveCommand should not have been invoked — GetChangesAsync is SaveCommand-specific
+        await _pendingChangeStore.DidNotReceive().GetChangesAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -338,7 +344,7 @@ public class FlowDoneCommandTests
 
             result.ShouldBe(0);
             var output = stdout.ToString();
-            output.ShouldNotContain("\"saved\":true");
+            output.ShouldNotContain("\"saved\": true");
         }
         finally
         {
@@ -367,7 +373,7 @@ public class FlowDoneCommandTests
 
             result.ShouldBe(0);
             var output = stdout.ToString();
-            output.ShouldNotContain("\"saved\":true");
+            output.ShouldNotContain("\"saved\": true");
         }
         finally
         {
@@ -433,7 +439,7 @@ public class FlowDoneCommandTests
 
             result.ShouldBe(0);
             var output = stdout.ToString();
-            output.ShouldNotContain("\"saved\":true");
+            output.ShouldNotContain("\"saved\": true");
         }
         finally
         {
@@ -521,8 +527,9 @@ public class FlowDoneCommandTests
         };
 
         var cmd = new FlowDoneCommand(
-            _workItemRepo, _adoService, _contextStore, _pendingChangeStore,
+            _workItemRepo, _adoService, _pendingChangeStore,
             _processConfigProvider, _saveCommand, _consoleInput, _formatterFactory, _hintEngine, configNoPr,
+            _activeItemResolver, _protectedCacheWriter,
             _gitService, _adoGitService);
         var result = await cmd.ExecuteAsync(noSave: true);
 

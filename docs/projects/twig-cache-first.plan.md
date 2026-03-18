@@ -624,24 +624,27 @@ No new security boundaries are introduced. All data flows remain local (SQLite c
 
 **Prerequisites**: EPIC-001, EPIC-005 (SaveCommand dependency)
 
+**Status**: DONE
+**Completed**: 2026-03-18
+
 **Tasks**:
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E6-T1a | IMPL | **FlowStartCommand — resolution + protection**: Replace inline active-item resolution with `ActiveItemResolver`. Replace unguarded `workItemRepo.SaveAsync` calls with `ProtectedCacheWriter.SaveProtectedAsync`. Keep step-by-step progress UX. | `src/Twig/Commands/FlowStartCommand.cs` | TO DO |
-| E6-T1b | IMPL | **FlowStartCommand — constructor cleanup**: Remove `IPendingChangeStore` (line 42: unused placeholder). Add `ActiveItemResolver`, `ProtectedCacheWriter`. Param count: 13→14. See OQ-5 for future consolidation. | `src/Twig/Commands/FlowStartCommand.cs` | TO DO |
+| E6-T1a | IMPL | **FlowStartCommand — resolution + protection**: Replace inline active-item resolution with `ActiveItemResolver`. Replace unguarded `workItemRepo.SaveAsync` calls with `ProtectedCacheWriter.SaveProtectedAsync`. Keep step-by-step progress UX. | `src/Twig/Commands/FlowStartCommand.cs` | DONE |
+| E6-T1b | IMPL | **FlowStartCommand — constructor cleanup**: Remove `IPendingChangeStore` (line 42: unused placeholder). Add `ActiveItemResolver`, `ProtectedCacheWriter`. Param count: 13→14. See OQ-5 for future consolidation. | `src/Twig/Commands/FlowStartCommand.cs` | DONE |
 
 > **E6-T1 retained dependencies**: `IWorkItemRepository` (GetByIterationAsync, SaveAsync for non-protected paths), `IAdoWorkItemService` (PatchAsync lines 173, 209), `IContextStore` (SetActiveWorkItemIdAsync line 155), `IProcessConfigurationProvider`, `IConsoleInput`, `OutputFormatterFactory`, `HintEngine`, `TwigConfiguration`, `RenderingPipelineFactory?`, `IGitService?`, `IIterationService?`, `IPromptStateWriter?`. The complexity reduction is in method bodies (~30 lines of inline fetch/save/guard logic replaced), not constructor params.
-| E6-T2 | IMPL | **FlowDoneCommand**: Same pattern. Delegates to SaveCommand (already updated in EPIC-005). | `src/Twig/Commands/FlowDoneCommand.cs` | TO DO |
-| E6-T3 | IMPL | **FlowCloseCommand**: Same pattern. Explicit dirty-item guard stays (correctness check). | `src/Twig/Commands/FlowCloseCommand.cs` | TO DO |
-| E6-T4 | TEST | Update flow command tests. Verify step-by-step UX preserved, protected saves, `IPendingChangeStore` removal from `FlowStartCommand`. | `tests/Twig.Cli.Tests/Commands/` | TO DO |
+| E6-T2 | IMPL | **FlowDoneCommand**: Same pattern. Delegates to SaveCommand (already updated in EPIC-005). | `src/Twig/Commands/FlowDoneCommand.cs` | DONE |
+| E6-T3 | IMPL | **FlowCloseCommand**: Same pattern. Explicit dirty-item guard stays (correctness check). | `src/Twig/Commands/FlowCloseCommand.cs` | DONE |
+| E6-T4 | TEST | Update flow command tests. Verify step-by-step UX preserved, protected saves, `IPendingChangeStore` removal from `FlowStartCommand`. FlowStartCommandTests (20 tests), FlowDoneCommandTests (21 tests), FlowCloseCommandTests (14 tests) — all 55 pass. | `tests/Twig.Cli.Tests/Commands/` | DONE |
 
 **Acceptance Criteria**:
-- [ ] `FlowStartCommand` removes unused `IPendingChangeStore` and adds `ActiveItemResolver`, `ProtectedCacheWriter`
-- [ ] Step-by-step progress UX unchanged for all flow commands
-- [ ] Protected saves prevent dirty-value overwrites
-- [ ] All existing flow command tests pass
-- [ ] JSON/minimal output parity maintained
+- [x] `FlowStartCommand` removes unused `IPendingChangeStore` and adds `ActiveItemResolver`, `ProtectedCacheWriter`
+- [x] Step-by-step progress UX unchanged for all flow commands
+- [x] Protected saves prevent dirty-value overwrites
+- [x] All existing flow command tests pass
+- [x] JSON/minimal output parity maintained
 
 ---
 
@@ -665,3 +668,4 @@ No new security boundaries are introduced. All data flows remain local (SQLite c
 | 5.0 | 2026-03-17 | Readability revision: rewrote executive summary for user-benefit-first framing; decomposed dense task descriptions (E4-T1, E5-T1, E5-T6, E6-T1) into sub-tasks with prose notes beneath tables; simplified Modified Files entries to describe *what* changes (not implementation guidance); cleaned acceptance criteria in EPIC-005 and EPIC-006 to remove inline rationale; condensed DD-8 and DD-9 rationale; added Security Considerations section; added this Revision History. |
 | 6.0 | 2026-03-17 | Addressed technical and readability review feedback: (1) Added DD-15 resolving SyncChildrenAsync staleness inconsistency — children always fetch unconditionally, removed "if stale" from E4-T1c; (2) Corrected DI line count from ~260 to ~330 (Program.cs lines 33–382); (3) Added ActiveItemResult.cs to New Files table and E1-T1-ar task; (4) Added Twig.Tui to Impact Analysis with confirmation that AddTwigCoreServices() method name is preserved; (5) Simplified remaining implementation-heavy Modified Files entries (Program.cs, RefreshCommand, StateCommand); (6) Removed parenthetical commentary from EPIC-005 acceptance criteria; (7) Added API note about CancellationToken closure capture in RenderWithSyncAsync; (8) Clarified TreeCommand auto-fetch-on-miss via ActiveItemResolver in E4-T3. |
 | 7.0 | 2026-03-17 | EPIC-004 complete. Fixed 6 review defects: (1) DownAsync non-TTY multiple-children path returns 1 (NavigationCommands.cs); (2) dirty-item protection assertion added to SetCommand_DirtyChildren_NotOverwritten (FR-002/G-2); (3) removed unreachable NoContext branch from StatusCommand; (4) Task.FromResult replaces unnecessary async lambda in SetCommand; (5) [Collection("ConsoleRedirect")] added to CacheFirstReadCommandTests; (6) TreeCommand_Unreachable_ReturnsError test added. All acceptance criteria verified. |
+| 8.0 | 2026-03-18 | EPIC-006 complete. Fixed 4 review defects: (1) corrected ineffective ShouldNotContain assertions in FlowDoneCommandTests ('"saved":true' → '"saved": true' to match indented JSON output); (2) added explicit Unreachable case branches in FlowDoneCommand (both explicit-ID and active-context paths); (3) added explicit Unreachable case branches in FlowCloseCommand (both paths) matching FlowStartCommand pattern; (4) added FetchedFromAdo_CacheMiss_AutoFetchesAndProceeds test in FlowStartCommandTests. FlowStart=20, FlowDone=21, FlowClose=14, all 55 pass. |

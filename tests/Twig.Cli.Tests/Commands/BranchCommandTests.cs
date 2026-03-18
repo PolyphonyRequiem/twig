@@ -5,6 +5,7 @@ using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -69,7 +70,7 @@ public class BranchCommandTests
     }
 
     private BranchCommand CreateCommand(IGitService? gitService = null, IAdoGitService? adoGitService = null) =>
-        new(_contextStore, _workItemRepo, _adoService, _processConfigProvider,
+        new(new ActiveItemResolver(_contextStore, _workItemRepo, _adoService), _workItemRepo, _adoService, _processConfigProvider,
             _formatterFactory, _hintEngine, _config,
             gitService: gitService, adoGitService: adoGitService);
 
@@ -138,18 +139,41 @@ public class BranchCommandTests
         await _gitService.DidNotReceive().CreateBranchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
-    // ── Work item not in cache ──────────────────────────────────────
+    // ── Work item not in cache — auto-fetch from ADO ──────────────
 
     [Fact]
-    public async Task WorkItemNotInCache_ReturnsError()
+    public async Task WorkItemNotInCache_AutoFetchesFromAdo()
+    {
+        var item = CreateWorkItem(999, "Auto-fetched", "New");
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(999);
+        _workItemRepo.GetByIdAsync(999, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        _adoService.FetchAsync(999, Arg.Any<CancellationToken>()).Returns(item);
+        _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
+        _gitService.BranchExistsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(false);
+
+        var cmd = CreateCommand(_gitService);
+        var result = await cmd.ExecuteAsync(noLink: true, noTransition: true);
+
+        result.ShouldBe(0);
+        await _workItemRepo.Received().SaveAsync(item, Arg.Any<CancellationToken>());
+        await _gitService.Received().CreateBranchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    // ── Work item unreachable — ADO fetch fails ─────────────────────
+
+    [Fact]
+    public async Task WorkItemUnreachable_ReturnsErrorWithReason()
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(999);
         _workItemRepo.GetByIdAsync(999, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        _adoService.FetchAsync(999, Arg.Any<CancellationToken>())
+            .Returns<WorkItem>(x => throw new InvalidOperationException("Network timeout"));
 
         var cmd = CreateCommand(_gitService, _adoGitService);
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(1);
+        await _gitService.DidNotReceive().CreateBranchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     // ── No git service ──────────────────────────────────────────────

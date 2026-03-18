@@ -477,6 +477,7 @@ None. No new NuGet packages required.
 
 ### Phase 5: ActiveItemResolver Adoption (EPIC-005)
 **Exit Criteria**: `SeedCommand`, `BranchCommand`, `CommitCommand`, `PrCommand`, `StashCommand`, `GitContextCommand` use `ActiveItemResolver` for auto-fetch. DI registrations updated. All tests pass.
+**Status**: DONE
 
 ---
 
@@ -651,22 +652,22 @@ None. No new NuGet packages required.
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| WS-022 | IMPL | **SeedCommand**: Replace `contextStore.GetActiveWorkItemIdAsync()` + `workItemRepo.GetByIdAsync()` (lines 31-37) with `ActiveItemResolver.GetActiveItemAsync()`. Add `ActiveItemResolver` to constructor. | `src/Twig/Commands/SeedCommand.cs` | TO DO |
-| WS-023 | IMPL | **BranchCommand**: Replace `workItemRepo.GetByIdAsync(activeId)` (line 44) with `ActiveItemResolver.GetActiveItemAsync()`. Add `ActiveItemResolver` to constructor. Remove `IContextStore` if no longer needed directly. | `src/Twig/Commands/BranchCommand.cs` | TO DO |
-| WS-024 | IMPL | **CommitCommand**: Replace `workItemRepo.GetByIdAsync(activeId)` (line 41) with `ActiveItemResolver.GetActiveItemAsync()`. Add `ActiveItemResolver` to constructor. | `src/Twig/Commands/CommitCommand.cs` | TO DO |
-| WS-025 | IMPL | **PrCommand**: Replace `workItemRepo.GetByIdAsync(activeId)` (line 41) with `ActiveItemResolver.GetActiveItemAsync()`. Add `ActiveItemResolver` to constructor. | `src/Twig/Commands/PrCommand.cs` | TO DO |
-| WS-026 | IMPL | **StashCommand**: Replace `contextStore.GetActiveWorkItemIdAsync()` + `workItemRepo.GetByIdAsync()` (lines 52-57) with `ActiveItemResolver.GetActiveItemAsync()`. Add `ActiveItemResolver` to constructor. | `src/Twig/Commands/StashCommand.cs` | TO DO |
-| WS-027 | IMPL | **GitContextCommand**: Replace `workItemRepo.GetByIdAsync(activeId)` (line 33) with `ActiveItemResolver.GetActiveItemAsync()`. Add `ActiveItemResolver` to constructor. | `src/Twig/Commands/GitContextCommand.cs` | TO DO |
-| WS-028 | IMPL | Update DI registrations in `CommandRegistrationModule.cs` for all 6 commands — inject `ActiveItemResolver`. | `src/Twig/DependencyInjection/CommandRegistrationModule.cs` | TO DO |
-| WS-029 | TEST | Update tests for all 6 commands — supply `ActiveItemResolver` mock, verify auto-fetch behavior on cache miss, verify `NoContext` handling, **and verify `Unreachable` result handling** (these commands currently fail with generic "not found in cache" messages; after adopting `ActiveItemResolver`, the `Unreachable` variant should produce a specific error with the reason from the exception). | `tests/Twig.Cli.Tests/Commands/SeedCommandTests.cs`, `tests/Twig.Cli.Tests/Commands/BranchCommandTests.cs`, `tests/Twig.Cli.Tests/Commands/CommitCommandTests.cs`, `tests/Twig.Cli.Tests/Commands/PrCommandTests.cs`, `tests/Twig.Cli.Tests/Commands/StashCommandTests.cs`, `tests/Twig.Cli.Tests/Commands/GitContextCommandTests.cs` | TO DO |
+| WS-022 | IMPL | **SeedCommand**: Replace `contextStore.GetActiveWorkItemIdAsync()` + `workItemRepo.GetByIdAsync()` (lines 31-37) with `ActiveItemResolver.GetActiveItemAsync()`. Add `ActiveItemResolver` to constructor. | `src/Twig/Commands/SeedCommand.cs` | DONE |
+| WS-023 | IMPL | **BranchCommand**: Replace `workItemRepo.GetByIdAsync(activeId)` (line 44) with `ActiveItemResolver.GetActiveItemAsync()`. Add `ActiveItemResolver` to constructor. Remove `IContextStore` if no longer needed directly. | `src/Twig/Commands/BranchCommand.cs` | DONE |
+| WS-024 | IMPL | **CommitCommand**: Replace `workItemRepo.GetByIdAsync(activeId)` (line 41) with `ActiveItemResolver.GetActiveItemAsync()`. Add `ActiveItemResolver` to constructor. | `src/Twig/Commands/CommitCommand.cs` | DONE |
+| WS-025 | IMPL | **PrCommand**: Replace `workItemRepo.GetByIdAsync(activeId)` (line 41) with `ActiveItemResolver.GetActiveItemAsync()`. Add `ActiveItemResolver` to constructor. | `src/Twig/Commands/PrCommand.cs` | DONE |
+| WS-026 | IMPL | **StashCommand**: Replace `contextStore.GetActiveWorkItemIdAsync()` + `workItemRepo.GetByIdAsync()` (lines 52-57) with `ActiveItemResolver.GetActiveItemAsync()`. Add `ActiveItemResolver` to constructor. | `src/Twig/Commands/StashCommand.cs` | DONE |
+| WS-027 | IMPL | **GitContextCommand**: Replace `workItemRepo.GetByIdAsync(activeId)` (line 33) with `ActiveItemResolver.GetActiveItemAsync()`. Add `ActiveItemResolver` to constructor. | `src/Twig/Commands/GitContextCommand.cs` | DONE |
+| WS-028 | IMPL | Update DI registrations in `CommandRegistrationModule.cs` for all 6 commands — inject `ActiveItemResolver`. | `src/Twig/DependencyInjection/CommandRegistrationModule.cs` | DONE |
+| WS-029 | TEST | Update tests for all 6 commands — supply `ActiveItemResolver` mock, verify auto-fetch behavior on cache miss, verify `NoContext` handling, **and verify `Unreachable` result handling** (these commands currently fail with generic "not found in cache" messages; after adopting `ActiveItemResolver`, the `Unreachable` variant should produce a specific error with the reason from the exception). | `tests/Twig.Cli.Tests/Commands/SeedCommandTests.cs`, `tests/Twig.Cli.Tests/Commands/BranchCommandTests.cs`, `tests/Twig.Cli.Tests/Commands/CommitCommandTests.cs`, `tests/Twig.Cli.Tests/Commands/PrCommandTests.cs`, `tests/Twig.Cli.Tests/Commands/StashCommandTests.cs`, `tests/Twig.Cli.Tests/Commands/GitContextCommandTests.cs` | DONE |
 
 **Acceptance Criteria**:
-- [ ] All 6 commands use `ActiveItemResolver.GetActiveItemAsync()` instead of raw cache lookup
-- [ ] Auto-fetch on cache miss works for all 6 commands
-- [ ] `Unreachable` result produces a specific error message with the failure reason
-- [ ] DI registrations inject `ActiveItemResolver` for all 6 commands
-- [ ] All existing tests updated with resolver mocks
-- [ ] All tests pass, build succeeds
+- [x] All 6 commands use `ActiveItemResolver.GetActiveItemAsync()` instead of raw cache lookup
+- [x] Auto-fetch on cache miss works for all 6 commands
+- [x] `Unreachable` result produces a specific error message with the failure reason
+- [x] DI registrations inject `ActiveItemResolver` for all 6 commands
+- [x] All existing tests updated with resolver mocks
+- [x] All tests pass, build succeeds
 
 ---
 

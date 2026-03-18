@@ -540,7 +540,8 @@ public class PromptStateIntegrationTests : IDisposable
 
         var branchConfig = new TwigConfiguration { Git = { AutoTransition = true, AutoLink = false } };
         var writer = CreateWriter();
-        var cmd = new BranchCommand(_contextStore, _workItemRepo, _adoService,
+        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var cmd = new BranchCommand(resolver, _workItemRepo, _adoService,
             _processConfigProvider, _formatterFactory, _hintEngine, branchConfig,
             gitService, adoGitService, writer);
 
@@ -564,7 +565,8 @@ public class PromptStateIntegrationTests : IDisposable
 
         var autoTransitionEnabledConfig = new TwigConfiguration { Git = { AutoTransition = true, AutoLink = false } };
         var writer = CreateWriter();
-        var cmd = new BranchCommand(_contextStore, _workItemRepo, _adoService,
+        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var cmd = new BranchCommand(resolver, _workItemRepo, _adoService,
             _processConfigProvider, _formatterFactory, _hintEngine, autoTransitionEnabledConfig,
             gitService, promptStateWriter: writer);
 
@@ -651,7 +653,8 @@ public class PromptStateIntegrationTests : IDisposable
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(999);
 
         var writer = CreateWriter();
-        var cmd = new StashCommand(_contextStore, _workItemRepo, _formatterFactory,
+        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var cmd = new StashCommand(_contextStore, _workItemRepo, resolver, _formatterFactory,
             _hintEngine, _config, gitService, writer);
 
         var result = await cmd.PopAsync();
@@ -673,7 +676,8 @@ public class PromptStateIntegrationTests : IDisposable
         gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
 
         var writer = CreateWriter();
-        var cmd = new StashCommand(_contextStore, _workItemRepo, _formatterFactory,
+        var resolver2 = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var cmd = new StashCommand(_contextStore, _workItemRepo, resolver2, _formatterFactory,
             _hintEngine, _config, gitService, writer);
 
         var result = await cmd.ExecuteAsync("test message");

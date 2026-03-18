@@ -4,6 +4,7 @@ using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
 
+
 namespace Twig.Commands;
 
 /// <summary>
@@ -13,6 +14,7 @@ namespace Twig.Commands;
 public sealed class StashCommand(
     IContextStore contextStore,
     IWorkItemRepository workItemRepo,
+    ActiveItemResolver activeItemResolver,
     OutputFormatterFactory formatterFactory,
     HintEngine hintEngine,
     TwigConfiguration config,
@@ -49,21 +51,35 @@ public sealed class StashCommand(
         }
 
         // 2. Build stash message with work item context
-        var activeId = await contextStore.GetActiveWorkItemIdAsync();
+        var resolved = await activeItemResolver.GetActiveItemAsync();
+        int? activeId = null;
         string stashMessage;
-        if (activeId.HasValue)
+        switch (resolved)
         {
-            var item = await workItemRepo.GetByIdAsync(activeId.Value);
-            var itemContext = item is not null
-                ? $"[#{item.Id} {item.Title}]"
-                : $"[#{activeId.Value}]";
-            stashMessage = message is not null
-                ? $"{itemContext} {message}"
-                : itemContext;
-        }
-        else
-        {
-            stashMessage = message ?? "twig stash";
+            case ActiveItemResult.Unreachable u:
+                Console.Error.WriteLine(fmt.FormatError($"Work item #{u.Id} is unreachable: {u.Reason}"));
+                return 1;
+            case ActiveItemResult.Found fo:
+            {
+                activeId = fo.WorkItem.Id;
+                var itemContext = $"[#{fo.WorkItem.Id} {fo.WorkItem.Title}]";
+                stashMessage = message is not null
+                    ? $"{itemContext} {message}"
+                    : itemContext;
+                break;
+            }
+            case ActiveItemResult.FetchedFromAdo fa:
+            {
+                activeId = fa.WorkItem.Id;
+                var itemContext = $"[#{fa.WorkItem.Id} {fa.WorkItem.Title}]";
+                stashMessage = message is not null
+                    ? $"{itemContext} {message}"
+                    : itemContext;
+                break;
+            }
+            default:
+                stashMessage = message ?? "twig stash";
+                break;
         }
 
         // 3. Execute git stash

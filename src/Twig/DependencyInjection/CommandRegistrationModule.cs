@@ -187,7 +187,8 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IAdoWorkItemService>(),
             sp.GetRequiredService<IContextStore>(),
-            sp.GetRequiredService<IPendingChangeStore>(),
+            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
+            sp.GetRequiredService<Domain.Services.ProtectedCacheWriter>(),
             sp.GetRequiredService<IProcessConfigurationProvider>(),
             sp.GetRequiredService<IConsoleInput>(),
             sp.GetRequiredService<OutputFormatterFactory>(),
@@ -200,7 +201,6 @@ public static class CommandRegistrationModule
         services.AddSingleton<FlowDoneCommand>(sp => new FlowDoneCommand(
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IAdoWorkItemService>(),
-            sp.GetRequiredService<IContextStore>(),
             sp.GetRequiredService<IPendingChangeStore>(),
             sp.GetRequiredService<IProcessConfigurationProvider>(),
             sp.GetRequiredService<SaveCommand>(),
@@ -208,11 +208,12 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<HintEngine>(),
             sp.GetRequiredService<TwigConfiguration>(),
+            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
+            sp.GetRequiredService<Domain.Services.ProtectedCacheWriter>(),
             sp.GetService<IGitService>(),
             sp.GetService<IAdoGitService>(),
             sp.GetRequiredService<IPromptStateWriter>()));
         services.AddSingleton<FlowCloseCommand>(sp => new FlowCloseCommand(
-            sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IAdoWorkItemService>(),
             sp.GetRequiredService<IContextStore>(),
             sp.GetRequiredService<IPendingChangeStore>(),
@@ -221,6 +222,8 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<HintEngine>(),
             sp.GetRequiredService<TwigConfiguration>(),
+            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
+            sp.GetRequiredService<Domain.Services.ProtectedCacheWriter>(),
             sp.GetService<IGitService>(),
             sp.GetService<IAdoGitService>(),
             sp.GetRequiredService<IPromptStateWriter>()));

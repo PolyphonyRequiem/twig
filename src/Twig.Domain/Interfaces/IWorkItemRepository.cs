@@ -21,4 +21,10 @@ public interface IWorkItemRepository
     Task<IReadOnlyList<int>> GetOrphanParentIdsAsync(CancellationToken ct = default);
     Task SaveAsync(WorkItem workItem, CancellationToken ct = default);
     Task SaveBatchAsync(IEnumerable<WorkItem> workItems, CancellationToken ct = default);
+
+    /// <summary>
+    /// Deletes all cached work items whose IDs are NOT in <paramref name="keepIds"/>.
+    /// Used by working-set eviction to bound cache size after context switches.
+    /// </summary>
+    Task EvictExceptAsync(IReadOnlySet<int> keepIds, CancellationToken ct = default);
 }

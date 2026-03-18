@@ -9,12 +9,16 @@ namespace Twig.Commands;
 /// <summary>
 /// Implements <c>twig set &lt;idOrPattern&gt;</c>: resolves a work item by ID or title pattern,
 /// fetches from ADO if not cached, loads parent chain and children, and sets active context.
+/// On cache miss (FetchedFromAdo), computes the working set and evicts non-working-set items.
+/// On cache hit (Found), computes the working set but skips eviction (FR-012).
+/// Both paths sync the full working set via <see cref="SyncCoordinator.SyncWorkingSetAsync"/>.
 /// </summary>
 public sealed class SetCommand(
     IWorkItemRepository workItemRepo,
     IContextStore contextStore,
     ActiveItemResolver activeItemResolver,
     SyncCoordinator syncCoordinator,
+    WorkingSetService workingSetService,
     OutputFormatterFactory formatterFactory,
     HintEngine hintEngine,
     // Optional — null for backward compat with tests that predate EPIC-005
@@ -34,6 +38,7 @@ public sealed class SetCommand(
         }
 
         Domain.Aggregates.WorkItem? item = null;
+        var fetchedFromAdo = false;
 
         if (int.TryParse(idOrPattern, out var id))
         {
@@ -47,6 +52,7 @@ public sealed class SetCommand(
                 case ActiveItemResult.FetchedFromAdo fetched:
                     Console.WriteLine(fmt.FormatInfo($"Fetching work item {id} from ADO..."));
                     item = fetched.WorkItem;
+                    fetchedFromAdo = true;
                     break;
                 case ActiveItemResult.Unreachable unreachable:
                     Console.Error.WriteLine(fmt.FormatError($"Work item #{unreachable.Id} could not be fetched: {unreachable.Reason}"));
@@ -100,7 +106,7 @@ public sealed class SetCommand(
         // Hydrate parent chain via ActiveItemResolver (auto-fetch on miss)
         if (item.ParentId.HasValue)
         {
-            var parentChain = await workItemRepo.GetParentChainAsync(item.ParentId.Value);
+            var parentChain = await workItemRepo.GetParentChainAsync(item.ParentId.Value, ct);
             if (parentChain.Count == 0)
             {
                 // Parent not in cache — auto-fetch via resolver (best-effort)
@@ -112,25 +118,33 @@ public sealed class SetCommand(
         await contextStore.SetActiveWorkItemIdAsync(item.Id);
         promptStateWriter?.WritePromptState();
 
-        Console.WriteLine(fmt.FormatWorkItem(item, showDirty: false));
+        // Compute working set (DD-06: pass item.IterationPath to avoid redundant ADO call)
+        var workingSet = await workingSetService.ComputeAsync(item.IterationPath, ct);
 
-        // Sync children via SyncCoordinator (DD-15: always fetches unconditionally)
+        // Evict on cache miss only (FR-012: cache hit skips eviction)
+        if (fetchedFromAdo)
+        {
+            await workItemRepo.EvictExceptAsync(workingSet.AllIds, ct);
+        }
+
+        // Sync working set (DD-07: replaces SyncChildrenAsync — superset of parents, children, sprint items)
         if (renderer is not null)
         {
-            // TTY path: show sync status below the work item via Live() context
+            // TTY path: render work item inside buildCachedView (DD-10 / FR-015 fix)
             await renderer.RenderWithSyncAsync(
                 buildCachedView: () =>
-                    Task.FromResult<Spectre.Console.Rendering.IRenderable>(new Spectre.Console.Text("")),
-                performSync: () => syncCoordinator.SyncChildrenAsync(item.Id, ct),
+                    Task.FromResult<Spectre.Console.Rendering.IRenderable>(
+                        new Spectre.Console.Text(fmt.FormatWorkItem(item, showDirty: false))),
+                performSync: () => syncCoordinator.SyncWorkingSetAsync(workingSet, ct),
                 buildRevisedView: (syncResult) =>
                     Task.FromResult<Spectre.Console.Rendering.IRenderable?>(null),
                 ct);
         }
         else
         {
-            // Non-TTY path: sync silently
+            // Non-TTY path: print item then sync silently
             Console.WriteLine(fmt.FormatWorkItem(item, showDirty: false));
-            await syncCoordinator.SyncChildrenAsync(item.Id, ct);
+            await syncCoordinator.SyncWorkingSetAsync(workingSet, ct);
         }
 
         var hints = hintEngine.GetHints("set",

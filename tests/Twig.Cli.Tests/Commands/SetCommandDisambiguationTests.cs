@@ -58,8 +58,16 @@ public class SetCommandDisambiguationTests
     private RenderingPipelineFactory CreateRedirectedPipelineFactory() =>
         new(_formatterFactory, _mockRenderer, isOutputRedirected: () => true);
 
-    private SetCommand CreateCommand(RenderingPipelineFactory? pipelineFactory = null) =>
-        new(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator, _formatterFactory, _hintEngine, pipelineFactory);
+    private SetCommand CreateCommand(RenderingPipelineFactory? pipelineFactory = null)
+    {
+        var pendingChangeStore = Substitute.For<IPendingChangeStore>();
+        var iterationService = Substitute.For<IIterationService>();
+        iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
+            .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
+        var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, iterationService, null);
+        return new(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
+            workingSetService, _formatterFactory, _hintEngine, pipelineFactory);
+    }
 
     // ── SetCommand: Interactive disambiguation (TTY + human) ────────
 

@@ -132,7 +132,11 @@ public class CommandFormatterWiringTests
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
         var protectedWriter = new ProtectedCacheWriter(workItemRepo, pendingChangeStore);
         var syncCoord = new SyncCoordinator(workItemRepo, adoService, protectedWriter, 30);
-        var cmd = new SetCommand(workItemRepo, contextStore, resolver, syncCoord, factory, hintEngine);
+        var iterService = Substitute.For<IIterationService>();
+        iterService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
+            .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
+        var wsService = new WorkingSetService(contextStore, workItemRepo, pendingChangeStore, iterService, null);
+        var cmd = new SetCommand(workItemRepo, contextStore, resolver, syncCoord, wsService, factory, hintEngine);
 
         var output = await CaptureStdout(() => cmd.ExecuteAsync("42", "human"));
 

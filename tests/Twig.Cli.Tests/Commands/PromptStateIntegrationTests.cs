@@ -126,8 +126,12 @@ public class PromptStateIntegrationTests : IDisposable
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var protectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
         var syncCoord = new SyncCoordinator(_workItemRepo, _adoService, protectedWriter, 30);
+        var iterService = Substitute.For<IIterationService>();
+        iterService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
+            .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
+        var wsService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, iterService, null);
         var cmd = new SetCommand(_workItemRepo, _contextStore, resolver, syncCoord,
-            _formatterFactory, _hintEngine, promptStateWriter: writer);
+            wsService, _formatterFactory, _hintEngine, promptStateWriter: writer);
 
         var result = await cmd.ExecuteAsync("12345");
 
@@ -318,8 +322,12 @@ public class PromptStateIntegrationTests : IDisposable
         var resolver2 = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var protectedWriter2 = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
         var syncCoord2 = new SyncCoordinator(_workItemRepo, _adoService, protectedWriter2, 30);
+        var iterService2 = Substitute.For<IIterationService>();
+        iterService2.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
+            .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
+        var wsService2 = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, iterService2, null);
         var cmd = new SetCommand(_workItemRepo, _contextStore, resolver2, syncCoord2,
-            _formatterFactory, _hintEngine, promptStateWriter: failWriter);
+            wsService2, _formatterFactory, _hintEngine, promptStateWriter: failWriter);
 
         var result = await cmd.ExecuteAsync("42");
 

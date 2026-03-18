@@ -27,7 +27,16 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<TwigPaths>(),
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<HintEngine>()));
-        services.AddSingleton<SetCommand>();
+        services.AddSingleton<SetCommand>(sp => new SetCommand(
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IContextStore>(),
+            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
+            sp.GetRequiredService<Domain.Services.SyncCoordinator>(),
+            sp.GetRequiredService<Domain.Services.WorkingSetService>(),
+            sp.GetRequiredService<OutputFormatterFactory>(),
+            sp.GetRequiredService<HintEngine>(),
+            sp.GetRequiredService<RenderingPipelineFactory>(),
+            sp.GetService<IPromptStateWriter>()));
         services.AddSingleton<StatusCommand>(sp => new StatusCommand(
             sp.GetRequiredService<IContextStore>(),
             sp.GetRequiredService<IWorkItemRepository>(),

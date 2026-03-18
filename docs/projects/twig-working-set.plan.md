@@ -470,6 +470,7 @@ None. No new NuGet packages required.
 
 ### Phase 3: SetCommand Eviction (EPIC-003)
 **Exit Criteria**: `twig set` on cache miss triggers eviction + working set sync. Cache hit does not evict. Integration tests pass.
+**Status**: DONE
 
 ### Phase 4: Read Command Sync & Non-Nullable Resolver (EPIC-004)
 **Exit Criteria**: `StatusCommand`, `TreeCommand`, `NavigationCommands`, `WorkspaceCommand` sync working set after render. `ActiveItemResolver` is non-nullable in all 4 commands. Dirty orphan section visible in `twig ws`. All existing tests updated.
@@ -592,21 +593,21 @@ None. No new NuGet packages required.
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| WS-009 | IMPL | Inject `WorkingSetService` into `SetCommand`. Call `WorkingSetService.ComputeAsync(item.IterationPath)` in **both** the `FetchedFromAdo` and `Found` paths — the working set is needed for sync in both cases. On `FetchedFromAdo` only: call `workItemRepo.EvictExceptAsync(workingSet.AllIds)` before sync. On `Found`: skip eviction (FR-012), proceed directly to sync. Pass `item.IterationPath` to avoid the redundant `GetCurrentIterationAsync()` ADO call (per DD-06). | `src/Twig/Commands/SetCommand.cs` | TO DO |
-| WS-010 | IMPL | Replace `SyncCoordinator.SyncChildrenAsync` in `SetCommand` with `SyncCoordinator.SyncWorkingSetAsync(workingSet)` in **both** the `FetchedFromAdo` and `Found` paths — syncs the full working set (parents, children, sprint items) regardless of whether eviction occurred. The working set is computed in WS-009 for both paths. | `src/Twig/Commands/SetCommand.cs` | TO DO |
-| WS-010a | IMPL | **Fix sync indicator visibility (FR-015, DD-10)**: In `SetCommand`'s TTY path, move the work item rendering from `Console.WriteLine` (before `RenderWithSyncAsync`) into the `buildCachedView` delegate so the formatted item is the cached view passed to `Live()`. This ensures the sync indicator ("⟳ syncing...") appears directly below the rendered item within the `Live()` context, not on a standalone blank line. The non-TTY path continues to use `Console.WriteLine` (no `Live()` context). | `src/Twig/Commands/SetCommand.cs` | TO DO |
-| WS-011 | IMPL | Register `WorkingSetService` in `CommandServiceModule.cs` as singleton with DI factory lambda resolving `userDisplayName` from `TwigConfiguration.User.DisplayName`. | `src/Twig/DependencyInjection/CommandServiceModule.cs` | TO DO |
-| WS-012 | IMPL | Update `SetCommand` DI registration in `CommandRegistrationModule.cs` to inject `WorkingSetService`. | `src/Twig/DependencyInjection/CommandRegistrationModule.cs` | TO DO |
-| WS-013 | TEST | Tests: (a) cache miss → eviction fires, non-working-set items deleted; (b) cache hit → no eviction but sync still fires; (c) dirty items survive eviction; (d) working set items survive eviction; (e) `SyncWorkingSetAsync` called instead of `SyncChildrenAsync` in both paths; (f) `ComputeAsync` receives `item.IterationPath` (not null); (g) TTY path renders work item inside `buildCachedView` (not empty `Text("")`), sync indicator visible below item. | `tests/Twig.Cli.Tests/Commands/WorkingSetCommandTests.cs`, `tests/Twig.Cli.Tests/Commands/SetCommandTests.cs` | TO DO |
+| WS-009 | IMPL | Inject `WorkingSetService` into `SetCommand`. Call `WorkingSetService.ComputeAsync(item.IterationPath)` in **both** the `FetchedFromAdo` and `Found` paths — the working set is needed for sync in both cases. On `FetchedFromAdo` only: call `workItemRepo.EvictExceptAsync(workingSet.AllIds)` before sync. On `Found`: skip eviction (FR-012), proceed directly to sync. Pass `item.IterationPath` to avoid the redundant `GetCurrentIterationAsync()` ADO call (per DD-06). | `src/Twig/Commands/SetCommand.cs` | DONE |
+| WS-010 | IMPL | Replace `SyncCoordinator.SyncChildrenAsync` in `SetCommand` with `SyncCoordinator.SyncWorkingSetAsync(workingSet)` in **both** the `FetchedFromAdo` and `Found` paths — syncs the full working set (parents, children, sprint items) regardless of whether eviction occurred. The working set is computed in WS-009 for both paths. | `src/Twig/Commands/SetCommand.cs` | DONE |
+| WS-010a | IMPL | **Fix sync indicator visibility (FR-015, DD-10)**: In `SetCommand`'s TTY path, move the work item rendering from `Console.WriteLine` (before `RenderWithSyncAsync`) into the `buildCachedView` delegate so the formatted item is the cached view passed to `Live()`. This ensures the sync indicator ("⟳ syncing...") appears directly below the rendered item within the `Live()` context, not on a standalone blank line. The non-TTY path continues to use `Console.WriteLine` (no `Live()` context). | `src/Twig/Commands/SetCommand.cs` | DONE |
+| WS-011 | IMPL | Register `WorkingSetService` in `CommandServiceModule.cs` as singleton with DI factory lambda resolving `userDisplayName` from `TwigConfiguration.User.DisplayName`. | `src/Twig/DependencyInjection/CommandServiceModule.cs` | DONE |
+| WS-012 | IMPL | Update `SetCommand` DI registration in `CommandRegistrationModule.cs` to inject `WorkingSetService`. | `src/Twig/DependencyInjection/CommandRegistrationModule.cs` | DONE |
+| WS-013 | TEST | Tests: (a) cache miss → eviction fires, non-working-set items deleted; (b) cache hit → no eviction but sync still fires; (c) dirty items survive eviction; (d) working set items survive eviction; (e) `SyncWorkingSetAsync` called instead of `SyncChildrenAsync` in both paths; (f) `ComputeAsync` receives `item.IterationPath` (not null); (g) TTY path renders work item inside `buildCachedView` (not empty `Text("")`), sync indicator visible below item. | `tests/Twig.Cli.Tests/Commands/WorkingSetCommandTests.cs`, `tests/Twig.Cli.Tests/Commands/SetCommandTests.cs` | DONE |
 
 **Acceptance Criteria**:
-- [ ] `twig set` cache miss triggers eviction — only working set + dirty items remain
-- [ ] `twig set` cache hit does NOT trigger eviction but DOES call `ComputeAsync` + `SyncWorkingSetAsync`
-- [ ] Dirty items survive eviction
-- [ ] `SyncWorkingSetAsync` replaces `SyncChildrenAsync` in both paths
-- [ ] `ComputeAsync` receives `item.IterationPath` to avoid redundant ADO call
-- [ ] Sync indicator visible below rendered work item in TTY mode (FR-015)
-- [ ] All tests pass, build succeeds
+- [x] `twig set` cache miss triggers eviction — only working set + dirty items remain
+- [x] `twig set` cache hit does NOT trigger eviction but DOES call `ComputeAsync` + `SyncWorkingSetAsync`
+- [x] Dirty items survive eviction
+- [x] `SyncWorkingSetAsync` replaces `SyncChildrenAsync` in both paths
+- [x] `ComputeAsync` receives `item.IterationPath` to avoid redundant ADO call
+- [x] Sync indicator visible below rendered work item in TTY mode (FR-015)
+- [x] All tests pass, build succeeds
 
 ---
 

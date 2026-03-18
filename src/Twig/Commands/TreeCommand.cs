@@ -69,16 +69,21 @@ public sealed class TreeCommand(
                 activeId: activeId,
                 ct: CancellationToken.None);
 
-            // Sync working set after cached render (EPIC-004)
-            var workingSet = await workingSetService.ComputeAsync(resolvedItem.IterationPath);
-            await renderer.RenderWithSyncAsync(
-                buildCachedView: () =>
-                    Task.FromResult<Spectre.Console.Rendering.IRenderable>(
-                        new Spectre.Console.Text(string.Empty)),
-                performSync: () => syncCoordinator.SyncWorkingSetAsync(workingSet),
-                buildRevisedView: syncResult =>
-                    Task.FromResult<Spectre.Console.Rendering.IRenderable?>(null),
-                CancellationToken.None);
+            // Sync working set after cached render (EPIC-004) — best-effort
+            try
+            {
+                var workingSet = await workingSetService.ComputeAsync(resolvedItem.IterationPath);
+                await renderer.RenderWithSyncAsync(
+                    buildCachedView: () =>
+                        Task.FromResult<Spectre.Console.Rendering.IRenderable>(
+                            new Spectre.Console.Text(string.Empty)),
+                    performSync: () => syncCoordinator.SyncWorkingSetAsync(workingSet),
+                    buildRevisedView: syncResult =>
+                        Task.FromResult<Spectre.Console.Rendering.IRenderable?>(null),
+                    CancellationToken.None);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch { /* sync is best-effort — don't fail the command */ }
 
             return 0;
         }
@@ -96,9 +101,14 @@ public sealed class TreeCommand(
 
         Console.WriteLine(fmt.FormatTree(tree, maxChildren, activeId));
 
-        // Sync working set silently after output (EPIC-004)
-        var syncWorkingSet = await workingSetService.ComputeAsync(item.IterationPath);
-        await syncCoordinator.SyncWorkingSetAsync(syncWorkingSet);
+        // Sync working set silently after output (EPIC-004) — best-effort
+        try
+        {
+            var syncWorkingSet = await workingSetService.ComputeAsync(item.IterationPath);
+            await syncCoordinator.SyncWorkingSetAsync(syncWorkingSet);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch { /* sync is best-effort — don't fail the command */ }
 
         return 0;
     }

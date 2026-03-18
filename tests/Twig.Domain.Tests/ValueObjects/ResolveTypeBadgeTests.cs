@@ -77,7 +77,7 @@ public class ResolveTypeBadgeTests
             ["Bug"] = "icon_insect",
         };
 
-        IconSet.ResolveTypeBadge("nerd", "Bug", typeIconIds).ShouldBe("\ueaaf");
+        IconSet.ResolveTypeBadge("nerd", "Bug", typeIconIds).ShouldBe("\ueaaf ");
     }
 
     // ── With iconId that has no dict entry falls through to hardcoded switch ──

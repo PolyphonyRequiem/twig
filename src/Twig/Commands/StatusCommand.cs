@@ -81,17 +81,22 @@ public sealed class StatusCommand(
                 getPendingChanges: () => pendingChangeStore.GetChangesAsync(item.Id),
                 ct: CancellationToken.None);
 
-            // Sync working set after cached render (EPIC-004)
-            var workingSet = await workingSetService.ComputeAsync(item.IterationPath);
-            await renderer.RenderWithSyncAsync(
-                buildCachedView: () =>
-                    Task.FromResult<Spectre.Console.Rendering.IRenderable>(
-                        new Spectre.Console.Text(string.Empty)),
-                performSync: () => syncCoordinator.SyncWorkingSetAsync(workingSet),
-                buildRevisedView: syncResult => syncResult is SyncResult.Updated
-                    ? Task.FromResult<Spectre.Console.Rendering.IRenderable?>(null)
-                    : Task.FromResult<Spectre.Console.Rendering.IRenderable?>(null),
-                CancellationToken.None);
+            // Sync working set after cached render (EPIC-004) — best-effort
+            try
+            {
+                var workingSet = await workingSetService.ComputeAsync(item.IterationPath);
+                await renderer.RenderWithSyncAsync(
+                    buildCachedView: () =>
+                        Task.FromResult<Spectre.Console.Rendering.IRenderable>(
+                            new Spectre.Console.Text(string.Empty)),
+                    performSync: () => syncCoordinator.SyncWorkingSetAsync(workingSet),
+                    buildRevisedView: syncResult => syncResult is SyncResult.Updated
+                        ? Task.FromResult<Spectre.Console.Rendering.IRenderable?>(null)
+                        : Task.FromResult<Spectre.Console.Rendering.IRenderable?>(null),
+                    CancellationToken.None);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch { /* sync is best-effort — don't fail the command */ }
 
             var seeds = await workItemRepo.GetSeedsAsync();
             var staleSeedCount = Workspace.Build(item, [], seeds)

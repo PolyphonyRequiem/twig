@@ -500,11 +500,25 @@ public sealed class HumanOutputFormatter : IOutputFormatter
     {
         var len = 0;
         var inEscape = false;
-        foreach (var c in s)
+        for (var i = 0; i < s.Length; i++)
         {
+            var c = s[i];
             if (c == '\x1b') { inEscape = true; continue; }
             if (inEscape) { if (c == 'm') inEscape = false; continue; }
-            len++;
+
+            // Surrogate pair — decode the full codepoint
+            if (char.IsHighSurrogate(c) && i + 1 < s.Length && char.IsLowSurrogate(s[i + 1]))
+            {
+                var cp = char.ConvertToUtf32(c, s[i + 1]);
+                i++; // skip the low surrogate
+                // Supplementary Private Use Area-A (nerd font nf-md-* icons): double-width
+                len += (cp >= 0xF0000) ? 2 : 1;
+            }
+            else
+            {
+                // BMP characters including PUA — single terminal column each
+                len++;
+            }
         }
         return len;
     }

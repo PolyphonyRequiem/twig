@@ -118,33 +118,45 @@ public sealed class SetCommand(
         await contextStore.SetActiveWorkItemIdAsync(item.Id);
         promptStateWriter?.WritePromptState();
 
-        // Compute working set (DD-06: pass item.IterationPath to avoid redundant ADO call)
-        var workingSet = await workingSetService.ComputeAsync(item.IterationPath, ct);
+        // Working set compute + evict + sync — best-effort, never fails the command
+        try
+        {
+            // Compute working set (DD-06: pass item.IterationPath to avoid redundant ADO call)
+            var workingSet = await workingSetService.ComputeAsync(item.IterationPath, ct);
 
-        // Evict on cache miss only (FR-012: cache hit skips eviction)
-        if (fetchedFromAdo)
-        {
-            await workItemRepo.EvictExceptAsync(workingSet.AllIds, ct);
-        }
+            // Evict on cache miss only (FR-012: cache hit skips eviction)
+            if (fetchedFromAdo)
+            {
+                await workItemRepo.EvictExceptAsync(workingSet.AllIds, ct);
+            }
 
-        // Sync working set (DD-07: replaces SyncChildrenAsync — superset of parents, children, sprint items)
-        if (renderer is not null)
-        {
-            // TTY path: render work item inside buildCachedView (DD-10 / FR-015 fix)
-            await renderer.RenderWithSyncAsync(
-                buildCachedView: () =>
-                    Task.FromResult<Spectre.Console.Rendering.IRenderable>(
-                        new Spectre.Console.Text(fmt.FormatWorkItem(item, showDirty: false))),
-                performSync: () => syncCoordinator.SyncWorkingSetAsync(workingSet, ct),
-                buildRevisedView: (syncResult) =>
-                    Task.FromResult<Spectre.Console.Rendering.IRenderable?>(null),
-                ct);
+            // Sync working set (DD-07: replaces SyncChildrenAsync — superset of parents, children, sprint items)
+            if (renderer is not null)
+            {
+                // TTY path: render work item inside buildCachedView (DD-10 / FR-015 fix)
+                await renderer.RenderWithSyncAsync(
+                    buildCachedView: () =>
+                        Task.FromResult<Spectre.Console.Rendering.IRenderable>(
+                            new Spectre.Console.Text(fmt.FormatWorkItem(item, showDirty: false))),
+                    performSync: () => syncCoordinator.SyncWorkingSetAsync(workingSet, ct),
+                    buildRevisedView: (syncResult) =>
+                        Task.FromResult<Spectre.Console.Rendering.IRenderable?>(null),
+                    ct);
+            }
+            else
+            {
+                // Non-TTY path: print item then sync silently
+                Console.WriteLine(fmt.FormatWorkItem(item, showDirty: false));
+                await syncCoordinator.SyncWorkingSetAsync(workingSet, ct);
+            }
         }
-        else
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
         {
-            // Non-TTY path: print item then sync silently
-            Console.WriteLine(fmt.FormatWorkItem(item, showDirty: false));
-            await syncCoordinator.SyncWorkingSetAsync(workingSet, ct);
+            // Working set sync is best-effort — print the item even if sync fails
+            if (renderer is null)
+                Console.WriteLine(fmt.FormatWorkItem(item, showDirty: false));
+            Console.Error.WriteLine($"warning: working set sync failed: {ex.Message}");
         }
 
         var hints = hintEngine.GetHints("set",

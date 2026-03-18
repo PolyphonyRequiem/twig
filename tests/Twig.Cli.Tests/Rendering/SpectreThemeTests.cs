@@ -45,7 +45,7 @@ public class SpectreThemeTests
         };
         var theme = new SpectreTheme(new DisplayConfig { Icons = "nerd" }, appearances);
 
-        theme.GetTypeBadge(WorkItemType.Bug).ShouldBe("\ueaaf");
+        theme.GetTypeBadge(WorkItemType.Bug).ShouldBe("\ueaaf ");
     }
 
     // ── (c) FormatTypeBadge includes Spectre markup color ──

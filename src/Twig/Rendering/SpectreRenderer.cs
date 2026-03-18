@@ -542,8 +542,9 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                         ctx.Refresh();
                         break;
 
-                    case SyncResult.Failed:
-                        ctx.UpdateTarget(new Rows(cachedView, new Markup("[yellow]⚠ sync failed (offline)[/]")));
+                    case SyncResult.Failed failed:
+                        var reason = string.IsNullOrWhiteSpace(failed.Reason) ? "offline" : Markup.Escape(failed.Reason);
+                        ctx.UpdateTarget(new Rows(cachedView, new Markup($"[yellow]⚠ sync failed ({reason})[/]")));
                         ctx.Refresh();
                         // Failed status persists — no delay/clear
                         break;

@@ -175,7 +175,7 @@ public static class IconSet
         {
             var glyph = GetIconByIconId(iconMode, iconId);
             if (glyph is not null)
-                return glyph;
+                return NormalizeBadgeWidth(glyph);
         }
 
         return typeName.ToLowerInvariant() switch
@@ -189,5 +189,18 @@ public static class IconSet
                 ? typeName[0].ToString().ToUpperInvariant()
                 : "■",
         };
+    }
+
+    /// <summary>
+    /// Normalizes badge display width for nerd font icons.
+    /// BMP Private Use Area icons (U+E000–U+F8FF) render as single-width in most terminals,
+    /// while supplementary PUA icons (surrogate pairs like nf-md-*) render as double-width.
+    /// Appends a trailing space to BMP PUA icons so all badges occupy 2 terminal columns.
+    /// </summary>
+    private static string NormalizeBadgeWidth(string badge)
+    {
+        if (badge.Length == 1 && badge[0] >= '\uE000' && badge[0] <= '\uF8FF')
+            return badge + " ";
+        return badge;
     }
 }

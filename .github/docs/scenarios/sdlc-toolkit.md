@@ -1,6 +1,6 @@
 # SDLC Toolkit
 
-> **The most comprehensive agent skill in Octane.** Eight capabilities, four enterprise knowledge sources, 20 prompts — covering the entire software development lifecycle from code quality to developer onboarding to cross-repo impact analysis.
+> **The most comprehensive agent skill in Octane.** Thirteen capabilities, four enterprise knowledge sources, 25 prompts — covering the entire software development lifecycle from code quality to developer onboarding to cross-repo coordination and meta-learning.
 
 | What makes it unique | |
 |---|---|
@@ -8,6 +8,7 @@
 | 🎯 **Full SDLC Coverage** | Tech debt → Design review → Safety audit → Docs → Regression → Onboarding |
 | 🤖 **Intelligent Routing** | Questions auto-route to the best source (code, enterprise, ADO, MS Learn) |
 | 📊 **Output Contracts** | Every capability produces structured, actionable output — not generic advice |
+| 🔄 **Session-Learned** | Five new capabilities derived from real multi-repo engineering sessions |
 
 ## Capabilities
 
@@ -19,6 +20,11 @@
 6. **Repository Onboarding** — Generate onboarding guides from code + enterprise knowledge (WorkIQ, ADO, MS Learn)
 7. **Onboarding Buddy** — Interactive Q&A with intelligent source routing
 8. **Cross-Repo Impact Analysis** — Analyze blast radius of changes across all ADO repos with dependency mapping and risk scoring
+9. **Document Generation** — Generate executive briefings, weekly recaps, and blog posts from live system data
+10. **Transcript Processing** — Convert meeting recordings into structured decisions, action items, and spec updates
+11. **Drift Detection** — Detect configuration drift between source repo, Octane scenario, and Agency plugin
+12. **Multi-Repo Coordination** — Coordinate dependency-ordered changes and cascading PRs across repos
+13. **Session Analysis** — Meta-learning from agent session history to improve agent design
 
 ## Prerequisites
 
@@ -135,6 +141,33 @@ octane install sdlc-toolkit
 
 # Quick scan — lightweight "which repos are affected?"
 /Octane.SDLCToolkit.ImpactQuickScan We're deprecating the ServiceBus retry helper in shared-utils
+```
+
+### Document Generation
+
+```bash
+# Generate executive briefing from recent activity
+/Octane.SDLCToolkit.GenerateDocument Create a 2-page executive briefing on the last 2 weeks of progress
+```
+
+### Transcript Processing
+
+```bash
+# Process meeting transcript into engineering artifacts
+/Octane.SDLCToolkit.ProcessTranscript [paste or path to VTT file]
+```
+
+### Drift Detection & Cross-Repo Coordination
+
+```bash
+# Check sync status across source, Octane, and Playground
+/Octane.SDLCToolkit.DetectDrift
+
+# Coordinate changes across multiple repos
+/Octane.SDLCToolkit.CoordinateRepos I need to add a new agent across sdlc-toolkit, octane, and playground
+
+# Analyze agent session for improvement opportunities
+/Octane.SDLCToolkit.AnalyzeSession
 ```
 
 ## Capabilities by Area

@@ -61,10 +61,10 @@ public static class IconSet
             ["icon_check_box"]        = "\uEAB3",   // nf-cod-checklist (U+EAB3)
             ["icon_book"]             = "\uEAA4",   // nf-cod-book (U+EAA4)
             ["icon_clipboard"]        = "\uEAC0",   // nf-cod-clippy (U+EAC0)
-            ["icon_trophy"]           = "\uEB20",   // nf-cod-milestone (U+EB20)
+            ["icon_trophy"]           = "\uF091",   // nf-fa-trophy (U+F091)
             ["icon_gift"]             = "\uEAF9",   // nf-cod-gift (U+EAF9)
             ["icon_chart"]            = "\uEB03",   // nf-cod-graph (U+EB03)
-            ["icon_diamond"]          = "\uDB80\uDDC8",   // nf-md-diamond_stone (U+F01C8) — no nf-cod equiv
+            ["icon_diamond"]          = "\uF29F",   // nf-fa-diamond (U+F29F)
             ["icon_list"]             = "\uEB17",   // nf-cod-list_unordered (U+EB17)
             ["icon_test_beaker"]      = "\uEA79",   // nf-cod-beaker (U+EA79)
             ["icon_test_plan"]        = "\uEBAF",   // nf-cod-notebook (U+EBAF)
@@ -83,7 +83,7 @@ public static class IconSet
             ["icon_response"]         = "\uEA6B",   // nf-cod-comment (U+EA6B)
             ["icon_star"]             = "\uEB59",   // nf-cod-star_full (U+EB59)
             ["icon_ribbon"]           = "\uEAA5",   // nf-cod-bookmark (U+EAA5)
-            ["icon_headphone"]        = "\uDB80\uDECE",   // nf-md-headset (U+F02CE) — no nf-cod equiv
+            ["icon_headphone"]        = "\uF025",   // nf-fa-headphones (U+F025)
             ["icon_key"]              = "\uEB11",   // nf-cod-key (U+EB11)
             ["icon_airplane"]         = "\uEB44",   // nf-cod-rocket (U+EB44)
             ["icon_car"]              = "\uEB44",   // nf-cod-rocket (U+EB44)
@@ -149,9 +149,9 @@ public static class IconSet
     /// <summary>
     /// Pads BMP PUA nerd font glyphs (U+E000–U+F8FF) with a trailing space so that
     /// Spectre.Console measures them as width 2 (1 glyph + 1 space). Nerd font terminals
-    /// render these glyphs as 2 columns, but Spectre’s wcwidth returns 1. The trailing space
-    /// makes the measurement closer to reality. Supplementary PUA glyphs (surrogate pairs)
-    /// are left as-is — Spectre measures those as 0, which is a deeper Spectre bug.
+    /// render these glyphs as 1 column, but Spectre's UnicodeCalculator also returns 1,
+    /// so the trailing space yields a 2-cell measurement that matches a 1-glyph + 1-space
+    /// visual width — keeping columns aligned.
     /// </summary>
     private static string NormalizeBadgeWidth(string badge)
     {

@@ -32,6 +32,8 @@ workflow:
     temperature: float              # 0.0-1.0, controls randomness (optional)
     max_tokens: integer             # Max OUTPUT tokens per response, 1-200000 (optional)
     timeout: float                  # Per-request timeout in seconds (optional, default: 600)
+    max_agent_iterations: integer   # Max tool-use roundtrips per agent (1-500, optional)
+    max_session_seconds: float      # Wall-clock timeout per agent session in seconds (optional)
     mcp_servers:                    # MCP server configurations
       <server_name>:
         type: string                # "stdio" (default), "http", or "sse"
@@ -88,7 +90,7 @@ agents:
     name: string                    # Unique agent identifier
 
     # Optional fields
-    type: string                    # "agent" (default) or "human_gate"
+    type: string                    # "agent" (default), "human_gate", or "script"
     description: string             # What this agent does
     model: string                   # Override default_model
     provider: string                # Per-agent provider override ("copilot" or "claude")
@@ -123,7 +125,68 @@ agents:
     # Agent-level tools
     tools:                          # null = all workflow tools, [] = none, [list] = subset
       - string
+
+    # Agent-level limits (override workflow runtime defaults)
+    max_agent_iterations: integer   # Max tool-use roundtrips for this agent (1-500, optional)
+    max_session_seconds: float      # Wall-clock timeout for this agent session (optional)
+
+    # Script-only fields (type: script)
+    command: string                 # Command to execute (Jinja2 templated)
+    args: [string]                  # Command arguments (each Jinja2 templated)
+    env: {string: string}           # Extra environment variables
+    working_dir: string             # Working directory (Jinja2 templated)
+    timeout: integer                # Per-script timeout in seconds
 ```
+
+**Script agent restrictions:** Cannot have `prompt`, `provider`, `model`, `tools`, `output`, `system_prompt`, `options`. Output is always `{stdout, stderr, exit_code}`.
+
+## Script Agent Schema
+
+Script agents run shell commands instead of LLM prompts:
+
+```yaml
+agents:
+  - name: string
+    type: script                    # Required
+    description: string             # Optional
+    command: string                 # Required: command to run (Jinja2 templated)
+    args: [string]                  # Optional: arguments (each Jinja2 templated)
+    env: {string: string}           # Optional: extra environment variables
+    working_dir: string             # Optional: working directory (Jinja2 templated)
+    timeout: integer                # Optional: timeout in seconds
+    input: [string]                 # Optional: context dependencies
+    routes:                         # Required: routing rules
+      - to: string
+        when: string                # Can use exit_code (simpleeval syntax)
+```
+
+### Script Output
+
+Script agents always produce:
+
+```jinja2
+{{ script_name.output.stdout }}     # Captured standard output
+{{ script_name.output.stderr }}     # Captured standard error
+{{ script_name.output.exit_code }}  # Process exit code (0 = success)
+```
+
+## File Includes (`!file` Tag)
+
+Include external file content anywhere in YAML:
+
+```yaml
+agents:
+  - name: analyzer
+    system_prompt: !file prompts/system.md    # Included as string
+    prompt: !file prompts/analyze.md          # Included as string
+    output: !file schemas/analyzer-output.yaml # Included as YAML structure
+```
+
+- Paths resolve **relative to the YAML file's directory**
+- Plain text files (Markdown, etc.) are included as strings
+- YAML files are parsed and included as data structures
+- Supports **recursive includes** (included YAML files can use `!file`)
+- Circular references are detected and raise `ConfigurationError`
 
 ## Human Gate Schema
 

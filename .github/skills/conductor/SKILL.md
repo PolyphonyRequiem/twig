@@ -46,6 +46,8 @@ If `uv` is also missing, install it first: `curl -LsSf https://astral.sh/uv/inst
 ```bash
 conductor -V run workflow.yaml --input question="Hello"     # Execute (progress shown by default)
 conductor -V run workflow.yaml --input question="Hello"  # Full verbose (untruncated prompts, tool args)
+conductor run workflow.yaml --web --input q="Hello"      # Real-time web dashboard
+conductor run workflow.yaml --web-bg --input q="Hello"   # Background mode (prints URL, exits)
 conductor validate workflow.yaml                         # Validate only
 conductor init my-workflow --template simple              # Create from template
 conductor templates                                      # List templates
@@ -112,6 +114,7 @@ For runtime config, context modes, limits, and cost tracking, see [references/au
 | `limits` | Safety bounds (max_iterations up to 500, timeout_seconds) |
 | `cost` | Token usage and cost tracking configuration |
 | `runtime` | Provider, model, temperature, max_tokens, MCP servers |
+| `--web` | Real-time web dashboard with DAG graph, live streaming, in-browser human gates |
 
 For pattern examples (linear, loop, conditional, parallel, for-each, human gate) and template syntax, see [references/authoring.md](references/authoring.md).
 

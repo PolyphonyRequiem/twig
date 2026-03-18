@@ -17,6 +17,8 @@ workflow:
     temperature: 0.7             # 0.0-1.0 (optional)
     max_tokens: 4096             # Max output tokens per response (optional)
     timeout: 600                 # Per-request timeout in seconds (optional)
+    max_agent_iterations: 50     # Max tool-use roundtrips per agent (1-500, optional)
+    max_session_seconds: 120     # Wall-clock timeout per agent session (optional)
 
   input:                         # Define workflow inputs
     param_name:
@@ -46,7 +48,7 @@ workflow:
 ```yaml
 agents:
   - name: my_agent               # Required: unique identifier
-    type: agent                  # agent (default) or human_gate
+    type: agent                  # agent (default), human_gate, or script
     description: What it does
     model: gpt-5.2               # Override workflow default
     provider: claude             # Optional: per-agent provider override
@@ -70,6 +72,9 @@ agents:
 
     tools:                       # null = all, [] = none, [list] = subset
       - web_search
+
+    max_agent_iterations: 100    # Override workflow default for this agent (optional)
+    max_session_seconds: 60      # Wall-clock timeout for this agent (optional)
 
     routes:                      # Where to go next
       - to: next_agent
@@ -118,6 +123,70 @@ routes:
   - to: parallel_researchers    # Route to a parallel group
   - to: item_processors         # Route to a for-each group
 ```
+
+## Script Steps
+
+Script steps run shell commands and capture stdout, stderr, and exit_code:
+
+```yaml
+agents:
+  - name: check_python
+    type: script
+    description: Check the installed Python version
+    command: python3
+    args: ["--version"]
+    timeout: 30                  # Per-script timeout in seconds (optional)
+    working_dir: /tmp            # Working directory (optional, Jinja2 templated)
+    env:                         # Extra environment variables (optional)
+      MY_VAR: "value"
+    routes:
+      - to: analyzer
+        when: "exit_code == 0"
+      - to: error_handler
+```
+
+### Script Output
+
+Script steps always produce three fields (no custom `output` schema):
+
+```jinja2
+{{ script_name.output.stdout }}     # Captured standard output
+{{ script_name.output.stderr }}     # Captured standard error
+{{ script_name.output.exit_code }}  # Process exit code (0 = success)
+```
+
+### Script Routing
+
+Route conditions use `exit_code` directly (simpleeval syntax):
+
+```yaml
+routes:
+  - to: next_step
+    when: "exit_code == 0"
+  - to: error_handler            # Fallback for non-zero exit
+```
+
+### Script Restrictions
+
+Script agents **cannot** have: `prompt`, `provider`, `model`, `tools`, `output`, `system_prompt`, `options`.
+Command and args support Jinja2 templating for dynamic values.
+
+## File Includes (`!file` Tag)
+
+Include external file content in YAML using the `!file` tag:
+
+```yaml
+agents:
+  - name: analyzer
+    system_prompt: !file prompts/system.md
+    prompt: !file prompts/analyze.md
+```
+
+- Paths are **relative to the YAML file's directory**
+- If the included file is valid YAML, it's parsed as a data structure
+- If it's plain text (e.g., Markdown), it's included as a string
+- Supports **recursive includes** — included YAML files can use `!file` too
+- Circular references are detected and raise an error
 
 ## Parallel Groups
 

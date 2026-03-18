@@ -1,8 +1,9 @@
 # AI Native Daemon — Governed Agent Fleet
 
-A production-grade fleet of 11 AI agents that continuously watches your GitHub and Azure DevOps repos,
-triages issues/work items, reviews PRs, generates tests, and manages releases — with enterprise
-governance, trust scoring, parallel execution, and human-in-the-loop approval.
+A production-grade fleet of 16 AI agents that continuously watches your GitHub and Azure DevOps repos,
+triages issues/work items, reviews PRs, generates tests, processes meeting transcripts, coordinates
+cross-repo operations, and manages releases — with enterprise governance, trust scoring, parallel
+execution, and human-in-the-loop approval.
 
 ## When to Use
 
@@ -43,14 +44,19 @@ python -m daemon watch --dashboard 7070
 | **code-reviewer** | Reviews PRs for bugs, security, performance, pattern compliance |
 | **security-scanner** | OWASP Top 10, secret detection, dependency CVEs, IaC misconfig |
 | **test-generator** | Framework-aware test scaffolding for untested code |
-| **spec-drafter** | Technical specifications from issue descriptions |
-| **implementer** | Addresses review feedback, implements changes |
+| **spec-drafter** | Technical specifications from issue descriptions, with transcript intake |
+| **implementer** | Addresses review feedback, implements changes (Windows-aware) |
 | **release-notes** | Categorized changelogs from merged PRs |
-| **repo-health** | Health score across 5 dimensions |
+| **repo-health** | Health score across 6 dimensions (including cross-repo drift) |
 | **iac-validator** | Validates Bicep, Terraform, ARM, GitHub Actions |
 | **refactor-advisor** | Identifies complexity, duplication, dead code |
-| **fleet-orchestrator** | Coordinates multi-agent pipeline execution |
-| **researcher** | Proactive daily research — finds improvements, opens issues |
+| **fleet-orchestrator** | Coordinates multi-agent and cross-repo pipeline execution |
+| **researcher** | Proactive research with mandatory prior-art search |
+| **transcript-processor** | Meeting VTT/SRT → structured decisions, actions, concerns |
+| **windows-compat-checker** | Pre-flight Windows-specific issue detection |
+| **multi-repo-coordinator** | Cross-repo auth, dependency ordering, cascading PRs |
+| **document-generator** | Formatted docs (briefings, blogs, reports) from live data |
+| **merge-conflict-resolver** | Pre-push conflict detection and safe auto-rebase |
 
 ## Prompts
 
@@ -63,6 +69,11 @@ python -m daemon watch --dashboard 7070
 | `/Octane.AINativeDaemon.DraftSpec` | Draft a technical spec from an issue |
 | `/Octane.AINativeDaemon.FleetStatus` | Show agent fleet status and health |
 | `/Octane.AINativeDaemon.SessionHealth` | Show Copilot session health and DORA metrics |
+| `/Octane.AINativeDaemon.ProcessTranscript` | Extract decisions and actions from meeting transcripts |
+| `/Octane.AINativeDaemon.WindowsCompat` | Run Windows compatibility pre-flight checks |
+| `/Octane.AINativeDaemon.MultiRepoSync` | Coordinate cross-repo drift checks and cascading PRs |
+| `/Octane.AINativeDaemon.GenerateDocument` | Generate formatted docs from live system data |
+| `/Octane.AINativeDaemon.ResolveConflicts` | Pre-push merge conflict detection and resolution |
 
 ## Features
 
@@ -74,6 +85,10 @@ python -m daemon watch --dashboard 7070
 - **Live Dashboard** — SSE-powered with command palette (Ctrl+K), keyboard shortcuts
 - **Teams Notifications** — Adaptive cards for failures, approvals, completions
 - **Copilot Integration** — Uses GitHub Copilot CLI (no separate API billing)
+- **Cross-Repo Coordination** — Multi-repo auth switching, dependency ordering, cascading PRs
+- **Windows Support** — Pre-flight compatibility scanning, `az.cmd` handling, path normalization
+- **Transcript Processing** — Meeting recordings → structured decisions, actions, architecture changes
+- **ADC Integration** — Agent Dev Compute microVM execution with Azure CLI auth
 
 ## Links
 
@@ -111,6 +126,21 @@ python -m daemon watch --dashboard 7070
 
 # Show Copilot session health and cost
 /Octane.AINativeDaemon.SessionHealth
+
+# Process a meeting transcript
+/Octane.AINativeDaemon.ProcessTranscript
+
+# Check Windows compatibility
+/Octane.AINativeDaemon.WindowsCompat
+
+# Sync agents across repos
+/Octane.AINativeDaemon.MultiRepoSync
+
+# Generate an executive briefing
+/Octane.AINativeDaemon.GenerateDocument
+
+# Resolve merge conflicts before push
+/Octane.AINativeDaemon.ResolveConflicts
 ```
 
 ## Expected Output

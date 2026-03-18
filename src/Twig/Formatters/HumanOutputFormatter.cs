@@ -27,7 +27,6 @@ public sealed class HumanOutputFormatter : IOutputFormatter
 
     private readonly Dictionary<string, string>? _typeColors;
     private readonly Dictionary<string, string>? _appearanceColors;
-    private readonly IReadOnlyDictionary<string, string> _icons;
     private readonly Dictionary<string, string>? _typeIconIds;
     private readonly string _iconMode;
 
@@ -41,17 +40,11 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         _appearanceColors = typeAppearances?
             .Where(a => !string.IsNullOrEmpty(a.Color))
             .ToDictionary(a => a.Name, a => a.Color, StringComparer.OrdinalIgnoreCase);
-        _icons = IconSet.GetIcons(displayConfig.Icons);
         _iconMode = displayConfig.Icons;
         _typeIconIds = typeAppearances?
             .Where(a => a.IconId is not null)
             .ToDictionary(a => a.Name, a => a.IconId!, StringComparer.OrdinalIgnoreCase);
     }
-
-    /// <summary>
-    /// Returns the icon glyph for the given work item type from the configured icon set.
-    /// </summary>
-    internal string GetTypeIcon(WorkItemType type) => IconSet.GetIcon(_icons, type.Value);
 
     public string FormatWorkItem(WorkItem item, bool showDirty)
     {

@@ -45,7 +45,7 @@ public class SpectreThemeTests
         };
         var theme = new SpectreTheme(new DisplayConfig { Icons = "nerd" }, appearances);
 
-        theme.GetTypeBadge(WorkItemType.Bug).ShouldBe("\ueaaf ");
+        theme.GetTypeBadge(WorkItemType.Bug).ShouldBe("\uEAAF ");
     }
 
     // ── (c) FormatTypeBadge includes Spectre markup color ──
@@ -98,17 +98,13 @@ public class SpectreThemeTests
         };
         var displayConfig = new DisplayConfig { Icons = "unicode" };
         var theme = new SpectreTheme(displayConfig, appearances);
-        var formatter = new HumanOutputFormatter(displayConfig, appearances);
 
         var themeBadge = theme.GetTypeBadge(WorkItemType.Bug);
-        var formatterBadge = formatter.GetTypeIcon(WorkItemType.Bug);
 
         // Both should use iconId resolution; for unicode mode + icon_insect → "✦"
         themeBadge.ShouldBe("✦");
 
-        // Note: GetTypeIcon returns from the type-name dictionary (different from GetTypeBadge).
-        // The parity is in badge resolution chain, not the icon method.
-        // ResolveTypeBadge and GetTypeBadge both return "✦" for bug with icon_insect in unicode mode.
+        // ResolveTypeBadge uses the same chain as GetTypeBadge
         var resolvedBadge = IconSet.ResolveTypeBadge("unicode", "Bug", new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["Bug"] = "icon_insect" });
         themeBadge.ShouldBe(resolvedBadge);
     }

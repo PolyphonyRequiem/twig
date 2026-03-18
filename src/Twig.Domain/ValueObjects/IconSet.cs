@@ -1,57 +1,12 @@
 namespace Twig.Domain.ValueObjects;
 
 /// <summary>
-/// Provides icon glyph mappings for work item types.
-/// Two sets: Unicode (safe for all terminals) and Nerd Font (requires patched font).
+/// Provides icon glyph mappings for ADO icon IDs and badge resolution for work item types.
+/// Icon ID mappings (UnicodeIconsByIconId / NerdFontIconsByIconId) are keyed by ADO process
+/// icon IDs discovered at runtime — not hardcoded type names.
 /// </summary>
 public static class IconSet
 {
-    public static IReadOnlyDictionary<string, string> UnicodeIcons { get; } =
-        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["Epic"]                 = "◆",
-            ["Feature"]              = "▪",
-            ["User Story"]           = "●",
-            ["Product Backlog Item"] = "●",
-            ["Requirement"]          = "●",
-            ["Bug"]                  = "✦",
-            ["Task"]                 = "□",
-            ["Impediment"]           = "✦",
-            ["Risk"]                 = "✦",
-            ["Issue"]                = "□",
-            ["Test Case"]            = "□",
-            ["Change Request"]       = "□",
-            ["Review"]               = "□",
-        };
-
-    public static IReadOnlyDictionary<string, string> NerdFontIcons { get; } =
-        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["Epic"]                 = "\ueb59",         // nf-cod-star_full (U+EB59)
-            ["Feature"]              = "\uDB80\uDCC0",  // nf-md-bookmark (U+F00C0)
-            ["User Story"]           = "\uea67",         // nf-cod-account (U+EA67)
-            ["Product Backlog Item"] = "\uea67",         // nf-cod-account (U+EA67)
-            ["Requirement"]          = "\uea67",         // nf-cod-account (U+EA67)
-            ["Bug"]                  = "\ueaaf",         // nf-cod-bug (U+EAAF)
-            ["Task"]                 = "\ueab3",         // nf-cod-checklist (U+EAB3)
-            ["Impediment"]           = "\uea6c",         // nf-cod-alert (U+EA6C)
-            ["Risk"]                 = "\uea6c",         // nf-cod-alert (U+EA6C)
-            ["Issue"]                = "\ueab3",         // nf-cod-checklist (U+EAB3)
-            ["Test Case"]            = "\uea79",         // nf-cod-beaker (U+EA79)
-            ["Change Request"]       = "\ueae1",         // nf-cod-diff (U+EAE1)
-            ["Review"]               = "\uea70",         // nf-cod-eye (U+EA70)
-        };
-
-    private const string DefaultIcon = "·";
-
-    public static IReadOnlyDictionary<string, string> GetIcons(string mode) =>
-        string.Equals(mode, "nerd", StringComparison.OrdinalIgnoreCase)
-            ? NerdFontIcons
-            : UnicodeIcons;
-
-    public static string GetIcon(IReadOnlyDictionary<string, string> icons, string? typeName) =>
-        typeName is not null && icons.TryGetValue(typeName, out var icon) ? icon : DefaultIcon;
-
     public static IReadOnlyDictionary<string, string> UnicodeIconsByIconId { get; } =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -101,47 +56,47 @@ public static class IconSet
     public static IReadOnlyDictionary<string, string> NerdFontIconsByIconId { get; } =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            ["icon_crown"]            = "\udb80\udda5",   // nf-md-crown (U+F01A5)
-            ["icon_insect"]           = "\ueaaf",         // nf-cod-bug (U+EAAF)
-            ["icon_check_box"]        = "\ueab3",         // nf-cod-checklist (U+EAB3)
-            ["icon_book"]             = "\ueaa4",         // nf-cod-book (U+EAA4)
-            ["icon_clipboard"]        = "\ueac0",         // nf-cod-clippy (U+EAC0)
-            ["icon_trophy"]           = "\udb81\udd3b",   // nf-md-trophy_variant (U+EB20)
-            ["icon_gift"]             = "\ueaf9",         // nf-cod-gift (U+EAF9)
-            ["icon_chart"]            = "\ueb03",         // nf-cod-graph (U+EB03)
-            ["icon_diamond"]          = "\udb80\uddc8",   // nf-md-diamond_stone (U+F01C8)
-            ["icon_list"]             = "\ueb17",         // nf-cod-list_unordered (U+EB17)
-            ["icon_test_beaker"]      = "\uea79",         // nf-cod-beaker (U+EA79)
-            ["icon_test_plan"]        = "\uebaf",         // nf-cod-notebook (U+EBAF)
-            ["icon_test_suite"]       = "\ueb9c",         // nf-cod-library (U+EB9C)
-            ["icon_test_case"]        = "\uea79",         // nf-cod-beaker (U+EA79)
-            ["icon_test_step"]        = "\ueb16",         // nf-cod-list_ordered (U+EB16)
-            ["icon_test_parameter"]   = "\ueb52",         // nf-cod-settings (U+EB52)
-            ["icon_sticky_note"]      = "\uea7b",         // nf-cod-file (U+EA7B)
-            ["icon_traffic_cone"]     = "\uea6c",         // nf-cod-warning (U+EA6C)
-            ["icon_chat_bubble"]      = "\uea6b",         // nf-cod-comment (U+EA6B)
-            ["icon_flame"]            = "\ueaf2",         // nf-cod-flame (U+EAF2)
-            ["icon_megaphone"]        = "\ueb1e",         // nf-cod-megaphone (U+EB1E)
-            ["icon_code_review"]      = "\ueae1",         // nf-cod-diff (U+EAE1)
-            ["icon_code_response"]    = "\ueac4",         // nf-cod-code (U+EAC4)
-            ["icon_review"]           = "\uea70",         // nf-cod-eye (U+EA70)
-            ["icon_response"]         = "\uea6b",         // nf-cod-comment (U+EA6B)
-            ["icon_star"]             = "\ueb59",         // nf-cod-star_full (U+EB59)
-            ["icon_ribbon"]           = "\ueaa5",         // nf-cod-bookmark (U+EAA5)
-            ["icon_headphone"]        = "\udb80\udece",   // nf-md-headset (U+F02CE)
-            ["icon_key"]              = "\ueb11",         // nf-cod-key (U+EB11)
-            ["icon_airplane"]         = "\ueb44",         // nf-cod-rocket (U+EB44)
-            ["icon_car"]              = "\ueb44",         // nf-cod-rocket (U+EB44)
-            ["icon_asterisk"]         = "\uea6a",         // nf-cod-star_empty (U+EA6A)
-            ["icon_database_storage"] = "\ueace",         // nf-cod-database (U+EACE)
-            ["icon_government"]       = "\ueac0",         // nf-cod-clippy (U+EAC0)
-            ["icon_gavel"]            = "\ueb12",         // nf-cod-law (U+EB12)
-            ["icon_parachute"]        = "\uea6c",         // nf-cod-warning (U+EA6C)
-            ["icon_paint_brush"]      = "\ueb2a",         // nf-cod-paintcan (U+EB2A)
-            ["icon_palette"]          = "\ueac6",         // nf-cod-color_mode (U+EAC6)
-            ["icon_gear"]             = "\ueaf8",         // nf-cod-gear (U+EAF8)
-            ["icon_broken_lightbulb"] = "\uea61",         // nf-cod-lightbulb (U+EA61)
-            ["icon_clipboard_issue"]  = "\ueb0c",         // nf-cod-issues (U+EB0C)
+            ["icon_crown"]            = "\uEB59",   // nf-cod-star_full (U+EB59)
+            ["icon_insect"]           = "\uEAAF",   // nf-cod-bug (U+EAAF)
+            ["icon_check_box"]        = "\uEAB3",   // nf-cod-checklist (U+EAB3)
+            ["icon_book"]             = "\uEAA4",   // nf-cod-book (U+EAA4)
+            ["icon_clipboard"]        = "\uEAC0",   // nf-cod-clippy (U+EAC0)
+            ["icon_trophy"]           = "\uEB20",   // nf-cod-milestone (U+EB20)
+            ["icon_gift"]             = "\uEAF9",   // nf-cod-gift (U+EAF9)
+            ["icon_chart"]            = "\uEB03",   // nf-cod-graph (U+EB03)
+            ["icon_diamond"]          = "\uDB80\uDDC8",   // nf-md-diamond_stone (U+F01C8) — no nf-cod equiv
+            ["icon_list"]             = "\uEB17",   // nf-cod-list_unordered (U+EB17)
+            ["icon_test_beaker"]      = "\uEA79",   // nf-cod-beaker (U+EA79)
+            ["icon_test_plan"]        = "\uEBAF",   // nf-cod-notebook (U+EBAF)
+            ["icon_test_suite"]       = "\uEB9C",   // nf-cod-library (U+EB9C)
+            ["icon_test_case"]        = "\uEA79",   // nf-cod-beaker (U+EA79)
+            ["icon_test_step"]        = "\uEB16",   // nf-cod-list_ordered (U+EB16)
+            ["icon_test_parameter"]   = "\uEB52",   // nf-cod-settings (U+EB52)
+            ["icon_sticky_note"]      = "\uEA7B",   // nf-cod-file (U+EA7B)
+            ["icon_traffic_cone"]     = "\uEA6C",   // nf-cod-warning (U+EA6C)
+            ["icon_chat_bubble"]      = "\uEA6B",   // nf-cod-comment (U+EA6B)
+            ["icon_flame"]            = "\uEAF2",   // nf-cod-flame (U+EAF2)
+            ["icon_megaphone"]        = "\uEB1E",   // nf-cod-megaphone (U+EB1E)
+            ["icon_code_review"]      = "\uEAE1",   // nf-cod-diff (U+EAE1)
+            ["icon_code_response"]    = "\uEAC4",   // nf-cod-code (U+EAC4)
+            ["icon_review"]           = "\uEA70",   // nf-cod-eye (U+EA70)
+            ["icon_response"]         = "\uEA6B",   // nf-cod-comment (U+EA6B)
+            ["icon_star"]             = "\uEB59",   // nf-cod-star_full (U+EB59)
+            ["icon_ribbon"]           = "\uEAA5",   // nf-cod-bookmark (U+EAA5)
+            ["icon_headphone"]        = "\uDB80\uDECE",   // nf-md-headset (U+F02CE) — no nf-cod equiv
+            ["icon_key"]              = "\uEB11",   // nf-cod-key (U+EB11)
+            ["icon_airplane"]         = "\uEB44",   // nf-cod-rocket (U+EB44)
+            ["icon_car"]              = "\uEB44",   // nf-cod-rocket (U+EB44)
+            ["icon_asterisk"]         = "\uEA6A",   // nf-cod-star_empty (U+EA6A)
+            ["icon_database_storage"] = "\uEACE",   // nf-cod-database (U+EACE)
+            ["icon_government"]       = "\uEAC0",   // nf-cod-clippy (U+EAC0)
+            ["icon_gavel"]            = "\uEB12",   // nf-cod-law (U+EB12)
+            ["icon_parachute"]        = "\uEA6C",   // nf-cod-warning (U+EA6C)
+            ["icon_paint_brush"]      = "\uEB2A",   // nf-cod-paintcan (U+EB2A)
+            ["icon_palette"]          = "\uEAC6",   // nf-cod-color_mode (U+EAC6)
+            ["icon_gear"]             = "\uEAF8",   // nf-cod-gear (U+EAF8)
+            ["icon_broken_lightbulb"] = "\uEA61",   // nf-cod-lightbulb (U+EA61)
+            ["icon_clipboard_issue"]  = "\uEB0C",   // nf-cod-issues (U+EB0C)
         };
 
     /// <summary>
@@ -192,10 +147,11 @@ public static class IconSet
     }
 
     /// <summary>
-    /// Normalizes badge display width for nerd font icons.
-    /// BMP Private Use Area icons (U+E000–U+F8FF) render as single-width in most terminals,
-    /// while supplementary PUA icons (surrogate pairs like nf-md-*) render as double-width.
-    /// Appends a trailing space to BMP PUA icons so all badges occupy 2 terminal columns.
+    /// Pads BMP PUA nerd font glyphs (U+E000–U+F8FF) with a trailing space so that
+    /// Spectre.Console measures them as width 2 (1 glyph + 1 space). Nerd font terminals
+    /// render these glyphs as 2 columns, but Spectre’s wcwidth returns 1. The trailing space
+    /// makes the measurement closer to reality. Supplementary PUA glyphs (surrogate pairs)
+    /// are left as-is — Spectre measures those as 0, which is a deeper Spectre bug.
     /// </summary>
     private static string NormalizeBadgeWidth(string badge)
     {

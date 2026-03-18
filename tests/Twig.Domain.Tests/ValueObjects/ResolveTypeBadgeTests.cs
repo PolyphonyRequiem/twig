@@ -77,7 +77,7 @@ public class ResolveTypeBadgeTests
             ["Bug"] = "icon_insect",
         };
 
-        IconSet.ResolveTypeBadge("nerd", "Bug", typeIconIds).ShouldBe("\ueaaf ");
+        IconSet.ResolveTypeBadge("nerd", "Bug", typeIconIds).ShouldBe("\uEAAF ");
     }
 
     // ── With iconId that has no dict entry falls through to hardcoded switch ──
@@ -118,24 +118,24 @@ public class ResolveTypeBadgeTests
         IconSet.ResolveTypeBadge("nerd", "Epic", null).ShouldBe("◆");
     }
 
-    // ── Parity: ResolveTypeBadge matches hardcoded list for all 13 types ──
+    // ── Parity: ResolveTypeBadge returns expected glyph for all 13 known types ──
 
-    [Fact]
-    public void ResolveTypeBadge_AllKnownTypes_MatchUnicodeIconsDictionary()
+    [Theory]
+    [InlineData("Epic", "◆")]
+    [InlineData("Feature", "▪")]
+    [InlineData("User Story", "●")]
+    [InlineData("Product Backlog Item", "●")]
+    [InlineData("Requirement", "●")]
+    [InlineData("Bug", "✦")]
+    [InlineData("Impediment", "✦")]
+    [InlineData("Risk", "✦")]
+    [InlineData("Task", "□")]
+    [InlineData("Test Case", "□")]
+    [InlineData("Change Request", "□")]
+    [InlineData("Review", "□")]
+    [InlineData("Issue", "□")]
+    public void ResolveTypeBadge_AllKnownTypes_ReturnExpectedGlyph(string typeName, string expectedGlyph)
     {
-        // Verify that the hardcoded switch produces the same glyph as the UnicodeIcons dictionary
-        var knownTypes = new[]
-        {
-            "Epic", "Feature", "User Story", "Product Backlog Item",
-            "Requirement", "Bug", "Task", "Impediment", "Risk",
-            "Issue", "Test Case", "Change Request", "Review",
-        };
-
-        foreach (var typeName in knownTypes)
-        {
-            var badge = IconSet.ResolveTypeBadge("unicode", typeName, null);
-            var icon = IconSet.UnicodeIcons[typeName];
-            badge.ShouldBe(icon, $"Mismatch for type '{typeName}'");
-        }
+        IconSet.ResolveTypeBadge("unicode", typeName, null).ShouldBe(expectedGlyph, $"Mismatch for type '{typeName}'");
     }
 }

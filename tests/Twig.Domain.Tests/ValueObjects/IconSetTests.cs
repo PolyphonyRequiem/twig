@@ -6,84 +6,6 @@ namespace Twig.Domain.Tests.ValueObjects;
 
 public class IconSetTests
 {
-    private static readonly string[] KnownTypeNames =
-    [
-        "Epic", "Feature", "User Story", "Product Backlog Item",
-        "Requirement", "Bug", "Task", "Impediment", "Risk",
-        "Issue", "Test Case", "Change Request", "Review",
-    ];
-
-    [Fact]
-    public void UnicodeIcons_ContainsAllKnownTypes()
-    {
-        IconSet.UnicodeIcons.Count.ShouldBe(13);
-        foreach (var typeName in KnownTypeNames)
-        {
-            IconSet.UnicodeIcons.ShouldContainKey(typeName);
-        }
-    }
-
-    [Fact]
-    public void NerdFontIcons_ContainsAllKnownTypes()
-    {
-        IconSet.NerdFontIcons.Count.ShouldBe(13);
-        foreach (var typeName in KnownTypeNames)
-        {
-            IconSet.NerdFontIcons.ShouldContainKey(typeName);
-        }
-
-        // Crown glyph fix: Epic now uses nf-cod-star_full (U+EB59)
-        IconSet.NerdFontIcons["Epic"].ShouldBe("\ueb59");
-    }
-
-    [Fact]
-    public void GetIcons_Unicode_ReturnsUnicodeIcons()
-    {
-        IconSet.GetIcons("unicode").ShouldBeSameAs(IconSet.UnicodeIcons);
-    }
-
-    [Fact]
-    public void GetIcons_Nerd_ReturnsNerdFontIcons()
-    {
-        IconSet.GetIcons("nerd").ShouldBeSameAs(IconSet.NerdFontIcons);
-    }
-
-    [Fact]
-    public void GetIcons_UnknownMode_FallsBackToUnicode()
-    {
-        IconSet.GetIcons("emoji").ShouldBeSameAs(IconSet.UnicodeIcons);
-    }
-
-    [Fact]
-    public void GetIcon_KnownType_ReturnsIcon()
-    {
-        IconSet.GetIcon(IconSet.UnicodeIcons, "Epic").ShouldBe("◆");
-    }
-
-    [Fact]
-    public void GetIcon_UnknownType_ReturnsDefaultIcon()
-    {
-        IconSet.GetIcon(IconSet.UnicodeIcons, "SomeNewType").ShouldBe("·");
-    }
-
-    [Fact]
-    public void GetIcon_CaseInsensitive()
-    {
-        IconSet.GetIcon(IconSet.UnicodeIcons, "epic").ShouldBe("◆");
-    }
-
-    [Fact]
-    public void GetIcons_NullMode_FallsBackToUnicode()
-    {
-        IconSet.GetIcons(null!).ShouldBeSameAs(IconSet.UnicodeIcons);
-    }
-
-    [Fact]
-    public void GetIcon_NullTypeName_ReturnsDefaultIcon()
-    {
-        IconSet.GetIcon(IconSet.UnicodeIcons, null!).ShouldBe("·");
-    }
-
     private static readonly string[] KnownIconIds =
     [
         "icon_crown", "icon_insect", "icon_check_box", "icon_book",
@@ -123,8 +45,8 @@ public class IconSetTests
     public void GetIconByIconId_KnownIconId_ReturnsGlyph()
     {
         IconSet.GetIconByIconId("unicode", "icon_crown").ShouldBe("◆");
-        IconSet.GetIconByIconId("nerd", "icon_insect").ShouldBe("\ueaaf");
-        IconSet.GetIconByIconId("nerd", "icon_trophy").ShouldBe("\udb81\udd3b");
+        IconSet.GetIconByIconId("nerd", "icon_insect").ShouldBe("\uEAAF");
+        IconSet.GetIconByIconId("nerd", "icon_trophy").ShouldBe("\uEB20");
     }
 
     [Fact]

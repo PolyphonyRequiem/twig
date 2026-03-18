@@ -987,38 +987,6 @@ public class HumanOutputFormatterTests
         result.ShouldContain("■");
     }
 
-    // ── EPIC-003: GetTypeIcon (IconSet wiring) ───────────────────────
-
-    [Fact]
-    public void GetTypeIcon_Unicode_ReturnsUnicodeGlyph()
-    {
-        var formatter = new HumanOutputFormatter(new Twig.Infrastructure.Config.DisplayConfig { Icons = "unicode" });
-
-        var icon = formatter.GetTypeIcon(WorkItemType.Epic);
-
-        icon.ShouldBe("◆");
-    }
-
-    [Fact]
-    public void GetTypeIcon_Nerd_ReturnsNerdFontGlyph()
-    {
-        var formatter = new HumanOutputFormatter(new Twig.Infrastructure.Config.DisplayConfig { Icons = "nerd" });
-
-        var icon = formatter.GetTypeIcon(WorkItemType.Bug);
-
-        icon.ShouldBe("\ueaaf"); // nf-cod-bug (U+EAAF)
-    }
-
-    [Fact]
-    public void GetTypeIcon_DefaultConfig_ReturnsUnicodeGlyph()
-    {
-        var formatter = new HumanOutputFormatter();
-
-        var icon = formatter.GetTypeIcon(WorkItemType.Task);
-
-        icon.ShouldBe("□");
-    }
-
     // ── EPIC-3: GetStateColor via StateCategoryResolver ──────────────
 
     [Fact]
@@ -1104,7 +1072,7 @@ public class HumanOutputFormatterTests
 
         var result = formatter.FormatWorkItem(item, showDirty: false);
 
-        result.ShouldContain("\udb81\udd3b"); // icon_trophy → nf-md-trophy_variant in nerd mode
+        result.ShouldContain("\uEB20"); // icon_trophy → nf-cod-milestone in nerd mode (+ trailing space from NormalizeBadgeWidth)
     }
 
     [Fact]

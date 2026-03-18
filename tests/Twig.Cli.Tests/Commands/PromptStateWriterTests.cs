@@ -144,8 +144,9 @@ public class PromptStateWriterTests : IDisposable
         var doc = JsonDocument.Parse(File.ReadAllText(PromptJsonPath));
         var badge = doc.RootElement.GetProperty("typeBadge").GetString();
         badge.ShouldNotBe("◆"); // Not the unicode badge
-        var expected = IconSet.GetIconByIconId("nerd", "icon_crown");
-        badge.ShouldBe(expected);
+        // ResolveTypeBadge pads BMP PUA with trailing space via NormalizeBadgeWidth
+        var expectedRaw = IconSet.GetIconByIconId("nerd", "icon_crown");
+        badge.ShouldBe(expectedRaw + " ");
     }
 
     // ── (e) typeColor from display.typeColors config ───────────────────

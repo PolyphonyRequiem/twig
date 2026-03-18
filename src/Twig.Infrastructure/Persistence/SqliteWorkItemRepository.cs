@@ -180,6 +180,84 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         return Task.CompletedTask;
     }
 
+    public Task EvictExceptAsync(IReadOnlySet<int> keepIds, CancellationToken ct = default)
+    {
+        var conn = _store.GetConnection();
+
+        if (keepIds.Count == 0)
+        {
+            // Empty keep set — delete everything
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "DELETE FROM work_items;";
+            cmd.ExecuteNonQuery();
+            return Task.CompletedTask;
+        }
+
+        if (keepIds.Count > 900)
+        {
+            // Large keep set — use a temp table to avoid SQLite parameter limit (999)
+            using var tx = conn.BeginTransaction();
+            try
+            {
+                using (var createCmd = conn.CreateCommand())
+                {
+                    createCmd.Transaction = tx;
+                    createCmd.CommandText = "CREATE TEMP TABLE IF NOT EXISTS _keep_ids (id INTEGER PRIMARY KEY);";
+                    createCmd.ExecuteNonQuery();
+                }
+
+                using (var clearCmd = conn.CreateCommand())
+                {
+                    clearCmd.Transaction = tx;
+                    clearCmd.CommandText = "DELETE FROM _keep_ids;";
+                    clearCmd.ExecuteNonQuery();
+                }
+
+                foreach (var id in keepIds)
+                {
+                    using var insertCmd = conn.CreateCommand();
+                    insertCmd.Transaction = tx;
+                    insertCmd.CommandText = "INSERT INTO _keep_ids (id) VALUES (@id);";
+                    insertCmd.Parameters.AddWithValue("@id", id);
+                    insertCmd.ExecuteNonQuery();
+                }
+
+                using (var deleteCmd = conn.CreateCommand())
+                {
+                    deleteCmd.Transaction = tx;
+                    deleteCmd.CommandText = "DELETE FROM work_items WHERE id NOT IN (SELECT id FROM _keep_ids);";
+                    deleteCmd.ExecuteNonQuery();
+                }
+
+                tx.Commit();
+            }
+            catch
+            {
+                tx.Rollback();
+                throw;
+            }
+
+            return Task.CompletedTask;
+        }
+
+        // Standard path — parameterized IN clause
+        using var delCmd = conn.CreateCommand();
+        var paramNames = new string[keepIds.Count];
+        var i = 0;
+        foreach (var id in keepIds)
+        {
+            var paramName = $"@id{i}";
+            paramNames[i] = paramName;
+            delCmd.Parameters.AddWithValue(paramName, id);
+            i++;
+        }
+
+        delCmd.CommandText = $"DELETE FROM work_items WHERE id NOT IN ({string.Join(", ", paramNames)});";
+        delCmd.ExecuteNonQuery();
+
+        return Task.CompletedTask;
+    }
+
     private static void SaveWorkItem(SqliteConnection conn, WorkItem item, SqliteTransaction? tx = null)
     {
         using var cmd = conn.CreateCommand();

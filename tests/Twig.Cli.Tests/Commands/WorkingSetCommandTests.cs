@@ -1,0 +1,289 @@
+using NSubstitute;
+using Shouldly;
+using Spectre.Console;
+using Spectre.Console.Rendering;
+using Spectre.Console.Testing;
+using Twig.Commands;
+using Twig.Domain.Aggregates;
+using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
+using Twig.Domain.ValueObjects;
+using Twig.Formatters;
+using Twig.Hints;
+using Twig.Infrastructure.Config;
+using Twig.Rendering;
+using Xunit;
+
+namespace Twig.Cli.Tests.Commands;
+
+/// <summary>
+/// WS-013: Working set eviction + sync tests for <see cref="SetCommand"/>.
+/// Verifies eviction on cache miss, no eviction on cache hit, dirty item survival,
+/// SyncWorkingSetAsync replaces SyncChildrenAsync, ComputeAsync receives IterationPath,
+/// and TTY path renders work item inside buildCachedView.
+/// </summary>
+public class WorkingSetCommandTests
+{
+    private readonly IWorkItemRepository _workItemRepo;
+    private readonly IAdoWorkItemService _adoService;
+    private readonly IContextStore _contextStore;
+    private readonly IPendingChangeStore _pendingChangeStore;
+    private readonly IIterationService _iterationService;
+    private readonly ActiveItemResolver _activeItemResolver;
+    private readonly SyncCoordinator _syncCoordinator;
+    private readonly WorkingSetService _workingSetService;
+    private readonly OutputFormatterFactory _formatterFactory;
+    private readonly HintEngine _hintEngine;
+
+    public WorkingSetCommandTests()
+    {
+        _workItemRepo = Substitute.For<IWorkItemRepository>();
+        _adoService = Substitute.For<IAdoWorkItemService>();
+        _contextStore = Substitute.For<IContextStore>();
+        _pendingChangeStore = Substitute.For<IPendingChangeStore>();
+        _iterationService = Substitute.For<IIterationService>();
+        _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
+            .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
+        _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
+        _syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, protectedCacheWriter, 30);
+        _workingSetService = new WorkingSetService(
+            _contextStore, _workItemRepo, _pendingChangeStore, _iterationService, null);
+        _formatterFactory = new OutputFormatterFactory(
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
+        _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
+    }
+
+    private SetCommand CreateCommand(RenderingPipelineFactory? pipelineFactory = null) =>
+        new(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
+            _workingSetService, _formatterFactory, _hintEngine, pipelineFactory);
+
+    // ── (a) Cache miss → eviction fires ────────────────────────────
+
+    [Fact]
+    public async Task CacheMiss_EvictionFires_NonWorkingSetItemsDeleted()
+    {
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        var item = CreateWorkItem(42, "New Item");
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+
+        // Sprint items in working set
+        var sprintItem = CreateWorkItem(50, "Sprint Item");
+        _workItemRepo.GetByIterationAsync(
+            Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { sprintItem });
+
+        IReadOnlySet<int>? capturedKeepIds = null;
+        await _workItemRepo.EvictExceptAsync(
+            Arg.Do<IReadOnlySet<int>>(ids => capturedKeepIds = ids),
+            Arg.Any<CancellationToken>());
+
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync("42");
+
+        result.ShouldBe(0);
+        capturedKeepIds.ShouldNotBeNull();
+        capturedKeepIds.ShouldContain(42);  // active item
+        capturedKeepIds.ShouldContain(50);  // sprint item (working set member)
+    }
+
+    // ── (b) Cache hit → no eviction, sync still fires ──────────────
+
+    [Fact]
+    public async Task CacheHit_NoEviction_SyncStillFires()
+    {
+        var item = CreateWorkItem(42, "Cached Item");
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync("42");
+
+        result.ShouldBe(0);
+        // No eviction on cache hit (FR-012)
+        await _workItemRepo.DidNotReceive().EvictExceptAsync(
+            Arg.Any<IReadOnlySet<int>>(), Arg.Any<CancellationToken>());
+        // But SyncWorkingSetAsync still fires (fetches stale active item)
+        await _adoService.Received().FetchAsync(42, Arg.Any<CancellationToken>());
+    }
+
+    // ── (c) Dirty items survive eviction ───────────────────────────
+
+    [Fact]
+    public async Task DirtyItems_SurviveEviction()
+    {
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        var item = CreateWorkItem(42, "New Item");
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+
+        // Dirty item from prior context
+        var dirtyItem = CreateWorkItem(99, "Dirty Orphan");
+        dirtyItem.SetDirty();
+        _workItemRepo.GetDirtyItemsAsync(Arg.Any<CancellationToken>())
+            .Returns(new[] { dirtyItem });
+
+        IReadOnlySet<int>? capturedKeepIds = null;
+        await _workItemRepo.EvictExceptAsync(
+            Arg.Do<IReadOnlySet<int>>(ids => capturedKeepIds = ids),
+            Arg.Any<CancellationToken>());
+
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync("42");
+
+        result.ShouldBe(0);
+        capturedKeepIds.ShouldNotBeNull();
+        capturedKeepIds.ShouldContain(99); // dirty item preserved
+    }
+
+    // ── (d) Working set items survive eviction ─────────────────────
+
+    [Fact]
+    public async Task WorkingSetItems_SurviveEviction()
+    {
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        var item = CreateWorkItem(42, "New Item", parentId: 10);
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+
+        // Parent chain
+        var parent = CreateWorkItem(10, "Parent");
+        _workItemRepo.GetParentChainAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new[] { parent });
+
+        // Children
+        var child = CreateWorkItem(100, "Child");
+        _workItemRepo.GetChildrenAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new[] { child });
+
+        // Seeds
+        var seed = CreateWorkItem(-1, "Seed");
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(new[] { seed });
+
+        IReadOnlySet<int>? capturedKeepIds = null;
+        await _workItemRepo.EvictExceptAsync(
+            Arg.Do<IReadOnlySet<int>>(ids => capturedKeepIds = ids),
+            Arg.Any<CancellationToken>());
+
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync("42");
+
+        result.ShouldBe(0);
+        capturedKeepIds.ShouldNotBeNull();
+        capturedKeepIds.ShouldContain(42);   // active item
+        capturedKeepIds.ShouldContain(10);   // parent
+        capturedKeepIds.ShouldContain(100);  // child
+        capturedKeepIds.ShouldContain(-1);   // seed
+    }
+
+    // ── (e) SyncWorkingSetAsync called instead of SyncChildrenAsync ─
+
+    [Fact]
+    public async Task SyncWorkingSetAsync_CalledInsteadOfSyncChildrenAsync_OnCacheMiss()
+    {
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        var item = CreateWorkItem(42, "New Item");
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+
+        var cmd = CreateCommand();
+        await cmd.ExecuteAsync("42");
+
+        // SyncWorkingSetAsync uses FetchAsync per-item (not FetchChildrenAsync)
+        await _adoService.DidNotReceive().FetchChildrenAsync(
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SyncWorkingSetAsync_CalledInsteadOfSyncChildrenAsync_OnCacheHit()
+    {
+        var item = CreateWorkItem(42, "Cached Item");
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+
+        var cmd = CreateCommand();
+        await cmd.ExecuteAsync("42");
+
+        // SyncChildrenAsync NOT called — replaced by SyncWorkingSetAsync
+        await _adoService.DidNotReceive().FetchChildrenAsync(
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    // ── (f) ComputeAsync receives item.IterationPath ───────────────
+
+    [Fact]
+    public async Task ComputeAsync_ReceivesItemIterationPath_NotNull()
+    {
+        var item = CreateWorkItem(42, "Item", iterationPath: "Project\\Sprint 2");
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+
+        // Set up sprint items for the specific iteration
+        _workItemRepo.GetByIterationAsync(
+            Arg.Is<IterationPath>(ip => ip.ToString() == "Project\\Sprint 2"),
+            Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync("42");
+
+        result.ShouldBe(0);
+        // GetCurrentIterationAsync should NOT be called (DD-06: item.IterationPath passed directly)
+        await _iterationService.DidNotReceive().GetCurrentIterationAsync(Arg.Any<CancellationToken>());
+    }
+
+    // ── (g) TTY path renders item in buildCachedView ───────────────
+
+    [Fact]
+    public async Task TtyPath_RendersWorkItemInsideBuildCachedView()
+    {
+        var item = CreateWorkItem(42, "TTY Item");
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+
+        var mockRenderer = Substitute.For<IAsyncRenderer>();
+        IRenderable? capturedCachedView = null;
+        mockRenderer.RenderWithSyncAsync(
+            Arg.Any<Func<Task<IRenderable>>>(),
+            Arg.Any<Func<Task<SyncResult>>>(),
+            Arg.Any<Func<SyncResult, Task<IRenderable?>>>(),
+            Arg.Any<CancellationToken>())
+            .Returns(async callInfo =>
+            {
+                var buildCachedView = callInfo.ArgAt<Func<Task<IRenderable>>>(0);
+                capturedCachedView = await buildCachedView();
+            });
+
+        var pipelineFactory = new RenderingPipelineFactory(
+            _formatterFactory, mockRenderer, isOutputRedirected: () => false);
+        var cmd = CreateCommand(pipelineFactory);
+        var result = await cmd.ExecuteAsync("42");
+
+        result.ShouldBe(0);
+        capturedCachedView.ShouldNotBeNull();
+        // FR-015: cached view should contain the work item text, not be empty
+        // Render through TestConsole for a reliable string representation
+        var testConsole = new TestConsole();
+        testConsole.Write(capturedCachedView);
+        var renderedOutput = testConsole.Output;
+        renderedOutput.ShouldNotBeNullOrWhiteSpace();
+        renderedOutput.ShouldContain("TTY Item");
+    }
+
+    private static WorkItem CreateWorkItem(int id, string title, int? parentId = null, string iterationPath = "Project\\Sprint 1")
+    {
+        return new WorkItem
+        {
+            Id = id,
+            Type = WorkItemType.Task,
+            Title = title,
+            State = "New",
+            ParentId = parentId,
+            IterationPath = IterationPath.Parse(iterationPath).Value,
+            AreaPath = AreaPath.Parse("Project").Value,
+        };
+    }
+}

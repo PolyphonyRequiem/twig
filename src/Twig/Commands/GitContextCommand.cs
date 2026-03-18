@@ -11,8 +11,7 @@ namespace Twig.Commands;
 /// detected work item from branch name, and linked PRs.
 /// </summary>
 public sealed class GitContextCommand(
-    IContextStore contextStore,
-    IWorkItemRepository workItemRepo,
+    ActiveItemResolver activeItemResolver,
     OutputFormatterFactory formatterFactory,
     HintEngine hintEngine,
     TwigConfiguration config,
@@ -25,17 +24,28 @@ public sealed class GitContextCommand(
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
         // 1. Active work item context
-        var activeId = await contextStore.GetActiveWorkItemIdAsync();
+        var resolved = await activeItemResolver.GetActiveItemAsync();
+        int? activeId = null;
         string? activeTitle = null;
         string? activeType = null;
-        if (activeId.HasValue)
+        switch (resolved)
         {
-            var item = await workItemRepo.GetByIdAsync(activeId.Value);
-            if (item is not null)
-            {
-                activeTitle = item.Title;
-                activeType = item.Type.Value;
-            }
+            case ActiveItemResult.Found f:
+                activeId = f.WorkItem.Id;
+                activeTitle = f.WorkItem.Title;
+                activeType = f.WorkItem.Type.Value;
+                break;
+            case ActiveItemResult.FetchedFromAdo f:
+                activeId = f.WorkItem.Id;
+                activeTitle = f.WorkItem.Title;
+                activeType = f.WorkItem.Type.Value;
+                break;
+            case ActiveItemResult.Unreachable u:
+                activeId = u.Id;
+                Console.Error.WriteLine(fmt.FormatError($"Work item #{u.Id} is unreachable: {u.Reason}"));
+                break;
+            case ActiveItemResult.NoContext:
+                break;
         }
 
         // 2. Current branch (if git available)

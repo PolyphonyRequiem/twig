@@ -6,6 +6,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -22,6 +23,9 @@ public class CacheRefreshTests
     private readonly IIterationService _iterationService;
     private readonly TwigConfiguration _config;
     private readonly IProcessTypeStore _processTypeStore;
+    private readonly IAdoWorkItemService _adoService;
+    private readonly ActiveItemResolver _activeItemResolver;
+    private readonly WorkingSetService _workingSetService;
     private readonly TestConsole _testConsole;
     private readonly SpectreRenderer _spectreRenderer;
     private readonly OutputFormatterFactory _formatterFactory;
@@ -37,6 +41,10 @@ public class CacheRefreshTests
             Display = new DisplayConfig { CacheStaleMinutes = 5 }
         };
         _processTypeStore = Substitute.For<IProcessTypeStore>();
+        _adoService = Substitute.For<IAdoWorkItemService>();
+        _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var pendingChangeStore = Substitute.For<IPendingChangeStore>();
+        _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService, null);
 
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
@@ -54,7 +62,8 @@ public class CacheRefreshTests
 
     private WorkspaceCommand CreateCommand(RenderingPipelineFactory pipelineFactory) =>
         new(_contextStore, _workItemRepo, _iterationService, _config,
-            _formatterFactory, _hintEngine, _processTypeStore, pipelineFactory);
+            _formatterFactory, _hintEngine, _processTypeStore,
+            _activeItemResolver, _workingSetService, pipelineFactory);
 
     // ── IsCacheStale unit tests ─────────────────────────────────────
 
@@ -362,8 +371,7 @@ public class CacheRefreshTests
         _contextStore.GetValueAsync("last_refreshed_at", Arg.Any<CancellationToken>())
             .Returns(DateTimeOffset.UtcNow.AddMinutes(-10).ToString("O"));
 
-        var cmd = new StatusCommand(_contextStore, _workItemRepo, pendingChangeStore, _config,
-            _formatterFactory, _hintEngine, CreateTtyPipelineFactory());
+        var cmd = new StatusCommand(_contextStore, _workItemRepo, pendingChangeStore, _config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, new SyncCoordinator(_workItemRepo, _adoService, new ProtectedCacheWriter(_workItemRepo, pendingChangeStore), 30), CreateTtyPipelineFactory());
         var result = await cmd.ExecuteAsync("human");
 
         result.ShouldBe(0);
@@ -387,8 +395,7 @@ public class CacheRefreshTests
         _contextStore.GetValueAsync("last_refreshed_at", Arg.Any<CancellationToken>())
             .Returns(DateTimeOffset.UtcNow.AddMinutes(-1).ToString("O"));
 
-        var cmd = new StatusCommand(_contextStore, _workItemRepo, pendingChangeStore, _config,
-            _formatterFactory, _hintEngine, CreateTtyPipelineFactory());
+        var cmd = new StatusCommand(_contextStore, _workItemRepo, pendingChangeStore, _config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, new SyncCoordinator(_workItemRepo, _adoService, new ProtectedCacheWriter(_workItemRepo, pendingChangeStore), 30), CreateTtyPipelineFactory());
         var result = await cmd.ExecuteAsync("human");
 
         result.ShouldBe(0);

@@ -4,6 +4,7 @@ using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -18,6 +19,7 @@ public class SeedCommandTests
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IAdoWorkItemService _adoService;
     private readonly IProcessConfigurationProvider _processConfigProvider;
+    private readonly ActiveItemResolver _resolver;
     private readonly SeedCommand _cmd;
 
     private static StateEntry[] ToStateEntries(params string[] names) =>
@@ -55,7 +57,8 @@ public class SeedCommandTests
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
 
-        _cmd = new SeedCommand(_contextStore, _workItemRepo, _adoService, _processConfigProvider,
+        _resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        _cmd = new SeedCommand(_resolver, _workItemRepo, _adoService, _processConfigProvider,
             formatterFactory, hintEngine);
     }
 
@@ -123,6 +126,37 @@ public class SeedCommandTests
         var result = await _cmd.ExecuteAsync("");
 
         result.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task Seed_CacheMiss_AutoFetchesFromAdo()
+    {
+        var parent = CreateWorkItem(1, "Parent Feature", WorkItemType.Feature);
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(parent);
+        _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>()).Returns(100);
+        _adoService.FetchAsync(100, Arg.Any<CancellationToken>())
+            .Returns(CreateWorkItem(100, "New Story", WorkItemType.UserStory));
+
+        var result = await _cmd.ExecuteAsync("New Story");
+
+        result.ShouldBe(0);
+        // Auto-fetch saved the parent to cache
+        await _workItemRepo.Received().SaveAsync(parent, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Seed_Unreachable_ReturnsErrorWithReason()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>())
+            .Returns<WorkItem>(x => throw new InvalidOperationException("Network timeout"));
+
+        var result = await _cmd.ExecuteAsync("New Story");
+
+        result.ShouldBe(1);
     }
 
     private static WorkItem CreateWorkItem(int id, string title, WorkItemType type)

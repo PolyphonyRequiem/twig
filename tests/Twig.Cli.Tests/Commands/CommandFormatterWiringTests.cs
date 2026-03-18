@@ -132,7 +132,11 @@ public class CommandFormatterWiringTests
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
         var protectedWriter = new ProtectedCacheWriter(workItemRepo, pendingChangeStore);
         var syncCoord = new SyncCoordinator(workItemRepo, adoService, protectedWriter, 30);
-        var cmd = new SetCommand(workItemRepo, contextStore, resolver, syncCoord, factory, hintEngine);
+        var iterService = Substitute.For<IIterationService>();
+        iterService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
+            .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
+        var wsService = new WorkingSetService(contextStore, workItemRepo, pendingChangeStore, iterService, null);
+        var cmd = new SetCommand(workItemRepo, contextStore, resolver, syncCoord, wsService, factory, hintEngine);
 
         var output = await CaptureStdout(() => cmd.ExecuteAsync("42", "human"));
 
@@ -168,6 +172,14 @@ public class CommandFormatterWiringTests
         services.AddSingleton(new MinimalOutputFormatter());
         services.AddSingleton<OutputFormatterFactory>();
         services.AddSingleton(new HintEngine(new DisplayConfig { Hints = false }));
+        var adoService = Substitute.For<IAdoWorkItemService>();
+        services.AddSingleton(new ActiveItemResolver(contextStore, workItemRepo, adoService));
+        var pcw = new ProtectedCacheWriter(workItemRepo, pendingChangeStore);
+        services.AddSingleton(new SyncCoordinator(workItemRepo, adoService, pcw, 30));
+        var iterSvc = Substitute.For<IIterationService>();
+        iterSvc.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
+            .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
+        services.AddSingleton(new WorkingSetService(contextStore, workItemRepo, pendingChangeStore, iterSvc, null));
         services.AddSingleton<StatusCommand>();
 
         var provider = services.BuildServiceProvider();
@@ -220,7 +232,17 @@ public class CommandFormatterWiringTests
         var factory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = hintsEnabled });
-        return new StatusCommand(contextStore, workItemRepo, pendingChangeStore, config, factory, hintEngine);
+        var adoService = Substitute.For<IAdoWorkItemService>();
+        var activeItemResolver = new ActiveItemResolver(contextStore, workItemRepo, adoService);
+        var pcs = Substitute.For<IPendingChangeStore>();
+        var pcw = new ProtectedCacheWriter(workItemRepo, pcs);
+        var sc = new SyncCoordinator(workItemRepo, adoService, pcw, 30);
+        var iterSvc = Substitute.For<IIterationService>();
+        iterSvc.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
+            .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
+        var wss = new WorkingSetService(contextStore, workItemRepo, pcs, iterSvc, null);
+        return new StatusCommand(contextStore, workItemRepo, pendingChangeStore, config, factory, hintEngine,
+            activeItemResolver, wss, sc);
     }
 
     private static WorkItem CreateWorkItem(int id, string title)

@@ -75,6 +75,7 @@ agents:
       - architect.output?
       - technical_reviewer.output?
       - readability_reviewer.output?
+      - open_questions_gate.output?
     system_prompt: |
       You are a Principal Software Architect. You analyze requirements deeply, research the
       existing codebase, and produce clear, high-level technical design documents with
@@ -132,6 +133,16 @@ agents:
       **IMPORTANT:** You are revising an existing document. Read the document at
       `{{ architect.output.file_path }}` and update it to address the feedback.
       Preserve content that is satisfactory.
+      {% endif %}
+
+      {% if open_questions_gate is defined and open_questions_gate.output and open_questions_gate.output.selected == 'provide_input' %}
+      **User Input on Open Questions:**
+      {{ open_questions_gate.output.feedback }}
+
+      The user has provided answers or guidance on blocking open questions. Incorporate
+      their input into the design: resolve addressed questions, downgrade their severity,
+      and update affected design decisions accordingly. Re-evaluate any remaining open
+      questions for severity.
       {% endif %}
 
       ---
@@ -227,6 +238,14 @@ agents:
       ### Open Questions
       Items requiring further discussion, investigation, or decision from stakeholders.
 
+      Classify each question by severity:
+      - **Low** — Nice to have; can be resolved during implementation
+      - **Moderate** — Should be resolved before implementation begins; impacts scope or approach
+      - **Major** — Must be resolved; significantly affects architecture or feasibility
+      - **Critical** — Blocking; the design cannot proceed without an answer
+
+      Format each question as: `[SEVERITY] Question text`
+
       ### Implementation Phases
       Break down the implementation into logical phases with exit criteria.
 
@@ -281,6 +300,20 @@ agents:
 
       ---
 
+      ## OPEN QUESTIONS EVALUATION
+
+      After writing the document, evaluate your Open Questions section:
+
+      - If ANY open questions could be classified as **Moderate**, **Major**, or **Critical**,
+        set `has_blocking_questions` to `true` and provide a formatted
+        `open_questions_summary` listing only the blocking questions (moderate+)
+        with their severity and brief context.
+      - If all open questions are **Low** (or there are none), set
+        `has_blocking_questions` to `false` and `open_questions_summary` to
+        "No blocking open questions."
+
+      ---
+
       ## SAVING THE DOCUMENT
 
       After creating the document, save it to a file.
@@ -308,8 +341,48 @@ agents:
       revision_notes:
         type: string
         description: Summary of changes made in this revision (empty on first draft)
+      has_blocking_questions:
+        type: boolean
+        description: Whether there are moderate, major, or critical open questions requiring user input
+      open_questions_summary:
+        type: string
+        description: Formatted summary of blocking open questions (moderate/major/critical) for user review
     routes:
+      - to: open_questions_gate
+        when: "{{ output.has_blocking_questions }}"
       - to: technical_reviewer
+
+  - name: open_questions_gate
+    type: human_gate
+    description: Pauses the workflow when the architect identifies moderate, major, or critical open questions that need user input before proceeding
+    input:
+      - architect.output.file_path
+      - architect.output.open_questions_summary
+    prompt: |
+      ## Open Questions Requiring Your Input
+
+      The architect has identified open questions that may significantly impact the design.
+      Please review and decide how to proceed.
+
+      **Plan Document:** {{ architect.output.file_path }}
+
+      {{ architect.output.open_questions_summary }}
+    options:
+      - label: "Provide Input & Revise"
+        value: provide_input
+        route: architect
+        prompt_for: feedback
+      - label: "Proceed Without Answering"
+        value: proceed
+        route: technical_reviewer
+      - label: "Abort Planning"
+        value: abort
+        route: $end
+    output:
+      selected:
+        type: string
+      feedback:
+        type: string
 
   - name: technical_reviewer
     description: Reviews the plan document for technical accuracy, feasibility, and completeness

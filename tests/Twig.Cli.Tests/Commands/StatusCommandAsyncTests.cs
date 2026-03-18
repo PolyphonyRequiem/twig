@@ -7,6 +7,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -21,18 +22,32 @@ public class StatusCommandAsyncTests
     private readonly IContextStore _contextStore;
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IPendingChangeStore _pendingChangeStore;
+    private readonly IAdoWorkItemService _adoService;
+    private readonly ActiveItemResolver _activeItemResolver;
     private readonly TwigConfiguration _config;
     private readonly TestConsole _testConsole;
     private readonly SpectreRenderer _spectreRenderer;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
 
+    private readonly WorkingSetService _workingSetService;
+    private readonly SyncCoordinator _syncCoordinator;
+
     public StatusCommandAsyncTests()
     {
         _contextStore = Substitute.For<IContextStore>();
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
+        _adoService = Substitute.For<IAdoWorkItemService>();
+        _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         _config = new TwigConfiguration { Seed = new SeedConfig { StaleDays = 14 } };
+
+        var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
+        _syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, protectedCacheWriter, 30);
+        var iterationService = Substitute.For<IIterationService>();
+        iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
+            .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
+        _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, iterationService, null);
 
         _testConsole = new TestConsole();
         _spectreRenderer = new SpectreRenderer(_testConsole, new SpectreTheme(new DisplayConfig()));
@@ -58,7 +73,8 @@ public class StatusCommandAsyncTests
 
     private StatusCommand CreateCommand(RenderingPipelineFactory pipelineFactory) =>
         new(_contextStore, _workItemRepo, _pendingChangeStore, _config,
-            _formatterFactory, _hintEngine, pipelineFactory);
+            _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinator,
+            pipelineFactory);
 
     // ── Async rendering path tests ──────────────────────────────────
 
@@ -216,6 +232,8 @@ public class StatusCommandAsyncTests
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<WorkItem>(new HttpRequestException("Not found")));
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
 

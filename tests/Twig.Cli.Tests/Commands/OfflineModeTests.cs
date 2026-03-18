@@ -26,6 +26,9 @@ public class OfflineModeTests
     private readonly IAdoWorkItemService _adoService;
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IConsoleInput _consoleInput;
+    private readonly ActiveItemResolver _activeItemResolver;
+    private readonly WorkingSetService _workingSetService;
+    private readonly SyncCoordinator _syncCoordinator;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
 
@@ -36,6 +39,13 @@ public class OfflineModeTests
         _adoService = Substitute.For<IAdoWorkItemService>();
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
         _consoleInput = Substitute.For<IConsoleInput>();
+        _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
+        _syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, protectedCacheWriter, 30);
+        var iterationService = Substitute.For<IIterationService>();
+        iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
+            .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
+        _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, iterationService, null);
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
@@ -79,7 +89,8 @@ public class OfflineModeTests
 
         var statusCmd = new StatusCommand(
             _contextStore, _workItemRepo, _pendingChangeStore,
-            new TwigConfiguration(), _formatterFactory, _hintEngine);
+            new TwigConfiguration(), _formatterFactory, _hintEngine,
+            _activeItemResolver, _workingSetService, _syncCoordinator);
         var result = await statusCmd.ExecuteAsync();
 
         result.ShouldBe(0);

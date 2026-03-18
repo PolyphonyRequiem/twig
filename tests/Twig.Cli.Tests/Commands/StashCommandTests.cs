@@ -4,6 +4,7 @@ using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -19,6 +20,7 @@ public class StashCommandTests
 {
     private readonly IContextStore _contextStore;
     private readonly IWorkItemRepository _workItemRepo;
+    private readonly IAdoWorkItemService _adoService;
     private readonly IGitService _gitService;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
@@ -28,6 +30,7 @@ public class StashCommandTests
     {
         _contextStore = Substitute.For<IContextStore>();
         _workItemRepo = Substitute.For<IWorkItemRepository>();
+        _adoService = Substitute.For<IAdoWorkItemService>();
         _gitService = Substitute.For<IGitService>();
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
@@ -36,7 +39,9 @@ public class StashCommandTests
     }
 
     private StashCommand CreateCommand(IGitService? git = null) =>
-        new(_contextStore, _workItemRepo, _formatterFactory, _hintEngine, _config, git);
+        new(_contextStore, _workItemRepo,
+            new ActiveItemResolver(_contextStore, _workItemRepo, _adoService),
+            _formatterFactory, _hintEngine, _config, git);
 
     private static WorkItem CreateWorkItem(int id, string title) => new()
     {
@@ -110,6 +115,45 @@ public class StashCommandTests
 
         result.ShouldBe(0);
         await _gitService.Received().StashAsync("custom message", Arg.Any<CancellationToken>());
+    }
+
+    // ── Stash cache miss — auto-fetch from ADO ────────────────────
+
+    [Fact]
+    public async Task Stash_CacheMiss_AutoFetchesFromAdo()
+    {
+        var item = CreateWorkItem(42, "Auto-fetched");
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
+
+        var cmd = CreateCommand(_gitService);
+        var result = await cmd.ExecuteAsync("wip");
+
+        result.ShouldBe(0);
+        await _workItemRepo.Received().SaveAsync(item, Arg.Any<CancellationToken>());
+        await _gitService.Received().StashAsync(
+            Arg.Is<string>(s => s.Contains("#42") && s.Contains("Auto-fetched") && s.Contains("wip")),
+            Arg.Any<CancellationToken>());
+    }
+
+    // ── Stash unreachable — ADO fetch fails ─────────────────────────
+
+    [Fact]
+    public async Task Stash_Unreachable_ReturnsErrorWithReason()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
+            .Returns<WorkItem>(x => throw new InvalidOperationException("Network timeout"));
+        _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
+
+        var cmd = CreateCommand(_gitService);
+        var result = await cmd.ExecuteAsync("wip");
+
+        result.ShouldBe(1);
+        await _gitService.DidNotReceive().StashAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     // ── Stash no git ────────────────────────────────────────────────

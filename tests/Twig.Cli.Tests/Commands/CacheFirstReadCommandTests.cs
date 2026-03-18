@@ -27,6 +27,7 @@ public class CacheFirstReadCommandTests
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly ActiveItemResolver _activeItemResolver;
     private readonly SyncCoordinator _syncCoordinator;
+    private readonly WorkingSetService _workingSetService;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
 
@@ -41,6 +42,10 @@ public class CacheFirstReadCommandTests
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
         _syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, protectedCacheWriter, 30);
+        var iterationService = Substitute.For<IIterationService>();
+        iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
+            .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
+        _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, iterationService, null);
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
@@ -55,7 +60,7 @@ public class CacheFirstReadCommandTests
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
         var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
-            _formatterFactory, _hintEngine);
+            _workingSetService, _formatterFactory, _hintEngine);
         var result = await cmd.ExecuteAsync("42");
 
         result.ShouldBe(0);
@@ -77,7 +82,7 @@ public class CacheFirstReadCommandTests
 
         var config = new TwigConfiguration { Seed = new SeedConfig { StaleDays = 14 } };
         var cmd = new StatusCommand(_contextStore, _workItemRepo, _pendingChangeStore,
-            config, _formatterFactory, _hintEngine, activeItemResolver: _activeItemResolver);
+            config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinator);
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -85,26 +90,35 @@ public class CacheFirstReadCommandTests
         await _adoService.DidNotReceive().FetchAsync(1, Arg.Any<CancellationToken>());
     }
 
-    // ── (b) Stale data + successful sync ───────────────────────────
+    // ── (b) Working set sync after setting context ────────────────
 
     [Fact]
-    public async Task SetCommand_SyncsChildren_AfterSettingContext()
+    public async Task SetCommand_SyncsWorkingSet_AfterSettingContext()
     {
         var item = CreateWorkItem(42, "Item With Children");
-        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        // Item has stale LastSyncedAt so sync coordinator will re-fetch
+        var staleItem = new WorkItem
+        {
+            Id = 42, Type = WorkItemType.Task, Title = "Item With Children", State = "New",
+            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
+            AreaPath = AreaPath.Parse("Project").Value,
+            LastSyncedAt = DateTimeOffset.UtcNow.AddMinutes(-60),
+        };
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(staleItem);
 
-        var child1 = CreateWorkItem(100, "Child 1");
-        var child2 = CreateWorkItem(101, "Child 2");
-        _adoService.FetchChildrenAsync(42, Arg.Any<CancellationToken>())
-            .Returns(new[] { child1, child2 });
+        // After SetActiveWorkItemIdAsync(42), GetActiveWorkItemIdAsync returns 42
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+
+        // Working set sync fetches stale items via FetchAsync (not FetchChildrenAsync)
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
         var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
-            _formatterFactory, _hintEngine);
+            _workingSetService, _formatterFactory, _hintEngine);
         var result = await cmd.ExecuteAsync("42");
 
         result.ShouldBe(0);
-        // Children were synced
-        await _adoService.Received(1).FetchChildrenAsync(42, Arg.Any<CancellationToken>());
+        // SyncWorkingSetAsync fetches stale items individually (DD-07)
+        await _adoService.Received().FetchAsync(42, Arg.Any<CancellationToken>());
     }
 
     // ── (c) Stale data + failed sync ───────────────────────────────
@@ -118,7 +132,7 @@ public class CacheFirstReadCommandTests
             .Throws(new HttpRequestException("Network unavailable"));
 
         var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
-            _formatterFactory, _hintEngine);
+            _workingSetService, _formatterFactory, _hintEngine);
         var result = await cmd.ExecuteAsync("42");
 
         // Command still succeeds — sync failure is non-fatal
@@ -138,25 +152,19 @@ public class CacheFirstReadCommandTests
         dirtyChild.SetDirty();
         _workItemRepo.GetDirtyItemsAsync(Arg.Any<CancellationToken>())
             .Returns(new[] { dirtyChild });
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<int> { 100 });
 
-        var freshChild = CreateWorkItem(100, "Fresh Child From ADO");
-        _adoService.FetchChildrenAsync(42, Arg.Any<CancellationToken>())
-            .Returns(new[] { freshChild });
+        // SyncWorkingSetAsync skips dirty items (doesn't fetch them from ADO)
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
         var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
-            _formatterFactory, _hintEngine);
+            _workingSetService, _formatterFactory, _hintEngine);
         var result = await cmd.ExecuteAsync("42");
 
         result.ShouldBe(0);
-        // SaveBatchAsync should have been called with the protected writer,
-        // which filters out dirty items. The dirty child (ID 100) should be skipped.
-        await _adoService.Received(1).FetchChildrenAsync(42, Arg.Any<CancellationToken>());
-        // Verify dirty child was NOT saved — this is the core FR-002/G-2 assertion
-        await _workItemRepo.DidNotReceive().SaveAsync(
-            Arg.Is<WorkItem>(w => w.Id == 100), Arg.Any<CancellationToken>());
-        await _workItemRepo.DidNotReceive().SaveBatchAsync(
-            Arg.Is<IEnumerable<WorkItem>>(items => items.Any(w => w.Id == 100)),
-            Arg.Any<CancellationToken>());
+        // Verify dirty child (ID 100) was NOT fetched — SyncWorkingSetAsync skips dirty items
+        await _adoService.DidNotReceive().FetchAsync(100, Arg.Any<CancellationToken>());
     }
 
     // ── (e) JSON output parity ─────────────────────────────────────
@@ -168,7 +176,7 @@ public class CacheFirstReadCommandTests
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
         var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
-            _formatterFactory, _hintEngine);
+            _workingSetService, _formatterFactory, _hintEngine);
 
         var sw = new StringWriter();
         Console.SetOut(sw);
@@ -199,7 +207,7 @@ public class CacheFirstReadCommandTests
 
         var config = new TwigConfiguration { Seed = new SeedConfig { StaleDays = 14 } };
         var cmd = new StatusCommand(_contextStore, _workItemRepo, _pendingChangeStore,
-            config, _formatterFactory, _hintEngine, activeItemResolver: _activeItemResolver);
+            config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinator);
 
         var sw = new StringWriter();
         Console.SetOut(sw);
@@ -227,7 +235,7 @@ public class CacheFirstReadCommandTests
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
         var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
-            _formatterFactory, _hintEngine);
+            _workingSetService, _formatterFactory, _hintEngine);
         var result = await cmd.ExecuteAsync("42");
 
         result.ShouldBe(0);
@@ -251,11 +259,13 @@ public class CacheFirstReadCommandTests
 
         var config = new TwigConfiguration { Seed = new SeedConfig { StaleDays = 14 } };
         var cmd = new StatusCommand(_contextStore, _workItemRepo, _pendingChangeStore,
-            config, _formatterFactory, _hintEngine, activeItemResolver: _activeItemResolver);
+            config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinator);
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
-        await _adoService.Received(1).FetchAsync(99, Arg.Any<CancellationToken>());
+        // FetchAsync called at least once: initial cache-miss auto-fetch via ActiveItemResolver
+        // (may also be called by SyncWorkingSetAsync for stale items)
+        await _adoService.Received().FetchAsync(99, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -271,11 +281,11 @@ public class CacheFirstReadCommandTests
 
         var config = new TwigConfiguration();
         var cmd = new TreeCommand(_contextStore, _workItemRepo, config,
-            _formatterFactory, activeItemResolver: _activeItemResolver);
+            _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator);
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
-        await _adoService.Received(1).FetchAsync(50, Arg.Any<CancellationToken>());
+        await _adoService.Received().FetchAsync(50, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -288,7 +298,7 @@ public class CacheFirstReadCommandTests
 
         var config = new TwigConfiguration();
         var cmd = new TreeCommand(_contextStore, _workItemRepo, config,
-            _formatterFactory, activeItemResolver: _activeItemResolver);
+            _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator);
 
         var savedErr = Console.Error;
         using var errWriter = new StringWriter();
@@ -322,13 +332,15 @@ public class CacheFirstReadCommandTests
             .Returns(Array.Empty<WorkItem>());
 
         var setCmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
-            _formatterFactory, _hintEngine);
+            _workingSetService, _formatterFactory, _hintEngine);
         var navCmd = new NavigationCommands(_contextStore, _workItemRepo, setCmd, _formatterFactory,
-            activeItemResolver: _activeItemResolver);
+            _activeItemResolver);
         var result = await navCmd.UpAsync();
 
         result.ShouldBe(0);
-        await _adoService.Received(1).FetchAsync(2, Arg.Any<CancellationToken>());
+        // FetchAsync(2) called at least once: initial cache-miss auto-fetch via ActiveItemResolver
+        // (may also be called by SyncWorkingSetAsync for stale items)
+        await _adoService.Received().FetchAsync(2, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -339,7 +351,7 @@ public class CacheFirstReadCommandTests
             .Throws(new HttpRequestException("Not found"));
 
         var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
-            _formatterFactory, _hintEngine);
+            _workingSetService, _formatterFactory, _hintEngine);
         var result = await cmd.ExecuteAsync("999");
 
         result.ShouldBe(1);
@@ -355,7 +367,7 @@ public class CacheFirstReadCommandTests
 
         var config = new TwigConfiguration { Seed = new SeedConfig { StaleDays = 14 } };
         var cmd = new StatusCommand(_contextStore, _workItemRepo, _pendingChangeStore,
-            config, _formatterFactory, _hintEngine, activeItemResolver: _activeItemResolver);
+            config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinator);
 
         var savedErr = Console.Error;
         using var errWriter = new StringWriter();
@@ -388,7 +400,7 @@ public class CacheFirstReadCommandTests
         _adoService.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
 
         var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
-            _formatterFactory, _hintEngine);
+            _workingSetService, _formatterFactory, _hintEngine);
         var result = await cmd.ExecuteAsync("42");
 
         result.ShouldBe(0);
@@ -416,7 +428,7 @@ public class CacheFirstReadCommandTests
         var processTypeStore = Substitute.For<IProcessTypeStore>();
         var config = new TwigConfiguration();
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, iterationService, config,
-            _formatterFactory, _hintEngine, processTypeStore, activeItemResolver: _activeItemResolver);
+            _formatterFactory, _hintEngine, processTypeStore, _activeItemResolver, _workingSetService);
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -432,7 +444,7 @@ public class CacheFirstReadCommandTests
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
         var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
-            _formatterFactory, _hintEngine);
+            _workingSetService, _formatterFactory, _hintEngine);
         var result = await cmd.ExecuteAsync("42", "minimal");
 
         result.ShouldBe(0);
@@ -451,6 +463,7 @@ public class CacheFirstReadCommandTests
             ParentId = parentId,
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value,
+            LastSyncedAt = DateTimeOffset.UtcNow,
         };
     }
 }

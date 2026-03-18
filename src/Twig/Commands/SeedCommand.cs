@@ -6,11 +6,13 @@ using Twig.Formatters;
 using Twig.Hints;
 
 namespace Twig.Commands;
+
+/// <summary>
 /// Implements <c>twig seed [--type &lt;type&gt;] "title"</c>: creates a seed work item
 /// under the active parent, pushes to ADO, and caches locally.
 /// </summary>
 public sealed class SeedCommand(
-    IContextStore contextStore,
+    ActiveItemResolver activeItemResolver,
     IWorkItemRepository workItemRepo,
     IAdoWorkItemService adoService,
     IProcessConfigurationProvider processConfigProvider,
@@ -28,13 +30,20 @@ public sealed class SeedCommand(
             return 2;
         }
 
-        var activeId = await contextStore.GetActiveWorkItemIdAsync();
-        WorkItem? parent = null;
-
-        if (activeId.HasValue)
+        var resolved = await activeItemResolver.GetActiveItemAsync();
+        if (resolved is ActiveItemResult.Unreachable u)
         {
-            parent = await workItemRepo.GetByIdAsync(activeId.Value);
+            Console.Error.WriteLine(fmt.FormatError($"Work item #{u.Id} is unreachable: {u.Reason}"));
+            return 1;
         }
+
+        WorkItem? parent = resolved switch
+        {
+            ActiveItemResult.Found f => f.WorkItem,
+            ActiveItemResult.FetchedFromAdo f => f.WorkItem,
+            ActiveItemResult.NoContext => null,
+            _ => null,
+        };
 
         // Resolve process configuration
         var processConfig = processConfigProvider.GetConfiguration();

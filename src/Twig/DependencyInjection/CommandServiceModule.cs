@@ -47,6 +47,14 @@ public static class CommandServiceModule
             sp.GetRequiredService<ProtectedCacheWriter>(),
             sp.GetRequiredService<TwigConfiguration>().Display.CacheStaleMinutes));
 
+        // DD-02: WorkingSetService accepts string? userDisplayName primitive (same pattern)
+        services.AddSingleton<WorkingSetService>(sp => new WorkingSetService(
+            sp.GetRequiredService<IContextStore>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IPendingChangeStore>(),
+            sp.GetRequiredService<IIterationService>(),
+            sp.GetRequiredService<TwigConfiguration>().User.DisplayName));
+
         return services;
     }
 }

@@ -4,6 +4,7 @@ using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -20,6 +21,9 @@ public class WorkspaceCommandTests
     private readonly IIterationService _iterationService;
     private readonly TwigConfiguration _config;
     private readonly IProcessTypeStore _processTypeStore;
+    private readonly IAdoWorkItemService _adoService;
+    private readonly ActiveItemResolver _activeItemResolver;
+    private readonly WorkingSetService _workingSetService;
     private readonly WorkspaceCommand _cmd;
 
     public WorkspaceCommandTests()
@@ -29,6 +33,10 @@ public class WorkspaceCommandTests
         _iterationService = Substitute.For<IIterationService>();
         _config = new TwigConfiguration();
         _processTypeStore = Substitute.For<IProcessTypeStore>();
+        _adoService = Substitute.For<IAdoWorkItemService>();
+        _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var pendingChangeStore = Substitute.For<IPendingChangeStore>();
+        _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService, null);
 
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
@@ -37,7 +45,7 @@ public class WorkspaceCommandTests
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         _cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService, _config,
-            formatterFactory, hintEngine, _processTypeStore);
+            formatterFactory, hintEngine, _processTypeStore, _activeItemResolver, _workingSetService);
     }
 
     [Fact]
@@ -347,7 +355,8 @@ public class WorkspaceCommandTests
             NSubstitute.Substitute.For<IAsyncRenderer>());
         var cmdWithPipeline = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService, _config,
             new OutputFormatterFactory(new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter()),
-            new HintEngine(new DisplayConfig { Hints = false }), _processTypeStore, pipelineFactory);
+            new HintEngine(new DisplayConfig { Hints = false }), _processTypeStore,
+            _activeItemResolver, _workingSetService, pipelineFactory);
 
         var sw2 = new StringWriter();
         Console.SetOut(sw2);
@@ -376,5 +385,173 @@ public class WorkspaceCommandTests
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value,
         };
+    }
+
+    // ── WS-020: Dirty orphan display tests ──────────────────────────
+
+    [Fact]
+    public async Task Workspace_DirtyOrphans_ShownWhenPresent()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { CreateWorkItem(1, "Sprint Item") });
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        // Dirty orphan: ID 99 is dirty but NOT in sprint or seed scope
+        var orphan = CreateWorkItem(99, "Orphan Edit");
+        _workItemRepo.GetByIdAsync(99, Arg.Any<CancellationToken>()).Returns(orphan);
+        _workItemRepo.GetDirtyItemsAsync(Arg.Any<CancellationToken>())
+            .Returns(new[] { orphan });
+
+        var pendingChangeStore = Substitute.For<IPendingChangeStore>();
+        pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<int> { 99 });
+        var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService, null);
+
+        var formatterFactory = new OutputFormatterFactory(
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
+        var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
+        var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService, _config,
+            formatterFactory, hintEngine, _processTypeStore, _activeItemResolver, workingSetService);
+
+        var sw = new StringWriter();
+        Console.SetOut(sw);
+        try
+        {
+            var result = await cmd.ExecuteAsync("human");
+            result.ShouldBe(0);
+            var output = sw.ToString();
+            output.ShouldContain("Unsaved changes");
+            output.ShouldContain("Orphan Edit");
+            output.ShouldContain("twig save");
+        }
+        finally
+        {
+            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+        }
+    }
+
+    [Fact]
+    public async Task Workspace_NoDirtyOrphans_WhenAllDirtyItemsInScope()
+    {
+        var sprintItem = CreateWorkItem(1, "Sprint Item");
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { sprintItem });
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        // Dirty item IS in sprint scope — should not appear as orphan
+        var pendingChangeStore = Substitute.For<IPendingChangeStore>();
+        pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<int> { 1 });
+        _workItemRepo.GetDirtyItemsAsync(Arg.Any<CancellationToken>())
+            .Returns(new[] { sprintItem });
+        var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService, null);
+
+        var formatterFactory = new OutputFormatterFactory(
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
+        var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
+        var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService, _config,
+            formatterFactory, hintEngine, _processTypeStore, _activeItemResolver, workingSetService);
+
+        var sw = new StringWriter();
+        Console.SetOut(sw);
+        try
+        {
+            var result = await cmd.ExecuteAsync("human");
+            result.ShouldBe(0);
+            var output = sw.ToString();
+            output.ShouldNotContain("Unsaved changes");
+        }
+        finally
+        {
+            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+        }
+    }
+
+    [Fact]
+    public async Task Workspace_DirtyOrphans_IncludesHintText()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var orphan = CreateWorkItem(50, "Forgotten Edit");
+        _workItemRepo.GetByIdAsync(50, Arg.Any<CancellationToken>()).Returns(orphan);
+        _workItemRepo.GetDirtyItemsAsync(Arg.Any<CancellationToken>())
+            .Returns(new[] { orphan });
+
+        var pendingChangeStore = Substitute.For<IPendingChangeStore>();
+        pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<int> { 50 });
+        var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService, null);
+
+        var formatterFactory = new OutputFormatterFactory(
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
+        var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
+        var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService, _config,
+            formatterFactory, hintEngine, _processTypeStore, _activeItemResolver, workingSetService);
+
+        var sw = new StringWriter();
+        Console.SetOut(sw);
+        try
+        {
+            var result = await cmd.ExecuteAsync("human");
+            result.ShouldBe(0);
+            var output = sw.ToString();
+            output.ShouldContain("Run 'twig save' to push these changes.");
+        }
+        finally
+        {
+            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+        }
+    }
+
+    // ── WS-021: JSON output parity ──────────────────────────────────
+
+    [Fact]
+    public async Task Workspace_JsonOutput_NoDirtyOrphanSection()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var orphan = CreateWorkItem(50, "JSON Orphan");
+        _workItemRepo.GetByIdAsync(50, Arg.Any<CancellationToken>()).Returns(orphan);
+        _workItemRepo.GetDirtyItemsAsync(Arg.Any<CancellationToken>())
+            .Returns(new[] { orphan });
+
+        var pendingChangeStore = Substitute.For<IPendingChangeStore>();
+        pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<int> { 50 });
+        var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService, null);
+
+        var formatterFactory = new OutputFormatterFactory(
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
+        var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
+        var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService, _config,
+            formatterFactory, hintEngine, _processTypeStore, _activeItemResolver, workingSetService);
+
+        var sw = new StringWriter();
+        Console.SetOut(sw);
+        try
+        {
+            var result = await cmd.ExecuteAsync("json");
+            result.ShouldBe(0);
+            var output = sw.ToString();
+            // JSON output must NOT contain dirty orphan section
+            output.ShouldNotContain("Unsaved changes");
+            output.ShouldNotContain("twig save");
+        }
+        finally
+        {
+            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+        }
     }
 }

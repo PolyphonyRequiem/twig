@@ -15,9 +15,8 @@ public sealed class NavigationCommands(
     IWorkItemRepository workItemRepo,
     SetCommand setCommand,
     OutputFormatterFactory formatterFactory,
-    // Optional — null for backward compat with tests that predate EPIC-005
-    RenderingPipelineFactory? pipelineFactory = null,
-    ActiveItemResolver? activeItemResolver = null)
+    ActiveItemResolver activeItemResolver,
+    RenderingPipelineFactory? pipelineFactory = null)
 {
     /// <summary>Navigate to the parent work item.</summary>
     // UpAsync: no disambiguation path — single parent, use formatter directly
@@ -34,30 +33,18 @@ public sealed class NavigationCommands(
 
         // Resolve active item with auto-fetch on cache miss
         Domain.Aggregates.WorkItem? item;
-        if (activeItemResolver is not null)
+        var resolveResult = await activeItemResolver.ResolveByIdAsync(activeId.Value, ct);
+        switch (resolveResult)
         {
-            var resolveResult = await activeItemResolver.ResolveByIdAsync(activeId.Value, ct);
-            switch (resolveResult)
-            {
-                case ActiveItemResult.Found found:
-                    item = found.WorkItem;
-                    break;
-                case ActiveItemResult.FetchedFromAdo fetched:
-                    item = fetched.WorkItem;
-                    break;
-                default:
-                    Console.Error.WriteLine(fmt.FormatError($"Work item #{activeId.Value} not found in cache."));
-                    return 1;
-            }
-        }
-        else
-        {
-            item = await workItemRepo.GetByIdAsync(activeId.Value);
-            if (item is null)
-            {
+            case ActiveItemResult.Found found:
+                item = found.WorkItem;
+                break;
+            case ActiveItemResult.FetchedFromAdo fetched:
+                item = fetched.WorkItem;
+                break;
+            default:
                 Console.Error.WriteLine(fmt.FormatError($"Work item #{activeId.Value} not found in cache."));
                 return 1;
-            }
         }
 
         var parentChain = item.ParentId.HasValue
@@ -93,30 +80,18 @@ public sealed class NavigationCommands(
 
         // Resolve active item with auto-fetch on cache miss
         Domain.Aggregates.WorkItem? item;
-        if (activeItemResolver is not null)
+        var resolveResult = await activeItemResolver.ResolveByIdAsync(activeId.Value, ct);
+        switch (resolveResult)
         {
-            var resolveResult = await activeItemResolver.ResolveByIdAsync(activeId.Value, ct);
-            switch (resolveResult)
-            {
-                case ActiveItemResult.Found found:
-                    item = found.WorkItem;
-                    break;
-                case ActiveItemResult.FetchedFromAdo fetched:
-                    item = fetched.WorkItem;
-                    break;
-                default:
-                    Console.Error.WriteLine(fmt.FormatError($"Work item #{activeId.Value} not found in cache."));
-                    return 1;
-            }
-        }
-        else
-        {
-            item = await workItemRepo.GetByIdAsync(activeId.Value);
-            if (item is null)
-            {
+            case ActiveItemResult.Found found:
+                item = found.WorkItem;
+                break;
+            case ActiveItemResult.FetchedFromAdo fetched:
+                item = fetched.WorkItem;
+                break;
+            default:
                 Console.Error.WriteLine(fmt.FormatError($"Work item #{activeId.Value} not found in cache."));
                 return 1;
-            }
         }
 
         var parentChain = item.ParentId.HasValue

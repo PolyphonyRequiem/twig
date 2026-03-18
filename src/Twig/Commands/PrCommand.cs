@@ -1,8 +1,10 @@
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
+
 
 namespace Twig.Commands;
 
@@ -12,8 +14,7 @@ namespace Twig.Commands;
 /// and supports <c>--target</c>, <c>--title</c>, and <c>--draft</c> flags.
 /// </summary>
 public sealed class PrCommand(
-    IContextStore contextStore,
-    IWorkItemRepository workItemRepo,
+    ActiveItemResolver activeItemResolver,
     IAdoWorkItemService adoService,
     OutputFormatterFactory formatterFactory,
     HintEngine hintEngine,
@@ -31,19 +32,24 @@ public sealed class PrCommand(
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
         // 1. Resolve active work item
-        var activeId = await contextStore.GetActiveWorkItemIdAsync();
-        if (activeId is null)
+        var resolved = await activeItemResolver.GetActiveItemAsync();
+        if (resolved is ActiveItemResult.NoContext)
         {
             Console.Error.WriteLine(fmt.FormatError("No active work item. Run 'twig set <id>' first."));
             return 1;
         }
-
-        var item = await workItemRepo.GetByIdAsync(activeId.Value);
-        if (item is null)
+        if (resolved is ActiveItemResult.Unreachable u)
         {
-            Console.Error.WriteLine(fmt.FormatError($"Work item #{activeId.Value} not found in cache."));
+            Console.Error.WriteLine(fmt.FormatError($"Work item #{u.Id} is unreachable: {u.Reason}"));
             return 1;
         }
+
+        var item = resolved switch
+        {
+            ActiveItemResult.Found f => f.WorkItem,
+            ActiveItemResult.FetchedFromAdo f => f.WorkItem,
+            _ => throw new InvalidOperationException("Unreachable: NoContext and Unreachable handled above"),
+        };
 
         // 2. Check git availability
         if (gitService is null)

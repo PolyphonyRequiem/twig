@@ -3,6 +3,7 @@ using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -15,6 +16,7 @@ public class GitContextCommandTests
 {
     private readonly IContextStore _contextStore;
     private readonly IWorkItemRepository _workItemRepo;
+    private readonly IAdoWorkItemService _adoService;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
     private readonly TwigConfiguration _config;
@@ -25,6 +27,7 @@ public class GitContextCommandTests
     {
         _contextStore = Substitute.For<IContextStore>();
         _workItemRepo = Substitute.For<IWorkItemRepository>();
+        _adoService = Substitute.For<IAdoWorkItemService>();
         _gitService = Substitute.For<IGitService>();
         _adoGitService = Substitute.For<IAdoGitService>();
 
@@ -36,7 +39,8 @@ public class GitContextCommandTests
 
     private GitContextCommand CreateCommand(
         IGitService? gitService = null, IAdoGitService? adoGitService = null) =>
-        new(_contextStore, _workItemRepo, _formatterFactory, _hintEngine, _config,
+        new(new ActiveItemResolver(_contextStore, _workItemRepo, _adoService),
+            _formatterFactory, _hintEngine, _config,
             gitService: gitService, adoGitService: adoGitService);
 
     private static WorkItem CreateWorkItem(int id, string title, string type = "Bug") => new()
@@ -355,5 +359,88 @@ public class GitContextCommandTests
         var cmd = CreateCommand(gitService: null);
         var result = await cmd.ExecuteAsync("human");
         result.ShouldBe(0);
+    }
+
+    // ── Cache miss — auto-fetch from ADO ────────────────────────────
+
+    [Fact]
+    public async Task Human_CacheMiss_AutoFetchesFromAdo()
+    {
+        var item = CreateWorkItem(42, "Auto-fetched");
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>())
+            .Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
+            .Returns((WorkItem?)null);
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
+            .Returns(item);
+        _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>())
+            .Returns(true);
+        _gitService.GetCurrentBranchAsync(Arg.Any<CancellationToken>())
+            .Returns("bug/42-auto-fetched");
+
+        var cmd = CreateCommand(_gitService);
+
+        var sw = new StringWriter();
+        var original = Console.Out;
+        Console.SetOut(sw);
+        try
+        {
+            var result = await cmd.ExecuteAsync("human");
+            result.ShouldBe(0);
+        }
+        finally
+        {
+            Console.SetOut(original);
+        }
+
+        var output = sw.ToString();
+        output.ShouldContain("#42");
+        output.ShouldContain("Auto-fetched");
+        await _workItemRepo.Received().SaveAsync(item, Arg.Any<CancellationToken>());
+    }
+
+    // ── Unreachable — shows error but still returns 0 ───────────────
+
+    [Fact]
+    public async Task Human_Unreachable_ShowsErrorWithReason()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>())
+            .Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
+            .Returns((WorkItem?)null);
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
+            .Returns<WorkItem>(x => throw new InvalidOperationException("Network timeout"));
+        _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>())
+            .Returns(true);
+        _gitService.GetCurrentBranchAsync(Arg.Any<CancellationToken>())
+            .Returns("bug/42-test");
+
+        var cmd = CreateCommand(_gitService);
+
+        var stdoutWriter = new StringWriter();
+        var stderrWriter = new StringWriter();
+        var originalOut = Console.Out;
+        var originalErr = Console.Error;
+        Console.SetOut(stdoutWriter);
+        Console.SetError(stderrWriter);
+        try
+        {
+            var result = await cmd.ExecuteAsync("human");
+            result.ShouldBe(0);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalErr);
+        }
+
+        var stderr = stderrWriter.ToString();
+        stderr.ShouldContain("#42");
+        stderr.ShouldContain("unreachable");
+        stderr.ShouldContain("Network timeout");
+
+        // Still shows context with just the ID
+        var stdout = stdoutWriter.ToString();
+        stdout.ShouldContain("#42");
     }
 }

@@ -4,6 +4,7 @@ using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -45,7 +46,8 @@ public class CommitCommandTests
     }
 
     private CommitCommand CreateCommand(IGitService? gitService = null, IAdoGitService? adoGitService = null) =>
-        new(_contextStore, _workItemRepo, _adoService,
+        new(new ActiveItemResolver(_contextStore, _workItemRepo, _adoService),
+            _adoService,
             _formatterFactory, _hintEngine, _config,
             gitService: gitService, adoGitService: adoGitService);
 
@@ -127,18 +129,40 @@ public class CommitCommandTests
         await _gitService.DidNotReceive().CommitAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
     }
 
-    // ── Work item not in cache ──────────────────────────────────────
+    // ── Work item not in cache — auto-fetch from ADO ──────────────
 
     [Fact]
-    public async Task WorkItemNotInCache_ReturnsError()
+    public async Task WorkItemNotInCache_AutoFetchesFromAdo()
+    {
+        var item = CreateWorkItem(999, "Auto-fetched");
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(999);
+        _workItemRepo.GetByIdAsync(999, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        _adoService.FetchAsync(999, Arg.Any<CancellationToken>()).Returns(item);
+        _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
+        _gitService.CommitAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns("abc123");
+
+        var cmd = CreateCommand(_gitService);
+        var result = await cmd.ExecuteAsync(message: "test", noLink: true);
+
+        result.ShouldBe(0);
+        await _workItemRepo.Received().SaveAsync(item, Arg.Any<CancellationToken>());
+    }
+
+    // ── Work item unreachable — ADO fetch fails ─────────────────────
+
+    [Fact]
+    public async Task WorkItemUnreachable_ReturnsErrorWithReason()
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(999);
         _workItemRepo.GetByIdAsync(999, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        _adoService.FetchAsync(999, Arg.Any<CancellationToken>())
+            .Returns<WorkItem>(x => throw new InvalidOperationException("Network timeout"));
 
         var cmd = CreateCommand(_gitService, _adoGitService);
         var result = await cmd.ExecuteAsync(message: "test");
 
         result.ShouldBe(1);
+        await _gitService.DidNotReceive().CommitAsync(Arg.Any<string>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
     }
 
     // ── No git service ──────────────────────────────────────────────

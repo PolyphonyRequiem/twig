@@ -126,8 +126,12 @@ public class PromptStateIntegrationTests : IDisposable
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var protectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
         var syncCoord = new SyncCoordinator(_workItemRepo, _adoService, protectedWriter, 30);
+        var iterService = Substitute.For<IIterationService>();
+        iterService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
+            .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
+        var wsService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, iterService, null);
         var cmd = new SetCommand(_workItemRepo, _contextStore, resolver, syncCoord,
-            _formatterFactory, _hintEngine, promptStateWriter: writer);
+            wsService, _formatterFactory, _hintEngine, promptStateWriter: writer);
 
         var result = await cmd.ExecuteAsync("12345");
 
@@ -318,8 +322,12 @@ public class PromptStateIntegrationTests : IDisposable
         var resolver2 = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var protectedWriter2 = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
         var syncCoord2 = new SyncCoordinator(_workItemRepo, _adoService, protectedWriter2, 30);
+        var iterService2 = Substitute.For<IIterationService>();
+        iterService2.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
+            .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
+        var wsService2 = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, iterService2, null);
         var cmd = new SetCommand(_workItemRepo, _contextStore, resolver2, syncCoord2,
-            _formatterFactory, _hintEngine, promptStateWriter: failWriter);
+            wsService2, _formatterFactory, _hintEngine, promptStateWriter: failWriter);
 
         var result = await cmd.ExecuteAsync("42");
 
@@ -498,8 +506,11 @@ public class PromptStateIntegrationTests : IDisposable
 
         var writer = CreateWriter();
         var refreshProtectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
+        var refreshSyncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, refreshProtectedWriter, 30);
+        var refreshWorkingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, iterationService, null);
         var cmd = new RefreshCommand(_contextStore, _workItemRepo, _adoService, iterationService,
-            _pendingChangeStore, refreshProtectedWriter, _config, _paths, _processTypeStore, _formatterFactory, _hintEngine, writer);
+            _pendingChangeStore, refreshProtectedWriter, _config, _paths, _processTypeStore, _formatterFactory, _hintEngine,
+            refreshWorkingSetService, refreshSyncCoordinator, writer);
 
         var result = await cmd.ExecuteAsync();
 
@@ -529,7 +540,8 @@ public class PromptStateIntegrationTests : IDisposable
 
         var branchConfig = new TwigConfiguration { Git = { AutoTransition = true, AutoLink = false } };
         var writer = CreateWriter();
-        var cmd = new BranchCommand(_contextStore, _workItemRepo, _adoService,
+        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var cmd = new BranchCommand(resolver, _workItemRepo, _adoService,
             _processConfigProvider, _formatterFactory, _hintEngine, branchConfig,
             gitService, adoGitService, writer);
 
@@ -553,7 +565,8 @@ public class PromptStateIntegrationTests : IDisposable
 
         var autoTransitionEnabledConfig = new TwigConfiguration { Git = { AutoTransition = true, AutoLink = false } };
         var writer = CreateWriter();
-        var cmd = new BranchCommand(_contextStore, _workItemRepo, _adoService,
+        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var cmd = new BranchCommand(resolver, _workItemRepo, _adoService,
             _processConfigProvider, _formatterFactory, _hintEngine, autoTransitionEnabledConfig,
             gitService, promptStateWriter: writer);
 
@@ -640,7 +653,8 @@ public class PromptStateIntegrationTests : IDisposable
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(999);
 
         var writer = CreateWriter();
-        var cmd = new StashCommand(_contextStore, _workItemRepo, _formatterFactory,
+        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var cmd = new StashCommand(_contextStore, _workItemRepo, resolver, _formatterFactory,
             _hintEngine, _config, gitService, writer);
 
         var result = await cmd.PopAsync();
@@ -662,7 +676,8 @@ public class PromptStateIntegrationTests : IDisposable
         gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
 
         var writer = CreateWriter();
-        var cmd = new StashCommand(_contextStore, _workItemRepo, _formatterFactory,
+        var resolver2 = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var cmd = new StashCommand(_contextStore, _workItemRepo, resolver2, _formatterFactory,
             _hintEngine, _config, gitService, writer);
 
         var result = await cmd.ExecuteAsync("test message");

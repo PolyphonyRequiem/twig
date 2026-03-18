@@ -24,6 +24,8 @@ public sealed class RefreshCommand(
     IProcessTypeStore processTypeStore,
     OutputFormatterFactory formatterFactory,
     HintEngine hintEngine,
+    WorkingSetService workingSetService,
+    SyncCoordinator syncCoordinator,
     IPromptStateWriter? promptStateWriter = null)
 {
     /// <summary>Refresh the local cache from Azure DevOps.</summary>
@@ -189,6 +191,10 @@ public sealed class RefreshCommand(
 
             await workItemRepo.SaveBatchAsync(ancestors);
         }
+
+        // Sync working set after sprint item save (EPIC-004) — NO eviction (FR-013)
+        var workingSet = await workingSetService.ComputeAsync(iteration);
+        await syncCoordinator.SyncWorkingSetAsync(workingSet);
 
         // Refresh user display name if not yet set
         if (string.IsNullOrWhiteSpace(config.User.DisplayName))

@@ -9,15 +9,17 @@ namespace Twig.Commands;
 
 /// <summary>
 /// Implements <c>twig tree</c>: builds a WorkTree and renders it with box-drawing characters.
+/// After rendering cached tree, syncs the working set and revises if children/parent changed.
 /// </summary>
 public sealed class TreeCommand(
     IContextStore contextStore,
     IWorkItemRepository workItemRepo,
     TwigConfiguration config,
     OutputFormatterFactory formatterFactory,
-    // Optional — null for backward compat with tests that predate EPIC-003
-    RenderingPipelineFactory? pipelineFactory = null,
-    ActiveItemResolver? activeItemResolver = null)
+    ActiveItemResolver activeItemResolver,
+    WorkingSetService workingSetService,
+    SyncCoordinator syncCoordinator,
+    RenderingPipelineFactory? pipelineFactory = null)
 {
     /// <summary>Display the work item hierarchy as a tree.</summary>
     public async Task<int> ExecuteAsync(string outputFormat = "human", int? depth = null, bool all = false, bool noLive = false)
@@ -40,30 +42,18 @@ public sealed class TreeCommand(
 
         // Resolve active item with auto-fetch on cache miss (G-3)
         Domain.Aggregates.WorkItem? resolvedItem;
-        if (activeItemResolver is not null)
+        var resolveResult = await activeItemResolver.ResolveByIdAsync(activeId.Value);
+        switch (resolveResult)
         {
-            var resolveResult = await activeItemResolver.ResolveByIdAsync(activeId.Value);
-            switch (resolveResult)
-            {
-                case ActiveItemResult.Found found:
-                    resolvedItem = found.WorkItem;
-                    break;
-                case ActiveItemResult.FetchedFromAdo fetched:
-                    resolvedItem = fetched.WorkItem;
-                    break;
-                default:
-                    Console.Error.WriteLine(fmt.FormatError($"Work item #{activeId.Value} not found in cache."));
-                    return 1;
-            }
-        }
-        else
-        {
-            resolvedItem = await workItemRepo.GetByIdAsync(activeId.Value);
-            if (resolvedItem is null)
-            {
+            case ActiveItemResult.Found found:
+                resolvedItem = found.WorkItem;
+                break;
+            case ActiveItemResult.FetchedFromAdo fetched:
+                resolvedItem = fetched.WorkItem;
+                break;
+            default:
                 Console.Error.WriteLine(fmt.FormatError($"Work item #{activeId.Value} not found in cache."));
                 return 1;
-            }
         }
 
         if (renderer is not null)
@@ -78,6 +68,17 @@ public sealed class TreeCommand(
                 maxChildren: maxChildren,
                 activeId: activeId,
                 ct: CancellationToken.None);
+
+            // Sync working set after cached render (EPIC-004)
+            var workingSet = await workingSetService.ComputeAsync(resolvedItem.IterationPath);
+            await renderer.RenderWithSyncAsync(
+                buildCachedView: () =>
+                    Task.FromResult<Spectre.Console.Rendering.IRenderable>(
+                        new Spectre.Console.Text(string.Empty)),
+                performSync: () => syncCoordinator.SyncWorkingSetAsync(workingSet),
+                buildRevisedView: syncResult =>
+                    Task.FromResult<Spectre.Console.Rendering.IRenderable?>(null),
+                CancellationToken.None);
 
             return 0;
         }
@@ -94,6 +95,10 @@ public sealed class TreeCommand(
         var tree = WorkTree.Build(item, parentChain, children);
 
         Console.WriteLine(fmt.FormatTree(tree, maxChildren, activeId));
+
+        // Sync working set silently after output (EPIC-004)
+        var syncWorkingSet = await workingSetService.ComputeAsync(item.IterationPath);
+        await syncCoordinator.SyncWorkingSetAsync(syncWorkingSet);
 
         return 0;
     }

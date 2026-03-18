@@ -245,6 +245,282 @@ public class SyncCoordinatorTests
     }
 
     // ═══════════════════════════════════════════════════════════════
+    //  SyncWorkingSetAsync — empty working set → UpToDate
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncWorkingSetAsync_EmptyWorkingSet_ReturnsUpToDate()
+    {
+        var ws = new WorkingSet();
+
+        var result = await _sut.SyncWorkingSetAsync(ws);
+
+        result.ShouldBeOfType<SyncResult.UpToDate>();
+        await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncWorkingSetAsync — all fresh → UpToDate
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncWorkingSetAsync_AllFresh_ReturnsUpToDate()
+    {
+        var fresh = DateTimeOffset.UtcNow.AddMinutes(-5);
+        _workItemRepo.GetByIdAsync(10).Returns(MakeItem(10, lastSyncedAt: fresh));
+        _workItemRepo.GetByIdAsync(11).Returns(MakeItem(11, lastSyncedAt: fresh));
+        _workItemRepo.GetByIdAsync(12).Returns(MakeItem(12, lastSyncedAt: fresh));
+
+        var ws = new WorkingSet
+        {
+            ActiveItemId = 10,
+            ChildrenIds = [11, 12],
+        };
+
+        var result = await _sut.SyncWorkingSetAsync(ws);
+
+        result.ShouldBeOfType<SyncResult.UpToDate>();
+        await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncWorkingSetAsync — mix stale/fresh → Updated(staleCount)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncWorkingSetAsync_MixStaleFresh_ReturnsUpdatedWithStaleCount()
+    {
+        var fresh = DateTimeOffset.UtcNow.AddMinutes(-5);
+        var stale = DateTimeOffset.UtcNow.AddMinutes(-60);
+
+        _workItemRepo.GetByIdAsync(10).Returns(MakeItem(10, lastSyncedAt: fresh));
+        _workItemRepo.GetByIdAsync(11).Returns(MakeItem(11, lastSyncedAt: stale));
+        _workItemRepo.GetByIdAsync(12).Returns(MakeItem(12, lastSyncedAt: stale));
+
+        var fetched11 = MakeItem(11);
+        var fetched12 = MakeItem(12);
+        _adoService.FetchAsync(11, Arg.Any<CancellationToken>()).Returns(fetched11);
+        _adoService.FetchAsync(12, Arg.Any<CancellationToken>()).Returns(fetched12);
+
+        var ws = new WorkingSet
+        {
+            ActiveItemId = 10,
+            ChildrenIds = [11, 12],
+        };
+
+        var result = await _sut.SyncWorkingSetAsync(ws);
+
+        result.ShouldBeOfType<SyncResult.Updated>()
+              .ChangedCount.ShouldBe(2);
+        await _adoService.DidNotReceive().FetchAsync(10, Arg.Any<CancellationToken>());
+        await _adoService.Received(1).FetchAsync(11, Arg.Any<CancellationToken>());
+        await _adoService.Received(1).FetchAsync(12, Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncWorkingSetAsync — all stale → Updated(allCount)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncWorkingSetAsync_AllStale_ReturnsUpdatedWithAllCount()
+    {
+        var stale = DateTimeOffset.UtcNow.AddMinutes(-60);
+
+        _workItemRepo.GetByIdAsync(10).Returns(MakeItem(10, lastSyncedAt: stale));
+        _workItemRepo.GetByIdAsync(11).Returns(MakeItem(11, lastSyncedAt: stale));
+        _workItemRepo.GetByIdAsync(12).Returns(MakeItem(12, lastSyncedAt: stale));
+
+        _adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(MakeItem(10));
+        _adoService.FetchAsync(11, Arg.Any<CancellationToken>()).Returns(MakeItem(11));
+        _adoService.FetchAsync(12, Arg.Any<CancellationToken>()).Returns(MakeItem(12));
+
+        var ws = new WorkingSet
+        {
+            ActiveItemId = 10,
+            ChildrenIds = [11, 12],
+        };
+
+        var result = await _sut.SyncWorkingSetAsync(ws);
+
+        result.ShouldBeOfType<SyncResult.Updated>()
+              .ChangedCount.ShouldBe(3);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncWorkingSetAsync — network failure → Failed
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncWorkingSetAsync_FetchFails_ReturnsFailed()
+    {
+        _workItemRepo.GetByIdAsync(10).Returns(MakeItem(10, lastSyncedAt: null));
+        _adoService.FetchAsync(10, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("Network error"));
+
+        var ws = new WorkingSet { ActiveItemId = 10 };
+
+        var result = await _sut.SyncWorkingSetAsync(ws);
+
+        result.ShouldBeOfType<SyncResult.Failed>()
+              .Reason.ShouldContain("Network error");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncWorkingSetAsync — seed IDs (negative) skipped
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncWorkingSetAsync_SeedIdsSkipped_OnlyPositiveIdsSynced()
+    {
+        var stale = DateTimeOffset.UtcNow.AddMinutes(-60);
+        _workItemRepo.GetByIdAsync(10).Returns(MakeItem(10, lastSyncedAt: stale));
+        _adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(MakeItem(10));
+
+        var ws = new WorkingSet
+        {
+            ActiveItemId = 10,
+            SeedIds = [-1, -2],
+        };
+
+        var result = await _sut.SyncWorkingSetAsync(ws);
+
+        result.ShouldBeOfType<SyncResult.Updated>()
+              .ChangedCount.ShouldBe(1);
+        await _adoService.DidNotReceive().FetchAsync(-1, Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().FetchAsync(-2, Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncWorkingSetAsync — only seed IDs → UpToDate
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncWorkingSetAsync_OnlySeedIds_ReturnsUpToDate()
+    {
+        var ws = new WorkingSet { SeedIds = [-1, -2, -3] };
+
+        var result = await _sut.SyncWorkingSetAsync(ws);
+
+        result.ShouldBeOfType<SyncResult.UpToDate>();
+        await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncWorkingSetAsync — dirty items skipped by ProtectedCacheWriter
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncWorkingSetAsync_DirtyItemsSkippedByProtectedWriter_ReturnsUpdatedWithSavedCount()
+    {
+        var stale = DateTimeOffset.UtcNow.AddMinutes(-60);
+        _workItemRepo.GetByIdAsync(10).Returns(MakeItem(10, lastSyncedAt: stale));
+        _workItemRepo.GetByIdAsync(11).Returns(MakeItem(11, lastSyncedAt: stale));
+
+        _adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(MakeItem(10));
+        _adoService.FetchAsync(11, Arg.Any<CancellationToken>()).Returns(MakeItem(11));
+
+        // Item 11 is dirty — ProtectedCacheWriter will skip it
+        _pendingStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(new[] { 11 });
+
+        var ws = new WorkingSet
+        {
+            ActiveItemId = 10,
+            ChildrenIds = [11],
+        };
+
+        var result = await _sut.SyncWorkingSetAsync(ws);
+
+        // 2 fetched, 1 skipped = 1 saved; still Updated because items were fetched
+        result.ShouldBeOfType<SyncResult.Updated>()
+              .ChangedCount.ShouldBe(1);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncWorkingSetAsync — all stale items dirty → UpToDate (pre-filtered)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncWorkingSetAsync_AllStaleDirty_PreFiltered_ReturnsUpToDate()
+    {
+        // All candidates are in DirtyItemIds → pre-filtered out, no ADO fetch
+        var ws = new WorkingSet
+        {
+            ActiveItemId = 10,
+            ChildrenIds = [11],
+            DirtyItemIds = new HashSet<int> { 10, 11 },
+        };
+
+        var result = await _sut.SyncWorkingSetAsync(ws);
+
+        result.ShouldBeOfType<SyncResult.UpToDate>();
+        await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncWorkingSetAsync — all stale protected by pending store → Updated(0)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncWorkingSetAsync_AllStaleProtectedByPendingStore_ReturnsUpdatedZero()
+    {
+        var stale = DateTimeOffset.UtcNow.AddMinutes(-60);
+        _workItemRepo.GetByIdAsync(10).Returns(MakeItem(10, lastSyncedAt: stale));
+        _workItemRepo.GetByIdAsync(11).Returns(MakeItem(11, lastSyncedAt: stale));
+
+        _adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(MakeItem(10));
+        _adoService.FetchAsync(11, Arg.Any<CancellationToken>()).Returns(MakeItem(11));
+
+        // Items are protected by pending store (not in DirtyItemIds) — SaveBatchProtectedAsync skips all
+        _pendingStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(new[] { 10, 11 });
+
+        var ws = new WorkingSet
+        {
+            ActiveItemId = 10,
+            ChildrenIds = [11],
+        };
+
+        var result = await _sut.SyncWorkingSetAsync(ws);
+
+        result.ShouldBeOfType<SyncResult.Updated>()
+              .ChangedCount.ShouldBe(0);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncWorkingSetAsync — cancellation propagates
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncWorkingSetAsync_Cancellation_PropagatesException()
+    {
+        _workItemRepo.GetByIdAsync(10).Returns(MakeItem(10, lastSyncedAt: null));
+        _adoService.FetchAsync(10, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new OperationCanceledException());
+
+        var ws = new WorkingSet { ActiveItemId = 10 };
+
+        await Should.ThrowAsync<OperationCanceledException>(
+            () => _sut.SyncWorkingSetAsync(ws));
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncWorkingSetAsync — items not in cache treated as stale
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncWorkingSetAsync_ItemNotInCache_TreatedAsStale()
+    {
+        _workItemRepo.GetByIdAsync(10).Returns((WorkItem?)null);
+        _adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(MakeItem(10));
+
+        var ws = new WorkingSet { ActiveItemId = 10 };
+
+        var result = await _sut.SyncWorkingSetAsync(ws);
+
+        result.ShouldBeOfType<SyncResult.Updated>()
+              .ChangedCount.ShouldBe(1);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     //  Helpers
     // ═══════════════════════════════════════════════════════════════
 

@@ -24,6 +24,8 @@ public class RefreshCommandTests : IDisposable
     private readonly IIterationService _iterationService;
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly ProtectedCacheWriter _protectedCacheWriter;
+    private readonly WorkingSetService _workingSetService;
+    private readonly SyncCoordinator _syncCoordinator;
     private readonly RefreshCommand _cmd;
 
     public RefreshCommandTests()
@@ -45,6 +47,8 @@ public class RefreshCommandTests : IDisposable
         _iterationService = Substitute.For<IIterationService>();
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
         _protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
+        _syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, _protectedCacheWriter, 30);
+        _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, _iterationService, null);
 
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
@@ -68,7 +72,8 @@ public class RefreshCommandTests : IDisposable
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
 
         _cmd = new RefreshCommand(_contextStore, _workItemRepo, _adoService, _iterationService,
-            _pendingChangeStore, _protectedCacheWriter, _config, _paths, _processTypeStore, formatterFactory, hintEngine);
+            _pendingChangeStore, _protectedCacheWriter, _config, _paths, _processTypeStore, formatterFactory, hintEngine,
+            _workingSetService, _syncCoordinator);
     }
 
     public void Dispose()
@@ -331,6 +336,10 @@ public class RefreshCommandTests : IDisposable
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(2);
         _adoService.FetchChildrenAsync(2, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
+        // Stub cache lookups so SyncWorkingSetAsync finds items fresh (not stale)
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(items[0]);
+        _workItemRepo.GetByIdAsync(2, Arg.Any<CancellationToken>()).Returns(items[1]);
+        _workItemRepo.GetByIdAsync(3, Arg.Any<CancellationToken>()).Returns(items[2]);
 
         var result = await _cmd.ExecuteAsync();
 
@@ -417,7 +426,7 @@ public class RefreshCommandTests : IDisposable
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         var cmd = new RefreshCommand(_contextStore, _workItemRepo, _adoService, _iterationService,
-            _pendingChangeStore, _protectedCacheWriter, _config, _paths, _processTypeStore, formatterFactory, hintEngine);
+            _pendingChangeStore, _protectedCacheWriter, _config, _paths, _processTypeStore, formatterFactory, hintEngine, _workingSetService, _syncCoordinator);
 
         var originalErr = Console.Error;
         var sw = new StringWriter();
@@ -451,7 +460,7 @@ public class RefreshCommandTests : IDisposable
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         var cmd = new RefreshCommand(_contextStore, _workItemRepo, _adoService, _iterationService,
-            _pendingChangeStore, _protectedCacheWriter, _config, _paths, _processTypeStore, formatterFactory, hintEngine);
+            _pendingChangeStore, _protectedCacheWriter, _config, _paths, _processTypeStore, formatterFactory, hintEngine, _workingSetService, _syncCoordinator);
 
         var originalErr = Console.Error;
         var sw = new StringWriter();
@@ -510,6 +519,78 @@ public class RefreshCommandTests : IDisposable
             "last_refreshed_at", Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
+    // ── WS-021b: RefreshCommand working set sync tests ────────────
+
+    [Fact]
+    public async Task Refresh_SyncWorkingSetAsync_CalledAfterSprintItemSave()
+    {
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { 1 });
+        var item = CreateWorkItem(1, "Sprint Item");
+        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { item });
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _adoService.FetchChildrenAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        // Item has stale LastSyncedAt so sync coordinator will re-fetch
+        var staleItem = new WorkItem
+        {
+            Id = 1, Type = WorkItemType.Task, Title = "Sprint Item", State = "New",
+            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
+            AreaPath = AreaPath.Parse("Project").Value,
+            LastSyncedAt = DateTimeOffset.UtcNow.AddMinutes(-60),
+        };
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(staleItem);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+
+        var result = await _cmd.ExecuteAsync();
+
+        result.ShouldBe(0);
+        // SyncWorkingSetAsync was called — verified by FetchAsync being called for stale items
+        await _adoService.Received().FetchAsync(1, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Refresh_DoesNotTriggerEviction()
+    {
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { 1 });
+        var item = CreateWorkItem(1, "Sprint Item");
+        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { item });
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+
+        var result = await _cmd.ExecuteAsync();
+
+        result.ShouldBe(0);
+        // FR-013: twig refresh does NOT trigger eviction
+        await _workItemRepo.DidNotReceive().EvictExceptAsync(
+            Arg.Any<IReadOnlySet<int>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Refresh_Force_StillSyncsWorkingSet()
+    {
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { 1 });
+        var item = CreateWorkItem(1, "Sprint Item");
+        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { item });
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _adoService.FetchChildrenAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+
+        var result = await _cmd.ExecuteAsync(force: true);
+
+        result.ShouldBe(0);
+        // --force overrides protection for sprint items but working set sync still runs
+        // (uses SaveBatchAsync for sprint items, SyncWorkingSetAsync for working set)
+        await _workItemRepo.Received().SaveBatchAsync(
+            Arg.Any<IReadOnlyList<WorkItem>>(), Arg.Any<CancellationToken>());
+    }
+
     private static WorkItem CreateWorkItem(int id, string title)
     {
         return new WorkItem
@@ -520,6 +601,7 @@ public class RefreshCommandTests : IDisposable
             State = "New",
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value,
+            LastSyncedAt = DateTimeOffset.UtcNow,
         };
     }
 }

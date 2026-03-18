@@ -1104,7 +1104,7 @@ public class HumanOutputFormatterTests
 
         var result = formatter.FormatWorkItem(item, showDirty: false);
 
-        result.ShouldContain("\ueb20"); // icon_trophy → nf-cod-milestone (U+EB20) in nerd mode
+        result.ShouldContain("\udb81\udd3b"); // icon_trophy → nf-md-trophy_variant in nerd mode
     }
 
     [Fact]

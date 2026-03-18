@@ -466,6 +466,7 @@ None. No new NuGet packages required.
 
 ### Phase 2: Sync Coordinator Extension (EPIC-002)
 **Exit Criteria**: `SyncWorkingSetAsync` exists on `SyncCoordinator` with unit tests covering fresh/stale/mixed/failure scenarios.
+**Status**: DONE
 
 ### Phase 3: SetCommand Eviction (EPIC-003)
 **Exit Criteria**: `twig set` on cache miss triggers eviction + working set sync. Cache hit does not evict. Integration tests pass.
@@ -570,16 +571,16 @@ None. No new NuGet packages required.
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| WS-007 | IMPL | Add `SyncWorkingSetAsync(WorkingSet, CancellationToken)` to `SyncCoordinator`. Iterates `workingSet.AllIds` excluding seeds (negative IDs), checks per-item `LastSyncedAt` against `cacheStaleMinutes`, identifies stale items. Fetches all stale items concurrently via `Task.WhenAll` calling `_adoService.FetchAsync`, then saves the batch through `_protectedCacheWriter.SaveBatchProtectedAsync(fetchedItems, ct)` — this overload computes protected IDs once internally (1 call to `SyncGuard.GetProtectedItemIdsAsync`) and uses `SaveBatchAsync` for efficient persistence. **Do NOT use the per-item `SaveProtectedAsync(item, ct)` overload inside `Task.WhenAll`** — it calls `SyncGuard.GetProtectedItemIdsAsync()` on each invocation (2 SQLite queries per item), producing 40-100 redundant queries for 20-50 stale items. Returns `SyncResult.Updated(n)`, `SyncResult.UpToDate`, or `SyncResult.Failed`. | `src/Twig.Domain/Services/SyncCoordinator.cs` | TO DO |
-| WS-008 | TEST | Unit tests for `SyncWorkingSetAsync`: all fresh → UpToDate, mix stale/fresh → Updated(staleCount), all stale → Updated(allCount), network failure → Failed, seed IDs (negative) skipped, dirty items skipped by ProtectedCacheWriter, empty working set → UpToDate. | `tests/Twig.Domain.Tests/Services/SyncCoordinatorTests.cs` | TO DO |
+| WS-007 | IMPL | Add `SyncWorkingSetAsync(WorkingSet, CancellationToken)` to `SyncCoordinator`. Iterates `workingSet.AllIds` excluding seeds (negative IDs), checks per-item `LastSyncedAt` against `cacheStaleMinutes`, identifies stale items. Fetches all stale items concurrently via `Task.WhenAll` calling `_adoService.FetchAsync`, then saves the batch through `_protectedCacheWriter.SaveBatchProtectedAsync(fetchedItems, ct)` — this overload computes protected IDs once internally (1 call to `SyncGuard.GetProtectedItemIdsAsync`) and uses `SaveBatchAsync` for efficient persistence. **Do NOT use the per-item `SaveProtectedAsync(item, ct)` overload inside `Task.WhenAll`** — it calls `SyncGuard.GetProtectedItemIdsAsync()` on each invocation (2 SQLite queries per item), producing 40-100 redundant queries for 20-50 stale items. Returns `SyncResult.Updated(n)`, `SyncResult.UpToDate`, or `SyncResult.Failed`. | `src/Twig.Domain/Services/SyncCoordinator.cs` | ✅ DONE |
+| WS-008 | TEST | Unit tests for `SyncWorkingSetAsync`: all fresh → UpToDate, mix stale/fresh → Updated(staleCount), all stale → Updated(allCount), network failure → Failed, seed IDs (negative) skipped, dirty items skipped by ProtectedCacheWriter, empty working set → UpToDate. | `tests/Twig.Domain.Tests/Services/SyncCoordinatorTests.cs` | ✅ DONE |
 
 **Acceptance Criteria**:
-- [ ] `SyncWorkingSetAsync` skips fresh items and fetches only stale ones
-- [ ] Seed IDs (negative) are excluded from sync
-- [ ] Fetched items are saved via `SaveBatchProtectedAsync` (batch overload), not per-item `SaveProtectedAsync`
-- [ ] `SyncGuard.GetProtectedItemIdsAsync` is called at most once per `SyncWorkingSetAsync` invocation
-- [ ] Network failures return `SyncResult.Failed` without throwing
-- [ ] All tests pass
+- [x] `SyncWorkingSetAsync` skips fresh items and fetches only stale ones
+- [x] Seed IDs (negative) are excluded from sync
+- [x] Fetched items are saved via `SaveBatchProtectedAsync` (batch overload), not per-item `SaveProtectedAsync`
+- [x] `SyncGuard.GetProtectedItemIdsAsync` is called at most once per `SyncWorkingSetAsync` invocation
+- [x] Network failures return `SyncResult.Failed` without throwing
+- [x] All tests pass
 
 ---
 

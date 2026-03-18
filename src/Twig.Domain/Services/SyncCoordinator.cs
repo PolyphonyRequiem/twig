@@ -56,6 +56,59 @@ public sealed class SyncCoordinator
     }
 
     /// <summary>
+    /// Syncs stale items within the working set. Skips seed IDs (negative) and fresh items.
+    /// Fetches stale items concurrently, then saves the batch through
+    /// <see cref="ProtectedCacheWriter.SaveBatchProtectedAsync(IEnumerable{WorkItem}, CancellationToken)"/>
+    /// which computes protected IDs once internally (NFR-003, avoids N+1 SyncGuard queries).
+    /// </summary>
+    public async Task<SyncResult> SyncWorkingSetAsync(
+        WorkingSet workingSet, CancellationToken ct = default)
+    {
+        try
+        {
+            // 1. Filter AllIds to exclude seeds (negative IDs) and dirty items (avoid wasteful ADO fetch)
+            var candidateIds = workingSet.AllIds
+                .Where(id => id > 0 && !workingSet.DirtyItemIds.Contains(id))
+                .ToList();
+
+            if (candidateIds.Count == 0)
+                return new SyncResult.UpToDate();
+
+            // 2. Check per-item LastSyncedAt against cacheStaleMinutes
+            var staleIds = new List<int>();
+            var threshold = TimeSpan.FromMinutes(_cacheStaleMinutes);
+
+            foreach (var id in candidateIds)
+            {
+                var existing = await _workItemRepo.GetByIdAsync(id, ct);
+
+                if (existing?.LastSyncedAt is null ||
+                    DateTimeOffset.UtcNow - existing.LastSyncedAt.Value >= threshold)
+                {
+                    staleIds.Add(id);
+                }
+            }
+
+            if (staleIds.Count == 0)
+                return new SyncResult.UpToDate();
+
+            // 3. Fetch all stale items concurrently
+            var fetchTasks = staleIds.Select(id => _adoService.FetchAsync(id, ct));
+            var fetchedItems = await Task.WhenAll(fetchTasks);
+
+            // 4. Save the batch through SaveBatchProtectedAsync (computes protected IDs once)
+            var skippedIds = await _protectedCacheWriter.SaveBatchProtectedAsync(fetchedItems, ct);
+            var savedCount = fetchedItems.Length - skippedIds.Count;
+
+            return new SyncResult.Updated(savedCount);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return new SyncResult.Failed(ex.Message);
+        }
+    }
+
+    /// <summary>
     /// Syncs all children of a parent item. Always fetches unconditionally (DD-15) —
     /// no per-parent staleness check. Returns counts of updated vs skipped items.
     /// </summary>

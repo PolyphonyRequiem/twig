@@ -6,6 +6,7 @@ using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -22,10 +23,14 @@ public class WorkspaceCommandAsyncTests
     private readonly IIterationService _iterationService;
     private readonly TwigConfiguration _config;
     private readonly IProcessTypeStore _processTypeStore;
+    private readonly IAdoWorkItemService _adoService;
+    private readonly ActiveItemResolver _activeItemResolver;
     private readonly TestConsole _testConsole;
     private readonly SpectreRenderer _spectreRenderer;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
+
+    private readonly WorkingSetService _workingSetService;
 
     public WorkspaceCommandAsyncTests()
     {
@@ -34,6 +39,10 @@ public class WorkspaceCommandAsyncTests
         _iterationService = Substitute.For<IIterationService>();
         _config = new TwigConfiguration();
         _processTypeStore = Substitute.For<IProcessTypeStore>();
+        _adoService = Substitute.For<IAdoWorkItemService>();
+        _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var pendingChangeStore = Substitute.For<IPendingChangeStore>();
+        _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService, null);
 
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
@@ -62,7 +71,8 @@ public class WorkspaceCommandAsyncTests
 
     private WorkspaceCommand CreateCommand(RenderingPipelineFactory pipelineFactory) =>
         new(_contextStore, _workItemRepo, _iterationService, _config,
-            _formatterFactory, _hintEngine, _processTypeStore, pipelineFactory);
+            _formatterFactory, _hintEngine, _processTypeStore,
+            _activeItemResolver, _workingSetService, pipelineFactory);
 
     [Fact]
     public async Task SyncFallback_RedirectedOutput_Succeeds()
@@ -124,7 +134,8 @@ public class WorkspaceCommandAsyncTests
         var hintEngine = new HintEngine(new DisplayConfig { Hints = true });
         var pipelineFactory = CreateTtyPipelineFactory();
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService, _config,
-            _formatterFactory, hintEngine, _processTypeStore, pipelineFactory);
+            _formatterFactory, hintEngine, _processTypeStore,
+            _activeItemResolver, _workingSetService, pipelineFactory);
 
         var result = await cmd.ExecuteAsync("human");
 

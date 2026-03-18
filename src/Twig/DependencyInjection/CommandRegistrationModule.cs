@@ -44,10 +44,12 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<TwigConfiguration>(),
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<HintEngine>(),
+            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
+            sp.GetRequiredService<Domain.Services.WorkingSetService>(),
+            sp.GetRequiredService<Domain.Services.SyncCoordinator>(),
             sp.GetRequiredService<RenderingPipelineFactory>(),
             sp.GetService<IGitService>(),
-            sp.GetService<IAdoGitService>(),
-            sp.GetRequiredService<Domain.Services.ActiveItemResolver>()));
+            sp.GetService<IAdoGitService>()));
         services.AddSingleton<StateCommand>(sp => new StateCommand(
             sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
             sp.GetRequiredService<IWorkItemRepository>(),
@@ -63,9 +65,17 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<TwigConfiguration>(),
             sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<RenderingPipelineFactory>(),
-            sp.GetRequiredService<Domain.Services.ActiveItemResolver>()));
-        services.AddSingleton<NavigationCommands>();
+            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
+            sp.GetRequiredService<Domain.Services.WorkingSetService>(),
+            sp.GetRequiredService<Domain.Services.SyncCoordinator>(),
+            sp.GetRequiredService<RenderingPipelineFactory>()));
+        services.AddSingleton<NavigationCommands>(sp => new NavigationCommands(
+            sp.GetRequiredService<IContextStore>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<SetCommand>(),
+            sp.GetRequiredService<OutputFormatterFactory>(),
+            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
+            sp.GetRequiredService<RenderingPipelineFactory>()));
         services.AddSingleton<SeedCommand>();
         services.AddSingleton<NoteCommand>(sp => new NoteCommand(
             sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
@@ -113,6 +123,8 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<IProcessTypeStore>(),
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<HintEngine>(),
+            sp.GetRequiredService<Domain.Services.WorkingSetService>(),
+            sp.GetRequiredService<Domain.Services.SyncCoordinator>(),
             sp.GetRequiredService<IPromptStateWriter>()));
         services.AddSingleton<WorkspaceCommand>(sp => new WorkspaceCommand(
             sp.GetRequiredService<IContextStore>(),
@@ -122,8 +134,9 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<HintEngine>(),
             sp.GetRequiredService<IProcessTypeStore>(),
-            sp.GetRequiredService<RenderingPipelineFactory>(),
-            sp.GetRequiredService<Domain.Services.ActiveItemResolver>()));
+            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
+            sp.GetRequiredService<Domain.Services.WorkingSetService>(),
+            sp.GetRequiredService<RenderingPipelineFactory>()));
         services.AddSingleton<ConfigCommand>();
         services.AddSingleton<BranchCommand>(sp => new BranchCommand(
             sp.GetRequiredService<IContextStore>(),

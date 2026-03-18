@@ -5,6 +5,7 @@ using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -21,6 +22,10 @@ public class StatusCommandGitTests
     private readonly IContextStore _contextStore;
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IPendingChangeStore _pendingChangeStore;
+    private readonly IAdoWorkItemService _adoService;
+    private readonly ActiveItemResolver _activeItemResolver;
+    private readonly WorkingSetService _workingSetService;
+    private readonly SyncCoordinator _syncCoordinator;
     private readonly IGitService _gitService;
     private readonly IAdoGitService _adoGitService;
     private readonly OutputFormatterFactory _formatterFactory;
@@ -32,6 +37,14 @@ public class StatusCommandGitTests
         _contextStore = Substitute.For<IContextStore>();
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
+        _adoService = Substitute.For<IAdoWorkItemService>();
+        _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
+        _syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, protectedCacheWriter, 30);
+        var iterationService = Substitute.For<IIterationService>();
+        iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
+            .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
+        _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, iterationService, null);
         _gitService = Substitute.For<IGitService>();
         _adoGitService = Substitute.For<IAdoGitService>();
         _formatterFactory = new OutputFormatterFactory(
@@ -43,8 +56,8 @@ public class StatusCommandGitTests
 
     private StatusCommand CreateCommand(IGitService? git = null, IAdoGitService? adoGit = null) =>
         new(_contextStore, _workItemRepo, _pendingChangeStore, _config,
-            _formatterFactory, _hintEngine, pipelineFactory: null,
-            gitService: git, adoGitService: adoGit);
+            _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinator,
+            pipelineFactory: null, gitService: git, adoGitService: adoGit);
 
     private static WorkItem CreateWorkItem(int id, string title) => new()
     {

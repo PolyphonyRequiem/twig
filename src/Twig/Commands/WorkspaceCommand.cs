@@ -25,9 +25,9 @@ public sealed class WorkspaceCommand(
     OutputFormatterFactory formatterFactory,
     HintEngine hintEngine,
     IProcessTypeStore processTypeStore,
-    // Optional — null for backward compat with tests that predate EPIC-002
-    RenderingPipelineFactory? pipelineFactory = null,
-    ActiveItemResolver? activeItemResolver = null)
+    ActiveItemResolver activeItemResolver,
+    WorkingSetService workingSetService,
+    RenderingPipelineFactory? pipelineFactory = null)
 {
     public async Task<int> ExecuteAsync(string outputFormat = "human", bool all = false, bool noLive = false)
     {
@@ -50,20 +50,13 @@ public sealed class WorkspaceCommand(
                 var activeId = await contextStore.GetActiveWorkItemIdAsync(ct);
                 if (activeId.HasValue)
                 {
-                    if (activeItemResolver is not null)
+                    var resolveResult = await activeItemResolver.ResolveByIdAsync(activeId.Value, ct);
+                    contextItem = resolveResult switch
                     {
-                        var resolveResult = await activeItemResolver.ResolveByIdAsync(activeId.Value, ct);
-                        contextItem = resolveResult switch
-                        {
-                            ActiveItemResult.Found found => found.WorkItem,
-                            ActiveItemResult.FetchedFromAdo fetched => fetched.WorkItem,
-                            _ => null,
-                        };
-                    }
-                    else
-                    {
-                        contextItem = await workItemRepo.GetByIdAsync(activeId.Value, ct);
-                    }
+                        ActiveItemResult.Found found => found.WorkItem,
+                        ActiveItemResult.FetchedFromAdo fetched => fetched.WorkItem,
+                        _ => null,
+                    };
                 }
                 yield return new WorkspaceDataChunk.ContextLoaded(contextItem);
 
@@ -153,20 +146,13 @@ public sealed class WorkspaceCommand(
         Domain.Aggregates.WorkItem? contextItem = null;
         if (activeId.HasValue)
         {
-            if (activeItemResolver is not null)
+            var resolveResult = await activeItemResolver.ResolveByIdAsync(activeId.Value);
+            contextItem = resolveResult switch
             {
-                var resolveResult = await activeItemResolver.ResolveByIdAsync(activeId.Value);
-                contextItem = resolveResult switch
-                {
-                    ActiveItemResult.Found found => found.WorkItem,
-                    ActiveItemResult.FetchedFromAdo fetched => fetched.WorkItem,
-                    _ => null,
-                };
-            }
-            else
-            {
-                contextItem = await workItemRepo.GetByIdAsync(activeId.Value);
-            }
+                ActiveItemResult.Found found => found.WorkItem,
+                ActiveItemResult.FetchedFromAdo fetched => fetched.WorkItem,
+                _ => null,
+            };
         }
 
         // Get current iteration items — scoped to user by default, all team items with --all
@@ -230,6 +216,43 @@ public sealed class WorkspaceCommand(
         else
         {
             Console.WriteLine(fmt.FormatWorkspace(workspace, config.Seed.StaleDays));
+        }
+
+        // Dirty orphans: items with unsaved changes not in sprint/seed scope (EPIC-004)
+        if (!all && fmt is not JsonOutputFormatter && fmt is not MinimalOutputFormatter)
+        {
+            var workingSet = await workingSetService.ComputeAsync(iteration);
+            if (workingSet.DirtyItemIds.Count > 0)
+            {
+                var sprintItemIds = new HashSet<int>(sprintItems.Select(s => s.Id));
+                var seedIds = new HashSet<int>(seeds.Select(s => s.Id));
+                var orphanIds = new List<int>();
+                foreach (var dirtyId in workingSet.DirtyItemIds)
+                {
+                    if (!sprintItemIds.Contains(dirtyId) && !seedIds.Contains(dirtyId))
+                        orphanIds.Add(dirtyId);
+                }
+
+                if (orphanIds.Count > 0)
+                {
+                    var orphanItems = new List<Domain.Aggregates.WorkItem>();
+                    foreach (var orphanId in orphanIds)
+                    {
+                        var orphanItem = await workItemRepo.GetByIdAsync(orphanId);
+                        if (orphanItem is not null)
+                            orphanItems.Add(orphanItem);
+                    }
+
+                    if (orphanItems.Count > 0)
+                    {
+                        Console.WriteLine();
+                        Console.WriteLine(fmt.FormatInfo("Unsaved changes:"));
+                        foreach (var orphan in orphanItems)
+                            Console.WriteLine(fmt.FormatWorkItem(orphan, showDirty: true));
+                        Console.WriteLine(fmt.FormatHint("Run 'twig save' to push these changes."));
+                    }
+                }
+            }
         }
 
         var hints = hintEngine.GetHints("workspace",

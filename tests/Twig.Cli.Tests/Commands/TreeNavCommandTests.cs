@@ -20,6 +20,9 @@ public class TreeNavCommandTests
     private readonly TwigConfiguration _config;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
+    private readonly ActiveItemResolver _activeItemResolver;
+    private readonly WorkingSetService _workingSetService;
+    private readonly SyncCoordinator _syncCoordinator;
     private readonly SetCommand _setCommand;
 
     public TreeNavCommandTests()
@@ -33,15 +36,17 @@ public class TreeNavCommandTests
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         _adoService.FetchChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
-        var activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, pendingChangeStore);
         var syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, protectedCacheWriter, 30);
+        _syncCoordinator = syncCoordinator;
         var iterationService = Substitute.For<IIterationService>();
         iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
         var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, iterationService, null);
-        _setCommand = new SetCommand(_workItemRepo, _contextStore, activeItemResolver, syncCoordinator,
+        _workingSetService = workingSetService;
+        _setCommand = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, syncCoordinator,
             workingSetService, _formatterFactory, _hintEngine);
     }
 
@@ -60,7 +65,7 @@ public class TreeNavCommandTests
         _workItemRepo.GetChildrenAsync(2, Arg.Any<CancellationToken>())
             .Returns(new[] { child1, child2 });
 
-        var treeCmd = new TreeCommand(_contextStore, _workItemRepo, _config, _formatterFactory);
+        var treeCmd = new TreeCommand(_contextStore, _workItemRepo, _config, _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator);
         var result = await treeCmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -86,7 +91,7 @@ public class TreeNavCommandTests
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
             .Returns(new[] { seed });
 
-        var treeCmd = new TreeCommand(_contextStore, _workItemRepo, _config, _formatterFactory);
+        var treeCmd = new TreeCommand(_contextStore, _workItemRepo, _config, _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator);
         var result = await treeCmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -101,7 +106,7 @@ public class TreeNavCommandTests
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var navCmd = new NavigationCommands(_contextStore, _workItemRepo, _setCommand, _formatterFactory);
+        var navCmd = new NavigationCommands(_contextStore, _workItemRepo, _setCommand, _formatterFactory, _activeItemResolver);
         var result = await navCmd.UpAsync();
 
         result.ShouldBe(1);
@@ -123,7 +128,7 @@ public class TreeNavCommandTests
         _adoService.FetchChildrenAsync(1, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var navCmd = new NavigationCommands(_contextStore, _workItemRepo, _setCommand, _formatterFactory);
+        var navCmd = new NavigationCommands(_contextStore, _workItemRepo, _setCommand, _formatterFactory, _activeItemResolver);
         var result = await navCmd.UpAsync();
 
         result.ShouldBe(0);
@@ -144,7 +149,7 @@ public class TreeNavCommandTests
         _adoService.FetchChildrenAsync(2, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var navCmd = new NavigationCommands(_contextStore, _workItemRepo, _setCommand, _formatterFactory);
+        var navCmd = new NavigationCommands(_contextStore, _workItemRepo, _setCommand, _formatterFactory, _activeItemResolver);
         var result = await navCmd.DownAsync("login");
 
         result.ShouldBe(0);
@@ -160,7 +165,7 @@ public class TreeNavCommandTests
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var navCmd = new NavigationCommands(_contextStore, _workItemRepo, _setCommand, _formatterFactory);
+        var navCmd = new NavigationCommands(_contextStore, _workItemRepo, _setCommand, _formatterFactory, _activeItemResolver);
         var result = await navCmd.DownAsync("nonexistent");
 
         result.ShouldBe(1);
@@ -175,7 +180,7 @@ public class TreeNavCommandTests
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var navCmd = new NavigationCommands(_contextStore, _workItemRepo, _setCommand, _formatterFactory);
+        var navCmd = new NavigationCommands(_contextStore, _workItemRepo, _setCommand, _formatterFactory, _activeItemResolver);
         var result = await navCmd.DownAsync();
 
         result.ShouldBe(1);
@@ -195,7 +200,7 @@ public class TreeNavCommandTests
         _adoService.FetchChildrenAsync(2, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var navCmd = new NavigationCommands(_contextStore, _workItemRepo, _setCommand, _formatterFactory);
+        var navCmd = new NavigationCommands(_contextStore, _workItemRepo, _setCommand, _formatterFactory, _activeItemResolver);
         var result = await navCmd.DownAsync();
 
         result.ShouldBe(0);

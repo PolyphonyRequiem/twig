@@ -209,7 +209,7 @@ public class SetCommandDisambiguationTests
 
         var setCmd = CreateCommand(CreateTtyPipelineFactory());
         var navCmd = new NavigationCommands(
-            _contextStore, _workItemRepo, setCmd, _formatterFactory, CreateTtyPipelineFactory());
+            _contextStore, _workItemRepo, setCmd, _formatterFactory, _activeItemResolver, CreateTtyPipelineFactory());
 
         var result = await navCmd.DownAsync("auth");
 
@@ -236,7 +236,7 @@ public class SetCommandDisambiguationTests
 
         var setCmd = CreateCommand(CreateTtyPipelineFactory());
         var navCmd = new NavigationCommands(
-            _contextStore, _workItemRepo, setCmd, _formatterFactory, CreateTtyPipelineFactory());
+            _contextStore, _workItemRepo, setCmd, _formatterFactory, _activeItemResolver, CreateTtyPipelineFactory());
 
         var result = await navCmd.DownAsync("auth");
 
@@ -258,7 +258,7 @@ public class SetCommandDisambiguationTests
 
         var setCmd = CreateCommand(CreateTtyPipelineFactory());
         var navCmd = new NavigationCommands(
-            _contextStore, _workItemRepo, setCmd, _formatterFactory, CreateTtyPipelineFactory());
+            _contextStore, _workItemRepo, setCmd, _formatterFactory, _activeItemResolver, CreateTtyPipelineFactory());
 
         var result = await navCmd.DownAsync("auth", "json");
 
@@ -287,7 +287,7 @@ public class SetCommandDisambiguationTests
 
         var setCmd = CreateCommand(CreateTtyPipelineFactory());
         var navCmd = new NavigationCommands(
-            _contextStore, _workItemRepo, setCmd, _formatterFactory, CreateTtyPipelineFactory());
+            _contextStore, _workItemRepo, setCmd, _formatterFactory, _activeItemResolver, CreateTtyPipelineFactory());
 
         var result = await navCmd.DownAsync("login");
 
@@ -306,7 +306,7 @@ public class SetCommandDisambiguationTests
 
         var setCmd = CreateCommand(CreateTtyPipelineFactory());
         var navCmd = new NavigationCommands(
-            _contextStore, _workItemRepo, setCmd, _formatterFactory, CreateTtyPipelineFactory());
+            _contextStore, _workItemRepo, setCmd, _formatterFactory, _activeItemResolver, CreateTtyPipelineFactory());
 
         var result = await navCmd.DownAsync("nonexistent");
 
@@ -340,7 +340,7 @@ public class SetCommandDisambiguationTests
 
         var setCmd = CreateCommand(CreateTtyPipelineFactory());
         var navCmd = new NavigationCommands(
-            _contextStore, _workItemRepo, setCmd, _formatterFactory, CreateTtyPipelineFactory());
+            _contextStore, _workItemRepo, setCmd, _formatterFactory, _activeItemResolver, CreateTtyPipelineFactory());
 
         var result = await navCmd.DownAsync();
 
@@ -367,7 +367,7 @@ public class SetCommandDisambiguationTests
 
         var setCmd = CreateCommand(CreateTtyPipelineFactory());
         var navCmd = new NavigationCommands(
-            _contextStore, _workItemRepo, setCmd, _formatterFactory, CreateTtyPipelineFactory());
+            _contextStore, _workItemRepo, setCmd, _formatterFactory, _activeItemResolver, CreateTtyPipelineFactory());
 
         var result = await navCmd.DownAsync();
 
@@ -389,7 +389,7 @@ public class SetCommandDisambiguationTests
 
         var setCmd = CreateCommand(CreateTtyPipelineFactory());
         var navCmd = new NavigationCommands(
-            _contextStore, _workItemRepo, setCmd, _formatterFactory, CreateTtyPipelineFactory());
+            _contextStore, _workItemRepo, setCmd, _formatterFactory, _activeItemResolver, CreateTtyPipelineFactory());
 
         var result = await navCmd.DownAsync(outputFormat: "json");
 

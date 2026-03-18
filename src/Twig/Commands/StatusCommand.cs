@@ -11,6 +11,7 @@ namespace Twig.Commands;
 
 /// <summary>
 /// Implements <c>twig status</c>: displays the active work item with pending change counts.
+/// After rendering cached status, syncs the working set and revises the display if data changed.
 /// </summary>
 public sealed class StatusCommand(
     IContextStore contextStore,
@@ -19,11 +20,12 @@ public sealed class StatusCommand(
     TwigConfiguration config,
     OutputFormatterFactory formatterFactory,
     HintEngine hintEngine,
-    // Optional — null for backward compat with tests that predate EPIC-004
+    ActiveItemResolver activeItemResolver,
+    WorkingSetService workingSetService,
+    SyncCoordinator syncCoordinator,
     RenderingPipelineFactory? pipelineFactory = null,
     IGitService? gitService = null,
-    IAdoGitService? adoGitService = null,
-    ActiveItemResolver? activeItemResolver = null)
+    IAdoGitService? adoGitService = null)
 {
     public async Task<int> ExecuteAsync(string outputFormat = "human", bool noLive = false)
     {
@@ -54,34 +56,21 @@ public sealed class StatusCommand(
 
         // Use ActiveItemResolver for auto-fetch on cache miss (G-3)
         Domain.Aggregates.WorkItem? item;
-        if (activeItemResolver is not null)
+        var resolveResult = await activeItemResolver.GetActiveItemAsync();
+        switch (resolveResult)
         {
-            var resolveResult = await activeItemResolver.GetActiveItemAsync();
-            switch (resolveResult)
-            {
-                case ActiveItemResult.Found found:
-                    item = found.WorkItem;
-                    break;
-                case ActiveItemResult.FetchedFromAdo fetched:
-                    item = fetched.WorkItem;
-                    break;
-                case ActiveItemResult.Unreachable unreachable:
-                    Console.Error.WriteLine(fmt.FormatError($"Work item #{unreachable.Id} not found in cache and could not be fetched. Run 'twig set {unreachable.Id}' to refresh."));
-                    return 1;
-                default:
-                    Console.Error.WriteLine(fmt.FormatError($"Work item #{activeId.Value} not found in cache. Run 'twig set {activeId.Value}' to refresh."));
-                    return 1;
-            }
-        }
-        else
-        {
-            // Fallback for backward compat with tests that don't inject ActiveItemResolver
-            item = await workItemRepo.GetByIdAsync(activeId.Value);
-            if (item is null)
-            {
+            case ActiveItemResult.Found found:
+                item = found.WorkItem;
+                break;
+            case ActiveItemResult.FetchedFromAdo fetched:
+                item = fetched.WorkItem;
+                break;
+            case ActiveItemResult.Unreachable unreachable:
+                Console.Error.WriteLine(fmt.FormatError($"Work item #{unreachable.Id} not found in cache and could not be fetched. Run 'twig set {unreachable.Id}' to refresh."));
+                return 1;
+            default:
                 Console.Error.WriteLine(fmt.FormatError($"Work item #{activeId.Value} not found in cache. Run 'twig set {activeId.Value}' to refresh."));
                 return 1;
-            }
         }
 
         if (renderer is not null)
@@ -91,6 +80,18 @@ public sealed class StatusCommand(
                 getItem: () => Task.FromResult<Domain.Aggregates.WorkItem?>(item),
                 getPendingChanges: () => pendingChangeStore.GetChangesAsync(item.Id),
                 ct: CancellationToken.None);
+
+            // Sync working set after cached render (EPIC-004)
+            var workingSet = await workingSetService.ComputeAsync(item.IterationPath);
+            await renderer.RenderWithSyncAsync(
+                buildCachedView: () =>
+                    Task.FromResult<Spectre.Console.Rendering.IRenderable>(
+                        new Spectre.Console.Text(string.Empty)),
+                performSync: () => syncCoordinator.SyncWorkingSetAsync(workingSet),
+                buildRevisedView: syncResult => syncResult is SyncResult.Updated
+                    ? Task.FromResult<Spectre.Console.Rendering.IRenderable?>(null)
+                    : Task.FromResult<Spectre.Console.Rendering.IRenderable?>(null),
+                CancellationToken.None);
 
             var seeds = await workItemRepo.GetSeedsAsync();
             var staleSeedCount = Workspace.Build(item, [], seeds)
@@ -162,11 +163,12 @@ public sealed class StatusCommand(
                 Console.WriteLine(formatted);
         }
 
+        // Sync working set silently after output (EPIC-004)
+        var syncWorkingSet = await workingSetService.ComputeAsync(item.IterationPath);
+        await syncCoordinator.SyncWorkingSetAsync(syncWorkingSet);
+
         return 0;
     }
-
-    /// <summary>
-    /// Writes branch name and linked PR info to stdout.
     /// Gracefully degrades when git is unavailable or not in a repo.
     /// </summary>
     private async Task WriteGitContextAsync(IOutputFormatter fmt)

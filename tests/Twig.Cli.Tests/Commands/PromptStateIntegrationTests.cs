@@ -506,8 +506,11 @@ public class PromptStateIntegrationTests : IDisposable
 
         var writer = CreateWriter();
         var refreshProtectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
+        var refreshSyncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, refreshProtectedWriter, 30);
+        var refreshWorkingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, iterationService, null);
         var cmd = new RefreshCommand(_contextStore, _workItemRepo, _adoService, iterationService,
-            _pendingChangeStore, refreshProtectedWriter, _config, _paths, _processTypeStore, _formatterFactory, _hintEngine, writer);
+            _pendingChangeStore, refreshProtectedWriter, _config, _paths, _processTypeStore, _formatterFactory, _hintEngine,
+            refreshWorkingSetService, refreshSyncCoordinator, writer);
 
         var result = await cmd.ExecuteAsync();
 

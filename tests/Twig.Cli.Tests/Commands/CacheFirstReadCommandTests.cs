@@ -82,7 +82,7 @@ public class CacheFirstReadCommandTests
 
         var config = new TwigConfiguration { Seed = new SeedConfig { StaleDays = 14 } };
         var cmd = new StatusCommand(_contextStore, _workItemRepo, _pendingChangeStore,
-            config, _formatterFactory, _hintEngine, activeItemResolver: _activeItemResolver);
+            config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinator);
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -96,7 +96,15 @@ public class CacheFirstReadCommandTests
     public async Task SetCommand_SyncsWorkingSet_AfterSettingContext()
     {
         var item = CreateWorkItem(42, "Item With Children");
-        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        // Item has stale LastSyncedAt so sync coordinator will re-fetch
+        var staleItem = new WorkItem
+        {
+            Id = 42, Type = WorkItemType.Task, Title = "Item With Children", State = "New",
+            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
+            AreaPath = AreaPath.Parse("Project").Value,
+            LastSyncedAt = DateTimeOffset.UtcNow.AddMinutes(-60),
+        };
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(staleItem);
 
         // After SetActiveWorkItemIdAsync(42), GetActiveWorkItemIdAsync returns 42
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
@@ -199,7 +207,7 @@ public class CacheFirstReadCommandTests
 
         var config = new TwigConfiguration { Seed = new SeedConfig { StaleDays = 14 } };
         var cmd = new StatusCommand(_contextStore, _workItemRepo, _pendingChangeStore,
-            config, _formatterFactory, _hintEngine, activeItemResolver: _activeItemResolver);
+            config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinator);
 
         var sw = new StringWriter();
         Console.SetOut(sw);
@@ -251,11 +259,13 @@ public class CacheFirstReadCommandTests
 
         var config = new TwigConfiguration { Seed = new SeedConfig { StaleDays = 14 } };
         var cmd = new StatusCommand(_contextStore, _workItemRepo, _pendingChangeStore,
-            config, _formatterFactory, _hintEngine, activeItemResolver: _activeItemResolver);
+            config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinator);
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
-        await _adoService.Received(1).FetchAsync(99, Arg.Any<CancellationToken>());
+        // FetchAsync called at least once: initial cache-miss auto-fetch via ActiveItemResolver
+        // (may also be called by SyncWorkingSetAsync for stale items)
+        await _adoService.Received().FetchAsync(99, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -271,11 +281,11 @@ public class CacheFirstReadCommandTests
 
         var config = new TwigConfiguration();
         var cmd = new TreeCommand(_contextStore, _workItemRepo, config,
-            _formatterFactory, activeItemResolver: _activeItemResolver);
+            _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator);
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
-        await _adoService.Received(1).FetchAsync(50, Arg.Any<CancellationToken>());
+        await _adoService.Received().FetchAsync(50, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -288,7 +298,7 @@ public class CacheFirstReadCommandTests
 
         var config = new TwigConfiguration();
         var cmd = new TreeCommand(_contextStore, _workItemRepo, config,
-            _formatterFactory, activeItemResolver: _activeItemResolver);
+            _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator);
 
         var savedErr = Console.Error;
         using var errWriter = new StringWriter();
@@ -324,7 +334,7 @@ public class CacheFirstReadCommandTests
         var setCmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
             _workingSetService, _formatterFactory, _hintEngine);
         var navCmd = new NavigationCommands(_contextStore, _workItemRepo, setCmd, _formatterFactory,
-            activeItemResolver: _activeItemResolver);
+            _activeItemResolver);
         var result = await navCmd.UpAsync();
 
         result.ShouldBe(0);
@@ -357,7 +367,7 @@ public class CacheFirstReadCommandTests
 
         var config = new TwigConfiguration { Seed = new SeedConfig { StaleDays = 14 } };
         var cmd = new StatusCommand(_contextStore, _workItemRepo, _pendingChangeStore,
-            config, _formatterFactory, _hintEngine, activeItemResolver: _activeItemResolver);
+            config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinator);
 
         var savedErr = Console.Error;
         using var errWriter = new StringWriter();
@@ -418,7 +428,7 @@ public class CacheFirstReadCommandTests
         var processTypeStore = Substitute.For<IProcessTypeStore>();
         var config = new TwigConfiguration();
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, iterationService, config,
-            _formatterFactory, _hintEngine, processTypeStore, activeItemResolver: _activeItemResolver);
+            _formatterFactory, _hintEngine, processTypeStore, _activeItemResolver, _workingSetService);
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -453,6 +463,7 @@ public class CacheFirstReadCommandTests
             ParentId = parentId,
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value,
+            LastSyncedAt = DateTimeOffset.UtcNow,
         };
     }
 }

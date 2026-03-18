@@ -3,6 +3,7 @@ using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Infrastructure.Config;
@@ -14,16 +15,29 @@ public class TreeCommandTests
 {
     private readonly IContextStore _contextStore;
     private readonly IWorkItemRepository _workItemRepo;
+    private readonly IAdoWorkItemService _adoService;
+    private readonly ActiveItemResolver _activeItemResolver;
     private readonly TwigConfiguration _config;
     private readonly OutputFormatterFactory _formatterFactory;
+    private readonly WorkingSetService _workingSetService;
+    private readonly SyncCoordinator _syncCoordinator;
 
     public TreeCommandTests()
     {
         _contextStore = Substitute.For<IContextStore>();
         _workItemRepo = Substitute.For<IWorkItemRepository>();
+        _adoService = Substitute.For<IAdoWorkItemService>();
+        _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         _config = new TwigConfiguration();
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
+        var pendingChangeStore = Substitute.For<IPendingChangeStore>();
+        var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, pendingChangeStore);
+        _syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, protectedCacheWriter, 30);
+        var iterationService = Substitute.For<IIterationService>();
+        iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
+            .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
+        _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, iterationService, null);
     }
 
     // ── Depth flag behavior ─────────────────────────────────────────
@@ -47,7 +61,7 @@ public class TreeCommandTests
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(active);
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(children);
 
-        var cmd = new TreeCommand(_contextStore, _workItemRepo, _config, _formatterFactory);
+        var cmd = new TreeCommand(_contextStore, _workItemRepo, _config, _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator);
 
         var captured = CaptureConsoleOut(() => cmd.ExecuteAsync("minimal", depth: 2).GetAwaiter().GetResult());
 
@@ -66,7 +80,7 @@ public class TreeCommandTests
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(active);
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(children);
 
-        var cmd = new TreeCommand(_contextStore, _workItemRepo, _config, _formatterFactory);
+        var cmd = new TreeCommand(_contextStore, _workItemRepo, _config, _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator);
 
         var captured = CaptureConsoleOut(() => cmd.ExecuteAsync("minimal", all: true).GetAwaiter().GetResult());
 
@@ -90,7 +104,7 @@ public class TreeCommandTests
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(active);
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(children);
 
-        var cmd = new TreeCommand(_contextStore, _workItemRepo, _config, _formatterFactory);
+        var cmd = new TreeCommand(_contextStore, _workItemRepo, _config, _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator);
 
         var captured = CaptureConsoleOut(() => cmd.ExecuteAsync("minimal", depth: 2).GetAwaiter().GetResult());
 
@@ -110,7 +124,7 @@ public class TreeCommandTests
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(active);
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(children);
 
-        var cmd = new TreeCommand(_contextStore, _workItemRepo, _config, _formatterFactory);
+        var cmd = new TreeCommand(_contextStore, _workItemRepo, _config, _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator);
 
         var captured = CaptureConsoleOut(() => cmd.ExecuteAsync("minimal", depth: 1, all: true).GetAwaiter().GetResult());
 
@@ -118,6 +132,29 @@ public class TreeCommandTests
         for (var i = 2; i <= 6; i++)
             captured.ShouldContain($"#{i}");
         captured.ShouldNotContain("more");
+    }
+
+    // ── WS-021: JSON output parity ──────────────────────────────────
+
+    [Fact]
+    public async Task Tree_JsonOutput_NoSyncIndicators()
+    {
+        var active = CreateWorkItem(1, "JSON Tree Item", parentId: null);
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(active);
+        _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var cmd = new TreeCommand(_contextStore, _workItemRepo, _config, _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator);
+
+        var captured = CaptureConsoleOut(() => cmd.ExecuteAsync("json").GetAwaiter().GetResult());
+
+        // JSON output must not contain sync indicators
+        captured.ShouldNotContain("syncing");
+        captured.ShouldNotContain("Syncing");
+        captured.ShouldNotContain("↻");
+        // Must contain valid JSON
+        captured.ShouldContain("\"id\":");
     }
 
     private static WorkItem CreateWorkItem(int id, string title, int? parentId)

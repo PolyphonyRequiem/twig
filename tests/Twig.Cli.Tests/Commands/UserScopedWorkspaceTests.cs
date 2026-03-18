@@ -3,6 +3,7 @@ using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -17,6 +18,9 @@ public class UserScopedWorkspaceTests
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IIterationService _iterationService;
     private readonly IProcessTypeStore _processTypeStore;
+    private readonly IAdoWorkItemService _adoService;
+    private readonly ActiveItemResolver _activeItemResolver;
+    private readonly WorkingSetService _workingSetService;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
 
@@ -26,6 +30,10 @@ public class UserScopedWorkspaceTests
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _iterationService = Substitute.For<IIterationService>();
         _processTypeStore = Substitute.For<IProcessTypeStore>();
+        _adoService = Substitute.For<IAdoWorkItemService>();
+        _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var pendingChangeStore = Substitute.For<IPendingChangeStore>();
+        _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService, null);
 
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
@@ -57,16 +65,15 @@ public class UserScopedWorkspaceTests
             .Returns(new[] { aliceItem, bobItem });
 
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService,
-            config, _formatterFactory, _hintEngine, _processTypeStore);
+            config, _formatterFactory, _hintEngine, _processTypeStore, _activeItemResolver, _workingSetService);
 
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
-        // Should call the assignee-scoped method, not the full iteration method
+        // Should call the assignee-scoped method for sprint items
         await _workItemRepo.Received(1).GetByIterationAndAssigneeAsync(
             Arg.Any<IterationPath>(), Arg.Is("Alice Smith"), Arg.Any<CancellationToken>());
-        await _workItemRepo.DidNotReceive().GetByIterationAsync(
-            Arg.Any<IterationPath>(), Arg.Any<CancellationToken>());
+        // WorkingSetService.ComputeAsync also calls GetByIterationAsync (dirty orphan computation)
     }
 
     [Fact]
@@ -83,7 +90,7 @@ public class UserScopedWorkspaceTests
             .Returns(new[] { aliceItem, bobItem });
 
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService,
-            config, _formatterFactory, _hintEngine, _processTypeStore);
+            config, _formatterFactory, _hintEngine, _processTypeStore, _activeItemResolver, _workingSetService);
 
         var result = await cmd.ExecuteAsync(all: true);
 
@@ -108,13 +115,13 @@ public class UserScopedWorkspaceTests
             .Returns(new[] { aliceItem, bobItem });
 
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService,
-            config, _formatterFactory, _hintEngine, _processTypeStore);
+            config, _formatterFactory, _hintEngine, _processTypeStore, _activeItemResolver, _workingSetService);
 
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
-        // Should fall back to full iteration method
-        await _workItemRepo.Received(1).GetByIterationAsync(
+        // Should fall back to full iteration method (called by command + WorkingSetService)
+        await _workItemRepo.Received().GetByIterationAsync(
             Arg.Any<IterationPath>(), Arg.Any<CancellationToken>());
     }
 
@@ -132,7 +139,7 @@ public class UserScopedWorkspaceTests
             .Returns(new[] { aliceItem, bobItem });
 
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService,
-            config, _formatterFactory, _hintEngine, _processTypeStore);
+            config, _formatterFactory, _hintEngine, _processTypeStore, _activeItemResolver, _workingSetService);
 
         // Use StringWriter to capture output without modifying global Console.Out.
         // FormatSprintView returns a string; we call it directly to avoid Console.SetOut.
@@ -166,12 +173,12 @@ public class UserScopedWorkspaceTests
             .Returns(Array.Empty<WorkItem>());
 
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService,
-            config, _formatterFactory, _hintEngine, _processTypeStore);
+            config, _formatterFactory, _hintEngine, _processTypeStore, _activeItemResolver, _workingSetService);
 
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
-        await _workItemRepo.Received(1).GetByIterationAsync(
+        await _workItemRepo.Received().GetByIterationAsync(
             Arg.Any<IterationPath>(), Arg.Any<CancellationToken>());
     }
 
@@ -189,7 +196,7 @@ public class UserScopedWorkspaceTests
             .Returns(new[] { contextItem });
 
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService,
-            config, _formatterFactory, _hintEngine, _processTypeStore);
+            config, _formatterFactory, _hintEngine, _processTypeStore, _activeItemResolver, _workingSetService);
 
         var result = await cmd.ExecuteAsync();
         result.ShouldBe(0);

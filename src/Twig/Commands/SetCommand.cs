@@ -117,20 +117,19 @@ public sealed class SetCommand(
         // Sync children via SyncCoordinator (DD-15: always fetches unconditionally)
         if (renderer is not null)
         {
-            // TTY path: background sync with in-place indicator via RenderWithSyncAsync
+            // TTY path: show sync status below the work item via Live() context
             await renderer.RenderWithSyncAsync(
                 buildCachedView: () =>
-                    Task.FromResult<Spectre.Console.Rendering.IRenderable>(new Spectre.Console.Markup("")),
+                    Task.FromResult<Spectre.Console.Rendering.IRenderable>(new Spectre.Console.Text("")),
                 performSync: () => syncCoordinator.SyncChildrenAsync(item.Id, ct),
                 buildRevisedView: (syncResult) =>
-                {
-                    return Task.FromResult<Spectre.Console.Rendering.IRenderable?>(null);
-                },
+                    Task.FromResult<Spectre.Console.Rendering.IRenderable?>(null),
                 ct);
         }
         else
         {
-            // Non-TTY path: sync children synchronously
+            // Non-TTY path: sync silently
+            Console.WriteLine(fmt.FormatWorkItem(item, showDirty: false));
             await syncCoordinator.SyncChildrenAsync(item.Id, ct);
         }
 

@@ -5,6 +5,27 @@ namespace Twig.Domain.ValueObjects;
 /// Icon ID mappings (UnicodeIconsByIconId / NerdFontIconsByIconId) are keyed by ADO process
 /// icon IDs discovered at runtime — not hardcoded type names.
 /// </summary>
+/// <remarks>
+/// <strong>NerdFont glyph constraints — DO NOT CHANGE without reading this.</strong>
+/// <para>
+/// All NerdFont entries MUST use BMP Private Use Area codepoints (U+E000–U+F8FF, single \uXXXX).
+/// Do NOT use Supplementary PUA glyphs (surrogate pairs like \uDB80\uDDC8) — Spectre.Console
+/// measures those as 0-width, causing permanent column misalignment that no padding can fix.
+/// </para>
+/// <para>
+/// Permitted NerdFont families (all BMP PUA): nf-cod-* (Codicons, U+EA60–U+EC19),
+/// nf-fa-* (Font Awesome, U+F000–U+F2E0), nf-seti-* (Seti-UI, U+E5FA–U+E631),
+/// nf-dev-* (Devicons, U+E700–U+E7C5), nf-oct-* (Octicons, U+F400–U+F532).
+/// </para>
+/// <para>
+/// Do NOT use: nf-md-* (Material Design, U+F0001–U+F1AF0) — these are supplementary plane
+/// codepoints that encode as surrogate pairs in UTF-16.
+/// </para>
+/// <para>
+/// Tracking: https://github.com/spectreconsole/spectre.console/issues — surrogate pair width
+/// measurement returns 0 instead of 1. Until resolved upstream, BMP PUA only.
+/// </para>
+/// </remarks>
 public static class IconSet
 {
     public static IReadOnlyDictionary<string, string> UnicodeIconsByIconId { get; } =

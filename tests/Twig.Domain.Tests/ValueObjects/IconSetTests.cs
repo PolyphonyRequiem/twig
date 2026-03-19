@@ -46,7 +46,7 @@ public class IconSetTests
     {
         IconSet.GetIconByIconId("unicode", "icon_crown").ShouldBe("◆");
         IconSet.GetIconByIconId("nerd", "icon_insect").ShouldBe("\uEAAF");
-        IconSet.GetIconByIconId("nerd", "icon_trophy").ShouldBe("\uEB20");
+        IconSet.GetIconByIconId("nerd", "icon_trophy").ShouldBe("\uF091");
     }
 
     [Fact]

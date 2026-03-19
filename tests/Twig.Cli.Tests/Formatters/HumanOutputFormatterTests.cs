@@ -1072,7 +1072,7 @@ public class HumanOutputFormatterTests
 
         var result = formatter.FormatWorkItem(item, showDirty: false);
 
-        result.ShouldContain("\uEB20"); // icon_trophy → nf-cod-milestone in nerd mode (+ trailing space from NormalizeBadgeWidth)
+        result.ShouldContain("\uF091"); // icon_trophy → nf-fa-trophy in nerd mode (+ trailing space from NormalizeBadgeWidth)
     }
 
     [Fact]

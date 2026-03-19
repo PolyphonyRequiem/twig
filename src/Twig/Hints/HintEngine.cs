@@ -70,8 +70,8 @@ public sealed class HintEngine
                         var allSiblingsDone = true;
                         foreach (var sibling in siblings)
                         {
-                            var state = sibling.State.ToLowerInvariant();
-                            if (state is not ("closed" or "done" or "resolved" or "removed"))
+                            var siblingCategory = StateCategoryResolver.Resolve(sibling.State, null);
+                            if (siblingCategory is not (StateCategory.Completed or StateCategory.Resolved or StateCategory.Removed))
                             {
                                 allSiblingsDone = false;
                                 break;

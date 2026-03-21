@@ -95,8 +95,8 @@ public sealed class SelfUpdater
         finally
         {
             // Clean up temp files
-            try { File.Delete(tempArchive); } catch { }
-            try { Directory.Delete(tempExtractDir, recursive: true); } catch { }
+            try { File.Delete(tempArchive); } catch (Exception) { }
+            try { Directory.Delete(tempExtractDir, recursive: true); } catch (Exception) { }
         }
     }
 

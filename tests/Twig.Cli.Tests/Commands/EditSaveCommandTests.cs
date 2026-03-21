@@ -48,8 +48,7 @@ public class EditSaveCommandTests
         _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns("# Editing #1 Original Title\nTitle: Updated Title\nState: New\nAssignedTo: \n");
 
-        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _editorLauncher,
-            _formatterFactory, _hintEngine);
+        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _editorLauncher, _formatterFactory, _hintEngine);
         var result = await editCmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -65,8 +64,7 @@ public class EditSaveCommandTests
         _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns((string?)null);
 
-        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _editorLauncher,
-            _formatterFactory, _hintEngine);
+        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _editorLauncher, _formatterFactory, _hintEngine);
         var result = await editCmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -92,7 +90,7 @@ public class EditSaveCommandTests
             .Returns(new[] { fieldChange });
 
         var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory, _hintEngine);
+            _resolver, _consoleInput, _formatterFactory);
         var result = await saveCmd.ExecuteAsync(all: true);
 
         result.ShouldBe(0);
@@ -109,7 +107,7 @@ public class EditSaveCommandTests
             .Returns(Array.Empty<int>());
 
         var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory, _hintEngine);
+            _resolver, _consoleInput, _formatterFactory);
         var result = await saveCmd.ExecuteAsync(all: true);
 
         result.ShouldBe(0);
@@ -131,7 +129,7 @@ public class EditSaveCommandTests
             .Returns(new[] { note });
 
         var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory, _hintEngine);
+            _resolver, _consoleInput, _formatterFactory);
         var result = await saveCmd.ExecuteAsync(all: true);
 
         result.ShouldBe(0);
@@ -296,7 +294,7 @@ public class EditSaveCommandTests
             .Returns(new[] { fieldChange });
 
         var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory, _hintEngine);
+            _resolver, _consoleInput, _formatterFactory);
         var result = await saveCmd.ExecuteAsync(all: true);
 
         result.ShouldBe(0);
@@ -333,7 +331,7 @@ public class EditSaveCommandTests
             .Returns(new[] { change2 });
 
         var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory, _hintEngine);
+            _resolver, _consoleInput, _formatterFactory);
         var result = await saveCmd.ExecuteAsync(all: true);
 
         result.ShouldBe(0);
@@ -354,7 +352,7 @@ public class EditSaveCommandTests
             .Returns((WorkItem?)null);
 
         var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory, _hintEngine);
+            _resolver, _consoleInput, _formatterFactory);
         var result = await saveCmd.ExecuteAsync(all: true);
 
         result.ShouldBe(1);
@@ -382,7 +380,7 @@ public class EditSaveCommandTests
             .Returns(new[] { change2 });
 
         var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory, _hintEngine);
+            _resolver, _consoleInput, _formatterFactory);
         var result = await saveCmd.ExecuteAsync(all: true);
 
         // Overall result should be 1 (hadErrors) because item 1 failed

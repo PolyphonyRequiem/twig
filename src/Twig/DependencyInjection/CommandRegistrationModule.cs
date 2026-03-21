@@ -109,7 +109,6 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<IPendingChangeStore>(),
             sp.GetRequiredService<IConsoleInput>(),
             sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
             sp.GetRequiredService<IPromptStateWriter>()));
         services.AddSingleton<EditCommand>(sp => new EditCommand(
             sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
@@ -126,7 +125,6 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
             sp.GetRequiredService<IConsoleInput>(),
             sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
             sp.GetRequiredService<IPromptStateWriter>()));
         services.AddSingleton<RefreshCommand>(sp => new RefreshCommand(
             sp.GetRequiredService<IContextStore>(),
@@ -139,7 +137,6 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<TwigPaths>(),
             sp.GetRequiredService<IProcessTypeStore>(),
             sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
             sp.GetRequiredService<Domain.Services.WorkingSetService>(),
             sp.GetRequiredService<Domain.Services.SyncCoordinator>(),
             sp.GetRequiredService<IPromptStateWriter>()));

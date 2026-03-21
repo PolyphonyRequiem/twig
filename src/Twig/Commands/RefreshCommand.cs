@@ -3,7 +3,6 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
-using Twig.Hints;
 using Twig.Infrastructure.Config;
 
 namespace Twig.Commands;
@@ -23,7 +22,6 @@ public sealed class RefreshCommand(
     TwigPaths paths,
     IProcessTypeStore processTypeStore,
     OutputFormatterFactory formatterFactory,
-    HintEngine hintEngine,
     WorkingSetService workingSetService,
     SyncCoordinator syncCoordinator,
     IPromptStateWriter? promptStateWriter = null)
@@ -34,7 +32,6 @@ public sealed class RefreshCommand(
     public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool force = false, CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
-        _ = hintEngine; // No registered hints for refresh
 
         Console.WriteLine(fmt.FormatInfo("Refreshing from ADO..."));
 

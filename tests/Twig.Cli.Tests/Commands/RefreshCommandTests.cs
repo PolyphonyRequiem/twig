@@ -72,8 +72,7 @@ public class RefreshCommandTests : IDisposable
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
 
         _cmd = new RefreshCommand(_contextStore, _workItemRepo, _adoService, _iterationService,
-            _pendingChangeStore, _protectedCacheWriter, _config, _paths, _processTypeStore, formatterFactory, hintEngine,
-            _workingSetService, _syncCoordinator);
+            _pendingChangeStore, _protectedCacheWriter, _config, _paths, _processTypeStore, formatterFactory, _workingSetService, _syncCoordinator);
     }
 
     public void Dispose()
@@ -426,7 +425,7 @@ public class RefreshCommandTests : IDisposable
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         var cmd = new RefreshCommand(_contextStore, _workItemRepo, _adoService, _iterationService,
-            _pendingChangeStore, _protectedCacheWriter, _config, _paths, _processTypeStore, formatterFactory, hintEngine, _workingSetService, _syncCoordinator);
+            _pendingChangeStore, _protectedCacheWriter, _config, _paths, _processTypeStore, formatterFactory, _workingSetService, _syncCoordinator);
 
         var originalErr = Console.Error;
         var sw = new StringWriter();
@@ -460,7 +459,7 @@ public class RefreshCommandTests : IDisposable
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         var cmd = new RefreshCommand(_contextStore, _workItemRepo, _adoService, _iterationService,
-            _pendingChangeStore, _protectedCacheWriter, _config, _paths, _processTypeStore, formatterFactory, hintEngine, _workingSetService, _syncCoordinator);
+            _pendingChangeStore, _protectedCacheWriter, _config, _paths, _processTypeStore, formatterFactory, _workingSetService, _syncCoordinator);
 
         var originalErr = Console.Error;
         var sw = new StringWriter();

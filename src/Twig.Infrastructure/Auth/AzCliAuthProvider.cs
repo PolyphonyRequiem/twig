@@ -117,7 +117,7 @@ internal sealed class AzCliAuthProvider : IAuthenticationProvider
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            try { process.Kill(); } catch { /* best effort */ }
+            try { process.Kill(); } catch (Exception) { /* best effort */ }
             throw new AdoAuthenticationException(
                 $"Azure CLI timed out after {ProcessTimeout.TotalSeconds}s. Ensure 'az' is responsive.");
         }

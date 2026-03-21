@@ -42,7 +42,7 @@ public class SaveCommandScopingTests
 
     private SaveCommand CreateCommand() =>
         new(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory, _hintEngine);
+            _resolver, _consoleInput, _formatterFactory);
 
     [Fact]
     public async Task ActiveWorkTree_SavesActiveItemAndDirtyChildrenOnly()

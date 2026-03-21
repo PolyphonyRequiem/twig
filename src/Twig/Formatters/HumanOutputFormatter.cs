@@ -564,7 +564,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
     private static int GetTerminalWidth()
     {
         try { return Console.WindowWidth; }
-        catch { return 120; }
+        catch (Exception) { return 120; }
     }
 
 }

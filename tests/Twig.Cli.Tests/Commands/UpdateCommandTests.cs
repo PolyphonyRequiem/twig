@@ -36,7 +36,7 @@ public class UpdateCommandTests
 
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         _cmd = new UpdateCommand(resolver, _workItemRepo, _adoService, _pendingChangeStore,
-            _consoleInput, formatterFactory, hintEngine);
+            _consoleInput, formatterFactory);
     }
 
     [Fact]

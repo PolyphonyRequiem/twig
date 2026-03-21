@@ -2,7 +2,6 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
-using Twig.Hints;
 
 namespace Twig.Commands;
 
@@ -17,14 +16,12 @@ public sealed class UpdateCommand(
     IPendingChangeStore pendingChangeStore,
     IConsoleInput consoleInput,
     OutputFormatterFactory formatterFactory,
-    HintEngine hintEngine,
     IPromptStateWriter? promptStateWriter = null)
 {
     /// <summary>Update a field on the active work item and push to ADO.</summary>
     public async Task<int> ExecuteAsync(string field, string value, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
-        _ = hintEngine; // No dedicated hint for update
 
         if (string.IsNullOrWhiteSpace(field))
         {

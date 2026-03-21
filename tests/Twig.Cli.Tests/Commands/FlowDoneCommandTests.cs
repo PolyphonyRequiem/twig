@@ -83,7 +83,7 @@ public class FlowDoneCommandTests
         _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());
 
         _saveCommand = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _activeItemResolver, _consoleInput, _formatterFactory, _hintEngine);
+            _activeItemResolver, _consoleInput, _formatterFactory);
     }
 
     private FlowDoneCommand CreateCommand(IGitService? gitService = null, IAdoGitService? adoGitService = null) =>

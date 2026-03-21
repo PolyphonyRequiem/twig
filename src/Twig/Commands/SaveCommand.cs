@@ -2,7 +2,6 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
-using Twig.Hints;
 
 namespace Twig.Commands;
 
@@ -18,7 +17,6 @@ public sealed class SaveCommand(
     ActiveItemResolver activeItemResolver,
     IConsoleInput consoleInput,
     OutputFormatterFactory formatterFactory,
-    HintEngine hintEngine,
     IPromptStateWriter? promptStateWriter = null)
 {
     /// <summary>Push pending changes to Azure DevOps.</summary>
@@ -35,7 +33,6 @@ public sealed class SaveCommand(
         CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
-        _ = hintEngine; // No registered hints for save
 
         // Determine which items to save based on scoping parameters
         IReadOnlyList<int> itemsToSave;

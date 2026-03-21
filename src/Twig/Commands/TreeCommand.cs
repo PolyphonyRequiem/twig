@@ -75,7 +75,7 @@ public sealed class TreeCommand(
                     CancellationToken.None);
             }
             catch (OperationCanceledException) { throw; }
-            catch { /* sync is best-effort — don't fail the command */ }
+            catch (Exception) { /* sync is best-effort — don't fail the command */ }
 
             return 0;
         }
@@ -100,7 +100,7 @@ public sealed class TreeCommand(
             await syncCoordinator.SyncWorkingSetAsync(syncWorkingSet);
         }
         catch (OperationCanceledException) { throw; }
-        catch { /* sync is best-effort — don't fail the command */ }
+        catch (Exception) { /* sync is best-effort — don't fail the command */ }
 
         return 0;
     }

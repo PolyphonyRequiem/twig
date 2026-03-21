@@ -67,7 +67,7 @@ var app = ConsoleApp.Create()
                     var exited = proc.WaitForExit(2000);
                     if (!exited)
                     {
-                        try { proc.Kill(); } catch { }
+                        try { proc.Kill(); } catch (Exception) { }
                     }
                     var remoteUrl = stdoutTask.Result.Trim();
                     if (exited && proc.ExitCode == 0 && !string.IsNullOrWhiteSpace(remoteUrl))

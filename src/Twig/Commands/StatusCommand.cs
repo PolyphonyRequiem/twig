@@ -88,7 +88,7 @@ public sealed class StatusCommand(
                     CancellationToken.None);
             }
             catch (OperationCanceledException) { throw; }
-            catch { /* sync is best-effort — don't fail the command */ }
+            catch (Exception) { /* sync is best-effort — don't fail the command */ }
 
             var seeds = await workItemRepo.GetSeedsAsync();
             var staleSeedCount = Workspace.Build(item, [], seeds)

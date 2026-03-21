@@ -112,7 +112,7 @@ public class OfflineModeTests
             .ThrowsAsync(new AdoOfflineException(new HttpRequestException("Connection refused")));
 
         var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            new ActiveItemResolver(_contextStore, _workItemRepo, _adoService), _consoleInput, _formatterFactory, _hintEngine);
+            new ActiveItemResolver(_contextStore, _workItemRepo, _adoService), _consoleInput, _formatterFactory);
 
         await Should.ThrowAsync<AdoOfflineException>(() => saveCmd.ExecuteAsync(all: true));
     }

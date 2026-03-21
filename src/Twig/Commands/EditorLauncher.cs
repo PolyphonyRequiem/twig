@@ -73,12 +73,12 @@ public sealed class EditorLauncher : IEditorLauncher
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
                 // 5-minute timeout expired
-                try { process.Kill(entireProcessTree: true); } catch { /* best effort */ }
+                try { process.Kill(entireProcessTree: true); } catch (Exception) { /* best effort */ }
                 return null;
             }
             catch (OperationCanceledException)
             {
-                try { process.Kill(entireProcessTree: true); } catch { /* best effort */ }
+                try { process.Kill(entireProcessTree: true); } catch (Exception) { /* best effort */ }
                 throw;
             }
 

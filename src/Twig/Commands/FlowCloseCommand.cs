@@ -201,7 +201,7 @@ public sealed class FlowCloseCommand(
 
         // 6. Clear context
         await contextStore.ClearActiveWorkItemIdAsync();
-        promptStateWriter?.WritePromptState();
+        if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
         // 7. Print summary
         var actionStrings = new List<string>();

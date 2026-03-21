@@ -234,7 +234,7 @@ public sealed class RefreshCommand(
         // Update cache freshness timestamp so subsequent reads don't show stale indicators
         await contextStore.SetValueAsync("last_refreshed_at", DateTimeOffset.UtcNow.ToString("O"));
 
-        promptStateWriter?.WritePromptState();
+        if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
         return 0;
     }

@@ -61,7 +61,7 @@ public sealed class HookHandlerCommand(
             await contextStore.SetActiveWorkItemIdAsync(workItemId.Value);
 
             // Write prompt state after context change (post-checkout only)
-            promptStateWriter?.WritePromptState();
+            if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
             // Try to get work item title for the notification
             var item = await workItemRepo.GetByIdAsync(workItemId.Value);

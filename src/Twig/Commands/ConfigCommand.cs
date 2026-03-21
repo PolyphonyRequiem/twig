@@ -51,7 +51,7 @@ public sealed class ConfigCommand(
 
         // Regenerate prompt state when display settings change (badge, color, icons)
         if (key.StartsWith("display.", StringComparison.OrdinalIgnoreCase))
-            promptStateWriter?.WritePromptState();
+            if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
         return 0;
     }

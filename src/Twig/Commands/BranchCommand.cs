@@ -162,7 +162,7 @@ public sealed class BranchCommand(
 
                         // Write prompt state outside try/catch — transition already committed if newState != null
                         if (newState is not null)
-                            promptStateWriter?.WritePromptState();
+                            if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
                     }
                 }
             }

@@ -76,7 +76,7 @@ public sealed class UpdateCommand(
         var updated = await adoService.FetchAsync(local.Id);
         await workItemRepo.SaveAsync(updated);
 
-        promptStateWriter?.WritePromptState();
+        if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
         Console.WriteLine(fmt.FormatSuccess($"#{local.Id} updated: {field} = '{value}'"));
 

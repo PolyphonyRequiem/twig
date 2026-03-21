@@ -116,7 +116,7 @@ public sealed class SetCommand(
 
         // Set as active context
         await contextStore.SetActiveWorkItemIdAsync(item.Id);
-        promptStateWriter?.WritePromptState();
+        if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
         // Working set compute + evict + sync — best-effort, never fails the command
         try

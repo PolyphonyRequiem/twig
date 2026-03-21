@@ -64,14 +64,14 @@ public class PromptStateWriterTests : IDisposable
     // ── (a) writes valid JSON when active item exists ──────────────────
 
     [Fact]
-    public void WritesValidJson_WhenActiveItemExists()
+    public async Task WritesValidJson_WhenActiveItemExists()
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(12345);
         _workItemRepo.GetByIdAsync(12345, Arg.Any<CancellationToken>())
             .Returns(CreateWorkItem(12345, "Epic", "Implement login", "Active"));
 
         var writer = CreateWriter();
-        writer.WritePromptState();
+        await writer.WritePromptStateAsync();
 
         File.Exists(PromptJsonPath).ShouldBeTrue();
         var json = File.ReadAllText(PromptJsonPath);
@@ -95,12 +95,12 @@ public class PromptStateWriterTests : IDisposable
     // ── (b) writes {} when no active item ──────────────────────────────
 
     [Fact]
-    public void WritesEmptyObject_WhenNoActiveItem()
+    public async Task WritesEmptyObject_WhenNoActiveItem()
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
         var writer = CreateWriter();
-        writer.WritePromptState();
+        await writer.WritePromptStateAsync();
 
         File.Exists(PromptJsonPath).ShouldBeTrue();
         var json = File.ReadAllText(PromptJsonPath);
@@ -110,7 +110,7 @@ public class PromptStateWriterTests : IDisposable
     // ── (c) correct typeBadge for unicode mode ─────────────────────────
 
     [Fact]
-    public void TypeBadge_Unicode_Epic()
+    public async Task TypeBadge_Unicode_Epic()
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>())
@@ -118,7 +118,7 @@ public class PromptStateWriterTests : IDisposable
 
         var config = new TwigConfiguration { Display = new DisplayConfig { Icons = "unicode" } };
         var writer = CreateWriter(config);
-        writer.WritePromptState();
+        await writer.WritePromptStateAsync();
 
         var doc = JsonDocument.Parse(File.ReadAllText(PromptJsonPath));
         doc.RootElement.GetProperty("typeBadge").GetString().ShouldBe("◆");
@@ -127,7 +127,7 @@ public class PromptStateWriterTests : IDisposable
     // ── (d) correct typeBadge for nerd mode ────────────────────────────
 
     [Fact]
-    public void TypeBadge_Nerd_Epic()
+    public async Task TypeBadge_Nerd_Epic()
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>())
@@ -139,7 +139,7 @@ public class PromptStateWriterTests : IDisposable
             TypeAppearances = [new TypeAppearanceConfig { Name = "Epic", IconId = "icon_crown" }]
         };
         var writer = CreateWriter(config);
-        writer.WritePromptState();
+        await writer.WritePromptStateAsync();
 
         var doc = JsonDocument.Parse(File.ReadAllText(PromptJsonPath));
         var badge = doc.RootElement.GetProperty("typeBadge").GetString();
@@ -152,7 +152,7 @@ public class PromptStateWriterTests : IDisposable
     // ── (e) typeColor from display.typeColors config ───────────────────
 
     [Fact]
-    public void TypeColor_FromDisplayTypeColors()
+    public async Task TypeColor_FromDisplayTypeColors()
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>())
@@ -166,7 +166,7 @@ public class PromptStateWriterTests : IDisposable
             }
         };
         var writer = CreateWriter(config);
-        writer.WritePromptState();
+        await writer.WritePromptStateAsync();
 
         var doc = JsonDocument.Parse(File.ReadAllText(PromptJsonPath));
         doc.RootElement.GetProperty("typeColor").GetString().ShouldBe("#8B00FF");
@@ -175,7 +175,7 @@ public class PromptStateWriterTests : IDisposable
     // ── (f) typeColor from TypeAppearances fallback ────────────────────
 
     [Fact]
-    public void TypeColor_FromTypeAppearancesFallback()
+    public async Task TypeColor_FromTypeAppearancesFallback()
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>())
@@ -186,7 +186,7 @@ public class PromptStateWriterTests : IDisposable
             TypeAppearances = [new TypeAppearanceConfig { Name = "Epic", Color = "#FF00FF" }]
         };
         var writer = CreateWriter(config);
-        writer.WritePromptState();
+        await writer.WritePromptStateAsync();
 
         var doc = JsonDocument.Parse(File.ReadAllText(PromptJsonPath));
         doc.RootElement.GetProperty("typeColor").GetString().ShouldBe("#FF00FF");
@@ -195,14 +195,14 @@ public class PromptStateWriterTests : IDisposable
     // ── (g) text field matches expected plain format ───────────────────
 
     [Fact]
-    public void TextField_MatchesPlainFormat()
+    public async Task TextField_MatchesPlainFormat()
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
             .Returns(CreateWorkItem(42, "Bug", "Fix crash on login", "New", isDirty: true));
 
         var writer = CreateWriter();
-        writer.WritePromptState();
+        await writer.WritePromptStateAsync();
 
         var doc = JsonDocument.Parse(File.ReadAllText(PromptJsonPath));
         var text = doc.RootElement.GetProperty("text").GetString();
@@ -212,28 +212,28 @@ public class PromptStateWriterTests : IDisposable
     // ── (h) isDirty reflects work item state ──────────────────────────
 
     [Fact]
-    public void IsDirty_True_WhenWorkItemDirty()
+    public async Task IsDirty_True_WhenWorkItemDirty()
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>())
             .Returns(CreateWorkItem(1, "Task", "Do thing", "Active", isDirty: true));
 
         var writer = CreateWriter();
-        writer.WritePromptState();
+        await writer.WritePromptStateAsync();
 
         var doc = JsonDocument.Parse(File.ReadAllText(PromptJsonPath));
         doc.RootElement.GetProperty("isDirty").GetBoolean().ShouldBeTrue();
     }
 
     [Fact]
-    public void IsDirty_False_WhenWorkItemClean()
+    public async Task IsDirty_False_WhenWorkItemClean()
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>())
             .Returns(CreateWorkItem(1, "Task", "Do thing", "Active", isDirty: false));
 
         var writer = CreateWriter();
-        writer.WritePromptState();
+        await writer.WritePromptStateAsync();
 
         var doc = JsonDocument.Parse(File.ReadAllText(PromptJsonPath));
         doc.RootElement.GetProperty("isDirty").GetBoolean().ShouldBeFalse();
@@ -242,7 +242,7 @@ public class PromptStateWriterTests : IDisposable
     // ── (i) branch populated from .git/HEAD ───────────────────────────
 
     [Fact]
-    public void Branch_PopulatedFromGitHead()
+    public async Task Branch_PopulatedFromGitHead()
     {
         var gitDir = Path.Combine(_tempDir, ".git");
         Directory.CreateDirectory(gitDir);
@@ -253,7 +253,7 @@ public class PromptStateWriterTests : IDisposable
             .Returns(CreateWorkItem(1, "Task", "Do thing", "Active"));
 
         var writer = CreateWriter();
-        writer.WritePromptState();
+        await writer.WritePromptStateAsync();
 
         var doc = JsonDocument.Parse(File.ReadAllText(PromptJsonPath));
         doc.RootElement.GetProperty("branch").GetString().ShouldBe("feature/login");
@@ -262,7 +262,7 @@ public class PromptStateWriterTests : IDisposable
     // ── (j) branch is null when detached HEAD ─────────────────────────
 
     [Fact]
-    public void Branch_NullWhenDetachedHead()
+    public async Task Branch_NullWhenDetachedHead()
     {
         var gitDir = Path.Combine(_tempDir, ".git");
         Directory.CreateDirectory(gitDir);
@@ -273,7 +273,7 @@ public class PromptStateWriterTests : IDisposable
             .Returns(CreateWorkItem(1, "Task", "Do thing", "Active"));
 
         var writer = CreateWriter();
-        writer.WritePromptState();
+        await writer.WritePromptStateAsync();
 
         var doc = JsonDocument.Parse(File.ReadAllText(PromptJsonPath));
         doc.RootElement.GetProperty("branch").ValueKind.ShouldBe(JsonValueKind.Null);
@@ -282,7 +282,7 @@ public class PromptStateWriterTests : IDisposable
     // ── (k) atomic write — partial write does not corrupt file ────────
 
     [Fact]
-    public void AtomicWrite_ExistingFileNotCorrupted_WhenNewWriteSucceeds()
+    public async Task AtomicWrite_ExistingFileNotCorrupted_WhenNewWriteSucceeds()
     {
         // Write initial state
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
@@ -290,7 +290,7 @@ public class PromptStateWriterTests : IDisposable
             .Returns(CreateWorkItem(1, "Bug", "First item", "New"));
 
         var writer = CreateWriter();
-        writer.WritePromptState();
+        await writer.WritePromptStateAsync();
 
         var firstContent = File.ReadAllText(PromptJsonPath);
         firstContent.ShouldContain("\"id\": 1");
@@ -299,7 +299,7 @@ public class PromptStateWriterTests : IDisposable
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>())
             .Returns(CreateWorkItem(1, "Bug", "Updated item", "Active"));
 
-        writer.WritePromptState();
+        await writer.WritePromptStateAsync();
 
         var secondContent = File.ReadAllText(PromptJsonPath);
         secondContent.ShouldContain("\"title\": \"Updated item\"");
@@ -312,7 +312,7 @@ public class PromptStateWriterTests : IDisposable
     // ── (l) exception in writer does not propagate ────────────────────
 
     [Fact]
-    public void Exception_DoesNotPropagate()
+    public async Task Exception_DoesNotPropagate()
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("DB not initialized"));
@@ -320,30 +320,30 @@ public class PromptStateWriterTests : IDisposable
         var writer = CreateWriter();
 
         // Should not throw
-        Should.NotThrow(() => writer.WritePromptState());
+        await Should.NotThrowAsync(async () => await writer.WritePromptStateAsync());
     }
 
     [Fact]
-    public void Exception_FromWorkItemRepo_DoesNotPropagate()
+    public async Task Exception_FromWorkItemRepo_DoesNotPropagate()
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>())
             .ThrowsAsync(new Exception("DB corrupt"));
 
         var writer = CreateWriter();
-        Should.NotThrow(() => writer.WritePromptState());
+        await Should.NotThrowAsync(async () => await writer.WritePromptStateAsync());
     }
 
     // ── WritesEmptyObject when work item not found ────────────────────
 
     [Fact]
-    public void WritesEmptyObject_WhenWorkItemNotFound()
+    public async Task WritesEmptyObject_WhenWorkItemNotFound()
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(999);
         _workItemRepo.GetByIdAsync(999, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
 
         var writer = CreateWriter();
-        writer.WritePromptState();
+        await writer.WritePromptStateAsync();
 
         File.Exists(PromptJsonPath).ShouldBeTrue();
         File.ReadAllText(PromptJsonPath).ShouldBe("{}");
@@ -352,7 +352,7 @@ public class PromptStateWriterTests : IDisposable
     // ── stateCategory resolved correctly ──────────────────────────────
 
     [Fact]
-    public void StateCategory_ResolvedFromProcessTypeStore()
+    public async Task StateCategory_ResolvedFromProcessTypeStore()
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>())
@@ -370,7 +370,7 @@ public class PromptStateWriterTests : IDisposable
         _processTypeStore.GetByNameAsync("CustomType", Arg.Any<CancellationToken>()).Returns(processType);
 
         var writer = CreateWriter();
-        writer.WritePromptState();
+        await writer.WritePromptStateAsync();
 
         var doc = JsonDocument.Parse(File.ReadAllText(PromptJsonPath));
         doc.RootElement.GetProperty("stateCategory").GetString().ShouldBe("InProgress");
@@ -379,7 +379,7 @@ public class PromptStateWriterTests : IDisposable
     // ── generatedAt present and valid ISO 8601 ────────────────────────
 
     [Fact]
-    public void GeneratedAt_IsPresentAndValid()
+    public async Task GeneratedAt_IsPresentAndValid()
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>())
@@ -387,7 +387,7 @@ public class PromptStateWriterTests : IDisposable
 
         var before = DateTime.UtcNow;
         var writer = CreateWriter();
-        writer.WritePromptState();
+        await writer.WritePromptStateAsync();
         var after = DateTime.UtcNow;
 
         var doc = JsonDocument.Parse(File.ReadAllText(PromptJsonPath));
@@ -399,7 +399,7 @@ public class PromptStateWriterTests : IDisposable
     // ── IProcessTypeStore exception falls through to heuristic ────────
 
     [Fact]
-    public void ProcessTypeStoreException_FallsThroughToHeuristic()
+    public async Task ProcessTypeStoreException_FallsThroughToHeuristic()
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>())
@@ -408,7 +408,7 @@ public class PromptStateWriterTests : IDisposable
             .ThrowsAsync(new InvalidOperationException("Store unavailable"));
 
         var writer = CreateWriter();
-        Should.NotThrow(() => writer.WritePromptState());
+        await Should.NotThrowAsync(async () => await writer.WritePromptStateAsync());
 
         var doc = JsonDocument.Parse(File.ReadAllText(PromptJsonPath));
         // Heuristic maps "Active" → InProgress
@@ -418,14 +418,14 @@ public class PromptStateWriterTests : IDisposable
     // ── Custom/unknown type uses first-char fallback for badge ────────
 
     [Fact]
-    public void TypeBadge_CustomType_UsesFirstCharFallback()
+    public async Task TypeBadge_CustomType_UsesFirstCharFallback()
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>())
             .Returns(CreateWorkItem(1, "CustomType", "Custom item", "Active"));
 
         var writer = CreateWriter();
-        writer.WritePromptState();
+        await writer.WritePromptStateAsync();
 
         var doc = JsonDocument.Parse(File.ReadAllText(PromptJsonPath));
         doc.RootElement.GetProperty("typeBadge").GetString().ShouldBe("C");
@@ -464,7 +464,7 @@ public class PromptStateWriterTests : IDisposable
     // ── Integration: title truncated at 40 chars in written JSON ──────
 
     [Fact]
-    public void WritePromptState_TruncatesLongTitle()
+    public async Task WritePromptStateAsync_TruncatesLongTitle()
     {
         var longTitle = new string('A', 50);
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
@@ -472,7 +472,7 @@ public class PromptStateWriterTests : IDisposable
             .Returns(CreateWorkItem(1, "Bug", longTitle, "Active"));
 
         var writer = CreateWriter();
-        writer.WritePromptState();
+        await writer.WritePromptStateAsync();
 
         var doc = JsonDocument.Parse(File.ReadAllText(PromptJsonPath));
         var title = doc.RootElement.GetProperty("title").GetString()!;

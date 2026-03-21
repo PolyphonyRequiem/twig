@@ -206,7 +206,7 @@ public sealed class FlowDoneCommand(
                 Console.WriteLine(fmt.FormatInfo($"  {action}"));
         }
 
-        promptStateWriter?.WritePromptState();
+        if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
         return 0;
     }

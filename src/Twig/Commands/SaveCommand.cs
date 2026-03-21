@@ -186,7 +186,7 @@ public sealed class SaveCommand(
         }
 
         if (anySaved && !skipPromptWrite)
-            promptStateWriter?.WritePromptState();
+            if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
         return hadErrors ? 1 : 0;
     }

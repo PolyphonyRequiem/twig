@@ -82,19 +82,21 @@ The architecture analysis identified three HIGH-severity anti-patterns:
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| T-005 | IMPL | Change `IPromptStateWriter.WritePromptState()` to `WritePromptStateAsync()` returning `Task` | `src/Twig.Domain/Interfaces/IPromptStateWriter.cs` | TO DO |
-| T-006 | IMPL | Update `PromptStateWriter` implementation: rename method to `WritePromptStateAsync`, make it `async Task`, replace 3 `.GetAwaiter().GetResult()` calls with `await`, change bare `catch {}` to `catch (Exception)` | `src/Twig.Infrastructure/Config/PromptStateWriter.cs` | TO DO |
-| T-007 | IMPL | Update all 14 command callers from `promptStateWriter?.WritePromptState()` to `if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync()`. Files: BranchCommand.cs, ConfigCommand.cs, EditCommand.cs, FlowCloseCommand.cs, FlowDoneCommand.cs, FlowStartCommand.cs, HookHandlerCommand.cs, NoteCommand.cs, RefreshCommand.cs, SaveCommand.cs, SetCommand.cs, StashCommand.cs, StateCommand.cs, UpdateCommand.cs | `src/Twig/Commands/*.cs` (14 files) | TO DO |
-| T-008 | IMPL | Update DI registration in `TwigServiceRegistration.cs` if the factory references the method name | `src/Twig.Infrastructure/TwigServiceRegistration.cs` | TO DO |
-| T-009 | TEST | Update PromptStateWriter test mocks and unit tests to use the new async interface. Update `PromptStateWriterTests.cs` and `PromptStateIntegrationTests.cs` | `tests/Twig.Cli.Tests/Commands/PromptStateWriterTests.cs`, `tests/Twig.Cli.Tests/Commands/PromptStateIntegrationTests.cs` | TO DO |
-| T-010 | TEST | Verify all 2,048 tests pass after the interface change | All test projects | TO DO |
+| T-005 | IMPL | Change `IPromptStateWriter.WritePromptState()` to `WritePromptStateAsync()` returning `Task` | `src/Twig.Domain/Interfaces/IPromptStateWriter.cs` | DONE |
+| T-006 | IMPL | Update `PromptStateWriter` implementation: rename method to `WritePromptStateAsync`, make it `async Task`, replace 3 `.GetAwaiter().GetResult()` calls with `await`, change bare `catch {}` to `catch (Exception)` | `src/Twig.Infrastructure/Config/PromptStateWriter.cs` | DONE |
+| T-007 | IMPL | Update all 14 command callers from `promptStateWriter?.WritePromptState()` to `if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync()`. Files: BranchCommand.cs, ConfigCommand.cs, EditCommand.cs, FlowCloseCommand.cs, FlowDoneCommand.cs, FlowStartCommand.cs, HookHandlerCommand.cs, NoteCommand.cs, RefreshCommand.cs, SaveCommand.cs, SetCommand.cs, StashCommand.cs, StateCommand.cs, UpdateCommand.cs | `src/Twig/Commands/*.cs` (14 files) | DONE |
+| T-008 | IMPL | Update DI registration in `TwigServiceRegistration.cs` if the factory references the method name | `src/Twig.Infrastructure/TwigServiceRegistration.cs` | DONE (no change needed) |
+| T-009 | TEST | Update PromptStateWriter test mocks and unit tests to use the new async interface. Update `PromptStateWriterTests.cs` and `PromptStateIntegrationTests.cs` | `tests/Twig.Cli.Tests/Commands/PromptStateWriterTests.cs`, `tests/Twig.Cli.Tests/Commands/PromptStateIntegrationTests.cs` | DONE |
+| T-010 | TEST | Verify all 2,048 tests pass after the interface change | All test projects | DONE |
 
 **Acceptance Criteria:**
-- [ ] `IPromptStateWriter` interface declares `Task WritePromptStateAsync()`
-- [ ] No `.GetAwaiter().GetResult()` calls remain in `PromptStateWriter.cs`
-- [ ] Bare `catch {}` is replaced with `catch (Exception)` 
-- [ ] All 14 callers use `await`
-- [ ] All tests pass
+- [x] `IPromptStateWriter` interface declares `Task WritePromptStateAsync()`
+- [x] No `.GetAwaiter().GetResult()` calls remain in `PromptStateWriter.cs`
+- [x] Bare `catch {}` is replaced with `catch (Exception)` 
+- [x] All 14 callers use `await`
+- [x] All tests pass
+
+**Status: DONE** (2026-03-21)
 
 ---
 

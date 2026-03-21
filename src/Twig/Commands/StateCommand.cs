@@ -126,7 +126,7 @@ public sealed class StateCommand(
         item.MarkSynced(newRevision);
         await workItemRepo.SaveAsync(item);
 
-        promptStateWriter?.WritePromptState();
+        if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
         // Gather siblings for hint engine
         var siblings = item.ParentId.HasValue

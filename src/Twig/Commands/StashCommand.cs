@@ -170,7 +170,7 @@ public sealed class StashCommand(
                 if (exists)
                 {
                     await contextStore.SetActiveWorkItemIdAsync(detectedId.Value);
-                    promptStateWriter?.WritePromptState();
+                    if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
                 }
                 else
                 {

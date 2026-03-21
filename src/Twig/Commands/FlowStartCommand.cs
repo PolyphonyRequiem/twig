@@ -286,7 +286,7 @@ public sealed class FlowStartCommand(
                 Console.WriteLine(formatted);
         }
 
-        promptStateWriter?.WritePromptState();
+        if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
         return 0;
     }

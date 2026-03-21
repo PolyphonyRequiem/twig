@@ -123,7 +123,7 @@ public sealed class EditCommand(
 
         Console.WriteLine(fmt.FormatSuccess($"Staged {changesFound} change(s) for #{item.Id}."));
 
-        promptStateWriter?.WritePromptState();
+        if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
         var hints = hintEngine.GetHints("edit", outputFormat: outputFormat);
         foreach (var hint in hints)

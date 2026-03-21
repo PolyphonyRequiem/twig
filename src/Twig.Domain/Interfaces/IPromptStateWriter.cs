@@ -7,5 +7,5 @@ namespace Twig.Domain.Interfaces;
 /// </summary>
 public interface IPromptStateWriter
 {
-    void WritePromptState();
+    Task WritePromptStateAsync();
 }

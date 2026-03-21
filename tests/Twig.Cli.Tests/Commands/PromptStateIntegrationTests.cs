@@ -404,7 +404,7 @@ public class PromptStateIntegrationTests : IDisposable
 
         result.ShouldBe(0);
         // Exactly one call: from FlowDoneCommand. SaveCommand's call is suppressed by skipPromptWrite.
-        mockWriter.Received(1).WritePromptState();
+        await mockWriter.Received(1).WritePromptStateAsync();
     }
 
     // ── (h) twig edit writes prompt.json after staging changes ─────────

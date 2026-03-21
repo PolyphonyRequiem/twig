@@ -87,7 +87,7 @@ public sealed class NoteCommand(
 
         Console.WriteLine(fmt.FormatSuccess($"Note added to #{item.Id} (pending)."));
 
-        promptStateWriter?.WritePromptState();
+        if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
         var hints = hintEngine.GetHints("note", outputFormat: outputFormat);
         foreach (var hint in hints)

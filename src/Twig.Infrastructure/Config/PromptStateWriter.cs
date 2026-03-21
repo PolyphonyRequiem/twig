@@ -36,31 +36,31 @@ internal sealed class PromptStateWriter : IPromptStateWriter
         _processTypeStore = processTypeStore;
     }
 
-    public void WritePromptState()
+    public async Task WritePromptStateAsync()
     {
         try
         {
-            WritePromptStateCore();
+            await WritePromptStateCoreAsync();
         }
-        catch
+        catch (Exception)
         {
             // Intentionally swallowed — prompt state write MUST NOT fail the parent command.
         }
     }
 
-    private void WritePromptStateCore()
+    private async Task WritePromptStateCoreAsync()
     {
         var targetPath = Path.Combine(_paths.TwigDir, "prompt.json");
         var tmpPath = targetPath + ".tmp";
 
-        var activeId = _contextStore.GetActiveWorkItemIdAsync().GetAwaiter().GetResult();
+        var activeId = await _contextStore.GetActiveWorkItemIdAsync();
         if (activeId is null)
         {
             WriteEmptyState(targetPath, tmpPath);
             return;
         }
 
-        var workItem = _workItemRepo.GetByIdAsync(activeId.Value).GetAwaiter().GetResult();
+        var workItem = await _workItemRepo.GetByIdAsync(activeId.Value);
         if (workItem is null)
         {
             WriteEmptyState(targetPath, tmpPath);
@@ -80,11 +80,11 @@ internal sealed class PromptStateWriter : IPromptStateWriter
         IReadOnlyList<StateEntry>? stateEntries = null;
         try
         {
-            var processType = _processTypeStore.GetByNameAsync(typeName).GetAwaiter().GetResult();
+            var processType = await _processTypeStore.GetByNameAsync(typeName);
             if (processType is not null)
                 stateEntries = processType.States;
         }
-        catch
+        catch (Exception)
         {
             // Fall through to heuristic
         }

@@ -32,22 +32,14 @@ public sealed class NavigationCommands(
         }
 
         // Resolve active item with auto-fetch on cache miss
-        Domain.Aggregates.WorkItem? item;
         var resolveResult = await activeItemResolver.ResolveByIdAsync(activeId.Value, ct);
-        switch (resolveResult)
+        if (!resolveResult.TryGetWorkItem(out var item, out _, out _))
         {
-            case ActiveItemResult.Found found:
-                item = found.WorkItem;
-                break;
-            case ActiveItemResult.FetchedFromAdo fetched:
-                item = fetched.WorkItem;
-                break;
-            default:
-                Console.Error.WriteLine(fmt.FormatError($"Work item #{activeId.Value} not found in cache."));
-                return 1;
+            Console.Error.WriteLine(fmt.FormatError($"Work item #{activeId.Value} not found in cache."));
+            return 1;
         }
 
-        var parentChain = item.ParentId.HasValue
+        var parentChain = item!.ParentId.HasValue
             ? await workItemRepo.GetParentChainAsync(item.ParentId.Value)
             : Array.Empty<Domain.Aggregates.WorkItem>();
 
@@ -79,29 +71,21 @@ public sealed class NavigationCommands(
         }
 
         // Resolve active item with auto-fetch on cache miss
-        Domain.Aggregates.WorkItem? item;
         var resolveResult = await activeItemResolver.ResolveByIdAsync(activeId.Value, ct);
-        switch (resolveResult)
+        if (!resolveResult.TryGetWorkItem(out var item, out _, out _))
         {
-            case ActiveItemResult.Found found:
-                item = found.WorkItem;
-                break;
-            case ActiveItemResult.FetchedFromAdo fetched:
-                item = fetched.WorkItem;
-                break;
-            default:
-                Console.Error.WriteLine(fmt.FormatError($"Work item #{activeId.Value} not found in cache."));
-                return 1;
+            Console.Error.WriteLine(fmt.FormatError($"Work item #{activeId.Value} not found in cache."));
+            return 1;
         }
 
-        var parentChain = item.ParentId.HasValue
+        var parentChain = item!.ParentId.HasValue
             ? await workItemRepo.GetParentChainAsync(item.ParentId.Value)
             : Array.Empty<Domain.Aggregates.WorkItem>();
 
         var children = await workItemRepo.GetChildrenAsync(item.Id);
         var tree = WorkTree.Build(item, parentChain, children);
 
-        // No argument: present all children interactively (or auto-navigate if only one)
+        // No argument: present all children interactively(or auto-navigate if only one)
         if (string.IsNullOrEmpty(idOrPattern))
         {
             var candidates = children.Select(c => (c.Id, c.Title)).ToList();

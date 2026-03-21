@@ -41,19 +41,11 @@ public sealed class TreeCommand(
             : depth ?? config.Display.TreeDepth;
 
         // Resolve active item with auto-fetch on cache miss (G-3)
-        Domain.Aggregates.WorkItem? resolvedItem;
         var resolveResult = await activeItemResolver.ResolveByIdAsync(activeId.Value);
-        switch (resolveResult)
+        if (!resolveResult.TryGetWorkItem(out var resolvedItem, out _, out _))
         {
-            case ActiveItemResult.Found found:
-                resolvedItem = found.WorkItem;
-                break;
-            case ActiveItemResult.FetchedFromAdo fetched:
-                resolvedItem = fetched.WorkItem;
-                break;
-            default:
-                Console.Error.WriteLine(fmt.FormatError($"Work item #{activeId.Value} not found in cache."));
-                return 1;
+            Console.Error.WriteLine(fmt.FormatError($"Work item #{activeId.Value} not found in cache."));
+            return 1;
         }
 
         if (renderer is not null)

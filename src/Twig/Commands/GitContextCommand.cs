@@ -28,24 +28,16 @@ public sealed class GitContextCommand(
         int? activeId = null;
         string? activeTitle = null;
         string? activeType = null;
-        switch (resolved)
+        if (resolved.TryGetWorkItem(out var contextItem, out var unreachableId, out var unreachableReason))
         {
-            case ActiveItemResult.Found f:
-                activeId = f.WorkItem.Id;
-                activeTitle = f.WorkItem.Title;
-                activeType = f.WorkItem.Type.Value;
-                break;
-            case ActiveItemResult.FetchedFromAdo f:
-                activeId = f.WorkItem.Id;
-                activeTitle = f.WorkItem.Title;
-                activeType = f.WorkItem.Type.Value;
-                break;
-            case ActiveItemResult.Unreachable u:
-                activeId = u.Id;
-                Console.Error.WriteLine(fmt.FormatError($"Work item #{u.Id} is unreachable: {u.Reason}"));
-                break;
-            case ActiveItemResult.NoContext:
-                break;
+            activeId = contextItem!.Id;
+            activeTitle = contextItem.Title;
+            activeType = contextItem.Type.Value;
+        }
+        else if (unreachableId is not null)
+        {
+            activeId = unreachableId;
+            Console.Error.WriteLine(fmt.FormatError($"Work item #{unreachableId} is unreachable: {unreachableReason}"));
         }
 
         // 2. Current branch (if git available)

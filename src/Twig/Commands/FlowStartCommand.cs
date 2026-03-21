@@ -66,21 +66,16 @@ public sealed class FlowStartCommand(
         if (int.TryParse(idOrPattern, out var id))
         {
             var resolved = await activeItemResolver.ResolveByIdAsync(id);
-            switch (resolved)
+            if (!resolved.TryGetWorkItem(out item, out var errId, out var errReason))
             {
-                case ActiveItemResult.Found found:
-                    item = found.WorkItem;
-                    break;
-                case ActiveItemResult.FetchedFromAdo fetched:
-                    Console.WriteLine(fmt.FormatInfo($"Fetching work item {id} from ADO..."));
-                    item = fetched.WorkItem;
-                    break;
-                case ActiveItemResult.Unreachable unreachable:
-                    Console.Error.WriteLine(fmt.FormatError($"Work item #{unreachable.Id} could not be fetched: {unreachable.Reason}"));
-                    return 1;
-                default:
-                    Console.Error.WriteLine(fmt.FormatError($"Work item #{id} not found."));
-                    return 1;
+                Console.Error.WriteLine(fmt.FormatError(errId is not null
+                    ? $"Work item #{errId} could not be fetched: {errReason}"
+                    : $"Work item #{id} not found."));
+                return 1;
+            }
+            if (resolved is ActiveItemResult.FetchedFromAdo)
+            {
+                Console.WriteLine(fmt.FormatInfo($"Fetching work item {id} from ADO..."));
             }
         }
         else

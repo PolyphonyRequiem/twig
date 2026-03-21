@@ -51,12 +51,7 @@ public sealed class WorkspaceCommand(
                 if (activeId.HasValue)
                 {
                     var resolveResult = await activeItemResolver.ResolveByIdAsync(activeId.Value, ct);
-                    contextItem = resolveResult switch
-                    {
-                        ActiveItemResult.Found found => found.WorkItem,
-                        ActiveItemResult.FetchedFromAdo fetched => fetched.WorkItem,
-                        _ => null,
-                    };
+                    resolveResult.TryGetWorkItem(out contextItem, out _, out _);
                 }
                 yield return new WorkspaceDataChunk.ContextLoaded(contextItem);
 
@@ -147,12 +142,7 @@ public sealed class WorkspaceCommand(
         if (activeId.HasValue)
         {
             var resolveResult = await activeItemResolver.ResolveByIdAsync(activeId.Value);
-            contextItem = resolveResult switch
-            {
-                ActiveItemResult.Found found => found.WorkItem,
-                ActiveItemResult.FetchedFromAdo fetched => fetched.WorkItem,
-                _ => null,
-            };
+            resolveResult.TryGetWorkItem(out contextItem, out _, out _);
         }
 
         // Get current iteration items — scoped to user by default, all team items with --all

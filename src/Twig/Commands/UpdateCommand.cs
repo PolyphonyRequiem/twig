@@ -33,25 +33,13 @@ public sealed class UpdateCommand(
         }
 
         var resolved = await activeItemResolver.GetActiveItemAsync();
-        if (resolved is ActiveItemResult.NoContext)
+        if (!resolved.TryGetWorkItem(out var local, out var errorId, out var errorReason))
         {
-            Console.Error.WriteLine(fmt.FormatError("No active work item. Run 'twig set <id>' first."));
+            Console.Error.WriteLine(fmt.FormatError(errorId is not null
+                ? $"Work item #{errorId} not found in cache."
+                : "No active work item. Run 'twig set <id>' first."));
             return 1;
         }
-        if (resolved is ActiveItemResult.Unreachable u)
-        {
-            Console.Error.WriteLine(fmt.FormatError($"Work item #{u.Id} not found in cache."));
-            return 1;
-        }
-
-        var local = resolved switch
-        {
-            ActiveItemResult.Found f => f.WorkItem,
-            ActiveItemResult.FetchedFromAdo f => f.WorkItem,
-            _ => null,
-        };
-        if (local is null)
-            return 1;
 
         // Pull latest from ADO
         var remote = await adoService.FetchAsync(local.Id);

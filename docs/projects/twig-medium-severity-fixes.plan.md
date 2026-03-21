@@ -109,15 +109,15 @@ Add validation in `TwigConfiguration.SetValue()` for the `auth.method` path: onl
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| T-011 | IMPL | Create `src/Twig.Domain/Services/ActiveItemResultExtensions.cs` with: `internal static bool TryGetWorkItem(this ActiveItemResult result, out WorkItem? item, out int? errorId, out string? errorReason)`. Returns `true` + `item` for `Found`/`FetchedFromAdo`, `false` + `errorId`/`errorReason` for `Unreachable`, `false` + nulls for `NoContext`/default | `src/Twig.Domain/Services/ActiveItemResultExtensions.cs` | TO DO |
-| T-012 | IMPL | Replace the ActiveItemResult switch blocks in all consuming commands with the extension method. The caller handles formatting the error message using `errorId`/`errorReason` and the existing `IOutputFormatter`. Commands include: BranchCommand, CommitCommand, EditCommand, FlowCloseCommand, FlowDoneCommand, GitContextCommand, NavigationCommands, NoteCommand, PrCommand, SaveCommand, SeedCommand, SetCommand, StashCommand, StateCommand, StatusCommand, TreeCommand, UpdateCommand, WorkspaceCommand, and any others found | `src/Twig/Commands/*.cs` (19+ files) | TO DO |
-| T-013 | TEST | Add unit tests for `ActiveItemResultExtensions.TryGetWorkItem`: Found returns true, FetchedFromAdo returns true, Unreachable returns false with id/reason, NoContext returns false | `tests/Twig.Domain.Tests/Services/` | TO DO |
-| T-014 | TEST | Verify all existing tests pass | All test projects | TO DO |
+| T-011 | IMPL | Create `src/Twig.Domain/Services/ActiveItemResultExtensions.cs` with: `internal static bool TryGetWorkItem(this ActiveItemResult result, out WorkItem? item, out int? errorId, out string? errorReason)`. Returns `true` + `item` for `Found`/`FetchedFromAdo`, `false` + `errorId`/`errorReason` for `Unreachable`, `false` + nulls for `NoContext`/default | `src/Twig.Domain/Services/ActiveItemResultExtensions.cs` | DONE |
+| T-012 | IMPL | Replace the ActiveItemResult switch blocks in all consuming commands with the extension method. The caller handles formatting the error message using `errorId`/`errorReason` and the existing `IOutputFormatter`. Commands include: BranchCommand, CommitCommand, EditCommand, FlowCloseCommand, FlowDoneCommand, GitContextCommand, NavigationCommands, NoteCommand, PrCommand, SaveCommand, SeedCommand, SetCommand, StashCommand, StateCommand, StatusCommand, TreeCommand, UpdateCommand, WorkspaceCommand, and any others found | `src/Twig/Commands/*.cs` (19+ files) | DONE |
+| T-013 | TEST | Add unit tests for `ActiveItemResultExtensions.TryGetWorkItem`: Found returns true, FetchedFromAdo returns true, Unreachable returns false with id/reason, NoContext returns false | `tests/Twig.Domain.Tests/Services/` | DONE |
+| T-014 | TEST | Verify all existing tests pass | All test projects | DONE |
 
 **Acceptance Criteria:**
-- [ ] `ActiveItemResultExtensions.TryGetWorkItem` exists
-- [ ] No command contains the raw 8-12 line ActiveItemResult switch block
-- [ ] All tests pass
+- [x] `ActiveItemResultExtensions.TryGetWorkItem` exists
+- [x] No command contains the raw 8-12 line ActiveItemResult switch block
+- [x] All tests pass
 
 ---
 

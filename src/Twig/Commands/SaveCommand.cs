@@ -53,26 +53,11 @@ public sealed class SaveCommand(
         {
             // Active work tree mode: active item + dirty children
             var activeResult = await activeItemResolver.GetActiveItemAsync();
-            if (activeResult is ActiveItemResult.NoContext)
+            if (!activeResult.TryGetWorkItem(out var activeItem, out var errorId, out var errorReason))
             {
-                Console.Error.WriteLine(fmt.FormatError("No active work item. Use 'twig save --all' or 'twig save <id>'."));
-                return 1;
-            }
-            if (activeResult is ActiveItemResult.Unreachable u)
-            {
-                Console.Error.WriteLine(fmt.FormatError($"Work item #{u.Id} not found in cache."));
-                return 1;
-            }
-
-            var activeItem = activeResult switch
-            {
-                ActiveItemResult.Found f => f.WorkItem,
-                ActiveItemResult.FetchedFromAdo f => f.WorkItem,
-                _ => null,
-            };
-            if (activeItem is null)
-            {
-                Console.Error.WriteLine(fmt.FormatError("No active work item. Use 'twig save --all' or 'twig save <id>'."));
+                Console.Error.WriteLine(fmt.FormatError(errorId is not null
+                    ? $"Work item #{errorId} not found in cache."
+                    : "No active work item. Use 'twig save --all' or 'twig save <id>'."));
                 return 1;
             }
 

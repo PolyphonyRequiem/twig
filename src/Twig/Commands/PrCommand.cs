@@ -33,23 +33,13 @@ public sealed class PrCommand(
 
         // 1. Resolve active work item
         var resolved = await activeItemResolver.GetActiveItemAsync();
-        if (resolved is ActiveItemResult.NoContext)
+        if (!resolved.TryGetWorkItem(out var item, out var errorId, out var errorReason))
         {
-            Console.Error.WriteLine(fmt.FormatError("No active work item. Run 'twig set <id>' first."));
+            Console.Error.WriteLine(fmt.FormatError(errorId is not null
+                ? $"Work item #{errorId} is unreachable: {errorReason}"
+                : "No active work item. Run 'twig set <id>' first."));
             return 1;
         }
-        if (resolved is ActiveItemResult.Unreachable u)
-        {
-            Console.Error.WriteLine(fmt.FormatError($"Work item #{u.Id} is unreachable: {u.Reason}"));
-            return 1;
-        }
-
-        var item = resolved switch
-        {
-            ActiveItemResult.Found f => f.WorkItem,
-            ActiveItemResult.FetchedFromAdo f => f.WorkItem,
-            _ => throw new InvalidOperationException("Unreachable: NoContext and Unreachable handled above"),
-        };
 
         // 2. Check git availability
         var (isValid, exitCode) = await GitGuard.EnsureGitRepoAsync(gitService, fmt);

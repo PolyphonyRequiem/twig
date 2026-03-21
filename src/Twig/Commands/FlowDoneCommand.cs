@@ -47,44 +47,27 @@ public sealed class FlowDoneCommand(
         if (id.HasValue)
         {
             var resolved = await activeItemResolver.ResolveByIdAsync(id.Value);
-            switch (resolved)
+            if (!resolved.TryGetWorkItem(out var resolvedItem, out var errId, out var errReason))
             {
-                case ActiveItemResult.Found found:
-                    item = found.WorkItem;
-                    break;
-                case ActiveItemResult.FetchedFromAdo fetched:
-                    item = fetched.WorkItem;
-                    break;
-                case ActiveItemResult.Unreachable unreachable:
-                    Console.Error.WriteLine(fmt.FormatError($"Work item #{unreachable.Id} could not be fetched: {unreachable.Reason}"));
-                    return 1;
-                default:
-                    Console.Error.WriteLine(fmt.FormatError($"Work item #{id.Value} not found in cache."));
-                    return 1;
+                Console.Error.WriteLine(fmt.FormatError(errId is not null
+                    ? $"Work item #{errId} could not be fetched: {errReason}"
+                    : $"Work item #{id.Value} not found in cache."));
+                return 1;
             }
+            item = resolvedItem!;
             targetId = item.Id;
         }
         else
         {
             var activeResult = await activeItemResolver.GetActiveItemAsync();
-            switch (activeResult)
+            if (!activeResult.TryGetWorkItem(out var resolvedItem, out var errId, out var errReason))
             {
-                case ActiveItemResult.NoContext:
-                    Console.Error.WriteLine(fmt.FormatError("No active work item. Run 'twig flow-start <id>' first."));
-                    return 1;
-                case ActiveItemResult.Found found:
-                    item = found.WorkItem;
-                    break;
-                case ActiveItemResult.FetchedFromAdo fetched:
-                    item = fetched.WorkItem;
-                    break;
-                case ActiveItemResult.Unreachable unreachable:
-                    Console.Error.WriteLine(fmt.FormatError($"Work item #{unreachable.Id} could not be fetched: {unreachable.Reason}"));
-                    return 1;
-                default:
-                    Console.Error.WriteLine(fmt.FormatError("No active work item. Run 'twig flow-start <id>' first."));
-                    return 1;
+                Console.Error.WriteLine(fmt.FormatError(errId is not null
+                    ? $"Work item #{errId} could not be fetched: {errReason}"
+                    : "No active work item. Run 'twig flow-start <id>' first."));
+                return 1;
             }
+            item = resolvedItem!;
             targetId = item.Id;
         }
 

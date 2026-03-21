@@ -31,19 +31,11 @@ public sealed class SeedCommand(
         }
 
         var resolved = await activeItemResolver.GetActiveItemAsync();
-        if (resolved is ActiveItemResult.Unreachable u)
+        if (!resolved.TryGetWorkItem(out var parent, out var errorId, out var errorReason) && errorId is not null)
         {
-            Console.Error.WriteLine(fmt.FormatError($"Work item #{u.Id} is unreachable: {u.Reason}"));
+            Console.Error.WriteLine(fmt.FormatError($"Work item #{errorId} is unreachable: {errorReason}"));
             return 1;
         }
-
-        WorkItem? parent = resolved switch
-        {
-            ActiveItemResult.Found f => f.WorkItem,
-            ActiveItemResult.FetchedFromAdo f => f.WorkItem,
-            ActiveItemResult.NoContext => null,
-            _ => null,
-        };
 
         // Resolve process configuration
         var processConfig = processConfigProvider.GetConfiguration();

@@ -44,22 +44,17 @@ public sealed class SetCommand(
         {
             // Numeric ID: cache lookup then auto-fetch via ActiveItemResolver
             var result = await activeItemResolver.ResolveByIdAsync(id, ct);
-            switch (result)
+            if (!result.TryGetWorkItem(out item, out var errId, out var errReason))
             {
-                case ActiveItemResult.Found found:
-                    item = found.WorkItem;
-                    break;
-                case ActiveItemResult.FetchedFromAdo fetched:
-                    Console.WriteLine(fmt.FormatInfo($"Fetching work item {id} from ADO..."));
-                    item = fetched.WorkItem;
-                    fetchedFromAdo = true;
-                    break;
-                case ActiveItemResult.Unreachable unreachable:
-                    Console.Error.WriteLine(fmt.FormatError($"Work item #{unreachable.Id} could not be fetched: {unreachable.Reason}"));
-                    return 1;
-                default:
-                    Console.Error.WriteLine(fmt.FormatError($"Work item #{id} not found."));
-                    return 1;
+                Console.Error.WriteLine(fmt.FormatError(errId is not null
+                    ? $"Work item #{errId} could not be fetched: {errReason}"
+                    : $"Work item #{id} not found."));
+                return 1;
+            }
+            if (result is ActiveItemResult.FetchedFromAdo)
+            {
+                Console.WriteLine(fmt.FormatInfo($"Fetching work item {id} from ADO..."));
+                fetchedFromAdo = true;
             }
         }
         else

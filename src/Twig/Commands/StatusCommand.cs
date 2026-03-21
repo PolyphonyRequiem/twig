@@ -55,22 +55,14 @@ public sealed class StatusCommand(
         }
 
         // Use ActiveItemResolver for auto-fetch on cache miss (G-3)
-        Domain.Aggregates.WorkItem? item;
         var resolveResult = await activeItemResolver.GetActiveItemAsync();
-        switch (resolveResult)
+        if (!resolveResult.TryGetWorkItem(out var item, out var unreachableId, out var unreachableReason))
         {
-            case ActiveItemResult.Found found:
-                item = found.WorkItem;
-                break;
-            case ActiveItemResult.FetchedFromAdo fetched:
-                item = fetched.WorkItem;
-                break;
-            case ActiveItemResult.Unreachable unreachable:
-                Console.Error.WriteLine(fmt.FormatError($"Work item #{unreachable.Id} not found in cache and could not be fetched. Run 'twig set {unreachable.Id}' to refresh."));
-                return 1;
-            default:
-                Console.Error.WriteLine(fmt.FormatError($"Work item #{activeId.Value} not found in cache. Run 'twig set {activeId.Value}' to refresh."));
-                return 1;
+            var errorMsg = unreachableId is not null
+                ? $"Work item #{unreachableId} not found in cache and could not be fetched. Run 'twig set {unreachableId}' to refresh."
+                : $"Work item #{activeId.Value} not found in cache. Run 'twig set {activeId.Value}' to refresh.";
+            Console.Error.WriteLine(fmt.FormatError(errorMsg));
+            return 1;
         }
 
         if (renderer is not null)

@@ -34,32 +34,22 @@ public sealed class StashCommand(
         var resolved = await activeItemResolver.GetActiveItemAsync();
         int? activeId = null;
         string stashMessage;
-        switch (resolved)
+        if (resolved.TryGetWorkItem(out var workItem, out var errorId, out var errorReason))
         {
-            case ActiveItemResult.Unreachable u:
-                Console.Error.WriteLine(fmt.FormatError($"Work item #{u.Id} is unreachable: {u.Reason}"));
-                return 1;
-            case ActiveItemResult.Found fo:
-            {
-                activeId = fo.WorkItem.Id;
-                var itemContext = $"[#{fo.WorkItem.Id} {fo.WorkItem.Title}]";
-                stashMessage = message is not null
-                    ? $"{itemContext} {message}"
-                    : itemContext;
-                break;
-            }
-            case ActiveItemResult.FetchedFromAdo fa:
-            {
-                activeId = fa.WorkItem.Id;
-                var itemContext = $"[#{fa.WorkItem.Id} {fa.WorkItem.Title}]";
-                stashMessage = message is not null
-                    ? $"{itemContext} {message}"
-                    : itemContext;
-                break;
-            }
-            default:
-                stashMessage = message ?? "twig stash";
-                break;
+            activeId = workItem!.Id;
+            var itemContext = $"[#{workItem.Id} {workItem.Title}]";
+            stashMessage = message is not null
+                ? $"{itemContext} {message}"
+                : itemContext;
+        }
+        else if (errorId is not null)
+        {
+            Console.Error.WriteLine(fmt.FormatError($"Work item #{errorId} is unreachable: {errorReason}"));
+            return 1;
+        }
+        else
+        {
+            stashMessage = message ?? "twig stash";
         }
 
         // 3. Execute git stash

@@ -24,25 +24,13 @@ public sealed class EditCommand(
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
         var resolved = await activeItemResolver.GetActiveItemAsync();
-        if (resolved is ActiveItemResult.NoContext)
+        if (!resolved.TryGetWorkItem(out var item, out var errorId, out var errorReason))
         {
-            Console.Error.WriteLine(fmt.FormatError("No active work item. Run 'twig set <id>' first."));
+            Console.Error.WriteLine(fmt.FormatError(errorId is not null
+                ? $"Work item #{errorId} not found in cache."
+                : "No active work item. Run 'twig set <id>' first."));
             return 1;
         }
-        if (resolved is ActiveItemResult.Unreachable u)
-        {
-            Console.Error.WriteLine(fmt.FormatError($"Work item #{u.Id} not found in cache."));
-            return 1;
-        }
-
-        var item = resolved switch
-        {
-            ActiveItemResult.Found f => f.WorkItem,
-            ActiveItemResult.FetchedFromAdo f => f.WorkItem,
-            _ => null,
-        };
-        if (item is null)
-            return 1;
 
         // Generate editable content (YAML-like format per RD-037)
         string initialContent;

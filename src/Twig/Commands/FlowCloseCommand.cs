@@ -32,7 +32,7 @@ public sealed class FlowCloseCommand(
         int? id = null,
         bool force = false,
         bool noBranchCleanup = false,
-        string outputFormat = "human",
+        string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
     {
         _ = hintEngine; // No registered hints for flow-close yet

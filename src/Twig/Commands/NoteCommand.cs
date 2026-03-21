@@ -20,7 +20,7 @@ public sealed class NoteCommand(
     IPromptStateWriter? promptStateWriter = null)
 {
     /// <summary>Add a note/comment to the active work item.</summary>
-    public async Task<int> ExecuteAsync(string? text = null, string outputFormat = "human", CancellationToken ct = default)
+    public async Task<int> ExecuteAsync(string? text = null, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 

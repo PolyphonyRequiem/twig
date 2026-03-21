@@ -26,7 +26,7 @@ public sealed class CommitCommand(
         string? message = null,
         bool noLink = false,
         string[]? passthrough = null,
-        string outputFormat = "human",
+        string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);

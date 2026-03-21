@@ -25,7 +25,7 @@ public sealed class StateCommand(
     IPromptStateWriter? promptStateWriter = null)
 {
     /// <summary>Change the state of the active work item by full or partial state name.</summary>
-    public async Task<int> ExecuteAsync(string stateName, string outputFormat = "human", CancellationToken ct = default)
+    public async Task<int> ExecuteAsync(string stateName, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 

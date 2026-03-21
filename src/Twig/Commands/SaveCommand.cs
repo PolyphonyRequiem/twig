@@ -30,7 +30,7 @@ public sealed class SaveCommand(
     public async Task<int> ExecuteAsync(
         int? targetId = null,
         bool all = false,
-        string outputFormat = "human",
+        string outputFormat = OutputFormatterFactory.DefaultFormat,
         bool skipPromptWrite = false,
         CancellationToken ct = default)
     {

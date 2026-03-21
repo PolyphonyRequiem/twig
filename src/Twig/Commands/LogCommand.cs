@@ -25,7 +25,7 @@ public sealed class LogCommand(
     public async Task<int> ExecuteAsync(
         int count = 20,
         int? workItem = null,
-        string outputFormat = "human",
+        string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);

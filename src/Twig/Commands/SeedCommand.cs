@@ -20,7 +20,7 @@ public sealed class SeedCommand(
     HintEngine hintEngine)
 {
     /// <summary>Create a new child work item (seed) under the active item.</summary>
-    public async Task<int> ExecuteAsync(string title, string? type = null, string outputFormat = "human", CancellationToken ct = default)
+    public async Task<int> ExecuteAsync(string title, string? type = null, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 

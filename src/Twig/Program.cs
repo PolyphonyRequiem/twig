@@ -2,6 +2,7 @@ using ConsoleAppFramework;
 using Microsoft.Extensions.DependencyInjection;
 using Twig.Commands;
 using Twig.DependencyInjection;
+using Twig.Formatters;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure;
 using Twig.Infrastructure.Ado;
@@ -247,101 +248,101 @@ internal static class ExceptionHandler
 public sealed class TwigCommands(IServiceProvider services)
 {
     /// <summary>Initialize a new Twig workspace.</summary>
-    public async Task<int> Init(string org, string project, string? team = null, string? gitProject = null, bool force = false, string output = "human", CancellationToken ct = default)
+    public async Task<int> Init(string org, string project, string? team = null, string? gitProject = null, bool force = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<InitCommand>().ExecuteAsync(org, project, team, gitProject, force, output, ct);
 
     /// <summary>Set the active work item by ID or title pattern.</summary>
-    public async Task<int> Set([Argument] string idOrPattern, string output = "human", CancellationToken ct = default)
+    public async Task<int> Set([Argument] string idOrPattern, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SetCommand>().ExecuteAsync(idOrPattern, output, ct);
 
     /// <summary>Show status of the active work item.</summary>
-    public async Task<int> Status(string output = "human", bool noLive = false, CancellationToken ct = default)
+    public async Task<int> Status(string output = OutputFormatterFactory.DefaultFormat, bool noLive = false, CancellationToken ct = default)
         => await services.GetRequiredService<StatusCommand>().ExecuteAsync(output, noLive, ct);
 
     /// <summary>Change the state of the active work item by name.</summary>
-    public async Task<int> State([Argument] string name, string output = "human", CancellationToken ct = default)
+    public async Task<int> State([Argument] string name, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<StateCommand>().ExecuteAsync(name, output, ct);
 
     /// <summary>Display the work item tree hierarchy.</summary>
-    public async Task<int> Tree(string output = "human", int? depth = null, bool all = false, bool noLive = false, CancellationToken ct = default)
+    public async Task<int> Tree(string output = OutputFormatterFactory.DefaultFormat, int? depth = null, bool all = false, bool noLive = false, CancellationToken ct = default)
         => await services.GetRequiredService<TreeCommand>().ExecuteAsync(output, depth, all, noLive, ct);
 
     /// <summary>Navigate to the parent work item.</summary>
-    public async Task<int> Up(string output = "human", CancellationToken ct = default)
+    public async Task<int> Up(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<NavigationCommands>().UpAsync(output, ct);
 
     /// <summary>Navigate to a child work item.</summary>
-    public async Task<int> Down([Argument] string? idOrPattern = null, string output = "human", CancellationToken ct = default)
+    public async Task<int> Down([Argument] string? idOrPattern = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<NavigationCommands>().DownAsync(idOrPattern, output, ct);
 
     /// <summary>Create a new child work item under the active item.</summary>
-    public async Task<int> Seed([Argument] string title, string? type = null, string output = "human", CancellationToken ct = default)
+    public async Task<int> Seed([Argument] string title, string? type = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SeedCommand>().ExecuteAsync(title, type, output, ct);
 
     /// <summary>Add a note to the active work item.</summary>
-    public async Task<int> Note(string? text = null, string output = "human", CancellationToken ct = default)
+    public async Task<int> Note(string? text = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<NoteCommand>().ExecuteAsync(text, output, ct);
 
     /// <summary>Update a field on the active work item.</summary>
-    public async Task<int> Update([Argument] string field, [Argument] string value, string output = "human", CancellationToken ct = default)
+    public async Task<int> Update([Argument] string field, [Argument] string value, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<UpdateCommand>().ExecuteAsync(field, value, output, ct);
 
     /// <summary>Edit work item fields in an external editor.</summary>
-    public async Task<int> Edit(string? field = null, string output = "human", CancellationToken ct = default)
+    public async Task<int> Edit(string? field = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<EditCommand>().ExecuteAsync(field, output, ct);
 
     /// <summary>Push pending changes to Azure DevOps.</summary>
-    public async Task<int> Save([Argument] int? id = null, bool all = false, string output = "human", CancellationToken ct = default)
+    public async Task<int> Save([Argument] int? id = null, bool all = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SaveCommand>().ExecuteAsync(id, all, output, ct: ct);
 
     /// <summary>Refresh the local cache from Azure DevOps.</summary>
-    public async Task<int> Refresh(string output = "human", bool force = false, CancellationToken ct = default)
+    public async Task<int> Refresh(string output = OutputFormatterFactory.DefaultFormat, bool force = false, CancellationToken ct = default)
         => await services.GetRequiredService<RefreshCommand>().ExecuteAsync(output, force, ct);
 
     /// <summary>Show the current workspace.</summary>
-    public async Task<int> Workspace(string output = "human", bool all = false, bool noLive = false, CancellationToken ct = default)
+    public async Task<int> Workspace(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, CancellationToken ct = default)
         => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, ct);
 
     /// <summary>Show the current workspace (alias).</summary>
-    public async Task<int> Show(string output = "human", bool all = false, bool noLive = false, CancellationToken ct = default)
+    public async Task<int> Show(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, CancellationToken ct = default)
         => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, ct);
 
     /// <summary>Show the current workspace (alias).</summary>
-    public async Task<int> Ws(string output = "human", bool all = false, bool noLive = false, CancellationToken ct = default)
+    public async Task<int> Ws(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, CancellationToken ct = default)
         => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, ct);
 
     /// <summary>Show all team items in the current sprint, grouped by assignee.</summary>
-    public async Task<int> Sprint(string output = "human", CancellationToken ct = default)
+    public async Task<int> Sprint(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all: true, ct: ct);
 
     /// <summary>Read or set a configuration value.</summary>
-    public async Task<int> Config([Argument] string key, [Argument] string? value = null, string output = "human", CancellationToken ct = default)
+    public async Task<int> Config([Argument] string key, [Argument] string? value = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ConfigCommand>().ExecuteAsync(key, value, output, ct);
 
     /// <summary>Create/checkout a branch for the active work item and optionally link it.</summary>
-    public async Task<int> Branch(bool noLink = false, bool noTransition = false, string output = "human", CancellationToken ct = default)
+    public async Task<int> Branch(bool noLink = false, bool noTransition = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<BranchCommand>().ExecuteAsync(noLink, noTransition, output, ct);
 
     /// <summary>Commit with a work-item-enriched message and optionally link the commit.</summary>
-    public async Task<int> Commit([Argument] string? message = null, bool noLink = false, string output = "human", CancellationToken ct = default, params string[] passthrough)
+    public async Task<int> Commit([Argument] string? message = null, bool noLink = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, params string[] passthrough)
         => await services.GetRequiredService<CommitCommand>().ExecuteAsync(message, noLink, passthrough, output, ct);
 
     /// <summary>Create an ADO pull request linked to the active work item.</summary>
-    public async Task<int> Pr(string? target = null, string? title = null, bool draft = false, string output = "human", CancellationToken ct = default)
+    public async Task<int> Pr(string? target = null, string? title = null, bool draft = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<PrCommand>().ExecuteAsync(target, title, draft, output, ct);
 
     /// <summary>Stash changes with work item context in the stash message.</summary>
     [Command("stash")]
-    public async Task<int> Stash([Argument] string? message = null, string output = "human", CancellationToken ct = default)
+    public async Task<int> Stash([Argument] string? message = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<StashCommand>().ExecuteAsync(message, output, ct);
 
     /// <summary>Pop the most recent stash and restore Twig context.</summary>
     [Command("stash pop")]
-    public async Task<int> StashPop(string output = "human", CancellationToken ct = default)
+    public async Task<int> StashPop(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<StashCommand>().PopAsync(output, ct);
 
     /// <summary>Show annotated git log with work item context.</summary>
-    public async Task<int> Log(int count = 20, int? workItem = null, string output = "human", CancellationToken ct = default)
+    public async Task<int> Log(int count = 20, int? workItem = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<LogCommand>().ExecuteAsync(count, workItem, output, ct);
 
     /// <summary>Start working on a work item: set context, transition state, assign, create branch.</summary>
@@ -353,7 +354,7 @@ public sealed class TwigCommands(IServiceProvider services)
         bool noAssign = false,
         bool take = false,
         bool force = false,
-        string output = "human",
+        string output = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
         => await services.GetRequiredService<FlowStartCommand>()
             .ExecuteAsync(idOrPattern, noBranch, noState, noAssign, take, force, output, ct);
@@ -364,7 +365,7 @@ public sealed class TwigCommands(IServiceProvider services)
         [Argument] int? id = null,
         bool noSave = false,
         bool noPr = false,
-        string output = "human",
+        string output = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
         => await services.GetRequiredService<FlowDoneCommand>()
             .ExecuteAsync(id, noSave, noPr, output, ct);
@@ -375,23 +376,23 @@ public sealed class TwigCommands(IServiceProvider services)
         [Argument] int? id = null,
         bool force = false,
         bool noBranchCleanup = false,
-        string output = "human",
+        string output = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
         => await services.GetRequiredService<FlowCloseCommand>()
             .ExecuteAsync(id, force, noBranchCleanup, output, ct);
 
     /// <summary>Install Twig-managed git hooks.</summary>
     [Command("hooks install")]
-    public async Task<int> HooksInstall(string output = "human", CancellationToken ct = default)
+    public async Task<int> HooksInstall(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<HooksCommand>().InstallAsync(output, ct);
 
     /// <summary>Uninstall Twig-managed git hooks.</summary>
     [Command("hooks uninstall")]
-    public async Task<int> HooksUninstall(string output = "human", CancellationToken ct = default)
+    public async Task<int> HooksUninstall(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<HooksCommand>().UninstallAsync(output, ct);
 
     /// <summary>Show git context: branch, work item, and PR linkage.</summary>
-    public async Task<int> Context(string output = "human", CancellationToken ct = default)
+    public async Task<int> Context(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<GitContextCommand>().ExecuteAsync(output, ct);
 
     /// <summary>Internal hook handler invoked by git hook scripts.</summary>

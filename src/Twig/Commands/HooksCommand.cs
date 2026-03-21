@@ -18,7 +18,7 @@ public sealed class HooksCommand(
     IGitService? gitService = null)
 {
     /// <summary>Install Twig-managed git hooks.</summary>
-    public async Task<int> InstallAsync(string outputFormat = "human", CancellationToken ct = default)
+    public async Task<int> InstallAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
@@ -50,7 +50,7 @@ public sealed class HooksCommand(
     }
 
     /// <summary>Uninstall Twig-managed git hooks.</summary>
-    public async Task<int> UninstallAsync(string outputFormat = "human", CancellationToken ct = default)
+    public async Task<int> UninstallAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 

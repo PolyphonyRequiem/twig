@@ -29,7 +29,7 @@ public sealed class WorkspaceCommand(
     WorkingSetService workingSetService,
     RenderingPipelineFactory? pipelineFactory = null)
 {
-    public async Task<int> ExecuteAsync(string outputFormat = "human", bool all = false, bool noLive = false, CancellationToken ct = default)
+    public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, CancellationToken ct = default)
     {
         var (fmt, renderer) = pipelineFactory is not null
             ? pipelineFactory.Resolve(outputFormat, noLive)

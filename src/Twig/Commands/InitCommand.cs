@@ -50,7 +50,7 @@ public sealed class InitCommand
         _hintEngine = hintEngine;
     }
 
-    public async Task<int> ExecuteAsync(string org, string project, string? team = null, string? gitProject = null, bool force = false, string outputFormat = "human", CancellationToken ct = default)
+    public async Task<int> ExecuteAsync(string org, string project, string? team = null, string? gitProject = null, bool force = false, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
         var fmt = _formatterFactory.GetFormatter(outputFormat);
 

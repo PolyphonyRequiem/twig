@@ -10,8 +10,10 @@ public sealed class OutputFormatterFactory(
     JsonOutputFormatter json,
     MinimalOutputFormatter minimal)
 {
+    public const string DefaultFormat = "human";
+
     public IOutputFormatter GetFormatter(string format) =>
-        (format ?? "human").ToLowerInvariant() switch
+        (format ?? DefaultFormat).ToLowerInvariant() switch
         {
             "json"    => json,
             "minimal" => minimal,

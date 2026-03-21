@@ -20,7 +20,7 @@ public sealed class NavigationCommands(
 {
     /// <summary>Navigate to the parent work item.</summary>
     // UpAsync: no disambiguation path — single parent, use formatter directly
-    public async Task<int> UpAsync(string outputFormat = "human", CancellationToken ct = default)
+    public async Task<int> UpAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
@@ -57,7 +57,7 @@ public sealed class NavigationCommands(
     }
 
     /// <summary>Navigate to a child work item by ID or pattern.</summary>
-    public async Task<int> DownAsync(string? idOrPattern = null, string outputFormat = "human", CancellationToken ct = default)
+    public async Task<int> DownAsync(string? idOrPattern = null, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
         var (fmt, renderer) = pipelineFactory is not null
             ? pipelineFactory.Resolve(outputFormat)

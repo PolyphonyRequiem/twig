@@ -25,7 +25,7 @@ public sealed class SetCommand(
     RenderingPipelineFactory? pipelineFactory = null,
     IPromptStateWriter? promptStateWriter = null)
 {
-    public async Task<int> ExecuteAsync(string idOrPattern, string outputFormat = "human", CancellationToken ct = default)
+    public async Task<int> ExecuteAsync(string idOrPattern, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
         var (fmt, renderer) = pipelineFactory is not null
             ? pipelineFactory.Resolve(outputFormat)

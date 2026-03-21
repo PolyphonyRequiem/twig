@@ -33,7 +33,7 @@ public sealed class FlowDoneCommand(
         int? id = null,
         bool noSave = false,
         bool noPr = false,
-        string outputFormat = "human",
+        string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
     {
         _ = hintEngine; // No registered hints for flow-done yet

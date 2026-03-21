@@ -38,7 +38,7 @@ public sealed class FlowStartCommand(
         bool noAssign = false,
         bool take = false,
         bool force = false,
-        string outputFormat = "human",
+        string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
     {
         var (fmt, renderer) = pipelineFactory is not null

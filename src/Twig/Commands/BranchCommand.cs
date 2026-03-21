@@ -30,7 +30,7 @@ public sealed class BranchCommand(
     public async Task<int> ExecuteAsync(
         bool noLink = false,
         bool noTransition = false,
-        string outputFormat = "human",
+        string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);

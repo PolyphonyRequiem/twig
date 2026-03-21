@@ -89,15 +89,15 @@ Add validation in `TwigConfiguration.SetValue()` for the `auth.method` path: onl
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| T-007 | IMPL | Create `src/Twig/Commands/GitGuard.cs` with a static method: `internal static async Task<(bool IsValid, int ExitCode)> EnsureGitRepoAsync(IGitService? gitService, IOutputFormatter fmt)`. The method should: (1) check `gitService is null` → return `(false, 1)` with error, (2) try `IsInsideWorkTreeAsync()` → catch Exception → return `(false, 1)` with error, (3) if not in work tree → return `(false, 1)` with error, (4) return `(true, 0)` | `src/Twig/Commands/GitGuard.cs` | TO DO |
-| T-008 | IMPL | Replace the git repo check boilerplate in all 11 commands with `var (isValid, exitCode) = await GitGuard.EnsureGitRepoAsync(gitService, fmt); if (!isValid) return exitCode;`. Commands: BranchCommand, CommitCommand, FlowCloseCommand, FlowDoneCommand, FlowStartCommand, HookHandlerCommand, GitContextCommand, HooksCommand, LogCommand, PrCommand, StashCommand | `src/Twig/Commands/*.cs` (11 files) | TO DO |
-| T-009 | TEST | Add unit test for `GitGuard.EnsureGitRepoAsync`: null service returns invalid, not-in-worktree returns invalid, valid repo returns valid | `tests/Twig.Cli.Tests/Commands/` | TO DO |
-| T-010 | TEST | Verify all existing tests pass | All test projects | TO DO |
+| T-007 | IMPL | Create `src/Twig/Commands/GitGuard.cs` with a static method: `internal static async Task<(bool IsValid, int ExitCode)> EnsureGitRepoAsync(IGitService? gitService, IOutputFormatter fmt)`. The method should: (1) check `gitService is null` → return `(false, 1)` with error, (2) try `IsInsideWorkTreeAsync()` → catch Exception → return `(false, 1)` with error, (3) if not in work tree → return `(false, 1)` with error, (4) return `(true, 0)` | `src/Twig/Commands/GitGuard.cs` | DONE |
+| T-008 | IMPL | Replace the git repo check boilerplate in all 11 commands with `var (isValid, exitCode) = await GitGuard.EnsureGitRepoAsync(gitService, fmt); if (!isValid) return exitCode;`. Commands: BranchCommand, CommitCommand, FlowCloseCommand, FlowDoneCommand, FlowStartCommand, HookHandlerCommand, GitContextCommand, HooksCommand, LogCommand, PrCommand, StashCommand | `src/Twig/Commands/*.cs` (11 files) | DONE |
+| T-009 | TEST | Add unit test for `GitGuard.EnsureGitRepoAsync`: null service returns invalid, not-in-worktree returns invalid, valid repo returns valid | `tests/Twig.Cli.Tests/Commands/` | DONE |
+| T-010 | TEST | Verify all existing tests pass | All test projects | DONE |
 
 **Acceptance Criteria:**
-- [ ] `GitGuard.EnsureGitRepoAsync` exists and handles all three failure cases
-- [ ] No command contains the raw git repo check boilerplate
-- [ ] All tests pass
+- [x] `GitGuard.EnsureGitRepoAsync` exists and handles all three failure cases
+- [x] No command contains the raw git repo check boilerplate
+- [x] All tests pass
 
 ---
 

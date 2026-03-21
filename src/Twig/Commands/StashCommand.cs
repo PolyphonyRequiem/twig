@@ -27,28 +27,8 @@ public sealed class StashCommand(
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
         // 1. Check git availability
-        if (gitService is null)
-        {
-            Console.Error.WriteLine(fmt.FormatError("Git is not available."));
-            return 1;
-        }
-
-        bool isInWorkTree;
-        try
-        {
-            isInWorkTree = await gitService.IsInsideWorkTreeAsync();
-        }
-        catch (Exception)
-        {
-            Console.Error.WriteLine(fmt.FormatError("Not inside a git repository."));
-            return 1;
-        }
-
-        if (!isInWorkTree)
-        {
-            Console.Error.WriteLine(fmt.FormatError("Not inside a git repository."));
-            return 1;
-        }
+        var (isValid, exitCode) = await GitGuard.EnsureGitRepoAsync(gitService, fmt);
+        if (!isValid) return exitCode;
 
         // 2. Build stash message with work item context
         var resolved = await activeItemResolver.GetActiveItemAsync();
@@ -85,7 +65,7 @@ public sealed class StashCommand(
         // 3. Execute git stash
         try
         {
-            await gitService.StashAsync(stashMessage);
+            await gitService!.StashAsync(stashMessage);
         }
         catch (Exception ex)
         {
@@ -124,33 +104,13 @@ public sealed class StashCommand(
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
         // 1. Check git availability
-        if (gitService is null)
-        {
-            Console.Error.WriteLine(fmt.FormatError("Git is not available."));
-            return 1;
-        }
-
-        bool isInWorkTree;
-        try
-        {
-            isInWorkTree = await gitService.IsInsideWorkTreeAsync();
-        }
-        catch (Exception)
-        {
-            Console.Error.WriteLine(fmt.FormatError("Not inside a git repository."));
-            return 1;
-        }
-
-        if (!isInWorkTree)
-        {
-            Console.Error.WriteLine(fmt.FormatError("Not inside a git repository."));
-            return 1;
-        }
+        var (isValid, exitCode) = await GitGuard.EnsureGitRepoAsync(gitService, fmt);
+        if (!isValid) return exitCode;
 
         // 2. Execute git stash pop
         try
         {
-            await gitService.StashPopAsync();
+            await gitService!.StashPopAsync();
         }
         catch (Exception ex)
         {

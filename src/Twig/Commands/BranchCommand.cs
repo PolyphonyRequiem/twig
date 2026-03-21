@@ -55,28 +55,8 @@ public sealed class BranchCommand(
         };
 
         // 2. Check git availability
-        if (gitService is null)
-        {
-            Console.Error.WriteLine(fmt.FormatError("Git is not available."));
-            return 1;
-        }
-
-        bool isInWorkTree;
-        try
-        {
-            isInWorkTree = await gitService.IsInsideWorkTreeAsync();
-        }
-        catch (Exception)
-        {
-            Console.Error.WriteLine(fmt.FormatError("Not inside a git repository."));
-            return 1;
-        }
-
-        if (!isInWorkTree)
-        {
-            Console.Error.WriteLine(fmt.FormatError("Not inside a git repository."));
-            return 1;
-        }
+        var (isValid, exitCode) = await GitGuard.EnsureGitRepoAsync(gitService, fmt);
+        if (!isValid) return exitCode;
 
         // 3. Generate branch name and create/checkout
         var branchName = BranchNamingService.Generate(item, config.Git.BranchTemplate, config.Git.TypeMap);
@@ -84,7 +64,7 @@ public sealed class BranchCommand(
         bool branchCreated;
         try
         {
-            var branchExists = await gitService.BranchExistsAsync(branchName);
+            var branchExists = await gitService!.BranchExistsAsync(branchName);
             if (branchExists)
             {
                 await gitService.CheckoutAsync(branchName);

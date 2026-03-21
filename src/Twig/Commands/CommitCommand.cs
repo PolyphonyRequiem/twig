@@ -51,28 +51,8 @@ public sealed class CommitCommand(
         };
 
         // 2. Check git availability
-        if (gitService is null)
-        {
-            Console.Error.WriteLine(fmt.FormatError("Git is not available."));
-            return 1;
-        }
-
-        bool isInWorkTree;
-        try
-        {
-            isInWorkTree = await gitService.IsInsideWorkTreeAsync();
-        }
-        catch (Exception)
-        {
-            Console.Error.WriteLine(fmt.FormatError("Not inside a git repository."));
-            return 1;
-        }
-
-        if (!isInWorkTree)
-        {
-            Console.Error.WriteLine(fmt.FormatError("Not inside a git repository."));
-            return 1;
-        }
+        var (isValid, exitCode) = await GitGuard.EnsureGitRepoAsync(gitService, fmt);
+        if (!isValid) return exitCode;
 
         // 3. Format commit message
         var userMessage = message ?? string.Empty;

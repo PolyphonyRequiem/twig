@@ -74,22 +74,13 @@ public sealed class HooksCommand(
 
     private async Task<string?> ResolveGitDirAsync(IOutputFormatter fmt)
     {
-        if (gitService is null)
-        {
-            Console.Error.WriteLine(fmt.FormatError("Git is not available."));
+        var (isValid, _) = await GitGuard.EnsureGitRepoAsync(gitService, fmt);
+        if (!isValid)
             return null;
-        }
 
         try
         {
-            var isInWorkTree = await gitService.IsInsideWorkTreeAsync();
-            if (!isInWorkTree)
-            {
-                Console.Error.WriteLine(fmt.FormatError("Not inside a git repository."));
-                return null;
-            }
-
-            var repoRoot = await gitService.GetRepositoryRootAsync();
+            var repoRoot = await gitService!.GetRepositoryRootAsync();
             return Path.Combine(repoRoot, ".git");
         }
         catch (Exception)

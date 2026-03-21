@@ -220,7 +220,7 @@ public class ConflictResolutionFlowTests
     [InlineData("x")]
     [InlineData("")]
     [InlineData("y")]
-    public async Task HasConflicts_UnrecognizedInput_ReturnsProceed(string input)
+    public async Task HasConflicts_UnrecognizedInput_ReturnsAborted(string input)
     {
         var (local, remote) = CreateConflictingPair();
         _consoleInput.ReadLine().Returns(input);
@@ -228,7 +228,7 @@ public class ConflictResolutionFlowTests
         var result = await ConflictResolutionFlow.ResolveAsync(
             local, remote, _fmt, "human", _consoleInput, _workItemRepo, "accepted");
 
-        result.ShouldBe(ConflictOutcome.Proceed);
+        result.ShouldBe(ConflictOutcome.Aborted);
         await _workItemRepo.DidNotReceive().SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
     }
 

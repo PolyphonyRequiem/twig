@@ -71,7 +71,10 @@ internal static class ConflictResolutionFlow
             return ConflictOutcome.AcceptedRemote;
         }
 
-        // 'l' or any unrecognized input: proceed with local changes
-        return ConflictOutcome.Proceed;
+        if (choice == "l")
+            return ConflictOutcome.Proceed;
+
+        Console.WriteLine(fmt.FormatInfo("Unrecognized input. Aborted."));
+        return ConflictOutcome.Aborted;
     }
 }

@@ -105,7 +105,7 @@ public sealed class HookHandlerCommand(
 
             // Don't prefix if already contains the exact work item reference
             // Use non-digit lookahead to avoid false positives (e.g., #42 matching #420)
-            if (Regex.IsMatch(content, $@"#{activeId.Value}(?!\d)"))
+            if (Regex.IsMatch(content, $@"#{activeId.Value}(?!\d)", RegexOptions.None, TimeSpan.FromSeconds(1)))
                 return 0;
 
             await File.WriteAllTextAsync(msgFile, prefix + content);
@@ -143,7 +143,7 @@ public sealed class HookHandlerCommand(
             var content = await File.ReadAllTextAsync(msgFile);
 
             // Check if the message contains any work item reference (e.g., #42 or #12345)
-            if (!Regex.IsMatch(content, @"#\d+"))
+            if (!Regex.IsMatch(content, @"#\d+", RegexOptions.None, TimeSpan.FromSeconds(1)))
             {
                 Console.Error.WriteLine($"Warning: commit message does not reference a work item (e.g., #{activeId.Value}).");
             }

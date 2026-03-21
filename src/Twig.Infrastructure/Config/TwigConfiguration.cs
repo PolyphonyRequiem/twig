@@ -77,7 +77,10 @@ public sealed class TwigConfiguration
                 Team = value;
                 return true;
             case "auth.method":
-                Auth.Method = value;
+                var authLower = value.ToLowerInvariant();
+                if (authLower is not ("pat" or "azcli"))
+                    return false;
+                Auth.Method = authLower;
                 return true;
             case "defaults.areapath":
                 Defaults.AreaPath = value;

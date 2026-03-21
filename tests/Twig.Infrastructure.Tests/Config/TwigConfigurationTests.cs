@@ -234,6 +234,30 @@ public class TwigConfigurationTests : IDisposable
     }
 
     [Fact]
+    public void SetValue_AuthMethod_AzCli_Accepted()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("auth.method", "azcli").ShouldBeTrue();
+        config.Auth.Method.ShouldBe("azcli");
+    }
+
+    [Fact]
+    public void SetValue_AuthMethod_Invalid_ReturnsFalse()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("auth.method", "foo").ShouldBeFalse();
+        config.Auth.Method.ShouldBe("azcli"); // unchanged from default
+    }
+
+    [Fact]
+    public void SetValue_AuthMethod_CaseInsensitive()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("auth.method", "PAT").ShouldBeTrue();
+        config.Auth.Method.ShouldBe("pat");
+    }
+
+    [Fact]
     public void SetValue_KnownPath_DefaultsAreaPath()
     {
         var config = new TwigConfiguration();

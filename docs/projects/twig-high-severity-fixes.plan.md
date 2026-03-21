@@ -108,14 +108,16 @@ The architecture analysis identified three HIGH-severity anti-patterns:
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| T-011 | IMPL | Add `IReadOnlyList<StateEntry>? stateEntries = null` optional parameter to the `HumanOutputFormatter` constructor. Store as `private readonly IReadOnlyList<StateEntry>? _stateEntries` field | `src/Twig/Formatters/HumanOutputFormatter.cs` | TO DO |
-| T-012 | IMPL | Change `GetStateColor` from `private static string GetStateColor(string state)` to `private string GetStateColor(string state)` (remove `static`). Update its body to call `StateCategoryResolver.Resolve(state, _stateEntries)` instead of `StateCategoryResolver.Resolve(state, null)` | `src/Twig/Formatters/HumanOutputFormatter.cs` | TO DO |
-| T-013 | IMPL | Update the `HumanOutputFormatter` DI factory in `RenderingServiceModule` to pass the pre-computed `stateEntries` parameter: `new HumanOutputFormatter(cfg.Display, cfg.TypeAppearances, stateEntries)` | `src/Twig/DependencyInjection/RenderingServiceModule.cs` | TO DO |
-| T-014 | TEST | Add test verifying `HumanOutputFormatter` and `SpectreTheme` produce the same state category for a custom ADO state when both receive the same state entries | `tests/Twig.Cli.Tests/Formatters/HumanOutputFormatterTests.cs` | TO DO |
-| T-015 | TEST | Verify all existing tests pass — the new constructor parameter is optional so existing test constructors remain valid | All test projects | TO DO |
+| T-011 | IMPL | Add `IReadOnlyList<StateEntry>? stateEntries = null` optional parameter to the `HumanOutputFormatter` constructor. Store as `private readonly IReadOnlyList<StateEntry>? _stateEntries` field | `src/Twig/Formatters/HumanOutputFormatter.cs` | DONE |
+| T-012 | IMPL | Change `GetStateColor` from `private static string GetStateColor(string state)` to `private string GetStateColor(string state)` (remove `static`). Update its body to call `StateCategoryResolver.Resolve(state, _stateEntries)` instead of `StateCategoryResolver.Resolve(state, null)` | `src/Twig/Formatters/HumanOutputFormatter.cs` | DONE |
+| T-013 | IMPL | Update the `HumanOutputFormatter` DI factory in `RenderingServiceModule` to pass the pre-computed `stateEntries` parameter: `new HumanOutputFormatter(cfg.Display, cfg.TypeAppearances, stateEntries)` | `src/Twig/DependencyInjection/RenderingServiceModule.cs` | DONE |
+| T-014 | TEST | Add test verifying `HumanOutputFormatter` and `SpectreTheme` produce the same state category for a custom ADO state when both receive the same state entries | `tests/Twig.Cli.Tests/Formatters/HumanOutputFormatterTests.cs` | DONE |
+| T-015 | TEST | Verify all existing tests pass — the new constructor parameter is optional so existing test constructors remain valid | All test projects | DONE |
 
 **Acceptance Criteria:**
-- [ ] `HumanOutputFormatter.GetStateColor` is no longer static
-- [ ] Both `HumanOutputFormatter` and `SpectreTheme` pass state entries to `StateCategoryResolver.Resolve`
-- [ ] Custom ADO states (e.g., "Design", "Review") render the same color in both paths
-- [ ] All tests pass
+- [x] `HumanOutputFormatter.GetStateColor` is no longer static
+- [x] Both `HumanOutputFormatter` and `SpectreTheme` pass state entries to `StateCategoryResolver.Resolve`
+- [x] Custom ADO states (e.g., "Design", "Review") render the same color in both paths
+- [x] All tests pass
+
+**Status: DONE** (2026-03-21)

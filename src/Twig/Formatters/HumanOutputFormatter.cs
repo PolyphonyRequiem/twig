@@ -29,10 +29,11 @@ public sealed class HumanOutputFormatter : IOutputFormatter
     private readonly Dictionary<string, string>? _appearanceColors;
     private readonly Dictionary<string, string>? _typeIconIds;
     private readonly string _iconMode;
+    private readonly IReadOnlyList<StateEntry>? _stateEntries;
 
     public HumanOutputFormatter() : this(new DisplayConfig()) { }
 
-    public HumanOutputFormatter(DisplayConfig displayConfig, List<TypeAppearanceConfig>? typeAppearances = null)
+    public HumanOutputFormatter(DisplayConfig displayConfig, List<TypeAppearanceConfig>? typeAppearances = null, IReadOnlyList<StateEntry>? stateEntries = null)
     {
         _typeColors = displayConfig.TypeColors is null
             ? null
@@ -44,6 +45,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         _typeIconIds = typeAppearances?
             .Where(a => a.IconId is not null)
             .ToDictionary(a => a.Name, a => a.IconId!, StringComparer.OrdinalIgnoreCase);
+        _stateEntries = stateEntries;
     }
 
     public string FormatWorkItem(WorkItem item, bool showDirty)
@@ -470,12 +472,12 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         return IconSet.ResolveTypeBadge(_iconMode, type.Value, _typeIconIds);
     }
 
-    private static string GetStateColor(string state)
+    private string GetStateColor(string state)
     {
         if (string.IsNullOrEmpty(state))
             return Dim;
 
-        return StateCategoryResolver.Resolve(state, null) switch
+        return StateCategoryResolver.Resolve(state, _stateEntries) switch
         {
             StateCategory.Completed or StateCategory.Resolved => Green,
             StateCategory.InProgress => Blue,

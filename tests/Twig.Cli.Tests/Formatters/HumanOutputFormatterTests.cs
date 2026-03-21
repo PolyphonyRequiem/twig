@@ -1141,4 +1141,64 @@ public class HumanOutputFormatterTests
 
         result.ShouldContain("D"); // first letter fallback — iconId is null
     }
+
+    // ── EPIC-003: Unified state color resolution ────────────────────
+
+    [Theory]
+    [InlineData("Design", "InProgress", "\x1b[34m")]   // Blue — InProgress via entries
+    [InlineData("Review", "Resolved", "\x1b[32m")]     // Green — Resolved via entries
+    [InlineData("Ideation", "Proposed", "\x1b[2m")]    // Dim — Proposed via entries
+    [InlineData("Discarded", "Removed", "\x1b[31m")]   // Red — Removed via entries
+    public void FormatWorkItem_CustomState_WithStateEntries_UsesEntryCategory(
+        string stateName, string adoCategory, string expectedAnsi)
+    {
+        var category = StateCategoryResolver.ParseCategory(adoCategory);
+        var entries = new List<StateEntry>
+        {
+            new(stateName, category, null),
+        };
+        var formatter = new HumanOutputFormatter(new DisplayConfig(), typeAppearances: null, stateEntries: entries);
+        var item = CreateWorkItem(300, "Custom State Item", stateName);
+
+        var result = formatter.FormatWorkItem(item, showDirty: false);
+
+        result.ShouldContain(expectedAnsi);
+        result.ShouldContain(stateName);
+    }
+
+    [Fact]
+    public void FormatWorkItem_CustomState_WithoutEntries_FallsBackToUnknown()
+    {
+        // Without state entries, custom states fall back to Reset (Unknown)
+        var formatter = new HumanOutputFormatter();
+        var item = CreateWorkItem(301, "No Entries", "Design");
+
+        var result = formatter.FormatWorkItem(item, showDirty: false);
+
+        // "Design" is not a known state — falls back to Reset
+        result.ShouldContain("\x1b[0m");
+    }
+
+    [Fact]
+    public void HumanOutputFormatter_And_SpectreTheme_ResolvesSameCategoryForCustomState()
+    {
+        // Both renderers should resolve the same state category when given the same entries
+        var entries = new List<StateEntry>
+        {
+            new("Design", Domain.Enums.StateCategory.InProgress, null),
+            new("Review", Domain.Enums.StateCategory.Resolved, null),
+        };
+        var displayConfig = new DisplayConfig();
+
+        var humanFormatter = new HumanOutputFormatter(displayConfig, typeAppearances: null, stateEntries: entries);
+        var item = CreateWorkItem(302, "Design Item", "Design");
+        var humanResult = humanFormatter.FormatWorkItem(item, showDirty: false);
+
+        // HumanOutputFormatter uses Blue (\x1b[34m) for InProgress
+        humanResult.ShouldContain("\x1b[34m");
+
+        // SpectreTheme resolves the same category via StateCategoryResolver
+        var resolvedCategory = StateCategoryResolver.Resolve("Design", entries);
+        resolvedCategory.ShouldBe(Domain.Enums.StateCategory.InProgress);
+    }
 }

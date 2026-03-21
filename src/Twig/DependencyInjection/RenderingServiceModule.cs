@@ -21,7 +21,7 @@ public static class RenderingServiceModule
         services.AddSingleton<HumanOutputFormatter>(sp =>
         {
             var cfg = sp.GetRequiredService<TwigConfiguration>();
-            return new HumanOutputFormatter(cfg.Display, cfg.TypeAppearances);
+            return new HumanOutputFormatter(cfg.Display, cfg.TypeAppearances, stateEntries);
         });
         services.AddSingleton<JsonOutputFormatter>();
         services.AddSingleton<MinimalOutputFormatter>();

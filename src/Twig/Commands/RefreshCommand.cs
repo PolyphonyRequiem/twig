@@ -31,7 +31,7 @@ public sealed class RefreshCommand(
     /// <summary>Refresh the local cache from Azure DevOps.</summary>
     /// <param name="outputFormat">Output format: human, json, or minimal.</param>
     /// <param name="force">When true, bypass the dirty guard and overwrite protected items.</param>
-    public async Task<int> ExecuteAsync(string outputFormat = "human", bool force = false)
+    public async Task<int> ExecuteAsync(string outputFormat = "human", bool force = false, CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
         _ = hintEngine; // No registered hints for refresh

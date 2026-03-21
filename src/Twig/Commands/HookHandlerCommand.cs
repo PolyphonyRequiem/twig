@@ -19,7 +19,7 @@ public sealed class HookHandlerCommand(
     IPromptStateWriter? promptStateWriter = null)
 {
     /// <summary>Handle a git hook invocation.</summary>
-    public async Task<int> ExecuteAsync(string hookName, string[] args)
+    public async Task<int> ExecuteAsync(string hookName, string[] args, CancellationToken ct = default)
     {
         return hookName switch
         {

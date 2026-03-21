@@ -33,7 +33,8 @@ public sealed class FlowDoneCommand(
         int? id = null,
         bool noSave = false,
         bool noPr = false,
-        string outputFormat = "human")
+        string outputFormat = "human",
+        CancellationToken ct = default)
     {
         _ = hintEngine; // No registered hints for flow-done yet
 
@@ -84,7 +85,7 @@ public sealed class FlowDoneCommand(
             {
                 // Explicit ID: save single item only, do NOT change active context
                 hasDirtyItems = dirtyIds.Any(d => d == targetId);
-                saveResult = await saveCommand.ExecuteAsync(targetId: targetId, all: false, outputFormat: outputFormat, skipPromptWrite: true);
+                saveResult = await saveCommand.ExecuteAsync(targetId: targetId, all: false, outputFormat: outputFormat, skipPromptWrite: true, ct: ct);
             }
             else
             {
@@ -92,7 +93,7 @@ public sealed class FlowDoneCommand(
                 var dirtySet = new HashSet<int>(dirtyIds);
                 var children = await workItemRepo.GetChildrenAsync(targetId);
                 hasDirtyItems = dirtySet.Contains(targetId) || children.Any(c => dirtySet.Contains(c.Id));
-                saveResult = await saveCommand.ExecuteAsync(targetId: null, all: false, outputFormat: outputFormat, skipPromptWrite: true);
+                saveResult = await saveCommand.ExecuteAsync(targetId: null, all: false, outputFormat: outputFormat, skipPromptWrite: true, ct: ct);
             }
 
             if (saveResult != 0)

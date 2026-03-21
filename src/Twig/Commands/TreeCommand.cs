@@ -22,7 +22,7 @@ public sealed class TreeCommand(
     RenderingPipelineFactory? pipelineFactory = null)
 {
     /// <summary>Display the work item hierarchy as a tree.</summary>
-    public async Task<int> ExecuteAsync(string outputFormat = "human", int? depth = null, bool all = false, bool noLive = false)
+    public async Task<int> ExecuteAsync(string outputFormat = "human", int? depth = null, bool all = false, bool noLive = false, CancellationToken ct = default)
     {
         var (fmt, renderer) = pipelineFactory is not null
             ? pipelineFactory.Resolve(outputFormat, noLive)

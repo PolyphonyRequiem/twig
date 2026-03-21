@@ -27,7 +27,8 @@ public sealed class PrCommand(
         string? target = null,
         string? title = null,
         bool draft = false,
-        string outputFormat = "human")
+        string outputFormat = "human",
+        CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 

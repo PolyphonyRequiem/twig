@@ -19,7 +19,7 @@ public sealed class EditCommand(
     IPromptStateWriter? promptStateWriter = null)
 {
     /// <summary>Edit work item fields in an external editor.</summary>
-    public async Task<int> ExecuteAsync(string? field = null, string outputFormat = "human")
+    public async Task<int> ExecuteAsync(string? field = null, string outputFormat = "human", CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 

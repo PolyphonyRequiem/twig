@@ -15,7 +15,7 @@ public sealed class ConfigCommand(
     HintEngine hintEngine,
     IPromptStateWriter? promptStateWriter = null)
 {
-    public async Task<int> ExecuteAsync(string key, string? value = null, string outputFormat = "human")
+    public async Task<int> ExecuteAsync(string key, string? value = null, string outputFormat = "human", CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
         _ = hintEngine; // No registered hints for config

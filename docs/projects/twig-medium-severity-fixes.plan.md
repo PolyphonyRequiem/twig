@@ -121,7 +121,7 @@ Add validation in `TwigConfiguration.SetValue()` for the `auth.method` path: onl
 
 ---
 
-### EPIC-004: Add CancellationToken to all remaining commands (M-001)
+### EPIC-004: Add CancellationToken to all remaining commands (M-001) — **DONE**
 
 **Goal:** Add `CancellationToken ct = default` to all remaining command entry points in `TwigCommands` and forward to `ExecuteAsync`.
 
@@ -129,11 +129,11 @@ Add validation in `TwigConfiguration.SetValue()` for the `auth.method` path: onl
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| T-015 | IMPL | Add `CancellationToken ct = default` parameter to all remaining command signatures in `TwigCommands` that don't already have it. Forward `ct` to the `ExecuteAsync` call. Commands: Init, Status, State, Tree, Seed, Note, Update, Edit, Save, Refresh, Workspace, Show, Ws, Sprint, Config, Branch, Commit, Pr, Stash, StashPop, Log, FlowStart, FlowDone, FlowClose, HooksInstall, HooksUninstall, Context, Hook | `src/Twig/Program.cs` | TO DO |
-| T-016 | IMPL | Add `CancellationToken ct = default` parameter to each command's `ExecuteAsync` method that doesn't already accept it, and pass it to `ActiveItemResolver`, `GitGuard`, and any ADO service calls that accept `CancellationToken` | `src/Twig/Commands/*.cs` (28 files) | TO DO |
-| T-017 | TEST | Verify all existing tests pass — no new tests needed since CancellationToken defaults to `default` | All test projects | TO DO |
+| T-015 | IMPL | Add `CancellationToken ct = default` parameter to all remaining command signatures in `TwigCommands` that don't already have it. Forward `ct` to the `ExecuteAsync` call. Commands: Init, Status, State, Tree, Seed, Note, Update, Edit, Save, Refresh, Workspace, Show, Ws, Sprint, Config, Branch, Commit, Pr, Stash, StashPop, Log, FlowStart, FlowDone, FlowClose, HooksInstall, HooksUninstall, Context, Hook | `src/Twig/Program.cs` | DONE |
+| T-016 | IMPL | Add `CancellationToken ct = default` parameter to each command's `ExecuteAsync` method that doesn't already accept it, and pass it to `ActiveItemResolver`, `GitGuard`, and any ADO service calls that accept `CancellationToken` | `src/Twig/Commands/*.cs` (28 files) | DONE |
+| T-017 | TEST | Verify all existing tests pass — no new tests needed since CancellationToken defaults to `default` | All test projects | DONE |
 
 **Acceptance Criteria:**
-- [ ] Every non-alias command signature in `TwigCommands` has a `CancellationToken ct = default` parameter
-- [ ] Every `ExecuteAsync` method accepts and forwards `CancellationToken`
-- [ ] All tests pass
+- [x] Every non-alias command signature in `TwigCommands` has a `CancellationToken ct = default` parameter
+- [x] Every `ExecuteAsync` method accepts and forwards `CancellationToken`
+- [x] All tests pass

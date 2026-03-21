@@ -31,7 +31,8 @@ public sealed class SaveCommand(
         int? targetId = null,
         bool all = false,
         string outputFormat = "human",
-        bool skipPromptWrite = false)
+        bool skipPromptWrite = false,
+        CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
         _ = hintEngine; // No registered hints for save

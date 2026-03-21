@@ -413,8 +413,8 @@ public sealed class TwigCommands(IServiceProvider services)
         => await services.GetRequiredService<SelfUpdateCommand>().ExecuteAsync(ct);
 
     /// <summary>Display recent release notes from GitHub Releases.</summary>
-    public async Task<int> Changelog(int count = 5, CancellationToken ct = default)
-        => await services.GetRequiredService<ChangelogCommand>().ExecuteAsync(count, ct);
+    public async Task<int> Changelog(int count = 5, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<ChangelogCommand>().ExecuteAsync(count, output, ct);
 
     /// <summary>Launch the full-screen TUI mode (requires twig-tui binary).</summary>
     public Task<int> Tui()

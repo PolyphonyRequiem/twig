@@ -1,5 +1,6 @@
 using Shouldly;
 using Twig.Commands;
+using Twig.Formatters;
 using Twig.Domain.Interfaces;
 using Xunit;
 
@@ -23,7 +24,7 @@ public class ChangelogCommandTests
         };
 
         var stub = new StubReleaseService(releases);
-        var command = new ChangelogCommand(stub);
+        var command = new ChangelogCommand(stub, new OutputFormatterFactory(new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter()));
 
         var (exitCode, stdout, _) = await CaptureOutput(() => command.ExecuteAsync());
 
@@ -40,7 +41,7 @@ public class ChangelogCommandTests
     public async Task ExecuteAsync_NoReleases_PrintsMessage()
     {
         var stub = new StubReleaseService([]);
-        var command = new ChangelogCommand(stub);
+        var command = new ChangelogCommand(stub, new OutputFormatterFactory(new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter()));
 
         var (exitCode, stdout, _) = await CaptureOutput(() => command.ExecuteAsync());
 
@@ -52,7 +53,7 @@ public class ChangelogCommandTests
     public async Task ExecuteAsync_NetworkError_Returns1()
     {
         var stub = new StubReleaseService(throwOnGet: new HttpRequestException("Network error"));
-        var command = new ChangelogCommand(stub);
+        var command = new ChangelogCommand(stub, new OutputFormatterFactory(new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter()));
 
         var (exitCode, _, stderr) = await CaptureOutput(() => command.ExecuteAsync());
 
@@ -65,7 +66,7 @@ public class ChangelogCommandTests
     public async Task ExecuteAsync_CountParameter_PassedToService()
     {
         var stub = new StubReleaseService([]);
-        var command = new ChangelogCommand(stub);
+        var command = new ChangelogCommand(stub, new OutputFormatterFactory(new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter()));
 
         await command.ExecuteAsync(count: 10);
 
@@ -81,7 +82,7 @@ public class ChangelogCommandTests
         };
 
         var stub = new StubReleaseService(releases);
-        var command = new ChangelogCommand(stub);
+        var command = new ChangelogCommand(stub, new OutputFormatterFactory(new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter()));
 
         var (exitCode, stdout, _) = await CaptureOutput(() => command.ExecuteAsync());
 
@@ -99,7 +100,7 @@ public class ChangelogCommandTests
         };
 
         var stub = new StubReleaseService(releases);
-        var command = new ChangelogCommand(stub);
+        var command = new ChangelogCommand(stub, new OutputFormatterFactory(new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter()));
 
         var (exitCode, stdout, _) = await CaptureOutput(() => command.ExecuteAsync());
 
@@ -111,7 +112,7 @@ public class ChangelogCommandTests
     public async Task ExecuteAsync_DefaultCount_Is5()
     {
         var stub = new StubReleaseService([]);
-        var command = new ChangelogCommand(stub);
+        var command = new ChangelogCommand(stub, new OutputFormatterFactory(new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter()));
 
         await command.ExecuteAsync();
 
@@ -122,7 +123,7 @@ public class ChangelogCommandTests
     public async Task ExecuteAsync_CountZero_ReturnsError()
     {
         var stub = new StubReleaseService([]);
-        var command = new ChangelogCommand(stub);
+        var command = new ChangelogCommand(stub, new OutputFormatterFactory(new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter()));
 
         var (exitCode, _, stderr) = await CaptureOutput(() => command.ExecuteAsync(count: 0));
 
@@ -134,7 +135,7 @@ public class ChangelogCommandTests
     public async Task ExecuteAsync_NegativeCount_ReturnsError()
     {
         var stub = new StubReleaseService([]);
-        var command = new ChangelogCommand(stub);
+        var command = new ChangelogCommand(stub, new OutputFormatterFactory(new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter()));
 
         var (exitCode, _, stderr) = await CaptureOutput(() => command.ExecuteAsync(count: -5));
 
@@ -146,7 +147,7 @@ public class ChangelogCommandTests
     public async Task ExecuteAsync_CountAbove100_ClampsTo100()
     {
         var stub = new StubReleaseService([]);
-        var command = new ChangelogCommand(stub);
+        var command = new ChangelogCommand(stub, new OutputFormatterFactory(new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter()));
 
         await command.ExecuteAsync(count: 200);
 

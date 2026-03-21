@@ -191,7 +191,7 @@ public class PromptStateIntegrationTests : IDisposable
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
         var cmd = new FlowCloseCommand(_adoService, _contextStore,
             _pendingChangeStore, _processConfigProvider, _consoleInput,
-            _formatterFactory, _hintEngine, _config, activeItemResolver, protectedCacheWriter,
+            _formatterFactory, _config, activeItemResolver, protectedCacheWriter,
             promptStateWriter: writer);
 
         var result = await cmd.ExecuteAsync(force: true);
@@ -279,7 +279,7 @@ public class PromptStateIntegrationTests : IDisposable
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
         var writer = CreateWriter();
-        var cmd = new ConfigCommand(_config, _paths, _formatterFactory, _hintEngine, writer);
+        var cmd = new ConfigCommand(_config, _paths, _formatterFactory, writer);
 
         var result = await cmd.ExecuteAsync("display.icons", "nerd");
 
@@ -295,7 +295,7 @@ public class PromptStateIntegrationTests : IDisposable
     public async Task ConfigCommand_DoesNotWritePromptJson_OnNonDisplayKey()
     {
         var writer = CreateWriter();
-        var cmd = new ConfigCommand(_config, _paths, _formatterFactory, _hintEngine, writer);
+        var cmd = new ConfigCommand(_config, _paths, _formatterFactory, writer);
 
         var result = await cmd.ExecuteAsync("git.defaulttarget", "develop");
 
@@ -356,7 +356,7 @@ public class PromptStateIntegrationTests : IDisposable
             flowSaveResolver, _consoleInput, _formatterFactory, _hintEngine);
         var cmd = new FlowDoneCommand(_workItemRepo, _adoService,
             _pendingChangeStore, _processConfigProvider, saveCmd, _consoleInput,
-            _formatterFactory, _hintEngine, _config, flowSaveResolver, protectedCacheWriter,
+            _formatterFactory, _config, flowSaveResolver, protectedCacheWriter,
             promptStateWriter: writer);
 
         var result = await cmd.ExecuteAsync(noSave: true);
@@ -397,7 +397,7 @@ public class PromptStateIntegrationTests : IDisposable
             flowDoneResolver, _consoleInput, _formatterFactory, _hintEngine, mockWriter);
         var cmd = new FlowDoneCommand(_workItemRepo, _adoService,
             _pendingChangeStore, _processConfigProvider, saveCmd, _consoleInput,
-            _formatterFactory, _hintEngine, _config, flowDoneResolver, protectedCacheWriter,
+            _formatterFactory, _config, flowDoneResolver, protectedCacheWriter,
             promptStateWriter: mockWriter);
 
         var result = await cmd.ExecuteAsync(noSave: false);

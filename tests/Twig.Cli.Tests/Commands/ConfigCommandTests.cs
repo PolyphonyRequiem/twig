@@ -1,7 +1,6 @@
 using Shouldly;
 using Twig.Commands;
 using Twig.Formatters;
-using Twig.Hints;
 using Twig.Infrastructure.Config;
 using Xunit;
 
@@ -12,7 +11,6 @@ public class ConfigCommandTests : IDisposable
     private readonly string _testDir;
     private readonly TwigPaths _paths;
     private readonly OutputFormatterFactory _formatterFactory;
-    private readonly HintEngine _hintEngine;
 
     public ConfigCommandTests()
     {
@@ -23,7 +21,6 @@ public class ConfigCommandTests : IDisposable
         _paths = new TwigPaths(twigDir, Path.Combine(twigDir, "config"), Path.Combine(twigDir, "twig.db"));
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
-        _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
     }
 
     public void Dispose()
@@ -40,7 +37,7 @@ public class ConfigCommandTests : IDisposable
     public async Task Config_Read_ReturnsValue()
     {
         var config = new TwigConfiguration { Organization = "https://dev.azure.com/myorg" };
-        var cmd = new ConfigCommand(config, _paths, _formatterFactory, _hintEngine);
+        var cmd = new ConfigCommand(config, _paths, _formatterFactory);
 
         var result = await cmd.ExecuteAsync("organization");
         result.ShouldBe(0);
@@ -50,7 +47,7 @@ public class ConfigCommandTests : IDisposable
     public async Task Config_Read_UnknownKey_ReturnsError()
     {
         var config = new TwigConfiguration();
-        var cmd = new ConfigCommand(config, _paths, _formatterFactory, _hintEngine);
+        var cmd = new ConfigCommand(config, _paths, _formatterFactory);
 
         var result = await cmd.ExecuteAsync("unknown.key");
 
@@ -61,7 +58,7 @@ public class ConfigCommandTests : IDisposable
     public async Task Config_Write_SetsValue()
     {
         var config = new TwigConfiguration();
-        var cmd = new ConfigCommand(config, _paths, _formatterFactory, _hintEngine);
+        var cmd = new ConfigCommand(config, _paths, _formatterFactory);
 
         var result = await cmd.ExecuteAsync("seed.staledays", "7");
 
@@ -74,7 +71,7 @@ public class ConfigCommandTests : IDisposable
     public async Task Config_Write_InvalidValue_ReturnsError()
     {
         var config = new TwigConfiguration();
-        var cmd = new ConfigCommand(config, _paths, _formatterFactory, _hintEngine);
+        var cmd = new ConfigCommand(config, _paths, _formatterFactory);
 
         var result = await cmd.ExecuteAsync("seed.staledays", "not-a-number");
 
@@ -85,7 +82,7 @@ public class ConfigCommandTests : IDisposable
     public async Task Config_EmptyKey_ReturnsUsageError()
     {
         var config = new TwigConfiguration();
-        var cmd = new ConfigCommand(config, _paths, _formatterFactory, _hintEngine);
+        var cmd = new ConfigCommand(config, _paths, _formatterFactory);
 
         var result = await cmd.ExecuteAsync("");
 
@@ -97,7 +94,7 @@ public class ConfigCommandTests : IDisposable
     {
         var config = new TwigConfiguration();
         config.Display.TreeDepth = 5;
-        var cmd = new ConfigCommand(config, _paths, _formatterFactory, _hintEngine);
+        var cmd = new ConfigCommand(config, _paths, _formatterFactory);
 
         var result = await cmd.ExecuteAsync("display.treedepth");
         result.ShouldBe(0);
@@ -107,7 +104,7 @@ public class ConfigCommandTests : IDisposable
     public async Task Config_Read_DisplayIcons()
     {
         var config = new TwigConfiguration();
-        var cmd = new ConfigCommand(config, _paths, _formatterFactory, _hintEngine);
+        var cmd = new ConfigCommand(config, _paths, _formatterFactory);
 
         var result = await cmd.ExecuteAsync("display.icons");
         result.ShouldBe(0);
@@ -117,7 +114,7 @@ public class ConfigCommandTests : IDisposable
     public async Task Config_Write_DisplayIcons_Nerd()
     {
         var config = new TwigConfiguration();
-        var cmd = new ConfigCommand(config, _paths, _formatterFactory, _hintEngine);
+        var cmd = new ConfigCommand(config, _paths, _formatterFactory);
 
         var result = await cmd.ExecuteAsync("display.icons", "nerd");
 

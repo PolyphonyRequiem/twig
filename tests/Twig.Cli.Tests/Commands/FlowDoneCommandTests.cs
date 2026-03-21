@@ -88,7 +88,7 @@ public class FlowDoneCommandTests
 
     private FlowDoneCommand CreateCommand(IGitService? gitService = null, IAdoGitService? adoGitService = null) =>
         new(_workItemRepo, _adoService, _pendingChangeStore,
-            _processConfigProvider, _saveCommand, _consoleInput, _formatterFactory, _hintEngine, _config,
+            _processConfigProvider, _saveCommand, _consoleInput, _formatterFactory, _config,
             _activeItemResolver, _protectedCacheWriter,
             gitService, adoGitService);
 
@@ -528,7 +528,7 @@ public class FlowDoneCommandTests
 
         var cmd = new FlowDoneCommand(
             _workItemRepo, _adoService, _pendingChangeStore,
-            _processConfigProvider, _saveCommand, _consoleInput, _formatterFactory, _hintEngine, configNoPr,
+            _processConfigProvider, _saveCommand, _consoleInput, _formatterFactory, configNoPr,
             _activeItemResolver, _protectedCacheWriter,
             _gitService, _adoGitService);
         var result = await cmd.ExecuteAsync(noSave: true);

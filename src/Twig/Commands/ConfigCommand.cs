@@ -1,6 +1,5 @@
 using Twig.Domain.Interfaces;
 using Twig.Formatters;
-using Twig.Hints;
 using Twig.Infrastructure.Config;
 
 namespace Twig.Commands;
@@ -12,13 +11,11 @@ public sealed class ConfigCommand(
     TwigConfiguration config,
     TwigPaths paths,
     OutputFormatterFactory formatterFactory,
-    HintEngine hintEngine,
     IPromptStateWriter? promptStateWriter = null)
 {
     public async Task<int> ExecuteAsync(string key, string? value = null, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
-        _ = hintEngine; // No registered hints for config
 
         if (string.IsNullOrWhiteSpace(key))
         {

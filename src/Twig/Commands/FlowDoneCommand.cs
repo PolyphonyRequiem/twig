@@ -3,7 +3,6 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
-using Twig.Hints;
 using Twig.Infrastructure.Config;
 
 namespace Twig.Commands;
@@ -20,7 +19,6 @@ public sealed class FlowDoneCommand(
     SaveCommand saveCommand,
     IConsoleInput consoleInput,
     OutputFormatterFactory formatterFactory,
-    HintEngine hintEngine,
     TwigConfiguration config,
     ActiveItemResolver activeItemResolver,
     ProtectedCacheWriter protectedCacheWriter,
@@ -36,8 +34,6 @@ public sealed class FlowDoneCommand(
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
     {
-        _ = hintEngine; // No registered hints for flow-done yet
-
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
         // 1. Resolve target via ActiveItemResolver

@@ -7,7 +7,6 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
-using Twig.Hints;
 using Twig.Infrastructure.Config;
 using Xunit;
 
@@ -22,7 +21,6 @@ public class FlowCloseCommandTests
     private readonly IProcessConfigurationProvider _processConfigProvider;
     private readonly IConsoleInput _consoleInput;
     private readonly OutputFormatterFactory _formatterFactory;
-    private readonly HintEngine _hintEngine;
     private readonly TwigConfiguration _config;
     private readonly IGitService _gitService;
     private readonly IAdoGitService _adoGitService;
@@ -63,7 +61,6 @@ public class FlowCloseCommandTests
 
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
-        _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         _config = new TwigConfiguration
         {
             Git = new GitConfig { DefaultTarget = "main" },
@@ -80,7 +77,7 @@ public class FlowCloseCommandTests
 
     private FlowCloseCommand CreateCommand(IGitService? gitService = null, IAdoGitService? adoGitService = null) =>
         new(_adoService, _contextStore, _pendingChangeStore,
-            _processConfigProvider, _consoleInput, _formatterFactory, _hintEngine, _config,
+            _processConfigProvider, _consoleInput, _formatterFactory, _config,
             _activeItemResolver, _protectedCacheWriter,
             gitService, adoGitService);
 

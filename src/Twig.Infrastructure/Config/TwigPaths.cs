@@ -67,6 +67,21 @@ public sealed class TwigPaths
     }
 
     /// <summary>
+    /// Builds a <see cref="TwigPaths"/> from a <paramref name="twigDir"/> and
+    /// <paramref name="config"/>, selecting the context-scoped layout when
+    /// both Organization and Project are configured, or the flat layout otherwise.
+    /// Shared by bootstrap (<c>Program.cs</c>) and DI registration
+    /// (<see cref="TwigServiceRegistration"/>) so the path-selection logic
+    /// lives in exactly one place.
+    /// </summary>
+    public static TwigPaths BuildPaths(string twigDir, TwigConfiguration config)
+    {
+        return (!string.IsNullOrWhiteSpace(config.Organization) && !string.IsNullOrWhiteSpace(config.Project))
+            ? ForContext(twigDir, config.Organization, config.Project)
+            : new TwigPaths(twigDir, Path.Combine(twigDir, "config"), Path.Combine(twigDir, "twig.db"));
+    }
+
+    /// <summary>
     /// Path where the legacy flat database lived before multi-context support.
     /// </summary>
     public static string GetLegacyDbPath(string twigDir) => Path.Combine(twigDir, "twig.db");

@@ -1,6 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
 using Spectre.Console;
-using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Infrastructure.Config;
@@ -14,7 +13,9 @@ namespace Twig.DependencyInjection;
 /// </summary>
 public static class RenderingServiceModule
 {
-    public static IServiceCollection AddTwigRenderingServices(this IServiceCollection services)
+    public static IServiceCollection AddTwigRenderingServices(
+        this IServiceCollection services,
+        IReadOnlyList<StateEntry>? stateEntries = null)
     {
         // Output formatters and factory
         services.AddSingleton<HumanOutputFormatter>(sp =>
@@ -31,18 +32,6 @@ public static class RenderingServiceModule
         services.AddSingleton<SpectreTheme>(sp =>
         {
             var cfg = sp.GetRequiredService<TwigConfiguration>();
-            IReadOnlyList<StateEntry>? stateEntries = null;
-            try
-            {
-                var processTypeStore = sp.GetRequiredService<IProcessTypeStore>();
-                var records = Task.Run(() => processTypeStore.GetAllAsync()).GetAwaiter().GetResult();
-                stateEntries = records.SelectMany(r => r.States).ToList();
-            }
-            catch (InvalidOperationException)
-            {
-                // SqliteCacheStore uninitialized (e.g. twig init) — fall through with null
-            }
-
             return new SpectreTheme(cfg.Display, cfg.TypeAppearances, stateEntries);
         });
         services.AddSingleton<IAsyncRenderer>(sp => new SpectreRenderer(

@@ -137,6 +137,46 @@ public class TwigPathsTests
         TwigPaths.GetLegacyDbPath(twigDir).ShouldBe(Path.Combine(twigDir, "twig.db"));
     }
 
+    // ──────────────────────── BuildPaths ────────────────────────
+
+    [Fact]
+    public void BuildPaths_WithOrgAndProject_ReturnsContextScopedPath()
+    {
+        var twigDir = Path.Combine("C:", "repo", ".twig");
+        var config = new TwigConfiguration { Organization = "myorg", Project = "myproj" };
+
+        var paths = TwigPaths.BuildPaths(twigDir, config);
+
+        paths.TwigDir.ShouldBe(twigDir);
+        paths.ConfigPath.ShouldBe(Path.Combine(twigDir, "config"));
+        paths.DbPath.ShouldBe(Path.Combine(twigDir, "myorg", "myproj", "twig.db"));
+    }
+
+    [Theory]
+    [InlineData("", "myproj")]
+    [InlineData("myorg", "")]
+    [InlineData("", "")]
+    [InlineData(null, "myproj")]
+    [InlineData("myorg", null)]
+    [InlineData(null, null)]
+    [InlineData("  ", "myproj")]
+    [InlineData("myorg", "  ")]
+    public void BuildPaths_WithEmptyOrgOrProject_ReturnsFlatPath(string? org, string? project)
+    {
+        var twigDir = Path.Combine("C:", "repo", ".twig");
+        var config = new TwigConfiguration
+        {
+            Organization = org ?? string.Empty,
+            Project = project ?? string.Empty,
+        };
+
+        var paths = TwigPaths.BuildPaths(twigDir, config);
+
+        paths.TwigDir.ShouldBe(twigDir);
+        paths.ConfigPath.ShouldBe(Path.Combine(twigDir, "config"));
+        paths.DbPath.ShouldBe(Path.Combine(twigDir, "twig.db"));
+    }
+
     // ──────────────────────── Constructor ────────────────────────
 
     [Fact]

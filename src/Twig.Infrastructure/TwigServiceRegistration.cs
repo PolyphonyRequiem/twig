@@ -47,9 +47,7 @@ public static class TwigServiceRegistration
         {
             var config = sp.GetRequiredService<TwigConfiguration>();
             var twigDir = Path.Combine(Directory.GetCurrentDirectory(), ".twig");
-            return (!string.IsNullOrWhiteSpace(config.Organization) && !string.IsNullOrWhiteSpace(config.Project))
-                ? TwigPaths.ForContext(twigDir, config.Organization, config.Project)
-                : new TwigPaths(twigDir, Path.Combine(twigDir, "config"), Path.Combine(twigDir, "twig.db"));
+            return TwigPaths.BuildPaths(twigDir, config);
         });
 
         // SQLite persistence — registered unconditionally. SqliteCacheStore is

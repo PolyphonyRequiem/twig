@@ -2,11 +2,13 @@ using ConsoleAppFramework;
 using Microsoft.Extensions.DependencyInjection;
 using Twig.Commands;
 using Twig.DependencyInjection;
+using Twig.Domain.ValueObjects;
 using Twig.Infrastructure;
 using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.DependencyInjection;
 using Twig.Infrastructure.GitHub;
+using Twig.Infrastructure.Persistence;
 
 SQLitePCL.Batteries.Init();
 
@@ -84,7 +86,27 @@ var app = ConsoleApp.Create()
 
         // Modular DI registration
         services.AddTwigNetworkServices(config, gitProject, repository);
-        services.AddTwigRenderingServices();
+
+        // Pre-compute state entries for SpectreTheme (avoids sync-over-async in DI factory)
+        IReadOnlyList<StateEntry>? stateEntries = null;
+        try
+        {
+            var paths = TwigPaths.BuildPaths(twigDir, config);
+
+            if (Directory.Exists(paths.TwigDir) && File.Exists(paths.DbPath))
+            {
+                using var cacheStore = new SqliteCacheStore($"Data Source={paths.DbPath}");
+                var processTypeStore = new SqliteProcessTypeStore(cacheStore);
+                var records = processTypeStore.GetAllAsync().GetAwaiter().GetResult();
+                stateEntries = records.SelectMany(r => r.States).ToList();
+            }
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or Microsoft.Data.Sqlite.SqliteException)
+        {
+            // SqliteCacheStore uninitialized or query failed — fall through with null
+        }
+
+        services.AddTwigRenderingServices(stateEntries);
         services.AddTwigCommandServices();
         services.AddTwigCommands();
     });

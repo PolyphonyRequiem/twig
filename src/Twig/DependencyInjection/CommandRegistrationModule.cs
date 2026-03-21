@@ -18,6 +18,17 @@ public static class CommandRegistrationModule
 {
     public static IServiceCollection AddTwigCommands(this IServiceCollection services)
     {
+        AddCoreCommands(services);
+        AddGitCommands(services);
+        AddFlowCommands(services);
+        AddSelfUpdateCommands(services);
+        services.AddSingleton<OhMyPoshCommands>();
+
+        return services;
+    }
+
+    private static void AddCoreCommands(IServiceCollection services)
+    {
         // InitCommand uses a factory to inject auth + HTTP
         // (instead of IIterationService) so it can construct an AdoIterationService
         // with the org/project args supplied at invocation time.
@@ -144,6 +155,10 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<Domain.Services.WorkingSetService>(),
             sp.GetRequiredService<RenderingPipelineFactory>()));
         services.AddSingleton<ConfigCommand>();
+    }
+
+    private static void AddGitCommands(IServiceCollection services)
+    {
         services.AddSingleton<BranchCommand>(sp => new BranchCommand(
             sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
             sp.GetRequiredService<IWorkItemRepository>(),
@@ -186,7 +201,6 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<HintEngine>(),
             sp.GetService<IGitService>()));
 
-        // Git hooks & context commands
         services.AddSingleton<HookInstaller>();
         services.AddSingleton<HooksCommand>(sp => new HooksCommand(
             sp.GetRequiredService<HookInstaller>(),
@@ -207,8 +221,10 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<TwigConfiguration>(),
             sp.GetService<IGitService>(),
             sp.GetRequiredService<IPromptStateWriter>()));
+    }
 
-        // Flow lifecycle commands
+    private static void AddFlowCommands(IServiceCollection services)
+    {
         services.AddSingleton<FlowStartCommand>(sp => new FlowStartCommand(
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IAdoWorkItemService>(),
@@ -251,8 +267,10 @@ public static class CommandRegistrationModule
             sp.GetService<IGitService>(),
             sp.GetService<IAdoGitService>(),
             sp.GetRequiredService<IPromptStateWriter>()));
+    }
 
-        // Self-update services
+    private static void AddSelfUpdateCommands(IServiceCollection services)
+    {
         services.AddSingleton<IGitHubReleaseService>(sp =>
         {
             var repoSlug = "PolyphonyRequiem/twig";
@@ -271,10 +289,5 @@ public static class CommandRegistrationModule
         services.AddSingleton<SelfUpdater>(sp => new SelfUpdater(sp.GetRequiredService<HttpClient>()));
         services.AddSingleton<SelfUpdateCommand>();
         services.AddSingleton<ChangelogCommand>();
-
-        // Oh My Posh helper
-        services.AddSingleton<OhMyPoshCommands>();
-
-        return services;
     }
 }

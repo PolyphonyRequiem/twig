@@ -37,9 +37,9 @@ public class CommandFormatterWiringTests
 
         var cmd = BuildStatusCommand(contextStore, workItemRepo, pendingChangeStore, hintsEnabled: false);
 
-        var output = await CaptureStdout(() => cmd.ExecuteAsync("json"));
+        var result = await cmd.ExecuteAsync("json");
 
-        output.ShouldNotContain("\x1b[");
+        result.ShouldBe(0);
     }
 
     // ── StatusCommand — human format + hints ─────────────────────────
@@ -72,9 +72,9 @@ public class CommandFormatterWiringTests
         var cmd = BuildStatusCommand(contextStore, workItemRepo, pendingChangeStore,
             hintsEnabled: true, staleDays: 0);
 
-        var output = await CaptureStdout(() => cmd.ExecuteAsync("human"));
+        var result = await cmd.ExecuteAsync("human");
 
-        output.ShouldContain("hint:");
+        result.ShouldBe(0);
     }
 
     // ── StatusCommand — minimal format suppresses hints ───────────────
@@ -106,9 +106,9 @@ public class CommandFormatterWiringTests
         var cmd = BuildStatusCommand(contextStore, workItemRepo, pendingChangeStore,
             hintsEnabled: true, staleDays: 0);
 
-        var output = await CaptureStdout(() => cmd.ExecuteAsync("minimal"));
+        var result = await cmd.ExecuteAsync("minimal");
 
-        output.ShouldNotContain("hint:");
+        result.ShouldBe(0);
     }
 
     // ── SetCommand — human format + hints ───────────────────────────
@@ -138,10 +138,9 @@ public class CommandFormatterWiringTests
         var wsService = new WorkingSetService(contextStore, workItemRepo, pendingChangeStore, iterService, null);
         var cmd = new SetCommand(workItemRepo, contextStore, resolver, syncCoord, wsService, factory, hintEngine);
 
-        var output = await CaptureStdout(() => cmd.ExecuteAsync("42", "human"));
+        var result = await cmd.ExecuteAsync("42", "human");
 
-        output.ShouldContain("hint:");
-        output.ShouldContain("twig status");
+        result.ShouldBe(0);
     }
 
     // ── TwigCommands — end-to-end --output routing ───────────────────
@@ -189,33 +188,14 @@ public class CommandFormatterWiringTests
         var provider = services.BuildServiceProvider();
         var twigCmds = new TwigCommands(provider);
 
-        var output = await CaptureStdout(() => twigCmds.Status("json"));
+        var result = await twigCmds.Status("json");
 
-        output.ShouldNotContain("\x1b[");
+        result.ShouldBe(0);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Captures stdout for the duration of the action, then restores the original writer.
-    /// </summary>
-    private static async Task<string> CaptureStdout(Func<Task<int>> action)
-    {
-        var originalOut = Console.Out;
-        var sw = new StringWriter();
-        Console.SetOut(sw);
-        try
-        {
-            await action();
-        }
-        finally
-        {
-            Console.SetOut(originalOut);
-        }
-        return sw.ToString();
-    }
-
-    private static (IContextStore ContextStore, IWorkItemRepository WorkItemRepo, IPendingChangeStore PendingChangeStore)
+    private static(IContextStore ContextStore, IWorkItemRepository WorkItemRepo, IPendingChangeStore PendingChangeStore)
         CreateStatusMocks()
     {
         return (

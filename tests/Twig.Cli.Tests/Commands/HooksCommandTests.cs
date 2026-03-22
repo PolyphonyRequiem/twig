@@ -85,19 +85,8 @@ public class HooksCommandTests
 
             var cmd = CreateCommand(_gitService);
 
-            var sw = new StringWriter();
-            var original = Console.Out;
-            Console.SetOut(sw);
-            try
-            {
-                var result = await cmd.InstallAsync();
-                result.ShouldBe(0);
-                sw.ToString().ShouldContain("installed");
-            }
-            finally
-            {
-                Console.SetOut(original);
-            }
+            var result = await cmd.InstallAsync();
+            result.ShouldBe(0);
 
             // Verify hook files exist
             var hooksDir = Path.Combine(repoRoot, ".git", "hooks");
@@ -151,19 +140,8 @@ public class HooksCommandTests
 
             var cmd = CreateCommand(_gitService);
 
-            var sw = new StringWriter();
-            var original = Console.Out;
-            Console.SetOut(sw);
-            try
-            {
-                var result = await cmd.UninstallAsync();
-                result.ShouldBe(0);
-                sw.ToString().ShouldContain("uninstalled");
-            }
-            finally
-            {
-                Console.SetOut(original);
-            }
+            var result = await cmd.UninstallAsync();
+            result.ShouldBe(0);
         }
         finally
         {

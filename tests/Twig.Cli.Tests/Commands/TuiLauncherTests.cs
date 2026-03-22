@@ -9,38 +9,18 @@ public class TuiLauncherTests
     public void Launch_BinaryNotFound_ReturnsExitCode1()
     {
         // TuiLauncher.Launch() will fail to find twig-tui (not built/on PATH in test env)
-        var originalErr = Console.Error;
         using var sw = new StringWriter();
-        Console.SetError(sw);
+        var exitCode = TuiLauncher.Launch(sw);
 
-        try
-        {
-            var exitCode = TuiLauncher.Launch();
-
-            exitCode.ShouldBe(1);
-            sw.ToString().ShouldContain("not found");
-        }
-        finally
-        {
-            Console.SetError(originalErr);
-        }
+        exitCode.ShouldBe(1);
+        sw.ToString().ShouldContain("not found");
     }
 
     [Fact]
     public void Launch_ErrorMessage_IncludesBinaryName()
     {
-        var originalErr = Console.Error;
         using var sw = new StringWriter();
-        Console.SetError(sw);
-
-        try
-        {
-            TuiLauncher.Launch();
-            sw.ToString().ShouldContain("twig-tui");
-        }
-        finally
-        {
-            Console.SetError(originalErr);
-        }
+        TuiLauncher.Launch(sw);
+        sw.ToString().ShouldContain("twig-tui");
     }
 }

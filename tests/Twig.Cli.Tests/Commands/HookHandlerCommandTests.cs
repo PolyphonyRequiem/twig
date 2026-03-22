@@ -32,8 +32,8 @@ public class HookHandlerCommandTests : IDisposable
         try { Directory.Delete(_tempDir, recursive: true); } catch { }
     }
 
-    private HookHandlerCommand CreateCommand(IGitService? gitService = null) =>
-        new(_contextStore, _workItemRepo, _config, gitService: gitService);
+    private HookHandlerCommand CreateCommand(IGitService? gitService = null, TextWriter? stderr = null) =>
+        new(_contextStore, _workItemRepo, _config, gitService: gitService, stderr: stderr);
 
     private static WorkItem CreateWorkItem(int id, string title, string type = "Bug") => new()
     {
@@ -101,20 +101,11 @@ public class HookHandlerCommandTests : IDisposable
         _workItemRepo.GetByIdAsync(12345, Arg.Any<CancellationToken>())
             .Returns(CreateWorkItem(12345, "Fix crash"));
 
-        var cmd = CreateCommand(_gitService);
-
-        var originalErr = Console.Error;
         var errWriter = new StringWriter();
-        Console.SetError(errWriter);
-        try
-        {
-            var result = await cmd.ExecuteAsync("post-checkout", ["abc123", "def456", "1"]);
-            result.ShouldBe(0);
-        }
-        finally
-        {
-            Console.SetError(originalErr);
-        }
+        var cmd = CreateCommand(_gitService, stderr: errWriter);
+
+        var result = await cmd.ExecuteAsync("post-checkout", ["abc123", "def456", "1"]);
+        result.ShouldBe(0);
 
         await _contextStore.Received(1).SetActiveWorkItemIdAsync(12345, Arg.Any<CancellationToken>());
         errWriter.ToString().ShouldContain("Twig context → #12345");
@@ -145,20 +136,11 @@ public class HookHandlerCommandTests : IDisposable
         _workItemRepo.GetByIdAsync(999, Arg.Any<CancellationToken>())
             .Returns((WorkItem?)null);
 
-        var cmd = CreateCommand(_gitService);
-
-        var originalErr = Console.Error;
         var errWriter = new StringWriter();
-        Console.SetError(errWriter);
-        try
-        {
-            var result = await cmd.ExecuteAsync("post-checkout", ["abc123", "def456", "1"]);
-            result.ShouldBe(0);
-        }
-        finally
-        {
-            Console.SetError(originalErr);
-        }
+        var cmd = CreateCommand(_gitService, stderr: errWriter);
+
+        var result = await cmd.ExecuteAsync("post-checkout", ["abc123", "def456", "1"]);
+        result.ShouldBe(0);
 
         await _contextStore.Received(1).SetActiveWorkItemIdAsync(999, Arg.Any<CancellationToken>());
         errWriter.ToString().ShouldContain("Twig context → #999");
@@ -297,20 +279,11 @@ public class HookHandlerCommandTests : IDisposable
         var msgFile = Path.Combine(_tempDir, "COMMIT_EDITMSG");
         File.WriteAllText(msgFile, "fix stuff");
 
-        var cmd = CreateCommand();
-
-        var originalErr = Console.Error;
         var errWriter = new StringWriter();
-        Console.SetError(errWriter);
-        try
-        {
-            var result = await cmd.ExecuteAsync("commit-msg", [msgFile]);
-            result.ShouldBe(0);
-        }
-        finally
-        {
-            Console.SetError(originalErr);
-        }
+        var cmd = CreateCommand(stderr: errWriter);
+
+        var result = await cmd.ExecuteAsync("commit-msg", [msgFile]);
+        result.ShouldBe(0);
 
         errWriter.ToString().ShouldContain("Warning: commit message does not reference a work item");
     }
@@ -326,20 +299,11 @@ public class HookHandlerCommandTests : IDisposable
         var msgFile = Path.Combine(_tempDir, "COMMIT_EDITMSG");
         File.WriteAllText(msgFile, "#42 fix stuff");
 
-        var cmd = CreateCommand();
-
-        var originalErr = Console.Error;
         var errWriter = new StringWriter();
-        Console.SetError(errWriter);
-        try
-        {
-            var result = await cmd.ExecuteAsync("commit-msg", [msgFile]);
-            result.ShouldBe(0);
-        }
-        finally
-        {
-            Console.SetError(originalErr);
-        }
+        var cmd = CreateCommand(stderr: errWriter);
+
+        var result = await cmd.ExecuteAsync("commit-msg", [msgFile]);
+        result.ShouldBe(0);
 
         errWriter.ToString().ShouldNotContain("Warning");
     }
@@ -355,20 +319,11 @@ public class HookHandlerCommandTests : IDisposable
         var msgFile = Path.Combine(_tempDir, "COMMIT_EDITMSG");
         File.WriteAllText(msgFile, "#7 hotfix");
 
-        var cmd = CreateCommand();
-
-        var originalErr = Console.Error;
         var errWriter = new StringWriter();
-        Console.SetError(errWriter);
-        try
-        {
-            var result = await cmd.ExecuteAsync("commit-msg", [msgFile]);
-            result.ShouldBe(0);
-        }
-        finally
-        {
-            Console.SetError(originalErr);
-        }
+        var cmd = CreateCommand(stderr: errWriter);
+
+        var result = await cmd.ExecuteAsync("commit-msg", [msgFile]);
+        result.ShouldBe(0);
 
         errWriter.ToString().ShouldNotContain("Warning");
     }
@@ -384,20 +339,11 @@ public class HookHandlerCommandTests : IDisposable
         var msgFile = Path.Combine(_tempDir, "COMMIT_EDITMSG");
         File.WriteAllText(msgFile, "no context");
 
-        var cmd = CreateCommand();
-
-        var originalErr = Console.Error;
         var errWriter = new StringWriter();
-        Console.SetError(errWriter);
-        try
-        {
-            var result = await cmd.ExecuteAsync("commit-msg", [msgFile]);
-            result.ShouldBe(0);
-        }
-        finally
-        {
-            Console.SetError(originalErr);
-        }
+        var cmd = CreateCommand(stderr: errWriter);
+
+        var result = await cmd.ExecuteAsync("commit-msg", [msgFile]);
+        result.ShouldBe(0);
 
         errWriter.ToString().ShouldBeEmpty();
     }

@@ -16,8 +16,11 @@ public sealed class HookHandlerCommand(
     IWorkItemRepository workItemRepo,
     TwigConfiguration config,
     IGitService? gitService = null,
-    IPromptStateWriter? promptStateWriter = null)
+    IPromptStateWriter? promptStateWriter = null,
+    TextWriter? stderr = null)
 {
+    private readonly TextWriter _stderr = stderr ?? Console.Error;
+
     /// <summary>Handle a git hook invocation.</summary>
     public async Task<int> ExecuteAsync(string hookName, string[] args, CancellationToken ct = default)
     {
@@ -66,14 +69,14 @@ public sealed class HookHandlerCommand(
             // Try to get work item title for the notification
             var item = await workItemRepo.GetByIdAsync(workItemId.Value);
             if (item is not null)
-                Console.Error.WriteLine($"Twig context → #{workItemId.Value} ({item.Type.Value}: {item.Title})");
+                _stderr.WriteLine($"Twig context → #{workItemId.Value} ({item.Type.Value}: {item.Title})");
             else
-                Console.Error.WriteLine($"Twig context → #{workItemId.Value}");
+                _stderr.WriteLine($"Twig context → #{workItemId.Value}");
         }
         catch (Exception ex)
         {
             if (IsDebugEnabled())
-                Console.Error.WriteLine($"[twig debug] {hookName} hook error: {ex}");
+                _stderr.WriteLine($"[twig debug] {hookName} hook error: {ex}");
             // Hook failures must never break git operations
         }
 
@@ -113,7 +116,7 @@ public sealed class HookHandlerCommand(
         catch (Exception ex)
         {
             if (IsDebugEnabled())
-                Console.Error.WriteLine($"[twig debug] {hookName} hook error: {ex}");
+                _stderr.WriteLine($"[twig debug] {hookName} hook error: {ex}");
             // Hook failures must never break git operations
         }
 
@@ -145,13 +148,13 @@ public sealed class HookHandlerCommand(
             // Check if the message contains any work item reference (e.g., #42 or #12345)
             if (!Regex.IsMatch(content, @"#\d+", RegexOptions.None, TimeSpan.FromSeconds(1)))
             {
-                Console.Error.WriteLine($"Warning: commit message does not reference a work item (e.g., #{activeId.Value}).");
+                _stderr.WriteLine($"Warning: commit message does not reference a work item (e.g., #{activeId.Value}).");
             }
         }
         catch (Exception ex)
         {
             if (IsDebugEnabled())
-                Console.Error.WriteLine($"[twig debug] {hookName} hook error: {ex}");
+                _stderr.WriteLine($"[twig debug] {hookName} hook error: {ex}");
             // Hook failures must never break git operations
         }
 

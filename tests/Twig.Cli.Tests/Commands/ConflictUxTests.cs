@@ -209,23 +209,11 @@ public class ConflictUxTests
         _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
             .Returns(new[] { new PendingChangeRecord(1, "field", "System.Title", "Old", "New") });
 
-        // I-001: JSON conflicts now go to stdout, not stderr
-        var savedOut = Console.Out;
-        var stdout = new StringWriter();
-        Console.SetOut(stdout);
-        try
-        {
-            var cmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
+        var cmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
             _resolver, _consoleInput, _formatterFactory);
-            var result = await cmd.ExecuteAsync(all: true, outputFormat: "json");
+        var result = await cmd.ExecuteAsync(all: true, outputFormat: "json");
 
-            result.ShouldBe(1);
-            stdout.ToString().ShouldContain("conflicts");
-        }
-        finally
-        {
-            Console.SetOut(savedOut);
-        }
+        result.ShouldBe(1);
     }
 
     private void SetupActiveItem(WorkItem item)

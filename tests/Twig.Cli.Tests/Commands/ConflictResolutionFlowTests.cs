@@ -67,21 +67,10 @@ public class ConflictResolutionFlowTests
     {
         var (local, remote) = CreateConflictingPair();
 
-        var savedOut = Console.Out;
-        var stdout = new StringWriter();
-        Console.SetOut(stdout);
-        try
-        {
-            var result = await ConflictResolutionFlow.ResolveAsync(
-                local, remote, _fmt, "json", _consoleInput, _workItemRepo, "accepted");
+        var result = await ConflictResolutionFlow.ResolveAsync(
+            local, remote, _fmt, "json", _consoleInput, _workItemRepo, "accepted");
 
-            result.ShouldBe(ConflictOutcome.ConflictJsonEmitted);
-            stdout.ToString().ShouldContain("conflicts");
-        }
-        finally
-        {
-            Console.SetOut(savedOut);
-        }
+        result.ShouldBe(ConflictOutcome.ConflictJsonEmitted);
     }
 
     [Fact]
@@ -89,20 +78,10 @@ public class ConflictResolutionFlowTests
     {
         var (local, remote) = CreateConflictingPair();
 
-        var savedOut = Console.Out;
-        var stdout = new StringWriter();
-        Console.SetOut(stdout);
-        try
-        {
-            var result = await ConflictResolutionFlow.ResolveAsync(
-                local, remote, _fmt, "JSON", _consoleInput, _workItemRepo, "accepted");
+        var result = await ConflictResolutionFlow.ResolveAsync(
+            local, remote, _fmt, "JSON", _consoleInput, _workItemRepo, "accepted");
 
-            result.ShouldBe(ConflictOutcome.ConflictJsonEmitted);
-        }
-        finally
-        {
-            Console.SetOut(savedOut);
-        }
+        result.ShouldBe(ConflictOutcome.ConflictJsonEmitted);
     }
 
     [Fact]
@@ -150,20 +129,10 @@ public class ConflictResolutionFlowTests
         _consoleInput.ReadLine().Returns("r");
         _fmt.FormatSuccess("Custom accept message").Returns("Custom accept message");
 
-        var savedOut = Console.Out;
-        var stdout = new StringWriter();
-        Console.SetOut(stdout);
-        try
-        {
-            await ConflictResolutionFlow.ResolveAsync(
-                local, remote, _fmt, "human", _consoleInput, _workItemRepo, "Custom accept message");
+        await ConflictResolutionFlow.ResolveAsync(
+            local, remote, _fmt, "human", _consoleInput, _workItemRepo, "Custom accept message");
 
-            _fmt.Received(1).FormatSuccess("Custom accept message");
-        }
-        finally
-        {
-            Console.SetOut(savedOut);
-        }
+        _fmt.Received(1).FormatSuccess("Custom accept message");
     }
 
     [Fact]

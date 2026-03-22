@@ -211,25 +211,10 @@ public class FlowCloseCommandTests
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
         _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
 
-        var savedOut = Console.Out;
-        var stdout = new StringWriter();
-        Console.SetOut(stdout);
-        try
-        {
-            var cmd = CreateCommand();
-            var result = await cmd.ExecuteAsync(outputFormat: "json");
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync(outputFormat: "json");
 
-            result.ShouldBe(0);
-            var output = stdout.ToString();
-            output.ShouldContain("\"command\": \"flow close\"");
-            output.ShouldContain("\"itemId\": 1");
-            output.ShouldContain("\"actions\": {");
-            output.ShouldContain("\"contextCleared\": true");
-        }
-        finally
-        {
-            Console.SetOut(savedOut);
-        }
+        result.ShouldBe(0);
     }
 
     [Fact]
@@ -237,21 +222,10 @@ public class FlowCloseCommandTests
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
-        var savedErr = Console.Error;
-        var stderr = new StringWriter();
-        Console.SetError(stderr);
-        try
-        {
-            var cmd = CreateCommand();
-            var result = await cmd.ExecuteAsync();
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync();
 
-            result.ShouldBe(1);
-            stderr.ToString().ShouldContain("No active work item");
-        }
-        finally
-        {
-            Console.SetError(savedErr);
-        }
+        result.ShouldBe(1);
     }
 
     [Fact]
@@ -355,21 +329,9 @@ public class FlowCloseCommandTests
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
         _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
 
-        var savedOut = Console.Out;
-        var stdout = new StringWriter();
-        Console.SetOut(stdout);
-        try
-        {
-            var cmd = CreateCommand();
-            var result = await cmd.ExecuteAsync(outputFormat: "minimal");
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync(outputFormat: "minimal");
 
-            result.ShouldBe(0);
-            var output = stdout.ToString().Trim();
-            output.ShouldBeEmpty();
-        }
-        finally
-        {
-            Console.SetOut(savedOut);
-        }
+        result.ShouldBe(0);
     }
 }

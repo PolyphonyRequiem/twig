@@ -19,11 +19,13 @@ internal static class GitGuard
     /// <c>(false, 1)</c> with an error written to stderr otherwise.
     /// </returns>
     internal static async Task<(bool IsValid, int ExitCode)> EnsureGitRepoAsync(
-        IGitService? gitService, IOutputFormatter fmt)
+        IGitService? gitService, IOutputFormatter fmt, TextWriter? stderr = null)
     {
+        stderr ??= Console.Error;
+
         if (gitService is null)
         {
-            Console.Error.WriteLine(fmt.FormatError("Git is not available."));
+            stderr.WriteLine(fmt.FormatError("Git is not available."));
             return (false, 1);
         }
 
@@ -34,13 +36,13 @@ internal static class GitGuard
         }
         catch (Exception)
         {
-            Console.Error.WriteLine(fmt.FormatError("Not inside a git repository."));
+            stderr.WriteLine(fmt.FormatError("Not inside a git repository."));
             return (false, 1);
         }
 
         if (!isInWorkTree)
         {
-            Console.Error.WriteLine(fmt.FormatError("Not inside a git repository."));
+            stderr.WriteLine(fmt.FormatError("Not inside a git repository."));
             return (false, 1);
         }
 

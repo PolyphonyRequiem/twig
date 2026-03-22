@@ -11,8 +11,10 @@ internal static class LegacyDbMigrator
     /// current config context, moves it (and WAL/SHM journals) to the context path.
     /// Failures are non-fatal — a warning is written to stderr and the tool continues.
     /// </summary>
-    public static void MigrateIfNeeded(string twigDir, TwigConfiguration config)
+    public static void MigrateIfNeeded(string twigDir, TwigConfiguration config, TextWriter? stderr = null)
     {
+        stderr ??= Console.Error;
+
         if (string.IsNullOrWhiteSpace(config.Organization) || string.IsNullOrWhiteSpace(config.Project))
             return;
 
@@ -37,7 +39,7 @@ internal static class LegacyDbMigrator
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"warning: legacy DB migration failed: {ex.Message}. Run 'twig init --force' to reinitialize.");
+            stderr.WriteLine($"warning: legacy DB migration failed: {ex.Message}. Run 'twig init --force' to reinitialize.");
         }
     }
 

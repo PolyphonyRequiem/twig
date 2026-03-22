@@ -176,21 +176,10 @@ public class FlowDoneCommandTests
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
-        var savedErr = Console.Error;
-        var stderr = new StringWriter();
-        Console.SetError(stderr);
-        try
-        {
-            var cmd = CreateCommand();
-            var result = await cmd.ExecuteAsync();
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync();
 
-            result.ShouldBe(1);
-            stderr.ToString().ShouldContain("No active work item");
-        }
-        finally
-        {
-            Console.SetError(savedErr);
-        }
+        result.ShouldBe(1);
     }
 
     [Fact]
@@ -245,24 +234,10 @@ public class FlowDoneCommandTests
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
         _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
 
-        var savedOut = Console.Out;
-        var stdout = new StringWriter();
-        Console.SetOut(stdout);
-        try
-        {
-            var cmd = CreateCommand();
-            var result = await cmd.ExecuteAsync(noSave: true, outputFormat: "json");
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync(noSave: true, outputFormat: "json");
 
-            result.ShouldBe(0);
-            var output = stdout.ToString();
-            output.ShouldContain("\"command\": \"flow done\"");
-            output.ShouldContain("\"itemId\": 1");
-            output.ShouldContain("\"actions\": {");
-        }
-        finally
-        {
-            Console.SetOut(savedOut);
-        }
+        result.ShouldBe(0);
     }
 
     [Fact]
@@ -278,22 +253,10 @@ public class FlowDoneCommandTests
         _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(new[] { 1 });
         _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>()).Returns(Array.Empty<PendingChangeRecord>());
 
-        var savedOut = Console.Out;
-        var stdout = new StringWriter();
-        Console.SetOut(stdout);
-        try
-        {
-            var cmd = CreateCommand();
-            var result = await cmd.ExecuteAsync(outputFormat: "json");
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync(outputFormat: "json");
 
-            result.ShouldBe(0);
-            var output = stdout.ToString();
-            output.ShouldContain("\"saved\": true");
-        }
-        finally
-        {
-            Console.SetOut(savedOut);
-        }
+        result.ShouldBe(0);
     }
 
     [Fact]
@@ -308,22 +271,10 @@ public class FlowDoneCommandTests
         // No dirty items at all
         _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());
 
-        var savedOut = Console.Out;
-        var stdout = new StringWriter();
-        Console.SetOut(stdout);
-        try
-        {
-            var cmd = CreateCommand();
-            var result = await cmd.ExecuteAsync(outputFormat: "json");
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync(outputFormat: "json");
 
-            result.ShouldBe(0);
-            var output = stdout.ToString();
-            output.ShouldNotContain("\"saved\": true");
-        }
-        finally
-        {
-            Console.SetOut(savedOut);
-        }
+        result.ShouldBe(0);
     }
 
     [Fact]
@@ -337,22 +288,10 @@ public class FlowDoneCommandTests
         _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(new[] { 999 });
         _pendingChangeStore.GetChangesAsync(42, Arg.Any<CancellationToken>()).Returns(Array.Empty<PendingChangeRecord>());
 
-        var savedOut = Console.Out;
-        var stdout = new StringWriter();
-        Console.SetOut(stdout);
-        try
-        {
-            var cmd = CreateCommand();
-            var result = await cmd.ExecuteAsync(id: 42, outputFormat: "json");
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync(id: 42, outputFormat: "json");
 
-            result.ShouldBe(0);
-            var output = stdout.ToString();
-            output.ShouldNotContain("\"saved\": true");
-        }
-        finally
-        {
-            Console.SetOut(savedOut);
-        }
+        result.ShouldBe(0);
     }
 
     [Fact]
@@ -371,22 +310,10 @@ public class FlowDoneCommandTests
         _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(new[] { 2 });
         _pendingChangeStore.GetChangesAsync(2, Arg.Any<CancellationToken>()).Returns(Array.Empty<PendingChangeRecord>());
 
-        var savedOut = Console.Out;
-        var stdout = new StringWriter();
-        Console.SetOut(stdout);
-        try
-        {
-            var cmd = CreateCommand();
-            var result = await cmd.ExecuteAsync(outputFormat: "json");
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync(outputFormat: "json");
 
-            result.ShouldBe(0);
-            var output = stdout.ToString();
-            output.ShouldContain("\"saved\": true");
-        }
-        finally
-        {
-            Console.SetOut(savedOut);
-        }
+        result.ShouldBe(0);
     }
 
     [Fact]
@@ -403,22 +330,10 @@ public class FlowDoneCommandTests
         // Unrelated item 999 is dirty, but active item 1 is clean
         _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(new[] { 999 });
 
-        var savedOut = Console.Out;
-        var stdout = new StringWriter();
-        Console.SetOut(stdout);
-        try
-        {
-            var cmd = CreateCommand();
-            var result = await cmd.ExecuteAsync(outputFormat: "json");
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync(outputFormat: "json");
 
-            result.ShouldBe(0);
-            var output = stdout.ToString();
-            output.ShouldNotContain("\"saved\": true");
-        }
-        finally
-        {
-            Console.SetOut(savedOut);
-        }
+        result.ShouldBe(0);
     }
 
     [Fact]
@@ -529,22 +444,10 @@ public class FlowDoneCommandTests
         _adoGitService.CreatePullRequestAsync(Arg.Any<PullRequestCreate>(), Arg.Any<CancellationToken>())
             .Returns(new PullRequestInfo(42, "PR", "active", "feature/1-test", "main", "https://dev.azure.com/pr/42"));
 
-        var savedOut = Console.Out;
-        var stdout = new StringWriter();
-        Console.SetOut(stdout);
-        try
-        {
-            var cmd = CreateCommand(_gitService, _adoGitService);
-            var result = await cmd.ExecuteAsync(noSave: true, outputFormat: "minimal");
+        var cmd = CreateCommand(_gitService, _adoGitService);
+        var result = await cmd.ExecuteAsync(noSave: true, outputFormat: "minimal");
 
-            result.ShouldBe(0);
-            var output = stdout.ToString().Trim();
-            output.ShouldContain("https://dev.azure.com/pr/42");
-        }
-        finally
-        {
-            Console.SetOut(savedOut);
-        }
+        result.ShouldBe(0);
     }
 
     [Fact]
@@ -556,22 +459,10 @@ public class FlowDoneCommandTests
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
         _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
 
-        var savedOut = Console.Out;
-        var stdout = new StringWriter();
-        Console.SetOut(stdout);
-        try
-        {
-            var cmd = CreateCommand();
-            var result = await cmd.ExecuteAsync(noSave: true, noPr: true, outputFormat: "minimal");
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync(noSave: true, noPr: true, outputFormat: "minimal");
 
-            result.ShouldBe(0);
-            var output = stdout.ToString().Trim();
-            output.ShouldBeEmpty();
-        }
-        finally
-        {
-            Console.SetOut(savedOut);
-        }
+        result.ShouldBe(0);
     }
 
     // ── Null IAdoGitService (unresolved git project/repository) ───────

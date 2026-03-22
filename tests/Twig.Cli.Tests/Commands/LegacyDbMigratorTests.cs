@@ -155,28 +155,18 @@ public class LegacyDbMigratorTests : IDisposable
         var orgDirPath = Path.Combine(_twigDir, "failorg");
         File.WriteAllText(orgDirPath, "blocker");
 
-        // Capture stderr
-        var originalStderr = Console.Error;
         using var sw = new StringWriter();
-        Console.SetError(sw);
 
-        try
-        {
-            // Act — should NOT throw
-            LegacyDbMigrator.MigrateIfNeeded(_twigDir, config);
+        // Act — should NOT throw
+        LegacyDbMigrator.MigrateIfNeeded(_twigDir, config, sw);
 
-            // Assert: legacy DB should still exist (move failed)
-            File.Exists(legacyDbPath).ShouldBeTrue("Legacy DB should remain when migration fails");
+        // Assert: legacy DB should still exist (move failed)
+        File.Exists(legacyDbPath).ShouldBeTrue("Legacy DB should remain when migration fails");
 
-            // Assert: warning was written to stderr
-            var stderrOutput = sw.ToString();
-            stderrOutput.ShouldContain("warning: legacy DB migration failed:");
-            stderrOutput.ShouldContain("twig init --force");
-        }
-        finally
-        {
-            Console.SetError(originalStderr);
-        }
+        // Assert: warning was written to stderr
+        var stderrOutput = sw.ToString();
+        stderrOutput.ShouldContain("warning: legacy DB migration failed:");
+        stderrOutput.ShouldContain("twig init --force");
     }
 
     private static void CreateDummyDb(string path)

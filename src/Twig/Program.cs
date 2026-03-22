@@ -178,8 +178,10 @@ internal static class ExceptionHandler
     /// Handles an exception by writing to stderr and setting the exit code.
     /// Returns the exit code that was set.
     /// </summary>
-    public static int Handle(Exception ex)
+    public static int Handle(Exception ex, TextWriter? stderr = null)
     {
+        stderr ??= Console.Error;
+
         if (ex is OperationCanceledException)
         {
             Environment.ExitCode = 130;
@@ -189,7 +191,7 @@ internal static class ExceptionHandler
         // FM-001: Offline — ADO unreachable
         if (ex is Twig.Infrastructure.Ado.Exceptions.AdoOfflineException)
         {
-            Console.Error.WriteLine("\u26a0 ADO unreachable. Operating in offline mode.");
+            stderr.WriteLine("\u26a0 ADO unreachable. Operating in offline mode.");
             Environment.ExitCode = 1;
             return 1;
         }
@@ -197,11 +199,11 @@ internal static class ExceptionHandler
         // FM-002 / FM-003: Authentication errors
         if (ex is Twig.Infrastructure.Ado.Exceptions.AdoAuthenticationException authEx)
         {
-            Console.Error.WriteLine($"error: {authEx.Message}");
+            stderr.WriteLine($"error: {authEx.Message}");
             if (authEx.Message.Contains("PAT", StringComparison.OrdinalIgnoreCase))
-                Console.Error.WriteLine("Update PAT in .twig/config or $TWIG_PAT.");
+                stderr.WriteLine("Update PAT in .twig/config or $TWIG_PAT.");
             else
-                Console.Error.WriteLine("Run 'az login' to refresh.");
+                stderr.WriteLine("Run 'az login' to refresh.");
             Environment.ExitCode = 1;
             return 1;
         }
@@ -212,7 +214,7 @@ internal static class ExceptionHandler
             var msg = notFoundEx.WorkItemId.HasValue
                 ? $"Work item #{notFoundEx.WorkItemId} not found."
                 : "Resource not found.";
-            Console.Error.WriteLine($"error: {msg}");
+            stderr.WriteLine($"error: {msg}");
             Environment.ExitCode = 1;
             return 1;
         }
@@ -220,11 +222,11 @@ internal static class ExceptionHandler
         // FM-005: 400 — Bad request (state transition etc.)
         if (ex is Twig.Infrastructure.Ado.Exceptions.AdoBadRequestException badReqEx)
         {
-            Console.Error.WriteLine($"error: {badReqEx.Message}");
+            stderr.WriteLine($"error: {badReqEx.Message}");
             if (badReqEx.Message.Contains("transition", StringComparison.OrdinalIgnoreCase)
                 || badReqEx.Message.Contains("state", StringComparison.OrdinalIgnoreCase))
             {
-                Console.Error.WriteLine("Transition not allowed. Run 'twig refresh' to update process configuration.");
+                stderr.WriteLine("Transition not allowed. Run 'twig refresh' to update process configuration.");
             }
             Environment.ExitCode = 1;
             return 1;
@@ -233,7 +235,7 @@ internal static class ExceptionHandler
         // FM-009: No editor configured
         if (ex is Twig.Commands.EditorNotFoundException)
         {
-            Console.Error.WriteLine($"error: {ex.Message}");
+            stderr.WriteLine($"error: {ex.Message}");
             Environment.ExitCode = 1;
             return 1;
         }
@@ -242,12 +244,12 @@ internal static class ExceptionHandler
         if (ex is Microsoft.Data.Sqlite.SqliteException
             || (ex is InvalidOperationException && ex.InnerException is Microsoft.Data.Sqlite.SqliteException))
         {
-            Console.Error.WriteLine("\u26a0 Cache corrupted. Run 'twig init --force' to rebuild.");
+            stderr.WriteLine("\u26a0 Cache corrupted. Run 'twig init --force' to rebuild.");
             Environment.ExitCode = 1;
             return 1;
         }
 
-        Console.Error.WriteLine($"error: {ex.Message}");
+        stderr.WriteLine($"error: {ex.Message}");
         Environment.ExitCode = 1;
         return 1;
     }
@@ -534,8 +536,9 @@ internal static class TuiLauncher
 {
     private const string TuiBinaryName = "twig-tui";
 
-    internal static int Launch()
+    internal static int Launch(TextWriter? stderr = null)
     {
+        stderr ??= Console.Error;
         var exeName = OperatingSystem.IsWindows() ? $"{TuiBinaryName}.exe" : TuiBinaryName;
 
         // 1. Look in the same directory as the running twig binary
@@ -546,7 +549,7 @@ internal static class TuiLauncher
 
         if (binaryPath is null)
         {
-            Console.Error.WriteLine($"error: '{TuiBinaryName}' not found. Ensure the Twig.Tui project is built and on PATH or in the same directory as 'twig'.");
+            stderr.WriteLine($"error: '{TuiBinaryName}' not found. Ensure the Twig.Tui project is built and on PATH or in the same directory as 'twig'.");
             return 1;
         }
 
@@ -561,7 +564,7 @@ internal static class TuiLauncher
             using var process = System.Diagnostics.Process.Start(psi);
             if (process is null)
             {
-                Console.Error.WriteLine($"error: Failed to start '{TuiBinaryName}'.");
+                stderr.WriteLine($"error: Failed to start '{TuiBinaryName}'.");
                 return 1;
             }
 
@@ -571,7 +574,7 @@ internal static class TuiLauncher
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"error: Failed to launch TUI: {ex.Message}");
+            stderr.WriteLine($"error: Failed to launch TUI: {ex.Message}");
             return 1;
         }
     }

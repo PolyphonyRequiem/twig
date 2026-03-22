@@ -54,14 +54,12 @@ public class OfflineModeTests
     [Fact]
     public void ExceptionHandler_AdoOfflineException_ShowsBanner()
     {
-        var savedErr = Console.Error;
-        var stderr = new StringWriter();
-        Console.SetError(stderr);
         var savedExitCode = Environment.ExitCode;
         try
         {
             var ex = new AdoOfflineException(new HttpRequestException("Network error"));
-            var code = ExceptionHandler.Handle(ex);
+            var stderr = new StringWriter();
+            var code = ExceptionHandler.Handle(ex, stderr);
 
             code.ShouldBe(1);
             stderr.ToString().ShouldContain("ADO unreachable");
@@ -69,7 +67,6 @@ public class OfflineModeTests
         }
         finally
         {
-            Console.SetError(savedErr);
             Environment.ExitCode = savedExitCode;
         }
     }

@@ -71,17 +71,9 @@ public class GitGuardTests
     [Fact]
     public async Task NullGitService_WritesErrorToStderr()
     {
-        var swErr = new StringWriter();
-        Console.SetError(swErr);
-        try
-        {
-            await GitGuard.EnsureGitRepoAsync(null, _fmt);
-            swErr.ToString().ShouldContain("Git is not available");
-        }
-        finally
-        {
-            Console.SetError(new StreamWriter(Console.OpenStandardError()) { AutoFlush = true });
-        }
+        var stderr = new StringWriter();
+        await GitGuard.EnsureGitRepoAsync(null, _fmt, stderr);
+        stderr.ToString().ShouldContain("Git is not available");
     }
 
     [Fact]
@@ -90,17 +82,9 @@ public class GitGuardTests
         var gitService = Substitute.For<IGitService>();
         gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(false);
 
-        var swErr = new StringWriter();
-        Console.SetError(swErr);
-        try
-        {
-            await GitGuard.EnsureGitRepoAsync(gitService, _fmt);
-            swErr.ToString().ShouldContain("Not inside a git repository");
-        }
-        finally
-        {
-            Console.SetError(new StreamWriter(Console.OpenStandardError()) { AutoFlush = true });
-        }
+        var stderr = new StringWriter();
+        await GitGuard.EnsureGitRepoAsync(gitService, _fmt, stderr);
+        stderr.ToString().ShouldContain("Not inside a git repository");
     }
 
     [Fact]
@@ -110,16 +94,8 @@ public class GitGuardTests
         gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("boom"));
 
-        var swErr = new StringWriter();
-        Console.SetError(swErr);
-        try
-        {
-            await GitGuard.EnsureGitRepoAsync(gitService, _fmt);
-            swErr.ToString().ShouldContain("Not inside a git repository");
-        }
-        finally
-        {
-            Console.SetError(new StreamWriter(Console.OpenStandardError()) { AutoFlush = true });
-        }
+        var stderr = new StringWriter();
+        await GitGuard.EnsureGitRepoAsync(gitService, _fmt, stderr);
+        stderr.ToString().ShouldContain("Not inside a git repository");
     }
 }

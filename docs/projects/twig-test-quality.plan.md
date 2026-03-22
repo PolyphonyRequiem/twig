@@ -105,7 +105,7 @@ Twig has good test coverage (~1,160+ passing tests) with consistent tooling (xUn
 
 ---
 
-### EPIC-003: Eliminate Console.SetOut capture tests
+### EPIC-003: Eliminate Console.SetOut capture tests — **IN PROGRESS**
 
 **Problem:** 20+ test files redirect `Console.SetOut()` to assert on formatted output strings. These tests:
 - Break on any cosmetic change (spacing, wording, icons, color codes)

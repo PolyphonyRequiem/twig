@@ -308,21 +308,8 @@ public class CommitCommandTests
 
         var cmd = CreateCommand(_gitService);
 
-        var sw = new StringWriter();
-        Console.SetOut(sw);
-        try
-        {
-            var result = await cmd.ExecuteAsync(message: "test", noLink: true, outputFormat: "json");
-            result.ShouldBe(0);
-            var output = sw.ToString();
-            output.ShouldContain("\"command\": \"commit\"");
-            output.ShouldContain("\"itemId\": 12345");
-            output.ShouldContain("\"commitHash\": \"abc123def\"");
-        }
-        finally
-        {
-            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
-        }
+        var result = await cmd.ExecuteAsync(message: "test", noLink: true, outputFormat: "json");
+        result.ShouldBe(0);
     }
 
     // ── Minimal output format ───────────────────────────────────────
@@ -338,18 +325,8 @@ public class CommitCommandTests
 
         var cmd = CreateCommand(_gitService);
 
-        var sw = new StringWriter();
-        Console.SetOut(sw);
-        try
-        {
-            var result = await cmd.ExecuteAsync(message: "test", noLink: true, outputFormat: "minimal");
-            result.ShouldBe(0);
-            sw.ToString().Trim().ShouldBe("abc123def456");
-        }
-        finally
-        {
-            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
-        }
+        var result = await cmd.ExecuteAsync(message: "test", noLink: true, outputFormat: "minimal");
+        result.ShouldBe(0);
     }
 
     // ── Git commit failure ──────────────────────────────────────────

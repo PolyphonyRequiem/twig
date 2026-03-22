@@ -30,12 +30,10 @@ public class ExceptionFilterTests
     public void Handle_GeneralException_SetsExitCode1AndWritesToStderr()
     {
         var saved = Environment.ExitCode;
-        var savedErr = Console.Error;
-        var stderr = new StringWriter();
-        Console.SetError(stderr);
         try
         {
-            var code = ExceptionHandler.Handle(new InvalidOperationException("test error message"));
+            var stderr = new StringWriter();
+            var code = ExceptionHandler.Handle(new InvalidOperationException("test error message"), stderr);
 
             code.ShouldBe(1);
             Environment.ExitCode.ShouldBe(1);
@@ -44,7 +42,6 @@ public class ExceptionFilterTests
         finally
         {
             Environment.ExitCode = saved;
-            Console.SetError(savedErr);
         }
     }
 
@@ -69,12 +66,10 @@ public class ExceptionFilterTests
     public void Handle_NullReferenceException_SetsExitCode1AndWritesMessageToStderr()
     {
         var saved = Environment.ExitCode;
-        var savedErr = Console.Error;
-        var stderr = new StringWriter();
-        Console.SetError(stderr);
         try
         {
-            var code = ExceptionHandler.Handle(new NullReferenceException("something was null"));
+            var stderr = new StringWriter();
+            var code = ExceptionHandler.Handle(new NullReferenceException("something was null"), stderr);
 
             code.ShouldBe(1);
             stderr.ToString().ShouldContain("something was null");
@@ -82,7 +77,6 @@ public class ExceptionFilterTests
         finally
         {
             Environment.ExitCode = saved;
-            Console.SetError(savedErr);
         }
     }
 
@@ -90,12 +84,10 @@ public class ExceptionFilterTests
     public void Handle_EditorNotFoundException_SetsExitCode1AndWritesMessageToStderr()
     {
         var saved = Environment.ExitCode;
-        var savedErr = Console.Error;
-        var stderr = new StringWriter();
-        Console.SetError(stderr);
         try
         {
-            var code = ExceptionHandler.Handle(new Twig.Commands.EditorNotFoundException());
+            var stderr = new StringWriter();
+            var code = ExceptionHandler.Handle(new Twig.Commands.EditorNotFoundException(), stderr);
 
             code.ShouldBe(1);
             stderr.ToString().ShouldContain("No editor found");
@@ -103,7 +95,6 @@ public class ExceptionFilterTests
         finally
         {
             Environment.ExitCode = saved;
-            Console.SetError(savedErr);
         }
     }
 }

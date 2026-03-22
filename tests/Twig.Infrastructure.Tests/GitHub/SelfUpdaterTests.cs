@@ -16,6 +16,7 @@ namespace Twig.Infrastructure.Tests.GitHub;
 /// </summary>
 public class SelfUpdaterTests : IDisposable
 {
+    private static readonly string ExeName = OperatingSystem.IsWindows() ? "twig.exe" : "twig";
     private readonly string _tempDir;
 
     public SelfUpdaterTests()
@@ -37,11 +38,11 @@ public class SelfUpdaterTests : IDisposable
     public async Task UpdateBinaryAsync_ValidZip_ExtractsAndReplacesExe()
     {
         // Arrange: create a fake "current" binary
-        var currentExe = Path.Combine(_tempDir, "twig.exe");
+        var currentExe = Path.Combine(_tempDir, ExeName);
         File.WriteAllText(currentExe, "old-binary-content");
 
         var binaryContent = "new-binary-content"u8.ToArray();
-        var zipBytes = CreateZipArchive(("twig.exe", binaryContent));
+        var zipBytes = CreateZipArchive((ExeName, binaryContent));
 
         var downloader = new FakeDownloader(zipBytes);
         var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
@@ -54,19 +55,20 @@ public class SelfUpdaterTests : IDisposable
         var updatedContent = File.ReadAllBytes(currentExe);
         updatedContent.ShouldBe(binaryContent);
 
-        // Old binary should be renamed to .old
-        File.Exists(currentExe + ".old").ShouldBeTrue();
+        // Old binary should be renamed to .old on Windows only
+        if (OperatingSystem.IsWindows())
+            File.Exists(currentExe + ".old").ShouldBeTrue();
     }
 
     [Fact]
     public async Task UpdateBinaryAsync_ValidTarGz_ExtractsAndReplacesExe()
     {
         // Arrange
-        var currentExe = Path.Combine(_tempDir, "twig.exe");
+        var currentExe = Path.Combine(_tempDir, ExeName);
         File.WriteAllText(currentExe, "old-binary-content");
 
         var binaryContent = "new-binary-content"u8.ToArray();
-        var tarGzBytes = CreateTarGzArchive(("twig.exe", binaryContent));
+        var tarGzBytes = CreateTarGzArchive((ExeName, binaryContent));
 
         var downloader = new FakeDownloader(tarGzBytes);
         var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
@@ -84,11 +86,11 @@ public class SelfUpdaterTests : IDisposable
     public async Task UpdateBinaryAsync_ZipWithSubfolder_FindsBinary()
     {
         // Archive has the binary nested inside a folder (common for GitHub release assets)
-        var currentExe = Path.Combine(_tempDir, "twig.exe");
+        var currentExe = Path.Combine(_tempDir, ExeName);
         File.WriteAllText(currentExe, "old");
 
         var binaryContent = "nested-binary"u8.ToArray();
-        var zipBytes = CreateZipArchive(("twig-win-x64/twig.exe", binaryContent));
+        var zipBytes = CreateZipArchive(($"twig-win-x64/{ExeName}", binaryContent));
 
         var downloader = new FakeDownloader(zipBytes);
         var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
@@ -102,10 +104,10 @@ public class SelfUpdaterTests : IDisposable
     [Fact]
     public async Task UpdateBinaryAsync_CleansUpTempFiles()
     {
-        var currentExe = Path.Combine(_tempDir, "twig.exe");
+        var currentExe = Path.Combine(_tempDir, ExeName);
         File.WriteAllText(currentExe, "old");
 
-        var zipBytes = CreateZipArchive(("twig.exe", "new"u8.ToArray()));
+        var zipBytes = CreateZipArchive((ExeName, "new"u8.ToArray()));
         var downloader = new FakeDownloader(zipBytes);
         var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
 
@@ -172,7 +174,7 @@ public class SelfUpdaterTests : IDisposable
     public async Task UpdateBinaryAsync_TarGzWithPathTraversal_ThrowsInvalidOperationException()
     {
         // End-to-end path traversal test through UpdateBinaryAsync
-        var currentExe = Path.Combine(_tempDir, "twig.exe");
+        var currentExe = Path.Combine(_tempDir, ExeName);
         File.WriteAllText(currentExe, "old");
 
         var maliciousTarGz = CreateTarGzArchive(("../../etc/passwd", "malicious"u8.ToArray()));
@@ -194,7 +196,7 @@ public class SelfUpdaterTests : IDisposable
     [InlineData(HttpStatusCode.ServiceUnavailable, "503")]
     public async Task UpdateBinaryAsync_HttpError_ThrowsDescriptiveException(HttpStatusCode statusCode, string expectedFragment)
     {
-        var currentExe = Path.Combine(_tempDir, "twig.exe");
+        var currentExe = Path.Combine(_tempDir, ExeName);
         File.WriteAllText(currentExe, "old");
 
         var downloader = Substitute.For<IHttpDownloader>();
@@ -214,7 +216,7 @@ public class SelfUpdaterTests : IDisposable
     [Fact]
     public async Task UpdateBinaryAsync_Timeout_ThrowsDescriptiveException()
     {
-        var currentExe = Path.Combine(_tempDir, "twig.exe");
+        var currentExe = Path.Combine(_tempDir, ExeName);
         File.WriteAllText(currentExe, "old");
 
         var downloader = Substitute.For<IHttpDownloader>();
@@ -236,7 +238,7 @@ public class SelfUpdaterTests : IDisposable
     [Fact]
     public async Task UpdateBinaryAsync_TruncatedZip_ThrowsAndCleansUp()
     {
-        var currentExe = Path.Combine(_tempDir, "twig.exe");
+        var currentExe = Path.Combine(_tempDir, ExeName);
         File.WriteAllText(currentExe, "old");
 
         // Write an invalid/truncated zip file
@@ -254,7 +256,7 @@ public class SelfUpdaterTests : IDisposable
     [Fact]
     public async Task UpdateBinaryAsync_TruncatedTarGz_ThrowsAndCleansUp()
     {
-        var currentExe = Path.Combine(_tempDir, "twig.exe");
+        var currentExe = Path.Combine(_tempDir, ExeName);
         File.WriteAllText(currentExe, "old");
 
         // Write a truncated gzip stream
@@ -271,10 +273,10 @@ public class SelfUpdaterTests : IDisposable
     [Fact]
     public async Task UpdateBinaryAsync_ValidZipMissingBinary_ThrowsDescriptiveError()
     {
-        var currentExe = Path.Combine(_tempDir, "twig.exe");
+        var currentExe = Path.Combine(_tempDir, ExeName);
         File.WriteAllText(currentExe, "old");
 
-        // Create zip with a different file (not twig.exe)
+        // Create zip with a different file (not the expected binary)
         var zipBytes = CreateZipArchive(("readme.txt", "hello"u8.ToArray()));
         var downloader = new FakeDownloader(zipBytes);
         var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
@@ -282,7 +284,7 @@ public class SelfUpdaterTests : IDisposable
         var ex = await Should.ThrowAsync<InvalidOperationException>(
             () => sut.UpdateBinaryAsync("https://example.com/dl.zip", "twig-win-x64.zip"));
         ex.Message.ShouldContain("Could not find");
-        ex.Message.ShouldContain("twig.exe");
+        ex.Message.ShouldContain(ExeName);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -292,9 +294,12 @@ public class SelfUpdaterTests : IDisposable
     [Fact]
     public async Task UpdateBinaryAsync_PermissionDeniedOnMove_ThrowsAndCleansUp()
     {
-        var currentExe = Path.Combine(_tempDir, "twig.exe");
+        if (!OperatingSystem.IsWindows())
+            return; // FileMove rename trick is Windows-only
+
+        var currentExe = Path.Combine(_tempDir, ExeName);
         var binaryContent = "new-binary"u8.ToArray();
-        var zipBytes = CreateZipArchive(("twig.exe", binaryContent));
+        var zipBytes = CreateZipArchive((ExeName, binaryContent));
 
         var fileSystem = Substitute.For<IFileSystem>();
         // Allow temp operations to work
@@ -334,10 +339,13 @@ public class SelfUpdaterTests : IDisposable
     [Fact]
     public async Task UpdateBinaryAsync_OldBinaryLocked_StillSucceeds()
     {
-        var currentExe = Path.Combine(_tempDir, "twig.exe");
+        if (!OperatingSystem.IsWindows())
+            return; // .old file lock handling is Windows-only
+
+        var currentExe = Path.Combine(_tempDir, ExeName);
 
         var binaryContent = "new-binary"u8.ToArray();
-        var zipBytes = CreateZipArchive(("twig.exe", binaryContent));
+        var zipBytes = CreateZipArchive((ExeName, binaryContent));
 
         var fileSystem = Substitute.For<IFileSystem>();
 
@@ -377,7 +385,7 @@ public class SelfUpdaterTests : IDisposable
     [Fact]
     public void CleanupOldBinaryCore_OldFileExists_DeletesIt()
     {
-        var exePath = Path.Combine(_tempDir, "twig.exe");
+        var exePath = Path.Combine(_tempDir, ExeName);
         var oldPath = exePath + ".old";
         File.WriteAllText(oldPath, "old-binary");
 
@@ -389,7 +397,7 @@ public class SelfUpdaterTests : IDisposable
     [Fact]
     public void CleanupOldBinaryCore_NoOldFile_DoesNotThrow()
     {
-        var exePath = Path.Combine(_tempDir, "twig.exe");
+        var exePath = Path.Combine(_tempDir, ExeName);
 
         // Should not throw even when .old file doesn't exist
         Should.NotThrow(() => SelfUpdater.CleanupOldBinaryCore(new DefaultFileSystem(), exePath));
@@ -431,14 +439,14 @@ public class SelfUpdaterTests : IDisposable
         var sut = new SelfUpdater(downloader, new DefaultFileSystem(), processPath: null);
 
         var ex = await Should.ThrowAsync<InvalidOperationException>(
-            () => sut.UpdateBinaryAsync("https://example.com/dl.zip", "twig-win-x64.zip"));
+            () => sut.UpdateBinaryAsync("https://example.com/dl.zip", "twig-x64.zip"));
         ex.Message.ShouldContain("Cannot determine current executable path");
     }
 
     [Fact]
     public async Task UpdateBinaryAsync_UnsupportedArchiveFormat_ThrowsInvalidOperationException()
     {
-        var currentExe = Path.Combine(_tempDir, "twig.exe");
+        var currentExe = Path.Combine(_tempDir, ExeName);
         File.WriteAllText(currentExe, "old");
 
         var downloader = new FakeDownloader("dummy"u8.ToArray());

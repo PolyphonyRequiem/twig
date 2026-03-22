@@ -121,7 +121,7 @@ public sealed class HintEngine
                 break;
 
             case "init":
-                hints.Add("Run 'twig set <id>' to set your active work item.");
+                hints.Add("Run 'twig workspace' to see your sprint, or 'twig set <id>' to focus on an item.");
                 break;
 
             case "branch":

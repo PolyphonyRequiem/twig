@@ -169,17 +169,16 @@ public sealed class InitCommand
         }
 
         Console.WriteLine(fmt.FormatInfo("Getting current iteration..."));
+        Domain.ValueObjects.IterationPath? currentIteration = null;
         try
         {
-            var iteration = await iterationService.GetCurrentIterationAsync();
-            Console.WriteLine(fmt.FormatInfo($"  Current iteration: {iteration}"));
-            config.Defaults.IterationPath = iteration.ToString();
+            currentIteration = await iterationService.GetCurrentIterationAsync();
+            Console.WriteLine(fmt.FormatInfo($"  Current iteration: {currentIteration}"));
         }
         catch (Exception ex) when (ex is Twig.Infrastructure.Ado.Exceptions.AdoNotFoundException
                                      or Twig.Infrastructure.Ado.Exceptions.AdoException)
         {
             Console.WriteLine(fmt.FormatInfo($"  \u26a0 Could not detect current iteration: {ex.Message}"));
-            Console.WriteLine(fmt.FormatHint("You can set it later with: twig config defaults.iterationPath '<path>'"));
         }
 
         // Detect authenticated user identity
@@ -225,6 +224,66 @@ public sealed class InitCommand
 
         // SEC-001: Append .twig/ to .gitignore
         AppendToGitignore();
+
+        // Inline refresh: populate the cache with sprint items so the workspace isn't empty after init
+        if (currentIteration is not null && _httpClient is not null && _authProvider is not null)
+        {
+            try
+            {
+                Console.WriteLine(fmt.FormatInfo("Refreshing sprint items..."));
+                var adoClient = new AdoRestClient(_httpClient, _authProvider, org, project);
+                var workItemRepo = new Infrastructure.Persistence.SqliteWorkItemRepository(cacheStore);
+                var contextStore = new Infrastructure.Persistence.SqliteContextStore(cacheStore);
+
+                // Build WIQL query scoped to current iteration + area paths
+                var sanitizedPath = currentIteration.Value.Value.Replace("'", "''");
+                var wiql = $"SELECT [System.Id] FROM WorkItems WHERE [System.IterationPath] = '{sanitizedPath}'";
+                var areaPathEntries = config.Defaults?.AreaPathEntries;
+                if (areaPathEntries is { Count: > 0 })
+                {
+                    var clauses = areaPathEntries
+                        .Select(entry =>
+                        {
+                            var escaped = entry.Path.Replace("'", "''");
+                            var op = entry.IncludeChildren ? "UNDER" : "=";
+                            return $"[System.AreaPath] {op} '{escaped}'";
+                        });
+                    wiql += $" AND ({string.Join(" OR ", clauses)})";
+                }
+                else
+                {
+                    var areaPaths = config.Defaults?.AreaPaths;
+                    if (areaPaths is { Count: > 0 })
+                    {
+                        var clauses = areaPaths
+                            .Select(ap => $"[System.AreaPath] UNDER '{ap.Replace("'", "''")}'");
+                        wiql += $" AND ({string.Join(" OR ", clauses)})";
+                    }
+                }
+                wiql += " ORDER BY [System.Id]";
+
+                var ids = await adoClient.QueryByWiqlAsync(wiql);
+                var realIds = ids.Where(id => id > 0).ToList();
+                if (realIds.Count > 0)
+                {
+                    var sprintItems = await adoClient.FetchBatchAsync(realIds, ct);
+                    await workItemRepo.SaveBatchAsync(sprintItems);
+                    Console.WriteLine(fmt.FormatInfo($"  Cached {sprintItems.Count} sprint item(s)."));
+                }
+                else
+                {
+                    Console.WriteLine(fmt.FormatInfo("  No items found in current iteration."));
+                }
+
+                // Set cache freshness timestamp
+                await contextStore.SetValueAsync("last_refreshed_at", DateTimeOffset.UtcNow.ToString("O"));
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Console.WriteLine(fmt.FormatInfo($"  \u26a0 Could not refresh sprint items: {ex.Message}"));
+                Console.WriteLine(fmt.FormatHint("Run 'twig refresh' to populate your workspace."));
+            }
+        }
 
         // Blank line before success message (human output only)
         if (!string.Equals(outputFormat, "json", StringComparison.OrdinalIgnoreCase) &&

@@ -117,16 +117,31 @@ app.UseFilter<ExceptionFilter>();
 app.Add<TwigCommands>();
 app.Add<OhMyPoshCommands>("ohmyposh");
 
-// Handle --version and grouped help before ConsoleAppFramework parsing
-if (args.Length == 0 || (args.Length == 1 && args[0] is "-h" or "--help"))
-{
-    GroupedHelp.Show();
-    return;
-}
+// Handle --version, grouped help (explicit -h/--help), and smart landing (no args)
 if (args.Length == 1 && args[0] == "--version")
 {
     Console.WriteLine(VersionHelper.GetVersion());
     return;
+}
+if (args.Length == 1 && args[0] is "-h" or "--help")
+{
+    GroupedHelp.Show();
+    return;
+}
+if (args.Length == 0)
+{
+    // Smart landing: route to status if workspace is initialized, otherwise show help
+    var twigDirCheck = Path.Combine(Directory.GetCurrentDirectory(), ".twig");
+    if (Directory.Exists(twigDirCheck))
+    {
+        args = ["status"];
+        // Fall through to app.Run(args)
+    }
+    else
+    {
+        GroupedHelp.Show();
+        return;
+    }
 }
 
 app.Run(args);
@@ -303,11 +318,7 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> Workspace(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, CancellationToken ct = default)
         => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, ct);
 
-    /// <summary>Show the current workspace (alias).</summary>
-    public async Task<int> Show(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, ct);
-
-    /// <summary>Show the current workspace (alias).</summary>
+    /// <summary>Show the current workspace (short alias).</summary>
     public async Task<int> Ws(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, CancellationToken ct = default)
         => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, ct);
 
@@ -460,12 +471,14 @@ Getting Started:
   init                 Initialize a new Twig workspace.
   refresh              Refresh the local cache from Azure DevOps.
 
+Views:
+  status               Active item detail and pending changes.
+  tree                 Work item hierarchy (parent → active → children).
+  workspace            My sprint items.  (alias: ws)
+  sprint               Team sprint items, grouped by assignee.
+
 Context:
   set <id|pattern>     Set the active work item.
-  status               Show status of the active work item.
-  tree                 Display the work item tree hierarchy.
-  workspace            Show the current workspace.  (aliases: show, ws)
-  sprint               Show all team items in the current sprint.
 
 Navigation:
   up                   Navigate to the parent work item.

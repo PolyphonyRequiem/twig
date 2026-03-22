@@ -107,7 +107,9 @@ Twig has four view commands (`status`, `tree`, `workspace`, `sprint`) plus three
 
 ## Proposed Changes
 
-### EPIC-001: Sharpen command identity (naming & routing)
+### EPIC-001: Sharpen command identity (naming & routing) — DONE
+
+> Implemented in commit `8b1e580`. All 6 tasks completed.
 
 | # | Change | Impact | Risk |
 |---|--------|--------|------|

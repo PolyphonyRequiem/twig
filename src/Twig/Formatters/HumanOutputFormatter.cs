@@ -421,23 +421,19 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         // Flush any accumulated lines before the separator
         FlushAlignedLines(sb, lines);
 
-        // Virtual group header: indented to backlog level
+        // Virtual group header at base indent (separator label)
         var baseIndent = "      ";
-        var levelIndent = new string(' ', virtualNode.BacklogLevel * 4);
-        var groupIndent = baseIndent + levelIndent;
-        sb.AppendLine($"{groupIndent}{Dim}── {virtualNode.GroupLabel} ──{Reset}");
+        sb.AppendLine($"{baseIndent}{Dim}── {virtualNode.GroupLabel} ──{Reset}");
 
-        // Children at the same backlog-level indentation
-        var childIndent = groupIndent;
+        // Children rendered at their backlog-level indent WITHOUT connectors,
+        // so badges align vertically with parented items at the same level.
+        // (Level 0 badge at 6, level 1 at 10, level 2 at 14 — matching normal roots.)
+        var itemIndent = baseIndent + new string(' ', virtualNode.BacklogLevel * 4);
 
-        for (var i = 0; i < virtualNode.Children.Count; i++)
+        foreach (var child in virtualNode.Children)
         {
-            var child = virtualNode.Children[i];
-            var isLast = i == virtualNode.Children.Count - 1;
-            var connector = isLast ? "└── " : "├── ";
-            var continuation = isLast ? "    " : "│   ";
-            CollectHierarchyNodeLine(lines, ws, child, childIndent, connector, showAssignee: false);
-            CollectHierarchyChildren(lines, ws, child, childIndent + continuation, showAssignee: false);
+            CollectHierarchyNodeLine(lines, ws, child, itemIndent, connector: "", showAssignee: false);
+            CollectHierarchyChildren(lines, ws, child, itemIndent, showAssignee: false);
         }
     }
 

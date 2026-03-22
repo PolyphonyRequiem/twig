@@ -373,6 +373,7 @@ public class CacheRefreshTests
         _contextStore.GetValueAsync("last_refreshed_at", Arg.Any<CancellationToken>())
             .Returns(DateTimeOffset.UtcNow.AddMinutes(-10).ToString("O"));
 
+        var so1 = new StatusOrchestrator(_contextStore, _workItemRepo, pendingChangeStore, _activeItemResolver, _workingSetService, new SyncCoordinator(_workItemRepo, _adoService, new ProtectedCacheWriter(_workItemRepo, pendingChangeStore), 30));
         var cmd = new StatusCommand(_contextStore, _workItemRepo, pendingChangeStore, _config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, new SyncCoordinator(_workItemRepo, _adoService, new ProtectedCacheWriter(_workItemRepo, pendingChangeStore), 30), CreateTtyPipelineFactory());
         var result = await cmd.ExecuteAsync("human");
 
@@ -397,6 +398,7 @@ public class CacheRefreshTests
         _contextStore.GetValueAsync("last_refreshed_at", Arg.Any<CancellationToken>())
             .Returns(DateTimeOffset.UtcNow.AddMinutes(-1).ToString("O"));
 
+        var so2 = new StatusOrchestrator(_contextStore, _workItemRepo, pendingChangeStore, _activeItemResolver, _workingSetService, new SyncCoordinator(_workItemRepo, _adoService, new ProtectedCacheWriter(_workItemRepo, pendingChangeStore), 30));
         var cmd = new StatusCommand(_contextStore, _workItemRepo, pendingChangeStore, _config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, new SyncCoordinator(_workItemRepo, _adoService, new ProtectedCacheWriter(_workItemRepo, pendingChangeStore), 30), CreateTtyPipelineFactory());
         var result = await cmd.ExecuteAsync("human");
 

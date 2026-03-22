@@ -175,7 +175,8 @@ public class PromptStateIntegrationTests : IDisposable
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
         var cmd = new FlowCloseCommand(_adoService, _contextStore,
             _pendingChangeStore, _processConfigProvider, _consoleInput,
-            _formatterFactory, _config, activeItemResolver, protectedCacheWriter,
+            _formatterFactory, _config,
+            activeItemResolver, protectedCacheWriter,
             promptStateWriter: writer);
 
         var result = await cmd.ExecuteAsync(force: true);
@@ -340,7 +341,8 @@ public class PromptStateIntegrationTests : IDisposable
             flowSaveResolver, _consoleInput, _formatterFactory);
         var cmd = new FlowDoneCommand(_workItemRepo, _adoService,
             _pendingChangeStore, _processConfigProvider, saveCmd, _consoleInput,
-            _formatterFactory, _config, flowSaveResolver, protectedCacheWriter,
+            _formatterFactory, _config,
+            flowSaveResolver, protectedCacheWriter,
             promptStateWriter: writer);
 
         var result = await cmd.ExecuteAsync(noSave: true);
@@ -381,7 +383,8 @@ public class PromptStateIntegrationTests : IDisposable
             flowDoneResolver, _consoleInput, _formatterFactory, mockWriter);
         var cmd = new FlowDoneCommand(_workItemRepo, _adoService,
             _pendingChangeStore, _processConfigProvider, saveCmd, _consoleInput,
-            _formatterFactory, _config, flowDoneResolver, protectedCacheWriter,
+            _formatterFactory, _config,
+            flowDoneResolver, protectedCacheWriter,
             promptStateWriter: mockWriter);
 
         var result = await cmd.ExecuteAsync(noSave: false);
@@ -492,9 +495,11 @@ public class PromptStateIntegrationTests : IDisposable
         var refreshProtectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
         var refreshSyncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, refreshProtectedWriter, 30);
         var refreshWorkingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, iterationService, null);
+        var refreshOrchestrator = new RefreshOrchestrator(_contextStore, _workItemRepo, _adoService, iterationService,
+            _pendingChangeStore, refreshProtectedWriter, refreshWorkingSetService, refreshSyncCoordinator, _processTypeStore, _fieldDefinitionStore);
         var cmd = new RefreshCommand(_contextStore, _workItemRepo, _adoService, iterationService,
-            _pendingChangeStore, refreshProtectedWriter, _config, _paths, _processTypeStore, _fieldDefinitionStore, _formatterFactory,
-            refreshWorkingSetService, refreshSyncCoordinator, writer);
+            _pendingChangeStore, refreshProtectedWriter, _config, _paths, _processTypeStore, _fieldDefinitionStore,
+            _formatterFactory, refreshWorkingSetService, refreshSyncCoordinator, writer);
 
         var result = await cmd.ExecuteAsync();
 

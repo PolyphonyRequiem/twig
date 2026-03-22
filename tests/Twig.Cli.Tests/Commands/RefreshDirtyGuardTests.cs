@@ -81,9 +81,9 @@ public class RefreshDirtyGuardTests : IDisposable
     {
         var syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, _protectedCacheWriter, 30);
         var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, _iterationService, null);
-        return new(_contextStore, _workItemRepo, _adoService, _iterationService,
-            _pendingChangeStore, _protectedCacheWriter, _config, _paths, _processTypeStore, _fieldDefinitionStore, _formatterFactory,
-            workingSetService, syncCoordinator);
+        return new RefreshCommand(_contextStore, _workItemRepo, _adoService, _iterationService,
+            _pendingChangeStore, _protectedCacheWriter, _config, _paths, _processTypeStore, _fieldDefinitionStore,
+            _formatterFactory, workingSetService, syncCoordinator);
     }
 
     [Fact]

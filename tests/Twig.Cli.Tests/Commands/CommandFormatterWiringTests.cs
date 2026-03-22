@@ -173,13 +173,17 @@ public class CommandFormatterWiringTests
         services.AddSingleton<OutputFormatterFactory>();
         services.AddSingleton(new HintEngine(new DisplayConfig { Hints = false }));
         var adoService = Substitute.For<IAdoWorkItemService>();
-        services.AddSingleton(new ActiveItemResolver(contextStore, workItemRepo, adoService));
+        var activeItemResolver = new ActiveItemResolver(contextStore, workItemRepo, adoService);
+        services.AddSingleton(activeItemResolver);
         var pcw = new ProtectedCacheWriter(workItemRepo, pendingChangeStore);
-        services.AddSingleton(new SyncCoordinator(workItemRepo, adoService, pcw, 30));
+        var sc = new SyncCoordinator(workItemRepo, adoService, pcw, 30);
+        services.AddSingleton(sc);
         var iterSvc = Substitute.For<IIterationService>();
         iterSvc.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
-        services.AddSingleton(new WorkingSetService(contextStore, workItemRepo, pendingChangeStore, iterSvc, null));
+        var wss = new WorkingSetService(contextStore, workItemRepo, pendingChangeStore, iterSvc, null);
+        services.AddSingleton(wss);
+        services.AddSingleton(new StatusOrchestrator(contextStore, workItemRepo, pendingChangeStore, activeItemResolver, wss, sc));
         services.AddSingleton<StatusCommand>();
 
         var provider = services.BuildServiceProvider();
@@ -241,8 +245,9 @@ public class CommandFormatterWiringTests
         iterSvc.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
         var wss = new WorkingSetService(contextStore, workItemRepo, pcs, iterSvc, null);
-        return new StatusCommand(contextStore, workItemRepo, pendingChangeStore, config, factory, hintEngine,
-            activeItemResolver, wss, sc);
+        var statusOrchestrator = new StatusOrchestrator(contextStore, workItemRepo, pendingChangeStore, activeItemResolver, wss, sc);
+        return new StatusCommand(contextStore, workItemRepo, pendingChangeStore,
+            config, factory, hintEngine, activeItemResolver, wss, sc);
     }
 
     private static WorkItem CreateWorkItem(int id, string title)

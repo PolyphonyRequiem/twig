@@ -87,6 +87,8 @@ public class OfflineModeTests
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
+        var statusOrchestrator = new StatusOrchestrator(
+            _contextStore, _workItemRepo, _pendingChangeStore, _activeItemResolver, _workingSetService, _syncCoordinator);
         var statusCmd = new StatusCommand(
             _contextStore, _workItemRepo, _pendingChangeStore,
             new TwigConfiguration(), _formatterFactory, _hintEngine,

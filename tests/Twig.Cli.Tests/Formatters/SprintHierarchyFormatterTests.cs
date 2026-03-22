@@ -83,17 +83,28 @@ public class SprintHierarchyFormatterTests
         itemLine.ShouldNotContain("└──");
     }
 
-    // ── (5) Shared parents appear once with multiple children ────────
+    // ── (5) Shared parents appear once per category with multiple children ────────
 
     [Fact]
-    public void SharedParents_AppearOnceWithMultipleChildren()
+    public void SharedParents_AppearOncePerCategoryWithMultipleChildren()
     {
-        var (ws, _) = BuildHierarchicalWorkspace();
+        // Parent appears in each category that contains at least one of its children
+        var feature = MakeItem(100, "Auth Feature", WorkItemType.Feature, parentId: null);
+        var task1 = MakeItem(42, "Login endpoint", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "Active");
+        var task2 = MakeItem(43, "Logout endpoint", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "New");
+
+        var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
+        var sprintItems = new[] { task1, task2 };
+        var hierarchy = SprintHierarchy.Build(sprintItems, parentLookup, new[] { "Feature" });
+        var ws = Workspace.Build(null, sprintItems, Array.Empty<WorkItem>(), hierarchy);
+
         var output = _formatter.FormatSprintView(ws, 14);
 
-        // "Auth Feature" should appear only once in the output
+        // "Auth Feature" appears once per state category that has children under it.
+        // task2 (#43) is "New" (Proposed), task1 (#42) is "Active" (InProgress) — so Auth Feature
+        // appears in both Proposed and InProgress category groups.
         var count = CountOccurrences(output, "Auth Feature");
-        count.ShouldBe(1);
+        count.ShouldBe(2);
 
         // Both children should be present
         output.ShouldContain("#42");
@@ -194,8 +205,9 @@ public class SprintHierarchyFormatterTests
     public void VerticalContinuation_ForNonLastChildren()
     {
         var feature = MakeItem(100, "Auth Feature", WorkItemType.Feature, parentId: null);
+        // Both user stories in same category (Active → InProgress) so both are visible together
         var us1 = MakeItem(50, "Story A", WorkItemType.UserStory, parentId: 100, assignee: "Alice", state: "Active");
-        var us2 = MakeItem(51, "Story B", WorkItemType.UserStory, parentId: 100, assignee: "Alice", state: "New");
+        var us2 = MakeItem(51, "Story B", WorkItemType.UserStory, parentId: 100, assignee: "Alice", state: "Active");
         var task1 = MakeItem(10, "Task Under A", WorkItemType.Task, parentId: 50, assignee: "Alice", state: "Active");
 
         var parentLookup = new Dictionary<int, WorkItem>
@@ -218,8 +230,9 @@ public class SprintHierarchyFormatterTests
     private static (Workspace ws, SprintHierarchy hierarchy) BuildHierarchicalWorkspace()
     {
         var feature = MakeItem(100, "Auth Feature", WorkItemType.Feature, parentId: null);
+        // Both children in same state category (Active → InProgress) so they appear together in one group
         var task1 = MakeItem(42, "Login endpoint", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "Active");
-        var task2 = MakeItem(43, "Logout endpoint", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "New");
+        var task2 = MakeItem(43, "Logout endpoint", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "Active");
         var task3 = MakeItem(44, "Fix typo", WorkItemType.Task, parentId: null, assignee: "Alice", state: "Active");
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };

@@ -2,6 +2,7 @@ using Spectre.Console;
 using Spectre.Console.Rendering;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
+using Twig.Domain.Enums;
 using Twig.Domain.ReadModels;
 using Twig.Domain.Services;
 
@@ -19,17 +20,22 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     public async Task RenderWorkspaceAsync(
         IAsyncEnumerable<WorkspaceDataChunk> data,
         int staleDays,
+        bool isTeamView,
         CancellationToken ct)
     {
-        var table = SpectreTheme.CreateWorkspaceTable();
+        var table = SpectreTheme.CreateWorkspaceTable(isTeamView);
         string? savedCaption = null;
         var loadingCleared = false;
         int? activeContextId = null;
+        var colCount = isTeamView ? 5 : 4;
+        var emptyRow = new string[colCount];
+        for (var i = 0; i < colCount; i++) emptyRow[i] = "";
+        emptyRow[0] = "[dim]Loading workspace...[/]";
 
         await _console.Live(table)
             .StartAsync(async ctx =>
             {
-                table.AddRow("[dim]Loading workspace...[/]", "", "", "");
+                table.AddRow(emptyRow);
                 ctx.Refresh();
 
                 await foreach (var chunk in data.WithCancellation(ct))
@@ -53,20 +59,43 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                             break;
 
                         case WorkspaceDataChunk.SprintItemsLoaded(var items):
-                            // Assumes ContextLoaded precedes SprintItemsLoaded in the data stream.
-                            // If the stream order changes, activeContextId will be null and no row
-                            // will be highlighted — the UI degrades gracefully but silently.
-                            foreach (var item in items)
+                            // Group items by state category
+                            var categoryGroups = GroupByStateCategory(items);
+                            foreach (var (category, catItems) in categoryGroups)
                             {
-                                var isActive = activeContextId.HasValue && item.Id == activeContextId.Value;
-                                var marker = isActive ? "[aqua]►[/] " : "";
-                                var boldOpen = isActive ? "[bold]" : "";
-                                var boldClose = isActive ? "[/]" : "";
-                                table.AddRow(
-                                    $"{marker}{boldOpen}{item.Id}{boldClose}",
-                                    _theme.FormatTypeBadge(item.Type),
-                                    $"{boldOpen}{Markup.Escape(item.Title)}{boldClose}",
-                                    _theme.FormatState(item.State));
+                                // Add category header row
+                                var headerRow = new string[colCount];
+                                headerRow[0] = $"[bold dim]{SpectreTheme.FormatCategoryHeader(category)}[/]";
+                                headerRow[1] = "";
+                                headerRow[2] = $"[dim]({catItems.Count})[/]";
+                                headerRow[3] = "";
+                                if (isTeamView) headerRow[4] = "";
+                                table.AddRow(headerRow);
+
+                                foreach (var item in catItems)
+                                {
+                                    var isActive = activeContextId.HasValue && item.Id == activeContextId.Value;
+                                    var marker = isActive ? "[aqua]►[/] " : "";
+                                    var boldOpen = isActive ? "[bold]" : "";
+                                    var boldClose = isActive ? "[/]" : "";
+                                    if (isTeamView)
+                                    {
+                                        table.AddRow(
+                                            $"{marker}{boldOpen}{item.Id}{boldClose}",
+                                            _theme.FormatTypeBadge(item.Type),
+                                            $"{boldOpen}{Markup.Escape(item.Title)}{boldClose}",
+                                            _theme.FormatState(item.State),
+                                            Markup.Escape(item.AssignedTo ?? "(unassigned)"));
+                                    }
+                                    else
+                                    {
+                                        table.AddRow(
+                                            $"{marker}{boldOpen}{item.Id}{boldClose}",
+                                            _theme.FormatTypeBadge(item.Type),
+                                            $"{boldOpen}{Markup.Escape(item.Title)}{boldClose}",
+                                            _theme.FormatState(item.State));
+                                    }
+                                }
                             }
                             ctx.Refresh();
                             break;
@@ -75,17 +104,36 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                             if (seeds.Count > 0)
                             {
                                 // Visual separator between sprint items and seeds
-                                table.AddRow("[dim]───[/]", "[dim]───[/]", "[dim]Seeds[/]", "[dim]───[/]");
+                                var seedSepRow = new string[colCount];
+                                seedSepRow[0] = "[dim]───[/]";
+                                seedSepRow[1] = "[dim]───[/]";
+                                seedSepRow[2] = "[dim]Seeds[/]";
+                                seedSepRow[3] = "[dim]───[/]";
+                                if (isTeamView) seedSepRow[4] = "[dim]───[/]";
+                                table.AddRow(seedSepRow);
+
                                 foreach (var seed in seeds)
                                 {
                                     var staleMarker = seed.SeedCreatedAt.HasValue
                                         && seed.SeedCreatedAt.Value < DateTimeOffset.UtcNow.AddDays(-staleDays)
                                         ? " [yellow]⚠ stale[/]" : "";
-                                    table.AddRow(
-                                        seed.Id < 0 ? $"[dim]{seed.Id}[/]" : seed.Id.ToString(),
-                                        _theme.FormatTypeBadge(seed.Type),
-                                        Markup.Escape(seed.Title) + staleMarker,
-                                        _theme.FormatState(seed.State));
+                                    if (isTeamView)
+                                    {
+                                        table.AddRow(
+                                            seed.Id < 0 ? $"[dim]{seed.Id}[/]" : seed.Id.ToString(),
+                                            _theme.FormatTypeBadge(seed.Type),
+                                            Markup.Escape(seed.Title) + staleMarker,
+                                            _theme.FormatState(seed.State),
+                                            Markup.Escape(seed.AssignedTo ?? "(unassigned)"));
+                                    }
+                                    else
+                                    {
+                                        table.AddRow(
+                                            seed.Id < 0 ? $"[dim]{seed.Id}[/]" : seed.Id.ToString(),
+                                            _theme.FormatTypeBadge(seed.Type),
+                                            Markup.Escape(seed.Title) + staleMarker,
+                                            _theme.FormatState(seed.State));
+                                    }
                                 }
                             }
                             ctx.Refresh();
@@ -106,6 +154,39 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                     }
                 }
             });
+    }
+
+    /// <summary>
+    /// Groups work items by state category in display order. Categories with no items are omitted.
+    /// </summary>
+    private IReadOnlyList<(StateCategory Category, IReadOnlyList<WorkItem> Items)> GroupByStateCategory(
+        IReadOnlyList<WorkItem> items)
+    {
+        var groups = new Dictionary<StateCategory, List<WorkItem>>
+        {
+            [StateCategory.Proposed] = new(),
+            [StateCategory.InProgress] = new(),
+            [StateCategory.Resolved] = new(),
+            [StateCategory.Completed] = new(),
+        };
+
+        foreach (var item in items)
+        {
+            var category = _theme.ResolveCategory(item.State);
+            if (groups.TryGetValue(category, out var list))
+                list.Add(item);
+            else
+                groups[StateCategory.Proposed].Add(item);
+        }
+
+        var result = new List<(StateCategory, IReadOnlyList<WorkItem>)>();
+        StateCategory[] displayOrder = [StateCategory.Proposed, StateCategory.InProgress, StateCategory.Resolved, StateCategory.Completed];
+        foreach (var cat in displayOrder)
+        {
+            if (groups[cat].Count > 0)
+                result.Add((cat, groups[cat]));
+        }
+        return result;
     }
 
     public async Task RenderTreeAsync(

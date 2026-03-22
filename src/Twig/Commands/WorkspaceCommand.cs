@@ -37,8 +37,10 @@ public sealed class WorkspaceCommand(
 
         if (renderer is not null && !all)
         {
-            // Async progressive rendering path — uses closure-captured variables
-            // so the outer scope can build Workspace after stream consumption.
+            // NOTE: The async Spectre rendering path is gated by `!all`, so `isTeamView`
+            // passed to RenderWorkspaceAsync is always false at runtime. The team/sprint
+            // view (--all) always falls through to ExecuteSyncAsync. The Spectre team-view
+            // table and assignee column handling is reserved for a future async team-view path.
             Domain.Aggregates.WorkItem? contextItem = null;
             IReadOnlyList<Domain.Aggregates.WorkItem> sprintItems = Array.Empty<Domain.Aggregates.WorkItem>();
             IReadOnlyList<Domain.Aggregates.WorkItem> seeds = Array.Empty<Domain.Aggregates.WorkItem>();
@@ -116,7 +118,7 @@ public sealed class WorkspaceCommand(
                 }
             }
 
-            await renderer.RenderWorkspaceAsync(StreamWorkspaceData(ct), config.Seed.StaleDays, ct);
+            await renderer.RenderWorkspaceAsync(StreamWorkspaceData(ct), config.Seed.StaleDays, all, ct);
 
             // Build Workspace from closure-populated variables for hint computation
             var workspace = Workspace.Build(contextItem, sprintItems, seeds);

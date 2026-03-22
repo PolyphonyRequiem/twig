@@ -259,7 +259,7 @@ public class WorkspaceCommandAsyncTests
             }),
             new WorkspaceDataChunk.SeedsLoaded(Array.Empty<WorkItem>()));
 
-        await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, CancellationToken.None);
+        await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None);
 
         var output = _testConsole.Output;
         output.ShouldContain("Task A");
@@ -287,7 +287,7 @@ public class WorkspaceCommandAsyncTests
             new WorkspaceDataChunk.SprintItemsLoaded(Array.Empty<WorkItem>()),
             new WorkspaceDataChunk.SeedsLoaded(new[] { seed }));
 
-        await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, CancellationToken.None);
+        await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None);
 
         var output = _testConsole.Output;
         output.ShouldContain("Seed Task");
@@ -314,7 +314,7 @@ public class WorkspaceCommandAsyncTests
             new WorkspaceDataChunk.SprintItemsLoaded(Array.Empty<WorkItem>()),
             new WorkspaceDataChunk.SeedsLoaded(new[] { staleSeed }));
 
-        await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, CancellationToken.None);
+        await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None);
 
         var output = _testConsole.Output;
         output.ShouldContain("Stale Seed");
@@ -329,7 +329,7 @@ public class WorkspaceCommandAsyncTests
             new WorkspaceDataChunk.SprintItemsLoaded(Array.Empty<WorkItem>()),
             new WorkspaceDataChunk.SeedsLoaded(Array.Empty<WorkItem>()));
 
-        await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, CancellationToken.None);
+        await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None);
 
         var output = _testConsole.Output;
         output.ShouldContain("No active context");
@@ -345,7 +345,7 @@ public class WorkspaceCommandAsyncTests
             new WorkspaceDataChunk.RefreshStarted(),
             new WorkspaceDataChunk.RefreshCompleted());
 
-        await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, CancellationToken.None);
+        await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None);
 
         // Refresh completed — output should show the context caption
         var output = _testConsole.Output;
@@ -429,7 +429,7 @@ public class WorkspaceCommandAsyncTests
             new WorkspaceDataChunk.SprintItemsLoaded(new[] { activeItem, otherItem }),
             new WorkspaceDataChunk.SeedsLoaded(Array.Empty<WorkItem>()));
 
-        await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, CancellationToken.None);
+        await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None);
 
         var output = _testConsole.Output;
         // Active item should have a marker symbol
@@ -449,7 +449,7 @@ public class WorkspaceCommandAsyncTests
             new WorkspaceDataChunk.SprintItemsLoaded(new[] { item }),
             new WorkspaceDataChunk.SeedsLoaded(Array.Empty<WorkItem>()));
 
-        await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, CancellationToken.None);
+        await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None);
 
         var output = _testConsole.Output;
         output.ShouldContain("Item No Context");
@@ -470,7 +470,7 @@ public class WorkspaceCommandAsyncTests
             new WorkspaceDataChunk.ContextLoaded(activeItem),
             new WorkspaceDataChunk.SeedsLoaded(Array.Empty<WorkItem>()));
 
-        await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, CancellationToken.None);
+        await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None);
 
         var output = _testConsole.Output;
         output.ShouldContain("Active Item");

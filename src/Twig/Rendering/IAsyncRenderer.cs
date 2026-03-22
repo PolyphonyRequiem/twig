@@ -16,6 +16,7 @@ public interface IAsyncRenderer
     Task RenderWorkspaceAsync(
         IAsyncEnumerable<WorkspaceDataChunk> getWorkspaceData,
         int staleDays,
+        bool isTeamView,
         CancellationToken ct);
 
     Task RenderTreeAsync(

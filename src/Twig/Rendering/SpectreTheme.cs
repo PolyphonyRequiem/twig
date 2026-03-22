@@ -117,8 +117,9 @@ internal sealed class SpectreTheme
 
     /// <summary>
     /// Table style for the main workspace table — simple, no borders for a CLI-native feel.
+    /// When <paramref name="isTeamView"/> is true, an Assigned column is added.
     /// </summary>
-    internal static Table CreateWorkspaceTable()
+    internal static Table CreateWorkspaceTable(bool isTeamView = false)
     {
         var table = new Table()
             .Border(TableBorder.Rounded)
@@ -127,7 +128,33 @@ internal sealed class SpectreTheme
             .AddColumn("[bold]Title[/]")
             .AddColumn("[bold]State[/]");
 
+        if (isTeamView)
+            table.AddColumn("[bold]Assigned[/]");
+
         table.Expand();
         return table;
+    }
+
+    /// <summary>
+    /// Formats a state category header for use in grouped workspace rendering.
+    /// </summary>
+    internal static string FormatCategoryHeader(StateCategory category)
+    {
+        return category switch
+        {
+            StateCategory.Proposed => "Proposed",
+            StateCategory.InProgress => "In Progress",
+            StateCategory.Resolved => "Resolved",
+            StateCategory.Completed => "Completed",
+            _ => category.ToString(),
+        };
+    }
+
+    /// <summary>
+    /// Resolves a work item's state to its <see cref="StateCategory"/>.
+    /// </summary>
+    internal StateCategory ResolveCategory(string state)
+    {
+        return StateCategoryResolver.Resolve(state, _stateEntries);
     }
 }

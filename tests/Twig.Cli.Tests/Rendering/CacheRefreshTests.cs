@@ -238,7 +238,7 @@ public class CacheRefreshTests
             new WorkspaceDataChunk.SeedsLoaded(Array.Empty<WorkItem>()),
             new WorkspaceDataChunk.RefreshCompleted());
 
-        await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, CancellationToken.None);
+        await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None);
 
         var output = _testConsole.Output;
         // After refresh completed, the final output should contain refreshed data
@@ -259,7 +259,7 @@ public class CacheRefreshTests
             new WorkspaceDataChunk.SeedsLoaded(Array.Empty<WorkItem>()),
             new WorkspaceDataChunk.RefreshCompleted());
 
-        await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, CancellationToken.None);
+        await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None);
 
         var output = _testConsole.Output;
         // Verify refresh badge was displayed during refresh
@@ -278,7 +278,7 @@ public class CacheRefreshTests
             new WorkspaceDataChunk.SeedsLoaded(Array.Empty<WorkItem>()),
             new WorkspaceDataChunk.RefreshCompleted());
 
-        await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, CancellationToken.None);
+        await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None);
 
         var output = _testConsole.Output;
         // After refresh completes, the caption should be restored to the context
@@ -309,7 +309,7 @@ public class CacheRefreshTests
             new WorkspaceDataChunk.SeedsLoaded(new[] { seed }),
             new WorkspaceDataChunk.RefreshCompleted());
 
-        await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, CancellationToken.None);
+        await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None);
 
         var output = _testConsole.Output;
         output.ShouldContain("Fresh Seed");

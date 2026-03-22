@@ -159,36 +159,45 @@ public sealed class HumanOutputFormatter : IOutputFormatter
 
         sb.AppendLine();
 
-        // Sprint items
+        // Sprint items grouped by state category
         sb.AppendLine($"  {Bold}Sprint ({ws.SprintItems.Count} items):{Reset}");
         var wsLines = new List<AlignedLine>();
-        if (ws.Hierarchy is not null)
+        var categoryGroups = GroupByStateCategory(ws.SprintItems);
+        foreach (var (category, items) in categoryGroups)
         {
-            // Render hierarchically — personal view has a single assignee, skip the assignee header
-            foreach (var kvp in ws.Hierarchy.AssigneeGroups)
+            sb.AppendLine($"    {Bold}{FormatCategoryHeader(category)}{Reset} ({items.Count})");
+            wsLines.Clear();
+            if (ws.Hierarchy is not null)
             {
-                foreach (var root in kvp.Value)
+                // Render hierarchically — personal view has a single assignee, skip the assignee header
+                foreach (var kvp in ws.Hierarchy.AssigneeGroups)
                 {
-                    CollectHierarchyNodeLine(wsLines, ws, root, indent: "    ", connector: "");
-                    CollectHierarchyChildren(wsLines, ws, root, childIndent: "    ");
+                    foreach (var root in kvp.Value)
+                    {
+                        if (NodeOrDescendantBelongsToCategory(root, category))
+                        {
+                            CollectHierarchyNodeLine(wsLines, ws, root, indent: "      ", connector: "");
+                            CollectHierarchyChildrenForCategory(wsLines, ws, root, childIndent: "      ", category: category);
+                        }
+                    }
                 }
             }
-        }
-        else
-        {
-            foreach (var item in ws.SprintItems)
+            else
             {
-                var marker = (ws.ContextItem is not null && item.Id == ws.ContextItem.Id) ? $"{Cyan}●{Reset}" : " ";
-                var dirty = item.IsDirty ? $" {Yellow}•{Reset}" : "";
-                var stateColor = GetStateColor(item.State);
-                var sprintTypeColor = GetTypeColor(item.Type);
-                var sprintBadge = GetTypeBadge(item.Type);
-                wsLines.Add(new AlignedLine(
-                    $"    {marker} {sprintTypeColor}{sprintBadge}{Reset} #{item.Id} {item.Title}",
-                    $"[{stateColor}{item.State}{Reset}]", dirty));
+                foreach (var item in items)
+                {
+                    var marker = (ws.ContextItem is not null && item.Id == ws.ContextItem.Id) ? $"{Cyan}●{Reset}" : " ";
+                    var dirty = item.IsDirty ? $" {Yellow}•{Reset}" : "";
+                    var stateColor = GetStateColor(item.State);
+                    var sprintTypeColor = GetTypeColor(item.Type);
+                    var sprintBadge = GetTypeBadge(item.Type);
+                    wsLines.Add(new AlignedLine(
+                        $"      {marker} {sprintTypeColor}{sprintBadge}{Reset} #{item.Id} {item.Title}",
+                        $"[{stateColor}{item.State}{Reset}]", dirty));
+                }
             }
+            FlushAlignedLines(sb, wsLines);
         }
-        FlushAlignedLines(sb, wsLines);
 
         // Seeds
         if (ws.Seeds.Count > 0)
@@ -242,10 +251,17 @@ public sealed class HumanOutputFormatter : IOutputFormatter
 
         sb.AppendLine($"  {Bold}Sprint ({ws.SprintItems.Count} items):{Reset}");
 
-        if (ws.Hierarchy is not null)
-            RenderHierarchicalSprint(sb, ws);
-        else
-            RenderFlatSprint(sb, ws);
+        // Group by state category first, then by assignee within each category
+        var categoryGroups = GroupByStateCategory(ws.SprintItems);
+        foreach (var (category, categoryItems) in categoryGroups)
+        {
+            sb.AppendLine($"    {Bold}{FormatCategoryHeader(category)}{Reset} ({categoryItems.Count})");
+
+            if (ws.Hierarchy is not null)
+                RenderHierarchicalSprintForCategory(sb, ws, category);
+            else
+                RenderFlatSprintForCategory(sb, ws, categoryItems);
+        }
 
         // Seeds
         if (ws.Seeds.Count > 0)
@@ -282,11 +298,11 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         return sb.ToString();
     }
 
-    private void RenderFlatSprint(StringBuilder sb, Workspace ws)
+    private void RenderFlatSprintForCategory(StringBuilder sb, Workspace ws, IReadOnlyList<WorkItem> categoryItems)
     {
-        // Group sprint items by assignee
+        // Group items within this category by assignee
         var grouped = new Dictionary<string, List<WorkItem>>(StringComparer.OrdinalIgnoreCase);
-        foreach (var item in ws.SprintItems)
+        foreach (var item in categoryItems)
         {
             var assignee = item.AssignedTo ?? "(unassigned)";
             if (!grouped.TryGetValue(assignee, out var list))
@@ -300,7 +316,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         var lines = new List<AlignedLine>();
         foreach (var kvp in grouped.OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
         {
-            sb.AppendLine($"    {Bold}{kvp.Key}{Reset} ({kvp.Value.Count}):");
+            sb.AppendLine($"      {Bold}{kvp.Key}{Reset} ({kvp.Value.Count}):");
             lines.Clear();
             foreach (var item in kvp.Value)
             {
@@ -309,83 +325,221 @@ public sealed class HumanOutputFormatter : IOutputFormatter
                 var stateColor = GetStateColor(item.State);
                 var sprintTypeColor = GetTypeColor(item.Type);
                 var sprintBadge = GetTypeBadge(item.Type);
+                var assignedSuffix = $" {Dim}@{item.AssignedTo ?? "(unassigned)"}{Reset}";
                 lines.Add(new AlignedLine(
-                    $"      {marker} {sprintTypeColor}{sprintBadge}{Reset} #{item.Id} {item.Title}",
+                    $"        {marker} {sprintTypeColor}{sprintBadge}{Reset} #{item.Id} {item.Title}{assignedSuffix}",
                     $"[{stateColor}{item.State}{Reset}]", dirty));
             }
             FlushAlignedLines(sb, lines);
         }
     }
 
-    private void RenderHierarchicalSprint(StringBuilder sb, Workspace ws)
+    private void RenderHierarchicalSprintForCategory(StringBuilder sb, Workspace ws, StateCategory category)
     {
         var hierarchy = ws.Hierarchy!;
         var lines = new List<AlignedLine>();
 
         foreach (var kvp in hierarchy.AssigneeGroups)
         {
-            // Count only sprint items for the assignee header
+            // Only render nodes belonging to this category
+            var hasNodesInCategory = false;
+            foreach (var root in kvp.Value)
+            {
+                if (NodeOrDescendantBelongsToCategory(root, category))
+                {
+                    hasNodesInCategory = true;
+                    break;
+                }
+            }
+            if (!hasNodesInCategory) continue;
+
+            // Count only sprint items in this category for the assignee header
             var sprintCount = 0;
             foreach (var root in kvp.Value)
-                sprintCount += CountSprintItems(root);
-            sb.AppendLine($"    {Bold}{kvp.Key}{Reset} ({sprintCount}):");
+                sprintCount += CountSprintItemsInCategory(root, category);
+            if (sprintCount == 0) continue;
+
+            sb.AppendLine($"      {Bold}{kvp.Key}{Reset} ({sprintCount}):");
 
             lines.Clear();
             foreach (var root in kvp.Value)
             {
-                CollectHierarchyNodeLine(lines, ws, root, indent: "      ", connector: "");
-                CollectHierarchyChildren(lines, ws, root, childIndent: "      ");
+                if (NodeOrDescendantBelongsToCategory(root, category))
+                {
+                    CollectHierarchyNodeLine(lines, ws, root, indent: "        ", connector: "", showAssignee: true);
+                    CollectHierarchyChildrenForCategory(lines, ws, root, childIndent: "        ", category: category, showAssignee: true);
+                }
             }
             FlushAlignedLines(sb, lines);
         }
     }
 
-    private static int CountSprintItems(SprintHierarchyNode node)
-    {
-        var count = node.IsSprintItem ? 1 : 0;
-        foreach (var child in node.Children)
-            count += CountSprintItems(child);
-        return count;
-    }
-
-    private void CollectHierarchyNodeLine(List<AlignedLine> lines, Workspace ws, SprintHierarchyNode node, string indent, string connector)
+    private void CollectHierarchyNodeLine(List<AlignedLine> lines, Workspace ws, SprintHierarchyNode node, string indent, string connector, bool showAssignee = false)
     {
         var typeColor = GetTypeColor(node.Item.Type);
         var badge = GetTypeBadge(node.Item.Type);
         var stateColor = GetStateColor(node.Item.State);
+        var progress = FormatProgressIndicator(node);
 
         if (node.IsSprintItem)
         {
             var marker = (ws.ContextItem is not null && node.Item.Id == ws.ContextItem.Id) ? $"{Cyan}●{Reset} " : "";
             var dirty = node.Item.IsDirty ? $" {Yellow}•{Reset}" : "";
+            var assigneeSuffix = showAssignee ? $" {Dim}@{node.Item.AssignedTo ?? "(unassigned)"}{Reset}" : "";
             lines.Add(new AlignedLine(
-                $"{indent}{connector}{marker}{typeColor}{badge}{Reset} #{node.Item.Id} {node.Item.Title}",
+                $"{indent}{connector}{marker}{typeColor}{badge}{Reset} #{node.Item.Id} {node.Item.Title}{progress}{assigneeSuffix}",
                 $"[{stateColor}{node.Item.State}{Reset}]", dirty));
         }
         else
         {
             // Parent context node — dimmed title, no active/dirty markers
+            var assigneeSuffix = showAssignee ? $" {Dim}@{node.Item.AssignedTo ?? "(unassigned)"}{Reset}" : "";
             lines.Add(new AlignedLine(
-                $"{indent}{connector}{typeColor}{badge}{Reset} {Dim}{node.Item.Title}{Reset}",
+                $"{indent}{connector}{typeColor}{badge}{Reset} {Dim}{node.Item.Title}{Reset}{progress}{assigneeSuffix}",
                 $"[{stateColor}{node.Item.State}{Reset}]", ""));
         }
     }
 
-    private void CollectHierarchyChildren(List<AlignedLine> lines, Workspace ws, SprintHierarchyNode node, string childIndent)
+    private void CollectHierarchyChildren(List<AlignedLine> lines, Workspace ws, SprintHierarchyNode node, string childIndent, bool showAssignee = false)
     {
         for (var i = 0; i < node.Children.Count; i++)
         {
             var isLast = i == node.Children.Count - 1;
             var connector = isLast ? "└── " : "├── ";
             var continuation = isLast ? "    " : "│   ";
-            CollectHierarchyNodeLine(lines, ws, node.Children[i], childIndent, connector);
-            CollectHierarchyChildren(lines, ws, node.Children[i], childIndent + continuation);
+            CollectHierarchyNodeLine(lines, ws, node.Children[i], childIndent, connector, showAssignee);
+            CollectHierarchyChildren(lines, ws, node.Children[i], childIndent + continuation, showAssignee);
+        }
+    }
+
+    private void CollectHierarchyChildrenForCategory(List<AlignedLine> lines, Workspace ws, SprintHierarchyNode node, string childIndent, StateCategory category, bool showAssignee = false)
+    {
+        // Pre-pass: find the last visible child index for correct box-drawing connectors.
+        // Without this, a filtered sibling list produces a dangling "├──" on the last visible child.
+        var lastVisibleIdx = -1;
+        for (var j = 0; j < node.Children.Count; j++)
+        {
+            if (NodeOrDescendantBelongsToCategory(node.Children[j], category))
+                lastVisibleIdx = j;
+        }
+
+        for (var i = 0; i < node.Children.Count; i++)
+        {
+            var child = node.Children[i];
+            if (!NodeOrDescendantBelongsToCategory(child, category))
+                continue;
+            var isLast = i == lastVisibleIdx;
+            var connector = isLast ? "└── " : "├── ";
+            var continuation = isLast ? "    " : "│   ";
+            CollectHierarchyNodeLine(lines, ws, child, childIndent, connector, showAssignee);
+            CollectHierarchyChildrenForCategory(lines, ws, child, childIndent + continuation, category: category, showAssignee: showAssignee);
         }
     }
 
     public string FormatFieldChange(FieldChange change)
     {
         return $"  {Bold}{change.FieldName}{Reset}: {Dim}{change.OldValue ?? "(empty)"}{Reset} → {change.NewValue ?? "(empty)"}";
+    }
+
+    // ── State category grouping ─────────────────────────────────────
+
+    /// <summary>
+    /// Groups work items by state category in display order (Proposed → InProgress → Resolved → Completed).
+    /// Categories with no items are omitted. Removed and Unknown are omitted from display.
+    /// </summary>
+    internal IReadOnlyList<(StateCategory Category, IReadOnlyList<WorkItem> Items)> GroupByStateCategory(IReadOnlyList<WorkItem> items)
+    {
+        var groups = new Dictionary<StateCategory, List<WorkItem>>
+        {
+            [StateCategory.Proposed] = new(),
+            [StateCategory.InProgress] = new(),
+            [StateCategory.Resolved] = new(),
+            [StateCategory.Completed] = new(),
+        };
+
+        foreach (var item in items)
+        {
+            var category = StateCategoryResolver.Resolve(item.State, _stateEntries);
+            if (groups.TryGetValue(category, out var list))
+                list.Add(item);
+            else
+                groups[StateCategory.Proposed].Add(item); // Unknown/Removed → Proposed bucket
+        }
+
+        var result = new List<(StateCategory, IReadOnlyList<WorkItem>)>();
+        StateCategory[] displayOrder = [StateCategory.Proposed, StateCategory.InProgress, StateCategory.Resolved, StateCategory.Completed];
+        foreach (var cat in displayOrder)
+        {
+            if (groups[cat].Count > 0)
+                result.Add((cat, groups[cat]));
+        }
+        return result;
+    }
+
+    internal static string FormatCategoryHeader(StateCategory category)
+    {
+        return category switch
+        {
+            StateCategory.Proposed => "Proposed",
+            StateCategory.InProgress => "In Progress",
+            StateCategory.Resolved => "Resolved",
+            StateCategory.Completed => "Completed",
+            _ => category.ToString(),
+        };
+    }
+
+    private bool NodeOrDescendantBelongsToCategory(SprintHierarchyNode node, StateCategory category)
+    {
+        if (node.IsSprintItem && StateCategoryResolver.Resolve(node.Item.State, _stateEntries) == category)
+            return true;
+        foreach (var child in node.Children)
+        {
+            if (NodeOrDescendantBelongsToCategory(child, category))
+                return true;
+        }
+        return false;
+    }
+
+    private int CountSprintItemsInCategory(SprintHierarchyNode node, StateCategory category)
+    {
+        var count = 0;
+        if (node.IsSprintItem && StateCategoryResolver.Resolve(node.Item.State, _stateEntries) == category)
+            count++;
+        foreach (var child in node.Children)
+            count += CountSprintItemsInCategory(child, category);
+        return count;
+    }
+
+    // ── Progress indicators ─────────────────────────────────────────
+
+    /// <summary>
+    /// Formats a progress indicator for parent items: [done/total] where done = resolved + completed children.
+    /// Returns empty string if the node has no children.
+    /// </summary>
+    internal string FormatProgressIndicator(SprintHierarchyNode node)
+    {
+        if (node.Children.Count == 0) return "";
+
+        var total = 0;
+        var done = 0;
+        CountChildProgress(node, ref total, ref done);
+        return $" {Dim}[{done}/{total}]{Reset}";
+    }
+
+    private void CountChildProgress(SprintHierarchyNode node, ref int total, ref int done)
+    {
+        foreach (var child in node.Children)
+        {
+            if (child.IsSprintItem)
+            {
+                total++;
+                var category = StateCategoryResolver.Resolve(child.Item.State, _stateEntries);
+                if (category == StateCategory.Resolved || category == StateCategory.Completed)
+                    done++;
+            }
+            // Recurse into grandchildren
+            CountChildProgress(child, ref total, ref done);
+        }
     }
 
     public string FormatError(string message)

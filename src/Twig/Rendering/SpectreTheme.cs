@@ -66,7 +66,7 @@ internal sealed class SpectreTheme
             _ => "default",
         };
 
-        return $"[{color}]{Markup.Escape(state)}[/]";
+        return $"[[[{color}]{Markup.Escape(state)}[/]]]";
     }
 
     /// <summary>

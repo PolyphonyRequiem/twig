@@ -134,7 +134,7 @@ Maximum indent depth: `2 (sprint) + 2 (assignee) + 4 (root item offset) + 4 (con
 
 ---
 
-### FIX-004: State value bracket wrapping inconsistency between formatters
+### FIX-004: State value bracket wrapping inconsistency between formatters ✅ DONE
 
 **Severity:** Low  
 **Affected commands:** `twig workspace`, `twig sprint`, `twig tree`, `twig status`  
@@ -158,15 +158,11 @@ Add bracket wrapping to `SpectreRenderer.FormatState()` so all Spectre-rendered 
 // Before (SpectreTheme.cs, FormatState)
 return $"[{color}]{Markup.Escape(state)}[/]";
 
-// After
-return $"[{color}][[[/]{Markup.Escape(state)}[{color}]]][/]";
+// After (actual implementation — plan's suggested code was incorrect)
+return $"[[[{color}]{Markup.Escape(state)}[/]]]";
 ```
 
-Wait — that's overly complex with Spectre markup escaping. Simpler approach: wrap in literal bracket characters *outside* the color span:
-
-```csharp
-return $"[[{color}]{Markup.Escape(state)}[/]]]";
-```
+The three opening brackets `[[[` work as: `[[` → literal `[`, then `[{color}]` opens the color span. The closing `]]]` works as: `[/]` closes the color span, then `]]` → literal `]`. This renders as `[Active]` with the state text colored. The complementary change in `RenderStatusAsync` removes the now-redundant `[[...]]` wrapping around `{summaryState}`.
 
 This renders as `[Active]` with color applied to the state text and brackets in default color. Matches what HumanOutputFormatter produces.
 

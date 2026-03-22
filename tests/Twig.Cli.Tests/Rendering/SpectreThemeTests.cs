@@ -78,6 +78,8 @@ public class SpectreThemeTests
         var result = theme.FormatState(state);
 
         result.ShouldContain($"[{expectedColor}]");
+        result.ShouldStartWith("[[");
+        result.ShouldEndWith("]]");
     }
 
     [Fact]
@@ -141,7 +143,9 @@ public class SpectreThemeTests
         var theme = new SpectreTheme(new DisplayConfig(), stateEntries: stateEntries);
 
         theme.FormatState("Custom Active").ShouldContain("[blue]");
+        theme.FormatState("Custom Active").ShouldStartWith("[[");
         theme.FormatState("Custom Done").ShouldContain("[green]");
+        theme.FormatState("Custom Done").ShouldEndWith("]]");
     }
 
     // ── GetSpectreColor uses TypeColorResolver when typeColors provided ──

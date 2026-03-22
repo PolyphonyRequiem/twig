@@ -306,7 +306,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         // EPIC-002: One-line summary header for quick-glance
         var summaryBadge = _theme.FormatTypeBadge(item.Type);
         var summaryState = _theme.FormatState(item.State);
-        _console.MarkupLine($"#{item.Id} [aqua]●[/] {summaryBadge} {Markup.Escape(item.Type.ToString())} — {Markup.Escape(item.Title)} [[{summaryState}]]");
+        _console.MarkupLine($"#{item.Id} [aqua]●[/] {summaryBadge} {Markup.Escape(item.Type.ToString())} — {Markup.Escape(item.Title)} {summaryState}");
 
         // Work item detail panel
         var dirty = item.IsDirty ? " [yellow]•[/]" : "";

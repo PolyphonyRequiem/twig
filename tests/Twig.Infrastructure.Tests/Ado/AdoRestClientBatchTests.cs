@@ -203,6 +203,39 @@ public class AdoRestClientBatchTests
         result[0].Id.ShouldBe(1);
     }
 
+    [Fact]
+    public async Task FetchBatchAsync_201Items_NoSilentTruncation_AllItemsReturned()
+    {
+        // EPIC-003 Task 3: Verify that a WIQL result with 201 IDs pages correctly
+        // and does not silently truncate at the 200-item ADO batch limit.
+        var ids = Enumerable.Range(1, 201).ToList();
+        var handler = new TrackingHandler(ids);
+        IAdoWorkItemService service = CreateClient(handler);
+
+        var result = await service.FetchBatchAsync(ids);
+
+        // All 201 items must be returned — no silent truncation at the 200 boundary
+        result.Count.ShouldBe(201);
+        var resultIds = result.Select(wi => wi.Id).OrderBy(id => id).ToList();
+        resultIds.ShouldBe(ids);
+        // Should have made 2 batch requests: 200 + 1
+        handler.BatchRequestCount.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task FetchBatchAsync_ExactlyMaxBatchSize_SendsSingleRequest()
+    {
+        // Verify exactly 200 IDs (the limit) doesn't split
+        var ids = Enumerable.Range(1, AdoRestClient.MaxBatchSize).ToList();
+        var handler = new TrackingHandler(ids);
+        IAdoWorkItemService service = CreateClient(handler);
+
+        var result = await service.FetchBatchAsync(ids);
+
+        result.Count.ShouldBe(200);
+        handler.BatchRequestCount.ShouldBe(1);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     private static AdoRestClient CreateClient(TrackingHandler handler)

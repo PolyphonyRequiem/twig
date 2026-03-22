@@ -1,7 +1,7 @@
 # Twig Test Resilience — Edge-Case & Failure-Mode Coverage Plan
 
-> **Status:** IN PROGRESS — EPIC-001 DONE, EPIC-002 DONE, EPIC-003 next  
-> **Date:** 2026-03-21 | **EPIC-001 Completed:** 2026-03-22 | **EPIC-002 Completed:** 2026-03-22
+> **Status:** IN PROGRESS — EPIC-001 DONE, EPIC-002 DONE, EPIC-003 DONE, EPIC-004 next  
+> **Date:** 2026-03-21 | **EPIC-001 Completed:** 2026-03-22 | **EPIC-002 Completed:** 2026-03-22 | **EPIC-003 Completed:** 2026-03-22
 > **Scope:** Net-new tests targeting untested failure modes, race conditions, and edge cases  
 > **Companion:** [twig-test-quality.plan.md](twig-test-quality.plan.md) (structural refactoring — independent prerequisite chain)
 
@@ -88,24 +88,26 @@ This plan is **independent** of the test quality plan. It adds new tests to cove
 
 ---
 
-### EPIC-003: Error resilience paths
+### EPIC-003: Error resilience paths ✅ DONE
 
 **Problem:** ADO HTTP errors are correctly mapped to typed exceptions but never retried — a transient 429 or 503 fails immediately. Git CLI errors are caught but edge states (detached HEAD, no remote, merge conflict) are not tested. Config file corruption crashes the app with an unhandled `JsonException`.
 
 **Production code:** `AdoRestClient.cs`, `AdoErrorHandler.cs`, `GitCliService.cs`, `TwigConfiguration.cs`
 
-| # | Task | What to test |
-|---|------|-------------|
-| 1 | **ADO 429 with Retry-After** — Mock `SendAsync` returning 429 with `Retry-After: 2`. Verify: `AdoRateLimitException` contains the retry-after value. (Retry *policy* is out of scope for this plan — but the exception must carry enough info for a future retry policy to use.) | `AdoErrorHandlerTests.cs` |
-| 2 | **ADO 503 Service Unavailable** — Mock `SendAsync` returning 503. Verify: `AdoServerException` thrown with status code. Verify no silent swallow. | `AdoErrorHandlerTests.cs` |
-| 3 | **ADO batch fetch with 200-item limit** — Construct a WIQL result with 201 item IDs. Verify: `GetWorkItemsBatchAsync` pages correctly (or rejects gracefully), no silent truncation. | `AdoWorkItemServiceTests.cs` |
-| 4 | **Git not installed** — Mock `Process.Start` throwing `Win32Exception` (code 2). Verify: `GitOperationException` with message "git binary not found" (or similar). | `GitCliServiceTests.cs` |
-| 5 | **Git no remote configured** — Mock `git remote get-url origin` returning non-zero exit code. Verify: caller receives descriptive error, not generic "git operation failed". | `GitCliServiceTests.cs` |
-| 6 | **Git detached HEAD handling** — Mock `git branch --show-current` returning empty string. Verify: `GetCurrentBranchAsync` returns `null` or a sentinel (not "HEAD" raw string that confuses callers). | `GitCliServiceTests.cs` |
-| 7 | **Config malformed JSON** — Write `{ "org": "test", bad json` to config path. Call `LoadAsync`. Verify: descriptive exception (not raw `JsonException`), or graceful fallback to defaults with warning. | `TwigConfigurationTests.cs` |
-| 8 | **Config file permission denied** — Mock file system (or use read-only temp file) where config path exists but is unreadable. Verify: descriptive exception, not raw `UnauthorizedAccessException`. | `TwigConfigurationTests.cs` |
-| 9 | **PR creation: auth failure** — Mock `AdoGitClient.CreatePullRequestAsync` throwing `AdoAuthenticationException`. Verify: `PrCommand` prints actionable message ("check your PAT") not generic "Failed to create pull request". | `PrCommandTests.cs` |
-| 10 | **PR creation: merge policy blocked** — Mock `AdoGitClient` throwing `AdoBadRequestException` with merge-policy details. Verify: command output includes the policy name/reason. | `PrCommandTests.cs` |
+**Completed:** 2026-03-22 — 13 new tests added across 4 test files. Production fixes: `TwigConfiguration.LoadAsync` now wraps `JsonException`, `UnauthorizedAccessException`, and `IOException` in `TwigConfigurationException` with actionable messages. New `TwigConfigurationException` class created.
+
+| # | Task | What to test | Status |
+|---|------|-------------|--------|
+| 1 | **ADO 429 with Retry-After** — Mock `SendAsync` returning 429 with `Retry-After: 2`. Verify: `AdoRateLimitException` contains the retry-after value. (Retry *policy* is out of scope for this plan — but the exception must carry enough info for a future retry policy to use.) | `AdoErrorHandlerTests.cs` | ✅ DONE |
+| 2 | **ADO 503 Service Unavailable** — Mock `SendAsync` returning 503. Verify: `AdoServerException` thrown with status code. Verify no silent swallow. | `AdoErrorHandlerTests.cs` | ✅ DONE |
+| 3 | **ADO batch fetch with 200-item limit** — Construct a WIQL result with 201 item IDs. Verify: `GetWorkItemsBatchAsync` pages correctly (or rejects gracefully), no silent truncation. | `AdoRestClientBatchTests.cs` | ✅ DONE |
+| 4 | **Git not installed** — Mock `Process.Start` throwing `Win32Exception` (code 2). Verify: `GitOperationException` with message "git binary not found" (or similar). | `GitCliServiceTests.cs` | ✅ DONE (pre-existing) |
+| 5 | **Git no remote configured** — Mock `git remote get-url origin` returning non-zero exit code. Verify: caller receives descriptive error, not generic "git operation failed". | `GitCliServiceTests.cs` | ✅ DONE |
+| 6 | **Git detached HEAD handling** — Mock `git branch --show-current` returning empty string. Verify: `GetCurrentBranchAsync` returns `null` or a sentinel (not "HEAD" raw string that confuses callers). | `GitCliServiceTests.cs` | ✅ DONE |
+| 7 | **Config malformed JSON** — Write `{ "org": "test", bad json` to config path. Call `LoadAsync`. Verify: descriptive exception (not raw `JsonException`), or graceful fallback to defaults with warning. | `TwigConfigurationTests.cs` | ✅ DONE |
+| 8 | **Config file permission denied** — Mock file system (or use read-only temp file) where config path exists but is unreadable. Verify: descriptive exception, not raw `UnauthorizedAccessException`. | `TwigConfigurationTests.cs` | ✅ DONE |
+| 9 | **PR creation: auth failure** — Mock `AdoGitClient.CreatePullRequestAsync` throwing `AdoAuthenticationException`. Verify: `PrCommand` prints actionable message ("check your PAT") not generic "Failed to create pull request". | `PrCommandTests.cs` | ✅ DONE |
+| 10 | **PR creation: merge policy blocked** — Mock `AdoGitClient` throwing `AdoBadRequestException` with merge-policy details. Verify: command output includes the policy name/reason. | `PrCommandTests.cs` | ✅ DONE |
 
 **Outcome:** Every ADO/Git/Config error path that can happen in production has a test proving the error message is actionable. Future retry policies have typed exceptions with all necessary metadata.
 

@@ -415,6 +415,50 @@ public class GitCliServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task GetRemoteUrlAsync_NoRemoteConfigured_ThrowsDescriptiveError()
+    {
+        // EPIC-003 Task 5: When no remote is configured, the error message should
+        // identify the remote name, not just say "git operation failed".
+        RunGit("commit --allow-empty -m \"initial\"");
+
+        var ex = await Should.ThrowAsync<GitOperationException>(
+            () => _sut.GetRemoteUrlAsync("origin"));
+
+        // Error should mention the remote command and include git's stderr
+        ex.Message.ShouldContain("remote");
+        ex.Message.ShouldContain("origin");
+        ex.ExitCode.ShouldBeGreaterThan(0);
+    }
+
+    [Fact]
+    public async Task GetCurrentBranchAsync_DetachedHead_ReturnsHeadSentinel()
+    {
+        // EPIC-003 Task 6: When in detached HEAD state, GetCurrentBranchAsync
+        // returns "HEAD" (the rev-parse sentinel). Callers should use
+        // IsDetachedHeadAsync() to check before using the branch name.
+        RunGit("commit --allow-empty -m \"initial\"");
+        var hash = RunGit("rev-parse HEAD");
+        RunGit($"checkout {hash}");
+
+        var branch = await _sut.GetCurrentBranchAsync();
+
+        // "HEAD" is the sentinel value from rev-parse --abbrev-ref HEAD
+        branch.ShouldBe("HEAD");
+    }
+
+    [Fact]
+    public async Task GetCurrentBranchAsync_DetachedHead_IsDetachedHeadReturnsTrue()
+    {
+        // EPIC-003 Task 6: Verify the companion method correctly identifies detached state.
+        RunGit("commit --allow-empty -m \"initial\"");
+        var hash = RunGit("rev-parse HEAD");
+        RunGit($"checkout {hash}");
+
+        var isDetached = await _sut.IsDetachedHeadAsync();
+        isDetached.ShouldBeTrue();
+    }
+
+    [Fact]
     public async Task GetConfigValue_ThrowsGitOperationException_WhenExitCodeIsNot1()
     {
         // Passing "--type=int user.email" as the key builds the command:

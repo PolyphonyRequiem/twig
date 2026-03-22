@@ -174,6 +174,32 @@ public class AdoErrorHandlerTests
     }
 
     [Fact]
+    public async Task ThrowOnErrorAsync_429_WithRetryAfterHeader_CarriesRetryAfterValue()
+    {
+        var response = CreateResponse((HttpStatusCode)429);
+        response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromSeconds(2));
+        var url = "https://dev.azure.com/org/proj/_apis/wit/workitems/1";
+
+        var ex = await Should.ThrowAsync<AdoRateLimitException>(
+            () => AdoErrorHandler.ThrowOnErrorAsync(response, url, CancellationToken.None));
+
+        ex.RetryAfter.ShouldBe(TimeSpan.FromSeconds(2));
+        ex.Message.ShouldContain("2");
+    }
+
+    [Fact]
+    public async Task ThrowOnErrorAsync_429_WithoutRetryAfterHeader_DefaultsTo10Seconds()
+    {
+        var response = CreateResponse((HttpStatusCode)429);
+        var url = "https://dev.azure.com/org/proj/_apis/wit/workitems/1";
+
+        var ex = await Should.ThrowAsync<AdoRateLimitException>(
+            () => AdoErrorHandler.ThrowOnErrorAsync(response, url, CancellationToken.None));
+
+        ex.RetryAfter.ShouldBe(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
     public async Task ThrowOnErrorAsync_500_ThrowsServerException()
     {
         var response = CreateResponse(HttpStatusCode.InternalServerError, "{\"message\": \"Oops\"}");
@@ -195,6 +221,32 @@ public class AdoErrorHandlerTests
             () => AdoErrorHandler.ThrowOnErrorAsync(response, url, CancellationToken.None));
 
         ex.StatusCode.ShouldBe(503);
+    }
+
+    [Fact]
+    public async Task ThrowOnErrorAsync_503_WithBody_IncludesServerMessage()
+    {
+        var response = CreateResponse(HttpStatusCode.ServiceUnavailable, """{"message": "Service temporarily unavailable"}""");
+        var url = "https://dev.azure.com/org/proj/_apis/wit/workitems/1";
+
+        var ex = await Should.ThrowAsync<AdoServerException>(
+            () => AdoErrorHandler.ThrowOnErrorAsync(response, url, CancellationToken.None));
+
+        ex.StatusCode.ShouldBe(503);
+        ex.Message.ShouldContain("503");
+        ex.Message.ShouldContain("Service temporarily unavailable");
+    }
+
+    [Fact]
+    public async Task ThrowOnErrorAsync_503_IsNeverSilentlySwallowed()
+    {
+        // Verify that 503 always throws — it must not be caught/ignored internally.
+        var response = CreateResponse(HttpStatusCode.ServiceUnavailable);
+        var url = "https://dev.azure.com/org/proj/_apis/wit/workitems/1";
+
+        // Must throw, never return normally
+        await Should.ThrowAsync<AdoServerException>(
+            () => AdoErrorHandler.ThrowOnErrorAsync(response, url, CancellationToken.None));
     }
 
     // ── Helpers ──────────────────────────────────────────────────────

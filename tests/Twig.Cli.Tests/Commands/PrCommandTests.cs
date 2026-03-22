@@ -8,6 +8,7 @@ using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
+using Twig.Infrastructure.Ado.Exceptions;
 using Twig.Infrastructure.Config;
 using Xunit;
 
@@ -550,5 +551,73 @@ public class PrCommandTests
         await _adoGitService.Received().CreatePullRequestAsync(
             Arg.Is<PullRequestCreate>(r => r.TargetBranch == "refs/heads/release/v2"),
             Arg.Any<CancellationToken>());
+    }
+
+    // ── EPIC-003: Error resilience — auth failure and merge policy blocked ──
+
+    [Fact]
+    public async Task PrCreation_AuthFailure_PrintsActionableMessage()
+    {
+        // EPIC-003 Task 9: AdoAuthenticationException should produce an actionable
+        // message about checking credentials, not a generic "Failed to create pull request".
+        var item = CreateWorkItem(12345, "Test");
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(12345);
+        _workItemRepo.GetByIdAsync(12345, Arg.Any<CancellationToken>()).Returns(item);
+        _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
+        _gitService.GetCurrentBranchAsync(Arg.Any<CancellationToken>()).Returns("feature/12345-test");
+        _adoGitService.CreatePullRequestAsync(Arg.Any<PullRequestCreate>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoAuthenticationException());
+
+        var cmd = CreateCommand(_gitService, _adoGitService);
+
+        var stderr = new StringWriter();
+        Console.SetError(stderr);
+        try
+        {
+            var result = await cmd.ExecuteAsync();
+
+            result.ShouldBe(1);
+            var output = stderr.ToString();
+            // The error message should contain actionable guidance about credentials
+            output.ShouldContain("Authentication failed");
+        }
+        finally
+        {
+            Console.SetError(new StreamWriter(Console.OpenStandardError()) { AutoFlush = true });
+        }
+    }
+
+    [Fact]
+    public async Task PrCreation_MergePolicyBlocked_IncludesPolicyReason()
+    {
+        // EPIC-003 Task 10: AdoBadRequestException with merge policy details
+        // should surface the policy name/reason in the command output.
+        var item = CreateWorkItem(12345, "Test");
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(12345);
+        _workItemRepo.GetByIdAsync(12345, Arg.Any<CancellationToken>()).Returns(item);
+        _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
+        _gitService.GetCurrentBranchAsync(Arg.Any<CancellationToken>()).Returns("feature/12345-test");
+        _adoGitService.CreatePullRequestAsync(Arg.Any<PullRequestCreate>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoBadRequestException(
+                "TF401027: You need at least one reviewer to approve before the pull request can be completed. Required policy: Minimum number of reviewers (2)."));
+
+        var cmd = CreateCommand(_gitService, _adoGitService);
+
+        var stderr = new StringWriter();
+        Console.SetError(stderr);
+        try
+        {
+            var result = await cmd.ExecuteAsync();
+
+            result.ShouldBe(1);
+            var output = stderr.ToString();
+            // The error output should include the policy reason from the exception
+            output.ShouldContain("TF401027");
+            output.ShouldContain("Minimum number of reviewers");
+        }
+        finally
+        {
+            Console.SetError(new StreamWriter(Console.OpenStandardError()) { AutoFlush = true });
+        }
     }
 }

@@ -38,9 +38,35 @@ public sealed class TwigConfiguration
             return new TwigConfiguration();
         }
 
-        await using var stream = File.OpenRead(path);
-        var config = await JsonSerializer.DeserializeAsync(stream, TwigJsonContext.Default.TwigConfiguration, ct);
-        return config ?? new TwigConfiguration();
+        FileStream stream;
+        try
+        {
+            stream = File.OpenRead(path);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            throw new TwigConfigurationException(
+                $"Cannot read config file '{path}': permission denied. Check file permissions.", ex);
+        }
+        catch (IOException ex)
+        {
+            throw new TwigConfigurationException(
+                $"Cannot read config file '{path}': {ex.Message}", ex);
+        }
+
+        try
+        {
+            await using (stream)
+            {
+                var config = await JsonSerializer.DeserializeAsync(stream, TwigJsonContext.Default.TwigConfiguration, ct);
+                return config ?? new TwigConfiguration();
+            }
+        }
+        catch (JsonException ex)
+        {
+            throw new TwigConfigurationException(
+                $"Config file '{path}' contains invalid JSON. Delete the file or fix the syntax. Details: {ex.Message}", ex);
+        }
     }
 
     /// <summary>

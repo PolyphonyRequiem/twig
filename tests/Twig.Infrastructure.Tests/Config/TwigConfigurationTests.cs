@@ -963,4 +963,65 @@ public class TwigConfigurationTests : IDisposable
         config.Display.MaxExtraColumns.ShouldBe(3);
         config.Display.Columns.ShouldBeNull();
     }
+
+    // ── EPIC-003: Error resilience — malformed JSON and permission denied ──
+
+    [Fact]
+    public async Task LoadAsync_MalformedJson_ThrowsTwigConfigurationException()
+    {
+        // EPIC-003 Task 7: Malformed JSON should not leak a raw JsonException.
+        var configPath = Path.Combine(_tempDir, "malformed.json");
+        await File.WriteAllTextAsync(configPath, """{ "org": "test", bad json""");
+
+        var ex = await Should.ThrowAsync<TwigConfigurationException>(
+            () => TwigConfiguration.LoadAsync(configPath));
+
+        ex.Message.ShouldContain("invalid JSON");
+        ex.Message.ShouldContain(configPath);
+        ex.InnerException.ShouldBeOfType<System.Text.Json.JsonException>();
+    }
+
+    [Fact]
+    public async Task LoadAsync_MalformedJson_IncludesRepairGuidance()
+    {
+        // EPIC-003 Task 7: The error message should guide the user.
+        var configPath = Path.Combine(_tempDir, "broken.json");
+        await File.WriteAllTextAsync(configPath, """{ "organization": }""");
+
+        var ex = await Should.ThrowAsync<TwigConfigurationException>(
+            () => TwigConfiguration.LoadAsync(configPath));
+
+        ex.Message.ShouldContain("Delete the file or fix the syntax");
+    }
+
+    [Fact]
+    public async Task LoadAsync_EmptyJsonObject_ReturnsDefaults()
+    {
+        // An empty but valid JSON object should not throw.
+        var configPath = Path.Combine(_tempDir, "empty.json");
+        await File.WriteAllTextAsync(configPath, "{}");
+
+        var config = await TwigConfiguration.LoadAsync(configPath);
+
+        config.ShouldNotBeNull();
+        config.Organization.ShouldBe(string.Empty);
+    }
+
+    [Fact]
+    public async Task LoadAsync_PermissionDenied_ThrowsTwigConfigurationException()
+    {
+        // EPIC-003 Task 8: File access errors should not leak raw IOException
+        // or UnauthorizedAccessException — they should be wrapped with a descriptive message.
+        var configPath = Path.Combine(_tempDir, "locked.json");
+        await File.WriteAllTextAsync(configPath, """{"organization":"test"}""");
+
+        // Lock the file exclusively so LoadAsync cannot read it
+        using var lockStream = new FileStream(configPath, FileMode.Open, FileAccess.Read, FileShare.None);
+
+        var ex = await Should.ThrowAsync<TwigConfigurationException>(
+            () => TwigConfiguration.LoadAsync(configPath));
+
+        ex.Message.ShouldContain(configPath);
+        ex.InnerException.ShouldBeOfType<IOException>();
+    }
 }

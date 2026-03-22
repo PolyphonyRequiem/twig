@@ -19,6 +19,7 @@ public sealed class TreeCommand(
     ActiveItemResolver activeItemResolver,
     WorkingSetService workingSetService,
     SyncCoordinator syncCoordinator,
+    IProcessTypeStore processTypeStore,
     RenderingPipelineFactory? pipelineFactory = null)
 {
     /// <summary>Display the work item hierarchy as a tree.</summary>
@@ -50,6 +51,14 @@ public sealed class TreeCommand(
 
         if (renderer is not null)
         {
+            // EPIC-005: Load process config for unparented banner
+            var processConfig = await processTypeStore.GetProcessConfigurationDataAsync();
+            if (renderer is SpectreRenderer spectreRenderer && processConfig is not null)
+            {
+                spectreRenderer.TypeLevelMap = BacklogHierarchyService.GetTypeLevelMap(processConfig);
+                spectreRenderer.ParentChildMap = BacklogHierarchyService.InferParentChildMap(processConfig);
+            }
+
             // Async progressive rendering path — delegates to SpectreRenderer.RenderTreeAsync.
             await renderer.RenderTreeAsync(
                 getFocusedItem: () => Task.FromResult<Domain.Aggregates.WorkItem?>(resolvedItem),
@@ -91,7 +100,25 @@ public sealed class TreeCommand(
         var children = await workItemRepo.GetChildrenAsync(item.Id);
         var tree = WorkTree.Build(item, parentChain, children);
 
-        Console.WriteLine(fmt.FormatTree(tree, maxChildren, activeId));
+        // EPIC-005: Load process config for unparented banner
+        if (fmt is HumanOutputFormatter humanFmt)
+        {
+            var treeProcessConfig = await processTypeStore.GetProcessConfigurationDataAsync();
+            if (treeProcessConfig is not null)
+            {
+                var typeLevelMap = BacklogHierarchyService.GetTypeLevelMap(treeProcessConfig);
+                var parentChildMap = BacklogHierarchyService.InferParentChildMap(treeProcessConfig);
+                Console.WriteLine(humanFmt.FormatTree(tree, maxChildren, activeId, typeLevelMap, parentChildMap));
+            }
+            else
+            {
+                Console.WriteLine(fmt.FormatTree(tree, maxChildren, activeId));
+            }
+        }
+        else
+        {
+            Console.WriteLine(fmt.FormatTree(tree, maxChildren, activeId));
+        }
 
         // Sync working set silently after output (EPIC-004) — best-effort
         try

@@ -15,19 +15,12 @@ public static class BacklogHierarchyService
     /// Bug types are excluded (their parent-child behavior is team-setting dependent).
     /// Algorithm documented in twig-dynamic-process.plan.md §7 "Backlog Hierarchy → Parent-Child Inference Algorithm".
     /// </summary>
-    public static Dictionary<string, List<string>> InferParentChildMap(ProcessConfigurationData? config)
+    public static IReadOnlyDictionary<string, List<string>> InferParentChildMap(ProcessConfigurationData? config)
     {
         if (config is null)
             return new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
-        var levels = new List<BacklogLevelConfiguration>();
-        if (config.PortfolioBacklogs is not null)
-            levels.AddRange(config.PortfolioBacklogs);
-        if (config.RequirementBacklog is not null)
-            levels.Add(config.RequirementBacklog);
-        if (config.TaskBacklog is not null)
-            levels.Add(config.TaskBacklog);
-
+        var levels = BuildLevels(config);
         var result = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
         for (var i = 0; i < levels.Count - 1; i++)
@@ -43,5 +36,41 @@ public static class BacklogHierarchyService
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Maps each work item type name to its backlog level (0 = top portfolio, 1 = next portfolio/requirement, 2 = task, etc.).
+    /// Uses the same ordered backlog levels as <see cref="InferParentChildMap"/>.
+    /// Returns an empty dictionary when <paramref name="config"/> is null.
+    /// </summary>
+    public static IReadOnlyDictionary<string, int> GetTypeLevelMap(ProcessConfigurationData? config)
+    {
+        if (config is null)
+            return new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        var levels = BuildLevels(config);
+        var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        for (var i = 0; i < levels.Count; i++)
+        {
+            foreach (var typeName in levels[i].WorkItemTypeNames)
+            {
+                result[typeName] = i;
+            }
+        }
+
+        return result;
+    }
+
+    private static List<BacklogLevelConfiguration> BuildLevels(ProcessConfigurationData config)
+    {
+        var levels = new List<BacklogLevelConfiguration>();
+        if (config.PortfolioBacklogs is not null)
+            levels.AddRange(config.PortfolioBacklogs);
+        if (config.RequirementBacklog is not null)
+            levels.Add(config.RequirementBacklog);
+        if (config.TaskBacklog is not null)
+            levels.Add(config.TaskBacklog);
+        return levels;
     }
 }

@@ -697,6 +697,137 @@ public class HumanOutputFormatterTests
         result.ShouldContain("▪");
     }
 
+    // ── EPIC-005: Tree view unparented banner ──────────────────────
+
+    [Fact]
+    public void FormatTree_UnparentedNonRootItem_ShowsBanner()
+    {
+        var focus = new WorkItem
+        {
+            Id = 1,
+            Type = WorkItemType.Task,
+            Title = "Orphan Task",
+            State = "Active",
+            ParentId = null, // no parent
+            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
+            AreaPath = AreaPath.Parse("Project").Value,
+        };
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), Array.Empty<WorkItem>());
+
+        var typeLevelMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Epic"] = 0, ["Feature"] = 1, ["User Story"] = 2, ["Task"] = 3,
+        };
+        var parentChildMap = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Epic"] = new List<string> { "Feature" },
+            ["Feature"] = new List<string> { "User Story" },
+            ["User Story"] = new List<string> { "Task" },
+        };
+
+        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null, typeLevelMap, parentChildMap);
+
+        result.ShouldContain("unparented");
+        result.ShouldContain("expected under a User Story");
+    }
+
+    [Fact]
+    public void FormatTree_UnparentedRootItem_NoBanner()
+    {
+        var focus = new WorkItem
+        {
+            Id = 1,
+            Type = WorkItemType.Epic,
+            Title = "Root Epic",
+            State = "Active",
+            ParentId = null,
+            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
+            AreaPath = AreaPath.Parse("Project").Value,
+        };
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), Array.Empty<WorkItem>());
+
+        var typeLevelMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Epic"] = 0, ["Feature"] = 1, ["Task"] = 2,
+        };
+        var parentChildMap = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Epic"] = new List<string> { "Feature" },
+            ["Feature"] = new List<string> { "Task" },
+        };
+
+        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null, typeLevelMap, parentChildMap);
+
+        result.ShouldNotContain("unparented");
+    }
+
+    [Fact]
+    public void FormatTree_ItemWithParent_NoBanner()
+    {
+        var parent = new WorkItem
+        {
+            Id = 100,
+            Type = WorkItemType.Feature,
+            Title = "Parent Feature",
+            State = "Active",
+            ParentId = null,
+            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
+            AreaPath = AreaPath.Parse("Project").Value,
+        };
+        var focus = new WorkItem
+        {
+            Id = 1,
+            Type = WorkItemType.Task,
+            Title = "Child Task",
+            State = "Active",
+            ParentId = 100,
+            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
+            AreaPath = AreaPath.Parse("Project").Value,
+        };
+        var tree = WorkTree.Build(focus, new[] { parent }, Array.Empty<WorkItem>());
+
+        var typeLevelMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Epic"] = 0, ["Feature"] = 1, ["Task"] = 2,
+        };
+        var parentChildMap = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Epic"] = new List<string> { "Feature" },
+            ["Feature"] = new List<string> { "Task" },
+        };
+
+        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null, typeLevelMap, parentChildMap);
+
+        result.ShouldNotContain("unparented");
+    }
+
+    [Fact]
+    public void FindExpectedParentTypeName_FindsParentType()
+    {
+        var parentChildMap = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Epic"] = new List<string> { "Feature" },
+            ["Feature"] = new List<string> { "Task" },
+        };
+
+        HumanOutputFormatter.FindExpectedParentTypeName("Task", parentChildMap).ShouldBe("Feature");
+        HumanOutputFormatter.FindExpectedParentTypeName("Feature", parentChildMap).ShouldBe("Epic");
+        HumanOutputFormatter.FindExpectedParentTypeName("Epic", parentChildMap).ShouldBeNull();
+    }
+
+    [Fact]
+    public void FindExpectedParentTypeName_CaseInsensitiveLookup()
+    {
+        var parentChildMap = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Epic"] = new List<string> { "Feature" },
+            ["Feature"] = new List<string> { "Task" },
+        };
+
+        HumanOutputFormatter.FindExpectedParentTypeName("task", parentChildMap).ShouldBe("Feature");
+        HumanOutputFormatter.FindExpectedParentTypeName("FEATURE", parentChildMap).ShouldBe("Epic");
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     private static WorkItem CreateWorkItem(int id, string title, string state, string? assignedTo = null)

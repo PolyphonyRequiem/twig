@@ -76,7 +76,28 @@ public sealed class HumanOutputFormatter : IOutputFormatter
 
     public string FormatTree(WorkTree tree, int maxChildren, int? activeId)
     {
+        return FormatTree(tree, maxChildren, activeId, typeLevelMap: null, parentChildMap: null);
+    }
+
+    public string FormatTree(WorkTree tree, int maxChildren, int? activeId,
+        IReadOnlyDictionary<string, int>? typeLevelMap,
+        IReadOnlyDictionary<string, List<string>>? parentChildMap)
+    {
         var sb = new StringBuilder();
+
+        // EPIC-005: Unparented banner for tree view
+        if (typeLevelMap is not null && parentChildMap is not null
+            && tree.ParentChain.Count == 0
+            && !tree.FocusedItem.ParentId.HasValue
+            && typeLevelMap.TryGetValue(tree.FocusedItem.Type.Value, out var focusLevel)
+            && focusLevel > 0)
+        {
+            // Find expected parent type name from parentChildMap
+            var expectedParent = FindExpectedParentTypeName(tree.FocusedItem.Type.Value, parentChildMap);
+            var parentLabel = expectedParent ?? "a parent";
+            sb.AppendLine($"{Dim}(unparented — expected under a {parentLabel}){Reset}");
+        }
+
         var focusDepth = tree.ParentChain.Count;
         var lines = new List<AlignedLine>();
 
@@ -174,7 +195,24 @@ public sealed class HumanOutputFormatter : IOutputFormatter
                 {
                     foreach (var root in kvp.Value)
                     {
-                        if (NodeOrDescendantBelongsToCategory(root, category))
+                        if (root.IsVirtualGroup)
+                        {
+                            // Check if any child of the virtual group belongs to this category
+                            var hasVisibleChild = false;
+                            foreach (var child in root.Children)
+                            {
+                                if (NodeOrDescendantBelongsToCategory(child, category))
+                                {
+                                    hasVisibleChild = true;
+                                    break;
+                                }
+                            }
+                            if (hasVisibleChild)
+                            {
+                                RenderVirtualGroupForCategory(sb, wsLines, ws, root, category);
+                            }
+                        }
+                        else if (NodeOrDescendantBelongsToCategory(root, category))
                         {
                             CollectHierarchyNodeLine(wsLines, ws, root, indent: "      ", connector: "");
                             CollectHierarchyChildrenForCategory(wsLines, ws, root, childIndent: "      ", category: category);
@@ -345,8 +383,15 @@ public sealed class HumanOutputFormatter : IOutputFormatter
             lines.Clear();
             foreach (var root in kvp.Value)
             {
-                CollectHierarchyNodeLine(lines, ws, root, indent: "      ", connector: "", showAssignee: false);
-                CollectHierarchyChildren(lines, ws, root, childIndent: "      ", showAssignee: false);
+                if (root.IsVirtualGroup)
+                {
+                    RenderVirtualGroupLine(sb, lines, ws, root);
+                }
+                else
+                {
+                    CollectHierarchyNodeLine(lines, ws, root, indent: "      ", connector: "", showAssignee: false);
+                    CollectHierarchyChildren(lines, ws, root, childIndent: "      ", showAssignee: false);
+                }
             }
             FlushAlignedLines(sb, lines);
         }
@@ -354,10 +399,45 @@ public sealed class HumanOutputFormatter : IOutputFormatter
 
     private static int CountSprintItems(SprintHierarchyNode node)
     {
-        var count = node.IsSprintItem ? 1 : 0;
+        if (node.IsVirtualGroup)
+        {
+            var count = 0;
+            foreach (var child in node.Children)
+                count += CountSprintItems(child);
+            return count;
+        }
+        var c = node.IsSprintItem ? 1 : 0;
         foreach (var child in node.Children)
-            count += CountSprintItems(child);
-        return count;
+            c += CountSprintItems(child);
+        return c;
+    }
+
+    /// <summary>
+    /// Renders a virtual group header (e.g., "── Unparented Tasks ──") and its children
+    /// with backlog-level-aware indentation.
+    /// </summary>
+    private void RenderVirtualGroupLine(StringBuilder sb, List<AlignedLine> lines, Workspace ws, SprintHierarchyNode virtualNode)
+    {
+        // Flush any accumulated lines before the separator
+        FlushAlignedLines(sb, lines);
+
+        // Virtual group header: indented separator line
+        var baseIndent = "      ";
+        sb.AppendLine($"{baseIndent}{Dim}── {virtualNode.GroupLabel} ──{Reset}");
+
+        // Children indented to their backlog level
+        var levelIndent = new string(' ', virtualNode.BacklogLevel * 4);
+        var childIndent = baseIndent + levelIndent;
+
+        for (var i = 0; i < virtualNode.Children.Count; i++)
+        {
+            var child = virtualNode.Children[i];
+            var isLast = i == virtualNode.Children.Count - 1;
+            var connector = isLast ? "└── " : "├── ";
+            var continuation = isLast ? "    " : "│   ";
+            CollectHierarchyNodeLine(lines, ws, child, childIndent, connector, showAssignee: false);
+            CollectHierarchyChildren(lines, ws, child, childIndent + continuation, showAssignee: false);
+        }
     }
 
     private void CollectHierarchyNodeLine(List<AlignedLine> lines, Workspace ws, SprintHierarchyNode node, string indent, string connector, bool showAssignee = false)
@@ -422,12 +502,63 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         }
     }
 
+    /// <summary>
+    /// Renders a virtual group header and its children filtered by state category for workspace view.
+    /// </summary>
+    private void RenderVirtualGroupForCategory(StringBuilder sb, List<AlignedLine> lines, Workspace ws, SprintHierarchyNode virtualNode, StateCategory category)
+    {
+        FlushAlignedLines(sb, lines);
+
+        var baseIndent = "      ";
+        sb.AppendLine($"{baseIndent}{Dim}── {virtualNode.GroupLabel} ──{Reset}");
+
+        var levelIndent = new string(' ', virtualNode.BacklogLevel * 4);
+        var childIndent = baseIndent + levelIndent;
+
+        // Pre-pass: find the last visible child
+        var lastVisibleIdx = -1;
+        for (var j = 0; j < virtualNode.Children.Count; j++)
+        {
+            if (NodeOrDescendantBelongsToCategory(virtualNode.Children[j], category))
+                lastVisibleIdx = j;
+        }
+
+        for (var i = 0; i < virtualNode.Children.Count; i++)
+        {
+            var child = virtualNode.Children[i];
+            if (!NodeOrDescendantBelongsToCategory(child, category))
+                continue;
+            var isLast = i == lastVisibleIdx;
+            var connector = isLast ? "└── " : "├── ";
+            var continuation = isLast ? "    " : "│   ";
+            CollectHierarchyNodeLine(lines, ws, child, childIndent, connector);
+            CollectHierarchyChildrenForCategory(lines, ws, child, childIndent + continuation, category: category);
+        }
+    }
+
     public string FormatFieldChange(FieldChange change)
     {
         return $"  {Bold}{change.FieldName}{Reset}: {Dim}{change.OldValue ?? "(empty)"}{Reset} → {change.NewValue ?? "(empty)"}";
     }
 
     // ── State category grouping ─────────────────────────────────────
+
+    /// <summary>
+    /// Finds the expected parent type name for a given child type using the parent-child map.
+    /// Returns null if no parent type is found.
+    /// </summary>
+    internal static string? FindExpectedParentTypeName(string childTypeName, IReadOnlyDictionary<string, List<string>> parentChildMap)
+    {
+        foreach (var (parentType, children) in parentChildMap)
+        {
+            foreach (var child in children)
+            {
+                if (string.Equals(child, childTypeName, StringComparison.OrdinalIgnoreCase))
+                    return parentType;
+            }
+        }
+        return null;
+    }
 
     /// <summary>
     /// Groups work items by state category in display order (Proposed → InProgress → Resolved → Completed).

@@ -23,6 +23,7 @@ public class TreeNavCommandTests
     private readonly ActiveItemResolver _activeItemResolver;
     private readonly WorkingSetService _workingSetService;
     private readonly SyncCoordinator _syncCoordinator;
+    private readonly IProcessTypeStore _processTypeStore;
     private readonly SetCommand _setCommand;
 
     public TreeNavCommandTests()
@@ -46,6 +47,7 @@ public class TreeNavCommandTests
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
         var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, iterationService, null);
         _workingSetService = workingSetService;
+        _processTypeStore = Substitute.For<IProcessTypeStore>();
         _setCommand = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, syncCoordinator,
             workingSetService, _formatterFactory, _hintEngine);
     }
@@ -65,7 +67,7 @@ public class TreeNavCommandTests
         _workItemRepo.GetChildrenAsync(2, Arg.Any<CancellationToken>())
             .Returns(new[] { child1, child2 });
 
-        var treeCmd = new TreeCommand(_contextStore, _workItemRepo, _config, _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator);
+        var treeCmd = new TreeCommand(_contextStore, _workItemRepo, _config, _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator, _processTypeStore);
         var result = await treeCmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -91,7 +93,7 @@ public class TreeNavCommandTests
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
             .Returns(new[] { seed });
 
-        var treeCmd = new TreeCommand(_contextStore, _workItemRepo, _config, _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator);
+        var treeCmd = new TreeCommand(_contextStore, _workItemRepo, _config, _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator, _processTypeStore);
         var result = await treeCmd.ExecuteAsync();
 
         result.ShouldBe(0);

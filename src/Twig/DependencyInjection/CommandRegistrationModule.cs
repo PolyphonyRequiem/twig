@@ -79,6 +79,7 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
             sp.GetRequiredService<Domain.Services.WorkingSetService>(),
             sp.GetRequiredService<Domain.Services.SyncCoordinator>(),
+            sp.GetRequiredService<IProcessTypeStore>(),
             sp.GetRequiredService<RenderingPipelineFactory>()));
         services.AddSingleton<NavigationCommands>(sp => new NavigationCommands(
             sp.GetRequiredService<IContextStore>(),

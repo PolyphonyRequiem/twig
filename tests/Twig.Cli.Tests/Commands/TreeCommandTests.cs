@@ -21,6 +21,7 @@ public class TreeCommandTests
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly WorkingSetService _workingSetService;
     private readonly SyncCoordinator _syncCoordinator;
+    private readonly IProcessTypeStore _processTypeStore;
 
     public TreeCommandTests()
     {
@@ -38,6 +39,7 @@ public class TreeCommandTests
         iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
         _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, iterationService, null);
+        _processTypeStore = Substitute.For<IProcessTypeStore>();
     }
 
     // ── Depth flag behavior ─────────────────────────────────────────
@@ -61,7 +63,7 @@ public class TreeCommandTests
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(active);
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(children);
 
-        var cmd = new TreeCommand(_contextStore, _workItemRepo, _config, _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator);
+        var cmd = new TreeCommand(_contextStore, _workItemRepo, _config, _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator, _processTypeStore);
 
         var captured = CaptureConsoleOut(() => cmd.ExecuteAsync("minimal", depth: 2).GetAwaiter().GetResult());
 
@@ -80,7 +82,7 @@ public class TreeCommandTests
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(active);
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(children);
 
-        var cmd = new TreeCommand(_contextStore, _workItemRepo, _config, _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator);
+        var cmd = new TreeCommand(_contextStore, _workItemRepo, _config, _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator, _processTypeStore);
 
         var captured = CaptureConsoleOut(() => cmd.ExecuteAsync("minimal", all: true).GetAwaiter().GetResult());
 
@@ -104,7 +106,7 @@ public class TreeCommandTests
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(active);
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(children);
 
-        var cmd = new TreeCommand(_contextStore, _workItemRepo, _config, _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator);
+        var cmd = new TreeCommand(_contextStore, _workItemRepo, _config, _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator, _processTypeStore);
 
         var captured = CaptureConsoleOut(() => cmd.ExecuteAsync("minimal", depth: 2).GetAwaiter().GetResult());
 
@@ -124,7 +126,7 @@ public class TreeCommandTests
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(active);
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(children);
 
-        var cmd = new TreeCommand(_contextStore, _workItemRepo, _config, _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator);
+        var cmd = new TreeCommand(_contextStore, _workItemRepo, _config, _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator, _processTypeStore);
 
         var captured = CaptureConsoleOut(() => cmd.ExecuteAsync("minimal", depth: 1, all: true).GetAwaiter().GetResult());
 
@@ -145,7 +147,7 @@ public class TreeCommandTests
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var cmd = new TreeCommand(_contextStore, _workItemRepo, _config, _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator);
+        var cmd = new TreeCommand(_contextStore, _workItemRepo, _config, _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator, _processTypeStore);
 
         var captured = CaptureConsoleOut(() => cmd.ExecuteAsync("json").GetAwaiter().GetResult());
 

@@ -209,7 +209,8 @@ public sealed class WorkspaceCommand(
                     typeNameSet.Add(item.Type.Value);
 
                 var ceilingTypeNames = CeilingComputer.Compute(new List<string>(typeNameSet), processConfig);
-                hierarchy = SprintHierarchy.Build(sprintItems, parentLookup, ceilingTypeNames);
+                var typeLevelMap = Domain.Services.BacklogHierarchyService.GetTypeLevelMap(processConfig);
+                hierarchy = SprintHierarchy.Build(sprintItems, parentLookup, ceilingTypeNames, typeLevelMap);
             }
         }
 

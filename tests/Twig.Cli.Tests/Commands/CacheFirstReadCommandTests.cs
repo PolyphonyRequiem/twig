@@ -30,6 +30,7 @@ public class CacheFirstReadCommandTests
     private readonly WorkingSetService _workingSetService;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
+    private readonly IProcessTypeStore _processTypeStore;
 
     public CacheFirstReadCommandTests()
     {
@@ -49,6 +50,7 @@ public class CacheFirstReadCommandTests
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
+        _processTypeStore = Substitute.For<IProcessTypeStore>();
     }
 
     // ── (a) Cached data displayed immediately ──────────────────────
@@ -281,7 +283,7 @@ public class CacheFirstReadCommandTests
 
         var config = new TwigConfiguration();
         var cmd = new TreeCommand(_contextStore, _workItemRepo, config,
-            _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator);
+            _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator, _processTypeStore);
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -298,7 +300,7 @@ public class CacheFirstReadCommandTests
 
         var config = new TwigConfiguration();
         var cmd = new TreeCommand(_contextStore, _workItemRepo, config,
-            _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator);
+            _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator, _processTypeStore);
 
         var savedErr = Console.Error;
         using var errWriter = new StringWriter();

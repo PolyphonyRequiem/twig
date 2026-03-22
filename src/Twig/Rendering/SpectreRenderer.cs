@@ -17,6 +17,16 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     private readonly IAnsiConsole _console = console;
     private readonly SpectreTheme _theme = theme;
 
+    /// <summary>
+    /// Optional type level map for unparented item detection. Set before rendering tree views.
+    /// </summary>
+    internal IReadOnlyDictionary<string, int>? TypeLevelMap { get; set; }
+
+    /// <summary>
+    /// Optional parent-child map for determining expected parent type names.
+    /// </summary>
+    internal IReadOnlyDictionary<string, List<string>>? ParentChildMap { get; set; }
+
     public async Task RenderWorkspaceAsync(
         IAsyncEnumerable<WorkspaceDataChunk> data,
         int staleDays,
@@ -221,8 +231,24 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         // focusContainer is the IHasTreeNodes where children should be appended.
         var (tree, focusContainer) = BuildSpectreTree(focusedItem, parentChain, activeId);
 
+        // EPIC-005: Unparented banner for tree view
+        IRenderable treeRenderable = tree;
+        if (TypeLevelMap is not null && ParentChildMap is not null
+            && parentChain.Count == 0
+            && !focusedItem.ParentId.HasValue
+            && TypeLevelMap.TryGetValue(focusedItem.Type.Value, out var focusLevel)
+            && focusLevel > 0)
+        {
+            var expectedParent = Formatters.HumanOutputFormatter.FindExpectedParentTypeName(
+                focusedItem.Type.Value, ParentChildMap);
+            var parentLabel = expectedParent ?? "a parent";
+            treeRenderable = new Rows(
+                new Markup($"[dim](unparented — expected under a {Markup.Escape(parentLabel)})[/]"),
+                tree);
+        }
+
         // Stage 2: Render tree immediately (parent chain + focused item), then add children
-        await _console.Live(tree)
+        await _console.Live(treeRenderable)
             .StartAsync(async ctx =>
             {
                 ctx.Refresh();

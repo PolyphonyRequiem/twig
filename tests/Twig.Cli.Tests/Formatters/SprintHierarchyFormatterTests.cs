@@ -230,6 +230,83 @@ public class SprintHierarchyFormatterTests
         output.ShouldContain("│   ");
     }
 
+    // ── EPIC-005: Virtual group rendering tests ────────────────────
+
+    [Fact]
+    public void VirtualGroupHeader_RendersAsSeparatorLine()
+    {
+        var task1 = MakeItem(1, "Update docs", WorkItemType.Task, parentId: null, assignee: "Alice", state: "New");
+        var task2 = MakeItem(2, "Clean up logs", WorkItemType.Task, parentId: null, assignee: "Alice", state: "New");
+
+        var parentLookup = new Dictionary<int, WorkItem>();
+        var typeLevelMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Epic"] = 0, ["Feature"] = 1, ["Task"] = 2,
+        };
+        var hierarchy = SprintHierarchy.Build(new[] { task1, task2 }, parentLookup, new[] { "Epic" }, typeLevelMap);
+        var ws = Workspace.Build(null, new[] { task1, task2 }, Array.Empty<WorkItem>(), hierarchy);
+
+        var output = _formatter.FormatSprintView(ws, 14);
+
+        // Virtual group header should contain the group label
+        output.ShouldContain("Unparented Tasks");
+        // Items should be rendered with box-drawing connectors
+        output.ShouldContain("#1");
+        output.ShouldContain("#2");
+    }
+
+    [Fact]
+    public void VirtualGroupItems_IndentedToBacklogLevel()
+    {
+        var feature = MakeItem(1, "Dark Mode", WorkItemType.Feature, parentId: null, assignee: "Alice", state: "Active");
+        var task = MakeItem(2, "Update docs", WorkItemType.Task, parentId: null, assignee: "Alice", state: "Active");
+
+        var parentLookup = new Dictionary<int, WorkItem>();
+        var typeLevelMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Epic"] = 0, ["Feature"] = 1, ["Task"] = 2,
+        };
+        var hierarchy = SprintHierarchy.Build(new[] { feature, task }, parentLookup, new[] { "Epic" }, typeLevelMap);
+        var ws = Workspace.Build(null, new[] { feature, task }, Array.Empty<WorkItem>(), hierarchy);
+
+        var output = _formatter.FormatSprintView(ws, 14);
+
+        // Both virtual groups should be present
+        output.ShouldContain("Unparented Features");
+        output.ShouldContain("Unparented Tasks");
+    }
+
+    [Fact]
+    public void MixedParentedAndUnparented_RendersBothCorrectly()
+    {
+        var epic = MakeItem(1000, "Payment Refactor", WorkItemType.Epic, parentId: null);
+        var feature = MakeItem(100, "Retry Logic", WorkItemType.Feature, parentId: 1000);
+        var task1 = MakeItem(10, "Add timeout", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "Active");
+        var task2 = MakeItem(20, "Update docs", WorkItemType.Task, parentId: null, assignee: "Alice", state: "Active");
+
+        var parentLookup = new Dictionary<int, WorkItem>
+        {
+            [1000] = epic,
+            [100] = feature,
+        };
+        var typeLevelMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Epic"] = 0, ["Feature"] = 1, ["Task"] = 2,
+        };
+        var hierarchy = SprintHierarchy.Build(
+            new[] { task1, task2 }, parentLookup, new[] { "Epic" }, typeLevelMap);
+        var ws = Workspace.Build(null, new[] { task1, task2 }, Array.Empty<WorkItem>(), hierarchy);
+
+        var output = _formatter.FormatSprintView(ws, 14);
+
+        // Parented item should show in hierarchy
+        output.ShouldContain("Retry Logic");
+        output.ShouldContain("#10"); // parented task
+        // Unparented task should be in virtual group
+        output.ShouldContain("Unparented Tasks");
+        output.ShouldContain("#20"); // unparented task
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     private static (Workspace ws, SprintHierarchy hierarchy) BuildHierarchicalWorkspace()

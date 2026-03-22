@@ -346,6 +346,220 @@ public class SprintHierarchyTests
     }
 
     // ═══════════════════════════════════════════════════════════════
+    //  EPIC-005: Virtual group tests for unparented items
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void Build_UnparentedTaskWithTypeLevelMap_CreatesVirtualGroup()
+    {
+        var task1 = MakeItem(1, "Task 1", WorkItemType.Task, parentId: null, assignee: "Alice");
+        var task2 = MakeItem(2, "Task 2", WorkItemType.Task, parentId: null, assignee: "Alice");
+
+        var parentLookup = new Dictionary<int, WorkItem>();
+        var typeLevelMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Epic"] = 0,
+            ["Feature"] = 1,
+            ["Task"] = 2,
+        };
+
+        var hierarchy = SprintHierarchy.Build(new[] { task1, task2 }, parentLookup, new[] { "Epic" }, typeLevelMap);
+
+        var roots = hierarchy.AssigneeGroups["Alice"];
+        roots.Count.ShouldBe(1); // One virtual group
+
+        var virtualGroup = roots[0];
+        virtualGroup.IsVirtualGroup.ShouldBeTrue();
+        virtualGroup.GroupLabel.ShouldBe("Unparented Tasks");
+        virtualGroup.BacklogLevel.ShouldBe(2);
+        virtualGroup.Children.Count.ShouldBe(2);
+        virtualGroup.Children.ShouldAllBe(n => n.IsSprintItem);
+    }
+
+    [Fact]
+    public void Build_UnparentedFeatureWithTypeLevelMap_CreatesVirtualGroup()
+    {
+        var feature = MakeItem(1, "Dark Mode", WorkItemType.Feature, parentId: null, assignee: "Bob");
+
+        var parentLookup = new Dictionary<int, WorkItem>();
+        var typeLevelMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Epic"] = 0,
+            ["Feature"] = 1,
+            ["Task"] = 2,
+        };
+
+        var hierarchy = SprintHierarchy.Build(new[] { feature }, parentLookup, new[] { "Epic" }, typeLevelMap);
+
+        var roots = hierarchy.AssigneeGroups["Bob"];
+        roots.Count.ShouldBe(1);
+
+        var virtualGroup = roots[0];
+        virtualGroup.IsVirtualGroup.ShouldBeTrue();
+        virtualGroup.GroupLabel.ShouldBe("Unparented Features");
+        virtualGroup.BacklogLevel.ShouldBe(1);
+        virtualGroup.Children.ShouldHaveSingleItem().Item.Id.ShouldBe(1);
+    }
+
+    [Fact]
+    public void Build_MixOfParentedAndUnparentedItems_SeparatesCorrectly()
+    {
+        var epic = MakeItem(1000, "Payment Refactor", WorkItemType.Epic, parentId: null);
+        var feature = MakeItem(100, "Retry Logic", WorkItemType.Feature, parentId: 1000);
+        var task1 = MakeItem(10, "Add timeout", WorkItemType.Task, parentId: 100, assignee: "Alice");
+        // Unparented task
+        var task2 = MakeItem(20, "Update docs", WorkItemType.Task, parentId: null, assignee: "Alice");
+
+        var parentLookup = new Dictionary<int, WorkItem>
+        {
+            [1000] = epic,
+            [100] = feature,
+        };
+        var typeLevelMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Epic"] = 0,
+            ["Feature"] = 1,
+            ["Task"] = 2,
+        };
+
+        var hierarchy = SprintHierarchy.Build(
+            new[] { task1, task2 }, parentLookup, new[] { "Epic" }, typeLevelMap);
+
+        var roots = hierarchy.AssigneeGroups["Alice"];
+        // Should have: Epic subtree (parented) + "Unparented Tasks" virtual group
+        roots.Count.ShouldBe(2);
+
+        // First root should be the parented subtree (Epic → Feature → Task)
+        var parentedRoot = roots.First(r => !r.IsVirtualGroup);
+        parentedRoot.Item.Id.ShouldBe(1000);
+
+        // Second root should be the virtual group
+        var virtualGroup = roots.First(r => r.IsVirtualGroup);
+        virtualGroup.GroupLabel.ShouldBe("Unparented Tasks");
+        virtualGroup.Children.ShouldHaveSingleItem().Item.Id.ShouldBe(20);
+    }
+
+    [Fact]
+    public void Build_MultipleUnparentedLevels_CreatesMultipleVirtualGroups()
+    {
+        var feature = MakeItem(1, "Dark Mode", WorkItemType.Feature, parentId: null, assignee: "Alice");
+        var task = MakeItem(2, "Update docs", WorkItemType.Task, parentId: null, assignee: "Alice");
+
+        var parentLookup = new Dictionary<int, WorkItem>();
+        var typeLevelMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Epic"] = 0,
+            ["Feature"] = 1,
+            ["Task"] = 2,
+        };
+
+        var hierarchy = SprintHierarchy.Build(
+            new[] { feature, task }, parentLookup, new[] { "Epic" }, typeLevelMap);
+
+        var roots = hierarchy.AssigneeGroups["Alice"];
+        roots.Count.ShouldBe(2); // Two virtual groups: Features and Tasks
+
+        var featureGroup = roots.First(r => r.IsVirtualGroup && r.GroupLabel == "Unparented Features");
+        featureGroup.BacklogLevel.ShouldBe(1);
+        featureGroup.Children.ShouldHaveSingleItem().Item.Id.ShouldBe(1);
+
+        var taskGroup = roots.First(r => r.IsVirtualGroup && r.GroupLabel == "Unparented Tasks");
+        taskGroup.BacklogLevel.ShouldBe(2);
+        taskGroup.Children.ShouldHaveSingleItem().Item.Id.ShouldBe(2);
+    }
+
+    [Fact]
+    public void Build_NoTypeLevelMap_NoVirtualGroups()
+    {
+        var task = MakeItem(1, "Task 1", WorkItemType.Task, parentId: null, assignee: "Alice");
+
+        var parentLookup = new Dictionary<int, WorkItem>();
+        var hierarchy = SprintHierarchy.Build(
+            new[] { task }, parentLookup, new[] { "Feature" }, typeLevelMap: null);
+
+        var roots = hierarchy.AssigneeGroups["Alice"];
+        roots.ShouldHaveSingleItem();
+        roots[0].IsVirtualGroup.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Build_ContextParentWithChildren_NotGrouped()
+    {
+        // Epic is a context parent (not a sprint item), should NOT be grouped
+        var epic = MakeItem(1000, "Payment Refactor", WorkItemType.Epic, parentId: null);
+        var task = MakeItem(10, "Add timeout", WorkItemType.Task, parentId: 1000, assignee: "Alice");
+
+        var parentLookup = new Dictionary<int, WorkItem> { [1000] = epic };
+        var typeLevelMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Epic"] = 0,
+            ["Task"] = 1,
+        };
+
+        var hierarchy = SprintHierarchy.Build(
+            new[] { task }, parentLookup, new[] { "Epic" }, typeLevelMap);
+
+        var roots = hierarchy.AssigneeGroups["Alice"];
+        roots.ShouldHaveSingleItem();
+        var root = roots[0];
+        root.IsVirtualGroup.ShouldBeFalse();
+        root.Item.Id.ShouldBe(1000); // Epic is context parent, not grouped
+        root.IsSprintItem.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Build_UnparentedEpic_GroupedUnderVirtualHeader()
+    {
+        var epic = MakeItem(1, "Observability", WorkItemType.Epic, parentId: null, assignee: "Alice");
+
+        var parentLookup = new Dictionary<int, WorkItem>();
+        var typeLevelMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Epic"] = 0,
+            ["Feature"] = 1,
+            ["Task"] = 2,
+        };
+
+        var hierarchy = SprintHierarchy.Build(
+            new[] { epic }, parentLookup, new[] { "Epic" }, typeLevelMap);
+
+        var roots = hierarchy.AssigneeGroups["Alice"];
+        roots.ShouldHaveSingleItem();
+        var group = roots[0];
+        group.IsVirtualGroup.ShouldBeTrue();
+        group.GroupLabel.ShouldBe("Unparented Epics");
+        group.BacklogLevel.ShouldBe(0);
+        group.Children.ShouldHaveSingleItem().Item.Id.ShouldBe(1);
+    }
+
+    [Fact]
+    public void Build_ItemWithParentIdButParentMissingFromLookup_NotGroupedAsVirtual()
+    {
+        // Task has ParentId=999 but that parent is not in the lookup.
+        // The item ends up as a root with ParentId.HasValue == true,
+        // so it should NOT be grouped under a virtual header.
+        var task = MakeItem(1, "Orphan task", WorkItemType.Task, parentId: 999, assignee: "Alice");
+
+        var parentLookup = new Dictionary<int, WorkItem>();
+        var typeLevelMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Epic"] = 0,
+            ["Feature"] = 1,
+            ["Task"] = 2,
+        };
+
+        var hierarchy = SprintHierarchy.Build(
+            new[] { task }, parentLookup, new[] { "Epic" }, typeLevelMap);
+
+        var roots = hierarchy.AssigneeGroups["Alice"];
+        roots.ShouldHaveSingleItem();
+        var root = roots[0];
+        root.IsVirtualGroup.ShouldBeFalse();
+        root.Item.Id.ShouldBe(1);
+        root.IsSprintItem.ShouldBeTrue();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     //  Helpers
     // ═══════════════════════════════════════════════════════════════
 

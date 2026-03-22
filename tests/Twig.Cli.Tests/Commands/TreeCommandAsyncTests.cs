@@ -27,6 +27,7 @@ public class TreeCommandAsyncTests
 
     private readonly WorkingSetService _workingSetService;
     private readonly SyncCoordinator _syncCoordinator;
+    private readonly IProcessTypeStore _processTypeStore;
 
     public TreeCommandAsyncTests()
     {
@@ -49,6 +50,7 @@ public class TreeCommandAsyncTests
 
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
+        _processTypeStore = Substitute.For<IProcessTypeStore>();
     }
 
     /// <summary>
@@ -65,7 +67,7 @@ public class TreeCommandAsyncTests
 
     private TreeCommand CreateCommand(RenderingPipelineFactory pipelineFactory) =>
         new(_contextStore, _workItemRepo, _config, _formatterFactory, _activeItemResolver,
-            _workingSetService, _syncCoordinator, pipelineFactory);
+            _workingSetService, _syncCoordinator, _processTypeStore, pipelineFactory);
 
     // ── Async rendering path tests ──────────────────────────────────
 

@@ -271,9 +271,11 @@ When `display.columns.<view>` is set, auto-discovery is skipped for that view �
 
 ---
 
-### EPIC-005: Unparented item rendering
+### EPIC-005: Unparented item rendering — DONE
 
-Today, unparented work items (`ParentId == null`) render flat at root level — indistinguishable from legitimately top-level types (Epics). An unparented Task sits at the same visual depth as an Epic, which breaks the hierarchy's readability. The backlog level information already exists via `BacklogHierarchyService.InferParentChildMap()` — we know Tasks *should* appear at depth 2 and Features at depth 1. This EPIC uses that knowledge to group unparented non-root items under virtual section headers, keeping depth uniform across parented and unparented items.
+> Implemented. All 6 tasks completed: `GetTypeLevelMap()` added to `BacklogHierarchyService` (topological level inference); virtual group nodes (`IsVirtualGroup`, `GroupLabel`, `BacklogLevel`) added to `SprintHierarchyNode` and partition logic in `SprintHierarchy`; virtual group rendering in `SpectreRenderer` (dimmed section headers) and `HumanOutputFormatter` (separator lines); unparented banner in tree view (`HumanOutputFormatter.FindExpectedParentTypeName`); `Pluralizer` utility (`"Story" → "Stories"`); and tests for hierarchy, rendering, and edge cases. Code review feedback addressed: dead `typeNameCounts` dictionary removed; `unparentedByType` renamed to `unparentedByLevel`; `Pluralizer.Pluralize` signature corrected to `string?`; `InferParentChildMap` return type narrowed to `IReadOnlyDictionary<string, List<string>>`; `HumanOutputFormatter` and `SpectreRenderer` parameter types updated to match; case-insensitive lookup test and missing-parent edge case test added; `PluralizerTests.Pluralize_Null_ReturnsNull` updated to use `null` instead of `null!`. Two low-severity follow-up items noted by reviewer: (1) `IReadOnlyDictionary<string, List<string>>` does not prevent mutation of inner lists — a fully immutable signature would use `IReadOnlyList<string>`; (2) `Pluralize` return value in string interpolation (`$"Unparented {pluralName}"`) has no null-coalescing fallback — `pluralName ?? typeName` would harden against blank type names at no behavioral cost.
+
+Today, unparented work items (`ParentId == null`) render flat at root level— indistinguishable from legitimately top-level types (Epics). An unparented Task sits at the same visual depth as an Epic, which breaks the hierarchy's readability. The backlog level information already exists via `BacklogHierarchyService.InferParentChildMap()` — we know Tasks *should* appear at depth 2 and Features at depth 1. This EPIC uses that knowledge to group unparented non-root items under virtual section headers, keeping depth uniform across parented and unparented items.
 
 **Design principle:** Use backlog levels (already cached) to determine expected depth. Every unparented item renders at its **expected backlog-level indentation** — an unparented Task still appears at depth 2, an unparented Feature at depth 1. Virtual "Unparented [TypePlural]" group headers sit at the same depth as their type's level. This keeps the visual hierarchy uniform whether or not an item has a parent. No fake work items, no process branching.
 
@@ -374,13 +376,13 @@ EPIC-004: Data-driven dynamic columns (6 tasks, ~medium-high effort) **[DONE]**
   Note: EPIC-004 is independent of EPICs 1-3 and can be developed in parallel.
         If EPIC-003 lands first, dynamic columns render inside grouped layout.
 
-EPIC-005: Unparented item rendering (6 tasks, ~medium effort)
-  ├── Task 1: Backlog level map — GetTypeLevelMap() from inferred hierarchy
-  ├── Task 2: Virtual group nodes in SprintHierarchy (partition roots by level)
-  ├── Task 3: Renderer support for virtual groups (dimmed headers, depth-aware)
-  ├── Task 4: Tree view unparented banner ("expected under a Feature")
-  ├── Task 5: Pluralization utility for group labels
-  └── Task 6: Tests — hierarchy, rendering, tree view banner
+EPIC-005: Unparented item rendering (6 tasks, ~medium effort) **[DONE]**
+  ├── Task 1: Backlog level map — GetTypeLevelMap() from inferred hierarchy **[DONE]**
+  ├── Task 2: Virtual group nodes in SprintHierarchy (partition roots by level) **[DONE]**
+  ├── Task 3: Renderer support for virtual groups (dimmed headers, depth-aware) **[DONE]**
+  ├── Task 4: Tree view unparented banner ("expected under a Feature") **[DONE]**
+  ├── Task 5: Pluralization utility for group labels **[DONE]**
+  └── Task 6: Tests — hierarchy, rendering, tree view banner **[DONE]**
 
   Note: EPIC-005 depends on EPIC-003 (state-category grouping) for best results.
         Independent of EPIC-004 (dynamic columns).

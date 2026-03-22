@@ -273,33 +273,35 @@ When `display.columns.<view>` is set, auto-discovery is skipped for that view �
 
 Today, unparented work items (`ParentId == null`) render flat at root level — indistinguishable from legitimately top-level types (Epics). An unparented Task sits at the same visual depth as an Epic, which breaks the hierarchy's readability. The backlog level information already exists via `BacklogHierarchyService.InferParentChildMap()` — we know Tasks *should* appear at depth 2 and Features at depth 1. This EPIC uses that knowledge to group unparented non-root items under virtual section headers, keeping depth uniform across parented and unparented items.
 
-**Design principle:** Use backlog levels (already cached) to determine expected depth. Items whose type is not a top-level type (level 0) but have no parent get grouped under a virtual "Unparented [TypePlural]" header. No fake work items, no process branching.
+**Design principle:** Use backlog levels (already cached) to determine expected depth. Every unparented item renders at its **expected backlog-level indentation** — an unparented Task still appears at depth 2, an unparented Feature at depth 1. Virtual "Unparented [TypePlural]" group headers sit at the same depth as their type's level. This keeps the visual hierarchy uniform whether or not an item has a parent. No fake work items, no process branching.
 
 **Example output (sprint view, `--all`):**
 
 ```
 Daniel Green (9):
-  ◆ Epic: Payment Refactor [Active]              ← legitimate root (level 0)
-    └── ◇ Feature: Retry Logic [New]
-        └── □ Task: Add timeout [Active]
+  ◆ Epic: Payment Refactor [Active]              ← parented root (level 0)
+  └── ◇ Feature: Retry Logic [New]               ← level 1
+      └── □ Task: Add timeout [Active]           ← level 2
 
-  ── Unparented Epics ──                          ← virtual grouping for unparented level-0 items
-  ◆ Epic: Observability [Proposed]                   with children that are in sprint
+  ── Unparented Epics ──                          ← virtual group header (level 0)
+  └── ◆ Epic: Observability [Proposed]            ← level 0, connector from group header
 
-  ── Unparented Features ──                       ← virtual group (level 1, no parent)
-  ◇ Feature: Dark Mode [Active]
-    └── □ Task: Fix CSS alignment [Active]
+  ── Unparented Features ──                       ← virtual group header (level 0)
+      └── ◇ Feature: Dark Mode [Active]           ← level 1, indented to match parented Features
+          └── □ Task: Fix CSS alignment [Active]  ← level 2
 
-  ── Unparented Tasks ──                          ← virtual group (level 2, no parent)
-  □ Task: Update docs [New]
-  □ Task: Clean up logs [New]
+  ── Unparented Tasks ──                          ← virtual group header (level 0)
+          └── □ Task: Update docs [New]           ← level 2, indented to match parented Tasks
+          └── □ Task: Clean up logs [New]
 ```
+
+**Depth rule:** Each virtual group and its items are indented to `backlogLevel × indentWidth`. An unparented Epic (level 0) sits flush left. An unparented Feature (level 1) is indented once. An unparented Task (level 2) is indented twice. This matches the depth a parented item of the same type would occupy.
 
 | # | Task | Scope | Dependencies |
 |---|------|-------|--------------|
 | 1 | **Backlog level map** — Extend `BacklogHierarchyService` (or add a new `BacklogLevelService`) to expose a `GetTypeLevelMap() → IReadOnlyDictionary<string, int>` that maps each work item type name to its backlog level (0 = portfolio top, 1 = requirement, 2 = task). Uses the already-inferred parent-child map to compute levels via topological ordering. Pure domain logic, no API calls. | `Twig.Domain/Services/` | None |
-| 2 | **Virtual group nodes in SprintHierarchy** — After `BuildAssigneeTree` identifies root nodes, partition them: items whose type is at level 0 (or has no level mapping) render normally as roots. Items at level 1+ with no parent are grouped under a new `SprintHierarchyNode` with `IsVirtualGroup = true` and a display label like `"Unparented Features"`. Add an `IsVirtualGroup` bool and `GroupLabel` string to `SprintHierarchyNode`. Virtual group nodes hold children but have no `WorkItem`. | `Twig.Domain/ReadModels/SprintHierarchy.cs` | Task 1 |
-| 3 | **Renderer support for virtual groups** — `SpectreRenderer` renders virtual group nodes as dimmed section-header rows (no ID/State columns, just the label spanning the row). `HumanOutputFormatter` renders them as separator lines (`── Unparented Tasks ──`). Virtual groups maintain the indentation depth based on their type's backlog level. | `Twig/Rendering/`, `Twig/Formatters/` | Task 2 |
+| 2 | **Virtual group nodes in SprintHierarchy** — After `BuildAssigneeTree` identifies root nodes, partition them by backlog level. For each level that has unparented items, create a virtual `SprintHierarchyNode` with `IsVirtualGroup = true`, a `GroupLabel` (e.g., `"Unparented Features"`), and a `BacklogLevel` int. The virtual node is placed at the correct nesting depth in the tree: level-0 groups are roots, level-1 groups are children of a synthetic depth-spacer, level-2 groups are nested two deep. This ensures depth uniformity — an unparented Task appears at the same tree depth as a parented Task. Add `IsVirtualGroup` bool, `GroupLabel` string, and `BacklogLevel` int to `SprintHierarchyNode`. Virtual group nodes hold children but have no `WorkItem`. | `Twig.Domain/ReadModels/SprintHierarchy.cs` | Task 1 |
+| 3 | **Renderer support for virtual groups** — `SpectreRenderer` renders virtual group nodes as dimmed section-header rows (no ID/State columns, just the label spanning the row), indented to `BacklogLevel × indentWidth`. `HumanOutputFormatter` renders them as separator lines (`── Unparented Tasks ──`) at the matching indent depth. Items within each virtual group are indented to their backlog level, identical to how parented items of the same type render. | `Twig/Rendering/`, `Twig/Formatters/` | Task 2 |
 | 4 | **Tree view unparented banner** — When `twig tree` focuses on an item with `ParentId == null` whose type is not level 0, show a one-line banner above the tree: `(unparented — expected under a Feature)`. Uses the level map to determine the expected parent type name. No fake ancestor nodes. | `Twig/Rendering/SpectreRenderer.cs`, `Twig/Formatters/HumanOutputFormatter.cs` | Task 1 |
 | 5 | **Pluralization utility** — Simple helper: `Pluralize(string typeName) → string` — appends `"s"` (or `"ies"` for names ending in `"y"` after a consonant, e.g., `"Story" → "Stories"`). Used by virtual group label construction. Pure static method, no external dependency. | `Twig.Domain/Common/` or inline | None (parallel with Tasks 1-2) |
 | 6 | **Tests** — `SprintHierarchyTests`: unparented items at various levels produce correct virtual groups; legitimate root items are not grouped. Renderer tests: virtual group nodes produce expected output. Tree view: unparented banner appears for non-root types, absent for root types. | `Twig.Domain.Tests/`, `Twig.Cli.Tests/` | Tasks 2-4 |

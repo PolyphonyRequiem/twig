@@ -4,6 +4,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Domain.Tests.Services;
@@ -37,18 +38,6 @@ public class WorkingSetServiceTests
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>()).Returns(TestIteration);
     }
 
-    private static WorkItem MakeItem(int id, string? assignedTo = null, bool isSeed = false) => new()
-    {
-        Id = id,
-        Type = WorkItemType.Task,
-        Title = $"Item {id}",
-        State = "Active",
-        AssignedTo = assignedTo,
-        IsSeed = isSeed,
-        IterationPath = TestIteration,
-        AreaPath = AreaPath.Parse(@"Project\Area").Value,
-    };
-
     // ═══════════════════════════════════════════════════════════════
     //  Correct membership for each category
     // ═══════════════════════════════════════════════════════════════
@@ -70,7 +59,12 @@ public class WorkingSetServiceTests
     {
         SetupDefaults(activeId: 10);
         _workItemRepo.GetParentChainAsync(10, Arg.Any<CancellationToken>())
-            .Returns(new[] { MakeItem(1), MakeItem(5), MakeItem(10) });
+            .Returns(new[]
+            {
+                new WorkItemBuilder(1, "Item 1").InState("Active").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build(),
+                new WorkItemBuilder(5, "Item 5").InState("Active").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build(),
+                new WorkItemBuilder(10, "Item 10").InState("Active").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build(),
+            });
         var sut = CreateSut();
 
         var ws = await sut.ComputeAsync(TestIteration);
@@ -86,7 +80,11 @@ public class WorkingSetServiceTests
     {
         SetupDefaults(activeId: 10);
         _workItemRepo.GetChildrenAsync(10, Arg.Any<CancellationToken>())
-            .Returns(new[] { MakeItem(20), MakeItem(30) });
+            .Returns(new[]
+            {
+                new WorkItemBuilder(20, "Item 20").InState("Active").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build(),
+                new WorkItemBuilder(30, "Item 30").InState("Active").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build(),
+            });
         var sut = CreateSut();
 
         var ws = await sut.ComputeAsync(TestIteration);
@@ -101,7 +99,11 @@ public class WorkingSetServiceTests
     {
         SetupDefaults(activeId: 10);
         _workItemRepo.GetByIterationAsync(TestIteration, Arg.Any<CancellationToken>())
-            .Returns(new[] { MakeItem(50), MakeItem(60) });
+            .Returns(new[]
+            {
+                new WorkItemBuilder(50, "Item 50").InState("Active").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build(),
+                new WorkItemBuilder(60, "Item 60").InState("Active").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build(),
+            });
         var sut = CreateSut();
 
         var ws = await sut.ComputeAsync(TestIteration);
@@ -116,7 +118,11 @@ public class WorkingSetServiceTests
     {
         SetupDefaults(activeId: 10);
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
-            .Returns(new[] { MakeItem(-1, isSeed: true), MakeItem(-2, isSeed: true) });
+            .Returns(new[]
+            {
+                new WorkItemBuilder(-1, "Item -1").InState("Active").AsSeed().WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build(),
+                new WorkItemBuilder(-2, "Item -2").InState("Active").AsSeed().WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build(),
+            });
         var sut = CreateSut();
 
         var ws = await sut.ComputeAsync(TestIteration);
@@ -130,7 +136,7 @@ public class WorkingSetServiceTests
     public async Task ComputeAsync_DirtyItems_IncludedInAllIds()
     {
         SetupDefaults(activeId: 10);
-        var dirtyItem = MakeItem(99);
+        var dirtyItem = new WorkItemBuilder(99, "Item 99").InState("Active").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build();
         dirtyItem.SetDirty();
         _workItemRepo.GetDirtyItemsAsync(Arg.Any<CancellationToken>())
             .Returns(new[] { dirtyItem });
@@ -226,7 +232,7 @@ public class WorkingSetServiceTests
     {
         SetupDefaults(activeId: 10);
         _workItemRepo.GetByIterationAndAssigneeAsync(TestIteration, "Dan Green", Arg.Any<CancellationToken>())
-            .Returns(new[] { MakeItem(50, assignedTo: "Dan Green") });
+            .Returns(new[] { new WorkItemBuilder(50, "Item 50").InState("Active").AssignedTo("Dan Green").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build() });
         var sut = CreateSut(userDisplayName: "Dan Green");
 
         var ws = await sut.ComputeAsync(TestIteration);
@@ -241,7 +247,11 @@ public class WorkingSetServiceTests
     {
         SetupDefaults(activeId: 10);
         _workItemRepo.GetByIterationAsync(TestIteration, Arg.Any<CancellationToken>())
-            .Returns(new[] { MakeItem(50), MakeItem(60) });
+            .Returns(new[]
+            {
+                new WorkItemBuilder(50, "Item 50").InState("Active").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build(),
+                new WorkItemBuilder(60, "Item 60").InState("Active").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build(),
+            });
         var sut = CreateSut(userDisplayName: null);
 
         var ws = await sut.ComputeAsync(TestIteration);
@@ -288,14 +298,18 @@ public class WorkingSetServiceTests
     {
         SetupDefaults(activeId: 1);
         _workItemRepo.GetParentChainAsync(1, Arg.Any<CancellationToken>())
-            .Returns(new[] { MakeItem(100), MakeItem(1) });
+            .Returns(new[]
+            {
+                new WorkItemBuilder(100, "Item 100").InState("Active").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build(),
+                new WorkItemBuilder(1, "Item 1").InState("Active").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build(),
+            });
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
-            .Returns(new[] { MakeItem(10) });
+            .Returns(new[] { new WorkItemBuilder(10, "Item 10").InState("Active").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build() });
         _workItemRepo.GetByIterationAsync(TestIteration, Arg.Any<CancellationToken>())
-            .Returns(new[] { MakeItem(50) });
+            .Returns(new[] { new WorkItemBuilder(50, "Item 50").InState("Active").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build() });
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
-            .Returns(new[] { MakeItem(-1, isSeed: true) });
-        var dirtyItem = MakeItem(99);
+            .Returns(new[] { new WorkItemBuilder(-1, "Item -1").InState("Active").AsSeed().WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build() });
+        var dirtyItem = new WorkItemBuilder(99, "Item 99").InState("Active").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build();
         dirtyItem.SetDirty();
         _workItemRepo.GetDirtyItemsAsync(Arg.Any<CancellationToken>())
             .Returns(new[] { dirtyItem });

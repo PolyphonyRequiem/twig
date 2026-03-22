@@ -2,12 +2,12 @@ using NSubstitute;
 using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
-using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Infrastructure.Config;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
@@ -26,24 +26,6 @@ public class FlowCloseCommandTests
     private readonly IAdoGitService _adoGitService;
     private readonly ActiveItemResolver _activeItemResolver;
     private readonly ProtectedCacheWriter _protectedCacheWriter;
-
-    private static StateEntry[] AgileUserStoryStates =>
-    [
-        new("New", StateCategory.Proposed, null),
-        new("Active", StateCategory.InProgress, null),
-        new("Resolved", StateCategory.Resolved, null),
-        new("Closed", StateCategory.Completed, null),
-        new("Removed", StateCategory.Removed, null),
-    ];
-
-    private static ProcessTypeRecord MakeRecord(string typeName, StateEntry[] states, string[] childTypes) =>
-        new() { TypeName = typeName, States = states, ValidChildTypes = childTypes };
-
-    private static ProcessConfiguration BuildAgileConfig() =>
-        ProcessConfiguration.FromRecords(new[]
-        {
-            MakeRecord("User Story", AgileUserStoryStates, new[] { "Task" }),
-        });
 
     public FlowCloseCommandTests()
     {
@@ -66,7 +48,7 @@ public class FlowCloseCommandTests
             Git = new GitConfig { DefaultTarget = "main" },
         };
 
-        _processConfigProvider.GetConfiguration().Returns(BuildAgileConfig());
+        _processConfigProvider.GetConfiguration().Returns(ProcessConfigBuilder.AgileUserStoryOnly());
 
         // Default: non-TTY (IsOutputRedirected = true) to match typical test/CI behavior
         _consoleInput.IsOutputRedirected.Returns(true);

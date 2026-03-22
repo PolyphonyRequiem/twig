@@ -3,6 +3,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.ReadModels;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Cli.Tests.Formatters;
@@ -45,8 +46,8 @@ public class SprintHierarchyFormatterTests
     [Fact]
     public void SprintItems_ShowActiveMarkerAndDirtyMarker()
     {
-        var feature = MakeItem(100, "Auth Feature", WorkItemType.Feature, parentId: null);
-        var task1 = MakeItem(42, "Login endpoint", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "Active");
+        var feature = new WorkItemBuilder(100, "Auth Feature").AsFeature().WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var task1 = new WorkItemBuilder(42, "Login endpoint").AsTask().WithParent(100).AssignedTo("Alice").InState("Active").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
         task1.SetDirty();
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
@@ -68,7 +69,7 @@ public class SprintHierarchyFormatterTests
     [Fact]
     public void ItemsWithoutParents_RenderAtRoot()
     {
-        var task1 = MakeItem(44, "Fix typo", WorkItemType.Task, parentId: null, assignee: "Alice", state: "Active");
+        var task1 = new WorkItemBuilder(44, "Fix typo").AsTask().AssignedTo("Alice").InState("Active").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
 
         var parentLookup = new Dictionary<int, WorkItem>();
         var hierarchy = SprintHierarchy.Build(new[] { task1 }, parentLookup, new[] { "Feature" });
@@ -89,9 +90,9 @@ public class SprintHierarchyFormatterTests
     public void SharedParents_AppearOnceWithMultipleChildren()
     {
         // Without category grouping, parent appears once per assignee group
-        var feature = MakeItem(100, "Auth Feature", WorkItemType.Feature, parentId: null);
-        var task1 = MakeItem(42, "Login endpoint", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "Active");
-        var task2 = MakeItem(43, "Logout endpoint", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "New");
+        var feature = new WorkItemBuilder(100, "Auth Feature").AsFeature().WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var task1 = new WorkItemBuilder(42, "Login endpoint").AsTask().WithParent(100).AssignedTo("Alice").InState("Active").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var task2 = new WorkItemBuilder(43, "Logout endpoint").AsTask().WithParent(100).AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
         var sprintItems = new[] { task1, task2 };
@@ -120,8 +121,8 @@ public class SprintHierarchyFormatterTests
     {
         var items = new[]
         {
-            MakeItem(1, "Task A", WorkItemType.Task, parentId: null, assignee: "Alice", state: "Active"),
-            MakeItem(2, "Task B", WorkItemType.Task, parentId: null, assignee: "Bob", state: "New"),
+            new WorkItemBuilder(1, "Task A").AsTask().AssignedTo("Alice").InState("Active").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(),
+            new WorkItemBuilder(2, "Task B").AsTask().AssignedTo("Bob").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(),
         };
         var ws = Workspace.Build(null, items, Array.Empty<WorkItem>());
 
@@ -163,9 +164,9 @@ public class SprintHierarchyFormatterTests
     [Fact]
     public void AssigneeGroups_RenderInAlphabeticalOrder()
     {
-        var task1 = MakeItem(1, "Task Z", WorkItemType.Task, parentId: null, assignee: "Zara", state: "New");
-        var task2 = MakeItem(2, "Task A", WorkItemType.Task, parentId: null, assignee: "Alice", state: "New");
-        var task3 = MakeItem(3, "Task B", WorkItemType.Task, parentId: null, assignee: "bob", state: "New");
+        var task1 = new WorkItemBuilder(1, "Task Z").AsTask().AssignedTo("Zara").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var task2 = new WorkItemBuilder(2, "Task A").AsTask().AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var task3 = new WorkItemBuilder(3, "Task B").AsTask().AssignedTo("bob").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
 
         var parentLookup = new Dictionary<int, WorkItem>();
         var hierarchy = SprintHierarchy.Build(new[] { task1, task2, task3 }, parentLookup, new[] { "Feature" });
@@ -186,8 +187,8 @@ public class SprintHierarchyFormatterTests
     [Fact]
     public void ParentContextNodes_DoNotShowActiveOrDirtyMarkers()
     {
-        var feature = MakeItem(100, "Auth Feature", WorkItemType.Feature, parentId: null);
-        var task1 = MakeItem(42, "Login endpoint", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "Active");
+        var feature = new WorkItemBuilder(100, "Auth Feature").AsFeature().WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var task1 = new WorkItemBuilder(42, "Login endpoint").AsTask().WithParent(100).AssignedTo("Alice").InState("Active").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
         var hierarchy = SprintHierarchy.Build(new[] { task1 }, parentLookup, new[] { "Feature" });
@@ -209,11 +210,11 @@ public class SprintHierarchyFormatterTests
     [Fact]
     public void VerticalContinuation_ForNonLastChildren()
     {
-        var feature = MakeItem(100, "Auth Feature", WorkItemType.Feature, parentId: null);
+        var feature = new WorkItemBuilder(100, "Auth Feature").AsFeature().WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
         // Both user stories in same category (Active → InProgress) so both are visible together
-        var us1 = MakeItem(50, "Story A", WorkItemType.UserStory, parentId: 100, assignee: "Alice", state: "Active");
-        var us2 = MakeItem(51, "Story B", WorkItemType.UserStory, parentId: 100, assignee: "Alice", state: "Active");
-        var task1 = MakeItem(10, "Task Under A", WorkItemType.Task, parentId: 50, assignee: "Alice", state: "Active");
+        var us1 = new WorkItemBuilder(50, "Story A").AsUserStory().WithParent(100).AssignedTo("Alice").InState("Active").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var us2 = new WorkItemBuilder(51, "Story B").AsUserStory().WithParent(100).AssignedTo("Alice").InState("Active").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var task1 = new WorkItemBuilder(10, "Task Under A").AsTask().WithParent(50).AssignedTo("Alice").InState("Active").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
 
         var parentLookup = new Dictionary<int, WorkItem>
         {
@@ -235,8 +236,8 @@ public class SprintHierarchyFormatterTests
     [Fact]
     public void VirtualGroupHeader_RendersAsSeparatorLine()
     {
-        var task1 = MakeItem(1, "Update docs", WorkItemType.Task, parentId: null, assignee: "Alice", state: "New");
-        var task2 = MakeItem(2, "Clean up logs", WorkItemType.Task, parentId: null, assignee: "Alice", state: "New");
+        var task1 = new WorkItemBuilder(1, "Update docs").AsTask().AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var task2 = new WorkItemBuilder(2, "Clean up logs").AsTask().AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
 
         var parentLookup = new Dictionary<int, WorkItem>();
         var typeLevelMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
@@ -258,8 +259,8 @@ public class SprintHierarchyFormatterTests
     [Fact]
     public void VirtualGroupItems_IndentedToBacklogLevel()
     {
-        var feature = MakeItem(1, "Dark Mode", WorkItemType.Feature, parentId: null, assignee: "Alice", state: "Active");
-        var task = MakeItem(2, "Update docs", WorkItemType.Task, parentId: null, assignee: "Alice", state: "Active");
+        var feature = new WorkItemBuilder(1, "Dark Mode").AsFeature().AssignedTo("Alice").InState("Active").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var task = new WorkItemBuilder(2, "Update docs").AsTask().AssignedTo("Alice").InState("Active").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
 
         var parentLookup = new Dictionary<int, WorkItem>();
         var typeLevelMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
@@ -279,10 +280,10 @@ public class SprintHierarchyFormatterTests
     [Fact]
     public void MixedParentedAndUnparented_RendersBothCorrectly()
     {
-        var epic = MakeItem(1000, "Payment Refactor", WorkItemType.Epic, parentId: null);
-        var feature = MakeItem(100, "Retry Logic", WorkItemType.Feature, parentId: 1000);
-        var task1 = MakeItem(10, "Add timeout", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "Active");
-        var task2 = MakeItem(20, "Update docs", WorkItemType.Task, parentId: null, assignee: "Alice", state: "Active");
+        var epic = new WorkItemBuilder(1000, "Payment Refactor").AsEpic().WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var feature = new WorkItemBuilder(100, "Retry Logic").AsFeature().WithParent(1000).WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var task1 = new WorkItemBuilder(10, "Add timeout").AsTask().WithParent(100).AssignedTo("Alice").InState("Active").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var task2 = new WorkItemBuilder(20, "Update docs").AsTask().AssignedTo("Alice").InState("Active").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
 
         var parentLookup = new Dictionary<int, WorkItem>
         {
@@ -311,11 +312,11 @@ public class SprintHierarchyFormatterTests
 
     private static (Workspace ws, SprintHierarchy hierarchy) BuildHierarchicalWorkspace()
     {
-        var feature = MakeItem(100, "Auth Feature", WorkItemType.Feature, parentId: null);
+        var feature = new WorkItemBuilder(100, "Auth Feature").AsFeature().WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
         // Both children in same state category (Active → InProgress) so they appear together in one group
-        var task1 = MakeItem(42, "Login endpoint", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "Active");
-        var task2 = MakeItem(43, "Logout endpoint", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "Active");
-        var task3 = MakeItem(44, "Fix typo", WorkItemType.Task, parentId: null, assignee: "Alice", state: "Active");
+        var task1 = new WorkItemBuilder(42, "Login endpoint").AsTask().WithParent(100).AssignedTo("Alice").InState("Active").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var task2 = new WorkItemBuilder(43, "Logout endpoint").AsTask().WithParent(100).AssignedTo("Alice").InState("Active").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var task3 = new WorkItemBuilder(44, "Fix typo").AsTask().AssignedTo("Alice").InState("Active").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
         var sprintItems = new[] { task1, task2, task3 };
@@ -323,27 +324,6 @@ public class SprintHierarchyFormatterTests
         var ws = Workspace.Build(task1, sprintItems, Array.Empty<WorkItem>(), hierarchy);
 
         return (ws, hierarchy);
-    }
-
-    private static WorkItem MakeItem(
-        int id,
-        string title,
-        WorkItemType type,
-        int? parentId,
-        string? assignee = null,
-        string state = "New")
-    {
-        return new WorkItem
-        {
-            Id = id,
-            Type = type,
-            Title = title,
-            State = state,
-            ParentId = parentId,
-            AssignedTo = assignee,
-            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
-            AreaPath = AreaPath.Parse("Project").Value,
-        };
     }
 
     private static int CountOccurrences(string source, string value)

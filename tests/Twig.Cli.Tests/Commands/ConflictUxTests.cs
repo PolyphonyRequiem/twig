@@ -3,13 +3,13 @@ using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
-using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
@@ -30,27 +30,6 @@ public class ConflictUxTests
     private readonly HintEngine _hintEngine;
     private readonly Domain.Services.ActiveItemResolver _resolver;
 
-    private static StateEntry[] S(params (string Name, StateCategory Cat)[] entries) =>
-        entries.Select(e => new StateEntry(e.Name, e.Cat, null)).ToArray();
-
-    private static ProcessTypeRecord MakeRecord(string typeName, StateEntry[] states, string[] childTypes) =>
-        new()
-        {
-            TypeName = typeName,
-            States = states,
-            ValidChildTypes = childTypes,
-        };
-
-    private static ProcessConfiguration BuildAgileConfig() =>
-        ProcessConfiguration.FromRecords(new[]
-        {
-            MakeRecord("Epic", S(("New", StateCategory.Proposed), ("Active", StateCategory.InProgress), ("Closed", StateCategory.Completed), ("Removed", StateCategory.Removed)), new[] { "Feature" }),
-            MakeRecord("Feature", S(("New", StateCategory.Proposed), ("Active", StateCategory.InProgress), ("Closed", StateCategory.Completed), ("Removed", StateCategory.Removed)), new[] { "User Story", "Bug" }),
-            MakeRecord("User Story", S(("New", StateCategory.Proposed), ("Active", StateCategory.InProgress), ("Resolved", StateCategory.Resolved), ("Closed", StateCategory.Completed), ("Removed", StateCategory.Removed)), new[] { "Task" }),
-            MakeRecord("Bug", S(("New", StateCategory.Proposed), ("Active", StateCategory.InProgress), ("Resolved", StateCategory.Resolved), ("Closed", StateCategory.Completed)), new[] { "Task" }),
-            MakeRecord("Task", S(("New", StateCategory.Proposed), ("Active", StateCategory.InProgress), ("Closed", StateCategory.Completed), ("Removed", StateCategory.Removed)), Array.Empty<string>()),
-        });
-
     public ConflictUxTests()
     {
         _contextStore = Substitute.For<IContextStore>();
@@ -61,7 +40,7 @@ public class ConflictUxTests
         _processConfigProvider = Substitute.For<IProcessConfigurationProvider>();
 
         _processConfigProvider.GetConfiguration()
-            .Returns(BuildAgileConfig());
+            .Returns(ProcessConfigBuilder.Agile());
 
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());

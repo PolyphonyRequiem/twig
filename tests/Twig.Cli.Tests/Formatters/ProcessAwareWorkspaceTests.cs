@@ -5,6 +5,7 @@ using Twig.Domain.Enums;
 using Twig.Domain.ReadModels;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Cli.Tests.Formatters;
@@ -28,9 +29,9 @@ public class ProcessAwareWorkspaceTests
     {
         var items = new[]
         {
-            MakeItem(1, "New task", WorkItemType.Task, state: "New"),
-            MakeItem(2, "Active task", WorkItemType.Task, state: "Active"),
-            MakeItem(3, "Done task", WorkItemType.Task, state: "Closed"),
+            new WorkItemBuilder(1, "New task").AsTask().WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(),
+            new WorkItemBuilder(2, "Active task").AsTask().InState("Active").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(),
+            new WorkItemBuilder(3, "Done task").AsTask().InState("Closed").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(),
         };
         var ws = Workspace.Build(null, items, Array.Empty<WorkItem>());
 
@@ -46,10 +47,10 @@ public class ProcessAwareWorkspaceTests
     {
         var items = new[]
         {
-            MakeItem(1, "New task", WorkItemType.Task, state: "New", assignee: "Alice"),
-            MakeItem(2, "Active task", WorkItemType.Task, state: "Active", assignee: "Bob"),
-            MakeItem(3, "Resolved task", WorkItemType.Task, state: "Resolved", assignee: "Alice"),
-            MakeItem(4, "Done task", WorkItemType.Task, state: "Closed", assignee: "Bob"),
+            new WorkItemBuilder(1, "New task").AsTask().AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(),
+            new WorkItemBuilder(2, "Active task").AsTask().InState("Active").AssignedTo("Bob").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(),
+            new WorkItemBuilder(3, "Resolved task").AsTask().InState("Resolved").AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(),
+            new WorkItemBuilder(4, "Done task").AsTask().InState("Closed").AssignedTo("Bob").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(),
         };
         var ws = Workspace.Build(null, items, Array.Empty<WorkItem>());
 
@@ -71,8 +72,8 @@ public class ProcessAwareWorkspaceTests
     {
         var items = new[]
         {
-            MakeItem(1, "Active task", WorkItemType.Task, state: "Active"),
-            MakeItem(2, "Another active", WorkItemType.Task, state: "Active"),
+            new WorkItemBuilder(1, "Active task").AsTask().InState("Active").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(),
+            new WorkItemBuilder(2, "Another active").AsTask().InState("Active").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(),
         };
         var ws = Workspace.Build(null, items, Array.Empty<WorkItem>());
 
@@ -89,10 +90,10 @@ public class ProcessAwareWorkspaceTests
     {
         var items = new[]
         {
-            MakeItem(1, "Done task", WorkItemType.Task, state: "Closed"),
-            MakeItem(2, "Active task", WorkItemType.Task, state: "Active"),
-            MakeItem(3, "New task", WorkItemType.Task, state: "New"),
-            MakeItem(4, "Resolved task", WorkItemType.Task, state: "Resolved"),
+            new WorkItemBuilder(1, "Done task").AsTask().InState("Closed").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(),
+            new WorkItemBuilder(2, "Active task").AsTask().InState("Active").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(),
+            new WorkItemBuilder(3, "New task").AsTask().WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(),
+            new WorkItemBuilder(4, "Resolved task").AsTask().InState("Resolved").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(),
         };
         var ws = Workspace.Build(null, items, Array.Empty<WorkItem>());
 
@@ -113,9 +114,9 @@ public class ProcessAwareWorkspaceTests
     {
         var items = new[]
         {
-            MakeItem(1, "Task A", WorkItemType.Task, state: "New"),
-            MakeItem(2, "Task B", WorkItemType.Task, state: "New"),
-            MakeItem(3, "Task C", WorkItemType.Task, state: "Active"),
+            new WorkItemBuilder(1, "Task A").AsTask().WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(),
+            new WorkItemBuilder(2, "Task B").AsTask().WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(),
+            new WorkItemBuilder(3, "Task C").AsTask().InState("Active").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(),
         };
         var ws = Workspace.Build(null, items, Array.Empty<WorkItem>());
 
@@ -145,7 +146,7 @@ public class ProcessAwareWorkspaceTests
     {
         var items = new[]
         {
-            MakeItem(1, "Custom state task", WorkItemType.Task, state: "SomeCustomState"),
+            new WorkItemBuilder(1, "Custom state task").AsTask().InState("SomeCustomState").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(),
         };
         var ws = Workspace.Build(null, items, Array.Empty<WorkItem>());
 
@@ -170,8 +171,8 @@ public class ProcessAwareWorkspaceTests
 
         var items = new[]
         {
-            MakeItem(1, "Active task", WorkItemType.Task, state: "Custom Active"),
-            MakeItem(2, "Done task", WorkItemType.Task, state: "Custom Done"),
+            new WorkItemBuilder(1, "Active task").AsTask().InState("Custom Active").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(),
+            new WorkItemBuilder(2, "Done task").AsTask().InState("Custom Done").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(),
         };
         var ws = Workspace.Build(null, items, Array.Empty<WorkItem>());
 
@@ -189,9 +190,9 @@ public class ProcessAwareWorkspaceTests
     [Fact]
     public void SprintView_WithHierarchy_IndentsChildrenUnderParents()
     {
-        var feature = MakeItem(100, "Auth Feature", WorkItemType.Feature, parentId: null);
-        var task1 = MakeItem(42, "Login endpoint", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "Active");
-        var task2 = MakeItem(43, "Logout endpoint", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "Active");
+        var feature = new WorkItemBuilder(100, "Auth Feature").AsFeature().WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var task1 = new WorkItemBuilder(42, "Login endpoint").AsTask().InState("Active").WithParent(100).AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var task2 = new WorkItemBuilder(43, "Logout endpoint").AsTask().InState("Active").WithParent(100).AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
         var hierarchy = SprintHierarchy.Build(new[] { task1, task2 }, parentLookup, new[] { "Feature" });
@@ -209,9 +210,9 @@ public class ProcessAwareWorkspaceTests
     [Fact]
     public void SprintView_HierarchyWithoutCategoryGrouping_ShowsParentOnce()
     {
-        var feature = MakeItem(100, "Auth Feature", WorkItemType.Feature, parentId: null);
-        var task1 = MakeItem(42, "Login endpoint", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "Active");
-        var task2 = MakeItem(43, "Logout endpoint", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "New");
+        var feature = new WorkItemBuilder(100, "Auth Feature").AsFeature().WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var task1 = new WorkItemBuilder(42, "Login endpoint").AsTask().InState("Active").WithParent(100).AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var task2 = new WorkItemBuilder(43, "Logout endpoint").AsTask().WithParent(100).AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
         var hierarchy = SprintHierarchy.Build(new[] { task1, task2 }, parentLookup, new[] { "Feature" });
@@ -231,10 +232,10 @@ public class ProcessAwareWorkspaceTests
     {
         // Without category filtering, all children are visible.
         // The last child must get └── (not ├──).
-        var feature = MakeItem(100, "Auth Feature", WorkItemType.Feature, parentId: null);
-        var taskA = MakeItem(41, "Task A", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "New");
-        var taskB = MakeItem(42, "Task B", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "Active");
-        var taskC = MakeItem(43, "Task C", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "New");
+        var feature = new WorkItemBuilder(100, "Auth Feature").AsFeature().WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var taskA = new WorkItemBuilder(41, "Task A").AsTask().WithParent(100).AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var taskB = new WorkItemBuilder(42, "Task B").AsTask().InState("Active").WithParent(100).AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var taskC = new WorkItemBuilder(43, "Task C").AsTask().WithParent(100).AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
         var hierarchy = SprintHierarchy.Build(new[] { taskA, taskB, taskC }, parentLookup, new[] { "Feature" });
@@ -259,10 +260,10 @@ public class ProcessAwareWorkspaceTests
     [Fact]
     public void ProgressIndicator_ShowsDoneOverTotal()
     {
-        var feature = MakeItem(100, "Auth Feature", WorkItemType.Feature, parentId: null);
-        var task1 = MakeItem(42, "Login", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "Closed");
-        var task2 = MakeItem(43, "Logout", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "Active");
-        var task3 = MakeItem(44, "Profile", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "Resolved");
+        var feature = new WorkItemBuilder(100, "Auth Feature").AsFeature().WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var task1 = new WorkItemBuilder(42, "Login").AsTask().InState("Closed").WithParent(100).AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var task2 = new WorkItemBuilder(43, "Logout").AsTask().InState("Active").WithParent(100).AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var task3 = new WorkItemBuilder(44, "Profile").AsTask().InState("Resolved").WithParent(100).AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
         var hierarchy = SprintHierarchy.Build(new[] { task1, task2, task3 }, parentLookup, new[] { "Feature" });
@@ -278,7 +279,7 @@ public class ProcessAwareWorkspaceTests
     [Fact]
     public void ProgressIndicator_NotShownForLeafItems()
     {
-        var task1 = MakeItem(42, "Solo task", WorkItemType.Task, parentId: null, assignee: "Alice", state: "Active");
+        var task1 = new WorkItemBuilder(42, "Solo task").AsTask().InState("Active").AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
 
         var hierarchy = SprintHierarchy.Build(new[] { task1 }, new Dictionary<int, WorkItem>(), new[] { "Feature" });
         var ws = Workspace.Build(null, new[] { task1 }, Array.Empty<WorkItem>(), hierarchy);
@@ -293,9 +294,9 @@ public class ProcessAwareWorkspaceTests
     [Fact]
     public void ProgressIndicator_AllChildrenDone()
     {
-        var feature = MakeItem(100, "Done Feature", WorkItemType.Feature, parentId: null);
-        var task1 = MakeItem(42, "Task 1", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "Closed");
-        var task2 = MakeItem(43, "Task 2", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "Closed");
+        var feature = new WorkItemBuilder(100, "Done Feature").AsFeature().WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var task1 = new WorkItemBuilder(42, "Task 1").AsTask().InState("Closed").WithParent(100).AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var task2 = new WorkItemBuilder(43, "Task 2").AsTask().InState("Closed").WithParent(100).AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
         var hierarchy = SprintHierarchy.Build(new[] { task1, task2 }, parentLookup, new[] { "Feature" });
@@ -309,9 +310,9 @@ public class ProcessAwareWorkspaceTests
     [Fact]
     public void ProgressIndicator_NoChildrenDone()
     {
-        var feature = MakeItem(100, "Fresh Feature", WorkItemType.Feature, parentId: null);
-        var task1 = MakeItem(42, "Task 1", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "New");
-        var task2 = MakeItem(43, "Task 2", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "Active");
+        var feature = new WorkItemBuilder(100, "Fresh Feature").AsFeature().WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var task1 = new WorkItemBuilder(42, "Task 1").AsTask().WithParent(100).AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var task2 = new WorkItemBuilder(43, "Task 2").AsTask().InState("Active").WithParent(100).AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
         var hierarchy = SprintHierarchy.Build(new[] { task1, task2 }, parentLookup, new[] { "Feature" });
@@ -325,9 +326,9 @@ public class ProcessAwareWorkspaceTests
     [Fact]
     public void ProgressIndicator_InWorkspaceView()
     {
-        var feature = MakeItem(100, "Auth Feature", WorkItemType.Feature, parentId: null);
-        var task1 = MakeItem(42, "Task 1", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "Closed");
-        var task2 = MakeItem(43, "Task 2", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "Active");
+        var feature = new WorkItemBuilder(100, "Auth Feature").AsFeature().WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var task1 = new WorkItemBuilder(42, "Task 1").AsTask().InState("Closed").WithParent(100).AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var task2 = new WorkItemBuilder(43, "Task 2").AsTask().InState("Active").WithParent(100).AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
         var hierarchy = SprintHierarchy.Build(new[] { task1, task2 }, parentLookup, new[] { "Feature" });
@@ -347,8 +348,8 @@ public class ProcessAwareWorkspaceTests
     {
         var items = new[]
         {
-            MakeItem(1, "Task A", WorkItemType.Task, state: "Active", assignee: "Alice Smith"),
-            MakeItem(2, "Task B", WorkItemType.Task, state: "Active", assignee: "Bob Jones"),
+            new WorkItemBuilder(1, "Task A").AsTask().InState("Active").AssignedTo("Alice Smith").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(),
+            new WorkItemBuilder(2, "Task B").AsTask().InState("Active").AssignedTo("Bob Jones").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(),
         };
         var ws = Workspace.Build(null, items, Array.Empty<WorkItem>());
 
@@ -364,7 +365,7 @@ public class ProcessAwareWorkspaceTests
     {
         var items = new[]
         {
-            MakeItem(1, "Task A", WorkItemType.Task, state: "Active", assignee: null),
+            new WorkItemBuilder(1, "Task A").AsTask().InState("Active").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(),
         };
         var ws = Workspace.Build(null, items, Array.Empty<WorkItem>());
 
@@ -377,8 +378,8 @@ public class ProcessAwareWorkspaceTests
     [Fact]
     public void SprintView_HierarchicalAssigneeAsGroupHeader()
     {
-        var feature = MakeItem(100, "Auth Feature", WorkItemType.Feature, parentId: null, assignee: "Alice");
-        var task1 = MakeItem(42, "Login endpoint", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "Active");
+        var feature = new WorkItemBuilder(100, "Auth Feature").AsFeature().AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var task1 = new WorkItemBuilder(42, "Login endpoint").AsTask().InState("Active").WithParent(100).AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
         var hierarchy = SprintHierarchy.Build(new[] { task1 }, parentLookup, new[] { "Feature" });
@@ -397,7 +398,7 @@ public class ProcessAwareWorkspaceTests
         // (assignee is redundant — it's all the current user)
         var items = new[]
         {
-            MakeItem(1, "Task A", WorkItemType.Task, state: "Active", assignee: "Alice Smith"),
+            new WorkItemBuilder(1, "Task A").AsTask().InState("Active").AssignedTo("Alice Smith").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(),
         };
         var ws = Workspace.Build(null, items, Array.Empty<WorkItem>());
 
@@ -415,11 +416,11 @@ public class ProcessAwareWorkspaceTests
     {
         var items = new[]
         {
-            MakeItem(1, "New", WorkItemType.Task, state: "New"),
-            MakeItem(2, "Active", WorkItemType.Task, state: "Active"),
-            MakeItem(3, "Resolved", WorkItemType.Task, state: "Resolved"),
-            MakeItem(4, "Closed", WorkItemType.Task, state: "Closed"),
-            MakeItem(5, "Also New", WorkItemType.Task, state: "To Do"),
+            new WorkItemBuilder(1, "New").AsTask().WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(),
+            new WorkItemBuilder(2, "Active").AsTask().InState("Active").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(),
+            new WorkItemBuilder(3, "Resolved").AsTask().InState("Resolved").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(),
+            new WorkItemBuilder(4, "Closed").AsTask().InState("Closed").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(),
+            new WorkItemBuilder(5, "Also New").AsTask().InState("To Do").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(),
         };
 
         var groups = _formatter.GroupByStateCategory(items);
@@ -464,7 +465,7 @@ public class ProcessAwareWorkspaceTests
     public void FormatProgressIndicator_NoChildren_ReturnsEmpty()
     {
         var node = new SprintHierarchyNode(
-            MakeItem(1, "Leaf", WorkItemType.Task, state: "Active"), isSprintItem: true);
+            new WorkItemBuilder(1, "Leaf").AsTask().InState("Active").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(), isSprintItem: true);
 
         _formatter.FormatProgressIndicator(node).ShouldBe("");
     }
@@ -473,11 +474,11 @@ public class ProcessAwareWorkspaceTests
     public void FormatProgressIndicator_WithChildren_ReturnsProgress()
     {
         var parent = new SprintHierarchyNode(
-            MakeItem(100, "Parent", WorkItemType.Feature, state: "Active"), isSprintItem: false);
+            new WorkItemBuilder(100, "Parent").AsFeature().InState("Active").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(), isSprintItem: false);
         var child1 = new SprintHierarchyNode(
-            MakeItem(1, "Child 1", WorkItemType.Task, state: "Closed"), isSprintItem: true);
+            new WorkItemBuilder(1, "Child 1").AsTask().InState("Closed").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(), isSprintItem: true);
         var child2 = new SprintHierarchyNode(
-            MakeItem(2, "Child 2", WorkItemType.Task, state: "Active"), isSprintItem: true);
+            new WorkItemBuilder(2, "Child 2").AsTask().InState("Active").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build(), isSprintItem: true);
         parent.Children.Add(child1);
         parent.Children.Add(child2);
 
@@ -488,27 +489,6 @@ public class ProcessAwareWorkspaceTests
     // ═══════════════════════════════════════════════════════════════════
     // Helpers
     // ═══════════════════════════════════════════════════════════════════
-
-    private static WorkItem MakeItem(
-        int id,
-        string title,
-        WorkItemType type,
-        string state = "New",
-        int? parentId = null,
-        string? assignee = null)
-    {
-        return new WorkItem
-        {
-            Id = id,
-            Type = type,
-            Title = title,
-            State = state,
-            ParentId = parentId,
-            AssignedTo = assignee,
-            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
-            AreaPath = AreaPath.Parse("Project").Value,
-        };
-    }
 
     private static string StripAnsi(string input)
         => Regex.Replace(input, "\u001b\\[[0-9;]*m", "");

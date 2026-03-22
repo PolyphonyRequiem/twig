@@ -3,13 +3,13 @@ using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
-using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
@@ -25,24 +25,6 @@ public class BranchCommandTests
     private readonly TwigConfiguration _config;
     private readonly IGitService _gitService;
     private readonly IAdoGitService _adoGitService;
-
-    private static StateEntry[] AgileUserStoryStates =>
-    [
-        new("New", StateCategory.Proposed, null),
-        new("Active", StateCategory.InProgress, null),
-        new("Resolved", StateCategory.Resolved, null),
-        new("Closed", StateCategory.Completed, null),
-        new("Removed", StateCategory.Removed, null),
-    ];
-
-    private static ProcessTypeRecord MakeRecord(string typeName, StateEntry[] states, string[] childTypes) =>
-        new() { TypeName = typeName, States = states, ValidChildTypes = childTypes };
-
-    private static ProcessConfiguration BuildAgileConfig() =>
-        ProcessConfiguration.FromRecords(new[]
-        {
-            MakeRecord("User Story", AgileUserStoryStates, new[] { "Task" }),
-        });
 
     public BranchCommandTests()
     {
@@ -66,7 +48,7 @@ public class BranchCommandTests
             },
         };
 
-        _processConfigProvider.GetConfiguration().Returns(BuildAgileConfig());
+        _processConfigProvider.GetConfiguration().Returns(ProcessConfigBuilder.AgileUserStoryOnly());
     }
 
     private BranchCommand CreateCommand(IGitService? gitService = null, IAdoGitService? adoGitService = null) =>

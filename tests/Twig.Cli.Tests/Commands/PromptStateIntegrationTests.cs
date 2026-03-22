@@ -4,13 +4,13 @@ using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
-using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
@@ -38,24 +38,6 @@ public class PromptStateIntegrationTests : IDisposable
 
     private string PromptJsonPath => Path.Combine(_twigDir, "prompt.json");
 
-    private static StateEntry[] AgileUserStoryStates =>
-    [
-        new("New", StateCategory.Proposed, null),
-        new("Active", StateCategory.InProgress, null),
-        new("Resolved", StateCategory.Resolved, null),
-        new("Closed", StateCategory.Completed, null),
-        new("Removed", StateCategory.Removed, null),
-    ];
-
-    private static ProcessTypeRecord MakeRecord(string typeName, StateEntry[] states, string[] childTypes) =>
-        new() { TypeName = typeName, States = states, ValidChildTypes = childTypes };
-
-    private static ProcessConfiguration BuildAgileConfig() =>
-        ProcessConfiguration.FromRecords(new[]
-        {
-            MakeRecord("User Story", AgileUserStoryStates, new[] { "Task" }),
-        });
-
     public PromptStateIntegrationTests()
     {
         _tempDir = Path.Combine(Path.GetTempPath(), $"twig-psi-test-{Guid.NewGuid():N}");
@@ -76,7 +58,7 @@ public class PromptStateIntegrationTests : IDisposable
         _config = new TwigConfiguration();
         _paths = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"));
 
-        _processConfigProvider.GetConfiguration().Returns(BuildAgileConfig());
+        _processConfigProvider.GetConfiguration().Returns(ProcessConfigBuilder.AgileUserStoryOnly());
         _adoService.FetchChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
     }

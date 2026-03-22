@@ -3,6 +3,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Enums;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Domain.Tests.Services;
@@ -12,30 +13,14 @@ public class StateTransitionServiceTests
     private static StateEntry[] ToStateEntries(params string[] names) =>
         names.Select(n => new StateEntry(n, StateCategory.Unknown, null)).ToArray();
 
-    private static ProcessTypeRecord MakeRecord(string typeName, string[] states, string[] childTypes) =>
-        new()
-        {
-            TypeName = typeName,
-            States = ToStateEntries(states),
-            ValidChildTypes = childTypes,
-        };
-
     // ═══════════════════════════════════════════════════════════════
     //  Basic-style
     // ═══════════════════════════════════════════════════════════════
 
-    private static ProcessConfiguration BuildBasicConfig() =>
-        ProcessConfiguration.FromRecords(new[]
-        {
-            MakeRecord("Epic", new[] { "To Do", "Doing", "Done" }, new[] { "Issue" }),
-            MakeRecord("Issue", new[] { "To Do", "Doing", "Done" }, new[] { "Task" }),
-            MakeRecord("Task", new[] { "To Do", "Doing", "Done" }, Array.Empty<string>()),
-        });
-
     [Fact]
     public void Basic_Forward_IsAllowed_NoConfirmation()
     {
-        var config = BuildBasicConfig();
+        var config = ProcessConfigBuilder.Basic();
         var result = StateTransitionService.Evaluate(config, WorkItemType.Issue, "To Do", "Doing");
 
         result.Kind.ShouldBe(TransitionKind.Forward);
@@ -47,7 +32,7 @@ public class StateTransitionServiceTests
     [Fact]
     public void Basic_Backward_RequiresConfirmation()
     {
-        var config = BuildBasicConfig();
+        var config = ProcessConfigBuilder.Basic();
         var result = StateTransitionService.Evaluate(config, WorkItemType.Issue, "Doing", "To Do");
 
         result.Kind.ShouldBe(TransitionKind.Backward);
@@ -59,7 +44,7 @@ public class StateTransitionServiceTests
     [Fact]
     public void Basic_Invalid_UnknownStates()
     {
-        var config = BuildBasicConfig();
+        var config = ProcessConfigBuilder.Basic();
         var result = StateTransitionService.Evaluate(config, WorkItemType.Issue, "To Do", "Nonexistent");
 
         result.Kind.ShouldBe(TransitionKind.None);
@@ -71,7 +56,7 @@ public class StateTransitionServiceTests
     [Fact]
     public void Basic_Invalid_UnknownType()
     {
-        var config = BuildBasicConfig();
+        var config = ProcessConfigBuilder.Basic();
         var result = StateTransitionService.Evaluate(config, WorkItemType.UserStory, "To Do", "Doing");
 
         result.Kind.ShouldBe(TransitionKind.None);
@@ -82,23 +67,13 @@ public class StateTransitionServiceTests
     //  Agile-style
     // ═══════════════════════════════════════════════════════════════
 
-    private static ProcessConfiguration BuildAgileConfig() =>
-        ProcessConfiguration.FromRecords(new[]
-        {
-            MakeRecord("Epic", new[] { "New", "Active", "Closed", "Removed" }, new[] { "Feature" }),
-            MakeRecord("Feature", new[] { "New", "Active", "Closed", "Removed" }, new[] { "User Story", "Bug" }),
-            MakeRecord("User Story", new[] { "New", "Active", "Resolved", "Closed", "Removed" }, new[] { "Task" }),
-            MakeRecord("Bug", new[] { "New", "Active", "Resolved", "Closed" }, new[] { "Task" }),
-            MakeRecord("Task", new[] { "New", "Active", "Closed", "Removed" }, Array.Empty<string>()),
-        });
-
     [Theory]
     [InlineData("New", "Active")]
     [InlineData("Active", "Resolved")]
     [InlineData("Resolved", "Closed")]
     public void Agile_UserStory_Forward(string from, string to)
     {
-        var config = BuildAgileConfig();
+        var config = ProcessConfigBuilder.Agile();
         var result = StateTransitionService.Evaluate(config, WorkItemType.UserStory, from, to);
 
         result.Kind.ShouldBe(TransitionKind.Forward);
@@ -112,7 +87,7 @@ public class StateTransitionServiceTests
     [InlineData("Closed", "Resolved")]
     public void Agile_UserStory_Backward(string from, string to)
     {
-        var config = BuildAgileConfig();
+        var config = ProcessConfigBuilder.Agile();
         var result = StateTransitionService.Evaluate(config, WorkItemType.UserStory, from, to);
 
         result.Kind.ShouldBe(TransitionKind.Backward);
@@ -128,7 +103,7 @@ public class StateTransitionServiceTests
     [InlineData("Closed", "Removed")]
     public void Agile_UserStory_Cut(string from, string to)
     {
-        var config = BuildAgileConfig();
+        var config = ProcessConfigBuilder.Agile();
         var result = StateTransitionService.Evaluate(config, WorkItemType.UserStory, from, to);
 
         result.Kind.ShouldBe(TransitionKind.Cut);
@@ -140,7 +115,7 @@ public class StateTransitionServiceTests
     [Fact]
     public void Agile_Invalid_SameState()
     {
-        var config = BuildAgileConfig();
+        var config = ProcessConfigBuilder.Agile();
         var result = StateTransitionService.Evaluate(config, WorkItemType.UserStory, "Active", "Active");
 
         result.Kind.ShouldBe(TransitionKind.None);
@@ -151,23 +126,13 @@ public class StateTransitionServiceTests
     //  Scrum-style
     // ═══════════════════════════════════════════════════════════════
 
-    private static ProcessConfiguration BuildScrumConfig() =>
-        ProcessConfiguration.FromRecords(new[]
-        {
-            MakeRecord("Epic", new[] { "New", "In Progress", "Done", "Removed" }, new[] { "Feature" }),
-            MakeRecord("Feature", new[] { "New", "In Progress", "Done", "Removed" }, new[] { "Product Backlog Item", "Bug" }),
-            MakeRecord("Product Backlog Item", new[] { "New", "Approved", "Committed", "Done", "Removed" }, new[] { "Task" }),
-            MakeRecord("Bug", new[] { "New", "Approved", "Committed", "Done", "Removed" }, new[] { "Task" }),
-            MakeRecord("Task", new[] { "To Do", "In Progress", "Done", "Removed" }, Array.Empty<string>()),
-        });
-
     [Theory]
     [InlineData("New", "Approved")]
     [InlineData("Approved", "Committed")]
     [InlineData("Committed", "Done")]
     public void Scrum_PBI_Forward(string from, string to)
     {
-        var config = BuildScrumConfig();
+        var config = ProcessConfigBuilder.Scrum();
         var result = StateTransitionService.Evaluate(config, WorkItemType.ProductBacklogItem, from, to);
 
         result.Kind.ShouldBe(TransitionKind.Forward);
@@ -180,7 +145,7 @@ public class StateTransitionServiceTests
     [InlineData("Approved", "New")]
     public void Scrum_PBI_Backward(string from, string to)
     {
-        var config = BuildScrumConfig();
+        var config = ProcessConfigBuilder.Scrum();
         var result = StateTransitionService.Evaluate(config, WorkItemType.ProductBacklogItem, from, to);
 
         result.Kind.ShouldBe(TransitionKind.Backward);
@@ -193,7 +158,7 @@ public class StateTransitionServiceTests
     [InlineData("Committed", "Removed")]
     public void Scrum_PBI_Cut(string from, string to)
     {
-        var config = BuildScrumConfig();
+        var config = ProcessConfigBuilder.Scrum();
         var result = StateTransitionService.Evaluate(config, WorkItemType.ProductBacklogItem, from, to);
 
         result.Kind.ShouldBe(TransitionKind.Cut);
@@ -205,7 +170,7 @@ public class StateTransitionServiceTests
     [Fact]
     public void Scrum_Invalid_UnknownTransition()
     {
-        var config = BuildScrumConfig();
+        var config = ProcessConfigBuilder.Scrum();
         var result = StateTransitionService.Evaluate(config, WorkItemType.ProductBacklogItem, "New", "Bogus");
 
         result.Kind.ShouldBe(TransitionKind.None);
@@ -216,23 +181,13 @@ public class StateTransitionServiceTests
     //  CMMI-style
     // ═══════════════════════════════════════════════════════════════
 
-    private static ProcessConfiguration BuildCmmiConfig() =>
-        ProcessConfiguration.FromRecords(new[]
-        {
-            MakeRecord("Epic", new[] { "Proposed", "Active", "Resolved", "Closed", "Removed" }, new[] { "Feature" }),
-            MakeRecord("Feature", new[] { "Proposed", "Active", "Resolved", "Closed", "Removed" }, new[] { "Requirement" }),
-            MakeRecord("Requirement", new[] { "Proposed", "Active", "Resolved", "Closed", "Removed" }, new[] { "Task" }),
-            MakeRecord("Bug", new[] { "Proposed", "Active", "Resolved", "Closed", "Removed" }, new[] { "Task" }),
-            MakeRecord("Task", new[] { "Proposed", "Active", "Resolved", "Closed", "Removed" }, Array.Empty<string>()),
-        });
-
     [Theory]
     [InlineData("Proposed", "Active")]
     [InlineData("Active", "Resolved")]
     [InlineData("Resolved", "Closed")]
     public void CMMI_Requirement_Forward(string from, string to)
     {
-        var config = BuildCmmiConfig();
+        var config = ProcessConfigBuilder.Cmmi();
         var result = StateTransitionService.Evaluate(config, WorkItemType.Requirement, from, to);
 
         result.Kind.ShouldBe(TransitionKind.Forward);
@@ -245,7 +200,7 @@ public class StateTransitionServiceTests
     [InlineData("Resolved", "Active")]
     public void CMMI_Requirement_Backward(string from, string to)
     {
-        var config = BuildCmmiConfig();
+        var config = ProcessConfigBuilder.Cmmi();
         var result = StateTransitionService.Evaluate(config, WorkItemType.Requirement, from, to);
 
         result.Kind.ShouldBe(TransitionKind.Backward);
@@ -260,7 +215,7 @@ public class StateTransitionServiceTests
     [InlineData("Closed", "Removed")]
     public void CMMI_Requirement_Cut(string from, string to)
     {
-        var config = BuildCmmiConfig();
+        var config = ProcessConfigBuilder.Cmmi();
         var result = StateTransitionService.Evaluate(config, WorkItemType.Requirement, from, to);
 
         result.Kind.ShouldBe(TransitionKind.Cut);
@@ -272,7 +227,7 @@ public class StateTransitionServiceTests
     [Fact]
     public void CMMI_Invalid_UnknownType()
     {
-        var config = BuildCmmiConfig();
+        var config = ProcessConfigBuilder.Cmmi();
         var result = StateTransitionService.Evaluate(config, WorkItemType.ProductBacklogItem, "Proposed", "Active");
 
         result.Kind.ShouldBe(TransitionKind.None);
@@ -288,7 +243,7 @@ public class StateTransitionServiceTests
     {
         // When WorkItemType is not in config, Evaluate should return IsAllowed=false
         // with Kind=None, distinguishing "type not configured" from "transition blocked".
-        var config = BuildBasicConfig();
+        var config = ProcessConfigBuilder.Basic();
         var customType = WorkItemType.Parse("CustomWorkItemType").Value;
 
         var result = StateTransitionService.Evaluate(config, customType, "To Do", "Doing");
@@ -334,7 +289,7 @@ public class StateTransitionServiceTests
     public void Evaluate_UnknownFromState_ReturnsNotAllowed()
     {
         // Valid type but fromState not in config → transition not found → IsAllowed=false.
-        var config = BuildBasicConfig();
+        var config = ProcessConfigBuilder.Basic();
 
         var result = StateTransitionService.Evaluate(config, WorkItemType.Issue, "NonexistentState", "Doing");
 
@@ -347,7 +302,7 @@ public class StateTransitionServiceTests
     [Fact]
     public void Evaluate_UnknownToState_ReturnsNotAllowed()
     {
-        var config = BuildBasicConfig();
+        var config = ProcessConfigBuilder.Basic();
 
         var result = StateTransitionService.Evaluate(config, WorkItemType.Issue, "To Do", "NonexistentState");
 
@@ -358,7 +313,7 @@ public class StateTransitionServiceTests
     [Fact]
     public void Evaluate_BothStatesUnknown_ReturnsNotAllowed()
     {
-        var config = BuildBasicConfig();
+        var config = ProcessConfigBuilder.Basic();
 
         var result = StateTransitionService.Evaluate(config, WorkItemType.Issue, "FakeFrom", "FakeTo");
 
@@ -371,7 +326,7 @@ public class StateTransitionServiceTests
     {
         // State transitions are stored by exact name from config.
         // "to do" (lowercase) doesn't match "To Do" (title case).
-        var config = BuildBasicConfig();
+        var config = ProcessConfigBuilder.Basic();
 
         var result = StateTransitionService.Evaluate(config, WorkItemType.Issue, "to do", "doing");
 

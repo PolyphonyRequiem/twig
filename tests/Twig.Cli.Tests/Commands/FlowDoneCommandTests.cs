@@ -3,13 +3,13 @@ using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
-using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
@@ -30,28 +30,6 @@ public class FlowDoneCommandTests
     private readonly IAdoGitService _adoGitService;
     private readonly ActiveItemResolver _activeItemResolver;
     private readonly ProtectedCacheWriter _protectedCacheWriter;
-
-    private static StateEntry[] AgileUserStoryStates =>
-    [
-        new("New", StateCategory.Proposed, null),
-        new("Active", StateCategory.InProgress, null),
-        new("Resolved", StateCategory.Resolved, null),
-        new("Closed", StateCategory.Completed, null),
-        new("Removed", StateCategory.Removed, null),
-    ];
-
-    private static ProcessTypeRecord MakeRecord(string typeName, StateEntry[] states, string[] childTypes) =>
-        new() { TypeName = typeName, States = states, ValidChildTypes = childTypes };
-
-    private static StateEntry[] S(params (string Name, StateCategory Cat)[] entries) =>
-        entries.Select(e => new StateEntry(e.Name, e.Cat, null)).ToArray();
-
-    private static ProcessConfiguration BuildAgileConfig() =>
-        ProcessConfiguration.FromRecords(new[]
-        {
-            MakeRecord("User Story", AgileUserStoryStates, new[] { "Task" }),
-            MakeRecord("Task", S(("New", StateCategory.Proposed), ("Active", StateCategory.InProgress), ("Closed", StateCategory.Completed), ("Removed", StateCategory.Removed)), Array.Empty<string>()),
-        });
 
     public FlowDoneCommandTests()
     {
@@ -77,7 +55,7 @@ public class FlowDoneCommandTests
             Flow = new FlowConfig { OfferPrOnDone = true },
         };
 
-        _processConfigProvider.GetConfiguration().Returns(BuildAgileConfig());
+        _processConfigProvider.GetConfiguration().Returns(ProcessConfigBuilder.Agile());
 
         // Default: no pending changes, no dirty items
         _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());

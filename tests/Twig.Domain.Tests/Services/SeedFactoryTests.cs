@@ -1,44 +1,23 @@
 using Shouldly;
 using Twig.Domain.Aggregates;
-using Twig.Domain.Enums;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Domain.Tests.Services;
 
 public class SeedFactoryTests
 {
-    private static StateEntry[] ToStateEntries(params string[] names) =>
-        names.Select(n => new StateEntry(n, StateCategory.Unknown, null)).ToArray();
-
-    private static ProcessTypeRecord MakeRecord(string typeName, string[] states, string[] childTypes) =>
-        new()
-        {
-            TypeName = typeName,
-            States = ToStateEntries(states),
-            ValidChildTypes = childTypes,
-        };
-
     // ═══════════════════════════════════════════════════════════════
     //  Valid parent/child — Agile-style
     // ═══════════════════════════════════════════════════════════════
 
-    private static ProcessConfiguration BuildAgileConfig() =>
-        ProcessConfiguration.FromRecords(new[]
-        {
-            MakeRecord("Epic", new[] { "New", "Active", "Closed", "Removed" }, new[] { "Feature" }),
-            MakeRecord("Feature", new[] { "New", "Active", "Closed", "Removed" }, new[] { "User Story", "Bug" }),
-            MakeRecord("User Story", new[] { "New", "Active", "Resolved", "Closed", "Removed" }, new[] { "Task" }),
-            MakeRecord("Bug", new[] { "New", "Active", "Resolved", "Closed" }, new[] { "Task" }),
-            MakeRecord("Task", new[] { "New", "Active", "Closed", "Removed" }, Array.Empty<string>()),
-        });
-
     [Fact]
     public void Create_Agile_TaskUnderUserStory_Succeeds()
     {
-        var config = BuildAgileConfig();
-        var parent = MakeParent(10, WorkItemType.UserStory);
+        var config = ProcessConfigBuilder.Agile();
+        var parent = new WorkItemBuilder(10, "Parent 10").AsUserStory().WithAreaPath(@"Project\Team").WithIterationPath(@"Project\Sprint1").Build();
 
         var result = SeedFactory.Create("New task", parent, config);
 
@@ -52,8 +31,8 @@ public class SeedFactoryTests
     [Fact]
     public void Create_Agile_FeatureUnderEpic_Succeeds()
     {
-        var config = BuildAgileConfig();
-        var parent = MakeParent(5, WorkItemType.Epic);
+        var config = ProcessConfigBuilder.Agile();
+        var parent = new WorkItemBuilder(5, "Parent 5").AsEpic().WithAreaPath(@"Project\Team").WithIterationPath(@"Project\Sprint1").Build();
 
         var result = SeedFactory.Create("New feature", parent, config);
 
@@ -65,21 +44,11 @@ public class SeedFactoryTests
     //  Valid parent/child — Scrum-style
     // ═══════════════════════════════════════════════════════════════
 
-    private static ProcessConfiguration BuildScrumConfig() =>
-        ProcessConfiguration.FromRecords(new[]
-        {
-            MakeRecord("Epic", new[] { "New", "In Progress", "Done", "Removed" }, new[] { "Feature" }),
-            MakeRecord("Feature", new[] { "New", "In Progress", "Done", "Removed" }, new[] { "Product Backlog Item", "Bug" }),
-            MakeRecord("Product Backlog Item", new[] { "New", "Approved", "Committed", "Done", "Removed" }, new[] { "Task" }),
-            MakeRecord("Bug", new[] { "New", "Approved", "Committed", "Done", "Removed" }, new[] { "Task" }),
-            MakeRecord("Task", new[] { "To Do", "In Progress", "Done", "Removed" }, Array.Empty<string>()),
-        });
-
     [Fact]
     public void Create_Scrum_TaskUnderPBI_Succeeds()
     {
-        var config = BuildScrumConfig();
-        var parent = MakeParent(20, WorkItemType.ProductBacklogItem);
+        var config = ProcessConfigBuilder.Scrum();
+        var parent = new WorkItemBuilder(20, "Parent 20").AsProductBacklogItem().WithAreaPath(@"Project\Team").WithIterationPath(@"Project\Sprint1").Build();
 
         var result = SeedFactory.Create("PBI child task", parent, config);
 
@@ -91,19 +60,11 @@ public class SeedFactoryTests
     //  Valid parent/child — Basic-style
     // ═══════════════════════════════════════════════════════════════
 
-    private static ProcessConfiguration BuildBasicConfig() =>
-        ProcessConfiguration.FromRecords(new[]
-        {
-            MakeRecord("Epic", new[] { "To Do", "Doing", "Done" }, new[] { "Issue" }),
-            MakeRecord("Issue", new[] { "To Do", "Doing", "Done" }, new[] { "Task" }),
-            MakeRecord("Task", new[] { "To Do", "Doing", "Done" }, Array.Empty<string>()),
-        });
-
     [Fact]
     public void Create_Basic_IssueUnderEpic_Succeeds()
     {
-        var config = BuildBasicConfig();
-        var parent = MakeParent(1, WorkItemType.Epic);
+        var config = ProcessConfigBuilder.Basic();
+        var parent = new WorkItemBuilder(1, "Parent 1").AsEpic().WithAreaPath(@"Project\Team").WithIterationPath(@"Project\Sprint1").Build();
 
         var result = SeedFactory.Create("New issue", parent, config);
 
@@ -115,21 +76,11 @@ public class SeedFactoryTests
     //  Valid parent/child — CMMI-style
     // ═══════════════════════════════════════════════════════════════
 
-    private static ProcessConfiguration BuildCmmiConfig() =>
-        ProcessConfiguration.FromRecords(new[]
-        {
-            MakeRecord("Epic", new[] { "Proposed", "Active", "Resolved", "Closed", "Removed" }, new[] { "Feature" }),
-            MakeRecord("Feature", new[] { "Proposed", "Active", "Resolved", "Closed", "Removed" }, new[] { "Requirement" }),
-            MakeRecord("Requirement", new[] { "Proposed", "Active", "Resolved", "Closed", "Removed" }, new[] { "Task" }),
-            MakeRecord("Bug", new[] { "Proposed", "Active", "Resolved", "Closed", "Removed" }, new[] { "Task" }),
-            MakeRecord("Task", new[] { "Proposed", "Active", "Resolved", "Closed", "Removed" }, Array.Empty<string>()),
-        });
-
     [Fact]
     public void Create_CMMI_RequirementUnderFeature_Succeeds()
     {
-        var config = BuildCmmiConfig();
-        var parent = MakeParent(3, WorkItemType.Feature);
+        var config = ProcessConfigBuilder.Cmmi();
+        var parent = new WorkItemBuilder(3, "Parent 3").AsFeature().WithAreaPath(@"Project\Team").WithIterationPath(@"Project\Sprint1").Build();
 
         var result = SeedFactory.Create("New requirement", parent, config);
 
@@ -144,8 +95,8 @@ public class SeedFactoryTests
     [Fact]
     public void Create_Agile_EpicUnderTask_Fails()
     {
-        var config = BuildAgileConfig();
-        var parent = MakeParent(10, WorkItemType.Task);
+        var config = ProcessConfigBuilder.Agile();
+        var parent = new WorkItemBuilder(10, "Parent 10").AsTask().WithAreaPath(@"Project\Team").WithIterationPath(@"Project\Sprint1").Build();
 
         // Task has no allowed children
         var result = SeedFactory.Create("Bad seed", parent, config);
@@ -157,8 +108,8 @@ public class SeedFactoryTests
     [Fact]
     public void Create_Agile_InvalidTypeOverride_Fails()
     {
-        var config = BuildAgileConfig();
-        var parent = MakeParent(10, WorkItemType.Feature);
+        var config = ProcessConfigBuilder.Agile();
+        var parent = new WorkItemBuilder(10, "Parent 10").AsFeature().WithAreaPath(@"Project\Team").WithIterationPath(@"Project\Sprint1").Build();
 
         // Feature allows UserStory and Bug, not Epic
         var result = SeedFactory.Create("Bad seed", parent, config, WorkItemType.Epic);
@@ -174,8 +125,8 @@ public class SeedFactoryTests
     [Fact]
     public void Create_ExplicitTypeOverride_Succeeds()
     {
-        var config = BuildAgileConfig();
-        var parent = MakeParent(10, WorkItemType.Feature);
+        var config = ProcessConfigBuilder.Agile();
+        var parent = new WorkItemBuilder(10, "Parent 10").AsFeature().WithAreaPath(@"Project\Team").WithIterationPath(@"Project\Sprint1").Build();
 
         // Feature allows UserStory and Bug — override to Bug
         var result = SeedFactory.Create("Bug seed", parent, config, WorkItemType.Bug);
@@ -191,7 +142,7 @@ public class SeedFactoryTests
     [Fact]
     public void Create_NoParent_NoTypeOverride_Fails()
     {
-        var config = BuildAgileConfig();
+        var config = ProcessConfigBuilder.Agile();
 
         var result = SeedFactory.Create("Orphan seed", null, config);
 
@@ -202,7 +153,7 @@ public class SeedFactoryTests
     [Fact]
     public void Create_NoParent_WithTypeOverride_Succeeds()
     {
-        var config = BuildAgileConfig();
+        var config = ProcessConfigBuilder.Agile();
 
         var result = SeedFactory.Create("Orphan epic", null, config, WorkItemType.Epic);
 
@@ -218,16 +169,8 @@ public class SeedFactoryTests
     [Fact]
     public void Create_InheritsAreaAndIterationFromParent()
     {
-        var config = BuildAgileConfig();
-        var parent = new WorkItem
-        {
-            Id = 10,
-            Type = WorkItemType.UserStory,
-            Title = "Parent story",
-            State = "New",
-            AreaPath = AreaPath.Parse("Project\\TeamA").Value,
-            IterationPath = IterationPath.Parse("Project\\Sprint1").Value,
-        };
+        var config = ProcessConfigBuilder.Agile();
+        var parent = new WorkItemBuilder(10, "Parent story").AsUserStory().WithAreaPath(@"Project\TeamA").WithIterationPath(@"Project\Sprint1").Build();
 
         var result = SeedFactory.Create("Child task", parent, config);
 
@@ -239,7 +182,7 @@ public class SeedFactoryTests
     [Fact]
     public void Create_NoParent_DoesNotInheritPaths()
     {
-        var config = BuildAgileConfig();
+        var config = ProcessConfigBuilder.Agile();
 
         var result = SeedFactory.Create("Orphan", null, config, WorkItemType.Epic);
 
@@ -258,7 +201,7 @@ public class SeedFactoryTests
     [InlineData("   ")]
     public void Create_EmptyTitle_Fails(string? title)
     {
-        var config = BuildAgileConfig();
+        var config = ProcessConfigBuilder.Agile();
 
         var result = SeedFactory.Create(title!, null, config, WorkItemType.Epic);
 
@@ -266,20 +209,4 @@ public class SeedFactoryTests
         result.Error.ShouldContain("title cannot be empty");
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  Helpers
-    // ═══════════════════════════════════════════════════════════════
-
-    private static WorkItem MakeParent(int id, WorkItemType type)
-    {
-        return new WorkItem
-        {
-            Id = id,
-            Type = type,
-            Title = $"Parent {id}",
-            State = "New",
-            AreaPath = AreaPath.Parse("Project\\Team").Value,
-            IterationPath = IterationPath.Parse("Project\\Sprint1").Value,
-        };
-    }
 }

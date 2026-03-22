@@ -4,6 +4,7 @@ using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
+using Twig.TestKit;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
@@ -22,27 +23,6 @@ public class SeedCommandTests
     private readonly ActiveItemResolver _resolver;
     private readonly SeedCommand _cmd;
 
-    private static StateEntry[] ToStateEntries(params string[] names) =>
-        names.Select(n => new StateEntry(n, StateCategory.Unknown, null)).ToArray();
-
-    private static ProcessTypeRecord MakeRecord(string typeName, string[] states, string[] childTypes) =>
-        new()
-        {
-            TypeName = typeName,
-            States = ToStateEntries(states),
-            ValidChildTypes = childTypes,
-        };
-
-    private static ProcessConfiguration BuildAgileConfig() =>
-        ProcessConfiguration.FromRecords(new[]
-        {
-            MakeRecord("Epic", new[] { "New", "Active", "Closed", "Removed" }, new[] { "Feature" }),
-            MakeRecord("Feature", new[] { "New", "Active", "Closed", "Removed" }, new[] { "User Story", "Bug" }),
-            MakeRecord("User Story", new[] { "New", "Active", "Resolved", "Closed", "Removed" }, new[] { "Task" }),
-            MakeRecord("Bug", new[] { "New", "Active", "Resolved", "Closed" }, new[] { "Task" }),
-            MakeRecord("Task", new[] { "New", "Active", "Closed", "Removed" }, Array.Empty<string>()),
-        });
-
     public SeedCommandTests()
     {
         _contextStore = Substitute.For<IContextStore>();
@@ -51,7 +31,7 @@ public class SeedCommandTests
         _processConfigProvider = Substitute.For<IProcessConfigurationProvider>();
 
         _processConfigProvider.GetConfiguration()
-            .Returns(BuildAgileConfig());
+            .Returns(ProcessConfigBuilder.Agile());
 
         var formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());

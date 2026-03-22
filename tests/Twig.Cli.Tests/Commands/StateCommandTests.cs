@@ -3,13 +3,13 @@ using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
-using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
@@ -24,36 +24,6 @@ public class StateCommandTests
     private readonly IConsoleInput _consoleInput;
     private readonly StateCommand _cmd;
 
-    private static StateEntry[] AgileUserStoryStates => new[]
-    {
-        new StateEntry("New", StateCategory.Proposed, null),
-        new StateEntry("Active", StateCategory.InProgress, null),
-        new StateEntry("Resolved", StateCategory.Resolved, null),
-        new StateEntry("Closed", StateCategory.Completed, null),
-        new StateEntry("Removed", StateCategory.Removed, null),
-    };
-
-    private static ProcessTypeRecord MakeRecord(string typeName, StateEntry[] states, string[] childTypes) =>
-        new()
-        {
-            TypeName = typeName,
-            States = states,
-            ValidChildTypes = childTypes,
-        };
-
-    private static StateEntry[] S(params (string Name, StateCategory Cat)[] entries) =>
-        entries.Select(e => new StateEntry(e.Name, e.Cat, null)).ToArray();
-
-    private static ProcessConfiguration BuildAgileConfig() =>
-        ProcessConfiguration.FromRecords(new[]
-        {
-            MakeRecord("Epic", S(("New", StateCategory.Proposed), ("Active", StateCategory.InProgress), ("Closed", StateCategory.Completed), ("Removed", StateCategory.Removed)), new[] { "Feature" }),
-            MakeRecord("Feature", S(("New", StateCategory.Proposed), ("Active", StateCategory.InProgress), ("Closed", StateCategory.Completed), ("Removed", StateCategory.Removed)), new[] { "User Story", "Bug" }),
-            MakeRecord("User Story", AgileUserStoryStates, new[] { "Task" }),
-            MakeRecord("Bug", S(("New", StateCategory.Proposed), ("Active", StateCategory.InProgress), ("Resolved", StateCategory.Resolved), ("Closed", StateCategory.Completed)), new[] { "Task" }),
-            MakeRecord("Task", S(("New", StateCategory.Proposed), ("Active", StateCategory.InProgress), ("Closed", StateCategory.Completed), ("Removed", StateCategory.Removed)), Array.Empty<string>()),
-        });
-
     public StateCommandTests()
     {
         _contextStore = Substitute.For<IContextStore>();
@@ -64,7 +34,7 @@ public class StateCommandTests
         _consoleInput = Substitute.For<IConsoleInput>();
 
         _processConfigProvider.GetConfiguration()
-            .Returns(BuildAgileConfig());
+            .Returns(ProcessConfigBuilder.Agile());
 
         var formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());

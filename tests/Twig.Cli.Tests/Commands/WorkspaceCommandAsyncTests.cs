@@ -413,6 +413,7 @@ public class WorkspaceCommandAsyncTests
         output.ShouldContain("●");
         output.ShouldContain("Summary Test");
         output.ShouldContain("Task");
+        output.ShouldContain("New");
     }
 
     // ── EPIC-002: Workspace active row highlight ────────────────────
@@ -453,6 +454,28 @@ public class WorkspaceCommandAsyncTests
         var output = _testConsole.Output;
         output.ShouldContain("Item No Context");
         // No marker should appear when there's no active context
+        output.ShouldNotContain("►");
+    }
+
+    [Fact]
+    public async Task SpectreRenderer_RenderWorkspaceAsync_SprintBeforeContext_NoHighlight()
+    {
+        // Verifies behaviour when SprintItemsLoaded arrives before ContextLoaded:
+        // activeContextId is still null so no row is highlighted (graceful degradation).
+        var activeItem = CreateWorkItem(1, "Active Item");
+        var otherItem = CreateWorkItem(2, "Other Item");
+
+        var chunks = CreateChunksAsync(
+            new WorkspaceDataChunk.SprintItemsLoaded(new[] { activeItem, otherItem }),
+            new WorkspaceDataChunk.ContextLoaded(activeItem),
+            new WorkspaceDataChunk.SeedsLoaded(Array.Empty<WorkItem>()));
+
+        await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, CancellationToken.None);
+
+        var output = _testConsole.Output;
+        output.ShouldContain("Active Item");
+        output.ShouldContain("Other Item");
+        // No highlight marker because context wasn't known when sprint items were rendered
         output.ShouldNotContain("►");
     }
 }

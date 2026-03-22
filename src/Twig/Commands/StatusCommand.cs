@@ -169,6 +169,7 @@ public sealed class StatusCommand(
 
         return 0;
     }
+    /// <summary>
     /// Gracefully degrades when git is unavailable or not in a repo.
     /// </summary>
     private async Task WriteGitContextAsync(IOutputFormatter fmt)

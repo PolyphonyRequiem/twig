@@ -53,6 +53,9 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                             break;
 
                         case WorkspaceDataChunk.SprintItemsLoaded(var items):
+                            // Assumes ContextLoaded precedes SprintItemsLoaded in the data stream.
+                            // If the stream order changes, activeContextId will be null and no row
+                            // will be highlighted — the UI degrades gracefully but silently.
                             foreach (var item in items)
                             {
                                 var isActive = activeContextId.HasValue && item.Id == activeContextId.Value;

@@ -121,6 +121,8 @@ Twig has four view commands (`status`, `tree`, `workspace`, `sprint`) plus three
 
 ### EPIC-002: Quick-glance improvements — DONE
 
+> Implemented. All tasks completed. Review feedback addressed: XML doc comment fix on `WriteGitContextAsync`, stream-ordering invariant documented in `SpectreRenderer.RenderWorkspaceAsync`, `ShouldContain("New")` assertion added to summary-header test, and new `SprintBeforeContext_NoHighlight` test added to cover graceful-degradation behaviour.
+
 | # | Change | Impact | Risk |
 |---|--------|--------|------|
 | 1 | **`status` header line** — When output is human format, prepend a one-line summary before the detail: `#12345 ● Bug — Fix login timeout [Active]`. This gives the "glance" answer before the full dashboard. | Low — additive to existing rendering | None |

@@ -71,10 +71,10 @@ public class StatusCommandAsyncTests
     private RenderingPipelineFactory CreateRedirectedPipelineFactory() =>
         new(_formatterFactory, _spectreRenderer, isOutputRedirected: () => true);
 
-    private StatusCommand CreateCommand(RenderingPipelineFactory pipelineFactory) =>
+    private StatusCommand CreateCommand(RenderingPipelineFactory pipelineFactory, TextWriter? stderr = null) =>
         new(_contextStore, _workItemRepo, _pendingChangeStore, _config,
             _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinator,
-            pipelineFactory);
+            pipelineFactory, stderr: stderr);
 
     // ── Async rendering path tests ──────────────────────────────────
 
@@ -208,20 +208,10 @@ public class StatusCommandAsyncTests
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
-        var cmd = CreateCommand(CreateTtyPipelineFactory());
-
-        var originalErr = Console.Error;
         using var errWriter = new StringWriter();
-        Console.SetError(errWriter);
-        int result;
-        try
-        {
-            result = await cmd.ExecuteAsync("human");
-        }
-        finally
-        {
-            Console.SetError(originalErr);
-        }
+        var cmd = CreateCommand(CreateTtyPipelineFactory(), stderr: errWriter);
+
+        var result = await cmd.ExecuteAsync("human");
 
         result.ShouldBe(1);
         errWriter.ToString().ShouldContain("No active work item");
@@ -235,20 +225,10 @@ public class StatusCommandAsyncTests
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
             .Returns(Task.FromException<WorkItem>(new HttpRequestException("Not found")));
 
-        var cmd = CreateCommand(CreateTtyPipelineFactory());
-
-        var originalErr = Console.Error;
         using var errWriter = new StringWriter();
-        Console.SetError(errWriter);
-        int result;
-        try
-        {
-            result = await cmd.ExecuteAsync("human");
-        }
-        finally
-        {
-            Console.SetError(originalErr);
-        }
+        var cmd = CreateCommand(CreateTtyPipelineFactory(), stderr: errWriter);
+
+        var result = await cmd.ExecuteAsync("human");
 
         result.ShouldBe(1);
         errWriter.ToString().ShouldContain("#42");

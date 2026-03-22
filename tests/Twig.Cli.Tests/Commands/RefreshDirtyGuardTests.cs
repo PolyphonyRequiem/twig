@@ -77,13 +77,13 @@ public class RefreshDirtyGuardTests : IDisposable
         catch { /* best effort cleanup */ }
     }
 
-    private RefreshCommand CreateCommand()
+    private RefreshCommand CreateCommand(TextWriter? stderr = null)
     {
         var syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, _protectedCacheWriter, 30);
         var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, _iterationService, null);
         return new RefreshCommand(_contextStore, _workItemRepo, _adoService, _iterationService,
             _pendingChangeStore, _protectedCacheWriter, _config, _paths, _processTypeStore, _fieldDefinitionStore,
-            _formatterFactory, workingSetService, syncCoordinator);
+            _formatterFactory, workingSetService, syncCoordinator, stderr: stderr);
     }
 
     [Fact]
@@ -128,25 +128,16 @@ public class RefreshDirtyGuardTests : IDisposable
             .Returns(new[] { remoteItem });
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
-        var savedErr = Console.Error;
         var stderr = new StringWriter();
-        Console.SetError(stderr);
-        try
-        {
-            var cmd = CreateCommand();
-            var result = await cmd.ExecuteAsync();
+        var cmd = CreateCommand(stderr);
+        var result = await cmd.ExecuteAsync();
 
-            // Per-item skip: protected items are skipped, refresh succeeds
-            result.ShouldBe(0);
-            var output = stderr.ToString();
-            output.ShouldContain("#1");
-            output.ShouldContain("local rev 3");
-            output.ShouldContain("remote rev 5");
-        }
-        finally
-        {
-            Console.SetError(savedErr);
-        }
+        // Per-item skip: protected items are skipped, refresh succeeds
+        result.ShouldBe(0);
+        var output = stderr.ToString();
+        output.ShouldContain("#1");
+        output.ShouldContain("local rev 3");
+        output.ShouldContain("remote rev 5");
 
         // SaveBatchAsync should NOT have been called with the protected item
         await _workItemRepo.DidNotReceive().SaveBatchAsync(
@@ -229,22 +220,13 @@ public class RefreshDirtyGuardTests : IDisposable
             .Returns(new[] { remoteItem });
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
-        var savedErr = Console.Error;
         var stderr = new StringWriter();
-        Console.SetError(stderr);
-        try
-        {
-            var cmd = CreateCommand();
-            var result = await cmd.ExecuteAsync();
+        var cmd = CreateCommand(stderr);
+        var result = await cmd.ExecuteAsync();
 
-            // Per-item skip: protected item is skipped, refresh succeeds
-            result.ShouldBe(0);
-            stderr.ToString().ShouldContain("#1");
-        }
-        finally
-        {
-            Console.SetError(savedErr);
-        }
+        // Per-item skip: protected item is skipped, refresh succeeds
+        result.ShouldBe(0);
+        stderr.ToString().ShouldContain("#1");
 
         // Protected item should not be saved
         await _workItemRepo.DidNotReceive().SaveBatchAsync(
@@ -278,25 +260,16 @@ public class RefreshDirtyGuardTests : IDisposable
         _adoService.FetchChildrenAsync(42, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var savedErr = Console.Error;
         var stderr = new StringWriter();
-        Console.SetError(stderr);
-        try
-        {
-            var cmd = CreateCommand();
-            var result = await cmd.ExecuteAsync();
+        var cmd = CreateCommand(stderr);
+        var result = await cmd.ExecuteAsync();
 
-            // Per-item skip: protected items are skipped, refresh succeeds
-            result.ShouldBe(0);
-            var output = stderr.ToString();
-            output.ShouldContain("#42");
-            output.ShouldContain("local rev 3");
-            output.ShouldContain("remote rev 7");
-        }
-        finally
-        {
-            Console.SetError(savedErr);
-        }
+        // Per-item skip: protected items are skipped, refresh succeeds
+        result.ShouldBe(0);
+        var output = stderr.ToString();
+        output.ShouldContain("#42");
+        output.ShouldContain("local rev 3");
+        output.ShouldContain("remote rev 7");
 
         // Sprint items (clean) should be saved; active item 42 (protected) should be skipped
         await _workItemRepo.Received().SaveBatchAsync(
@@ -334,25 +307,16 @@ public class RefreshDirtyGuardTests : IDisposable
         _adoService.FetchChildrenAsync(10, Arg.Any<CancellationToken>())
             .Returns(new[] { remoteChild });
 
-        var savedErr = Console.Error;
         var stderr = new StringWriter();
-        Console.SetError(stderr);
-        try
-        {
-            var cmd = CreateCommand();
-            var result = await cmd.ExecuteAsync();
+        var cmd = CreateCommand(stderr);
+        var result = await cmd.ExecuteAsync();
 
-            // Per-item skip: protected items are skipped, refresh succeeds
-            result.ShouldBe(0);
-            var output = stderr.ToString();
-            output.ShouldContain("#99");
-            output.ShouldContain("local rev 2");
-            output.ShouldContain("remote rev 6");
-        }
-        finally
-        {
-            Console.SetError(savedErr);
-        }
+        // Per-item skip: protected items are skipped, refresh succeeds
+        result.ShouldBe(0);
+        var output = stderr.ToString();
+        output.ShouldContain("#99");
+        output.ShouldContain("local rev 2");
+        output.ShouldContain("remote rev 6");
 
         // Sprint items (clean) should be saved
         await _workItemRepo.Received().SaveBatchAsync(
@@ -446,26 +410,17 @@ public class RefreshDirtyGuardTests : IDisposable
             .Returns(new[] { remoteItem });
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
-        var savedErr = Console.Error;
         var stderr = new StringWriter();
-        Console.SetError(stderr);
-        try
-        {
-            var cmd = CreateCommand();
-            var result = await cmd.ExecuteAsync();
+        var cmd = CreateCommand(stderr);
+        var result = await cmd.ExecuteAsync();
 
-            result.ShouldBe(0); // No longer blocks — informational warning only
-            var output = stderr.ToString();
-            output.ShouldContain("Warning");
-            output.ShouldContain("#1");
-            output.ShouldContain("local rev 3");
-            output.ShouldContain("remote rev 7");
-            output.ShouldContain("twig save");
-        }
-        finally
-        {
-            Console.SetError(savedErr);
-        }
+        result.ShouldBe(0); // No longer blocks — informational warning only
+        var output = stderr.ToString();
+        output.ShouldContain("Warning");
+        output.ShouldContain("#1");
+        output.ShouldContain("local rev 3");
+        output.ShouldContain("remote rev 7");
+        output.ShouldContain("twig save");
 
         // Protected item not saved
         await _workItemRepo.DidNotReceive().SaveBatchAsync(

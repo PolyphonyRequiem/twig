@@ -6,7 +6,6 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
-using Twig.Hints;
 using Twig.Infrastructure.Config;
 using Xunit;
 
@@ -27,6 +26,7 @@ public class RefreshCommandTests : IDisposable
     private readonly ProtectedCacheWriter _protectedCacheWriter;
     private readonly WorkingSetService _workingSetService;
     private readonly SyncCoordinator _syncCoordinator;
+    private readonly OutputFormatterFactory _formatterFactory;
     private readonly RefreshCommand _cmd;
 
     public RefreshCommandTests()
@@ -69,12 +69,10 @@ public class RefreshCommandTests : IDisposable
         _iterationService.GetProcessConfigurationAsync(Arg.Any<CancellationToken>())
             .Returns(new ProcessConfigurationData());
 
-        var formatterFactory = new OutputFormatterFactory(
+        _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
-        var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
 
-        _cmd = new RefreshCommand(_contextStore, _workItemRepo, _adoService, _iterationService,
-            _pendingChangeStore, _protectedCacheWriter, _config, _paths, _processTypeStore, _fieldDefinitionStore, formatterFactory, _workingSetService, _syncCoordinator);
+        _cmd = CreateCommand();
     }
 
     public void Dispose()
@@ -87,6 +85,11 @@ public class RefreshCommandTests : IDisposable
         }
         catch { /* best effort cleanup */ }
     }
+
+    private RefreshCommand CreateCommand(TextWriter? stderr = null) =>
+        new(_contextStore, _workItemRepo, _adoService, _iterationService,
+            _pendingChangeStore, _protectedCacheWriter, _config, _paths, _processTypeStore, _fieldDefinitionStore,
+            _formatterFactory, _workingSetService, _syncCoordinator, stderr: stderr);
 
     [Fact]
     public async Task Refresh_NoItems_ReturnsSuccess()
@@ -423,27 +426,14 @@ public class RefreshCommandTests : IDisposable
         _iterationService.GetWorkItemTypesWithStatesAsync(Arg.Any<CancellationToken>())
             .Returns<IReadOnlyList<WorkItemTypeWithStates>>(_ => throw new InvalidOperationException("network error"));
 
-        var formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
-        var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
-        var cmd = new RefreshCommand(_contextStore, _workItemRepo, _adoService, _iterationService,
-            _pendingChangeStore, _protectedCacheWriter, _config, _paths, _processTypeStore, _fieldDefinitionStore, formatterFactory, _workingSetService, _syncCoordinator);
-
-        var originalErr = Console.Error;
         var sw = new StringWriter();
-        Console.SetError(sw);
-        try
-        {
-            await cmd.ExecuteAsync("json");
-        }
-        finally
-        {
-            Console.SetError(originalErr);
-        }
+        var cmd = CreateCommand(sw);
+
+        await cmd.ExecuteAsync("json");
 
         var stderrOutput = sw.ToString();
         stderrOutput.ShouldNotContain("\x1b[");
-        stderrOutput.ShouldContain("Could not fetch type");
+        stderrOutput.ShouldContain("Could not fetch type data");
     }
 
     [Fact]
@@ -457,23 +447,10 @@ public class RefreshCommandTests : IDisposable
         _iterationService.GetProcessConfigurationAsync(Arg.Any<CancellationToken>())
             .Returns<ProcessConfigurationData>(_ => throw new InvalidOperationException("service unavailable"));
 
-        var formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
-        var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
-        var cmd = new RefreshCommand(_contextStore, _workItemRepo, _adoService, _iterationService,
-            _pendingChangeStore, _protectedCacheWriter, _config, _paths, _processTypeStore, _fieldDefinitionStore, formatterFactory, _workingSetService, _syncCoordinator);
-
-        var originalErr = Console.Error;
         var sw = new StringWriter();
-        Console.SetError(sw);
-        try
-        {
-            await cmd.ExecuteAsync("json");
-        }
-        finally
-        {
-            Console.SetError(originalErr);
-        }
+        var cmd = CreateCommand(sw);
+
+        await cmd.ExecuteAsync("json");
 
         var stderrOutput = sw.ToString();
         stderrOutput.ShouldNotContain("\x1b[");

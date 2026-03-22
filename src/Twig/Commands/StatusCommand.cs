@@ -25,8 +25,11 @@ public sealed class StatusCommand(
     SyncCoordinator syncCoordinator,
     RenderingPipelineFactory? pipelineFactory = null,
     IGitService? gitService = null,
-    IAdoGitService? adoGitService = null)
+    IAdoGitService? adoGitService = null,
+    TextWriter? stderr = null)
 {
+    private readonly TextWriter _stderr = stderr ?? Console.Error;
+
     public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool noLive = false, CancellationToken ct = default)
     {
         var (fmt, renderer) = pipelineFactory is not null
@@ -47,10 +50,10 @@ public sealed class StatusCommand(
             {
                 var formattedHint = fmt.FormatHint(branchHint);
                 if (!string.IsNullOrEmpty(formattedHint))
-                    Console.Error.WriteLine(formattedHint);
+                    _stderr.WriteLine(formattedHint);
             }
 
-            Console.Error.WriteLine(fmt.FormatError("No active work item. Run 'twig set <id>' first."));
+            _stderr.WriteLine(fmt.FormatError("No active work item. Run 'twig set <id>' first."));
             return 1;
         }
 
@@ -61,7 +64,7 @@ public sealed class StatusCommand(
             var errorMsg = unreachableId is not null
                 ? $"Work item #{unreachableId} not found in cache and could not be fetched. Run 'twig set {unreachableId}' to refresh."
                 : $"Work item #{activeId.Value} not found in cache. Run 'twig set {activeId.Value}' to refresh.";
-            Console.Error.WriteLine(fmt.FormatError(errorMsg));
+            _stderr.WriteLine(fmt.FormatError(errorMsg));
             return 1;
         }
 

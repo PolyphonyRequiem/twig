@@ -1,6 +1,6 @@
 # Twig Test Quality — Improvement Plan
 
-> **Status:** EPIC-001 DONE — EPIC-002 DONE  
+> **Status:** EPIC-001 DONE — EPIC-002 DONE — EPIC-003 DONE  
 > **Date:** 2026-03-22  
 > **Scope:** All 4 test projects (148 test files, ~1,878 test methods)
 
@@ -105,7 +105,9 @@ Twig has good test coverage (~1,160+ passing tests) with consistent tooling (xUn
 
 ---
 
-### EPIC-003: Eliminate Console.SetOut capture tests — **IN PROGRESS**
+### EPIC-003: Eliminate Console.SetOut capture tests — **DONE** ✓
+
+**Completed:** 2026-03-22
 
 **Problem:** 20+ test files redirect `Console.SetOut()` to assert on formatted output strings. These tests:
 - Break on any cosmetic change (spacing, wording, icons, color codes)
@@ -126,6 +128,8 @@ Twig has good test coverage (~1,160+ passing tests) with consistent tooling (xUn
 | 5 | **Delete residual SetOut tests** — After migration, any remaining SetOut test is dead weight. Remove. | `Twig.Cli.Tests/` |
 
 **Outcome:** Zero `Console.SetOut` in the test codebase. Tests stop breaking on cosmetic changes.
+
+**Implementation Notes:** Audit found that the actual scope was 11 tests across 4 files using global `Console.SetError()` redirects (not Console.SetOut). Most test files already used proper dependency injection (passing `TextWriter` to `ExceptionHandler.Handle()`, `GitGuard.EnsureGitRepoAsync()`, etc.). The fix added optional `TextWriter? stderr` constructor parameters to RefreshCommand, SaveCommand, and StatusCommand, following the existing HookHandlerCommand pattern. Tests now pass StringWriter via constructor instead of global Console.SetError. Assembly-level parallelization disable retained (needed for file system races in Init/PromptState tests), comment updated. All 2,331 tests passing.
 
 ---
 

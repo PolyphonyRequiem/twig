@@ -17,8 +17,10 @@ public sealed class SaveCommand(
     ActiveItemResolver activeItemResolver,
     IConsoleInput consoleInput,
     OutputFormatterFactory formatterFactory,
-    IPromptStateWriter? promptStateWriter = null)
+    IPromptStateWriter? promptStateWriter = null,
+    TextWriter? stderr = null)
 {
+    private readonly TextWriter _stderr = stderr ?? Console.Error;
     /// <summary>Push pending changes to Azure DevOps.</summary>
     /// <param name="targetId">When set, save only this single item.</param>
     /// <param name="all">When true, save all dirty items (legacy behavior).</param>
@@ -53,7 +55,7 @@ public sealed class SaveCommand(
             var activeResult = await activeItemResolver.GetActiveItemAsync();
             if (!activeResult.TryGetWorkItem(out var activeItem, out var errorId, out var errorReason))
             {
-                Console.Error.WriteLine(fmt.FormatError(errorId is not null
+                _stderr.WriteLine(fmt.FormatError(errorId is not null
                     ? $"Work item #{errorId} not found in cache."
                     : "No active work item. Use 'twig save --all' or 'twig save <id>'."));
                 return 1;
@@ -100,7 +102,7 @@ public sealed class SaveCommand(
             var item = await workItemRepo.GetByIdAsync(itemId);
             if (item is null)
             {
-                Console.Error.WriteLine(fmt.FormatError($"Work item #{itemId} not found in cache. Skipping."));
+                _stderr.WriteLine(fmt.FormatError($"Work item #{itemId} not found in cache. Skipping."));
                 hadErrors = true;
                 continue;
             }

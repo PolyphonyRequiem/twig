@@ -40,9 +40,9 @@ public class SaveCommandScopingTests
         _resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
     }
 
-    private SaveCommand CreateCommand() =>
+    private SaveCommand CreateCommand(TextWriter? stderr = null) =>
         new(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory);
+            _resolver, _consoleInput, _formatterFactory, stderr: stderr);
 
     [Fact]
     public async Task ActiveWorkTree_SavesActiveItemAndDirtyChildrenOnly()
@@ -143,22 +143,13 @@ public class SaveCommandScopingTests
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
-        var cmd = CreateCommand();
-
-        var savedErr = Console.Error;
         var stderr = new StringWriter();
-        Console.SetError(stderr);
-        try
-        {
-            var result = await cmd.ExecuteAsync(); // no targetId, no --all
+        var cmd = CreateCommand(stderr);
 
-            result.ShouldBe(1);
-            stderr.ToString().ShouldContain("No active work item");
-        }
-        finally
-        {
-            Console.SetError(savedErr);
-        }
+        var result = await cmd.ExecuteAsync(); // no targetId, no --all
+
+        result.ShouldBe(1);
+        stderr.ToString().ShouldContain("No active work item");
     }
 
     [Fact]
@@ -170,25 +161,16 @@ public class SaveCommandScopingTests
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
             .Returns<WorkItem>(_ => throw new InvalidOperationException("network error"));
 
-        var cmd = CreateCommand();
-
-        var savedErr = Console.Error;
         var stderr = new StringWriter();
-        Console.SetError(stderr);
-        try
-        {
-            var result = await cmd.ExecuteAsync(); // no targetId, no --all
+        var cmd = CreateCommand(stderr);
 
-            result.ShouldBe(1);
-            var output = stderr.ToString();
-            output.ShouldContain("#42");
-            output.ShouldContain("not found in cache");
-            output.ShouldNotContain("No active work item");
-        }
-        finally
-        {
-            Console.SetError(savedErr);
-        }
+        var result = await cmd.ExecuteAsync(); // no targetId, no --all
+
+        result.ShouldBe(1);
+        var output = stderr.ToString();
+        output.ShouldContain("#42");
+        output.ShouldContain("not found in cache");
+        output.ShouldNotContain("No active work item");
     }
 
     [Fact]

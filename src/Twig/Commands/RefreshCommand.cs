@@ -25,8 +25,11 @@ public sealed class RefreshCommand(
     OutputFormatterFactory formatterFactory,
     WorkingSetService workingSetService,
     SyncCoordinator syncCoordinator,
-    IPromptStateWriter? promptStateWriter = null)
+    IPromptStateWriter? promptStateWriter = null,
+    TextWriter? stderr = null)
 {
+    private readonly TextWriter _stderr = stderr ?? Console.Error;
+
     /// <summary>Refresh the local cache from Azure DevOps.</summary>
     /// <param name="outputFormat">Output format: human, json, or minimal.</param>
     /// <param name="force">When true, bypass the dirty guard and overwrite protected items.</param>
@@ -112,10 +115,10 @@ public sealed class RefreshCommand(
             // Local helper: print conflict details as informational warnings
             void PrintConflictWarnings(List<(int Id, int LocalRev, int RemoteRev)> conflicts)
             {
-                Console.Error.WriteLine(fmt.FormatError("Warning: the following protected items have newer remote revisions (skipped):"));
+                _stderr.WriteLine(fmt.FormatError("Warning: the following protected items have newer remote revisions (skipped):"));
                 foreach (var (id, localRev, remoteRev) in conflicts)
-                    Console.Error.WriteLine(fmt.FormatError($"  #{id}: local rev {localRev} → remote rev {remoteRev}"));
-                Console.Error.WriteLine(fmt.FormatError("Run 'twig save' first, or use 'twig refresh --force' to overwrite."));
+                    _stderr.WriteLine(fmt.FormatError($"  #{id}: local rev {localRev} → remote rev {remoteRev}"));
+                _stderr.WriteLine(fmt.FormatError("Run 'twig save' first, or use 'twig refresh --force' to overwrite."));
             }
 
             // Fetch all scopes first, then save through appropriate path.
@@ -208,7 +211,7 @@ public sealed class RefreshCommand(
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                Console.Error.WriteLine(fmt.FormatInfo($"⚠ Could not detect user identity: {ex.Message}"));
+                _stderr.WriteLine(fmt.FormatInfo($"⚠ Could not detect user identity: {ex.Message}"));
             }
         }
 
@@ -226,7 +229,7 @@ public sealed class RefreshCommand(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            Console.Error.WriteLine(fmt.FormatInfo($"⚠ Could not fetch type data: {ex.Message}"));
+            _stderr.WriteLine(fmt.FormatInfo($"⚠ Could not fetch type data: {ex.Message}"));
         }
 
         // Sync field definitions for dynamic column display names (EPIC-004)
@@ -236,7 +239,7 @@ public sealed class RefreshCommand(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            Console.Error.WriteLine(fmt.FormatInfo($"⚠ Could not fetch field definitions: {ex.Message}"));
+            _stderr.WriteLine(fmt.FormatInfo($"⚠ Could not fetch field definitions: {ex.Message}"));
         }
 
         // Update cache freshness timestamp so subsequent reads don't show stale indicators

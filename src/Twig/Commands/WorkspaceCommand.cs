@@ -30,13 +30,13 @@ public sealed class WorkspaceCommand(
     WorkingSetService workingSetService,
     RenderingPipelineFactory? pipelineFactory = null)
 {
-    public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, CancellationToken ct = default)
+    public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, CancellationToken ct = default, bool sprintLayout = false)
     {
         var (fmt, renderer) = pipelineFactory is not null
             ? pipelineFactory.Resolve(outputFormat, noLive)
             : (formatterFactory.GetFormatter(outputFormat), null);
 
-        if (renderer is not null && !all)
+        if (renderer is not null && !all && !sprintLayout)
         {
             // NOTE: The async Spectre rendering path is gated by `!all`, so `isTeamView`
             // passed to RenderWorkspaceAsync is always false at runtime. The team/sprint
@@ -139,11 +139,11 @@ public sealed class WorkspaceCommand(
             return 0;
         }
 
-        // Sync path — original implementation (JSON, minimal, --no-live, --all, piped output)
-        return await ExecuteSyncAsync(fmt, all);
+        // Sync path — original implementation (JSON, minimal, --no-live, --all, sprint, piped output)
+        return await ExecuteSyncAsync(fmt, all, sprintLayout);
     }
 
-    private async Task<int> ExecuteSyncAsync(IOutputFormatter fmt, bool all)
+    private async Task<int> ExecuteSyncAsync(IOutputFormatter fmt, bool all, bool sprintLayout = false)
     {
         // Get active context (nullable) — auto-fetch on cache miss via ActiveItemResolver
         var activeId = await contextStore.GetActiveWorkItemIdAsync();
@@ -216,7 +216,7 @@ public sealed class WorkspaceCommand(
 
         var workspace = Workspace.Build(contextItem, sprintItems, seeds, hierarchy);
 
-        if (all)
+        if (all || sprintLayout)
         {
             Console.WriteLine(fmt.FormatSprintView(workspace, config.Seed.StaleDays));
         }

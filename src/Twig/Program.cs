@@ -324,7 +324,7 @@ public sealed class TwigCommands(IServiceProvider services)
 
     /// <summary>Show sprint items, grouped by assignee. Defaults to your items; use --all for the full team.</summary>
     public async Task<int> Sprint(string output = OutputFormatterFactory.DefaultFormat, bool all = false, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, ct: ct);
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, ct: ct, sprintLayout: true);
 
     /// <summary>Read or set a configuration value.</summary>
     public async Task<int> Config([Argument] string key, [Argument] string? value = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)

@@ -96,36 +96,48 @@
 # --- Git integration ---
 # DONE: docs/projects/twig-git-integration.plan.md | EPIC-001
 # DONE: docs/projects/twig-git-integration.plan.md | EPIC-002
-# FAILED: docs/projects/twig-git-integration.plan.md | EPIC-003
-docs/projects/twig-git-integration.plan.md | EPIC-004
-docs/projects/twig-git-integration.plan.md | EPIC-005
-docs/projects/twig-git-integration.plan.md | EPIC-006
-
-# --- Release ---
-docs/projects/twig-release.plan.md | EPIC-001
-docs/projects/twig-release.plan.md | EPIC-002
-docs/projects/twig-release.plan.md | EPIC-003
-docs/projects/twig-release.plan.md | EPIC-004
-docs/projects/twig-release.plan.md | EPIC-005
-docs/projects/twig-release.plan.md | EPIC-006
-
-# --- Oh My Posh ---
-docs/projects/twig-ohmyposh.plan.md | EPIC-001
-docs/projects/twig-ohmyposh.plan.md | EPIC-002
-docs/projects/twig-ohmyposh.plan.md | EPIC-003
-# docs/projects/twig-git-integration.plan.md | EPIC-005
-# docs/projects/twig-git-integration.plan.md | EPIC-006
+# DONE: docs/projects/twig-git-integration.plan.md | EPIC-003
+# DONE: docs/projects/twig-git-integration.plan.md | EPIC-004
+# DONE: docs/projects/twig-git-integration.plan.md | EPIC-005
+# DONE: docs/projects/twig-git-integration.plan.md | EPIC-006
 
 # --- Release & distribution ---
-# docs/projects/twig-release.plan.md | EPIC-001
-# docs/projects/twig-release.plan.md | EPIC-002
-# docs/projects/twig-release.plan.md | EPIC-003
-# docs/projects/twig-release.plan.md | EPIC-004
-# docs/projects/twig-release.plan.md | EPIC-005
-# docs/projects/twig-release.plan.md | EPIC-006
+# DONE: docs/projects/twig-release.plan.md | EPIC-001
+# DONE: docs/projects/twig-release.plan.md | EPIC-002
+# DONE: docs/projects/twig-release.plan.md | EPIC-003
+# DONE: docs/projects/twig-release.plan.md | EPIC-004
+# DONE: docs/projects/twig-release.plan.md | EPIC-005
+# DONE: docs/projects/twig-release.plan.md | EPIC-006
 
-# --- Oh My Posh integration (Tier 3 deferred) ---
-# docs/projects/twig-ohmyposh.plan.md | EPIC-001
-# docs/projects/twig-ohmyposh.plan.md | EPIC-002
-# docs/projects/twig-ohmyposh.plan.md | EPIC-003
+# --- Oh My Posh integration ---
+# DONE: docs/projects/twig-ohmyposh.plan.md | EPIC-001
+# DONE: docs/projects/twig-ohmyposh.plan.md | EPIC-002
+# DONE: docs/projects/twig-ohmyposh.plan.md | EPIC-003
+
+# --- Test resilience ---
+# DONE: docs/projects/twig-test-resilience.plan.md | EPIC-001
+# DONE: docs/projects/twig-test-resilience.plan.md | EPIC-002
+# DONE: docs/projects/twig-test-resilience.plan.md | EPIC-003
+# DONE: docs/projects/twig-test-resilience.plan.md | EPIC-004
+
+# --- Test quality ---
+# DONE: docs/projects/twig-test-quality.plan.md | EPIC-001
+# DONE: docs/projects/twig-test-quality.plan.md | EPIC-002
+# DONE: docs/projects/twig-test-quality.plan.md | EPIC-003
+# DONE: docs/projects/twig-test-quality.plan.md | EPIC-004
+
+# --- View differentiation ---
+# DONE: docs/projects/twig-view-differentiation.plan.md | EPIC-001
+# DONE: docs/projects/twig-view-differentiation.plan.md | EPIC-002
+# DONE: docs/projects/twig-view-differentiation.plan.md | EPIC-003
+# DONE: docs/projects/twig-view-differentiation.plan.md | EPIC-004
+
+# ============================================================
+# FUTURE (needs planning)
+# ============================================================
+
+# --- Tree enhancements (draft — not yet planned) ---
+# docs/projects/twig-tree-enhancements.plan.md | Epic-1
+# docs/projects/twig-tree-enhancements.plan.md | Epic-2
+# docs/projects/twig-tree-enhancements.plan.md | Epic-3
 

@@ -155,36 +155,21 @@ public class StatusCommandTests
     [Fact]
     public async Task Status_NoActiveItem_WithMatchingBranch_ShowsBranchDetectionHint()
     {
-        var contextStore = Substitute.For<IContextStore>();
-        var workItemRepo = Substitute.For<IWorkItemRepository>();
-        var pendingChangeStore = Substitute.For<IPendingChangeStore>();
-        var gitService = Substitute.For<IGitService>();
-        var config = new TwigConfiguration
-        {
-            Seed = new SeedConfig { StaleDays = 14 },
-            Git = new GitConfig { BranchPattern = BranchNameTemplate.DefaultPattern },
-        };
-        var formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
-        var hintEngine = new HintEngine(new DisplayConfig { Hints = true });
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.ExistsByIdAsync(12345, Arg.Any<CancellationToken>()).Returns(true);
 
-        contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        var gitService = Substitute.For<IGitService>();
         gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
         gitService.GetCurrentBranchAsync(Arg.Any<CancellationToken>()).Returns("feature/12345-login");
-        workItemRepo.ExistsByIdAsync(12345, Arg.Any<CancellationToken>()).Returns(true);
 
-        var adoService = Substitute.For<IAdoWorkItemService>();
-        var activeItemResolver = new ActiveItemResolver(contextStore, workItemRepo, adoService);
-        var pendingCs = Substitute.For<IPendingChangeStore>();
-        var protectedWriter = new ProtectedCacheWriter(workItemRepo, pendingCs);
-        var sc = new SyncCoordinator(workItemRepo, adoService, protectedWriter, 30);
-        var iterSvc = Substitute.For<IIterationService>();
-        iterSvc.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
-            .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
-        var wss = new WorkingSetService(contextStore, workItemRepo, pendingCs, iterSvc, null);
-
-        var cmd = new StatusCommand(contextStore, workItemRepo, pendingChangeStore,
-            config, formatterFactory, hintEngine, activeItemResolver, wss, sc, gitService: gitService);
+        var cmd = new StatusCommand(_contextStore, _workItemRepo, _pendingChangeStore,
+            new TwigConfiguration
+            {
+                Seed = new SeedConfig { StaleDays = 14 },
+                Git = new GitConfig { BranchPattern = BranchNameTemplate.DefaultPattern },
+            },
+            _formatterFactory, new HintEngine(new DisplayConfig { Hints = true }),
+            _activeItemResolver, _workingSetService, _syncCoordinator, gitService: gitService);
 
         var result = await cmd.ExecuteAsync();
 
@@ -194,35 +179,20 @@ public class StatusCommandTests
     [Fact]
     public async Task Status_NoActiveItem_NoMatchingBranch_NoBranchHint()
     {
-        var contextStore = Substitute.For<IContextStore>();
-        var workItemRepo = Substitute.For<IWorkItemRepository>();
-        var pendingChangeStore = Substitute.For<IPendingChangeStore>();
-        var gitService = Substitute.For<IGitService>();
-        var config = new TwigConfiguration
-        {
-            Seed = new SeedConfig { StaleDays = 14 },
-            Git = new GitConfig { BranchPattern = BranchNameTemplate.DefaultPattern },
-        };
-        var formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
-        var hintEngine = new HintEngine(new DisplayConfig { Hints = true });
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
-        contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        var gitService = Substitute.For<IGitService>();
         gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
         gitService.GetCurrentBranchAsync(Arg.Any<CancellationToken>()).Returns("main");
 
-        var adoService2 = Substitute.For<IAdoWorkItemService>();
-        var activeItemResolver2 = new ActiveItemResolver(contextStore, workItemRepo, adoService2);
-        var pendingCs2 = Substitute.For<IPendingChangeStore>();
-        var protectedWriter2 = new ProtectedCacheWriter(workItemRepo, pendingCs2);
-        var sc2 = new SyncCoordinator(workItemRepo, adoService2, protectedWriter2, 30);
-        var iterSvc2 = Substitute.For<IIterationService>();
-        iterSvc2.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
-            .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
-        var wss2 = new WorkingSetService(contextStore, workItemRepo, pendingCs2, iterSvc2, null);
-
-        var cmd = new StatusCommand(contextStore, workItemRepo, pendingChangeStore,
-            config, formatterFactory, hintEngine, activeItemResolver2, wss2, sc2, gitService: gitService);
+        var cmd = new StatusCommand(_contextStore, _workItemRepo, _pendingChangeStore,
+            new TwigConfiguration
+            {
+                Seed = new SeedConfig { StaleDays = 14 },
+                Git = new GitConfig { BranchPattern = BranchNameTemplate.DefaultPattern },
+            },
+            _formatterFactory, new HintEngine(new DisplayConfig { Hints = true }),
+            _activeItemResolver, _workingSetService, _syncCoordinator, gitService: gitService);
 
         var result = await cmd.ExecuteAsync();
 
@@ -528,7 +498,7 @@ public class StatusCommandTests
     [Fact]
     public async Task Git_WithBranch_ShowsBranchName()
     {
-        var item = CreateGitWorkItem(42, "Test item");
+        var item = CreateWorkItem(42, "Test item");
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
         _pendingChangeStore.GetChangesAsync(42, Arg.Any<CancellationToken>())
@@ -546,7 +516,7 @@ public class StatusCommandTests
     [Fact]
     public async Task Git_WithPRs_ShowsPrStatus()
     {
-        var item = CreateGitWorkItem(42, "Test item");
+        var item = CreateWorkItem(42, "Test item");
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
         _pendingChangeStore.GetChangesAsync(42, Arg.Any<CancellationToken>())
@@ -571,7 +541,7 @@ public class StatusCommandTests
     [Fact]
     public async Task Git_NoGitService_StillWorks()
     {
-        var item = CreateGitWorkItem(42, "Test item");
+        var item = CreateWorkItem(42, "Test item");
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
         _pendingChangeStore.GetChangesAsync(42, Arg.Any<CancellationToken>())
@@ -586,7 +556,7 @@ public class StatusCommandTests
     [Fact]
     public async Task Git_NotInWorkTree_StillWorks()
     {
-        var item = CreateGitWorkItem(42, "Test item");
+        var item = CreateWorkItem(42, "Test item");
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
         _pendingChangeStore.GetChangesAsync(42, Arg.Any<CancellationToken>())
@@ -603,7 +573,7 @@ public class StatusCommandTests
     [Fact]
     public async Task Git_GitThrows_StillSucceeds()
     {
-        var item = CreateGitWorkItem(42, "Test item");
+        var item = CreateWorkItem(42, "Test item");
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
         _pendingChangeStore.GetChangesAsync(42, Arg.Any<CancellationToken>())
@@ -621,7 +591,7 @@ public class StatusCommandTests
     [Fact]
     public async Task Git_PrLookupFails_StillSucceeds()
     {
-        var item = CreateGitWorkItem(42, "Test item");
+        var item = CreateWorkItem(42, "Test item");
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
         _pendingChangeStore.GetChangesAsync(42, Arg.Any<CancellationToken>())
@@ -651,13 +621,4 @@ public class StatusCommandTests
         AreaPath = AreaPath.Parse("Project").Value,
     };
 
-    private static WorkItem CreateGitWorkItem(int id, string title) => new()
-    {
-        Id = id,
-        Type = WorkItemType.UserStory,
-        Title = title,
-        State = "Active",
-        IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
-        AreaPath = AreaPath.Parse("Project").Value,
-    };
 }

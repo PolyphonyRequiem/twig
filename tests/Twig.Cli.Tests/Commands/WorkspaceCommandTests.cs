@@ -317,11 +317,9 @@ public class WorkspaceCommandTests
 
         // Get output with pipeline factory
         var pipelineFactory = new RenderingPipelineFactory(
-            new OutputFormatterFactory(new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter()),
-            NSubstitute.Substitute.For<IAsyncRenderer>());
+            _formatterFactory, Substitute.For<IAsyncRenderer>());
         var cmdWithPipeline = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService, _config,
-            new OutputFormatterFactory(new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter()),
-            new HintEngine(new DisplayConfig { Hints = false }), _processTypeStore, _fieldDefinitionStore,
+            _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore,
             _activeItemResolver, _workingSetService, pipelineFactory);
 
         var resultWith = await cmdWithPipeline.ExecuteAsync("json");

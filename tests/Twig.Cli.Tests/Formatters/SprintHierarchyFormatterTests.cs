@@ -86,9 +86,9 @@ public class SprintHierarchyFormatterTests
     // ── (5) Shared parents appear once per category with multiple children ────────
 
     [Fact]
-    public void SharedParents_AppearOncePerCategoryWithMultipleChildren()
+    public void SharedParents_AppearOnceWithMultipleChildren()
     {
-        // Parent appears in each category that contains at least one of its children
+        // Without category grouping, parent appears once per assignee group
         var feature = MakeItem(100, "Auth Feature", WorkItemType.Feature, parentId: null);
         var task1 = MakeItem(42, "Login endpoint", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "Active");
         var task2 = MakeItem(43, "Logout endpoint", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "New");
@@ -100,15 +100,17 @@ public class SprintHierarchyFormatterTests
 
         var output = _formatter.FormatSprintView(ws, 14);
 
-        // "Auth Feature" appears once per state category that has children under it.
-        // task2 (#43) is "New" (Proposed), task1 (#42) is "Active" (InProgress) — so Auth Feature
-        // appears in both Proposed and InProgress category groups.
+        // "Auth Feature" appears once — no category grouping splits it
         var count = CountOccurrences(output, "Auth Feature");
-        count.ShouldBe(2);
+        count.ShouldBe(1);
 
         // Both children should be present
         output.ShouldContain("#42");
         output.ShouldContain("#43");
+
+        // No category headers should appear
+        output.ShouldNotContain("Proposed");
+        output.ShouldNotContain("In Progress");
     }
 
     // ── (6) Fallback to flat when hierarchy is null ──────────────────
@@ -132,6 +134,9 @@ public class SprintHierarchyFormatterTests
         // Still grouped by assignee
         output.ShouldContain("Alice");
         output.ShouldContain("Bob");
+        // No category headers
+        output.ShouldNotContain("Proposed");
+        output.ShouldNotContain("In Progress");
     }
 
     // ── (7) Empty sprint still shows "0 items" ──────────────────────

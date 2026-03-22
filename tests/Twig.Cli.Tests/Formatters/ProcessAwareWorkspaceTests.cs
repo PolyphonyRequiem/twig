@@ -42,7 +42,7 @@ public class ProcessAwareWorkspaceTests
     }
 
     [Fact]
-    public void SprintView_GroupsItemsByStateCategory()
+    public void SprintView_GroupsByAssignee_NotStateCategory()
     {
         var items = new[]
         {
@@ -54,11 +54,16 @@ public class ProcessAwareWorkspaceTests
         var ws = Workspace.Build(null, items, Array.Empty<WorkItem>());
 
         var output = _formatter.FormatSprintView(ws, 14);
+        var plain = StripAnsi(output);
 
-        output.ShouldContain("Proposed");
-        output.ShouldContain("In Progress");
-        output.ShouldContain("Resolved");
-        output.ShouldContain("Completed");
+        // Sprint view groups by assignee, not state category
+        output.ShouldContain("Alice");
+        output.ShouldContain("Bob");
+        // No state category headers (e.g. "Proposed (1)", "In Progress (1)")
+        plain.ShouldNotContain("Proposed (");
+        plain.ShouldNotContain("In Progress (");
+        plain.ShouldNotContain("Resolved (");
+        plain.ShouldNotContain("Completed (");
     }
 
     [Fact]
@@ -202,7 +207,7 @@ public class ProcessAwareWorkspaceTests
     }
 
     [Fact]
-    public void SprintView_HierarchyWithCategoryGrouping_ShowsParentInEachCategory()
+    public void SprintView_HierarchyWithoutCategoryGrouping_ShowsParentOnce()
     {
         var feature = MakeItem(100, "Auth Feature", WorkItemType.Feature, parentId: null);
         var task1 = MakeItem(42, "Login endpoint", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "Active");
@@ -214,22 +219,22 @@ public class ProcessAwareWorkspaceTests
 
         var output = _formatter.FormatSprintView(ws, 14);
 
-        // Parent appears in both Proposed (task2="New") and InProgress (task1="Active") groups
-        output.ShouldContain("Proposed");
-        output.ShouldContain("In Progress");
+        // No category grouping — parent appears once under assignee
+        output.ShouldNotContain("Proposed");
+        output.ShouldNotContain("In Progress");
         output.ShouldContain("#42");
         output.ShouldContain("#43");
     }
 
     [Fact]
-    public void SprintView_FilteredChildren_LastVisibleChildGetsClosingConnector()
+    public void SprintView_AllChildren_LastChildGetsClosingConnector()
     {
-        // Regression test: when category filtering skips siblings, the last visible
-        // child in a category must get └── (not ├──) to avoid a dangling vertical bar.
+        // Without category filtering, all children are visible.
+        // The last child must get └── (not ├──).
         var feature = MakeItem(100, "Auth Feature", WorkItemType.Feature, parentId: null);
-        var taskA = MakeItem(41, "Task A", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "New");       // Proposed
-        var taskB = MakeItem(42, "Task B", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "Active");    // InProgress
-        var taskC = MakeItem(43, "Task C", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "New");       // Proposed
+        var taskA = MakeItem(41, "Task A", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "New");
+        var taskB = MakeItem(42, "Task B", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "Active");
+        var taskC = MakeItem(43, "Task C", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "New");
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
         var hierarchy = SprintHierarchy.Build(new[] { taskA, taskB, taskC }, parentLookup, new[] { "Feature" });
@@ -238,13 +243,13 @@ public class ProcessAwareWorkspaceTests
         var output = _formatter.FormatSprintView(ws, 14);
         var plain = StripAnsi(output);
 
-        // In the InProgress category, Task B is the only visible child — it should get └──
-        var inProgressIdx = plain.IndexOf("In Progress");
-        var resolvedIdx = plain.IndexOf("Resolved");
-        if (resolvedIdx == -1) resolvedIdx = plain.Length;
-        var inProgressSection = plain.Substring(inProgressIdx, resolvedIdx - inProgressIdx);
-        inProgressSection.ShouldContain("└── ");
-        inProgressSection.ShouldNotContain("├── ");
+        // All 3 children are visible under the single assignee group.
+        // Task C (last) should get └──, others ├──
+        plain.ShouldContain("├── ");
+        plain.ShouldContain("└── ");
+        // No category headers
+        plain.ShouldNotContain("Proposed");
+        plain.ShouldNotContain("In Progress");
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -338,7 +343,7 @@ public class ProcessAwareWorkspaceTests
     // ═══════════════════════════════════════════════════════════════════
 
     [Fact]
-    public void SprintView_ShowsAssigneeInformation()
+    public void SprintView_ShowsAssigneeAsGroupHeader()
     {
         var items = new[]
         {
@@ -349,13 +354,13 @@ public class ProcessAwareWorkspaceTests
 
         var output = _formatter.FormatSprintView(ws, 14);
 
-        // Sprint view (team view) should show assignee info
-        output.ShouldContain("@Alice Smith");
-        output.ShouldContain("@Bob Jones");
+        // Sprint view groups by assignee — assignee appears as group header
+        output.ShouldContain("Alice Smith");
+        output.ShouldContain("Bob Jones");
     }
 
     [Fact]
-    public void SprintView_ShowsUnassignedForNullAssignee()
+    public void SprintView_ShowsUnassignedGroupHeader()
     {
         var items = new[]
         {
@@ -365,11 +370,12 @@ public class ProcessAwareWorkspaceTests
 
         var output = _formatter.FormatSprintView(ws, 14);
 
-        output.ShouldContain("@(unassigned)");
+        // Unassigned items appear under "(unassigned)" group header
+        output.ShouldContain("(unassigned)");
     }
 
     [Fact]
-    public void SprintView_HierarchicalWithAssignee()
+    public void SprintView_HierarchicalAssigneeAsGroupHeader()
     {
         var feature = MakeItem(100, "Auth Feature", WorkItemType.Feature, parentId: null, assignee: "Alice");
         var task1 = MakeItem(42, "Login endpoint", WorkItemType.Task, parentId: 100, assignee: "Alice", state: "Active");
@@ -380,8 +386,8 @@ public class ProcessAwareWorkspaceTests
 
         var output = _formatter.FormatSprintView(ws, 14);
 
-        // Assignee info should appear with the items in team view
-        output.ShouldContain("@Alice");
+        // Assignee shown as group header in hierarchical sprint view
+        output.ShouldContain("Alice");
     }
 
     [Fact]

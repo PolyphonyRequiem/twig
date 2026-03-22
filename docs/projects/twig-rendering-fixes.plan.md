@@ -71,7 +71,7 @@ Replace the string overload with an explicit `new TableColumn("[bold]State[/]").
 
 ---
 
-### FIX-003: Sprint view should group by assignee, not state category
+### FIX-003: Sprint view should group by assignee, not state category ✅ DONE
 
 **Severity:** Medium  
 **Affected command:** `twig sprint` (team view, `--all`)  
@@ -114,12 +114,16 @@ Target layout:
 Maximum indent depth: `2 (sprint) + 2 (assignee) + 4 (root item offset) + 4 (connector) = 12` for grandchild items (was 16).
 
 **Implementation changes:**
-1. **`FormatSprintView`** — Remove the `GroupByStateCategory` call and the `foreach (var (category, categoryItems) in categoryGroups)` loop. Replace with direct iteration over `ws.Hierarchy.AssigneeGroups` (when hierarchy is available) or over items grouped by `item.AssignedTo` (flat path).
-2. **New `RenderHierarchicalSprint` method** (or adapt existing) — Iterate `hierarchy.AssigneeGroups` directly: for each assignee, render all their root nodes and children without category filtering. Replaces `RenderHierarchicalSprintForCategory`.
-3. **New `RenderFlatSprint` method** (or adapt existing) — Same flat grouping by assignee, no category wrapper. Replaces `RenderFlatSprintForCategory`.
-4. **Remove `RenderHierarchicalSprintForCategory` and `RenderFlatSprintForCategory`** — Dead after the above changes.
-5. **Remove `NodeOrDescendantBelongsToCategory` and `CountSprintItemsInCategory`** — Only called by the category-filtered renderers. Dead after removal.
-6. **Indent widths** — Assignee header at 4 spaces (was 6 under category), root item at 6 spaces (was 8). Box-drawing connectors remain 4 characters wide.
+1. **`FormatSprintView`** — Remove the `GroupByStateCategory` call and the `foreach (var (category, categoryItems) in categoryGroups)` loop. Replace with direct iteration over `ws.Hierarchy.AssigneeGroups` (when hierarchy is available) or over items grouped by `item.AssignedTo` (flat path). ✅
+2. **New `RenderHierarchicalSprint` method** — Iterates `hierarchy.AssigneeGroups` directly: for each assignee, renders all root nodes and children without category filtering. Replaces `RenderHierarchicalSprintForCategory`. ✅
+3. **New `RenderFlatSprint` method** — Groups `ws.SprintItems` by assignee without category wrapper. Replaces `RenderFlatSprintForCategory`. ✅
+4. **Removed `RenderHierarchicalSprintForCategory` and `RenderFlatSprintForCategory`** — Dead after the above changes. ✅
+5. **`CountSprintItemsInCategory` removed** (dead after category removal). **`NodeOrDescendantBelongsToCategory` retained** — still called by `FormatWorkspace` (personal view); not dead. `CollectHierarchyChildrenForCategory` also retained for same reason. ✅
+6. **Indent widths** — Assignee header at 4 spaces (was 6 under category), root item at 6 spaces (was 8). Box-drawing connectors remain 4 characters wide. ✅
+
+**New helper added:** `CountSprintItems` — counts all sprint items in a hierarchy node tree (no category filter); replaces `CountSprintItemsInCategory`.
+
+**Note:** `CollectHierarchyChildren` (non-ForCategory variant) is now actively used by `RenderHierarchicalSprint` and is not dead code — this makes FIX-005 moot by construction.
 
 **Not changed:**
 - `FormatWorkspace` (personal view, `!all`) — not affected; uses its own rendering path.
@@ -170,7 +174,7 @@ This renders as `[Active]` with color applied to the state text and brackets in 
 
 ---
 
-### FIX-005: Dead code — `CollectHierarchyChildren` (non-ForCategory variant)
+### FIX-005: Dead code — `CollectHierarchyChildren` (non-ForCategory variant) ⚠️ MOOT
 
 **Severity:** Trivial  
 **File:** `src/Twig/Formatters/HumanOutputFormatter.cs` (lines ~403–413)
@@ -179,9 +183,11 @@ This renders as `[Active]` with color applied to the state text and brackets in 
 `CollectHierarchyChildren` (the non-`ForCategory` variant) was the original method before EPIC-003 added category-filtered rendering. After EPIC-003, all call sites use `CollectHierarchyChildrenForCategory`. The original method is now only self-referential — it calls itself recursively but has zero external callers. This was noted in the EPIC-003 review as a missed cleanup.
 
 **Fix:**  
-Remove the method entirely.
+~~Remove the method entirely.~~
 
-**Test:** Compile — no callers means no test changes.
+**Status:** **Moot after FIX-003.** `CollectHierarchyChildren` is now called by the new `RenderHierarchicalSprint` method introduced in FIX-003. It was never dead after FIX-003 landed. No action needed.
+
+**Test:** N/A — method is actively used.
 
 ---
 

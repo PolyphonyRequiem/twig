@@ -251,17 +251,11 @@ public sealed class HumanOutputFormatter : IOutputFormatter
 
         sb.AppendLine($"  {Bold}Sprint ({ws.SprintItems.Count} items):{Reset}");
 
-        // Group by state category first, then by assignee within each category
-        var categoryGroups = GroupByStateCategory(ws.SprintItems);
-        foreach (var (category, categoryItems) in categoryGroups)
-        {
-            sb.AppendLine($"    {Bold}{FormatCategoryHeader(category)}{Reset} ({categoryItems.Count})");
-
-            if (ws.Hierarchy is not null)
-                RenderHierarchicalSprintForCategory(sb, ws, category);
-            else
-                RenderFlatSprintForCategory(sb, ws, categoryItems);
-        }
+        // Group by assignee at top level (no state category wrapper)
+        if (ws.Hierarchy is not null)
+            RenderHierarchicalSprint(sb, ws);
+        else
+            RenderFlatSprint(sb, ws);
 
         // Seeds
         if (ws.Seeds.Count > 0)
@@ -298,11 +292,11 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         return sb.ToString();
     }
 
-    private void RenderFlatSprintForCategory(StringBuilder sb, Workspace ws, IReadOnlyList<WorkItem> categoryItems)
+    private void RenderFlatSprint(StringBuilder sb, Workspace ws)
     {
-        // Group items within this category by assignee
+        // Group items by assignee
         var grouped = new Dictionary<string, List<WorkItem>>(StringComparer.OrdinalIgnoreCase);
-        foreach (var item in categoryItems)
+        foreach (var item in ws.SprintItems)
         {
             var assignee = item.AssignedTo ?? "(unassigned)";
             if (!grouped.TryGetValue(assignee, out var list))
@@ -316,7 +310,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         var lines = new List<AlignedLine>();
         foreach (var kvp in grouped.OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
         {
-            sb.AppendLine($"      {Bold}{kvp.Key}{Reset} ({kvp.Value.Count}):");
+            sb.AppendLine($"    {Bold}{kvp.Key}{Reset} ({kvp.Value.Count}):");
             lines.Clear();
             foreach (var item in kvp.Value)
             {
@@ -325,53 +319,45 @@ public sealed class HumanOutputFormatter : IOutputFormatter
                 var stateColor = GetStateColor(item.State);
                 var sprintTypeColor = GetTypeColor(item.Type);
                 var sprintBadge = GetTypeBadge(item.Type);
-                var assignedSuffix = $" {Dim}@{item.AssignedTo ?? "(unassigned)"}{Reset}";
                 lines.Add(new AlignedLine(
-                    $"        {marker} {sprintTypeColor}{sprintBadge}{Reset} #{item.Id} {item.Title}{assignedSuffix}",
+                    $"      {marker} {sprintTypeColor}{sprintBadge}{Reset} #{item.Id} {item.Title}",
                     $"[{stateColor}{item.State}{Reset}]", dirty));
             }
             FlushAlignedLines(sb, lines);
         }
     }
 
-    private void RenderHierarchicalSprintForCategory(StringBuilder sb, Workspace ws, StateCategory category)
+    private void RenderHierarchicalSprint(StringBuilder sb, Workspace ws)
     {
         var hierarchy = ws.Hierarchy!;
         var lines = new List<AlignedLine>();
 
         foreach (var kvp in hierarchy.AssigneeGroups)
         {
-            // Only render nodes belonging to this category
-            var hasNodesInCategory = false;
-            foreach (var root in kvp.Value)
-            {
-                if (NodeOrDescendantBelongsToCategory(root, category))
-                {
-                    hasNodesInCategory = true;
-                    break;
-                }
-            }
-            if (!hasNodesInCategory) continue;
-
-            // Count only sprint items in this category for the assignee header
+            // Count sprint items for the assignee header
             var sprintCount = 0;
             foreach (var root in kvp.Value)
-                sprintCount += CountSprintItemsInCategory(root, category);
+                sprintCount += CountSprintItems(root);
             if (sprintCount == 0) continue;
 
-            sb.AppendLine($"      {Bold}{kvp.Key}{Reset} ({sprintCount}):");
+            sb.AppendLine($"    {Bold}{kvp.Key}{Reset} ({sprintCount}):");
 
             lines.Clear();
             foreach (var root in kvp.Value)
             {
-                if (NodeOrDescendantBelongsToCategory(root, category))
-                {
-                    CollectHierarchyNodeLine(lines, ws, root, indent: "        ", connector: "", showAssignee: true);
-                    CollectHierarchyChildrenForCategory(lines, ws, root, childIndent: "        ", category: category, showAssignee: true);
-                }
+                CollectHierarchyNodeLine(lines, ws, root, indent: "      ", connector: "", showAssignee: false);
+                CollectHierarchyChildren(lines, ws, root, childIndent: "      ", showAssignee: false);
             }
             FlushAlignedLines(sb, lines);
         }
+    }
+
+    private static int CountSprintItems(SprintHierarchyNode node)
+    {
+        var count = node.IsSprintItem ? 1 : 0;
+        foreach (var child in node.Children)
+            count += CountSprintItems(child);
+        return count;
     }
 
     private void CollectHierarchyNodeLine(List<AlignedLine> lines, Workspace ws, SprintHierarchyNode node, string indent, string connector, bool showAssignee = false)
@@ -412,10 +398,10 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         }
     }
 
+
     private void CollectHierarchyChildrenForCategory(List<AlignedLine> lines, Workspace ws, SprintHierarchyNode node, string childIndent, StateCategory category, bool showAssignee = false)
     {
         // Pre-pass: find the last visible child index for correct box-drawing connectors.
-        // Without this, a filtered sibling list produces a dangling "├──" on the last visible child.
         var lastVisibleIdx = -1;
         for (var j = 0; j < node.Children.Count; j++)
         {
@@ -488,7 +474,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         };
     }
 
-    private bool NodeOrDescendantBelongsToCategory(SprintHierarchyNode node, StateCategory category)
+    private bool NodeOrDescendantBelongsToCategory(SprintHierarchyNode node, StateCategory category)
     {
         if (node.IsSprintItem && StateCategoryResolver.Resolve(node.Item.State, _stateEntries) == category)
             return true;
@@ -498,16 +484,6 @@ public sealed class HumanOutputFormatter : IOutputFormatter
                 return true;
         }
         return false;
-    }
-
-    private int CountSprintItemsInCategory(SprintHierarchyNode node, StateCategory category)
-    {
-        var count = 0;
-        if (node.IsSprintItem && StateCategoryResolver.Resolve(node.Item.State, _stateEntries) == category)
-            count++;
-        foreach (var child in node.Children)
-            count += CountSprintItemsInCategory(child, category);
-        return count;
     }
 
     // ── Progress indicators ─────────────────────────────────────────

@@ -80,7 +80,7 @@ public sealed class StatusCommand(
                 await renderer.RenderWithSyncAsync(
                     buildCachedView: () =>
                         Task.FromResult<Spectre.Console.Rendering.IRenderable>(
-                            new Spectre.Console.Text(string.Empty)),
+                            new Spectre.Console.Text(" ")),
                     performSync: () => syncCoordinator.SyncWorkingSetAsync(workingSet),
                     buildRevisedView: syncResult => syncResult is SyncResult.Updated
                         ? Task.FromResult<Spectre.Console.Rendering.IRenderable?>(null)

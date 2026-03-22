@@ -15,7 +15,7 @@ Five rendering issues were identified after EPIC-003 (process-aware workspace di
 
 ## Findings
 
-### FIX-001: Status panel bottom border clipped after sync indicator clears
+### FIX-001: Status panel bottom border clipped after sync indicator clears ✅ DONE (tests revised)
 
 **Severity:** High  
 **Affected command:** `twig status`  

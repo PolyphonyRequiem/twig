@@ -21,6 +21,7 @@ public sealed class RefreshCommand(
     TwigConfiguration config,
     TwigPaths paths,
     IProcessTypeStore processTypeStore,
+    IFieldDefinitionStore fieldDefinitionStore,
     OutputFormatterFactory formatterFactory,
     WorkingSetService workingSetService,
     SyncCoordinator syncCoordinator,
@@ -226,6 +227,16 @@ public sealed class RefreshCommand(
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             Console.Error.WriteLine(fmt.FormatInfo($"⚠ Could not fetch type data: {ex.Message}"));
+        }
+
+        // Sync field definitions for dynamic column display names (EPIC-004)
+        try
+        {
+            await FieldDefinitionSyncService.SyncAsync(iterationService, fieldDefinitionStore);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Console.Error.WriteLine(fmt.FormatInfo($"⚠ Could not fetch field definitions: {ex.Message}"));
         }
 
         // Update cache freshness timestamp so subsequent reads don't show stale indicators

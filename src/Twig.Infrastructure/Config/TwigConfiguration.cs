@@ -208,6 +208,28 @@ public sealed class TwigConfiguration
                     return true;
                 }
                 return false;
+            case "display.fillratethreshold":
+                if (double.TryParse(value, System.Globalization.CultureInfo.InvariantCulture, out var threshold) && threshold >= 0.0 && threshold <= 1.0)
+                {
+                    Display.FillRateThreshold = threshold;
+                    return true;
+                }
+                return false;
+            case "display.maxextracolumns":
+                if (int.TryParse(value, out var maxCols) && maxCols >= 0)
+                {
+                    Display.MaxExtraColumns = maxCols;
+                    return true;
+                }
+                return false;
+            case "display.columns.workspace":
+                Display.Columns ??= new DisplayColumnsConfig();
+                Display.Columns.Workspace = value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+                return true;
+            case "display.columns.sprint":
+                Display.Columns ??= new DisplayColumnsConfig();
+                Display.Columns.Sprint = value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+                return true;
             default:
                 return false;
         }
@@ -246,6 +268,9 @@ public sealed class DisplayConfig
     public string Icons { get; set; } = "unicode";
     public int CacheStaleMinutes { get; set; } = 5;
     public Dictionary<string, string>? TypeColors { get; set; }
+    public DisplayColumnsConfig? Columns { get; set; }
+    public double FillRateThreshold { get; set; } = 0.4;
+    public int MaxExtraColumns { get; set; } = 3;
 }
 
 public sealed class TypeAppearanceConfig
@@ -253,6 +278,15 @@ public sealed class TypeAppearanceConfig
     public string Name { get; set; } = string.Empty;
     public string Color { get; set; } = string.Empty;
     public string? IconId { get; set; }
+}
+
+/// <summary>
+/// Per-view column overrides for dynamic table rendering (EPIC-004).
+/// </summary>
+public sealed class DisplayColumnsConfig
+{
+    public List<string>? Workspace { get; set; }
+    public List<string>? Sprint { get; set; }
 }
 
 public sealed class UserConfig

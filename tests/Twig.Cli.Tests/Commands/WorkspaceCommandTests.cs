@@ -21,6 +21,7 @@ public class WorkspaceCommandTests
     private readonly IIterationService _iterationService;
     private readonly TwigConfiguration _config;
     private readonly IProcessTypeStore _processTypeStore;
+    private readonly IFieldDefinitionStore _fieldDefinitionStore;
     private readonly IAdoWorkItemService _adoService;
     private readonly ActiveItemResolver _activeItemResolver;
     private readonly WorkingSetService _workingSetService;
@@ -33,6 +34,7 @@ public class WorkspaceCommandTests
         _iterationService = Substitute.For<IIterationService>();
         _config = new TwigConfiguration();
         _processTypeStore = Substitute.For<IProcessTypeStore>();
+        _fieldDefinitionStore = Substitute.For<IFieldDefinitionStore>();
         _adoService = Substitute.For<IAdoWorkItemService>();
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
@@ -45,7 +47,7 @@ public class WorkspaceCommandTests
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         _cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService, _config,
-            formatterFactory, hintEngine, _processTypeStore, _activeItemResolver, _workingSetService);
+            formatterFactory, hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService);
     }
 
     [Fact]
@@ -355,7 +357,7 @@ public class WorkspaceCommandTests
             NSubstitute.Substitute.For<IAsyncRenderer>());
         var cmdWithPipeline = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService, _config,
             new OutputFormatterFactory(new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter()),
-            new HintEngine(new DisplayConfig { Hints = false }), _processTypeStore,
+            new HintEngine(new DisplayConfig { Hints = false }), _processTypeStore, _fieldDefinitionStore,
             _activeItemResolver, _workingSetService, pipelineFactory);
 
         var sw2 = new StringWriter();
@@ -413,7 +415,7 @@ public class WorkspaceCommandTests
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService, _config,
-            formatterFactory, hintEngine, _processTypeStore, _activeItemResolver, workingSetService);
+            formatterFactory, hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, workingSetService);
 
         var sw = new StringWriter();
         Console.SetOut(sw);
@@ -454,7 +456,7 @@ public class WorkspaceCommandTests
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService, _config,
-            formatterFactory, hintEngine, _processTypeStore, _activeItemResolver, workingSetService);
+            formatterFactory, hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, workingSetService);
 
         var sw = new StringWriter();
         Console.SetOut(sw);
@@ -494,7 +496,7 @@ public class WorkspaceCommandTests
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService, _config,
-            formatterFactory, hintEngine, _processTypeStore, _activeItemResolver, workingSetService);
+            formatterFactory, hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, workingSetService);
 
         var sw = new StringWriter();
         Console.SetOut(sw);
@@ -536,7 +538,7 @@ public class WorkspaceCommandTests
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService, _config,
-            formatterFactory, hintEngine, _processTypeStore, _activeItemResolver, workingSetService);
+            formatterFactory, hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, workingSetService);
 
         var sw = new StringWriter();
         Console.SetOut(sw);

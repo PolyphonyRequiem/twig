@@ -23,6 +23,7 @@ public class SqliteCacheStoreTests
         TableExists(conn, "pending_changes").ShouldBeTrue();
         TableExists(conn, "process_types").ShouldBeTrue();
         TableExists(conn, "context").ShouldBeTrue();
+        TableExists(conn, "field_definitions").ShouldBeTrue();
     }
 
     [Fact]
@@ -107,9 +108,9 @@ public class SqliteCacheStoreTests
     }
 
     [Fact]
-    public void SchemaVersion_IsFour()
+    public void SchemaVersion_IsFive()
     {
-        SqliteCacheStore.SchemaVersion.ShouldBe(4);
+        SqliteCacheStore.SchemaVersion.ShouldBe(5);
     }
 
     [Fact]

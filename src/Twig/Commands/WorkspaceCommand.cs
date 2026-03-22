@@ -25,6 +25,7 @@ public sealed class WorkspaceCommand(
     OutputFormatterFactory formatterFactory,
     HintEngine hintEngine,
     IProcessTypeStore processTypeStore,
+    IFieldDefinitionStore fieldDefinitionStore,
     ActiveItemResolver activeItemResolver,
     WorkingSetService workingSetService,
     RenderingPipelineFactory? pipelineFactory = null)
@@ -44,6 +45,13 @@ public sealed class WorkspaceCommand(
             Domain.Aggregates.WorkItem? contextItem = null;
             IReadOnlyList<Domain.Aggregates.WorkItem> sprintItems = Array.Empty<Domain.Aggregates.WorkItem>();
             IReadOnlyList<Domain.Aggregates.WorkItem> seeds = Array.Empty<Domain.Aggregates.WorkItem>();
+
+            // Resolve dynamic columns before rendering (EPIC-004)
+            // NOTE: sprintItems is intentionally omitted here — in the live Spectre streaming path,
+            // items arrive progressively, so fill-rate auto-discovery is unavailable. Only config-
+            // specified columns appear. The sync path (JSON/--no-live) supplies sprintItems for
+            // auto-discovery after all items are loaded.
+            var dynamicColumns = await ResolveDynamicColumnsAsync(all ? "sprint" : "workspace", isJsonOutput: false, ct: ct);
 
             async IAsyncEnumerable<WorkspaceDataChunk> StreamWorkspaceData(
                 [EnumeratorCancellation] CancellationToken ct)
@@ -118,7 +126,7 @@ public sealed class WorkspaceCommand(
                 }
             }
 
-            await renderer.RenderWorkspaceAsync(StreamWorkspaceData(ct), config.Seed.StaleDays, all, ct);
+            await renderer.RenderWorkspaceAsync(StreamWorkspaceData(ct), config.Seed.StaleDays, all, ct, dynamicColumns);
 
             // Build Workspace from closure-populated variables for hint computation
             var workspace = Workspace.Build(contextItem, sprintItems, seeds);
@@ -162,6 +170,13 @@ public sealed class WorkspaceCommand(
 
         // Get seeds
         var seeds = await workItemRepo.GetSeedsAsync();
+
+        // Resolve dynamic columns (EPIC-004)
+        var isJsonOutput = fmt is JsonOutputFormatter;
+        var viewName = all ? "sprint" : "workspace";
+        var dynamicColumns = await ResolveDynamicColumnsAsync(viewName, isJsonOutput, sprintItems: sprintItems);
+        if (fmt is JsonOutputFormatter jsonFmt)
+            jsonFmt.DynamicColumns = dynamicColumns;
 
         // Update freshness timestamp (sync path also tracks cache freshness)
         await contextStore.SetValueAsync("last_refreshed_at", DateTimeOffset.UtcNow.ToString("O"));
@@ -272,5 +287,49 @@ public sealed class WorkspaceCommand(
                 DateTimeStyles.RoundtripKind, out var lastRefreshed))
             return true;
         return lastRefreshed < DateTimeOffset.UtcNow.AddMinutes(-cacheStaleMinutes);
+    }
+
+    /// <summary>
+    /// Resolves dynamic columns for the workspace/sprint table (EPIC-004).
+    /// Uses config overrides when specified, otherwise auto-discovers from field fill rates.
+    /// </summary>
+    private async Task<IReadOnlyList<Domain.ValueObjects.ColumnSpec>> ResolveDynamicColumnsAsync(
+        string viewName,
+        bool isJsonOutput,
+        IReadOnlyList<Domain.Aggregates.WorkItem>? sprintItems = null,
+        CancellationToken ct = default)
+    {
+        // Check for config-specified columns
+        var configuredColumns = viewName.Equals("sprint", StringComparison.OrdinalIgnoreCase)
+            ? config.Display.Columns?.Sprint
+            : config.Display.Columns?.Workspace;
+
+        // Load cached field definitions (may be empty if not yet synced)
+        var fieldDefs = await fieldDefinitionStore.GetAllAsync(ct);
+
+        // If config specifies columns, use them directly (skip auto-discovery)
+        if (configuredColumns is { Count: > 0 })
+        {
+            return Domain.Services.ColumnResolver.Resolve(
+                Array.Empty<Domain.ValueObjects.FieldProfile>(),
+                fieldDefs,
+                configuredColumns,
+                config.Display.FillRateThreshold,
+                config.Display.MaxExtraColumns,
+                isJsonOutput);
+        }
+
+        // Auto-discover from items if available
+        if (sprintItems is null || sprintItems.Count == 0)
+            return Array.Empty<Domain.ValueObjects.ColumnSpec>();
+
+        var profiles = Domain.Services.FieldProfileService.ComputeProfiles(sprintItems);
+        return Domain.Services.ColumnResolver.Resolve(
+            profiles,
+            fieldDefs,
+            configuredColumns: null,
+            config.Display.FillRateThreshold,
+            config.Display.MaxExtraColumns,
+            isJsonOutput);
     }
 }

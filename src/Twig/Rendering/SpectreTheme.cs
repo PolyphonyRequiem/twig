@@ -118,8 +118,9 @@ internal sealed class SpectreTheme
     /// <summary>
     /// Table style for the main workspace table — simple, no borders for a CLI-native feel.
     /// When <paramref name="isTeamView"/> is true, an Assigned column is added.
+    /// <paramref name="dynamicColumns"/> adds extra data-driven columns after the core 4.
     /// </summary>
-    internal static Table CreateWorkspaceTable(bool isTeamView = false)
+    internal static Table CreateWorkspaceTable(bool isTeamView = false, IReadOnlyList<Domain.ValueObjects.ColumnSpec>? dynamicColumns = null)
     {
         var table = new Table()
             .Border(TableBorder.Rounded)
@@ -130,6 +131,17 @@ internal sealed class SpectreTheme
 
         if (isTeamView)
             table.AddColumn("[bold]Assigned[/]");
+
+        if (dynamicColumns is not null)
+        {
+            foreach (var col in dynamicColumns)
+            {
+                var alignment = col.DataType.ToLowerInvariant() is "integer" or "double"
+                    ? new TableColumn($"[bold]{Markup.Escape(col.DisplayName)}[/]").RightAligned()
+                    : new TableColumn($"[bold]{Markup.Escape(col.DisplayName)}[/]");
+                table.AddColumn(alignment);
+            }
+        }
 
         table.Expand();
         return table;

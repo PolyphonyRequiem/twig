@@ -14,6 +14,12 @@ public sealed class JsonOutputFormatter : IOutputFormatter
 {
     private static readonly JsonWriterOptions WriterOptions = new() { Indented = true };
 
+    /// <summary>
+    /// Dynamic columns to include in workspace/sprint JSON output.
+    /// Set by the command layer after column resolution.
+    /// </summary>
+    public IReadOnlyList<Domain.ValueObjects.ColumnSpec>? DynamicColumns { get; set; }
+
     public string FormatStatusSummary(WorkItem item) => string.Empty;
 
     public string FormatWorkItem(WorkItem item, bool showDirty)
@@ -95,7 +101,7 @@ public sealed class JsonOutputFormatter : IOutputFormatter
         writer.WriteStartArray("sprintItems");
         foreach (var item in ws.SprintItems)
         {
-            WriteWorkItemObject(writer, item);
+            WriteWorkItemObject(writer, item, DynamicColumns);
         }
         writer.WriteEndArray();
 
@@ -103,7 +109,7 @@ public sealed class JsonOutputFormatter : IOutputFormatter
         writer.WriteStartArray("seeds");
         foreach (var seed in ws.Seeds)
         {
-            WriteWorkItemObject(writer, seed);
+            WriteWorkItemObject(writer, seed, DynamicColumns);
         }
         writer.WriteEndArray();
 
@@ -158,7 +164,7 @@ public sealed class JsonOutputFormatter : IOutputFormatter
             writer.WriteStartArray(kvp.Key);
             foreach (var item in kvp.Value)
             {
-                WriteWorkItemObject(writer, item);
+                WriteWorkItemObject(writer, item, DynamicColumns);
             }
             writer.WriteEndArray();
         }
@@ -170,7 +176,7 @@ public sealed class JsonOutputFormatter : IOutputFormatter
         writer.WriteStartArray("seeds");
         foreach (var seed in ws.Seeds)
         {
-            WriteWorkItemObject(writer, seed);
+            WriteWorkItemObject(writer, seed, DynamicColumns);
         }
         writer.WriteEndArray();
 
@@ -320,8 +326,9 @@ public sealed class JsonOutputFormatter : IOutputFormatter
     /// Writes a WorkItem as a JSON object for nested contexts (tree, workspace).
     /// Deliberately omits areaPath and iterationPath to keep nested payloads lean —
     /// consumers who need path data should use FormatWorkItem for standalone items.
+    /// When <paramref name="dynamicColumns"/> is provided, includes those field values.
     /// </summary>
-    private static void WriteWorkItemObject(Utf8JsonWriter writer, WorkItem item)
+    private static void WriteWorkItemObject(Utf8JsonWriter writer, WorkItem item, IReadOnlyList<Domain.ValueObjects.ColumnSpec>? dynamicColumns = null)
     {
         writer.WriteStartObject();
         writer.WriteNumber("id", item.Id);
@@ -335,6 +342,19 @@ public sealed class JsonOutputFormatter : IOutputFormatter
             writer.WriteNumber("parentId", item.ParentId.Value);
         else
             writer.WriteNull("parentId");
+
+        if (dynamicColumns is { Count: > 0 })
+        {
+            writer.WriteStartObject("fields");
+            foreach (var col in dynamicColumns)
+            {
+                item.Fields.TryGetValue(col.ReferenceName, out var rawValue);
+                var formatted = FormatterHelpers.FormatFieldValueForJson(rawValue, col.DataType);
+                writer.WriteString(col.ReferenceName, formatted);
+            }
+            writer.WriteEndObject();
+        }
+
         writer.WriteEndObject();
     }
 }

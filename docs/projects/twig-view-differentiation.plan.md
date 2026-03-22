@@ -149,9 +149,11 @@ The workspace/sprint view currently renders a flat table regardless of process t
 
 ---
 
-### EPIC-004: Data-driven dynamic columns
+### EPIC-004: Data-driven dynamic columns — DONE
 
-Today, the workspace/sprint table is hard-coded to 4 columns (ID, Type, Title, State) in `SpectreTheme.CreateWorkspaceTable()`. The `WorkItem.Fields` dictionary is already populated from `fields_json` (the full ADO payload stored on every cached item) and flows through `WorkspaceDataChunk` — but nobody reads it for tabular views. This EPIC makes column selection data-driven: discover which fields your team actually uses, render them automatically, and let config override when needed.
+> Implemented. All 6 tasks completed: FieldProfileService (fill-rate analysis on cached data), FieldDefinitionStore (/fields API + SQLite cache), ColumnResolver (profile + definitions + config → ColumnSpec[]), dynamic table rendering in SpectreRenderer + HumanOutputFormatter, config surface (display.columns.workspace/sprint, display.fillRateThreshold, display.maxExtraColumns, display.cacheStaleMinutes wired into TwigConfiguration.SetValue() and ConfigCommand.GetValue()), and JSON formatter field inclusion. Review feedback addressed: display.fillratethreshold validated as 0.0–1.0 float (InvariantCulture), display.maxextracolumns validated as non-negative integer, display.columns.workspace/sprint wired via semicolon-separated list format, all five new keys added to ConfigCommand.GetValue() switch table, test method renamed SchemaVersion_IsFive to match actual schema version 5, field_definitions table assertion added to Constructor_CreatesSchema_InMemory test, and inline comment added to WorkspaceCommand live path explaining why sprintItems is intentionally omitted (progressive rendering trade-off). All 2157 non-integration tests pass.
+
+Today, the workspace/sprint table is hard-coded to 4 columns(ID, Type, Title, State) in `SpectreTheme.CreateWorkspaceTable()`. The `WorkItem.Fields` dictionary is already populated from `fields_json` (the full ADO payload stored on every cached item) and flows through `WorkspaceDataChunk` — but nobody reads it for tabular views. This EPIC makes column selection data-driven: discover which fields your team actually uses, render them automatically, and let config override when needed.
 
 **Design principle:** No type-keyed maps, no process branching. Column selection is determined by what fields are populated in the cached data — not by what process template you're using. If your team fills in Story Points, that column appears. If nobody uses Priority, it doesn't. The data tells us what matters.
 
@@ -361,13 +363,13 @@ EPIC-003: Process-aware workspace display (4 tasks, ~medium effort)
   ├── Task 3: Progress indicators per parent item
   └── Task 4: Conditional Assignee column in team view
 
-EPIC-004: Data-driven dynamic columns (6 tasks, ~medium-high effort)
-  ├── Task 1: FieldProfileService — fill-rate analysis on cached data
-  ├── Task 2: FieldDefinitionStore — /fields API + SQLite cache (parallel with Task 1)
-  ├── Task 3: ColumnResolver — combine profile + definitions + config → ColumnSpec[]
-  ├── Task 4: Dynamic table rendering in SpectreRenderer + HumanOutputFormatter
-  ├── Task 5: Config surface (display.columns, fillRateThreshold, maxExtraColumns)
-  └── Task 6: JSON formatter field inclusion
+EPIC-004: Data-driven dynamic columns (6 tasks, ~medium-high effort) **[DONE]**
+  ├── Task 1: FieldProfileService — fill-rate analysis on cached data **[DONE]**
+  ├── Task 2: FieldDefinitionStore — /fields API + SQLite cache (parallel with Task 1) **[DONE]**
+  ├── Task 3: ColumnResolver — combine profile + definitions + config → ColumnSpec[] **[DONE]**
+  ├── Task 4: Dynamic table rendering in SpectreRenderer + HumanOutputFormatter **[DONE]**
+  ├── Task 5: Config surface (display.columns, fillRateThreshold, maxExtraColumns) **[DONE]**
+  └── Task 6: JSON formatter field inclusion **[DONE]**
 
   Note: EPIC-004 is independent of EPICs 1-3 and can be developed in parallel.
         If EPIC-003 lands first, dynamic columns render inside grouped layout.

@@ -16,4 +16,65 @@ internal static class FormatterHelpers
 
         return state;
     }
+
+    /// <summary>
+    /// Formats a dynamic field value for human-readable output based on its data type.
+    /// </summary>
+    internal static string FormatFieldValue(string? value, string dataType, int maxWidth = 20)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return "";
+
+        return dataType.ToLowerInvariant() switch
+        {
+            "html" => Truncate(Rendering.SpectreRenderer.StripHtmlTags(value), maxWidth),
+            "treepath" => GetLastTreePathSegment(value),
+            "datetime" => FormatRelativeDate(value),
+            _ => Truncate(value, maxWidth),
+        };
+    }
+
+    /// <summary>
+    /// Formats a dynamic field value for JSON output (no truncation, ISO 8601 dates).
+    /// </summary>
+    internal static string? FormatFieldValueForJson(string? value, string dataType)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return value;
+
+        return dataType.ToLowerInvariant() switch
+        {
+            "html" => Rendering.SpectreRenderer.StripHtmlTags(value),
+            _ => value,
+        };
+    }
+
+    private static string GetLastTreePathSegment(string path)
+    {
+        var lastSlash = path.LastIndexOf('\\');
+        return lastSlash >= 0 && lastSlash < path.Length - 1
+            ? path[(lastSlash + 1)..]
+            : path;
+    }
+
+    private static string FormatRelativeDate(string dateStr)
+    {
+        if (!DateTimeOffset.TryParse(dateStr, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind, out var date))
+            return Truncate(dateStr, 20);
+
+        var elapsed = DateTimeOffset.UtcNow - date;
+        if (elapsed.TotalMinutes < 60) return $"{(int)elapsed.TotalMinutes}m ago";
+        if (elapsed.TotalHours < 24) return $"{(int)elapsed.TotalHours}h ago";
+        if (elapsed.TotalDays < 30) return $"{(int)elapsed.TotalDays}d ago";
+        return $"{(int)(elapsed.TotalDays / 30)}mo ago";
+    }
+
+    private static string Truncate(string value, int maxLength)
+    {
+        var trimmed = value.Trim();
+        if (trimmed.Length <= maxLength)
+            return trimmed;
+        return trimmed[..(maxLength - 1)] + "…";
+    }
 }

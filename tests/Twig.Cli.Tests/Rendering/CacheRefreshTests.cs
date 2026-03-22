@@ -23,6 +23,7 @@ public class CacheRefreshTests
     private readonly IIterationService _iterationService;
     private readonly TwigConfiguration _config;
     private readonly IProcessTypeStore _processTypeStore;
+    private readonly IFieldDefinitionStore _fieldDefinitionStore;
     private readonly IAdoWorkItemService _adoService;
     private readonly ActiveItemResolver _activeItemResolver;
     private readonly WorkingSetService _workingSetService;
@@ -41,6 +42,7 @@ public class CacheRefreshTests
             Display = new DisplayConfig { CacheStaleMinutes = 5 }
         };
         _processTypeStore = Substitute.For<IProcessTypeStore>();
+        _fieldDefinitionStore = Substitute.For<IFieldDefinitionStore>();
         _adoService = Substitute.For<IAdoWorkItemService>();
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
@@ -62,7 +64,7 @@ public class CacheRefreshTests
 
     private WorkspaceCommand CreateCommand(RenderingPipelineFactory pipelineFactory) =>
         new(_contextStore, _workItemRepo, _iterationService, _config,
-            _formatterFactory, _hintEngine, _processTypeStore,
+            _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore,
             _activeItemResolver, _workingSetService, pipelineFactory);
 
     // ── IsCacheStale unit tests ─────────────────────────────────────

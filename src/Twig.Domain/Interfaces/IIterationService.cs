@@ -33,4 +33,10 @@ public interface IIterationService
     /// Returns a domain DTO — not the internal infrastructure ADO response type.
     /// </summary>
     Task<ProcessConfigurationData> GetProcessConfigurationAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Gets all field definitions for the project from the ADO fields API.
+    /// Calls GET /{project}/_apis/wit/fields.
+    /// </summary>
+    Task<IReadOnlyList<FieldDefinition>> GetFieldDefinitionsAsync(CancellationToken ct = default);
 }

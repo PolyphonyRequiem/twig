@@ -29,6 +29,7 @@ public class PromptStateIntegrationTests : IDisposable
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IProcessConfigurationProvider _processConfigProvider;
     private readonly IProcessTypeStore _processTypeStore;
+    private readonly IFieldDefinitionStore _fieldDefinitionStore;
     private readonly IConsoleInput _consoleInput;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
@@ -67,6 +68,7 @@ public class PromptStateIntegrationTests : IDisposable
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
         _processConfigProvider = Substitute.For<IProcessConfigurationProvider>();
         _processTypeStore = Substitute.For<IProcessTypeStore>();
+        _fieldDefinitionStore = Substitute.For<IFieldDefinitionStore>();
         _consoleInput = Substitute.For<IConsoleInput>();
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
@@ -509,7 +511,7 @@ public class PromptStateIntegrationTests : IDisposable
         var refreshSyncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, refreshProtectedWriter, 30);
         var refreshWorkingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, iterationService, null);
         var cmd = new RefreshCommand(_contextStore, _workItemRepo, _adoService, iterationService,
-            _pendingChangeStore, refreshProtectedWriter, _config, _paths, _processTypeStore, _formatterFactory,
+            _pendingChangeStore, refreshProtectedWriter, _config, _paths, _processTypeStore, _fieldDefinitionStore, _formatterFactory,
             refreshWorkingSetService, refreshSyncCoordinator, writer);
 
         var result = await cmd.ExecuteAsync();

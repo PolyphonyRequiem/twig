@@ -136,6 +136,7 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<TwigConfiguration>(),
             sp.GetRequiredService<TwigPaths>(),
             sp.GetRequiredService<IProcessTypeStore>(),
+            sp.GetRequiredService<IFieldDefinitionStore>(),
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<Domain.Services.WorkingSetService>(),
             sp.GetRequiredService<Domain.Services.SyncCoordinator>(),
@@ -148,6 +149,7 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<HintEngine>(),
             sp.GetRequiredService<IProcessTypeStore>(),
+            sp.GetRequiredService<IFieldDefinitionStore>(),
             sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
             sp.GetRequiredService<Domain.Services.WorkingSetService>(),
             sp.GetRequiredService<RenderingPipelineFactory>()));

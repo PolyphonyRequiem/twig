@@ -18,6 +18,7 @@ public class UserScopedWorkspaceTests
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IIterationService _iterationService;
     private readonly IProcessTypeStore _processTypeStore;
+    private readonly IFieldDefinitionStore _fieldDefinitionStore;
     private readonly IAdoWorkItemService _adoService;
     private readonly ActiveItemResolver _activeItemResolver;
     private readonly WorkingSetService _workingSetService;
@@ -30,6 +31,7 @@ public class UserScopedWorkspaceTests
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _iterationService = Substitute.For<IIterationService>();
         _processTypeStore = Substitute.For<IProcessTypeStore>();
+        _fieldDefinitionStore = Substitute.For<IFieldDefinitionStore>();
         _adoService = Substitute.For<IAdoWorkItemService>();
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
@@ -65,7 +67,7 @@ public class UserScopedWorkspaceTests
             .Returns(new[] { aliceItem, bobItem });
 
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService,
-            config, _formatterFactory, _hintEngine, _processTypeStore, _activeItemResolver, _workingSetService);
+            config, _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService);
 
         var result = await cmd.ExecuteAsync();
 
@@ -90,7 +92,7 @@ public class UserScopedWorkspaceTests
             .Returns(new[] { aliceItem, bobItem });
 
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService,
-            config, _formatterFactory, _hintEngine, _processTypeStore, _activeItemResolver, _workingSetService);
+            config, _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService);
 
         var result = await cmd.ExecuteAsync(all: true);
 
@@ -115,7 +117,7 @@ public class UserScopedWorkspaceTests
             .Returns(new[] { aliceItem, bobItem });
 
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService,
-            config, _formatterFactory, _hintEngine, _processTypeStore, _activeItemResolver, _workingSetService);
+            config, _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService);
 
         var result = await cmd.ExecuteAsync();
 
@@ -139,7 +141,7 @@ public class UserScopedWorkspaceTests
             .Returns(new[] { aliceItem, bobItem });
 
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService,
-            config, _formatterFactory, _hintEngine, _processTypeStore, _activeItemResolver, _workingSetService);
+            config, _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService);
 
         // Use StringWriter to capture output without modifying global Console.Out.
         // FormatSprintView returns a string; we call it directly to avoid Console.SetOut.
@@ -173,7 +175,7 @@ public class UserScopedWorkspaceTests
             .Returns(Array.Empty<WorkItem>());
 
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService,
-            config, _formatterFactory, _hintEngine, _processTypeStore, _activeItemResolver, _workingSetService);
+            config, _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService);
 
         var result = await cmd.ExecuteAsync();
 
@@ -196,7 +198,7 @@ public class UserScopedWorkspaceTests
             .Returns(new[] { contextItem });
 
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService,
-            config, _formatterFactory, _hintEngine, _processTypeStore, _activeItemResolver, _workingSetService);
+            config, _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService);
 
         var result = await cmd.ExecuteAsync();
         result.ShouldBe(0);

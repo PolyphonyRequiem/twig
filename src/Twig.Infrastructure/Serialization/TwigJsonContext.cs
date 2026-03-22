@@ -18,6 +18,7 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(DefaultsConfig))]
 [JsonSerializable(typeof(SeedConfig))]
 [JsonSerializable(typeof(DisplayConfig))]
+[JsonSerializable(typeof(DisplayColumnsConfig))]
 [JsonSerializable(typeof(Dictionary<string, string?>))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
 // ADO REST DTOs (EPIC-006)
@@ -74,6 +75,9 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(StateEntry))]
 [JsonSerializable(typeof(List<StateEntry>))]
 [JsonSerializable(typeof(StateCategory))]
+// Field definition DTOs (EPIC-004)
+[JsonSerializable(typeof(AdoFieldListResponse))]
+[JsonSerializable(typeof(AdoFieldResponse))]
 // GitHub Release DTOs (EPIC-005 — self-update)
 [JsonSerializable(typeof(GitHubRelease))]
 [JsonSerializable(typeof(List<GitHubRelease>))]

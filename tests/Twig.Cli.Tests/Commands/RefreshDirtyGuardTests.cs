@@ -22,6 +22,7 @@ public class RefreshDirtyGuardTests : IDisposable
     private readonly TwigConfiguration _config;
     private readonly TwigPaths _paths;
     private readonly IProcessTypeStore _processTypeStore;
+    private readonly IFieldDefinitionStore _fieldDefinitionStore;
     private readonly IContextStore _contextStore;
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IAdoWorkItemService _adoService;
@@ -43,6 +44,7 @@ public class RefreshDirtyGuardTests : IDisposable
         _config = new TwigConfiguration { Organization = "https://dev.azure.com/org", Project = "MyProject" };
         _paths = new TwigPaths(twigDir, configPath, dbPath);
         _processTypeStore = Substitute.For<IProcessTypeStore>();
+        _fieldDefinitionStore = Substitute.For<IFieldDefinitionStore>();
         _contextStore = Substitute.For<IContextStore>();
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _adoService = Substitute.For<IAdoWorkItemService>();
@@ -80,7 +82,7 @@ public class RefreshDirtyGuardTests : IDisposable
         var syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, _protectedCacheWriter, 30);
         var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, _iterationService, null);
         return new(_contextStore, _workItemRepo, _adoService, _iterationService,
-            _pendingChangeStore, _protectedCacheWriter, _config, _paths, _processTypeStore, _formatterFactory,
+            _pendingChangeStore, _protectedCacheWriter, _config, _paths, _processTypeStore, _fieldDefinitionStore, _formatterFactory,
             workingSetService, syncCoordinator);
     }
 

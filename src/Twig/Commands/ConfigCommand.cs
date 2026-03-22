@@ -77,6 +77,11 @@ public sealed class ConfigCommand(
             "flow.autoassign" => config.Flow.AutoAssign,
             "flow.autosaveondone" => config.Flow.AutoSaveOnDone.ToString(),
             "flow.offerprondone" => config.Flow.OfferPrOnDone.ToString(),
+            "display.fillratethreshold" => config.Display.FillRateThreshold.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "display.maxextracolumns" => config.Display.MaxExtraColumns.ToString(),
+            "display.columns.workspace" => config.Display.Columns?.Workspace is { Count: > 0 } ws ? string.Join(";", ws) : null,
+            "display.columns.sprint" => config.Display.Columns?.Sprint is { Count: > 0 } sp ? string.Join(";", sp) : null,
+            "display.cachestaleminutes" => config.Display.CacheStaleMinutes.ToString(),
             _ => null,
         };
     }

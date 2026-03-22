@@ -17,7 +17,8 @@ public interface IAsyncRenderer
         IAsyncEnumerable<WorkspaceDataChunk> getWorkspaceData,
         int staleDays,
         bool isTeamView,
-        CancellationToken ct);
+        CancellationToken ct,
+        IReadOnlyList<Domain.ValueObjects.ColumnSpec>? dynamicColumns = null);
 
     Task RenderTreeAsync(
         Func<Task<WorkItem?>> getFocusedItem,

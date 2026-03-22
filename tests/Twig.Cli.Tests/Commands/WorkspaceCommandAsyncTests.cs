@@ -24,6 +24,7 @@ public class WorkspaceCommandAsyncTests
     private readonly IIterationService _iterationService;
     private readonly TwigConfiguration _config;
     private readonly IProcessTypeStore _processTypeStore;
+    private readonly IFieldDefinitionStore _fieldDefinitionStore;
     private readonly IAdoWorkItemService _adoService;
     private readonly ActiveItemResolver _activeItemResolver;
     private readonly TestConsole _testConsole;
@@ -40,6 +41,7 @@ public class WorkspaceCommandAsyncTests
         _iterationService = Substitute.For<IIterationService>();
         _config = new TwigConfiguration();
         _processTypeStore = Substitute.For<IProcessTypeStore>();
+        _fieldDefinitionStore = Substitute.For<IFieldDefinitionStore>();
         _adoService = Substitute.For<IAdoWorkItemService>();
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
@@ -72,7 +74,7 @@ public class WorkspaceCommandAsyncTests
 
     private WorkspaceCommand CreateCommand(RenderingPipelineFactory pipelineFactory) =>
         new(_contextStore, _workItemRepo, _iterationService, _config,
-            _formatterFactory, _hintEngine, _processTypeStore,
+            _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore,
             _activeItemResolver, _workingSetService, pipelineFactory);
 
     [Fact]
@@ -135,7 +137,7 @@ public class WorkspaceCommandAsyncTests
         var hintEngine = new HintEngine(new DisplayConfig { Hints = true });
         var pipelineFactory = CreateTtyPipelineFactory();
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService, _config,
-            _formatterFactory, hintEngine, _processTypeStore,
+            _formatterFactory, hintEngine, _processTypeStore, _fieldDefinitionStore,
             _activeItemResolver, _workingSetService, pipelineFactory);
 
         var result = await cmd.ExecuteAsync("human");

@@ -842,4 +842,125 @@ public class TwigConfigurationTests : IDisposable
         config.SetValue("GIT.HOOKS.PREPARECOMMITMSG", "false").ShouldBeTrue();
         config.Git.Hooks.PrepareCommitMsg.ShouldBeFalse();
     }
+
+    // --- EPIC-004 display.fillRateThreshold, display.maxExtraColumns, display.columns.* ---
+
+    [Fact]
+    public void SetValue_DisplayFillRateThreshold_ValidValue()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("display.fillratethreshold", "0.5").ShouldBeTrue();
+        config.Display.FillRateThreshold.ShouldBe(0.5);
+    }
+
+    [Fact]
+    public void SetValue_DisplayFillRateThreshold_ZeroAllowed()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("display.fillratethreshold", "0").ShouldBeTrue();
+        config.Display.FillRateThreshold.ShouldBe(0.0);
+    }
+
+    [Fact]
+    public void SetValue_DisplayFillRateThreshold_OneAllowed()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("display.fillratethreshold", "1").ShouldBeTrue();
+        config.Display.FillRateThreshold.ShouldBe(1.0);
+    }
+
+    [Fact]
+    public void SetValue_DisplayFillRateThreshold_OutOfRange_ReturnsFalse()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("display.fillratethreshold", "1.5").ShouldBeFalse();
+        config.Display.FillRateThreshold.ShouldBe(0.4); // unchanged from default
+    }
+
+    [Fact]
+    public void SetValue_DisplayFillRateThreshold_Negative_ReturnsFalse()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("display.fillratethreshold", "-0.1").ShouldBeFalse();
+    }
+
+    [Fact]
+    public void SetValue_DisplayFillRateThreshold_NonNumeric_ReturnsFalse()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("display.fillratethreshold", "high").ShouldBeFalse();
+    }
+
+    [Fact]
+    public void SetValue_DisplayMaxExtraColumns_ValidValue()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("display.maxextracolumns", "5").ShouldBeTrue();
+        config.Display.MaxExtraColumns.ShouldBe(5);
+    }
+
+    [Fact]
+    public void SetValue_DisplayMaxExtraColumns_Zero_Allowed()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("display.maxextracolumns", "0").ShouldBeTrue();
+        config.Display.MaxExtraColumns.ShouldBe(0);
+    }
+
+    [Fact]
+    public void SetValue_DisplayMaxExtraColumns_Negative_ReturnsFalse()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("display.maxextracolumns", "-1").ShouldBeFalse();
+        config.Display.MaxExtraColumns.ShouldBe(3); // unchanged from default
+    }
+
+    [Fact]
+    public void SetValue_DisplayMaxExtraColumns_NonNumeric_ReturnsFalse()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("display.maxextracolumns", "many").ShouldBeFalse();
+    }
+
+    [Fact]
+    public void SetValue_DisplayColumnsWorkspace_SemicolonSeparated()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("display.columns.workspace", "System.Tags;Microsoft.VSTS.Common.Priority").ShouldBeTrue();
+        config.Display.Columns.ShouldNotBeNull();
+        config.Display.Columns!.Workspace.ShouldNotBeNull();
+        config.Display.Columns.Workspace!.Count.ShouldBe(2);
+        config.Display.Columns.Workspace[0].ShouldBe("System.Tags");
+        config.Display.Columns.Workspace[1].ShouldBe("Microsoft.VSTS.Common.Priority");
+    }
+
+    [Fact]
+    public void SetValue_DisplayColumnsSprint_SemicolonSeparated()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("display.columns.sprint", "System.AssignedTo;Microsoft.VSTS.Common.Priority").ShouldBeTrue();
+        config.Display.Columns.ShouldNotBeNull();
+        config.Display.Columns!.Sprint.ShouldNotBeNull();
+        config.Display.Columns.Sprint!.Count.ShouldBe(2);
+        config.Display.Columns.Sprint[0].ShouldBe("System.AssignedTo");
+        config.Display.Columns.Sprint[1].ShouldBe("Microsoft.VSTS.Common.Priority");
+    }
+
+    [Fact]
+    public void SetValue_DisplayColumnsWorkspace_TrimsWhitespace()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("display.columns.workspace", " System.Tags ; Microsoft.VSTS.Common.Priority ").ShouldBeTrue();
+        config.Display.Columns!.Workspace![0].ShouldBe("System.Tags");
+        config.Display.Columns.Workspace[1].ShouldBe("Microsoft.VSTS.Common.Priority");
+    }
+
+    [Fact]
+    public void DisplayConfig_HasCorrectDefaults_Epic004()
+    {
+        var config = new TwigConfiguration();
+        config.Display.FillRateThreshold.ShouldBe(0.4);
+        config.Display.MaxExtraColumns.ShouldBe(3);
+        config.Display.Columns.ShouldBeNull();
+    }
 }

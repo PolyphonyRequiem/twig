@@ -21,13 +21,15 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         IAsyncEnumerable<WorkspaceDataChunk> data,
         int staleDays,
         bool isTeamView,
-        CancellationToken ct)
+        CancellationToken ct,
+        IReadOnlyList<Domain.ValueObjects.ColumnSpec>? dynamicColumns = null)
     {
-        var table = SpectreTheme.CreateWorkspaceTable(isTeamView);
+        var table = SpectreTheme.CreateWorkspaceTable(isTeamView, dynamicColumns);
         string? savedCaption = null;
         var loadingCleared = false;
         int? activeContextId = null;
-        var colCount = isTeamView ? 5 : 4;
+        var dynamicCount = dynamicColumns?.Count ?? 0;
+        var colCount = (isTeamView ? 5 : 4) + dynamicCount;
         var emptyRow = new string[colCount];
         for (var i = 0; i < colCount; i++) emptyRow[i] = "";
         emptyRow[0] = "[dim]Loading workspace...[/]";
@@ -68,8 +70,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                                 headerRow[0] = $"[bold dim]{SpectreTheme.FormatCategoryHeader(category)}[/]";
                                 headerRow[1] = "";
                                 headerRow[2] = $"[dim]({catItems.Count})[/]";
-                                headerRow[3] = "";
-                                if (isTeamView) headerRow[4] = "";
+                                for (var ci = 3; ci < colCount; ci++) headerRow[ci] = "";
                                 table.AddRow(headerRow);
 
                                 foreach (var item in catItems)
@@ -78,23 +79,29 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                                     var marker = isActive ? "[aqua]►[/] " : "";
                                     var boldOpen = isActive ? "[bold]" : "";
                                     var boldClose = isActive ? "[/]" : "";
+
+                                    var row = new List<string>
+                                    {
+                                        $"{marker}{boldOpen}{item.Id}{boldClose}",
+                                        _theme.FormatTypeBadge(item.Type),
+                                        $"{boldOpen}{Markup.Escape(item.Title)}{boldClose}",
+                                        _theme.FormatState(item.State),
+                                    };
+
                                     if (isTeamView)
+                                        row.Add(Markup.Escape(item.AssignedTo ?? "(unassigned)"));
+
+                                    if (dynamicColumns is not null)
                                     {
-                                        table.AddRow(
-                                            $"{marker}{boldOpen}{item.Id}{boldClose}",
-                                            _theme.FormatTypeBadge(item.Type),
-                                            $"{boldOpen}{Markup.Escape(item.Title)}{boldClose}",
-                                            _theme.FormatState(item.State),
-                                            Markup.Escape(item.AssignedTo ?? "(unassigned)"));
+                                        foreach (var col in dynamicColumns)
+                                        {
+                                            item.Fields.TryGetValue(col.ReferenceName, out var fieldVal);
+                                            var formatted = Formatters.FormatterHelpers.FormatFieldValue(fieldVal, col.DataType);
+                                            row.Add(Markup.Escape(formatted));
+                                        }
                                     }
-                                    else
-                                    {
-                                        table.AddRow(
-                                            $"{marker}{boldOpen}{item.Id}{boldClose}",
-                                            _theme.FormatTypeBadge(item.Type),
-                                            $"{boldOpen}{Markup.Escape(item.Title)}{boldClose}",
-                                            _theme.FormatState(item.State));
-                                    }
+
+                                    table.AddRow(row.ToArray());
                                 }
                             }
                             ctx.Refresh();
@@ -109,7 +116,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                                 seedSepRow[1] = "[dim]───[/]";
                                 seedSepRow[2] = "[dim]Seeds[/]";
                                 seedSepRow[3] = "[dim]───[/]";
-                                if (isTeamView) seedSepRow[4] = "[dim]───[/]";
+                                for (var si = 4; si < colCount; si++) seedSepRow[si] = "[dim]───[/]";
                                 table.AddRow(seedSepRow);
 
                                 foreach (var seed in seeds)
@@ -117,23 +124,29 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                                     var staleMarker = seed.SeedCreatedAt.HasValue
                                         && seed.SeedCreatedAt.Value < DateTimeOffset.UtcNow.AddDays(-staleDays)
                                         ? " [yellow]⚠ stale[/]" : "";
+
+                                    var seedRow = new List<string>
+                                    {
+                                        seed.Id < 0 ? $"[dim]{seed.Id}[/]" : seed.Id.ToString(),
+                                        _theme.FormatTypeBadge(seed.Type),
+                                        Markup.Escape(seed.Title) + staleMarker,
+                                        _theme.FormatState(seed.State),
+                                    };
+
                                     if (isTeamView)
+                                        seedRow.Add(Markup.Escape(seed.AssignedTo ?? "(unassigned)"));
+
+                                    if (dynamicColumns is not null)
                                     {
-                                        table.AddRow(
-                                            seed.Id < 0 ? $"[dim]{seed.Id}[/]" : seed.Id.ToString(),
-                                            _theme.FormatTypeBadge(seed.Type),
-                                            Markup.Escape(seed.Title) + staleMarker,
-                                            _theme.FormatState(seed.State),
-                                            Markup.Escape(seed.AssignedTo ?? "(unassigned)"));
+                                        foreach (var col in dynamicColumns)
+                                        {
+                                            seed.Fields.TryGetValue(col.ReferenceName, out var fieldVal);
+                                            var formatted = Formatters.FormatterHelpers.FormatFieldValue(fieldVal, col.DataType);
+                                            seedRow.Add(Markup.Escape(formatted));
+                                        }
                                     }
-                                    else
-                                    {
-                                        table.AddRow(
-                                            seed.Id < 0 ? $"[dim]{seed.Id}[/]" : seed.Id.ToString(),
-                                            _theme.FormatTypeBadge(seed.Type),
-                                            Markup.Escape(seed.Title) + staleMarker,
-                                            _theme.FormatState(seed.State));
-                                    }
+
+                                    table.AddRow(seedRow.ToArray());
                                 }
                             }
                             ctx.Refresh();

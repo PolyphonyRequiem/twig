@@ -426,9 +426,10 @@ public class CacheFirstReadCommandTests
             .Returns(Array.Empty<WorkItem>());
 
         var processTypeStore = Substitute.For<IProcessTypeStore>();
+        var fieldDefinitionStore = Substitute.For<IFieldDefinitionStore>();
         var config = new TwigConfiguration();
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, iterationService, config,
-            _formatterFactory, _hintEngine, processTypeStore, _activeItemResolver, _workingSetService);
+            _formatterFactory, _hintEngine, processTypeStore, fieldDefinitionStore, _activeItemResolver, _workingSetService);
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);

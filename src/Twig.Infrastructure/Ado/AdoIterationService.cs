@@ -171,6 +171,35 @@ internal sealed class AdoIterationService : IIterationService
         }
     }
 
+    public async Task<IReadOnlyList<FieldDefinition>> GetFieldDefinitionsAsync(CancellationToken ct = default)
+    {
+        var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/wit/fields?api-version={ApiVersion}";
+        try
+        {
+            using var response = await SendAsync(url, ct);
+            await using var stream = await response.Content.ReadAsStreamAsync(ct);
+            var result = await JsonSerializer.DeserializeAsync(stream, TwigJsonContext.Default.AdoFieldListResponse, ct);
+
+            if (result?.Value is null || result.Value.Count == 0)
+                return Array.Empty<FieldDefinition>();
+
+            var defs = new List<FieldDefinition>(result.Value.Count);
+            foreach (var f in result.Value)
+            {
+                if (f.ReferenceName is null || f.Name is null)
+                    continue;
+                defs.Add(new FieldDefinition(f.ReferenceName, f.Name, f.Type ?? "string", f.ReadOnly));
+            }
+            return defs;
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex) when (ex is AdoNotFoundException or AdoException)
+        {
+            Console.Error.WriteLine($"⚠ Could not fetch field definitions: {ex.Message}. Dynamic columns will use derived display names.");
+            return Array.Empty<FieldDefinition>();
+        }
+    }
+
     public async Task<IReadOnlyList<(string Path, bool IncludeChildren)>> GetTeamAreaPathsAsync(CancellationToken ct = default)
     {
         var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/{Uri.EscapeDataString(_team)}/_apis/work/teamsettings/teamfieldvalues?api-version={ApiVersion}";

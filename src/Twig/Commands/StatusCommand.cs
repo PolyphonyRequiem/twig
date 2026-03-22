@@ -82,9 +82,7 @@ public sealed class StatusCommand(
                         Task.FromResult<Spectre.Console.Rendering.IRenderable>(
                             new Spectre.Console.Text(" ")),
                     performSync: () => syncCoordinator.SyncWorkingSetAsync(workingSet),
-                    buildRevisedView: syncResult => syncResult is SyncResult.Updated
-                        ? Task.FromResult<Spectre.Console.Rendering.IRenderable?>(null)
-                        : Task.FromResult<Spectre.Console.Rendering.IRenderable?>(null),
+                    buildRevisedView: syncResult => Task.FromResult<Spectre.Console.Rendering.IRenderable?>(null),
                     CancellationToken.None);
             }
             catch (OperationCanceledException) { throw; }

@@ -2,7 +2,7 @@ using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.ReadModels;
 using Twig.Domain.Services;
-using Twig.Domain.ValueObjects;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Domain.Tests.ReadModels;
@@ -16,10 +16,10 @@ public class WorkTreeTests
     [Fact]
     public void Build_SetsAllProperties()
     {
-        var focus = MakeItem(10, "Focus item");
-        var parent = MakeItem(5, "Parent");
-        var child1 = MakeItem(20, "Child 1");
-        var child2 = MakeItem(21, "Child 2");
+        var focus = WorkItemBuilder.Simple(10, "Focus item");
+        var parent = WorkItemBuilder.Simple(5, "Parent");
+        var child1 = WorkItemBuilder.Simple(20, "Child 1");
+        var child2 = WorkItemBuilder.Simple(21, "Child 2");
 
         var tree = WorkTree.Build(focus, new[] { parent }, new[] { child1, child2 });
 
@@ -32,12 +32,12 @@ public class WorkTreeTests
     [Fact]
     public void Build_ThreeLevelTree()
     {
-        var grandparent = MakeItem(1, "Epic");
-        var parent = MakeItem(5, "Feature");
-        var focus = MakeItem(10, "User Story");
-        var child1 = MakeItem(20, "Task A");
-        var child2 = MakeItem(21, "Task B");
-        var child3 = MakeItem(22, "Task C");
+        var grandparent = WorkItemBuilder.Simple(1, "Epic");
+        var parent = WorkItemBuilder.Simple(5, "Feature");
+        var focus = WorkItemBuilder.Simple(10, "User Story");
+        var child1 = WorkItemBuilder.Simple(20, "Task A");
+        var child2 = WorkItemBuilder.Simple(21, "Task B");
+        var child3 = WorkItemBuilder.Simple(22, "Task C");
 
         var tree = WorkTree.Build(focus, new[] { grandparent, parent }, new[] { child1, child2, child3 });
 
@@ -55,8 +55,8 @@ public class WorkTreeTests
     [Fact]
     public void MoveUp_FromChild_ReturnsParentId()
     {
-        var parent = MakeItem(5, "Parent");
-        var focus = MakeItem(10, "Focus");
+        var parent = WorkItemBuilder.Simple(5, "Parent");
+        var focus = WorkItemBuilder.Simple(10, "Focus");
 
         var tree = WorkTree.Build(focus, new[] { parent }, Array.Empty<WorkItem>());
 
@@ -66,7 +66,7 @@ public class WorkTreeTests
     [Fact]
     public void MoveUp_FromRoot_ReturnsNull()
     {
-        var focus = MakeItem(10, "Root");
+        var focus = WorkItemBuilder.Simple(10, "Root");
 
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), Array.Empty<WorkItem>());
 
@@ -76,9 +76,9 @@ public class WorkTreeTests
     [Fact]
     public void MoveUp_ThreeLevels_ReturnsImmediateParent()
     {
-        var grandparent = MakeItem(1, "Grandparent");
-        var parent = MakeItem(5, "Parent");
-        var focus = MakeItem(10, "Focus");
+        var grandparent = WorkItemBuilder.Simple(1, "Grandparent");
+        var parent = WorkItemBuilder.Simple(5, "Parent");
+        var focus = WorkItemBuilder.Simple(10, "Focus");
 
         var tree = WorkTree.Build(focus, new[] { grandparent, parent }, Array.Empty<WorkItem>());
 
@@ -93,8 +93,8 @@ public class WorkTreeTests
     [Fact]
     public void MoveDown_ExactId_ReturnsChildId()
     {
-        var focus = MakeItem(10, "Focus");
-        var child = MakeItem(20, "Child");
+        var focus = WorkItemBuilder.Simple(10, "Focus");
+        var child = WorkItemBuilder.Simple(20, "Child");
 
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child });
 
@@ -107,8 +107,8 @@ public class WorkTreeTests
     [Fact]
     public void MoveDown_ExactId_NotFound_Fails()
     {
-        var focus = MakeItem(10, "Focus");
-        var child = MakeItem(20, "Child");
+        var focus = WorkItemBuilder.Simple(10, "Focus");
+        var child = WorkItemBuilder.Simple(20, "Child");
 
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child });
 
@@ -125,9 +125,9 @@ public class WorkTreeTests
     [Fact]
     public void MoveDown_PatternSingleMatch_ReturnsChildId()
     {
-        var focus = MakeItem(10, "Focus");
-        var child1 = MakeItem(20, "Fix login bug");
-        var child2 = MakeItem(21, "Add dashboard");
+        var focus = WorkItemBuilder.Simple(10, "Focus");
+        var child1 = WorkItemBuilder.Simple(20, "Fix login bug");
+        var child2 = WorkItemBuilder.Simple(21, "Add dashboard");
 
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child1, child2 });
 
@@ -144,9 +144,9 @@ public class WorkTreeTests
     [Fact]
     public void MoveDown_PatternMultiMatch_ReturnsAmbiguousError()
     {
-        var focus = MakeItem(10, "Focus");
-        var child1 = MakeItem(20, "Fix bug A");
-        var child2 = MakeItem(21, "Fix bug B");
+        var focus = WorkItemBuilder.Simple(10, "Focus");
+        var child1 = WorkItemBuilder.Simple(20, "Fix bug A");
+        var child2 = WorkItemBuilder.Simple(21, "Fix bug B");
 
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child1, child2 });
 
@@ -163,8 +163,8 @@ public class WorkTreeTests
     [Fact]
     public void MoveDown_PatternNoMatch_ReturnsError()
     {
-        var focus = MakeItem(10, "Focus");
-        var child = MakeItem(20, "Alpha task");
+        var focus = WorkItemBuilder.Simple(10, "Focus");
+        var child = WorkItemBuilder.Simple(20, "Alpha task");
 
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child });
 
@@ -181,9 +181,9 @@ public class WorkTreeTests
     [Fact]
     public void FindByPattern_DelegatesToPatternMatcher()
     {
-        var focus = MakeItem(10, "Focus");
-        var child1 = MakeItem(20, "Login flow");
-        var child2 = MakeItem(21, "Logout flow");
+        var focus = WorkItemBuilder.Simple(10, "Focus");
+        var child1 = WorkItemBuilder.Simple(20, "Login flow");
+        var child2 = WorkItemBuilder.Simple(21, "Logout flow");
 
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child1, child2 });
 
@@ -196,8 +196,8 @@ public class WorkTreeTests
     [Fact]
     public void FindByPattern_NumericId_MatchesById()
     {
-        var focus = MakeItem(10, "Focus");
-        var child = MakeItem(20, "Some task");
+        var focus = WorkItemBuilder.Simple(10, "Focus");
+        var child = WorkItemBuilder.Simple(20, "Some task");
 
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child });
 
@@ -214,7 +214,7 @@ public class WorkTreeTests
     [Fact]
     public void EmptyChildren_MoveDown_NoMatch()
     {
-        var focus = MakeItem(10, "Focus");
+        var focus = WorkItemBuilder.Simple(10, "Focus");
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), Array.Empty<WorkItem>());
 
         var result = tree.MoveDown("anything");
@@ -225,7 +225,7 @@ public class WorkTreeTests
     [Fact]
     public void EmptyChildren_FindByPattern_NoMatch()
     {
-        var focus = MakeItem(10, "Focus");
+        var focus = WorkItemBuilder.Simple(10, "Focus");
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), Array.Empty<WorkItem>());
 
         var result = tree.FindByPattern("anything");
@@ -233,18 +233,4 @@ public class WorkTreeTests
         result.ShouldBeOfType<MatchResult.NoMatch>();
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  Helpers
-    // ═══════════════════════════════════════════════════════════════
-
-    private static WorkItem MakeItem(int id, string title)
-    {
-        return new WorkItem
-        {
-            Id = id,
-            Type = WorkItemType.Task,
-            Title = title,
-            State = "New",
-        };
-    }
 }

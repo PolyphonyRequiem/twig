@@ -6,6 +6,7 @@
     <Project Path="src/Twig.Tui/Twig.Tui.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Twig.TestKit/Twig.TestKit.csproj" />
     <Project Path="tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj" />
     <Project Path="tests/Twig.Domain.Tests/Twig.Domain.Tests.csproj" />
     <Project Path="tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj" />

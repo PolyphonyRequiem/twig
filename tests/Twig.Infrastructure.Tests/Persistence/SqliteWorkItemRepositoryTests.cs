@@ -299,6 +299,128 @@ public class SqliteWorkItemRepositoryTests : IDisposable
         loaded.Type.Value.ShouldBe("Scenario");
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    //  EPIC-002 Task 5: SQLite busy timeout under contention
+    //  Two threads: one doing SaveBatchAsync (large batch), one
+    //  doing GetByIdAsync during the save. Verify: reader succeeds
+    //  (WAL mode allows concurrent read), no SqliteException.
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ConcurrentReadDuringSaveBatch_WalModeAllowsConcurrentRead_NoException()
+    {
+        var dbPath = Path.Combine(Path.GetTempPath(), $"twig_test_{Guid.NewGuid():N}.db");
+        try
+        {
+            // Create the database and seed one item that the reader will query
+            using var writerStore = new SqliteCacheStore($"Data Source={dbPath}");
+            var writerRepo = new SqliteWorkItemRepository(writerStore);
+
+            var seedItem = CreateWorkItem(999, "Task", "Seed Item", "Active");
+            await writerRepo.SaveAsync(seedItem);
+
+            // Create a second connection for reading (simulates concurrent access)
+            using var readerStore = new SqliteCacheStore($"Data Source={dbPath}");
+            var readerRepo = new SqliteWorkItemRepository(readerStore);
+
+            // Prepare a large batch for the writer
+            var largeBatch = Enumerable.Range(1, 100)
+                .Select(i => CreateWorkItem(i, "Task", $"Batch Item {i}", "Active"))
+                .ToList();
+
+            // Run writer and reader concurrently
+            var writerTask = Task.Run(async () =>
+            {
+                await writerRepo.SaveBatchAsync(largeBatch);
+            });
+
+            var readerTask = Task.Run(async () =>
+            {
+                // Attempt reads while the writer is saving
+                for (var i = 0; i < 10; i++)
+                {
+                    var item = await readerRepo.GetByIdAsync(999);
+                    item.ShouldNotBeNull();
+                    item.Title.ShouldBe("Seed Item");
+                    await Task.Delay(5);
+                }
+            });
+
+            // Both should complete without SqliteException
+            await Task.WhenAll(writerTask, readerTask);
+
+            // Final consistency check: all batch items persisted
+            for (var i = 1; i <= 100; i++)
+            {
+                var item = await readerRepo.GetByIdAsync(i);
+                item.ShouldNotBeNull();
+            }
+        }
+        finally
+        {
+            // Clean up temp files
+            foreach (var file in Directory.GetFiles(Path.GetTempPath(), Path.GetFileName(dbPath) + "*"))
+            {
+                try { File.Delete(file); } catch { /* best effort */ }
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  EPIC-002 Task 6: Transaction rollback on partial batch save
+    //  SaveBatchAsync with 10 items, trigger failure on item 7.
+    //  Verify: transaction rolled back, items 1–6 NOT persisted,
+    //  exception surfaced to caller.
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SaveBatchAsync_FailureOnItem7_RollsBackAllItems()
+    {
+        var dbPath = Path.Combine(Path.GetTempPath(), $"twig_test_{Guid.NewGuid():N}.db");
+        try
+        {
+            using var store = new SqliteCacheStore($"Data Source={dbPath}");
+            var repo = new SqliteWorkItemRepository(store);
+
+            // Add a trigger that rejects inserts for item with id=7
+            var conn = store.GetConnection();
+            using var triggerCmd = conn.CreateCommand();
+            triggerCmd.CommandText = """
+                CREATE TRIGGER fail_on_item_7
+                BEFORE INSERT ON work_items
+                WHEN NEW.id = 7
+                BEGIN
+                    SELECT RAISE(ABORT, 'Simulated failure on item 7');
+                END;
+                """;
+            triggerCmd.ExecuteNonQuery();
+
+            // Create 10 items, item 7 will trigger the failure
+            var items = Enumerable.Range(1, 10)
+                .Select(i => CreateWorkItem(i, "Task", $"Item {i}", "Active"))
+                .ToList();
+
+            // SaveBatchAsync should throw due to the trigger
+            var ex = await Should.ThrowAsync<Microsoft.Data.Sqlite.SqliteException>(
+                () => repo.SaveBatchAsync(items));
+            ex.Message.ShouldContain("Simulated failure on item 7");
+
+            // Transaction was rolled back: items 1–6 should NOT be persisted
+            for (var i = 1; i <= 10; i++)
+            {
+                var loaded = await repo.GetByIdAsync(i);
+                loaded.ShouldBeNull($"Item {i} should not be persisted after rollback");
+            }
+        }
+        finally
+        {
+            foreach (var file in Directory.GetFiles(Path.GetTempPath(), Path.GetFileName(dbPath) + "*"))
+            {
+                try { File.Delete(file); } catch { /* best effort */ }
+            }
+        }
+    }
+
     private static WorkItem CreateWorkItem(
         int id, string type, string title, string state,
         int? parentId = null, string? assignedTo = null,

@@ -678,6 +678,22 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                         ctx.Refresh();
                         break;
 
+                    case SyncResult.PartiallyUpdated partial:
+                        var partialRevisedView = await buildRevisedView(partial);
+                        var partialDisplayView = partialRevisedView ?? cachedView;
+                        var savedLabel = partial.SavedCount == 1
+                            ? "1 item updated"
+                            : $"{partial.SavedCount} items updated";
+                        var failedLabel = partial.Failures.Count == 1
+                            ? "1 failed"
+                            : $"{partial.Failures.Count} failed";
+                        ctx.UpdateTarget(new Rows(partialDisplayView, new Markup($"[yellow]⚠ {savedLabel}, {failedLabel}[/]")));
+                        ctx.Refresh();
+                        await Task.Delay(SyncStatusDelay, ct);
+                        ctx.UpdateTarget(partialDisplayView);
+                        ctx.Refresh();
+                        break;
+
                     case SyncResult.Failed failed:
                         var reason = string.IsNullOrWhiteSpace(failed.Reason) ? "offline" : Markup.Escape(failed.Reason);
                         ctx.UpdateTarget(new Rows(cachedView, new Markup($"[yellow]⚠ sync failed ({reason})[/]")));

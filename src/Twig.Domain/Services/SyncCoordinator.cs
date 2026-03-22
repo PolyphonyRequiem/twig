@@ -1,3 +1,4 @@
+using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 
 namespace Twig.Domain.Services;
@@ -92,13 +93,35 @@ public sealed class SyncCoordinator
             if (staleIds.Count == 0)
                 return new SyncResult.UpToDate();
 
-            // 3. Fetch all stale items concurrently
-            var fetchTasks = staleIds.Select(id => _adoService.FetchAsync(id, ct));
-            var fetchedItems = await Task.WhenAll(fetchTasks);
+            // 3. Fetch all stale items concurrently, handling individual failures
+            var fetchTasks = staleIds.Select(async id =>
+            {
+                try
+                {
+                    var item = await _adoService.FetchAsync(id, ct);
+                    return (Id: id, Item: item, Error: (Exception?)null);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    return (Id: id, Item: (WorkItem?)null, Error: ex);
+                }
+            });
+            var fetchResults = await Task.WhenAll(fetchTasks);
+
+            var fetchedItems = fetchResults.Where(r => r.Item is not null).Select(r => r.Item!).ToArray();
+            var fetchFailures = fetchResults.Where(r => r.Error is not null)
+                .Select(r => new SyncItemFailure(r.Id, r.Error!.Message))
+                .ToList();
 
             // 4. Save the batch through SaveBatchProtectedAsync (computes protected IDs once)
             var skippedIds = await _protectedCacheWriter.SaveBatchProtectedAsync(fetchedItems, ct);
             var savedCount = fetchedItems.Length - skippedIds.Count;
+
+            if (fetchFailures.Count > 0 && fetchedItems.Length > 0)
+                return new SyncResult.PartiallyUpdated(savedCount, fetchFailures);
+
+            if (fetchFailures.Count > 0)
+                return new SyncResult.Failed(string.Join("; ", fetchFailures.Select(f => $"#{f.Id}: {f.Error}")));
 
             return new SyncResult.Updated(savedCount);
         }

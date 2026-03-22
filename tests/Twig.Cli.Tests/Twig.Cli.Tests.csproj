@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Twig\Twig.csproj" />
+    <ProjectReference Include="..\Twig.TestKit\Twig.TestKit.csproj" />
   </ItemGroup>
 
 </Project>

@@ -3,7 +3,7 @@ using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
-using Twig.Domain.ValueObjects;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Domain.Tests.Services;
@@ -37,8 +37,8 @@ public class SyncGuardTests
     {
         _repo.GetDirtyItemsAsync().Returns(new[]
         {
-            MakeItem(10),
-            MakeItem(20),
+            new WorkItemBuilder(10, "Item 10").Build(),
+            new WorkItemBuilder(20, "Item 20").Build(),
         });
         _pendingStore.GetDirtyItemIdsAsync().Returns(Array.Empty<int>());
 
@@ -73,7 +73,7 @@ public class SyncGuardTests
     [Fact]
     public async Task GetProtectedItemIdsAsync_BothSources_ReturnsUnion()
     {
-        _repo.GetDirtyItemsAsync().Returns(new[] { MakeItem(10) });
+        _repo.GetDirtyItemsAsync().Returns(new[] { new WorkItemBuilder(10, "Item 10").Build() });
         _pendingStore.GetDirtyItemIdsAsync().Returns(new[] { 20 });
 
         var result = await SyncGuard.GetProtectedItemIdsAsync(_repo, _pendingStore);
@@ -92,8 +92,8 @@ public class SyncGuardTests
     {
         _repo.GetDirtyItemsAsync().Returns(new[]
         {
-            MakeItem(10),
-            MakeItem(20),
+            new WorkItemBuilder(10, "Item 10").Build(),
+            new WorkItemBuilder(20, "Item 20").Build(),
         });
         _pendingStore.GetDirtyItemIdsAsync().Returns(new[] { 20, 30 });
 
@@ -122,15 +122,4 @@ public class SyncGuardTests
         await _pendingStore.Received(1).GetDirtyItemIdsAsync(cts.Token);
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  Helpers
-    // ═══════════════════════════════════════════════════════════════
-
-    private static WorkItem MakeItem(int id) => new()
-    {
-        Id = id,
-        Type = WorkItemType.Task,
-        Title = $"Item {id}",
-        State = "New",
-    };
 }

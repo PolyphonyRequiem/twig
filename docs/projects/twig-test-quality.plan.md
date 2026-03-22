@@ -1,6 +1,6 @@
 # Twig Test Quality — Improvement Plan
 
-> **Status:** Draft  
+> **Status:** IN PROGRESS (EPIC-001)  
 > **Date:** 2026-03-21  
 > **Scope:** All 4 test projects (148 test files, ~1,878 test methods)
 

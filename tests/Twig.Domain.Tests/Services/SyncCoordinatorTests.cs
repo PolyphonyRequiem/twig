@@ -4,7 +4,7 @@ using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
-using Twig.Domain.ValueObjects;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Domain.Tests.Services;
@@ -35,7 +35,7 @@ public class SyncCoordinatorTests
     [Fact]
     public async Task SyncItemAsync_FreshItem_ReturnsUpToDate()
     {
-        var item = MakeItem(42, lastSyncedAt: DateTimeOffset.UtcNow.AddMinutes(-5));
+        var item = new WorkItemBuilder(42, "Item 42").InState("Active").LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-5)).Build();
         _workItemRepo.GetByIdAsync(42).Returns(item);
 
         var result = await _sut.SyncItemAsync(42);
@@ -51,10 +51,10 @@ public class SyncCoordinatorTests
     [Fact]
     public async Task SyncItemAsync_StaleItem_FetchesAndReturnsUpdated()
     {
-        var staleItem = MakeItem(42, lastSyncedAt: DateTimeOffset.UtcNow.AddMinutes(-60));
+        var staleItem = new WorkItemBuilder(42, "Item 42").InState("Active").LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-60)).Build();
         _workItemRepo.GetByIdAsync(42).Returns(staleItem);
 
-        var fetched = MakeItem(42);
+        var fetched = new WorkItemBuilder(42, "Item 42").InState("Active").Build();
         _adoService.FetchAsync(42).Returns(fetched);
 
         var result = await _sut.SyncItemAsync(42);
@@ -71,10 +71,10 @@ public class SyncCoordinatorTests
     [Fact]
     public async Task SyncItemAsync_NullLastSyncedAt_TreatedAsStale()
     {
-        var item = MakeItem(42, lastSyncedAt: null);
+        var item = new WorkItemBuilder(42, "Item 42").InState("Active").LastSyncedAt(null).Build();
         _workItemRepo.GetByIdAsync(42).Returns(item);
 
-        var fetched = MakeItem(42);
+        var fetched = new WorkItemBuilder(42, "Item 42").InState("Active").Build();
         _adoService.FetchAsync(42).Returns(fetched);
 
         var result = await _sut.SyncItemAsync(42);
@@ -92,7 +92,7 @@ public class SyncCoordinatorTests
     {
         _workItemRepo.GetByIdAsync(42).Returns((WorkItem?)null);
 
-        var fetched = MakeItem(42);
+        var fetched = new WorkItemBuilder(42, "Item 42").InState("Active").Build();
         _adoService.FetchAsync(42).Returns(fetched);
 
         var result = await _sut.SyncItemAsync(42);
@@ -108,11 +108,11 @@ public class SyncCoordinatorTests
     [Fact]
     public async Task SyncItemAsync_StaleProtectedItem_ReturnsSkipped()
     {
-        var staleItem = MakeItem(42, lastSyncedAt: DateTimeOffset.UtcNow.AddMinutes(-60));
+        var staleItem = new WorkItemBuilder(42, "Item 42").InState("Active").LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-60)).Build();
         _workItemRepo.GetByIdAsync(42).Returns(staleItem);
         _pendingStore.GetDirtyItemIdsAsync().Returns(new[] { 42 });
 
-        var fetched = MakeItem(42);
+        var fetched = new WorkItemBuilder(42, "Item 42").InState("Active").Build();
         _adoService.FetchAsync(42).Returns(fetched);
 
         var result = await _sut.SyncItemAsync(42);
@@ -144,7 +144,7 @@ public class SyncCoordinatorTests
     [Fact]
     public async Task SyncChildrenAsync_AlwaysFetchesRegardlessOfStaleness()
     {
-        var children = new[] { MakeItem(10), MakeItem(11), MakeItem(12) };
+        var children = new[] { new WorkItemBuilder(10, "Item 10").InState("Active").Build(), new WorkItemBuilder(11, "Item 11").InState("Active").Build(), new WorkItemBuilder(12, "Item 12").InState("Active").Build() };
         _adoService.FetchChildrenAsync(1).Returns(children);
 
         var result = await _sut.SyncChildrenAsync(1);
@@ -164,7 +164,7 @@ public class SyncCoordinatorTests
         // Item 11 is protected
         _pendingStore.GetDirtyItemIdsAsync().Returns(new[] { 11 });
 
-        var children = new[] { MakeItem(10), MakeItem(11), MakeItem(12) };
+        var children = new[] { new WorkItemBuilder(10, "Item 10").InState("Active").Build(), new WorkItemBuilder(11, "Item 11").InState("Active").Build(), new WorkItemBuilder(12, "Item 12").InState("Active").Build() };
         _adoService.FetchChildrenAsync(1).Returns(children);
 
         var result = await _sut.SyncChildrenAsync(1);
@@ -196,7 +196,7 @@ public class SyncCoordinatorTests
     public async Task SyncItemAsync_ExactlyAtThreshold_ReturnsUpToDate()
     {
         // LastSyncedAt is exactly cacheStaleMinutes - 1 second ago → still fresh
-        var item = MakeItem(42, lastSyncedAt: DateTimeOffset.UtcNow.AddMinutes(-CacheStaleMinutes).AddSeconds(1));
+        var item = new WorkItemBuilder(42, "Item 42").InState("Active").LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-CacheStaleMinutes).AddSeconds(1)).Build();
         _workItemRepo.GetByIdAsync(42).Returns(item);
 
         var result = await _sut.SyncItemAsync(42);
@@ -267,9 +267,9 @@ public class SyncCoordinatorTests
     public async Task SyncWorkingSetAsync_AllFresh_ReturnsUpToDate()
     {
         var fresh = DateTimeOffset.UtcNow.AddMinutes(-5);
-        _workItemRepo.GetByIdAsync(10).Returns(MakeItem(10, lastSyncedAt: fresh));
-        _workItemRepo.GetByIdAsync(11).Returns(MakeItem(11, lastSyncedAt: fresh));
-        _workItemRepo.GetByIdAsync(12).Returns(MakeItem(12, lastSyncedAt: fresh));
+        _workItemRepo.GetByIdAsync(10).Returns(new WorkItemBuilder(10, "Item 10").InState("Active").LastSyncedAt(fresh).Build());
+        _workItemRepo.GetByIdAsync(11).Returns(new WorkItemBuilder(11, "Item 11").InState("Active").LastSyncedAt(fresh).Build());
+        _workItemRepo.GetByIdAsync(12).Returns(new WorkItemBuilder(12, "Item 12").InState("Active").LastSyncedAt(fresh).Build());
 
         var ws = new WorkingSet
         {
@@ -293,12 +293,12 @@ public class SyncCoordinatorTests
         var fresh = DateTimeOffset.UtcNow.AddMinutes(-5);
         var stale = DateTimeOffset.UtcNow.AddMinutes(-60);
 
-        _workItemRepo.GetByIdAsync(10).Returns(MakeItem(10, lastSyncedAt: fresh));
-        _workItemRepo.GetByIdAsync(11).Returns(MakeItem(11, lastSyncedAt: stale));
-        _workItemRepo.GetByIdAsync(12).Returns(MakeItem(12, lastSyncedAt: stale));
+        _workItemRepo.GetByIdAsync(10).Returns(new WorkItemBuilder(10, "Item 10").InState("Active").LastSyncedAt(fresh).Build());
+        _workItemRepo.GetByIdAsync(11).Returns(new WorkItemBuilder(11, "Item 11").InState("Active").LastSyncedAt(stale).Build());
+        _workItemRepo.GetByIdAsync(12).Returns(new WorkItemBuilder(12, "Item 12").InState("Active").LastSyncedAt(stale).Build());
 
-        var fetched11 = MakeItem(11);
-        var fetched12 = MakeItem(12);
+        var fetched11 = new WorkItemBuilder(11, "Item 11").InState("Active").Build();
+        var fetched12 = new WorkItemBuilder(12, "Item 12").InState("Active").Build();
         _adoService.FetchAsync(11, Arg.Any<CancellationToken>()).Returns(fetched11);
         _adoService.FetchAsync(12, Arg.Any<CancellationToken>()).Returns(fetched12);
 
@@ -326,13 +326,13 @@ public class SyncCoordinatorTests
     {
         var stale = DateTimeOffset.UtcNow.AddMinutes(-60);
 
-        _workItemRepo.GetByIdAsync(10).Returns(MakeItem(10, lastSyncedAt: stale));
-        _workItemRepo.GetByIdAsync(11).Returns(MakeItem(11, lastSyncedAt: stale));
-        _workItemRepo.GetByIdAsync(12).Returns(MakeItem(12, lastSyncedAt: stale));
+        _workItemRepo.GetByIdAsync(10).Returns(new WorkItemBuilder(10, "Item 10").InState("Active").LastSyncedAt(stale).Build());
+        _workItemRepo.GetByIdAsync(11).Returns(new WorkItemBuilder(11, "Item 11").InState("Active").LastSyncedAt(stale).Build());
+        _workItemRepo.GetByIdAsync(12).Returns(new WorkItemBuilder(12, "Item 12").InState("Active").LastSyncedAt(stale).Build());
 
-        _adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(MakeItem(10));
-        _adoService.FetchAsync(11, Arg.Any<CancellationToken>()).Returns(MakeItem(11));
-        _adoService.FetchAsync(12, Arg.Any<CancellationToken>()).Returns(MakeItem(12));
+        _adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(10, "Item 10").InState("Active").Build());
+        _adoService.FetchAsync(11, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(11, "Item 11").InState("Active").Build());
+        _adoService.FetchAsync(12, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(12, "Item 12").InState("Active").Build());
 
         var ws = new WorkingSet
         {
@@ -353,7 +353,7 @@ public class SyncCoordinatorTests
     [Fact]
     public async Task SyncWorkingSetAsync_FetchFails_ReturnsFailed()
     {
-        _workItemRepo.GetByIdAsync(10).Returns(MakeItem(10, lastSyncedAt: null));
+        _workItemRepo.GetByIdAsync(10).Returns(new WorkItemBuilder(10, "Item 10").InState("Active").LastSyncedAt(null).Build());
         _adoService.FetchAsync(10, Arg.Any<CancellationToken>())
             .ThrowsAsync(new HttpRequestException("Network error"));
 
@@ -373,8 +373,8 @@ public class SyncCoordinatorTests
     public async Task SyncWorkingSetAsync_SeedIdsSkipped_OnlyPositiveIdsSynced()
     {
         var stale = DateTimeOffset.UtcNow.AddMinutes(-60);
-        _workItemRepo.GetByIdAsync(10).Returns(MakeItem(10, lastSyncedAt: stale));
-        _adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(MakeItem(10));
+        _workItemRepo.GetByIdAsync(10).Returns(new WorkItemBuilder(10, "Item 10").InState("Active").LastSyncedAt(stale).Build());
+        _adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(10, "Item 10").InState("Active").Build());
 
         var ws = new WorkingSet
         {
@@ -413,11 +413,11 @@ public class SyncCoordinatorTests
     public async Task SyncWorkingSetAsync_DirtyItemsSkippedByProtectedWriter_ReturnsUpdatedWithSavedCount()
     {
         var stale = DateTimeOffset.UtcNow.AddMinutes(-60);
-        _workItemRepo.GetByIdAsync(10).Returns(MakeItem(10, lastSyncedAt: stale));
-        _workItemRepo.GetByIdAsync(11).Returns(MakeItem(11, lastSyncedAt: stale));
+        _workItemRepo.GetByIdAsync(10).Returns(new WorkItemBuilder(10, "Item 10").InState("Active").LastSyncedAt(stale).Build());
+        _workItemRepo.GetByIdAsync(11).Returns(new WorkItemBuilder(11, "Item 11").InState("Active").LastSyncedAt(stale).Build());
 
-        _adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(MakeItem(10));
-        _adoService.FetchAsync(11, Arg.Any<CancellationToken>()).Returns(MakeItem(11));
+        _adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(10, "Item 10").InState("Active").Build());
+        _adoService.FetchAsync(11, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(11, "Item 11").InState("Active").Build());
 
         // Item 11 is dirty — ProtectedCacheWriter will skip it
         _pendingStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(new[] { 11 });
@@ -464,11 +464,11 @@ public class SyncCoordinatorTests
     public async Task SyncWorkingSetAsync_AllStaleProtectedByPendingStore_ReturnsUpdatedZero()
     {
         var stale = DateTimeOffset.UtcNow.AddMinutes(-60);
-        _workItemRepo.GetByIdAsync(10).Returns(MakeItem(10, lastSyncedAt: stale));
-        _workItemRepo.GetByIdAsync(11).Returns(MakeItem(11, lastSyncedAt: stale));
+        _workItemRepo.GetByIdAsync(10).Returns(new WorkItemBuilder(10, "Item 10").InState("Active").LastSyncedAt(stale).Build());
+        _workItemRepo.GetByIdAsync(11).Returns(new WorkItemBuilder(11, "Item 11").InState("Active").LastSyncedAt(stale).Build());
 
-        _adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(MakeItem(10));
-        _adoService.FetchAsync(11, Arg.Any<CancellationToken>()).Returns(MakeItem(11));
+        _adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(10, "Item 10").InState("Active").Build());
+        _adoService.FetchAsync(11, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(11, "Item 11").InState("Active").Build());
 
         // Items are protected by pending store (not in DirtyItemIds) — SaveBatchProtectedAsync skips all
         _pendingStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(new[] { 10, 11 });
@@ -492,7 +492,7 @@ public class SyncCoordinatorTests
     [Fact]
     public async Task SyncWorkingSetAsync_Cancellation_PropagatesException()
     {
-        _workItemRepo.GetByIdAsync(10).Returns(MakeItem(10, lastSyncedAt: null));
+        _workItemRepo.GetByIdAsync(10).Returns(new WorkItemBuilder(10, "Item 10").InState("Active").LastSyncedAt(null).Build());
         _adoService.FetchAsync(10, Arg.Any<CancellationToken>())
             .ThrowsAsync(new OperationCanceledException());
 
@@ -510,7 +510,7 @@ public class SyncCoordinatorTests
     public async Task SyncWorkingSetAsync_ItemNotInCache_TreatedAsStale()
     {
         _workItemRepo.GetByIdAsync(10).Returns((WorkItem?)null);
-        _adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(MakeItem(10));
+        _adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(10, "Item 10").InState("Active").Build());
 
         var ws = new WorkingSet { ActiveItemId = 10 };
 
@@ -521,15 +521,210 @@ public class SyncCoordinatorTests
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  Helpers
+    //  EPIC-002 Task 1: Batch fetch partial failure
+    //  20 items stale, FetchAsync succeeds for 18, throws for 2.
+    //  Verify: 18 saved, 2 reported as failed, no data loss.
     // ═══════════════════════════════════════════════════════════════
 
-    private static WorkItem MakeItem(int id, DateTimeOffset? lastSyncedAt = null) => new()
+    [Fact]
+    public async Task SyncWorkingSetAsync_PartialFetchFailure_SavesSuccessfulReportsFailures()
     {
-        Id = id,
-        Type = WorkItemType.Task,
-        Title = $"Item {id}",
-        State = "Active",
-        LastSyncedAt = lastSyncedAt,
-    };
+        var stale = DateTimeOffset.UtcNow.AddMinutes(-60);
+
+        // Set up 20 stale items
+        for (var i = 1; i <= 20; i++)
+        {
+            var id = i;
+            _workItemRepo.GetByIdAsync(id).Returns(
+                new WorkItemBuilder(id, $"Item {id}").InState("Active").LastSyncedAt(stale).Build());
+        }
+
+        // Items 1–18 succeed, items 19–20 throw
+        for (var i = 1; i <= 18; i++)
+        {
+            var id = i;
+            _adoService.FetchAsync(id, Arg.Any<CancellationToken>())
+                .Returns(new WorkItemBuilder(id, $"Item {id}").InState("Active").Build());
+        }
+        _adoService.FetchAsync(19, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("Service unavailable"));
+        _adoService.FetchAsync(20, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("Connection reset"));
+
+        var ws = new WorkingSet
+        {
+            ActiveItemId = 1,
+            ChildrenIds = Enumerable.Range(2, 19).ToList(),
+        };
+
+        var result = await _sut.SyncWorkingSetAsync(ws);
+
+        var partial = result.ShouldBeOfType<SyncResult.PartiallyUpdated>();
+        partial.SavedCount.ShouldBe(18);
+        partial.Failures.Count.ShouldBe(2);
+        partial.Failures.ShouldContain(f => f.Id == 19);
+        partial.Failures.ShouldContain(f => f.Id == 20);
+
+        // 18 successful items were saved in a batch
+        await _workItemRepo.Received(1).SaveBatchAsync(
+            Arg.Is<IEnumerable<WorkItem>>(x => x.Count() == 18),
+            Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  EPIC-002 Task 2: ADO rate-limit during batch
+    //  FetchAsync throws for items 5+. Verify: items 1–4 saved,
+    //  rest reported as failed, no partial corruption.
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncWorkingSetAsync_RateLimitMidBatch_SavesSuccessfulReportsRateLimited()
+    {
+        var stale = DateTimeOffset.UtcNow.AddMinutes(-60);
+
+        // Set up 10 stale items
+        for (var i = 1; i <= 10; i++)
+        {
+            var id = i;
+            _workItemRepo.GetByIdAsync(id).Returns(
+                new WorkItemBuilder(id, $"Item {id}").InState("Active").LastSyncedAt(stale).Build());
+        }
+
+        // Items 1–4 succeed, items 5–10 throw rate-limit exception
+        for (var i = 1; i <= 4; i++)
+        {
+            var id = i;
+            _adoService.FetchAsync(id, Arg.Any<CancellationToken>())
+                .Returns(new WorkItemBuilder(id, $"Item {id}").InState("Active").Build());
+        }
+        for (var i = 5; i <= 10; i++)
+        {
+            var id = i;
+            _adoService.FetchAsync(id, Arg.Any<CancellationToken>())
+                .ThrowsAsync(new HttpRequestException("Rate limited. Retry after 30s."));
+        }
+
+        var ws = new WorkingSet
+        {
+            ActiveItemId = 1,
+            ChildrenIds = Enumerable.Range(2, 9).ToList(),
+        };
+
+        var result = await _sut.SyncWorkingSetAsync(ws);
+
+        var partial = result.ShouldBeOfType<SyncResult.PartiallyUpdated>();
+        partial.SavedCount.ShouldBe(4);
+        partial.Failures.Count.ShouldBe(6);
+
+        // Items 5–10 are all reported as failures
+        for (var i = 5; i <= 10; i++)
+            partial.Failures.ShouldContain(f => f.Id == i);
+
+        // Only the 4 successful items were saved, not the failed ones
+        await _workItemRepo.Received(1).SaveBatchAsync(
+            Arg.Is<IEnumerable<WorkItem>>(x => x.Count() == 4),
+            Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  EPIC-002 Task 4: Concurrent dual-sync overlap
+    //  Two SyncWorkingSetAsync calls with overlapping item sets
+    //  {1–10} and {5–15}. Verify: no duplicate saves for 5–10,
+    //  final cache state is consistent.
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncWorkingSetAsync_DualSyncOverlap_BothComplete_OverlapFetchedTwice()
+    {
+        var stale = DateTimeOffset.UtcNow.AddMinutes(-60);
+
+        // Set up items 1–15 as stale
+        for (var i = 1; i <= 15; i++)
+        {
+            var id = i;
+            _workItemRepo.GetByIdAsync(id).Returns(
+                new WorkItemBuilder(id, $"Item {id}").InState("Active").LastSyncedAt(stale).Build());
+            _adoService.FetchAsync(id, Arg.Any<CancellationToken>())
+                .Returns(new WorkItemBuilder(id, $"Item {id}").InState("Active").Build());
+        }
+
+        var ws1 = new WorkingSet
+        {
+            ActiveItemId = 1,
+            ChildrenIds = Enumerable.Range(2, 9).ToList(), // IDs 2–10
+        };
+        var ws2 = new WorkingSet
+        {
+            ActiveItemId = 5,
+            ChildrenIds = Enumerable.Range(6, 10).ToList(), // IDs 6–15
+        };
+
+        // Run both syncs concurrently
+        var task1 = _sut.SyncWorkingSetAsync(ws1);
+        var task2 = _sut.SyncWorkingSetAsync(ws2);
+        var results = await Task.WhenAll(task1, task2);
+
+        // Both should return Updated (no crash, no exception)
+        results[0].ShouldBeOfType<SyncResult.Updated>();
+        results[1].ShouldBeOfType<SyncResult.Updated>();
+
+        // Verify: overlapping items 5–10 were fetched by both syncs (concurrent independent fetches)
+        // Each sync fetches its own set independently
+        for (var i = 5; i <= 10; i++)
+        {
+            await _adoService.Received(2).FetchAsync(i, Arg.Any<CancellationToken>());
+        }
+
+        // Non-overlapping items fetched exactly once each
+        for (var i = 1; i <= 4; i++)
+            await _adoService.Received(1).FetchAsync(i, Arg.Any<CancellationToken>());
+        for (var i = 11; i <= 15; i++)
+            await _adoService.Received(1).FetchAsync(i, Arg.Any<CancellationToken>());
+
+        // Both SaveBatchAsync calls succeeded (two separate batches)
+        await _workItemRepo.Received(2).SaveBatchAsync(
+            Arg.Any<IEnumerable<WorkItem>>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  EPIC-002: All fetches fail edge case
+    //  Every FetchAsync call throws. Verify: returns SyncResult.Failed
+    //  (not PartiallyUpdated with 0 saved), no SaveBatchAsync call.
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncWorkingSetAsync_AllFetchesFail_ReturnsFailed_NotPartiallyUpdated()
+    {
+        var stale = DateTimeOffset.UtcNow.AddMinutes(-60);
+
+        // Set up 5 stale items
+        for (var i = 1; i <= 5; i++)
+        {
+            var id = i;
+            _workItemRepo.GetByIdAsync(id).Returns(
+                new WorkItemBuilder(id, $"Item {id}").InState("Active").LastSyncedAt(stale).Build());
+            _adoService.FetchAsync(id, Arg.Any<CancellationToken>())
+                .ThrowsAsync(new HttpRequestException($"Service unavailable for item {id}"));
+        }
+
+        var ws = new WorkingSet
+        {
+            ActiveItemId = 1,
+            ChildrenIds = [2, 3, 4, 5],
+        };
+
+        var result = await _sut.SyncWorkingSetAsync(ws);
+
+        // All fetches failed → should be Failed, NOT PartiallyUpdated(0, ...)
+        var failed = result.ShouldBeOfType<SyncResult.Failed>();
+        failed.Reason.ShouldContain("#1:");
+        failed.Reason.ShouldContain("#5:");
+
+        // No items were saved since all fetches failed
+        await _workItemRepo.DidNotReceive().SaveBatchAsync(
+            Arg.Any<IEnumerable<WorkItem>>(),
+            Arg.Any<CancellationToken>());
+    }
+
 }

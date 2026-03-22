@@ -2,6 +2,7 @@ using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.ReadModels;
 using Twig.Domain.ValueObjects;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Domain.Tests.ReadModels;
@@ -15,8 +16,8 @@ public class WorkspaceTests
     [Fact]
     public void ListAll_DeduplicatesById()
     {
-        var item = MakeItem(1, "Shared item");
-        var seed = MakeSeed("Seed A", daysOld: 1);
+        var item = WorkItemBuilder.Simple(1, "Shared item");
+        var seed = new WorkItemBuilder(Interlocked.Decrement(ref _seedCounter), "Seed A").AsSeed(1).Build();
 
         // Same item appears in both sprint and context
         var ws = Workspace.Build(item, new[] { item }, new[] { seed });
@@ -29,8 +30,8 @@ public class WorkspaceTests
     [Fact]
     public void ListAll_SeedsAlwaysIncluded()
     {
-        var seed1 = MakeSeed("Seed 1", daysOld: 1);
-        var seed2 = MakeSeed("Seed 2", daysOld: 2);
+        var seed1 = new WorkItemBuilder(Interlocked.Decrement(ref _seedCounter), "Seed 1").AsSeed(1).Build();
+        var seed2 = new WorkItemBuilder(Interlocked.Decrement(ref _seedCounter), "Seed 2").AsSeed(2).Build();
 
         var ws = Workspace.Build(null, Array.Empty<WorkItem>(), new[] { seed1, seed2 });
 
@@ -42,10 +43,10 @@ public class WorkspaceTests
     [Fact]
     public void ListAll_CombinesAll()
     {
-        var context = MakeItem(1, "Context");
-        var sprint1 = MakeItem(2, "Sprint item 1");
-        var sprint2 = MakeItem(3, "Sprint item 2");
-        var seed = MakeSeed("Seed", daysOld: 1);
+        var context = WorkItemBuilder.Simple(1, "Context");
+        var sprint1 = WorkItemBuilder.Simple(2, "Sprint item 1");
+        var sprint2 = WorkItemBuilder.Simple(3, "Sprint item 2");
+        var seed = new WorkItemBuilder(Interlocked.Decrement(ref _seedCounter), "Seed").AsSeed(1).Build();
 
         var ws = Workspace.Build(context, new[] { sprint1, sprint2 }, new[] { seed });
 
@@ -61,8 +62,8 @@ public class WorkspaceTests
     [Fact]
     public void GetStaleSeeds_FiltersCorrectly()
     {
-        var stale = MakeSeed("Old seed", daysOld: 10);
-        var fresh = MakeSeed("New seed", daysOld: 1);
+        var stale = new WorkItemBuilder(Interlocked.Decrement(ref _seedCounter), "Old seed").AsSeed(10).Build();
+        var fresh = new WorkItemBuilder(Interlocked.Decrement(ref _seedCounter), "New seed").AsSeed(1).Build();
 
         var ws = Workspace.Build(null, Array.Empty<WorkItem>(), new[] { stale, fresh });
 
@@ -75,8 +76,8 @@ public class WorkspaceTests
     [Fact]
     public void GetStaleSeeds_AllStale()
     {
-        var seed1 = MakeSeed("Seed 1", daysOld: 30);
-        var seed2 = MakeSeed("Seed 2", daysOld: 15);
+        var seed1 = new WorkItemBuilder(Interlocked.Decrement(ref _seedCounter), "Seed 1").AsSeed(30).Build();
+        var seed2 = new WorkItemBuilder(Interlocked.Decrement(ref _seedCounter), "Seed 2").AsSeed(15).Build();
 
         var ws = Workspace.Build(null, Array.Empty<WorkItem>(), new[] { seed1, seed2 });
 
@@ -88,7 +89,7 @@ public class WorkspaceTests
     [Fact]
     public void GetStaleSeeds_NoneStale()
     {
-        var seed = MakeSeed("Fresh seed", daysOld: 1);
+        var seed = new WorkItemBuilder(Interlocked.Decrement(ref _seedCounter), "Fresh seed").AsSeed(1).Build();
 
         var ws = Workspace.Build(null, Array.Empty<WorkItem>(), new[] { seed });
 
@@ -100,10 +101,10 @@ public class WorkspaceTests
     [Fact]
     public void GetStaleSeeds_MixedStaleFresh()
     {
-        var stale1 = MakeSeed("Stale 1", daysOld: 20);
-        var fresh1 = MakeSeed("Fresh 1", daysOld: 2);
-        var stale2 = MakeSeed("Stale 2", daysOld: 8);
-        var fresh2 = MakeSeed("Fresh 2", daysOld: 0);
+        var stale1 = new WorkItemBuilder(Interlocked.Decrement(ref _seedCounter), "Stale 1").AsSeed(20).Build();
+        var fresh1 = new WorkItemBuilder(Interlocked.Decrement(ref _seedCounter), "Fresh 1").AsSeed(2).Build();
+        var stale2 = new WorkItemBuilder(Interlocked.Decrement(ref _seedCounter), "Stale 2").AsSeed(8).Build();
+        var fresh2 = new WorkItemBuilder(Interlocked.Decrement(ref _seedCounter), "Fresh 2").AsSeed(0).Build();
 
         var ws = Workspace.Build(null, Array.Empty<WorkItem>(), new[] { stale1, fresh1, stale2, fresh2 });
 
@@ -121,10 +122,10 @@ public class WorkspaceTests
     [Fact]
     public void GetDirtyItems_FiltersCorrectly()
     {
-        var dirty = MakeItem(1, "Dirty item");
+        var dirty = WorkItemBuilder.Simple(1, "Dirty item");
         dirty.ChangeState("Active");
 
-        var clean = MakeItem(2, "Clean item");
+        var clean = WorkItemBuilder.Simple(2, "Clean item");
 
         var ws = Workspace.Build(null, new[] { dirty, clean }, Array.Empty<WorkItem>());
 
@@ -140,7 +141,7 @@ public class WorkspaceTests
         var dirtySeed = WorkItem.CreateSeed(WorkItemType.Task, "Dirty seed");
         dirtySeed.ChangeState("Active");
 
-        var cleanSprint = MakeItem(2, "Clean sprint");
+        var cleanSprint = WorkItemBuilder.Simple(2, "Clean sprint");
 
         var ws = Workspace.Build(null, new[] { cleanSprint }, new[] { dirtySeed });
 
@@ -157,7 +158,7 @@ public class WorkspaceTests
     [Fact]
     public void Build_NullContext_IsValid()
     {
-        var seed = MakeSeed("Seed", daysOld: 1);
+        var seed = new WorkItemBuilder(Interlocked.Decrement(ref _seedCounter), "Seed").AsSeed(1).Build();
         var ws = Workspace.Build(null, Array.Empty<WorkItem>(), new[] { seed });
 
         ws.ContextItem.ShouldBeNull();
@@ -171,7 +172,7 @@ public class WorkspaceTests
     [Fact]
     public void Build_EmptySprintAndSeeds()
     {
-        var context = MakeItem(1, "Context");
+        var context = WorkItemBuilder.Simple(1, "Context");
         var ws = Workspace.Build(context, Array.Empty<WorkItem>(), Array.Empty<WorkItem>());
 
         ws.ListAll().Count.ShouldBe(1); // just context
@@ -232,7 +233,7 @@ public class WorkspaceTests
     [Fact]
     public void Build_WithHierarchy_ExposesHierarchy()
     {
-        var item = MakeItem(1, "Sprint item");
+        var item = WorkItemBuilder.Simple(1, "Sprint item");
         var hierarchy = SprintHierarchy.Build(
             new[] { item },
             new Dictionary<int, WorkItem>(),
@@ -257,27 +258,4 @@ public class WorkspaceTests
     // ═══════════════════════════════════════════════════════════════
 
     private static int _seedCounter = -1;
-
-    private static WorkItem MakeItem(int id, string title)
-    {
-        return new WorkItem
-        {
-            Id = id,
-            Type = WorkItemType.Task,
-            Title = title,
-            State = "New",
-        };
-    }
-
-    private static WorkItem MakeSeed(string title, int daysOld)
-    {
-        return new WorkItem
-        {
-            Id = Interlocked.Decrement(ref _seedCounter),
-            Type = WorkItemType.Task,
-            Title = title,
-            IsSeed = true,
-            SeedCreatedAt = DateTimeOffset.UtcNow.AddDays(-daysOld),
-        };
-    }
 }

@@ -2,6 +2,7 @@ using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.ReadModels;
 using Twig.Domain.ValueObjects;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Domain.Tests.ReadModels;
@@ -16,9 +17,9 @@ public class SprintHierarchyTests
     [Fact]
     public void Build_TwoTasksUnderSameFeature_FeatureNodeWithTwoChildren()
     {
-        var feature = MakeItem(100, "Feature A", WorkItemType.Feature, parentId: null);
-        var task1 = MakeItem(1, "Task 1", WorkItemType.Task, parentId: 100, assignee: "Alice");
-        var task2 = MakeItem(2, "Task 2", WorkItemType.Task, parentId: 100, assignee: "Alice");
+        var feature = new WorkItemBuilder(100, "Feature A").AsFeature().Build();
+        var task1 = new WorkItemBuilder(1, "Task 1").AsTask().WithParent(100).AssignedTo("Alice").Build();
+        var task2 = new WorkItemBuilder(2, "Task 2").AsTask().WithParent(100).AssignedTo("Alice").Build();
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
         var hierarchy = SprintHierarchy.Build(new[] { task1, task2 }, parentLookup, new[] { "Feature" });
@@ -42,8 +43,8 @@ public class SprintHierarchyTests
     [Fact]
     public void Build_ItemsWithNoParents_AtRootLevel()
     {
-        var task1 = MakeItem(1, "Task 1", WorkItemType.Task, parentId: null, assignee: "Bob");
-        var task2 = MakeItem(2, "Task 2", WorkItemType.Task, parentId: null, assignee: "Bob");
+        var task1 = new WorkItemBuilder(1, "Task 1").AsTask().AssignedTo("Bob").Build();
+        var task2 = new WorkItemBuilder(2, "Task 2").AsTask().AssignedTo("Bob").Build();
 
         var parentLookup = new Dictionary<int, WorkItem>();
         var hierarchy = SprintHierarchy.Build(new[] { task1, task2 }, parentLookup, new[] { "Feature" });
@@ -63,10 +64,10 @@ public class SprintHierarchyTests
     {
         // Epic → Feature → UserStory (sprint item)
         //                → Task (sprint item)
-        var epic = MakeItem(1000, "Epic", WorkItemType.Epic, parentId: null);
-        var feature = MakeItem(100, "Feature", WorkItemType.Feature, parentId: 1000);
-        var story = MakeItem(10, "User Story", WorkItemType.UserStory, parentId: 100, assignee: "Carol");
-        var task = MakeItem(11, "Task", WorkItemType.Task, parentId: 100, assignee: "Carol");
+        var epic = new WorkItemBuilder(1000, "Epic").AsEpic().Build();
+        var feature = new WorkItemBuilder(100, "Feature").AsFeature().WithParent(1000).Build();
+        var story = new WorkItemBuilder(10, "User Story").AsUserStory().WithParent(100).AssignedTo("Carol").Build();
+        var task = new WorkItemBuilder(11, "Task").AsTask().WithParent(100).AssignedTo("Carol").Build();
 
         var parentLookup = new Dictionary<int, WorkItem>
         {
@@ -112,7 +113,7 @@ public class SprintHierarchyTests
     [Fact]
     public void Build_SingleItem_SingleRoot()
     {
-        var task = MakeItem(1, "Only task", WorkItemType.Task, parentId: null, assignee: "Dan");
+        var task = new WorkItemBuilder(1, "Only task").AsTask().AssignedTo("Dan").Build();
 
         var parentLookup = new Dictionary<int, WorkItem>();
         var hierarchy = SprintHierarchy.Build(new[] { task }, parentLookup, new[] { "Feature" });
@@ -130,9 +131,9 @@ public class SprintHierarchyTests
     [Fact]
     public void Build_ParentIsAlsoSprintItem_ParentMarkedAsSprintItem()
     {
-        var feature = MakeItem(100, "Feature", WorkItemType.Feature, parentId: null);
-        var story = MakeItem(10, "User Story", WorkItemType.UserStory, parentId: 100, assignee: "Eve");
-        var task = MakeItem(1, "Task", WorkItemType.Task, parentId: 10, assignee: "Eve");
+        var feature = new WorkItemBuilder(100, "Feature").AsFeature().Build();
+        var story = new WorkItemBuilder(10, "User Story").AsUserStory().WithParent(100).AssignedTo("Eve").Build();
+        var task = new WorkItemBuilder(1, "Task").AsTask().WithParent(10).AssignedTo("Eve").Build();
 
         var parentLookup = new Dictionary<int, WorkItem>
         {
@@ -166,10 +167,10 @@ public class SprintHierarchyTests
     [Fact]
     public void Build_MultipleAssignees_SeparateGroups()
     {
-        var feature = MakeItem(100, "Feature A", WorkItemType.Feature, parentId: null);
-        var task1 = MakeItem(1, "Task 1", WorkItemType.Task, parentId: 100, assignee: "Alice");
-        var task2 = MakeItem(2, "Task 2", WorkItemType.Task, parentId: 100, assignee: "Bob");
-        var task3 = MakeItem(3, "Task 3", WorkItemType.Task, parentId: null, assignee: "Bob");
+        var feature = new WorkItemBuilder(100, "Feature A").AsFeature().Build();
+        var task1 = new WorkItemBuilder(1, "Task 1").AsTask().WithParent(100).AssignedTo("Alice").Build();
+        var task2 = new WorkItemBuilder(2, "Task 2").AsTask().WithParent(100).AssignedTo("Bob").Build();
+        var task3 = new WorkItemBuilder(3, "Task 3").AsTask().AssignedTo("Bob").Build();
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
         var hierarchy = SprintHierarchy.Build(new[] { task1, task2, task3 }, parentLookup, new[] { "Feature" });
@@ -198,7 +199,7 @@ public class SprintHierarchyTests
     public void Build_ParentNotInLookup_ItemAtRoot()
     {
         // Task has parentId=999 but that's not in the lookup
-        var task = MakeItem(1, "Orphan task", WorkItemType.Task, parentId: 999, assignee: "Frank");
+        var task = new WorkItemBuilder(1, "Orphan task").AsTask().WithParent(999).AssignedTo("Frank").Build();
 
         var parentLookup = new Dictionary<int, WorkItem>();
         var hierarchy = SprintHierarchy.Build(new[] { task }, parentLookup, new[] { "Feature" });
@@ -216,9 +217,9 @@ public class SprintHierarchyTests
     [Fact]
     public void Build_CeilingNull_ItemsFlat()
     {
-        var feature = MakeItem(100, "Feature", WorkItemType.Feature, parentId: null);
-        var task1 = MakeItem(1, "Task 1", WorkItemType.Task, parentId: 100, assignee: "Grace");
-        var task2 = MakeItem(2, "Task 2", WorkItemType.Task, parentId: 100, assignee: "Grace");
+        var feature = new WorkItemBuilder(100, "Feature").AsFeature().Build();
+        var task1 = new WorkItemBuilder(1, "Task 1").AsTask().WithParent(100).AssignedTo("Grace").Build();
+        var task2 = new WorkItemBuilder(2, "Task 2").AsTask().WithParent(100).AssignedTo("Grace").Build();
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
         var hierarchy = SprintHierarchy.Build(new[] { task1, task2 }, parentLookup, ceilingTypeNames: null);
@@ -236,9 +237,9 @@ public class SprintHierarchyTests
     [Fact]
     public void Build_EmptyCeilingTypeNames_ItemsFlat()
     {
-        var feature = MakeItem(100, "Feature", WorkItemType.Feature, parentId: null);
-        var task1 = MakeItem(1, "Task 1", WorkItemType.Task, parentId: 100, assignee: "Grace");
-        var task2 = MakeItem(2, "Task 2", WorkItemType.Task, parentId: 100, assignee: "Grace");
+        var feature = new WorkItemBuilder(100, "Feature").AsFeature().Build();
+        var task1 = new WorkItemBuilder(1, "Task 1").AsTask().WithParent(100).AssignedTo("Grace").Build();
+        var task2 = new WorkItemBuilder(2, "Task 2").AsTask().WithParent(100).AssignedTo("Grace").Build();
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
         var hierarchy = SprintHierarchy.Build(new[] { task1, task2 }, parentLookup, ceilingTypeNames: Array.Empty<string>());
@@ -258,9 +259,9 @@ public class SprintHierarchyTests
     {
         // Epic → Feature → UserStory (sprint), ceiling = "Feature"
         // Should show: Feature → UserStory. Epic excluded.
-        var epic = MakeItem(1000, "Epic", WorkItemType.Epic, parentId: null);
-        var feature = MakeItem(100, "Feature A", WorkItemType.Feature, parentId: 1000);
-        var story = MakeItem(10, "Story 1", WorkItemType.UserStory, parentId: 100, assignee: "Hank");
+        var epic = new WorkItemBuilder(1000, "Epic").AsEpic().Build();
+        var feature = new WorkItemBuilder(100, "Feature A").AsFeature().WithParent(1000).Build();
+        var story = new WorkItemBuilder(10, "Story 1").AsUserStory().WithParent(100).AssignedTo("Hank").Build();
 
         var parentLookup = new Dictionary<int, WorkItem>
         {
@@ -290,8 +291,8 @@ public class SprintHierarchyTests
     {
         // Ceiling types: ["User Story", "Backlog Item"]
         // Parent is a "Backlog Item" — should be recognized as ceiling and included
-        var backlogItem = MakeItem(200, "Backlog Item 1", WorkItemType.Parse("Backlog Item").Value, parentId: null);
-        var task = MakeItem(1, "Task 1", WorkItemType.Task, parentId: 200, assignee: "Ivy");
+        var backlogItem = new WorkItemBuilder(200, "Backlog Item 1").AsType(WorkItemType.Parse("Backlog Item").Value).Build();
+        var task = new WorkItemBuilder(1, "Task 1").AsTask().WithParent(200).AssignedTo("Ivy").Build();
 
         var parentLookup = new Dictionary<int, WorkItem> { [200] = backlogItem };
         var hierarchy = SprintHierarchy.Build(
@@ -315,9 +316,9 @@ public class SprintHierarchyTests
     [Fact]
     public void Build_MultipleAssignees_AlphabeticallyOrdered()
     {
-        var task1 = MakeItem(1, "Task 1", WorkItemType.Task, parentId: null, assignee: "Zara");
-        var task2 = MakeItem(2, "Task 2", WorkItemType.Task, parentId: null, assignee: "Alice");
-        var task3 = MakeItem(3, "Task 3", WorkItemType.Task, parentId: null, assignee: "bob");
+        var task1 = new WorkItemBuilder(1, "Task 1").AsTask().AssignedTo("Zara").Build();
+        var task2 = new WorkItemBuilder(2, "Task 2").AsTask().AssignedTo("Alice").Build();
+        var task3 = new WorkItemBuilder(3, "Task 3").AsTask().AssignedTo("bob").Build();
 
         var parentLookup = new Dictionary<int, WorkItem>();
         var hierarchy = SprintHierarchy.Build(new[] { task1, task2, task3 }, parentLookup, new[] { "Feature" });
@@ -336,7 +337,7 @@ public class SprintHierarchyTests
     [Fact]
     public void Build_UnassignedItems_GroupedUnderUnassigned()
     {
-        var task = MakeItem(1, "Task 1", WorkItemType.Task, parentId: null, assignee: null);
+        var task = new WorkItemBuilder(1, "Task 1").AsTask().Build();
 
         var parentLookup = new Dictionary<int, WorkItem>();
         var hierarchy = SprintHierarchy.Build(new[] { task }, parentLookup, new[] { "Feature" });
@@ -352,8 +353,8 @@ public class SprintHierarchyTests
     [Fact]
     public void Build_UnparentedTaskWithTypeLevelMap_CreatesVirtualGroup()
     {
-        var task1 = MakeItem(1, "Task 1", WorkItemType.Task, parentId: null, assignee: "Alice");
-        var task2 = MakeItem(2, "Task 2", WorkItemType.Task, parentId: null, assignee: "Alice");
+        var task1 = new WorkItemBuilder(1, "Task 1").AsTask().AssignedTo("Alice").Build();
+        var task2 = new WorkItemBuilder(2, "Task 2").AsTask().AssignedTo("Alice").Build();
 
         var parentLookup = new Dictionary<int, WorkItem>();
         var typeLevelMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
@@ -379,7 +380,7 @@ public class SprintHierarchyTests
     [Fact]
     public void Build_UnparentedFeatureWithTypeLevelMap_CreatesVirtualGroup()
     {
-        var feature = MakeItem(1, "Dark Mode", WorkItemType.Feature, parentId: null, assignee: "Bob");
+        var feature = new WorkItemBuilder(1, "Dark Mode").AsFeature().AssignedTo("Bob").Build();
 
         var parentLookup = new Dictionary<int, WorkItem>();
         var typeLevelMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
@@ -404,11 +405,11 @@ public class SprintHierarchyTests
     [Fact]
     public void Build_MixOfParentedAndUnparentedItems_SeparatesCorrectly()
     {
-        var epic = MakeItem(1000, "Payment Refactor", WorkItemType.Epic, parentId: null);
-        var feature = MakeItem(100, "Retry Logic", WorkItemType.Feature, parentId: 1000);
-        var task1 = MakeItem(10, "Add timeout", WorkItemType.Task, parentId: 100, assignee: "Alice");
+        var epic = new WorkItemBuilder(1000, "Payment Refactor").AsEpic().Build();
+        var feature = new WorkItemBuilder(100, "Retry Logic").AsFeature().WithParent(1000).Build();
+        var task1 = new WorkItemBuilder(10, "Add timeout").AsTask().WithParent(100).AssignedTo("Alice").Build();
         // Unparented task
-        var task2 = MakeItem(20, "Update docs", WorkItemType.Task, parentId: null, assignee: "Alice");
+        var task2 = new WorkItemBuilder(20, "Update docs").AsTask().AssignedTo("Alice").Build();
 
         var parentLookup = new Dictionary<int, WorkItem>
         {
@@ -442,8 +443,8 @@ public class SprintHierarchyTests
     [Fact]
     public void Build_MultipleUnparentedLevels_CreatesMultipleVirtualGroups()
     {
-        var feature = MakeItem(1, "Dark Mode", WorkItemType.Feature, parentId: null, assignee: "Alice");
-        var task = MakeItem(2, "Update docs", WorkItemType.Task, parentId: null, assignee: "Alice");
+        var feature = new WorkItemBuilder(1, "Dark Mode").AsFeature().AssignedTo("Alice").Build();
+        var task = new WorkItemBuilder(2, "Update docs").AsTask().AssignedTo("Alice").Build();
 
         var parentLookup = new Dictionary<int, WorkItem>();
         var typeLevelMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
@@ -471,7 +472,7 @@ public class SprintHierarchyTests
     [Fact]
     public void Build_NoTypeLevelMap_NoVirtualGroups()
     {
-        var task = MakeItem(1, "Task 1", WorkItemType.Task, parentId: null, assignee: "Alice");
+        var task = new WorkItemBuilder(1, "Task 1").AsTask().AssignedTo("Alice").Build();
 
         var parentLookup = new Dictionary<int, WorkItem>();
         var hierarchy = SprintHierarchy.Build(
@@ -486,8 +487,8 @@ public class SprintHierarchyTests
     public void Build_ContextParentWithChildren_NotGrouped()
     {
         // Epic is a context parent (not a sprint item), should NOT be grouped
-        var epic = MakeItem(1000, "Payment Refactor", WorkItemType.Epic, parentId: null);
-        var task = MakeItem(10, "Add timeout", WorkItemType.Task, parentId: 1000, assignee: "Alice");
+        var epic = new WorkItemBuilder(1000, "Payment Refactor").AsEpic().Build();
+        var task = new WorkItemBuilder(10, "Add timeout").AsTask().WithParent(1000).AssignedTo("Alice").Build();
 
         var parentLookup = new Dictionary<int, WorkItem> { [1000] = epic };
         var typeLevelMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
@@ -510,7 +511,7 @@ public class SprintHierarchyTests
     [Fact]
     public void Build_UnparentedEpic_GroupedUnderVirtualHeader()
     {
-        var epic = MakeItem(1, "Observability", WorkItemType.Epic, parentId: null, assignee: "Alice");
+        var epic = new WorkItemBuilder(1, "Observability").AsEpic().AssignedTo("Alice").Build();
 
         var parentLookup = new Dictionary<int, WorkItem>();
         var typeLevelMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
@@ -538,7 +539,7 @@ public class SprintHierarchyTests
         // Task has ParentId=999 but that parent is not in the lookup.
         // The item ends up as a root with ParentId.HasValue == true,
         // so it should NOT be grouped under a virtual header.
-        var task = MakeItem(1, "Orphan task", WorkItemType.Task, parentId: 999, assignee: "Alice");
+        var task = new WorkItemBuilder(1, "Orphan task").AsTask().WithParent(999).AssignedTo("Alice").Build();
 
         var parentLookup = new Dictionary<int, WorkItem>();
         var typeLevelMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
@@ -559,25 +560,4 @@ public class SprintHierarchyTests
         root.IsSprintItem.ShouldBeTrue();
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  Helpers
-    // ═══════════════════════════════════════════════════════════════
-
-    private static WorkItem MakeItem(
-        int id,
-        string title,
-        WorkItemType type,
-        int? parentId,
-        string? assignee = null)
-    {
-        return new WorkItem
-        {
-            Id = id,
-            Type = type,
-            Title = title,
-            State = "New",
-            ParentId = parentId,
-            AssignedTo = assignee,
-        };
-    }
 }

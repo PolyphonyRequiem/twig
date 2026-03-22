@@ -4,7 +4,7 @@ using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
-using Twig.Domain.ValueObjects;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Domain.Tests.Services;
@@ -28,7 +28,7 @@ public class ActiveItemResolverTests
     [Fact]
     public async Task GetActiveItemAsync_CacheHit_ReturnsFound()
     {
-        var item = MakeItem(42);
+        var item = new WorkItemBuilder(42, "Item 42").InState("Active").Build();
         _contextStore.GetActiveWorkItemIdAsync().Returns(42);
         _workItemRepo.GetByIdAsync(42).Returns(item);
 
@@ -46,7 +46,7 @@ public class ActiveItemResolverTests
     [Fact]
     public async Task GetActiveItemAsync_CacheMiss_FetchesAndReturnsFetchedFromAdo()
     {
-        var fetched = MakeItem(42);
+        var fetched = new WorkItemBuilder(42, "Item 42").InState("Active").Build();
         _contextStore.GetActiveWorkItemIdAsync().Returns(42);
         _workItemRepo.GetByIdAsync(42).Returns((WorkItem?)null);
         _adoService.FetchAsync(42).Returns(fetched);
@@ -98,7 +98,7 @@ public class ActiveItemResolverTests
     [Fact]
     public async Task ResolveByIdAsync_CacheHit_ReturnsFound()
     {
-        var item = MakeItem(99);
+        var item = new WorkItemBuilder(99, "Item 99").InState("Active").Build();
         _workItemRepo.GetByIdAsync(99).Returns(item);
 
         var result = await _sut.ResolveByIdAsync(99);
@@ -115,7 +115,7 @@ public class ActiveItemResolverTests
     [Fact]
     public async Task ResolveByIdAsync_CacheMiss_FetchesAndReturnsFetchedFromAdo()
     {
-        var fetched = MakeItem(99);
+        var fetched = new WorkItemBuilder(99, "Item 99").InState("Active").Build();
         _workItemRepo.GetByIdAsync(99).Returns((WorkItem?)null);
         _adoService.FetchAsync(99).Returns(fetched);
 
@@ -152,7 +152,7 @@ public class ActiveItemResolverTests
     {
         using var cts = new CancellationTokenSource();
         _contextStore.GetActiveWorkItemIdAsync(cts.Token).Returns(42);
-        _workItemRepo.GetByIdAsync(42, cts.Token).Returns(MakeItem(42));
+        _workItemRepo.GetByIdAsync(42, cts.Token).Returns(new WorkItemBuilder(42, "Item 42").InState("Active").Build());
 
         await _sut.GetActiveItemAsync(cts.Token);
 
@@ -187,15 +187,4 @@ public class ActiveItemResolverTests
             () => _sut.GetActiveItemAsync());
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  Helpers
-    // ═══════════════════════════════════════════════════════════════
-
-    private static WorkItem MakeItem(int id) => new()
-    {
-        Id = id,
-        Type = WorkItemType.Task,
-        Title = $"Item {id}",
-        State = "Active",
-    };
 }

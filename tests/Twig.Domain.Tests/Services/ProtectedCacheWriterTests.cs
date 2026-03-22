@@ -3,7 +3,7 @@ using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
-using Twig.Domain.ValueObjects;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Domain.Tests.Services;
@@ -12,6 +12,7 @@ public class ProtectedCacheWriterTests
 {
     private readonly IWorkItemRepository _workItemRepo = Substitute.For<IWorkItemRepository>();
     private readonly IPendingChangeStore _pendingStore = Substitute.For<IPendingChangeStore>();
+    private readonly IAdoWorkItemService _adoService = Substitute.For<IAdoWorkItemService>();
     private readonly ProtectedCacheWriter _sut;
 
     public ProtectedCacheWriterTests()
@@ -29,7 +30,7 @@ public class ProtectedCacheWriterTests
     [Fact]
     public async Task SaveBatchProtectedAsync_AllUnprotected_SavesAllReturnsNoSkipped()
     {
-        var items = new[] { MakeItem(1), MakeItem(2), MakeItem(3) };
+        var items = new[] { new WorkItemBuilder(1, "Item 1").InState("Active").Build(), new WorkItemBuilder(2, "Item 2").InState("Active").Build(), new WorkItemBuilder(3, "Item 3").InState("Active").Build() };
 
         var skipped = await _sut.SaveBatchProtectedAsync(items);
 
@@ -47,11 +48,11 @@ public class ProtectedCacheWriterTests
     public async Task SaveBatchProtectedAsync_SomeProtected_SkipsProtectedSavesRest()
     {
         // Item 2 is dirty
-        var dirtyItem = MakeItem(2);
+        var dirtyItem = new WorkItemBuilder(2, "Item 2").InState("Active").Build();
         dirtyItem.SetDirty();
         _workItemRepo.GetDirtyItemsAsync().Returns(new[] { dirtyItem });
 
-        var items = new[] { MakeItem(1), MakeItem(2), MakeItem(3) };
+        var items = new[] { new WorkItemBuilder(1, "Item 1").InState("Active").Build(), new WorkItemBuilder(2, "Item 2").InState("Active").Build(), new WorkItemBuilder(3, "Item 3").InState("Active").Build() };
 
         var skipped = await _sut.SaveBatchProtectedAsync(items);
 
@@ -71,7 +72,7 @@ public class ProtectedCacheWriterTests
     {
         _pendingStore.GetDirtyItemIdsAsync().Returns(new[] { 1, 2 });
 
-        var items = new[] { MakeItem(1), MakeItem(2) };
+        var items = new[] { new WorkItemBuilder(1, "Item 1").InState("Active").Build(), new WorkItemBuilder(2, "Item 2").InState("Active").Build() };
 
         var skipped = await _sut.SaveBatchProtectedAsync(items);
 
@@ -105,7 +106,7 @@ public class ProtectedCacheWriterTests
     [Fact]
     public async Task SaveProtectedAsync_UnprotectedItem_SavesAndReturnsTrue()
     {
-        var item = MakeItem(10);
+        var item = new WorkItemBuilder(10, "Item 10").InState("Active").Build();
 
         var saved = await _sut.SaveProtectedAsync(item);
 
@@ -122,7 +123,7 @@ public class ProtectedCacheWriterTests
     {
         _pendingStore.GetDirtyItemIdsAsync().Returns(new[] { 10 });
 
-        var item = MakeItem(10);
+        var item = new WorkItemBuilder(10, "Item 10").InState("Active").Build();
 
         var saved = await _sut.SaveProtectedAsync(item);
 
@@ -138,12 +139,12 @@ public class ProtectedCacheWriterTests
     public async Task SaveBatchProtectedAsync_ReturnsCorrectSkippedIds()
     {
         // Dirty from repo and pending from store
-        var dirtyItem = MakeItem(5);
+        var dirtyItem = new WorkItemBuilder(5, "Item 5").InState("Active").Build();
         dirtyItem.SetDirty();
         _workItemRepo.GetDirtyItemsAsync().Returns(new[] { dirtyItem });
         _pendingStore.GetDirtyItemIdsAsync().Returns(new[] { 8 });
 
-        var items = new[] { MakeItem(3), MakeItem(5), MakeItem(7), MakeItem(8) };
+        var items = new[] { new WorkItemBuilder(3, "Item 3").InState("Active").Build(), new WorkItemBuilder(5, "Item 5").InState("Active").Build(), new WorkItemBuilder(7, "Item 7").InState("Active").Build(), new WorkItemBuilder(8, "Item 8").InState("Active").Build() };
 
         var skipped = await _sut.SaveBatchProtectedAsync(items);
 
@@ -163,7 +164,7 @@ public class ProtectedCacheWriterTests
         _workItemRepo.GetDirtyItemsAsync(cts.Token).Returns(Array.Empty<WorkItem>());
         _pendingStore.GetDirtyItemIdsAsync(cts.Token).Returns(Array.Empty<int>());
 
-        var items = new[] { MakeItem(1) };
+        var items = new[] { new WorkItemBuilder(1, "Item 1").InState("Active").Build() };
         await _sut.SaveBatchProtectedAsync(items, cts.Token);
 
         await _workItemRepo.Received(1).GetDirtyItemsAsync(cts.Token);
@@ -171,14 +172,91 @@ public class ProtectedCacheWriterTests
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  Helpers
+    //  EPIC-002 Task 3: Concurrent save-during-sync race
+    //  Start sync (FetchAsync with delay) → while fetch is in flight,
+    //  call SaveAsync (making item dirty) → complete sync.
+    //  Verify: ProtectedCacheWriter detects the dirty item and skips
+    //  overwrite. The locally-saved version wins.
     // ═══════════════════════════════════════════════════════════════
 
-    private static WorkItem MakeItem(int id) => new()
+    [Fact]
+    public async Task ConcurrentSaveDuringSync_DirtyItemDetected_SyncSkipsOverwrite()
     {
-        Id = id,
-        Type = WorkItemType.Task,
-        Title = $"Item {id}",
-        State = "Active",
-    };
+        // Scenario: items 1–5 are being synced. During the fetch delay,
+        // item 3 is saved locally (becomes dirty). When the sync completes,
+        // ProtectedCacheWriter should detect item 3 as dirty and skip it.
+
+        var itemDirtied = false;
+
+        // SyncGuard checks dirty state at save time (not at fetch time).
+        // When itemDirtied is true, item 3 appears in the dirty list.
+        _workItemRepo.GetDirtyItemsAsync(Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+            {
+                if (itemDirtied)
+                {
+                    var dirtyItem = new WorkItemBuilder(3, "Item 3 LOCAL").InState("Active").Dirty().Build();
+                    return new[] { dirtyItem };
+                }
+                return Array.Empty<WorkItem>();
+            });
+
+        // Simulate: FetchAsync has a delay, during which a concurrent save happens
+        var fetchDelayTcs = new TaskCompletionSource();
+        var allFetchedItems = new List<WorkItem>();
+
+        _adoService.FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(async callInfo =>
+            {
+                var id = callInfo.Arg<int>();
+
+                // For item 3, wait for the concurrent save to happen
+                if (id == 3)
+                    await fetchDelayTcs.Task;
+
+                return new WorkItemBuilder(id, $"Item {id} REMOTE").InState("Active").Build();
+            });
+
+        // 1. Start the sync (uses SyncCoordinator which calls ProtectedCacheWriter)
+        var syncCoordinator = new SyncCoordinator(
+            _workItemRepo, _adoService, _sut, cacheStaleMinutes: 30);
+
+        var stale = DateTimeOffset.UtcNow.AddMinutes(-60);
+        for (var i = 1; i <= 5; i++)
+        {
+            var id = i;
+            _workItemRepo.GetByIdAsync(id).Returns(
+                new WorkItemBuilder(id, $"Item {id}").InState("Active").LastSyncedAt(stale).Build());
+        }
+
+        var ws = new WorkingSet
+        {
+            ActiveItemId = 1,
+            ChildrenIds = [2, 3, 4, 5],
+        };
+
+        var syncTask = syncCoordinator.SyncWorkingSetAsync(ws);
+
+        // 2. While fetch for item 3 is in flight, simulate a concurrent save
+        //    that makes item 3 dirty.
+        await Task.Delay(50); // Give time for other fetches to start
+        itemDirtied = true;
+
+        // 3. Complete the delayed fetch for item 3
+        fetchDelayTcs.SetResult();
+
+        // 4. Wait for sync to complete
+        var result = await syncTask;
+
+        // 5. Verify: item 3 was skipped (protected as dirty), other 4 items saved
+        result.ShouldBeOfType<SyncResult.Updated>();
+        var updated = (SyncResult.Updated)result;
+        updated.ChangedCount.ShouldBe(4); // 5 fetched - 1 skipped = 4 saved
+
+        // Verify SaveBatchAsync was called with only 4 items (item 3 excluded)
+        await _workItemRepo.Received(1).SaveBatchAsync(
+            Arg.Is<IEnumerable<WorkItem>>(x => x.Count() == 4 && x.All(i => i.Id != 3)),
+            Arg.Any<CancellationToken>());
+    }
+
 }

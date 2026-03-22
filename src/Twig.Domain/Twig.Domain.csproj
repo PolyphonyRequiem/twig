@@ -5,6 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Twig.TestKit" />
     <InternalsVisibleTo Include="Twig.Domain.Tests" />
     <InternalsVisibleTo Include="Twig.Infrastructure" />
     <InternalsVisibleTo Include="Twig.Infrastructure.Tests" />

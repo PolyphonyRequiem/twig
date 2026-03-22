@@ -2,6 +2,7 @@ using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Domain.Tests.Services;
@@ -15,10 +16,10 @@ public class ConflictResolverTests
     [Fact]
     public void Resolve_SameRevision_NoConflict()
     {
-        var local = MakeItem(1);
+        var local = new WorkItemBuilder(1, "Item 1").Build();
         local.MarkSynced(5);
 
-        var remote = MakeItem(1);
+        var remote = new WorkItemBuilder(1, "Item 1").Build();
         remote.MarkSynced(5);
 
         var result = ConflictResolver.Resolve(local, remote);
@@ -33,11 +34,11 @@ public class ConflictResolverTests
     [Fact]
     public void Resolve_DisjointFieldChanges_AutoMergeable()
     {
-        var local = MakeItem(1);
+        var local = new WorkItemBuilder(1, "Item 1").Build();
         local.MarkSynced(5);
         local.SetField("System.Description", "Updated locally");
 
-        var remote = MakeItem(1);
+        var remote = new WorkItemBuilder(1, "Item 1").Build();
         remote.MarkSynced(6);
         remote.SetField("System.Title", "Updated remotely");
 
@@ -56,11 +57,11 @@ public class ConflictResolverTests
     [Fact]
     public void Resolve_OverlappingSameValue_NoConflict()
     {
-        var local = MakeItem(1);
+        var local = new WorkItemBuilder(1, "Item 1").Build();
         local.MarkSynced(5);
         local.SetField("System.Description", "Same value");
 
-        var remote = MakeItem(1);
+        var remote = new WorkItemBuilder(1, "Item 1").Build();
         remote.MarkSynced(6);
         remote.SetField("System.Description", "Same value");
 
@@ -77,11 +78,11 @@ public class ConflictResolverTests
     [Fact]
     public void Resolve_OverlappingDifferentValues_HasConflicts()
     {
-        var local = MakeItem(1);
+        var local = new WorkItemBuilder(1, "Item 1").Build();
         local.MarkSynced(5);
         local.SetField("System.Description", "Local value");
 
-        var remote = MakeItem(1);
+        var remote = new WorkItemBuilder(1, "Item 1").Build();
         remote.MarkSynced(6);
         remote.SetField("System.Description", "Remote value");
 
@@ -101,12 +102,12 @@ public class ConflictResolverTests
     [Fact]
     public void Resolve_MultipleConflicts()
     {
-        var local = MakeItem(1);
+        var local = new WorkItemBuilder(1, "Item 1").Build();
         local.MarkSynced(5);
         local.SetField("System.Description", "Local desc");
         local.SetField("System.Title", "Local title");
 
-        var remote = MakeItem(1);
+        var remote = new WorkItemBuilder(1, "Item 1").Build();
         remote.MarkSynced(6);
         remote.SetField("System.Description", "Remote desc");
         remote.SetField("System.Title", "Remote title");
@@ -124,12 +125,12 @@ public class ConflictResolverTests
     [Fact]
     public void Resolve_MixedAutoMergeAndConflict_ReportsConflicts()
     {
-        var local = MakeItem(1);
+        var local = new WorkItemBuilder(1, "Item 1").Build();
         local.MarkSynced(5);
         local.SetField("System.Description", "Local desc");
         local.SetField("Local.Only", "local-only-value");
 
-        var remote = MakeItem(1);
+        var remote = new WorkItemBuilder(1, "Item 1").Build();
         remote.MarkSynced(6);
         remote.SetField("System.Description", "Remote desc");
         remote.SetField("Remote.Only", "remote-only-value");
@@ -149,10 +150,10 @@ public class ConflictResolverTests
     [Fact]
     public void Resolve_DifferentRevisions_NoFieldChanges_NoConflict()
     {
-        var local = MakeItem(1);
+        var local = new WorkItemBuilder(1, "Item 1").Build();
         local.MarkSynced(5);
 
-        var remote = MakeItem(1);
+        var remote = new WorkItemBuilder(1, "Item 1").Build();
         remote.MarkSynced(6);
 
         var result = ConflictResolver.Resolve(local, remote);
@@ -269,18 +270,4 @@ public class ConflictResolverTests
         conflicts.ConflictingFields.ShouldContain(f => f.FieldName == "System.Parent");
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  Helpers
-    // ═══════════════════════════════════════════════════════════════
-
-    private static WorkItem MakeItem(int id)
-    {
-        return new WorkItem
-        {
-            Id = id,
-            Type = WorkItemType.Task,
-            Title = $"Item {id}",
-            State = "New",
-        };
-    }
 }

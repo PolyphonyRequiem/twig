@@ -1,7 +1,7 @@
 # Twig Test Resilience — Edge-Case & Failure-Mode Coverage Plan
 
-> **Status:** IN PROGRESS — EPIC-001 DONE, EPIC-002 next  
-> **Date:** 2026-03-21 | **EPIC-001 Completed:** 2026-03-22  
+> **Status:** IN PROGRESS — EPIC-001 DONE, EPIC-002 DONE, EPIC-003 next  
+> **Date:** 2026-03-21 | **EPIC-001 Completed:** 2026-03-22 | **EPIC-002 Completed:** 2026-03-22
 > **Scope:** Net-new tests targeting untested failure modes, race conditions, and edge cases  
 > **Companion:** [twig-test-quality.plan.md](twig-test-quality.plan.md) (structural refactoring — independent prerequisite chain)
 
@@ -67,20 +67,22 @@ This plan is **independent** of the test quality plan. It adds new tests to cove
 
 ---
 
-### EPIC-002: Concurrency & cache race conditions
+### EPIC-002: Concurrency & cache race conditions ✅ DONE
 
 **Problem:** `SyncWorkingSetAsync` fires unbounded `Task.WhenAll` across all stale items with no throttling. `ProtectedCacheWriter` is designed to prevent dirty-item overwrite during sync, but no test exercises the actual race. A concurrent `SaveAsync` during sync could silently lose data if the protection window has an off-by-one.
 
 **Production code:** `SyncCoordinator.cs` L95–97, `ProtectedCacheWriter.cs` L24–86, `SqliteWorkItemRepository.cs` L160–181
 
-| # | Task | What to test |
-|---|------|-------------|
-| 1 | **Batch fetch partial failure** — 20 items stale, `FetchAsync` succeeds for 18, throws for 2. Verify: 18 saved, 2 reported as failed in `SyncResult`, no data loss. | `SyncCoordinatorTests.cs` |
-| 2 | **ADO rate-limit during batch** — Mock `FetchAsync` to throw `AdoRateLimitException` for items 5+ (simulating 429 mid-batch). Verify: items 1–4 saved, rest reported as failed, no partial corruption. | `SyncCoordinatorTests.cs` |
-| 3 | **Concurrent save-during-sync race** — Start `SyncWorkingSetAsync` → mock `FetchAsync` with artificial delay → while fetch is in flight, call `SaveAsync` on one of the items being synced → complete sync. Verify: `ProtectedCacheWriter` detects the dirty item and skips overwrite. The locally-saved version wins. | `ProtectedCacheWriterTests.cs` |
-| 4 | **Concurrent dual-sync overlap** — Two `SyncWorkingSetAsync` calls with overlapping item sets {1–10} and {5–15}. Verify: no duplicate saves for items 5–10, final cache state is consistent. | `SyncCoordinatorTests.cs` |
-| 5 | **SQLite busy timeout under contention** — Two threads: one doing `SaveBatchAsync` (large batch), one doing `GetByIdAsync` during the save. Verify: reader succeeds (WAL mode allows concurrent read), no `SqliteException`. | `SqliteWorkItemRepositoryTests.cs` |
-| 6 | **Transaction rollback on partial batch save** — `SaveBatchAsync` with 10 items, mock failure on item 7. Verify: transaction rolled back, items 1–6 NOT persisted, exception surfaced to caller. | `SqliteWorkItemRepositoryTests.cs` |
+**Completed:** 2026-03-22 — 6 tests added. Production fix: `SyncWorkingSetAsync` now handles partial fetch failures individually (was `Task.WhenAll` all-or-nothing). New `SyncResult.PartiallyUpdated` variant reports saved count + failures. `SpectreRenderer` updated to render partial results.
+
+| # | Task | What to test | Status |
+|---|------|-------------|--------|
+| 1 | **Batch fetch partial failure** — 20 items stale, `FetchAsync` succeeds for 18, throws for 2. Verify: 18 saved, 2 reported as failed in `SyncResult`, no data loss. | `SyncCoordinatorTests.cs` | ✅ DONE |
+| 2 | **ADO rate-limit during batch** — Mock `FetchAsync` to throw `AdoRateLimitException` for items 5+ (simulating 429 mid-batch). Verify: items 1–4 saved, rest reported as failed, no partial corruption. | `SyncCoordinatorTests.cs` | ✅ DONE |
+| 3 | **Concurrent save-during-sync race** — Start `SyncWorkingSetAsync` → mock `FetchAsync` with artificial delay → while fetch is in flight, call `SaveAsync` on one of the items being synced → complete sync. Verify: `ProtectedCacheWriter` detects the dirty item and skips overwrite. The locally-saved version wins. | `ProtectedCacheWriterTests.cs` | ✅ DONE |
+| 4 | **Concurrent dual-sync overlap** — Two `SyncWorkingSetAsync` calls with overlapping item sets {1–10} and {5–15}. Verify: no duplicate saves for items 5–10, final cache state is consistent. | `SyncCoordinatorTests.cs` | ✅ DONE |
+| 5 | **SQLite busy timeout under contention** — Two threads: one doing `SaveBatchAsync` (large batch), one doing `GetByIdAsync` during the save. Verify: reader succeeds (WAL mode allows concurrent read), no `SqliteException`. | `SqliteWorkItemRepositoryTests.cs` | ✅ DONE |
+| 6 | **Transaction rollback on partial batch save** — `SaveBatchAsync` with 10 items, mock failure on item 7. Verify: transaction rolled back, items 1–6 NOT persisted, exception surfaced to caller. | `SqliteWorkItemRepositoryTests.cs` | ✅ DONE |
 
 **Outcome:** Concurrency invariants are proven: dirty items survive sync, partial failures don't corrupt cache, SQLite WAL mode handles contention.
 

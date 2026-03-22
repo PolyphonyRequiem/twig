@@ -421,13 +421,14 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         // Flush any accumulated lines before the separator
         FlushAlignedLines(sb, lines);
 
-        // Virtual group header: indented separator line
+        // Virtual group header: indented to backlog level
         var baseIndent = "      ";
-        sb.AppendLine($"{baseIndent}{Dim}── {virtualNode.GroupLabel} ──{Reset}");
-
-        // Children indented to their backlog level
         var levelIndent = new string(' ', virtualNode.BacklogLevel * 4);
-        var childIndent = baseIndent + levelIndent;
+        var groupIndent = baseIndent + levelIndent;
+        sb.AppendLine($"{groupIndent}{Dim}── {virtualNode.GroupLabel} ──{Reset}");
+
+        // Children at the same backlog-level indentation
+        var childIndent = groupIndent;
 
         for (var i = 0; i < virtualNode.Children.Count; i++)
         {
@@ -478,7 +479,8 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         }
     }
 
-
+
+
     private void CollectHierarchyChildrenForCategory(List<AlignedLine> lines, Workspace ws, SprintHierarchyNode node, string childIndent, StateCategory category, bool showAssignee = false)
     {
         // Pre-pass: find the last visible child index for correct box-drawing connectors.
@@ -605,7 +607,8 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         };
     }
 
-    private bool NodeOrDescendantBelongsToCategory(SprintHierarchyNode node, StateCategory category)
+
+    private bool NodeOrDescendantBelongsToCategory(SprintHierarchyNode node, StateCategory category)
     {
         if (node.IsSprintItem && StateCategoryResolver.Resolve(node.Item.State, _stateEntries) == category)
             return true;

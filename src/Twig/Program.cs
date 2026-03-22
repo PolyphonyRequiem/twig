@@ -322,9 +322,9 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> Ws(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, CancellationToken ct = default)
         => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, ct);
 
-    /// <summary>Show all team items in the current sprint, grouped by assignee.</summary>
-    public async Task<int> Sprint(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all: true, ct: ct);
+    /// <summary>Show sprint items, grouped by assignee. Defaults to your items; use --all for the full team.</summary>
+    public async Task<int> Sprint(string output = OutputFormatterFactory.DefaultFormat, bool all = false, CancellationToken ct = default)
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, ct: ct);
 
     /// <summary>Read or set a configuration value.</summary>
     public async Task<int> Config([Argument] string key, [Argument] string? value = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
@@ -475,7 +475,7 @@ Views:
   status               Active item detail and pending changes.
   tree                 Work item hierarchy (parent → active → children).
   workspace            My sprint items.  (alias: ws)
-  sprint               Team sprint items, grouped by assignee.
+  sprint               My sprint items, grouped by assignee.  (--all for team)
 
 Context:
   set <id|pattern>     Set the active work item.

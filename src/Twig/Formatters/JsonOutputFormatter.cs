@@ -14,6 +14,8 @@ public sealed class JsonOutputFormatter : IOutputFormatter
 {
     private static readonly JsonWriterOptions WriterOptions = new() { Indented = true };
 
+    public string FormatStatusSummary(WorkItem item) => string.Empty;
+
     public string FormatWorkItem(WorkItem item, bool showDirty)
     {
         using var stream = new MemoryStream();

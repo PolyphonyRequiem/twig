@@ -114,6 +114,9 @@ public sealed class StatusCommand(
         }
 
         // Sync path — original implementation (JSON, minimal, --no-live, piped output)
+        var summary = fmt.FormatStatusSummary(item);
+        if (!string.IsNullOrEmpty(summary))
+            Console.WriteLine(summary);
         Console.WriteLine(fmt.FormatWorkItem(item, showDirty: true));
 
         // Git context enrichment (EPIC-006) — additive, never changes existing behavior

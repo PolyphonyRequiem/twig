@@ -119,7 +119,7 @@ Twig has four view commands (`status`, `tree`, `workspace`, `sprint`) plus three
 | 4 | **Add short descriptions to grouped help** — Each view command gets a one-line purpose:  `status` → "Active item detail", `tree` → "Work item hierarchy", `workspace` → "My sprint items", `sprint` → "Team sprint items" | Low — cosmetic | None |
 | 5 | **Auto-refresh on init** — `twig init` currently creates config + schema but does NOT sync sprint items. After init completes, automatically run the refresh flow so the user has a populated workspace immediately. Today, `twig init` → `twig workspace` shows nothing until the user manually runs `twig refresh`. Also clean up the dead code: `InitCommand` stores `config.Defaults.IterationPath` but nothing reads it — remove that write. | Medium — eliminates the "empty workspace after init" gap | Low — refresh is idempotent |
 
-### EPIC-002: Quick-glance improvements
+### EPIC-002: Quick-glance improvements — IN PROGRESS
 
 | # | Change | Impact | Risk |
 |---|--------|--------|------|

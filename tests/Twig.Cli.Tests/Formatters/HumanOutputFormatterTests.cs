@@ -1201,4 +1201,76 @@ public class HumanOutputFormatterTests
         var resolvedCategory = StateCategoryResolver.Resolve("Design", entries);
         resolvedCategory.ShouldBe(Domain.Enums.StateCategory.InProgress);
     }
+
+    // ── EPIC-002: Status summary header line ────────────────────────
+
+    [Fact]
+    public void FormatStatusSummary_ContainsIdTypeAndTitle()
+    {
+        var item = CreateWorkItem(12345, "Fix login timeout", "Active");
+
+        var result = _formatter.FormatStatusSummary(item);
+
+        result.ShouldContain("#12345");
+        result.ShouldContain("●");
+        result.ShouldContain("Task");
+        result.ShouldContain("Fix login timeout");
+        result.ShouldContain("Active");
+    }
+
+    [Fact]
+    public void FormatStatusSummary_ContainsAnsiColors()
+    {
+        var item = CreateWorkItem(1, "Test", "Active");
+
+        var result = _formatter.FormatStatusSummary(item);
+
+        result.ShouldContain("\x1b["); // ANSI escapes present
+        result.ShouldContain("\x1b[36m"); // Cyan for ● marker
+    }
+
+    [Fact]
+    public void FormatStatusSummary_IncludesEmDashSeparator()
+    {
+        var item = CreateWorkItem(1, "My Task", "New");
+
+        var result = _formatter.FormatStatusSummary(item);
+
+        result.ShouldContain("—"); // em dash
+    }
+
+    [Fact]
+    public void FormatStatusSummary_WrapsStateInBrackets()
+    {
+        var item = CreateWorkItem(1, "My Task", "Closed");
+
+        var result = _formatter.FormatStatusSummary(item);
+
+        // State should appear inside square brackets
+        result.ShouldContain("[");
+        result.ShouldContain("Closed");
+        result.ShouldContain("]");
+    }
+
+    [Fact]
+    public void FormatStatusSummary_JsonFormatter_ReturnsEmpty()
+    {
+        var jsonFormatter = new JsonOutputFormatter();
+        var item = CreateWorkItem(1, "Test", "Active");
+
+        var result = jsonFormatter.FormatStatusSummary(item);
+
+        result.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void FormatStatusSummary_MinimalFormatter_ReturnsEmpty()
+    {
+        var minimalFormatter = new MinimalOutputFormatter();
+        var item = CreateWorkItem(1, "Test", "Active");
+
+        var result = minimalFormatter.FormatStatusSummary(item);
+
+        result.ShouldBeEmpty();
+    }
 }

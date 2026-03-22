@@ -48,6 +48,14 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         _stateEntries = stateEntries;
     }
 
+    public string FormatStatusSummary(WorkItem item)
+    {
+        var typeColor = GetTypeColor(item.Type);
+        var badge = GetTypeBadge(item.Type);
+        var stateColor = GetStateColor(item.State);
+        return $"#{item.Id} {Cyan}●{Reset} {typeColor}{badge} {item.Type}{Reset} — {item.Title} [{stateColor}{item.State}{Reset}]";
+    }
+
     public string FormatWorkItem(WorkItem item, bool showDirty)
     {
         var sb = new StringBuilder();

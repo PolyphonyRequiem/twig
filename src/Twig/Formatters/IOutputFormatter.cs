@@ -31,4 +31,11 @@ public interface IOutputFormatter
 
     /// <summary>Formats an annotated log entry with optional work item badge.</summary>
     string FormatAnnotatedLogEntry(string hash, string message, string? workItemType, string? workItemState, int? workItemId);
+
+    /// <summary>
+    /// Returns a one-line summary suitable for quick-glance status display.
+    /// Format: <c>#ID ● Type — Title [State]</c>.
+    /// JSON and Minimal formatters return empty string (no change to their output).
+    /// </summary>
+    string FormatStatusSummary(WorkItem item);
 }

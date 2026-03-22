@@ -24,6 +24,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         var table = SpectreTheme.CreateWorkspaceTable();
         string? savedCaption = null;
         var loadingCleared = false;
+        int? activeContextId = null;
 
         await _console.Live(table)
             .StartAsync(async ctx =>
@@ -43,6 +44,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                     switch (chunk)
                     {
                         case WorkspaceDataChunk.ContextLoaded(var contextItem):
+                            activeContextId = contextItem?.Id;
                             savedCaption = contextItem is not null
                                 ? $"Active: #{contextItem.Id} {Markup.Escape(contextItem.Title)}"
                                 : "[dim]No active context[/]";
@@ -52,11 +54,17 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
                         case WorkspaceDataChunk.SprintItemsLoaded(var items):
                             foreach (var item in items)
+                            {
+                                var isActive = activeContextId.HasValue && item.Id == activeContextId.Value;
+                                var marker = isActive ? "[aqua]►[/] " : "";
+                                var boldOpen = isActive ? "[bold]" : "";
+                                var boldClose = isActive ? "[/]" : "";
                                 table.AddRow(
-                                    item.Id.ToString(),
+                                    $"{marker}{boldOpen}{item.Id}{boldClose}",
                                     _theme.FormatTypeBadge(item.Type),
-                                    Markup.Escape(item.Title),
+                                    $"{boldOpen}{Markup.Escape(item.Title)}{boldClose}",
                                     _theme.FormatState(item.State));
+                            }
                             ctx.Refresh();
                             break;
 
@@ -197,6 +205,11 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             return;
 
         var pending = await getPendingChanges();
+
+        // EPIC-002: One-line summary header for quick-glance
+        var summaryBadge = _theme.FormatTypeBadge(item.Type);
+        var summaryState = _theme.FormatState(item.State);
+        _console.MarkupLine($"#{item.Id} [aqua]●[/] {summaryBadge} {Markup.Escape(item.Type.ToString())} — {Markup.Escape(item.Title)} [[{summaryState}]]");
 
         // Work item detail panel
         var dirty = item.IsDirty ? " [yellow]•[/]" : "";

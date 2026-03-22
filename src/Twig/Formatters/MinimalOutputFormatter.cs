@@ -11,6 +11,8 @@ namespace Twig.Formatters;
 /// </summary>
 public sealed class MinimalOutputFormatter : IOutputFormatter
 {
+    public string FormatStatusSummary(WorkItem item) => string.Empty;
+
     public string FormatWorkItem(WorkItem item, bool showDirty)
     {
         var dirty = showDirty && item.IsDirty ? " *" : "";

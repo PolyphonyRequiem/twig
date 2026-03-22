@@ -4,6 +4,7 @@ using Spectre.Console;
 using Spectre.Console.Testing;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
 using Twig.Domain.Services;
@@ -391,5 +392,67 @@ public class WorkspaceCommandAsyncTests
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value,
         };
+    }
+
+    // ── EPIC-002: Status summary header line ────────────────────────
+
+    [Fact]
+    public async Task SpectreRenderer_RenderStatusAsync_ShowsSummaryHeader()
+    {
+        var item = CreateWorkItem(1, "Summary Test");
+
+        await _spectreRenderer.RenderStatusAsync(
+            getItem: () => Task.FromResult<WorkItem?>(item),
+            getPendingChanges: () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>(
+                Array.Empty<PendingChangeRecord>()),
+            ct: CancellationToken.None);
+
+        var output = _testConsole.Output;
+        // Summary header should appear with the ID, marker, type, title, and state
+        output.ShouldContain("#1");
+        output.ShouldContain("●");
+        output.ShouldContain("Summary Test");
+        output.ShouldContain("Task");
+    }
+
+    // ── EPIC-002: Workspace active row highlight ────────────────────
+
+    [Fact]
+    public async Task SpectreRenderer_RenderWorkspaceAsync_HighlightsActiveItem()
+    {
+        var activeItem = CreateWorkItem(1, "Active Item");
+        var otherItem = CreateWorkItem(2, "Other Item");
+
+        var chunks = CreateChunksAsync(
+            new WorkspaceDataChunk.ContextLoaded(activeItem),
+            new WorkspaceDataChunk.SprintItemsLoaded(new[] { activeItem, otherItem }),
+            new WorkspaceDataChunk.SeedsLoaded(Array.Empty<WorkItem>()));
+
+        await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, CancellationToken.None);
+
+        var output = _testConsole.Output;
+        // Active item should have a marker symbol
+        output.ShouldContain("►");
+        // Both items should be present
+        output.ShouldContain("Active Item");
+        output.ShouldContain("Other Item");
+    }
+
+    [Fact]
+    public async Task SpectreRenderer_RenderWorkspaceAsync_NoContext_NoHighlight()
+    {
+        var item = CreateWorkItem(1, "Item No Context");
+
+        var chunks = CreateChunksAsync(
+            new WorkspaceDataChunk.ContextLoaded(null),
+            new WorkspaceDataChunk.SprintItemsLoaded(new[] { item }),
+            new WorkspaceDataChunk.SeedsLoaded(Array.Empty<WorkItem>()));
+
+        await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, CancellationToken.None);
+
+        var output = _testConsole.Output;
+        output.ShouldContain("Item No Context");
+        // No marker should appear when there's no active context
+        output.ShouldNotContain("►");
     }
 }

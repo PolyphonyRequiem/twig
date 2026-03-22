@@ -1,6 +1,6 @@
 # Twig Test Quality — Improvement Plan
 
-> **Status:** EPIC-001 COMPLETE — Ready for EPIC-002  
+> **Status:** EPIC-001 DONE — Ready for EPIC-002  
 > **Date:** 2026-03-22  
 > **Scope:** All 4 test projects (148 test files, ~1,878 test methods)
 
@@ -57,21 +57,25 @@ Twig has good test coverage (~1,160+ passing tests) with consistent tooling (xUn
 
 ## EPICs
 
-### EPIC-001: Shared test data builders
+### EPIC-001: Shared test data builders — **DONE** ✓
+
+**Completed:** 2026-03-22
 
 **Problem:** `MakeItem`, `MakeSeed`, `BuildAgileConfig`, `BuildBasicProcessConfiguration` are copy-pasted across 15+ test files with inconsistent signatures.
 
 **Solution:** Create shared builder types in a `tests/Twig.TestKit/` project (or `Twig.Domain.Tests/TestKit/` folder) with fluent APIs.
 
-| # | Task | Scope |
-|---|------|-------|
-| 1 | **`WorkItemBuilder`** — Fluent builder: `new WorkItemBuilder(1, "Fix login").AsTask().InState("Active").WithParent(100).AssignedTo("Alice").Build()`. Defaults all fields to sensible values. Returns `WorkItem`. | `Twig.TestKit/` or `Twig.Domain.Tests/` |
-| 2 | **`ProcessConfigBuilder`** — Fluent builder: `ProcessConfigBuilder.Agile()`, `.Scrum()`, `.Cmmi()`, `.Custom(...)`. Returns `ProcessConfiguration` with standard state entries, type hierarchy, and backlog levels. Replaces inline construction across 10+ files. | Same |
-| 3 | **`SprintHierarchyBuilder`** — Given a list of WorkItems (from WorkItemBuilder), build a `SprintHierarchy` with proper parent chains and assignee groups. Replaces manual `Build()` calls + parentLookup construction in tests. | Same |
-| 4 | **`WorkspaceBuilder`** — Fluent builder: `new WorkspaceBuilder().WithContext(item).WithSprintItems(items).WithSeeds(seeds).WithHierarchy(hierarchy).Build()`. Replaces manual `Workspace.Build()` boilerplate. | Same |
-| 5 | **Migrate existing tests** — Replace local `MakeItem` / `BuildConfig` helpers with builder calls across all test projects. Remove dead local helpers. | All test projects |
+| # | Task | Scope | Status |
+|---|------|-------|--------|
+| 1 | **`WorkItemBuilder`** — Fluent builder: `new WorkItemBuilder(1, "Fix login").AsTask().InState("Active").WithParent(100).AssignedTo("Alice").Build()`. Defaults all fields to sensible values. Returns `WorkItem`. | `Twig.TestKit/` or `Twig.Domain.Tests/` | DONE |
+| 2 | **`ProcessConfigBuilder`** — Fluent builder: `ProcessConfigBuilder.Agile()`, `.Scrum()`, `.Cmmi()`, `.Custom(...)`. Returns `ProcessConfiguration` with standard state entries, type hierarchy, and backlog levels. Replaces inline construction across 10+ files. | Same | DONE |
+| 3 | **`SprintHierarchyBuilder`** — Given a list of WorkItems (from WorkItemBuilder), build a `SprintHierarchy` with proper parent chains and assignee groups. Replaces manual `Build()` calls + parentLookup construction in tests. | Same | DONE |
+| 4 | **`WorkspaceBuilder`** — Fluent builder: `new WorkspaceBuilder().WithContext(item).WithSprintItems(items).WithSeeds(seeds).WithHierarchy(hierarchy).Build()`. Replaces manual `Workspace.Build()` boilerplate. | Same | DONE |
+| 5 | **Migrate existing tests** — Replace local `MakeItem` / `BuildConfig` helpers with builder calls across all test projects. Remove dead local helpers. | All test projects | DONE |
 
 **Outcome:** Shared vocabulary for test data. New test files take ~5 lines of setup instead of ~30.
+
+**Implementation Notes:** 13 test files migrated. Net reduction of ~313 lines of duplicated test helper code. `AgileUserStoryOnly()` used for files exercising only User Story states; `Agile()` used for files needing the broader type hierarchy. `ToStateEntries()` preserved in `StateTransitionServiceTests` for malformed-record tests. All 2303 tests pass.
 
 ---
 

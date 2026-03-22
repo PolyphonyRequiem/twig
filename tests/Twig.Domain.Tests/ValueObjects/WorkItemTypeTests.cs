@@ -104,30 +104,6 @@ public class WorkItemTypeTests
     }
 
     [Fact]
-    public void Constants_HaveCorrectValues()
-    {
-        WorkItemType.Epic.Value.ShouldBe("Epic");
-        WorkItemType.Feature.Value.ShouldBe("Feature");
-        WorkItemType.UserStory.Value.ShouldBe("User Story");
-        WorkItemType.ProductBacklogItem.Value.ShouldBe("Product Backlog Item");
-        WorkItemType.Requirement.Value.ShouldBe("Requirement");
-        WorkItemType.Task.Value.ShouldBe("Task");
-        WorkItemType.Bug.Value.ShouldBe("Bug");
-        WorkItemType.Issue.Value.ShouldBe("Issue");
-        WorkItemType.TestCase.Value.ShouldBe("Test Case");
-        WorkItemType.Impediment.Value.ShouldBe("Impediment");
-        WorkItemType.ChangeRequest.Value.ShouldBe("Change Request");
-        WorkItemType.Review.Value.ShouldBe("Review");
-        WorkItemType.Risk.Value.ShouldBe("Risk");
-    }
-
-    [Fact]
-    public void ToString_ReturnsValue()
-    {
-        WorkItemType.Bug.ToString().ShouldBe("Bug");
-    }
-
-    [Fact]
     public void Equality_SameParsed()
     {
         var a = WorkItemType.Parse("Bug").Value;

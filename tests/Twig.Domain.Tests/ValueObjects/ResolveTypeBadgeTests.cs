@@ -118,24 +118,4 @@ public class ResolveTypeBadgeTests
         IconSet.ResolveTypeBadge("nerd", "Epic", null).ShouldBe("◆");
     }
 
-    // ── Parity: ResolveTypeBadge returns expected glyph for all 13 known types ──
-
-    [Theory]
-    [InlineData("Epic", "◆")]
-    [InlineData("Feature", "▪")]
-    [InlineData("User Story", "●")]
-    [InlineData("Product Backlog Item", "●")]
-    [InlineData("Requirement", "●")]
-    [InlineData("Bug", "✦")]
-    [InlineData("Impediment", "✦")]
-    [InlineData("Risk", "✦")]
-    [InlineData("Task", "□")]
-    [InlineData("Test Case", "□")]
-    [InlineData("Change Request", "□")]
-    [InlineData("Review", "□")]
-    [InlineData("Issue", "□")]
-    public void ResolveTypeBadge_AllKnownTypes_ReturnExpectedGlyph(string typeName, string expectedGlyph)
-    {
-        IconSet.ResolveTypeBadge("unicode", typeName, null).ShouldBe(expectedGlyph, $"Mismatch for type '{typeName}'");
-    }
 }

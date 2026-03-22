@@ -1,6 +1,6 @@
 # Twig Test Quality — Improvement Plan
 
-> **Status:** EPIC-001 DONE — EPIC-002 DONE — EPIC-003 DONE  
+> **Status:** EPIC-001 DONE — EPIC-002 DONE — EPIC-003 DONE — EPIC-004 DONE  
 > **Date:** 2026-03-22  
 > **Scope:** All 4 test projects (148 test files, ~1,878 test methods)
 
@@ -133,20 +133,24 @@ Twig has good test coverage (~1,160+ passing tests) with consistent tooling (xUn
 
 ---
 
-### EPIC-004: Prune trivial and duplicate tests
+### EPIC-004: Prune trivial and duplicate tests — **DONE** ✓
+
+**Completed:** 2026-03-22
 
 **Problem:** ~50 tests verify single properties, constructor existence, or `ShouldBeOfType<T>()`. Some command families have 3 test files testing overlapping scenarios (`StatusCommandTests` + `StatusCommandAsyncTests` + `StatusCommandGitTests`).
 
 **Solution:** Remove tests that add no behavioral value. Consolidate split command test files where the split doesn't represent meaningfully different test scenarios.
 
-| # | Task | Scope |
-|---|------|-------|
-| 1 | **Identify trivial tests** — Tests that assert only: constructor doesn't throw, property returns value, type is correct. Tag with `// TRIVIAL` for review. | All test projects |
-| 2 | **Delete pure-property tests** — Tests like `color.Value.R.ShouldBe((byte)255)` that verify framework behavior, not application behavior. Keep tests where the property has business logic. | Selective deletion |
-| 3 | **Consolidate command test triads** — `StatusCommandTests` + `StatusCommandAsyncTests` + `StatusCommandGitTests` → merge into a single `StatusCommandTests` with clearly named test methods. Same for Tree and Workspace. | `Twig.Cli.Tests/Commands/` |
-| 4 | **Remove dead helpers** — After EPIC-001 (builders) and EPIC-002 (service extraction), local test helpers become dead. Sweep and remove. | All test projects |
+| # | Task | Scope | Status |
+|---|------|-------|--------|
+| 1 | **Identify trivial tests** — Tests that assert only: constructor doesn't throw, property returns value, type is correct. Tag with `// TRIVIAL` for review. | All test projects | DONE |
+| 2 | **Delete pure-property tests** — Tests like `color.Value.R.ShouldBe((byte)255)` that verify framework behavior, not application behavior. Keep tests where the property has business logic. | Selective deletion | DONE |
+| 3 | **Consolidate command test triads** — `StatusCommandTests` + `StatusCommandAsyncTests` + `StatusCommandGitTests` → merge into a single `StatusCommandTests` with clearly named test methods. Same for Tree and Workspace. | `Twig.Cli.Tests/Commands/` | DONE |
+| 4 | **Remove dead helpers** — After EPIC-001 (builders) and EPIC-002 (service extraction), local test helpers become dead. Sweep and remove. | All test projects | DONE |
 
-**Outcome:** ~50–80 fewer tests, all remaining tests verify behavior. Faster CI. Less maintenance.
+**Outcome:** 16 fewer tests (2,331 → 2,315), 4 test files eliminated, 3 consolidated. All remaining tests verify behavior.
+
+**Implementation Notes:** Removed 13 duplicate Theory cases from ResolveTypeBadgeTests (exact duplicate of KnownType_NoIconId tests), 2 trivial tests from WorkItemTypeTests (Constants_HaveCorrectValues, ToString_ReturnsValue — both covered by Parse tests), and 1 trivial config default test from TreeCommandTests (Tree_DefaultDepth_Uses10). Consolidated StatusCommandTests + StatusCommandAsyncTests + StatusCommandGitTests into single StatusCommandTests with clear section comments (Core, Async path, Sync fallback, SpectreRenderer, Git context). Same for TreeCommandTests (merged AsyncTests) and WorkspaceCommandTests (merged AsyncTests). Duplicate CreateWorkItem helpers and OutputFormatterFactory/HintEngine instantiations eliminated across merged files. All 2,315 tests passing.
 
 ---
 

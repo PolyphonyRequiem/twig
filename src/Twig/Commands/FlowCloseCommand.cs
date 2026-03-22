@@ -1,7 +1,6 @@
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
-using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Infrastructure.Config;
 
@@ -12,15 +11,12 @@ namespace Twig.Commands;
 /// deletes the local branch, and clears the active context.
 /// </summary>
 public sealed class FlowCloseCommand(
-    IAdoWorkItemService adoService,
     IContextStore contextStore,
     IPendingChangeStore pendingChangeStore,
-    IProcessConfigurationProvider processConfigProvider,
     IConsoleInput consoleInput,
     OutputFormatterFactory formatterFactory,
     TwigConfiguration config,
-    ActiveItemResolver activeItemResolver,
-    ProtectedCacheWriter protectedCacheWriter,
+    FlowTransitionService flowTransitionService,
     IGitService? gitService = null,
     IAdoGitService? adoGitService = null,
     IPromptStateWriter? promptStateWriter = null)
@@ -35,36 +31,16 @@ public sealed class FlowCloseCommand(
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
-        // 1. Resolve target via ActiveItemResolver
-        int targetId;
-        Domain.Aggregates.WorkItem item;
+        // 1. Resolve target via FlowTransitionService
+        var resolveResult = await flowTransitionService.ResolveItemAsync(id, ct);
+        if (!resolveResult.IsSuccess)
+        {
+            Console.Error.WriteLine(fmt.FormatError(resolveResult.ErrorMessage!));
+            return 1;
+        }
 
-        if (id.HasValue)
-        {
-            var resolved = await activeItemResolver.ResolveByIdAsync(id.Value);
-            if (!resolved.TryGetWorkItem(out var resolvedItem, out var errId, out var errReason))
-            {
-                Console.Error.WriteLine(fmt.FormatError(errId is not null
-                    ? $"Work item #{errId} could not be fetched: {errReason}"
-                    : $"Work item #{id.Value} not found in cache."));
-                return 1;
-            }
-            item = resolvedItem!;
-            targetId = item.Id;
-        }
-        else
-        {
-            var activeResult = await activeItemResolver.GetActiveItemAsync();
-            if (!activeResult.TryGetWorkItem(out var resolvedItem, out var errId, out var errReason))
-            {
-                Console.Error.WriteLine(fmt.FormatError(errId is not null
-                    ? $"Work item #{errId} could not be fetched: {errReason}"
-                    : "No active work item. Run 'twig flow-start <id>' first."));
-                return 1;
-            }
-            item = resolvedItem!;
-            targetId = item.Id;
-        }
+        var item = resolveResult.Item!;
+        int targetId = item.Id;
 
         // 2. Guard: unsaved changes
         if (!force)
@@ -121,30 +97,15 @@ public sealed class FlowCloseCommand(
             }
         }
 
-        // 4. Transition to Completed
+        // 4. Transition to Completed via FlowTransitionService
         string? newState = null;
         string originalState = item.State;
-        var processConfig = processConfigProvider.GetConfiguration();
-        if (processConfig.TypeConfigs.TryGetValue(item.Type, out var typeConfig))
+        var transitionResult = await flowTransitionService.TransitionStateAsync(
+            item, StateCategory.Completed, ct: ct);
+        if (transitionResult.Transitioned)
         {
-            var category = StateCategoryResolver.Resolve(item.State, typeConfig.StateEntries);
-
-            // Skip if already Completed
-            if (category != StateCategory.Completed)
-            {
-                var resolveResult = StateResolver.ResolveByCategory(StateCategory.Completed, typeConfig.StateEntries);
-                if (resolveResult.IsSuccess)
-                {
-                    newState = resolveResult.Value;
-                    var remote = await adoService.FetchAsync(item.Id);
-                    var changes = new[] { new FieldChange("System.State", item.State, newState) };
-                    var newRevision = await adoService.PatchAsync(item.Id, changes, remote.Revision);
-                    item.ChangeState(newState);
-                    item.ApplyCommands();
-                    item.MarkSynced(newRevision);
-                    await protectedCacheWriter.SaveProtectedAsync(item);
-                }
-            }
+            newState = transitionResult.NewState;
+            originalState = transitionResult.OriginalState;
         }
 
         // 5. Branch cleanup (prompt then delete)

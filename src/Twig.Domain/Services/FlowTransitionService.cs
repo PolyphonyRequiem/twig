@@ -113,8 +113,9 @@ public sealed class FlowTransitionService
         }
 
         var newState = resolveResult.Value;
+        var originalState = item.State;
         var remote = await _adoService.FetchAsync(item.Id, ct);
-        var changes = new[] { new FieldChange("System.State", item.State, newState) };
+        var changes = new[] { new FieldChange("System.State", originalState, newState) };
         var newRevision = await _adoService.PatchAsync(item.Id, changes, remote.Revision, ct);
 
         item.ChangeState(newState);
@@ -125,7 +126,7 @@ public sealed class FlowTransitionService
         return new FlowTransitionResult
         {
             Transitioned = true,
-            OriginalState = item.State == newState ? item.State : changes[0].OldValue ?? item.State,
+            OriginalState = originalState,
             NewState = newState,
             AlreadyInTargetCategory = false,
         };

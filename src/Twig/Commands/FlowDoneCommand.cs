@@ -13,15 +13,12 @@ namespace Twig.Commands;
 /// </summary>
 public sealed class FlowDoneCommand(
     IWorkItemRepository workItemRepo,
-    IAdoWorkItemService adoService,
     IPendingChangeStore pendingChangeStore,
-    IProcessConfigurationProvider processConfigProvider,
     SaveCommand saveCommand,
     IConsoleInput consoleInput,
     OutputFormatterFactory formatterFactory,
     TwigConfiguration config,
-    ActiveItemResolver activeItemResolver,
-    ProtectedCacheWriter protectedCacheWriter,
+    FlowTransitionService flowTransitionService,
     IGitService? gitService = null,
     IAdoGitService? adoGitService = null,
     IPromptStateWriter? promptStateWriter = null)
@@ -36,37 +33,17 @@ public sealed class FlowDoneCommand(
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
-        // 1. Resolve target via ActiveItemResolver
-        int targetId;
-        bool isExplicitId = id.HasValue;
-        Domain.Aggregates.WorkItem item;
+        // 1. Resolve target via FlowTransitionService
+        var resolveResult = await flowTransitionService.ResolveItemAsync(id, ct);
+        if (!resolveResult.IsSuccess)
+        {
+            Console.Error.WriteLine(fmt.FormatError(resolveResult.ErrorMessage!));
+            return 1;
+        }
 
-        if (id.HasValue)
-        {
-            var resolved = await activeItemResolver.ResolveByIdAsync(id.Value);
-            if (!resolved.TryGetWorkItem(out var resolvedItem, out var errId, out var errReason))
-            {
-                Console.Error.WriteLine(fmt.FormatError(errId is not null
-                    ? $"Work item #{errId} could not be fetched: {errReason}"
-                    : $"Work item #{id.Value} not found in cache."));
-                return 1;
-            }
-            item = resolvedItem!;
-            targetId = item.Id;
-        }
-        else
-        {
-            var activeResult = await activeItemResolver.GetActiveItemAsync();
-            if (!activeResult.TryGetWorkItem(out var resolvedItem, out var errId, out var errReason))
-            {
-                Console.Error.WriteLine(fmt.FormatError(errId is not null
-                    ? $"Work item #{errId} could not be fetched: {errReason}"
-                    : "No active work item. Run 'twig flow-start <id>' first."));
-                return 1;
-            }
-            item = resolvedItem!;
-            targetId = item.Id;
-        }
+        var item = resolveResult.Item!;
+        int targetId = item.Id;
+        bool isExplicitId = resolveResult.IsExplicitId;
 
         // 2. Save work tree (if not --no-save)
         bool workTreeSaved = false;
@@ -98,35 +75,15 @@ public sealed class FlowDoneCommand(
             workTreeSaved = hasDirtyItems;
         }
 
-        // 3. Transition state: InProgress → Resolved (or Completed fallback)
+        // 3. Transition state via FlowTransitionService: InProgress → Resolved (or Completed fallback)
         string? newState = null;
         string originalState = item.State;
-        var processConfig = processConfigProvider.GetConfiguration();
-        if (processConfig.TypeConfigs.TryGetValue(item.Type, out var typeConfig))
+        var transitionResult = await flowTransitionService.TransitionStateAsync(
+            item, StateCategory.Resolved, StateCategory.Completed, ct);
+        if (transitionResult.Transitioned)
         {
-            var category = StateCategoryResolver.Resolve(item.State, typeConfig.StateEntries);
-
-            // Skip transition if already Resolved or Completed
-            if (category is not (StateCategory.Resolved or StateCategory.Completed))
-            {
-                // Try Resolved first ('s'), fall back to Completed ('d')
-                var resolveResult = StateResolver.ResolveByCategory(StateCategory.Resolved, typeConfig.StateEntries);
-                if (!resolveResult.IsSuccess)
-                    resolveResult = StateResolver.ResolveByCategory(StateCategory.Completed, typeConfig.StateEntries);
-
-                if (resolveResult.IsSuccess)
-                {
-                    newState = resolveResult.Value;
-                    // Re-fetch to get latest revision after save
-                    var remote = await adoService.FetchAsync(item.Id);
-                    var changes = new[] { new FieldChange("System.State", item.State, newState) };
-                    var newRevision = await adoService.PatchAsync(item.Id, changes, remote.Revision);
-                    item.ChangeState(newState);
-                    item.ApplyCommands();
-                    item.MarkSynced(newRevision);
-                    await protectedCacheWriter.SaveProtectedAsync(item);
-                }
-            }
+            newState = transitionResult.NewState;
+            originalState = transitionResult.OriginalState;
         }
 
         // 4. Offer PR creation (if git available and not --no-pr)

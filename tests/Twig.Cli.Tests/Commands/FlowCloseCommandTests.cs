@@ -18,14 +18,12 @@ public class FlowCloseCommandTests
     private readonly IAdoWorkItemService _adoService;
     private readonly IContextStore _contextStore;
     private readonly IPendingChangeStore _pendingChangeStore;
-    private readonly IProcessConfigurationProvider _processConfigProvider;
     private readonly IConsoleInput _consoleInput;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly TwigConfiguration _config;
     private readonly IGitService _gitService;
     private readonly IAdoGitService _adoGitService;
-    private readonly ActiveItemResolver _activeItemResolver;
-    private readonly ProtectedCacheWriter _protectedCacheWriter;
+    private readonly FlowTransitionService _flowTransitionService;
 
     public FlowCloseCommandTests()
     {
@@ -33,13 +31,16 @@ public class FlowCloseCommandTests
         _adoService = Substitute.For<IAdoWorkItemService>();
         _contextStore = Substitute.For<IContextStore>();
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
-        _processConfigProvider = Substitute.For<IProcessConfigurationProvider>();
+        var processConfigProvider = Substitute.For<IProcessConfigurationProvider>();
         _consoleInput = Substitute.For<IConsoleInput>();
         _gitService = Substitute.For<IGitService>();
         _adoGitService = Substitute.For<IAdoGitService>();
 
-        _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        _protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
+        var activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
+        processConfigProvider.GetConfiguration().Returns(ProcessConfigBuilder.AgileUserStoryOnly());
+        _flowTransitionService = new FlowTransitionService(
+            activeItemResolver, _adoService, processConfigProvider, protectedCacheWriter);
 
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
@@ -47,8 +48,6 @@ public class FlowCloseCommandTests
         {
             Git = new GitConfig { DefaultTarget = "main" },
         };
-
-        _processConfigProvider.GetConfiguration().Returns(ProcessConfigBuilder.AgileUserStoryOnly());
 
         // Default: non-TTY (IsOutputRedirected = true) to match typical test/CI behavior
         _consoleInput.IsOutputRedirected.Returns(true);
@@ -58,10 +57,8 @@ public class FlowCloseCommandTests
     }
 
     private FlowCloseCommand CreateCommand(IGitService? gitService = null, IAdoGitService? adoGitService = null) =>
-        new(_adoService, _contextStore, _pendingChangeStore,
-            _processConfigProvider, _consoleInput, _formatterFactory, _config,
-            _activeItemResolver, _protectedCacheWriter,
-            gitService, adoGitService);
+        new(_contextStore, _pendingChangeStore, _consoleInput, _formatterFactory, _config,
+            _flowTransitionService, gitService, adoGitService);
 
     private static WorkItem CreateWorkItem(int id, string title, string state) => new()
     {

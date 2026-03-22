@@ -7,7 +7,6 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
-using Twig.Hints;
 using Twig.Infrastructure.Config;
 using Twig.TestKit;
 using Xunit;
@@ -24,12 +23,10 @@ public class FlowDoneCommandTests
     private readonly SaveCommand _saveCommand;
     private readonly IConsoleInput _consoleInput;
     private readonly OutputFormatterFactory _formatterFactory;
-    private readonly HintEngine _hintEngine;
     private readonly TwigConfiguration _config;
     private readonly IGitService _gitService;
     private readonly IAdoGitService _adoGitService;
-    private readonly ActiveItemResolver _activeItemResolver;
-    private readonly ProtectedCacheWriter _protectedCacheWriter;
+    private readonly FlowTransitionService _flowTransitionService;
 
     public FlowDoneCommandTests()
     {
@@ -42,12 +39,13 @@ public class FlowDoneCommandTests
         _gitService = Substitute.For<IGitService>();
         _adoGitService = Substitute.For<IAdoGitService>();
 
-        _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        _protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
+        var activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
+        _flowTransitionService = new FlowTransitionService(
+            activeItemResolver, _adoService, _processConfigProvider, protectedCacheWriter);
 
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
-        _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         _config = new TwigConfiguration
         {
             User = new UserConfig { DisplayName = "Test User" },
@@ -61,14 +59,12 @@ public class FlowDoneCommandTests
         _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());
 
         _saveCommand = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _activeItemResolver, _consoleInput, _formatterFactory);
+            activeItemResolver, _consoleInput, _formatterFactory);
     }
 
     private FlowDoneCommand CreateCommand(IGitService? gitService = null, IAdoGitService? adoGitService = null) =>
-        new(_workItemRepo, _adoService, _pendingChangeStore,
-            _processConfigProvider, _saveCommand, _consoleInput, _formatterFactory, _config,
-            _activeItemResolver, _protectedCacheWriter,
-            gitService, adoGitService);
+        new(_workItemRepo, _pendingChangeStore, _saveCommand, _consoleInput, _formatterFactory, _config,
+            _flowTransitionService, gitService, adoGitService);
 
     private static WorkItem CreateWorkItem(int id, string title, string state) => new()
     {
@@ -505,9 +501,9 @@ public class FlowDoneCommandTests
         };
 
         var cmd = new FlowDoneCommand(
-            _workItemRepo, _adoService, _pendingChangeStore,
-            _processConfigProvider, _saveCommand, _consoleInput, _formatterFactory, configNoPr,
-            _activeItemResolver, _protectedCacheWriter,
+            _workItemRepo, _pendingChangeStore,
+            _saveCommand, _consoleInput, _formatterFactory, configNoPr,
+            _flowTransitionService,
             _gitService, _adoGitService);
         var result = await cmd.ExecuteAsync(noSave: true);
 

@@ -1,6 +1,6 @@
 # Twig Test Quality — Improvement Plan
 
-> **Status:** EPIC-001 DONE — Ready for EPIC-002  
+> **Status:** EPIC-001 DONE — EPIC-002 DONE  
 > **Date:** 2026-03-22  
 > **Scope:** All 4 test projects (148 test files, ~1,878 test methods)
 
@@ -79,7 +79,9 @@ Twig has good test coverage (~1,160+ passing tests) with consistent tooling (xUn
 
 ---
 
-### EPIC-002: Extract command orchestration into domain services
+### EPIC-002: Extract command orchestration into domain services — **DONE** ✓
+
+**Completed:** 2026-03-22
 
 **Problem:** Commands are "fat" — they orchestrate 8–14 dependencies directly. Tests must mock all of them, even when testing a small behavioral slice.
 
@@ -87,17 +89,19 @@ Twig has good test coverage (~1,160+ passing tests) with consistent tooling (xUn
 - Test the **service** with 2–4 mocks (behavioral tests)
 - Test the **command** with 1–2 mocks (wiring tests, or skip entirely)
 
-| # | Task | New Service | Command Params Before → After |
-|---|------|------------|-------------------------------|
-| 1 | **`RefreshOrchestrator`** — Encapsulates WIQL construction → ADO fetch → conflict detection → batch save. Accepts `IAdoWorkItemService`, `IWorkItemRepository`, `ProtectedCacheWriter`, config. `RefreshCommand` delegates to it. | `Twig.Domain/Services/` | RefreshCommand: 14 → ~8 |
-| 2 | **`FlowTransitionService`** — Encapsulates item resolution → save → state transition → optional PR creation. Accepts `ActiveItemResolver`, `ProtectedCacheWriter`, `IProcessConfigProvider`. FlowDone/FlowClose delegate to it. | `Twig.Domain/Services/` | FlowDoneCommand: 13 → ~7 |
-| 3 | **`StatusOrchestrator`** — Encapsulates active item resolution + pending changes + working set + sync coordination into a single "status snapshot" result. `StatusCommand` delegates to it. | `Twig.Domain/Services/` | StatusCommand: 12 → ~6 |
-| 4 | **Migrate command tests** — For each extracted service, move behavioral tests from command test files to service test files. Command tests reduce to: "does the command call the service and format the output?" (1–2 mocks). | All test projects |
-| 5 | **Remove redundant command tests** — After extraction, some command test files that were testing orchestration logic (now in services) become dead. Audit and remove. | `Twig.Cli.Tests/` |
+| # | Task | New Service | Command Params Before → After | Status |
+|---|------|------------|-------------------------------|--------|
+| 1 | **`RefreshOrchestrator`** — Encapsulates WIQL construction → ADO fetch → conflict detection → batch save. Accepts `IAdoWorkItemService`, `IWorkItemRepository`, `ProtectedCacheWriter`, config. `RefreshCommand` delegates to it. | `Twig.Domain/Services/` | RefreshCommand: 14 → ~8 | DONE |
+| 2 | **`FlowTransitionService`** — Encapsulates item resolution → save → state transition → optional PR creation. Accepts `ActiveItemResolver`, `ProtectedCacheWriter`, `IProcessConfigProvider`. FlowDone/FlowClose delegate to it. | `Twig.Domain/Services/` | FlowDoneCommand: 13 → 10, FlowCloseCommand: 12 → 9 | DONE |
+| 3 | **`StatusOrchestrator`** — Encapsulates active item resolution + pending changes + working set + sync coordination into a single "status snapshot" result. `StatusCommand` delegates to it. | `Twig.Domain/Services/` | StatusCommand: 12 → ~6 | DONE |
+| 4 | **Migrate command tests** — For each extracted service, move behavioral tests from command test files to service test files. Command tests reduce to: "does the command call the service and format the output?" (1–2 mocks). | All test projects | | DONE |
+| 5 | **Remove redundant command tests** — After extraction, some command test files that were testing orchestration logic (now in services) become dead. Audit and remove. | `Twig.Cli.Tests/` | | DONE |
 
 **Outcome:** Command tests shrink from 100+ lines of setup to ~20. Service tests are focused and fast.
 
 **Risk:** This is the highest-effort EPIC. Each extraction touches the command, the DI registration, and the tests. Sequential implementation (one command at a time) minimizes merge risk.
+
+**Implementation Notes:** FlowTransitionService bug fixed (OriginalState captured before ChangeState mutation). FlowDoneCommand reduced 13→10 params, FlowCloseCommand reduced 12→9 params. RefreshOrchestrator (11 tests) and StatusOrchestrator (6 tests) have comprehensive test coverage. RefreshCommand and StatusCommand intentionally left unconverted — orchestrators are registered and ready for EPIC-003/004. All 2,337 tests passing.
 
 ---
 

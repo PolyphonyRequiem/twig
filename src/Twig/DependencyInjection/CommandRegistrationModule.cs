@@ -242,28 +242,22 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<IPromptStateWriter>()));
         services.AddSingleton<FlowDoneCommand>(sp => new FlowDoneCommand(
             sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
             sp.GetRequiredService<IPendingChangeStore>(),
-            sp.GetRequiredService<IProcessConfigurationProvider>(),
             sp.GetRequiredService<SaveCommand>(),
             sp.GetRequiredService<IConsoleInput>(),
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
-            sp.GetRequiredService<Domain.Services.ProtectedCacheWriter>(),
+            sp.GetRequiredService<Domain.Services.FlowTransitionService>(),
             sp.GetService<IGitService>(),
             sp.GetService<IAdoGitService>(),
             sp.GetRequiredService<IPromptStateWriter>()));
         services.AddSingleton<FlowCloseCommand>(sp => new FlowCloseCommand(
-            sp.GetRequiredService<IAdoWorkItemService>(),
             sp.GetRequiredService<IContextStore>(),
             sp.GetRequiredService<IPendingChangeStore>(),
-            sp.GetRequiredService<IProcessConfigurationProvider>(),
             sp.GetRequiredService<IConsoleInput>(),
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
-            sp.GetRequiredService<Domain.Services.ProtectedCacheWriter>(),
+            sp.GetRequiredService<Domain.Services.FlowTransitionService>(),
             sp.GetService<IGitService>(),
             sp.GetService<IAdoGitService>(),
             sp.GetRequiredService<IPromptStateWriter>()));

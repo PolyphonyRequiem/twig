@@ -173,10 +173,12 @@ public class PromptStateIntegrationTests : IDisposable
         var writer = CreateWriter();
         var activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        var cmd = new FlowCloseCommand(_adoService, _contextStore,
-            _pendingChangeStore, _processConfigProvider, _consoleInput,
+        var flowTransitionService = new FlowTransitionService(
+            activeItemResolver, _adoService, _processConfigProvider, protectedCacheWriter);
+        var cmd = new FlowCloseCommand(_contextStore,
+            _pendingChangeStore, _consoleInput,
             _formatterFactory, _config,
-            activeItemResolver, protectedCacheWriter,
+            flowTransitionService,
             promptStateWriter: writer);
 
         var result = await cmd.ExecuteAsync(force: true);
@@ -337,12 +339,14 @@ public class PromptStateIntegrationTests : IDisposable
         var writer = CreateWriter();
         var flowSaveResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
+        var flowTransitionService = new FlowTransitionService(
+            flowSaveResolver, _adoService, _processConfigProvider, protectedCacheWriter);
         var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
             flowSaveResolver, _consoleInput, _formatterFactory);
-        var cmd = new FlowDoneCommand(_workItemRepo, _adoService,
-            _pendingChangeStore, _processConfigProvider, saveCmd, _consoleInput,
+        var cmd = new FlowDoneCommand(_workItemRepo,
+            _pendingChangeStore, saveCmd, _consoleInput,
             _formatterFactory, _config,
-            flowSaveResolver, protectedCacheWriter,
+            flowTransitionService,
             promptStateWriter: writer);
 
         var result = await cmd.ExecuteAsync(noSave: true);
@@ -379,12 +383,14 @@ public class PromptStateIntegrationTests : IDisposable
 
         var flowDoneResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
+        var flowTransitionService2 = new FlowTransitionService(
+            flowDoneResolver, _adoService, _processConfigProvider, protectedCacheWriter);
         var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
             flowDoneResolver, _consoleInput, _formatterFactory, mockWriter);
-        var cmd = new FlowDoneCommand(_workItemRepo, _adoService,
-            _pendingChangeStore, _processConfigProvider, saveCmd, _consoleInput,
+        var cmd = new FlowDoneCommand(_workItemRepo,
+            _pendingChangeStore, saveCmd, _consoleInput,
             _formatterFactory, _config,
-            flowDoneResolver, protectedCacheWriter,
+            flowTransitionService2,
             promptStateWriter: mockWriter);
 
         var result = await cmd.ExecuteAsync(noSave: false);

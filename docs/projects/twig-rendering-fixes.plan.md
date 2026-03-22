@@ -41,11 +41,11 @@ new Spectre.Console.Text(" ")
 
 ---
 
-### FIX-002: State column lacks explicit `TableColumn` construction
+### FIX-002: State column lacks explicit `TableColumn` construction ✅ DONE
 
 **Severity:** Low  
 **Affected command:** `twig workspace`, `twig sprint`  
-**File:** `src/Twig/Rendering/SpectreTheme.cs` (`CreateWorkspaceTable`, line 141)
+**File:** `src/Twig/Rendering/SpectreTheme.cs` (`CreateWorkspaceTable`, line 130)
 
 **Root cause:**  
 Three of the four core columns use the explicit `TableColumn` constructor:

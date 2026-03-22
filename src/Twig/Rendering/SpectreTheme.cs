@@ -127,7 +127,7 @@ internal sealed class SpectreTheme
             .AddColumn(new TableColumn("[bold]ID[/]").RightAligned())
             .AddColumn(new TableColumn("[bold]Type[/]").Centered())
             .AddColumn("[bold]Title[/]")
-            .AddColumn("[bold]State[/]");
+            .AddColumn(new TableColumn("[bold]State[/]").RightAligned());
 
         if (isTeamView)
             table.AddColumn("[bold]Assigned[/]");

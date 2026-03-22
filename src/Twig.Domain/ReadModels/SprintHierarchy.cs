@@ -26,7 +26,7 @@ public sealed class SprintHierarchyNode
     /// <summary>Display label for virtual groups (e.g., "Unparented Features"). Null for real items.</summary>
     public string? GroupLabel { get; }
 
-    /// <summary>Backlog level for virtual groups (0 = top portfolio, 1 = requirement, 2 = task).</summary>
+    /// <summary>Backlog level for virtual groups, relative to the tree's root level (0 = same as root, 1 = one level deeper, etc.).</summary>
     public int BacklogLevel { get; }
 
     internal SprintHierarchyNode(WorkItem item, bool isSprintItem)
@@ -225,6 +225,28 @@ public sealed class SprintHierarchy
         if (unparentedByLevel.Count == 0)
             return roots;
 
+        // Determine the root level so virtual-group BacklogLevel is stored as a
+        // relative depth (matching the visual depth in the rendered tree).
+        // When parented roots exist their minimum process-config level IS the root level;
+        // otherwise fall back to the smallest unparented level so the shallowest virtual
+        // group renders at depth 0.
+        int rootLevel;
+        if (parented.Count > 0)
+        {
+            var minLevel = int.MaxValue;
+            foreach (var root in parented)
+            {
+                if (typeLevelMap.TryGetValue(root.Item.Type.Value, out var rl) && rl < minLevel)
+                    minLevel = rl;
+            }
+            rootLevel = minLevel == int.MaxValue ? 0 : minLevel;
+        }
+        else
+        {
+            // SortedDictionary — first key is the minimum level.
+            rootLevel = unparentedByLevel.Keys.First();
+        }
+
         // Build result: parented roots first, then virtual groups sorted by level
         var result = new List<SprintHierarchyNode>(parented);
 
@@ -246,7 +268,7 @@ public sealed class SprintHierarchy
             foreach (var (typeName, typeGroup) in typeGroups.OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
             {
                 var pluralName = Pluralizer.Pluralize(typeName);
-                var virtualNode = new SprintHierarchyNode($"Unparented {pluralName}", level);
+                var virtualNode = new SprintHierarchyNode($"Unparented {pluralName}", level - rootLevel);
                 virtualNode.Children.AddRange(typeGroup);
                 result.Add(virtualNode);
             }

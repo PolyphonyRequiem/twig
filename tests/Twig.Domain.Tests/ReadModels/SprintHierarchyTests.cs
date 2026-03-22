@@ -372,7 +372,7 @@ public class SprintHierarchyTests
         var virtualGroup = roots[0];
         virtualGroup.IsVirtualGroup.ShouldBeTrue();
         virtualGroup.GroupLabel.ShouldBe("Unparented Tasks");
-        virtualGroup.BacklogLevel.ShouldBe(2);
+        virtualGroup.BacklogLevel.ShouldBe(0); // relative: all items at same level → depth 0
         virtualGroup.Children.Count.ShouldBe(2);
         virtualGroup.Children.ShouldAllBe(n => n.IsSprintItem);
     }
@@ -398,7 +398,7 @@ public class SprintHierarchyTests
         var virtualGroup = roots[0];
         virtualGroup.IsVirtualGroup.ShouldBeTrue();
         virtualGroup.GroupLabel.ShouldBe("Unparented Features");
-        virtualGroup.BacklogLevel.ShouldBe(1);
+        virtualGroup.BacklogLevel.ShouldBe(0); // relative: only level → depth 0
         virtualGroup.Children.ShouldHaveSingleItem().Item.Id.ShouldBe(1);
     }
 
@@ -461,11 +461,11 @@ public class SprintHierarchyTests
         roots.Count.ShouldBe(2); // Two virtual groups: Features and Tasks
 
         var featureGroup = roots.First(r => r.IsVirtualGroup && r.GroupLabel == "Unparented Features");
-        featureGroup.BacklogLevel.ShouldBe(1);
+        featureGroup.BacklogLevel.ShouldBe(0); // relative: shallowest unparented level → depth 0
         featureGroup.Children.ShouldHaveSingleItem().Item.Id.ShouldBe(1);
 
         var taskGroup = roots.First(r => r.IsVirtualGroup && r.GroupLabel == "Unparented Tasks");
-        taskGroup.BacklogLevel.ShouldBe(2);
+        taskGroup.BacklogLevel.ShouldBe(1); // relative: one level deeper than features
         taskGroup.Children.ShouldHaveSingleItem().Item.Id.ShouldBe(2);
     }
 

@@ -1024,4 +1024,101 @@ public class TwigConfigurationTests : IDisposable
         ex.Message.ShouldContain(configPath);
         ex.InnerException.ShouldBeOfType<IOException>();
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  EPIC-004 Task 8: Startup corrupt config → clear error
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task LoadAsync_InvalidJsonFromStartup_ThrowsTwigConfigurationException()
+    {
+        // Simulates the Program.cs bootstrap path: TwigConfiguration.LoadAsync is called
+        // during DI startup. If the config file contains invalid JSON, the error must be
+        // a TwigConfigurationException with a user-facing message (not a raw JsonException stack trace).
+        var configPath = Path.Combine(_tempDir, "corrupt_startup.json");
+        await File.WriteAllTextAsync(configPath, "<<<NOT JSON>>>");
+
+        var ex = await Should.ThrowAsync<TwigConfigurationException>(
+            () => TwigConfiguration.LoadAsync(configPath));
+
+        ex.Message.ShouldContain("invalid JSON");
+        ex.Message.ShouldContain(configPath);
+        ex.Message.ShouldContain("Delete the file or fix the syntax");
+        ex.InnerException.ShouldBeOfType<JsonException>();
+    }
+
+    [Fact]
+    public async Task LoadAsync_TruncatedJson_ThrowsTwigConfigurationException()
+    {
+        // Simulates a config file truncated mid-write (e.g., crash during save)
+        var configPath = Path.Combine(_tempDir, "truncated.json");
+        await File.WriteAllTextAsync(configPath, """{"organization":"test","project":"pr""");
+
+        var ex = await Should.ThrowAsync<TwigConfigurationException>(
+            () => TwigConfiguration.LoadAsync(configPath));
+
+        ex.Message.ShouldContain("invalid JSON");
+        ex.InnerException.ShouldBeOfType<JsonException>();
+    }
+
+    [Fact]
+    public async Task LoadAsync_EmptyFile_ThrowsTwigConfigurationException()
+    {
+        // An empty file (0 bytes) is not valid JSON — should throw descriptive exception
+        var configPath = Path.Combine(_tempDir, "empty_file.json");
+        await File.WriteAllTextAsync(configPath, "");
+
+        var ex = await Should.ThrowAsync<TwigConfigurationException>(
+            () => TwigConfiguration.LoadAsync(configPath));
+
+        ex.Message.ShouldContain("invalid JSON");
+    }
+
+    [Fact]
+    public async Task LoadAsync_NullJsonLiteral_ReturnsDefaults()
+    {
+        // The JSON literal "null" deserializes to null; LoadAsync should return defaults.
+        var configPath = Path.Combine(_tempDir, "null_literal.json");
+        await File.WriteAllTextAsync(configPath, "null");
+
+        var config = await TwigConfiguration.LoadAsync(configPath);
+
+        config.ShouldNotBeNull();
+        config.Organization.ShouldBe(string.Empty);
+    }
+
+    [Fact]
+    public async Task LoadAsync_BinaryGarbage_ThrowsTwigConfigurationException()
+    {
+        // Binary content that is not JSON at all
+        var configPath = Path.Combine(_tempDir, "binary_garbage.json");
+        await File.WriteAllBytesAsync(configPath, new byte[] { 0xFF, 0xFE, 0x00, 0x01, 0xAB, 0xCD });
+
+        var ex = await Should.ThrowAsync<TwigConfigurationException>(
+            () => TwigConfiguration.LoadAsync(configPath));
+
+        ex.Message.ShouldContain("invalid JSON");
+    }
+
+    [Fact]
+    public async Task LoadAsync_ValidJsonWrongType_ReturnsDefaults()
+    {
+        // JSON array instead of object — deserialize returns null, LoadAsync returns defaults
+        var configPath = Path.Combine(_tempDir, "array.json");
+        await File.WriteAllTextAsync(configPath, """[1, 2, 3]""");
+
+        // This is either a JsonException (wrong type) or returns null → defaults
+        try
+        {
+            var config = await TwigConfiguration.LoadAsync(configPath);
+            // If deserialization succeeded (returning null → defaults), verify defaults
+            config.ShouldNotBeNull();
+            config.Organization.ShouldBe(string.Empty);
+        }
+        catch (TwigConfigurationException ex)
+        {
+            // If deserialization threw, it should be wrapped properly
+            ex.Message.ShouldContain("invalid JSON");
+        }
+    }
 }

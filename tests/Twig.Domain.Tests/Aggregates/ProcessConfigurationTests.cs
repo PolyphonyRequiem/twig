@@ -444,4 +444,110 @@ public class ProcessConfigurationTests
         config.GetAllowedChildTypes(WorkItemType.Feature).ShouldBe(new[] { WorkItemType.UserStory });
         config.GetAllowedChildTypes(WorkItemType.UserStory).ShouldBeEmpty();
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  EPIC-004 Task 1: All records malformed
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void FromRecords_AllNullTypeNames_ReturnsEmptyConfig()
+    {
+        var config = ProcessConfiguration.FromRecords(new[]
+        {
+            new ProcessTypeRecord { TypeName = null!, States = ToStateEntries("New", "Done") },
+            new ProcessTypeRecord { TypeName = null!, States = ToStateEntries("Open", "Closed") },
+        });
+
+        config.ShouldNotBeNull();
+        config.TypeConfigs.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void FromRecords_AllEmptyTypeNames_ReturnsEmptyConfig()
+    {
+        var config = ProcessConfiguration.FromRecords(new[]
+        {
+            new ProcessTypeRecord { TypeName = "", States = ToStateEntries("New", "Done") },
+            new ProcessTypeRecord { TypeName = "", States = ToStateEntries("Open", "Closed") },
+            new ProcessTypeRecord { TypeName = "   ", States = ToStateEntries("Active", "Resolved") },
+        });
+
+        config.ShouldNotBeNull();
+        config.TypeConfigs.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void FromRecords_MixOfMalformedAndValid_OnlyKeepsValid()
+    {
+        var config = ProcessConfiguration.FromRecords(new[]
+        {
+            new ProcessTypeRecord { TypeName = null!, States = ToStateEntries("New", "Done") },
+            new ProcessTypeRecord { TypeName = "", States = ToStateEntries("New", "Done") },
+            new ProcessTypeRecord { TypeName = "NoStates", States = Array.Empty<StateEntry>() },
+            MakeRecord("Bug", new[] { "New", "Active", "Closed" }, Array.Empty<string>()),
+        });
+
+        config.TypeConfigs.Count.ShouldBe(1);
+        config.TypeConfigs.Keys.ShouldContain(WorkItemType.Bug);
+    }
+
+    [Fact]
+    public void EmptyConfig_GetTransitionKind_ReturnsNull()
+    {
+        var config = ProcessConfiguration.FromRecords(Array.Empty<ProcessTypeRecord>());
+        config.GetTransitionKind(WorkItemType.Bug, "New", "Active").ShouldBeNull();
+    }
+
+    [Fact]
+    public void EmptyConfig_GetAllowedChildTypes_ReturnsEmpty()
+    {
+        var config = ProcessConfiguration.FromRecords(Array.Empty<ProcessTypeRecord>());
+        config.GetAllowedChildTypes(WorkItemType.Bug).ShouldBeEmpty();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  EPIC-004 Task 2: Unknown (custom) work item type
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void FromRecords_CustomWorkItemType_IsIncluded()
+    {
+        // Custom types not in the known set should be accepted by WorkItemType.Parse
+        // and included in the ProcessConfiguration — this supports ADO custom process templates.
+        var config = ProcessConfiguration.FromRecords(new[]
+        {
+            MakeRecord("CustomWorkItemType", new[] { "Draft", "InReview", "Published" }, Array.Empty<string>()),
+        });
+
+        var customType = WorkItemType.Parse("CustomWorkItemType").Value;
+        config.TypeConfigs.ShouldContainKey(customType);
+        config.TypeConfigs[customType].States.ShouldBe(new[] { "Draft", "InReview", "Published" });
+    }
+
+    [Fact]
+    public void FromRecords_CustomType_TransitionRulesGenerated()
+    {
+        var config = ProcessConfiguration.FromRecords(new[]
+        {
+            MakeRecord("CustomWorkItemType", new[] { "Draft", "InReview", "Published" }, Array.Empty<string>()),
+        });
+
+        var customType = WorkItemType.Parse("CustomWorkItemType").Value;
+        config.GetTransitionKind(customType, "Draft", "InReview").ShouldBe(TransitionKind.Forward);
+        config.GetTransitionKind(customType, "InReview", "Draft").ShouldBe(TransitionKind.Backward);
+    }
+
+    [Fact]
+    public void FromRecords_CustomType_WithChildren()
+    {
+        var config = ProcessConfiguration.FromRecords(new[]
+        {
+            MakeRecord("CustomParent", new[] { "Open", "Closed" }, new[] { "CustomChild" }),
+            MakeRecord("CustomChild", new[] { "Open", "Closed" }, Array.Empty<string>()),
+        });
+
+        var parentType = WorkItemType.Parse("CustomParent").Value;
+        var childType = WorkItemType.Parse("CustomChild").Value;
+        config.GetAllowedChildTypes(parentType).ShouldContain(childType);
+    }
 }

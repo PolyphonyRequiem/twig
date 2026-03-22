@@ -278,4 +278,104 @@ public class StateTransitionServiceTests
         result.Kind.ShouldBe(TransitionKind.None);
         result.IsAllowed.ShouldBeFalse();
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  EPIC-004 Task 3: Unknown type — "type not configured"
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void Evaluate_UnknownType_ReturnsNotAllowed_WithNoneKind()
+    {
+        // When WorkItemType is not in config, Evaluate should return IsAllowed=false
+        // with Kind=None, distinguishing "type not configured" from "transition blocked".
+        var config = BuildBasicConfig();
+        var customType = WorkItemType.Parse("CustomWorkItemType").Value;
+
+        var result = StateTransitionService.Evaluate(config, customType, "To Do", "Doing");
+
+        result.Kind.ShouldBe(TransitionKind.None);
+        result.IsAllowed.ShouldBeFalse();
+        result.RequiresConfirmation.ShouldBeFalse();
+        result.RequiresReason.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Evaluate_EmptyConfig_AnyType_ReturnsNotAllowed()
+    {
+        var config = ProcessConfiguration.FromRecords(Array.Empty<ProcessTypeRecord>());
+
+        var result = StateTransitionService.Evaluate(config, WorkItemType.Bug, "New", "Active");
+
+        result.Kind.ShouldBe(TransitionKind.None);
+        result.IsAllowed.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Evaluate_AllRecordsMalformed_AnyType_ReturnsNotAllowed()
+    {
+        // Config built from all-malformed records is empty — transitions should be not-allowed.
+        var config = ProcessConfiguration.FromRecords(new[]
+        {
+            new ProcessTypeRecord { TypeName = "", States = ToStateEntries("New", "Done") },
+            new ProcessTypeRecord { TypeName = null!, States = ToStateEntries("Open", "Closed") },
+        });
+
+        var result = StateTransitionService.Evaluate(config, WorkItemType.Bug, "New", "Active");
+
+        result.Kind.ShouldBe(TransitionKind.None);
+        result.IsAllowed.ShouldBeFalse();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  EPIC-004 Task 4: Unknown state — "state not in config"
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void Evaluate_UnknownFromState_ReturnsNotAllowed()
+    {
+        // Valid type but fromState not in config → transition not found → IsAllowed=false.
+        var config = BuildBasicConfig();
+
+        var result = StateTransitionService.Evaluate(config, WorkItemType.Issue, "NonexistentState", "Doing");
+
+        result.Kind.ShouldBe(TransitionKind.None);
+        result.IsAllowed.ShouldBeFalse();
+        result.RequiresConfirmation.ShouldBeFalse();
+        result.RequiresReason.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Evaluate_UnknownToState_ReturnsNotAllowed()
+    {
+        var config = BuildBasicConfig();
+
+        var result = StateTransitionService.Evaluate(config, WorkItemType.Issue, "To Do", "NonexistentState");
+
+        result.Kind.ShouldBe(TransitionKind.None);
+        result.IsAllowed.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Evaluate_BothStatesUnknown_ReturnsNotAllowed()
+    {
+        var config = BuildBasicConfig();
+
+        var result = StateTransitionService.Evaluate(config, WorkItemType.Issue, "FakeFrom", "FakeTo");
+
+        result.Kind.ShouldBe(TransitionKind.None);
+        result.IsAllowed.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Evaluate_CaseSensitiveStateLookup_ReturnsNotAllowed_ForWrongCase()
+    {
+        // State transitions are stored by exact name from config.
+        // "to do" (lowercase) doesn't match "To Do" (title case).
+        var config = BuildBasicConfig();
+
+        var result = StateTransitionService.Evaluate(config, WorkItemType.Issue, "to do", "doing");
+
+        result.Kind.ShouldBe(TransitionKind.None);
+        result.IsAllowed.ShouldBeFalse();
+    }
 }

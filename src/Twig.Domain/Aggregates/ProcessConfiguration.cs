@@ -82,13 +82,19 @@ public sealed class ProcessConfiguration
         var configs = new Dictionary<WorkItemType, TypeConfig>();
         foreach (var record in typeRecords)
         {
-            if (string.IsNullOrEmpty(record.TypeName) || record.States.Count == 0)
+            if (string.IsNullOrWhiteSpace(record.TypeName) || record.States.Count == 0)
                 continue;
 
-            var type = WorkItemType.Parse(record.TypeName).Value;
+            var parseResult = WorkItemType.Parse(record.TypeName);
+            if (!parseResult.IsSuccess)
+                continue;
+
+            var type = parseResult.Value;
             var childTypes = record.ValidChildTypes
-                .Where(n => !string.IsNullOrEmpty(n))
-                .Select(n => WorkItemType.Parse(n).Value)
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .Select(n => WorkItemType.Parse(n))
+                .Where(r => r.IsSuccess)
+                .Select(r => r.Value)
                 .ToArray();
             configs[type] = BuildTypeConfig(
                 record.States.Select(s => s.Name).ToArray(),

@@ -1,7 +1,7 @@
 # Twig Test Resilience — Edge-Case & Failure-Mode Coverage Plan
 
-> **Status:** IN PROGRESS — EPIC-001 DONE, EPIC-002 DONE, EPIC-003 DONE, EPIC-004 next  
-> **Date:** 2026-03-21 | **EPIC-001 Completed:** 2026-03-22 | **EPIC-002 Completed:** 2026-03-22 | **EPIC-003 Completed:** 2026-03-22
+> **Status:** IN PROGRESS — EPIC-001 DONE, EPIC-002 DONE, EPIC-003 DONE, EPIC-004 DONE  
+> **Date:** 2026-03-21 | **EPIC-001 Completed:** 2026-03-22 | **EPIC-002 Completed:** 2026-03-22 | **EPIC-003 Completed:** 2026-03-22 | **EPIC-004 Completed:** 2026-03-22
 > **Scope:** Net-new tests targeting untested failure modes, race conditions, and edge cases  
 > **Companion:** [twig-test-quality.plan.md](twig-test-quality.plan.md) (structural refactoring — independent prerequisite chain)
 
@@ -113,22 +113,24 @@ This plan is **independent** of the test quality plan. It adds new tests to cove
 
 ---
 
-### EPIC-004: Configuration & startup robustness
+### EPIC-004: Configuration & startup robustness ✅ DONE
 
 **Problem:** `Program.cs` performs sync-over-async config loading and SQLite state pre-computation during DI startup. A corrupt config file or database causes an unhandled crash. `ProcessConfiguration.FromRecords` silently drops malformed records — an empty config breaks all state transitions with no diagnostic. `StateCommand` calls `GetConfiguration()` without a try-catch.
 
 **Production code:** `Program.cs` L50–52 + L109–110, `ProcessConfiguration.cs` L101–108, `StateTransitionService.cs` L22–56, `StateCommand.cs` L48
 
-| # | Task | What to test |
-|---|------|-------------|
-| 1 | **ProcessConfiguration.FromRecords: all records malformed** — Pass records where every `TypeName` is null/empty. Verify: returns empty `ProcessConfiguration` (not null, not crash). Verify: callers handle empty config gracefully. | `ProcessConfigurationTests.cs` |
-| 2 | **ProcessConfiguration.FromRecords: unknown work item type** — Pass a record with `TypeName = "CustomWorkItemType"`. Verify: either included or explicitly skipped — behavior is documented and tested. | `ProcessConfigurationTests.cs` |
-| 3 | **StateTransitionService: unknown type** — Call `Evaluate` with a `WorkItemType` not in the config. Verify: returns `TransitionResult { IsAllowed = false }` with a reason distinguishing "type not configured" from "transition blocked". | `StateTransitionServiceTests.cs` |
-| 4 | **StateTransitionService: unknown state** — Call `Evaluate` with valid type but `fromState = "NonexistentState"`. Verify: returns not-allowed with descriptive reason. | `StateTransitionServiceTests.cs` |
-| 5 | **StateCategoryResolver: custom ADO process state** — Call `Resolve` with `state = "CustomPhase"` not in any entry list and not in the hardcoded fallback map. Verify: returns `StateCategory.Unknown`. Document this as intended behavior. | `StateCategoryResolverTests.cs` |
-| 6 | **LegacyDbMigrator: WAL/SHM corruption** — Stage a legacy DB with corrupt WAL file. Call `MigrateIfNeeded`. Verify: migration succeeds (WAL moved along with DB) or fails gracefully (warning printed, app continues). | `LegacyDbMigratorTests.cs` |
-| 7 | **SqliteCacheStore: schema mismatch recovery** — Open a DB with an old schema version. Verify: `SchemaWasRebuilt` flag is set, tables recreated, no data from old schema leaks. | `SqliteCacheStoreTests.cs` |
-| 8 | **Startup: corrupt config → clear error** — Create a temp config file with invalid JSON. Simulate the `TwigConfiguration.LoadAsync` call from `Program.cs`. Verify: user-facing error message (not raw stack trace). *(This may require a thin wrapper around the bootstrap path for testability.)* | `BootstrapTests.cs` or `TwigConfigurationTests.cs` |
+**Completed:** 2026-03-22 — 24 tests added across 5 test files. Production fix: `ProcessConfiguration.FromRecords` upgraded from `IsNullOrEmpty` to `IsNullOrWhiteSpace` guard, and now uses safe `Parse` result checking (was calling `.Value` on potentially failed Result).
+
+| # | Task | What to test | Status |
+|---|------|-------------|--------|
+| 1 | **ProcessConfiguration.FromRecords: all records malformed** — Pass records where every `TypeName` is null/empty. Verify: returns empty `ProcessConfiguration` (not null, not crash). Verify: callers handle empty config gracefully. | `ProcessConfigurationTests.cs` | ✅ DONE |
+| 2 | **ProcessConfiguration.FromRecords: unknown work item type** — Pass a record with `TypeName = "CustomWorkItemType"`. Verify: either included or explicitly skipped — behavior is documented and tested. | `ProcessConfigurationTests.cs` | ✅ DONE |
+| 3 | **StateTransitionService: unknown type** — Call `Evaluate` with a `WorkItemType` not in the config. Verify: returns `TransitionResult { IsAllowed = false }` with a reason distinguishing "type not configured" from "transition blocked". | `StateTransitionServiceTests.cs` | ✅ DONE |
+| 4 | **StateTransitionService: unknown state** — Call `Evaluate` with valid type but `fromState = "NonexistentState"`. Verify: returns not-allowed with descriptive reason. | `StateTransitionServiceTests.cs` | ✅ DONE |
+| 5 | **StateCategoryResolver: custom ADO process state** — Call `Resolve` with `state = "CustomPhase"` not in any entry list and not in the hardcoded fallback map. Verify: returns `StateCategory.Unknown`. Document this as intended behavior. | `StateCategoryResolverTests.cs` | ✅ DONE |
+| 6 | **LegacyDbMigrator: WAL/SHM corruption** — Stage a legacy DB with corrupt WAL file. Call `MigrateIfNeeded`. Verify: migration succeeds (WAL moved along with DB) or fails gracefully (warning printed, app continues). | `LegacyDbMigratorTests.cs` | ✅ DONE |
+| 7 | **SqliteCacheStore: schema mismatch recovery** — Open a DB with an old schema version. Verify: `SchemaWasRebuilt` flag is set, tables recreated, no data from old schema leaks. | `SqliteCacheStoreTests.cs` | ✅ DONE |
+| 8 | **Startup: corrupt config → clear error** — Create a temp config file with invalid JSON. Simulate the `TwigConfiguration.LoadAsync` call from `Program.cs`. Verify: user-facing error message (not raw stack trace). *(This may require a thin wrapper around the bootstrap path for testability.)* | `TwigConfigurationTests.cs` | ✅ DONE |
 
 **Outcome:** Every configuration edge case — empty process config, unknown states, corrupt files, schema drift — has a test proving the app degrades gracefully with actionable diagnostics.
 

@@ -178,4 +178,62 @@ public class StateCategoryResolverTests
         StateCategoryResolver.ParseCategory("inprogress").ShouldBe(StateCategory.Unknown);
         StateCategoryResolver.ParseCategory("InProgress").ShouldBe(StateCategory.InProgress);
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  EPIC-004 Task 5: Custom ADO process state
+    // ═══════════════════════════════════════════════════════════════
+
+    [Theory]
+    [InlineData("CustomPhase")]
+    [InlineData("Design Review")]
+    [InlineData("Waiting for Approval")]
+    [InlineData("QA Testing")]
+    [InlineData("Deployed")]
+    public void Resolve_CustomState_NotInEntriesOrFallback_ReturnsUnknown(string customState)
+    {
+        // Custom ADO process states not in the hardcoded fallback map should return Unknown.
+        // This is the intended behavior: custom states require authoritative entries from ADO
+        // (populated during init/refresh). When entries are absent, Unknown is the safe default.
+        var entries = new StateEntry[]
+        {
+            new("New", StateCategory.Proposed, null),
+            new("Active", StateCategory.InProgress, null),
+            new("Closed", StateCategory.Completed, null),
+        };
+
+        StateCategoryResolver.Resolve(customState, entries).ShouldBe(StateCategory.Unknown);
+    }
+
+    [Fact]
+    public void Resolve_CustomState_NullEntries_ReturnsUnknown()
+    {
+        // With no entries and a custom state not in fallback map → Unknown
+        StateCategoryResolver.Resolve("CustomPhase", null).ShouldBe(StateCategory.Unknown);
+    }
+
+    [Fact]
+    public void Resolve_CustomState_EmptyEntries_FallsBackToFallbackCategory()
+    {
+        // Empty entries list → falls back to FallbackCategory
+        StateCategoryResolver.Resolve("CustomPhase", Array.Empty<StateEntry>()).ShouldBe(StateCategory.Unknown);
+    }
+
+    [Fact]
+    public void FallbackCategory_CustomPhase_ReturnsUnknown()
+    {
+        // Directly verify the fallback map behavior for custom states
+        StateCategoryResolver.FallbackCategory("CustomPhase").ShouldBe(StateCategory.Unknown);
+    }
+
+    [Fact]
+    public void Resolve_CustomState_InEntries_ReturnsConfiguredCategory()
+    {
+        // When a custom state IS in the entries (from ADO), it should return the correct category.
+        var entries = new StateEntry[]
+        {
+            new("CustomPhase", StateCategory.InProgress, "009CCC"),
+        };
+
+        StateCategoryResolver.Resolve("CustomPhase", entries).ShouldBe(StateCategory.InProgress);
+    }
 }

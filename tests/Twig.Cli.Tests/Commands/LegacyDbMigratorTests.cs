@@ -187,4 +187,53 @@ public class LegacyDbMigratorTests : IDisposable
             Directory.CreateDirectory(dir);
         File.WriteAllBytes(path, new byte[] { 0x53, 0x51, 0x4C, 0x69, 0x74, 0x65 }); // "SQLite" header fragment
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  EPIC-004 Task 6: WAL/SHM corruption
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void MigrateIfNeeded_CorruptWalFile_MigrationSucceeds()
+    {
+        // Stage a legacy DB with a corrupt WAL file (garbage bytes).
+        // Migration should succeed — WAL is moved alongside DB regardless of content.
+        var legacyDbPath = Path.Combine(_twigDir, "twig.db");
+        CreateDummyDb(legacyDbPath);
+        File.WriteAllBytes(legacyDbPath + "-wal", new byte[] { 0xFF, 0xFE, 0xDD, 0xCC, 0xBB, 0xAA });
+        File.WriteAllBytes(legacyDbPath + "-shm", new byte[] { 0x00, 0x00, 0x00 });
+
+        var config = new TwigConfiguration { Organization = "myorg", Project = "myproj" };
+        var expectedContextPath = TwigPaths.GetContextDbPath(_twigDir, "myorg", "myproj");
+
+        LegacyDbMigrator.MigrateIfNeeded(_twigDir, config);
+
+        File.Exists(legacyDbPath).ShouldBeFalse("Legacy DB should be moved");
+        File.Exists(legacyDbPath + "-wal").ShouldBeFalse("Legacy WAL should be moved");
+        File.Exists(legacyDbPath + "-shm").ShouldBeFalse("Legacy SHM should be moved");
+        File.Exists(expectedContextPath).ShouldBeTrue("DB at context path");
+        File.Exists(expectedContextPath + "-wal").ShouldBeTrue("WAL at context path");
+        File.Exists(expectedContextPath + "-shm").ShouldBeTrue("SHM at context path");
+
+        // Verify the corrupt WAL content was moved (not silently dropped)
+        File.ReadAllBytes(expectedContextPath + "-wal").ShouldBe(
+            new byte[] { 0xFF, 0xFE, 0xDD, 0xCC, 0xBB, 0xAA });
+    }
+
+    [Fact]
+    public void MigrateIfNeeded_CorruptWalOnly_NoShm_MigrationSucceeds()
+    {
+        // Corrupt WAL without SHM — migration should still succeed
+        var legacyDbPath = Path.Combine(_twigDir, "twig.db");
+        CreateDummyDb(legacyDbPath);
+        File.WriteAllBytes(legacyDbPath + "-wal", new byte[] { 0xDE, 0xAD, 0xBE, 0xEF });
+
+        var config = new TwigConfiguration { Organization = "myorg", Project = "myproj" };
+        var expectedContextPath = TwigPaths.GetContextDbPath(_twigDir, "myorg", "myproj");
+
+        LegacyDbMigrator.MigrateIfNeeded(_twigDir, config);
+
+        File.Exists(expectedContextPath).ShouldBeTrue();
+        File.Exists(expectedContextPath + "-wal").ShouldBeTrue();
+        File.Exists(expectedContextPath + "-shm").ShouldBeFalse("No SHM to move");
+    }
 }

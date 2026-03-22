@@ -8,12 +8,22 @@ namespace Twig.Infrastructure.GitHub;
 /// </summary>
 public sealed class SelfUpdater
 {
-    private readonly HttpClient _http;
+    private readonly IHttpDownloader _downloader;
+    private readonly IFileSystem _fileSystem;
+    private readonly string? _processPath;
 
     public SelfUpdater(HttpClient httpClient)
+        : this(new HttpClientDownloader(httpClient), new DefaultFileSystem(), Environment.ProcessPath)
     {
-        ArgumentNullException.ThrowIfNull(httpClient);
-        _http = httpClient;
+    }
+
+    internal SelfUpdater(IHttpDownloader downloader, IFileSystem fileSystem, string? processPath)
+    {
+        ArgumentNullException.ThrowIfNull(downloader);
+        ArgumentNullException.ThrowIfNull(fileSystem);
+        _downloader = downloader;
+        _fileSystem = fileSystem;
+        _processPath = processPath;
     }
 
     /// <summary>
@@ -23,7 +33,7 @@ public sealed class SelfUpdater
     /// <returns>The path to the new binary.</returns>
     public async Task<string> UpdateBinaryAsync(string downloadUrl, string archiveName, CancellationToken ct = default)
     {
-        var currentExe = Environment.ProcessPath
+        var currentExe = _processPath
             ?? throw new InvalidOperationException("Cannot determine current executable path.");
         var currentDir = Path.GetDirectoryName(currentExe)
             ?? throw new InvalidOperationException("Cannot determine current executable directory.");
@@ -32,14 +42,7 @@ public sealed class SelfUpdater
         var tempArchive = Path.Combine(Path.GetTempPath(), $"twig-update-{Guid.NewGuid():N}{Path.GetExtension(archiveName)}");
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, downloadUrl);
-            request.Headers.Add("User-Agent", "twig-cli");
-            using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-            response.EnsureSuccessStatusCode();
-
-            using var stream = await response.Content.ReadAsStreamAsync(ct);
-            using var fileStream = File.Create(tempArchive);
-            await stream.CopyToAsync(fileStream, ct);
+            await _downloader.DownloadFileAsync(downloadUrl, tempArchive, ct);
         }
         catch (Exception ex)
         {
@@ -51,11 +54,11 @@ public sealed class SelfUpdater
         var tempExtractDir = Path.Combine(Path.GetTempPath(), $"twig-update-{Guid.NewGuid():N}");
         try
         {
-            Directory.CreateDirectory(tempExtractDir);
+            _fileSystem.CreateDirectory(tempExtractDir);
 
             if (archiveName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
             {
-                ZipFile.ExtractToDirectory(tempArchive, tempExtractDir);
+                _fileSystem.ExtractZipToDirectory(tempArchive, tempExtractDir);
             }
             else if (archiveName.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase))
             {
@@ -74,17 +77,24 @@ public sealed class SelfUpdater
             {
                 // Windows file-lock strategy: rename running exe → .old, copy new exe
                 var oldPath = currentExe + ".old";
-                if (File.Exists(oldPath)) File.Delete(oldPath);
-                File.Move(currentExe, oldPath);
-                File.Copy(extractedBinary, currentExe, overwrite: true);
+                try
+                {
+                    if (_fileSystem.FileExists(oldPath)) _fileSystem.FileDelete(oldPath);
+                }
+                catch
+                {
+                    // Best-effort: .old file may be locked from a previous update — proceed anyway.
+                }
+                _fileSystem.FileMove(currentExe, oldPath);
+                _fileSystem.FileCopy(extractedBinary, currentExe, overwrite: true);
             }
             else
             {
                 // Unix: direct overwrite (running binary is not locked)
-                File.Copy(extractedBinary, currentExe, overwrite: true);
+                _fileSystem.FileCopy(extractedBinary, currentExe, overwrite: true);
 
                 // chmod +x
-                File.SetUnixFileMode(currentExe,
+                _fileSystem.SetUnixFileMode(currentExe,
                     UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
                     UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
                     UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
@@ -95,8 +105,8 @@ public sealed class SelfUpdater
         finally
         {
             // Clean up temp files
-            try { File.Delete(tempArchive); } catch (Exception) { }
-            try { Directory.Delete(tempExtractDir, recursive: true); } catch (Exception) { }
+            try { _fileSystem.FileDelete(tempArchive); } catch (Exception) { }
+            try { _fileSystem.DeleteDirectory(tempExtractDir, recursive: true); } catch (Exception) { }
         }
     }
 
@@ -106,14 +116,21 @@ public sealed class SelfUpdater
     /// </summary>
     public static void CleanupOldBinary()
     {
-        var currentExe = Environment.ProcessPath;
-        if (currentExe is null) return;
+        CleanupOldBinaryCore(new DefaultFileSystem(), Environment.ProcessPath);
+    }
 
-        var oldPath = currentExe + ".old";
+    /// <summary>
+    /// Testable overload of <see cref="CleanupOldBinary"/> that accepts injected dependencies.
+    /// </summary>
+    internal static void CleanupOldBinaryCore(IFileSystem fileSystem, string? processPath)
+    {
+        if (processPath is null) return;
+
+        var oldPath = processPath + ".old";
         try
         {
-            if (File.Exists(oldPath))
-                File.Delete(oldPath);
+            if (fileSystem.FileExists(oldPath))
+                fileSystem.FileDelete(oldPath);
         }
         catch
         {
@@ -121,17 +138,20 @@ public sealed class SelfUpdater
         }
     }
 
-    private static void ExtractTarGz(string archivePath, string extractDir)
+    private void ExtractTarGz(string archivePath, string extractDir)
     {
-        using var fileStream = File.OpenRead(archivePath);
+        using var fileStream = _fileSystem.FileOpenRead(archivePath);
         using var gzipStream = new GZipStream(fileStream, CompressionMode.Decompress);
-        ExtractTar(gzipStream, extractDir);
+        ExtractTar(gzipStream, extractDir, _fileSystem);
     }
 
-    private static void ExtractTar(Stream tarStream, string extractDir)
+    /// <summary>
+    /// Minimal tar reader — enough for single-binary archives.
+    /// TAR format: 512-byte header blocks followed by data blocks (padded to 512).
+    /// Validates that extracted entries do not escape <paramref name="extractDir"/>.
+    /// </summary>
+    internal static void ExtractTar(Stream tarStream, string extractDir, IFileSystem fileSystem)
     {
-        // Minimal tar reader — enough for single-binary archives.
-        // TAR format: 512-byte header blocks followed by data blocks (padded to 512).
         var buffer = new byte[512];
         while (true)
         {
@@ -161,14 +181,14 @@ public sealed class SelfUpdater
 
             if (typeFlag == '5')
             {
-                Directory.CreateDirectory(outputPath);
+                fileSystem.CreateDirectory(outputPath);
             }
             else if (typeFlag is '0' or '\0')
             {
                 var dir = Path.GetDirectoryName(outputPath);
-                if (dir is not null) Directory.CreateDirectory(dir);
+                if (dir is not null) fileSystem.CreateDirectory(dir);
 
-                using var outFile = File.Create(outputPath);
+                using var outFile = fileSystem.FileCreate(outputPath);
                 var remaining = size;
                 while (remaining > 0)
                 {
@@ -226,10 +246,10 @@ public sealed class SelfUpdater
         return System.Text.Encoding.ASCII.GetString(buffer, offset, end - offset);
     }
 
-    private static string? FindBinary(string directory, string binaryName)
+    private string? FindBinary(string directory, string binaryName)
     {
         // Search recursively (archive may have a top-level folder)
-        foreach (var file in Directory.EnumerateFiles(directory, binaryName, SearchOption.AllDirectories))
+        foreach (var file in _fileSystem.EnumerateFiles(directory, binaryName, SearchOption.AllDirectories))
             return file;
         return null;
     }

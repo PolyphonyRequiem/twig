@@ -1,7 +1,7 @@
 # Twig Test Resilience — Edge-Case & Failure-Mode Coverage Plan
 
-> **Status:** Draft  
-> **Date:** 2026-03-21  
+> **Status:** IN PROGRESS — EPIC-001 DONE, EPIC-002 next  
+> **Date:** 2026-03-21 | **EPIC-001 Completed:** 2026-03-22  
 > **Scope:** Net-new tests targeting untested failure modes, race conditions, and edge cases  
 > **Companion:** [twig-test-quality.plan.md](twig-test-quality.plan.md) (structural refactoring — independent prerequisite chain)
 
@@ -44,22 +44,24 @@ This plan is **independent** of the test quality plan. It adds new tests to cove
 
 ## EPICs
 
-### EPIC-001: SelfUpdater test coverage
+### EPIC-001: SelfUpdater test coverage ✅ DONE
 
 **Problem:** `SelfUpdater` has **zero unit tests**. It downloads archives from GitHub, extracts binaries, replaces the running executable, and cleans up. A bug here bricks the tool. A path-traversal vulnerability in archive extraction is a security risk.
 
 **Production code:** `src/Twig.Infrastructure/GitHub/SelfUpdater.cs`
 
-| # | Task | What to test |
-|---|------|-------------|
-| 1 | **Extract testable interface** — `SelfUpdater` currently calls `HttpClient`, `ZipFile`, `File.Move/Copy`, and `Process.GetCurrentProcess()` directly. Extract `IFileSystem` and `IHttpDownloader` interfaces (or use existing abstractions) so tests can inject fakes. | Testability refactor |
-| 2 | **Happy path: download + extract + replace** — Mock HTTP response with valid zip/tar archive. Verify: archive extracted to temp dir, binary copied to process path, old binary renamed to `.old`, temp dir cleaned up. | `SelfUpdaterTests.cs` |
-| 3 | **Path traversal defense** — Create a mock archive containing an entry with `../../etc/passwd` path. Verify: extraction throws or skips the malicious entry. **This is a security test.** | `SelfUpdaterTests.cs` |
-| 4 | **Download failure** — Mock HTTP 404, 403, 503, timeout. Verify: descriptive exception thrown (not generic `InvalidOperationException`). | `SelfUpdaterTests.cs` |
-| 5 | **Incomplete download** — Mock HTTP response that truncates mid-stream. Verify: extraction fails gracefully, temp files cleaned up, no partial binary left on disk. | `SelfUpdaterTests.cs` |
-| 6 | **Permission denied on replace** — Mock file system that throws `UnauthorizedAccessException` on File.Move. Verify: descriptive error, no orphaned temp files, old binary not deleted. | `SelfUpdaterTests.cs` |
-| 7 | **Windows file lock on old binary** — Mock file system where `.old` file exists and is locked. Verify: cleanup is best-effort (no crash), update still succeeds. | `SelfUpdaterTests.cs` |
-| 8 | **CleanupOldBinary** — Verify: `.old` file deleted on next startup. Verify: no crash when `.old` doesn't exist. Verify: no crash when `ProcessPath` is null. | `SelfUpdaterTests.cs` |
+**Completed:** 2026-03-22 — 24 tests added. IFileSystem + IHttpDownloader interfaces extracted, SelfUpdater refactored with internal DI constructor (public HttpClient constructor preserved). Path traversal (both `../../` and leading-slash absolute-path variants) proven safe. Task 7 production fix: best-effort `.old` deletion with try/catch.
+
+| # | Task | What to test | Status |
+|---|------|-------------|--------|
+| 1 | **Extract testable interface** — `SelfUpdater` currently calls `HttpClient`, `ZipFile`, `File.Move/Copy`, and `Process.GetCurrentProcess()` directly. Extract `IFileSystem` and `IHttpDownloader` interfaces (or use existing abstractions) so tests can inject fakes. | Testability refactor | ✅ DONE |
+| 2 | **Happy path: download + extract + replace** — Mock HTTP response with valid zip/tar archive. Verify: archive extracted to temp dir, binary copied to process path, old binary renamed to `.old`, temp dir cleaned up. | `SelfUpdaterTests.cs` | ✅ DONE |
+| 3 | **Path traversal defense** — Create a mock archive containing an entry with `../../etc/passwd` path. Verify: extraction throws or skips the malicious entry. **This is a security test.** | `SelfUpdaterTests.cs` | ✅ DONE |
+| 4 | **Download failure** — Mock HTTP 404, 403, 503, timeout. Verify: descriptive exception thrown (not generic `InvalidOperationException`). | `SelfUpdaterTests.cs` | ✅ DONE |
+| 5 | **Incomplete download** — Mock HTTP response that truncates mid-stream. Verify: extraction fails gracefully, temp files cleaned up, no partial binary left on disk. | `SelfUpdaterTests.cs` | ✅ DONE |
+| 6 | **Permission denied on replace** — Mock file system that throws `UnauthorizedAccessException` on File.Move. Verify: descriptive error, no orphaned temp files, old binary not deleted. | `SelfUpdaterTests.cs` | ✅ DONE |
+| 7 | **Windows file lock on old binary** — Mock file system where `.old` file exists and is locked. Verify: cleanup is best-effort (no crash), update still succeeds. | `SelfUpdaterTests.cs` | ✅ DONE |
+| 8 | **CleanupOldBinary** — Verify: `.old` file deleted on next startup. Verify: no crash when `.old` doesn't exist. Verify: no crash when `ProcessPath` is null. | `SelfUpdaterTests.cs` | ✅ DONE |
 
 **Outcome:** SelfUpdater has full error-path coverage. Path traversal vulnerability either fixed or proven safe. Binary update failures produce actionable errors.
 

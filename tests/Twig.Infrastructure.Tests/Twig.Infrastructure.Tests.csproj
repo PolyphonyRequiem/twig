@@ -10,12 +10,14 @@
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
     <PackageReference Include="Shouldly" />
+    <PackageReference Include="NSubstitute" />
     <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Twig.Infrastructure\Twig.Infrastructure.csproj" />
+    <ProjectReference Include="..\Twig.TestKit\Twig.TestKit.csproj" />
   </ItemGroup>
 
 </Project>

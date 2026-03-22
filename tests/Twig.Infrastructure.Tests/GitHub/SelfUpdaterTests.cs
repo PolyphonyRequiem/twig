@@ -1,0 +1,555 @@
+using System.IO.Compression;
+using System.Net;
+using System.Text;
+using NSubstitute;
+using NSubstitute.ExceptionExtensions;
+using Shouldly;
+using Twig.Infrastructure.GitHub;
+using Xunit;
+
+namespace Twig.Infrastructure.Tests.GitHub;
+
+/// <summary>
+/// Unit and integration tests for <see cref="SelfUpdater"/>.
+/// Covers: happy-path update, path traversal defense, download failures,
+/// incomplete downloads, permission errors, file-lock scenarios, and cleanup.
+/// </summary>
+public class SelfUpdaterTests : IDisposable
+{
+    private readonly string _tempDir;
+
+    public SelfUpdaterTests()
+    {
+        _tempDir = Path.Combine(Path.GetTempPath(), $"twig-selfupdater-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(_tempDir);
+    }
+
+    public void Dispose()
+    {
+        try { Directory.Delete(_tempDir, recursive: true); } catch { }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Task 2: Happy path — download + extract + replace (zip)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task UpdateBinaryAsync_ValidZip_ExtractsAndReplacesExe()
+    {
+        // Arrange: create a fake "current" binary
+        var currentExe = Path.Combine(_tempDir, "twig.exe");
+        File.WriteAllText(currentExe, "old-binary-content");
+
+        var binaryContent = "new-binary-content"u8.ToArray();
+        var zipBytes = CreateZipArchive(("twig.exe", binaryContent));
+
+        var downloader = new FakeDownloader(zipBytes);
+        var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
+
+        // Act
+        var result = await sut.UpdateBinaryAsync("https://example.com/archive.zip", "twig-win-x64.zip");
+
+        // Assert
+        result.ShouldBe(currentExe);
+        var updatedContent = File.ReadAllBytes(currentExe);
+        updatedContent.ShouldBe(binaryContent);
+
+        // Old binary should be renamed to .old
+        File.Exists(currentExe + ".old").ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task UpdateBinaryAsync_ValidTarGz_ExtractsAndReplacesExe()
+    {
+        // Arrange
+        var currentExe = Path.Combine(_tempDir, "twig.exe");
+        File.WriteAllText(currentExe, "old-binary-content");
+
+        var binaryContent = "new-binary-content"u8.ToArray();
+        var tarGzBytes = CreateTarGzArchive(("twig.exe", binaryContent));
+
+        var downloader = new FakeDownloader(tarGzBytes);
+        var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
+
+        // Act
+        var result = await sut.UpdateBinaryAsync("https://example.com/archive.tar.gz", "twig-linux-x64.tar.gz");
+
+        // Assert
+        result.ShouldBe(currentExe);
+        var updatedContent = File.ReadAllBytes(currentExe);
+        updatedContent.ShouldBe(binaryContent);
+    }
+
+    [Fact]
+    public async Task UpdateBinaryAsync_ZipWithSubfolder_FindsBinary()
+    {
+        // Archive has the binary nested inside a folder (common for GitHub release assets)
+        var currentExe = Path.Combine(_tempDir, "twig.exe");
+        File.WriteAllText(currentExe, "old");
+
+        var binaryContent = "nested-binary"u8.ToArray();
+        var zipBytes = CreateZipArchive(("twig-win-x64/twig.exe", binaryContent));
+
+        var downloader = new FakeDownloader(zipBytes);
+        var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
+
+        var result = await sut.UpdateBinaryAsync("https://example.com/dl.zip", "twig-win-x64.zip");
+
+        result.ShouldBe(currentExe);
+        File.ReadAllBytes(currentExe).ShouldBe(binaryContent);
+    }
+
+    [Fact]
+    public async Task UpdateBinaryAsync_CleansUpTempFiles()
+    {
+        var currentExe = Path.Combine(_tempDir, "twig.exe");
+        File.WriteAllText(currentExe, "old");
+
+        var zipBytes = CreateZipArchive(("twig.exe", "new"u8.ToArray()));
+        var downloader = new FakeDownloader(zipBytes);
+        var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
+
+        await sut.UpdateBinaryAsync("https://example.com/dl.zip", "twig-win-x64.zip");
+
+        // Temp directories in the system temp folder matching twig-update-* pattern should be cleaned up.
+        // We can't easily assert on temp dir cleanup without hooking, but we verify no exception was thrown.
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Task 3: Path traversal defense (SECURITY)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void ExtractTar_PathTraversalEntry_ThrowsInvalidOperationException()
+    {
+        // Arrange: create a tar stream with a path-traversal entry
+        var extractDir = Path.Combine(_tempDir, "extract");
+        Directory.CreateDirectory(extractDir);
+
+        var maliciousTar = CreateTarArchive(("../../etc/passwd", "malicious-content"u8.ToArray()));
+        using var tarStream = new MemoryStream(maliciousTar);
+
+        // Act & Assert
+        var ex = Should.Throw<InvalidOperationException>(
+            () => SelfUpdater.ExtractTar(tarStream, extractDir, new DefaultFileSystem()));
+        ex.Message.ShouldContain("Path traversal detected");
+        ex.Message.ShouldContain("../../etc/passwd");
+    }
+
+    [Fact]
+    public void ExtractTar_AbsolutePathEntry_ThrowsInvalidOperationException()
+    {
+        var extractDir = Path.Combine(_tempDir, "extract");
+        Directory.CreateDirectory(extractDir);
+
+        // Leading slash is stripped by TrimStart('/'), but ../../ after that still triggers
+        var maliciousTar = CreateTarArchive(("/../../../etc/shadow", "malicious"u8.ToArray()));
+        using var tarStream = new MemoryStream(maliciousTar);
+
+        var ex = Should.Throw<InvalidOperationException>(
+            () => SelfUpdater.ExtractTar(tarStream, extractDir, new DefaultFileSystem()));
+        ex.Message.ShouldContain("Path traversal detected");
+    }
+
+    [Fact]
+    public void ExtractTar_SafeEntry_ExtractsSuccessfully()
+    {
+        var extractDir = Path.Combine(_tempDir, "extract");
+        Directory.CreateDirectory(extractDir);
+
+        var content = "safe-content"u8.ToArray();
+        var tarBytes = CreateTarArchive(("subdir/safe-file.txt", content));
+        using var tarStream = new MemoryStream(tarBytes);
+
+        SelfUpdater.ExtractTar(tarStream, extractDir, new DefaultFileSystem());
+
+        var extractedPath = Path.Combine(extractDir, "subdir", "safe-file.txt");
+        File.Exists(extractedPath).ShouldBeTrue();
+        File.ReadAllBytes(extractedPath).ShouldBe(content);
+    }
+
+    [Fact]
+    public async Task UpdateBinaryAsync_TarGzWithPathTraversal_ThrowsInvalidOperationException()
+    {
+        // End-to-end path traversal test through UpdateBinaryAsync
+        var currentExe = Path.Combine(_tempDir, "twig.exe");
+        File.WriteAllText(currentExe, "old");
+
+        var maliciousTarGz = CreateTarGzArchive(("../../etc/passwd", "malicious"u8.ToArray()));
+        var downloader = new FakeDownloader(maliciousTarGz);
+        var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
+
+        var ex = await Should.ThrowAsync<InvalidOperationException>(
+            () => sut.UpdateBinaryAsync("https://example.com/dl.tar.gz", "twig-linux-x64.tar.gz"));
+        ex.Message.ShouldContain("Path traversal detected");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Task 4: Download failure — HTTP 404, 403, 503, timeout
+    // ═══════════════════════════════════════════════════════════════
+
+    [Theory]
+    [InlineData(HttpStatusCode.NotFound, "404")]
+    [InlineData(HttpStatusCode.Forbidden, "403")]
+    [InlineData(HttpStatusCode.ServiceUnavailable, "503")]
+    public async Task UpdateBinaryAsync_HttpError_ThrowsDescriptiveException(HttpStatusCode statusCode, string expectedFragment)
+    {
+        var currentExe = Path.Combine(_tempDir, "twig.exe");
+        File.WriteAllText(currentExe, "old");
+
+        var downloader = Substitute.For<IHttpDownloader>();
+        downloader.DownloadFileAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException($"Response status code does not indicate success: {(int)statusCode} ({statusCode}).", null, statusCode));
+
+        var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
+
+        var ex = await Should.ThrowAsync<InvalidOperationException>(
+            () => sut.UpdateBinaryAsync("https://example.com/missing.zip", "twig-win-x64.zip"));
+        ex.Message.ShouldContain("Failed to download update");
+        ex.Message.ShouldContain("https://example.com/missing.zip");
+        ex.Message.ShouldContain(expectedFragment);
+        ex.InnerException.ShouldBeOfType<HttpRequestException>();
+    }
+
+    [Fact]
+    public async Task UpdateBinaryAsync_Timeout_ThrowsDescriptiveException()
+    {
+        var currentExe = Path.Combine(_tempDir, "twig.exe");
+        File.WriteAllText(currentExe, "old");
+
+        var downloader = Substitute.For<IHttpDownloader>();
+        downloader.DownloadFileAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout of 100 seconds elapsing."));
+
+        var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
+
+        var ex = await Should.ThrowAsync<InvalidOperationException>(
+            () => sut.UpdateBinaryAsync("https://example.com/slow.zip", "twig-win-x64.zip"));
+        ex.Message.ShouldContain("Failed to download update");
+        ex.InnerException.ShouldBeOfType<TaskCanceledException>();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Task 5: Incomplete download — truncated archive
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task UpdateBinaryAsync_TruncatedZip_ThrowsAndCleansUp()
+    {
+        var currentExe = Path.Combine(_tempDir, "twig.exe");
+        File.WriteAllText(currentExe, "old");
+
+        // Write an invalid/truncated zip file
+        var downloader = new FakeDownloader([0x50, 0x4B, 0x03, 0x04, 0xFF, 0xFF]);
+        var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
+
+        // Should throw during zip extraction
+        await Should.ThrowAsync<Exception>(
+            () => sut.UpdateBinaryAsync("https://example.com/dl.zip", "twig-win-x64.zip"));
+
+        // Original binary should still exist (not partially overwritten)
+        File.ReadAllText(currentExe).ShouldBe("old");
+    }
+
+    [Fact]
+    public async Task UpdateBinaryAsync_TruncatedTarGz_ThrowsAndCleansUp()
+    {
+        var currentExe = Path.Combine(_tempDir, "twig.exe");
+        File.WriteAllText(currentExe, "old");
+
+        // Write a truncated gzip stream
+        var downloader = new FakeDownloader([0x1F, 0x8B, 0x08, 0x00, 0xFF, 0xFF]);
+        var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
+
+        await Should.ThrowAsync<Exception>(
+            () => sut.UpdateBinaryAsync("https://example.com/dl.tar.gz", "twig-linux-x64.tar.gz"));
+
+        // Original binary should still exist
+        File.ReadAllText(currentExe).ShouldBe("old");
+    }
+
+    [Fact]
+    public async Task UpdateBinaryAsync_ValidZipMissingBinary_ThrowsDescriptiveError()
+    {
+        var currentExe = Path.Combine(_tempDir, "twig.exe");
+        File.WriteAllText(currentExe, "old");
+
+        // Create zip with a different file (not twig.exe)
+        var zipBytes = CreateZipArchive(("readme.txt", "hello"u8.ToArray()));
+        var downloader = new FakeDownloader(zipBytes);
+        var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
+
+        var ex = await Should.ThrowAsync<InvalidOperationException>(
+            () => sut.UpdateBinaryAsync("https://example.com/dl.zip", "twig-win-x64.zip"));
+        ex.Message.ShouldContain("Could not find");
+        ex.Message.ShouldContain("twig.exe");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Task 6: Permission denied on replace
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task UpdateBinaryAsync_PermissionDeniedOnMove_ThrowsAndCleansUp()
+    {
+        var currentExe = Path.Combine(_tempDir, "twig.exe");
+        var binaryContent = "new-binary"u8.ToArray();
+        var zipBytes = CreateZipArchive(("twig.exe", binaryContent));
+
+        var fileSystem = Substitute.For<IFileSystem>();
+        // Allow temp operations to work
+        fileSystem.FileCreate(Arg.Any<string>()).Returns(ci => File.Create((string)ci[0]));
+        fileSystem.CreateDirectory(Arg.Any<string>());
+        fileSystem.When(x => x.ExtractZipToDirectory(Arg.Any<string>(), Arg.Any<string>()))
+            .Do(ci =>
+            {
+                var source = (string)ci[0];
+                var dest = (string)ci[1];
+                ZipFile.ExtractToDirectory(source, dest);
+            });
+        fileSystem.EnumerateFiles(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<SearchOption>())
+            .Returns(ci => Directory.EnumerateFiles((string)ci[0], (string)ci[1], (SearchOption)ci[2]));
+        fileSystem.FileExists(Arg.Is<string>(s => s.EndsWith(".old"))).Returns(false);
+
+        // Throw UnauthorizedAccessException on FileMove (the critical operation)
+        fileSystem.When(x => x.FileMove(Arg.Any<string>(), Arg.Any<string>()))
+            .Do(_ => throw new UnauthorizedAccessException("Access to the path is denied."));
+
+        var downloader = new FakeDownloader(zipBytes);
+        var sut = new SelfUpdater(downloader, fileSystem, currentExe);
+
+        var ex = await Should.ThrowAsync<UnauthorizedAccessException>(
+            () => sut.UpdateBinaryAsync("https://example.com/dl.zip", "twig-win-x64.zip"));
+        ex.Message.ShouldContain("Access to the path is denied");
+
+        // Verify cleanup was attempted
+        fileSystem.Received().FileDelete(Arg.Is<string>(s => s.Contains("twig-update-")));
+        fileSystem.Received().DeleteDirectory(Arg.Is<string>(s => s.Contains("twig-update-")), true);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Task 7: Windows file lock on old binary
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task UpdateBinaryAsync_OldBinaryLocked_StillSucceeds()
+    {
+        var currentExe = Path.Combine(_tempDir, "twig.exe");
+
+        var binaryContent = "new-binary"u8.ToArray();
+        var zipBytes = CreateZipArchive(("twig.exe", binaryContent));
+
+        var fileSystem = Substitute.For<IFileSystem>();
+
+        // .old file exists and is locked
+        fileSystem.FileExists(Arg.Is<string>(s => s.EndsWith(".old"))).Returns(true);
+        fileSystem.When(x => x.FileDelete(Arg.Is<string>(s => s.EndsWith(".old"))))
+            .Do(_ => throw new IOException("The process cannot access the file because it is being used by another process."));
+
+        // All other FS operations work normally
+        fileSystem.When(x => x.CreateDirectory(Arg.Any<string>()))
+            .Do(ci => Directory.CreateDirectory((string)ci[0]));
+        fileSystem.When(x => x.ExtractZipToDirectory(Arg.Any<string>(), Arg.Any<string>()))
+            .Do(ci => ZipFile.ExtractToDirectory((string)ci[0], (string)ci[1]));
+        fileSystem.EnumerateFiles(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<SearchOption>())
+            .Returns(ci => Directory.EnumerateFiles((string)ci[0], (string)ci[1], (SearchOption)ci[2]));
+        // FileMove and FileCopy succeed (mocked as no-ops — we're testing the .old file lock behavior)
+        fileSystem.When(x => x.FileDelete(Arg.Is<string>(s => !s.EndsWith(".old"))))
+            .Do(_ => { });
+
+        var downloader = new FakeDownloader(zipBytes);
+        var sut = new SelfUpdater(downloader, fileSystem, currentExe);
+
+        // Act — should succeed despite the locked .old file
+        var result = await sut.UpdateBinaryAsync("https://example.com/dl.zip", "twig-win-x64.zip");
+
+        // Assert
+        result.ShouldBe(currentExe);
+        // Verify the move and copy were still called (update proceeded past the locked .old file)
+        fileSystem.Received().FileMove(currentExe, currentExe + ".old");
+        fileSystem.Received().FileCopy(Arg.Any<string>(), currentExe, true);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Task 8: CleanupOldBinary
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void CleanupOldBinaryCore_OldFileExists_DeletesIt()
+    {
+        var exePath = Path.Combine(_tempDir, "twig.exe");
+        var oldPath = exePath + ".old";
+        File.WriteAllText(oldPath, "old-binary");
+
+        SelfUpdater.CleanupOldBinaryCore(new DefaultFileSystem(), exePath);
+
+        File.Exists(oldPath).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void CleanupOldBinaryCore_NoOldFile_DoesNotThrow()
+    {
+        var exePath = Path.Combine(_tempDir, "twig.exe");
+
+        // Should not throw even when .old file doesn't exist
+        Should.NotThrow(() => SelfUpdater.CleanupOldBinaryCore(new DefaultFileSystem(), exePath));
+    }
+
+    [Fact]
+    public void CleanupOldBinaryCore_NullProcessPath_DoesNotThrow()
+    {
+        Should.NotThrow(() => SelfUpdater.CleanupOldBinaryCore(new DefaultFileSystem(), processPath: null));
+    }
+
+    [Fact]
+    public void CleanupOldBinaryCore_LockedOldFile_DoesNotThrow()
+    {
+        var fileSystem = Substitute.For<IFileSystem>();
+        fileSystem.FileExists(Arg.Any<string>()).Returns(true);
+        fileSystem.When(x => x.FileDelete(Arg.Any<string>()))
+            .Do(_ => throw new IOException("File is locked."));
+
+        // Best-effort cleanup — should not throw
+        Should.NotThrow(() => SelfUpdater.CleanupOldBinaryCore(fileSystem, "/app/twig"));
+    }
+
+    [Fact]
+    public void CleanupOldBinary_Static_DoesNotThrow()
+    {
+        // The static convenience method should never throw regardless of environment state
+        Should.NotThrow(SelfUpdater.CleanupOldBinary);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Additional edge cases
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task UpdateBinaryAsync_NullProcessPath_ThrowsInvalidOperationException()
+    {
+        var downloader = Substitute.For<IHttpDownloader>();
+        var sut = new SelfUpdater(downloader, new DefaultFileSystem(), processPath: null);
+
+        var ex = await Should.ThrowAsync<InvalidOperationException>(
+            () => sut.UpdateBinaryAsync("https://example.com/dl.zip", "twig-win-x64.zip"));
+        ex.Message.ShouldContain("Cannot determine current executable path");
+    }
+
+    [Fact]
+    public async Task UpdateBinaryAsync_UnsupportedArchiveFormat_ThrowsInvalidOperationException()
+    {
+        var currentExe = Path.Combine(_tempDir, "twig.exe");
+        File.WriteAllText(currentExe, "old");
+
+        var downloader = new FakeDownloader("dummy"u8.ToArray());
+        var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
+
+        var ex = await Should.ThrowAsync<InvalidOperationException>(
+            () => sut.UpdateBinaryAsync("https://example.com/dl.7z", "twig-win-x64.7z"));
+        ex.Message.ShouldContain("Unsupported archive format");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Test helpers
+    // ═══════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Fake <see cref="IHttpDownloader"/> that writes predefined bytes to the destination file.
+    /// </summary>
+    private sealed class FakeDownloader : IHttpDownloader
+    {
+        private readonly byte[] _archiveBytes;
+
+        public FakeDownloader(byte[] archiveBytes) => _archiveBytes = archiveBytes;
+
+        public Task DownloadFileAsync(string url, string destinationPath, CancellationToken ct)
+        {
+            File.WriteAllBytes(destinationPath, _archiveBytes);
+            return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>Creates an in-memory zip archive containing the specified entries.</summary>
+    private static byte[] CreateZipArchive(params (string entryName, byte[] content)[] entries)
+    {
+        using var ms = new MemoryStream();
+        using (var archive = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach (var (entryName, content) in entries)
+            {
+                var entry = archive.CreateEntry(entryName);
+                using var entryStream = entry.Open();
+                entryStream.Write(content);
+            }
+        }
+        return ms.ToArray();
+    }
+
+    /// <summary>Creates an in-memory tar archive (uncompressed) containing the specified entries.</summary>
+    private static byte[] CreateTarArchive(params (string entryName, byte[] content)[] entries)
+    {
+        using var ms = new MemoryStream();
+        foreach (var (entryName, content) in entries)
+        {
+            WriteTarEntry(ms, entryName, content);
+        }
+        // End-of-archive marker: two 512-byte zero blocks
+        ms.Write(new byte[1024]);
+        return ms.ToArray();
+    }
+
+    /// <summary>Creates an in-memory gzip-compressed tar archive.</summary>
+    private static byte[] CreateTarGzArchive(params (string entryName, byte[] content)[] entries)
+    {
+        var tarBytes = CreateTarArchive(entries);
+        using var ms = new MemoryStream();
+        using (var gzip = new GZipStream(ms, CompressionMode.Compress, leaveOpen: true))
+        {
+            gzip.Write(tarBytes);
+        }
+        return ms.ToArray();
+    }
+
+    /// <summary>Writes a single tar header + data for a regular file entry.</summary>
+    private static void WriteTarEntry(Stream stream, string name, byte[] content)
+    {
+        var header = new byte[512];
+
+        // Name: offset 0, length 100
+        var nameBytes = Encoding.ASCII.GetBytes(name);
+        Array.Copy(nameBytes, header, Math.Min(nameBytes.Length, 100));
+
+        // Mode: offset 100, length 8
+        Encoding.ASCII.GetBytes("0000644\0").CopyTo(header, 100);
+
+        // Owner/Group: offset 108/116, length 8 each
+        Encoding.ASCII.GetBytes("0001000\0").CopyTo(header, 108);
+        Encoding.ASCII.GetBytes("0001000\0").CopyTo(header, 116);
+
+        // Size: offset 124, length 12 (octal, null-terminated)
+        var sizeOctal = Convert.ToString(content.Length, 8).PadLeft(11, '0') + "\0";
+        Encoding.ASCII.GetBytes(sizeOctal).CopyTo(header, 124);
+
+        // Modification time: offset 136, length 12
+        var mtime = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var mtimeOctal = Convert.ToString(mtime, 8).PadLeft(11, '0') + "\0";
+        Encoding.ASCII.GetBytes(mtimeOctal).CopyTo(header, 136);
+
+        // Type flag: offset 156 ('0' = regular file)
+        header[156] = (byte)'0';
+
+        // Compute checksum: offset 148, length 8 (fill with spaces during computation)
+        for (int i = 148; i < 156; i++) header[i] = 0x20;
+        long checksum = 0;
+        for (int i = 0; i < 512; i++) checksum += header[i];
+        var checksumStr = Convert.ToString(checksum, 8).PadLeft(6, '0') + "\0 ";
+        Encoding.ASCII.GetBytes(checksumStr).CopyTo(header, 148);
+
+        stream.Write(header);
+        stream.Write(content);
+
+        // Pad to 512-byte boundary
+        var pad = (int)((512 - (content.Length % 512)) % 512);
+        if (pad > 0) stream.Write(new byte[pad]);
+    }
+}

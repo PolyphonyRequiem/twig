@@ -180,6 +180,26 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         return Task.CompletedTask;
     }
 
+    public Task DeleteByIdAsync(int id, CancellationToken ct = default)
+    {
+        var conn = _store.GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM work_items WHERE id = @id;";
+        cmd.Parameters.AddWithValue("@id", id);
+        cmd.ExecuteNonQuery();
+        return Task.CompletedTask;
+    }
+
+    public Task<int?> GetMinSeedIdAsync(CancellationToken ct = default)
+    {
+        var conn = _store.GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT MIN(id) FROM work_items WHERE is_seed = 1;";
+        var result = cmd.ExecuteScalar();
+        var minId = result is DBNull || result is null ? (int?)null : Convert.ToInt32(result);
+        return Task.FromResult(minId);
+    }
+
     public Task EvictExceptAsync(IReadOnlySet<int> keepIds, CancellationToken ct = default)
     {
         var conn = _store.GetConnection();

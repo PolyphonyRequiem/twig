@@ -132,7 +132,52 @@ public sealed class WorkItem
         IsDirty = false;
     }
 
+    // ── Seed copy ──────────────────────────────────────────────────
+
+    /// <summary>
+    /// Returns a new <see cref="WorkItem"/> with updated title and fields,
+    /// preserving all other properties (Id, Type, IsSeed, SeedCreatedAt,
+    /// ParentId, AreaPath, IterationPath, State, AssignedTo, Revision).
+    /// The new instance is not dirty.
+    /// </summary>
+    public WorkItem WithSeedFields(
+        string title,
+        IReadOnlyDictionary<string, string?> fields)
+    {
+        var copy = new WorkItem
+        {
+            Id = Id,
+            Type = Type,
+            Title = title,
+            State = State,
+            AssignedTo = AssignedTo,
+            IterationPath = IterationPath,
+            AreaPath = AreaPath,
+            ParentId = ParentId,
+            IsSeed = IsSeed,
+            SeedCreatedAt = SeedCreatedAt,
+            LastSyncedAt = LastSyncedAt,
+        };
+
+        // Restore revision without side-effecting dirty flag
+        if (Revision > 0)
+            copy.MarkSynced(Revision);
+
+        copy.ImportFields(fields);
+        return copy;
+    }
+
     // ── Seed factory ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Initializes the seed ID counter so that the next <see cref="CreateSeed"/>
+    /// call produces an ID below all existing seeds. Thread-safe via
+    /// <see cref="Interlocked.Exchange"/>.
+    /// </summary>
+    public static void InitializeSeedCounter(int minExistingId)
+    {
+        Interlocked.Exchange(ref _seedIdCounter, Math.Min(minExistingId, 0));
+    }
 
     /// <summary>
     /// Creates a seed work item (not yet persisted to ADO).

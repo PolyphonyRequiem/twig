@@ -445,4 +445,160 @@ public class WorkItemTests
         wi.IsDirty.ShouldBeFalse();
         wi.Revision.ShouldBe(10);
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  WithSeedFields tests (E1-T2)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void WithSeedFields_PreservesIdentityProperties()
+    {
+        var iterPath = IterationPath.Parse(@"Project\Sprint1").Value;
+        var areaPath = AreaPath.Parse(@"Project\Team").Value;
+
+        var original = new WorkItem
+        {
+            Id = -5,
+            Type = WorkItemType.UserStory,
+            Title = "Original Title",
+            State = "New",
+            AssignedTo = "alice@example.com",
+            IterationPath = iterPath,
+            AreaPath = areaPath,
+            ParentId = 42,
+            IsSeed = true,
+            SeedCreatedAt = DateTimeOffset.UtcNow.AddDays(-3),
+        };
+
+        var fields = new Dictionary<string, string?> { ["System.Description"] = "Updated desc" };
+        var copy = original.WithSeedFields("New Title", fields);
+
+        copy.Id.ShouldBe(-5);
+        copy.Type.ShouldBe(WorkItemType.UserStory);
+        copy.State.ShouldBe("New");
+        copy.AssignedTo.ShouldBe("alice@example.com");
+        copy.IterationPath.Value.ShouldBe(@"Project\Sprint1");
+        copy.AreaPath.Value.ShouldBe(@"Project\Team");
+        copy.ParentId.ShouldBe(42);
+        copy.IsSeed.ShouldBeTrue();
+        copy.SeedCreatedAt.ShouldBe(original.SeedCreatedAt);
+    }
+
+    [Fact]
+    public void WithSeedFields_UpdatesTitleAndFields()
+    {
+        var original = new WorkItem
+        {
+            Id = -1,
+            Type = WorkItemType.Task,
+            Title = "Old Title",
+            State = "New",
+            IsSeed = true,
+        };
+        original.ImportFields(new Dictionary<string, string?> { ["System.Description"] = "Old desc" });
+
+        var newFields = new Dictionary<string, string?>
+        {
+            ["System.Description"] = "New desc",
+            ["Microsoft.VSTS.Common.Priority"] = "1",
+        };
+
+        var copy = original.WithSeedFields("New Title", newFields);
+
+        copy.Title.ShouldBe("New Title");
+        copy.Fields["System.Description"].ShouldBe("New desc");
+        copy.Fields["Microsoft.VSTS.Common.Priority"].ShouldBe("1");
+    }
+
+    [Fact]
+    public void WithSeedFields_CopyIsNotDirty()
+    {
+        var original = WorkItem.CreateSeed(WorkItemType.Task, "Seed");
+        original.UpdateField("System.Description", "Dirty");
+        original.ApplyCommands();
+        original.IsDirty.ShouldBeTrue();
+
+        var copy = original.WithSeedFields("Updated", new Dictionary<string, string?>());
+        copy.IsDirty.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void WithSeedFields_PreservesRevision()
+    {
+        var original = new WorkItem
+        {
+            Id = 100,
+            Type = WorkItemType.Feature,
+            Title = "Feature",
+            State = "Active",
+        };
+        original.MarkSynced(7);
+
+        var copy = original.WithSeedFields("Updated Feature", new Dictionary<string, string?>());
+
+        copy.Revision.ShouldBe(7);
+    }
+
+    [Fact]
+    public void WithSeedFields_DoesNotMutateOriginal()
+    {
+        var original = WorkItem.CreateSeed(WorkItemType.Task, "Original");
+        original.ImportFields(new Dictionary<string, string?> { ["System.Description"] = "Orig desc" });
+
+        var newFields = new Dictionary<string, string?> { ["System.Description"] = "Modified" };
+        _ = original.WithSeedFields("Modified Title", newFields);
+
+        original.Title.ShouldBe("Original");
+        original.Fields["System.Description"].ShouldBe("Orig desc");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  InitializeSeedCounter tests (E1-T3, E1-T12)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void InitializeSeedCounter_SetsCounterBelowExistingSeeds()
+    {
+        WorkItem.InitializeSeedCounter(-10);
+
+        var seed = WorkItem.CreateSeed(WorkItemType.Task, "After init");
+
+        // The new seed should have an ID below -10
+        seed.Id.ShouldBeLessThan(-10);
+    }
+
+    [Fact]
+    public void InitializeSeedCounter_WithPositiveValue_ClampsToZero()
+    {
+        WorkItem.InitializeSeedCounter(5);
+
+        var seed = WorkItem.CreateSeed(WorkItemType.Task, "Clamped");
+
+        // Math.Min(5, 0) = 0, so next seed is Decrement(0) = -1
+        seed.Id.ShouldBeLessThan(0);
+    }
+
+    [Fact]
+    public void InitializeSeedCounter_AvoidCollisionsWithExistingSeeds()
+    {
+        // Simulate existing seeds at -1, -2, -3 → min is -3
+        WorkItem.InitializeSeedCounter(-3);
+
+        var newIds = new HashSet<int>();
+        for (var i = 0; i < 5; i++)
+        {
+            var seed = WorkItem.CreateSeed(WorkItemType.Task, $"Seed {i}");
+            seed.Id.ShouldBeLessThan(-3, "New seed ID should be below all existing seed IDs");
+            newIds.Add(seed.Id).ShouldBeTrue("Each seed should have a unique ID");
+        }
+    }
+
+    [Fact]
+    public void InitializeSeedCounter_WithZero_ProducesNegativeIds()
+    {
+        WorkItem.InitializeSeedCounter(0);
+
+        var seed = WorkItem.CreateSeed(WorkItemType.Bug, "Zero init");
+        seed.Id.ShouldBeLessThan(0);
+    }
 }

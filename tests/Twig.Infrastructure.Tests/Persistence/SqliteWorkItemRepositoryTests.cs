@@ -466,6 +466,92 @@ public class SqliteWorkItemRepositoryTests : IDisposable
         loaded.Fields["System.Tags"].ShouldBe("backend; api");
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    //  DeleteByIdAsync tests (E1-T9, E1-T11)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task DeleteByIdAsync_RemovesSingleRow()
+    {
+        var item1 = CreateWorkItem(1, "Task", "Item 1", "Active");
+        var item2 = CreateWorkItem(2, "Task", "Item 2", "Active");
+        await _repo.SaveAsync(item1);
+        await _repo.SaveAsync(item2);
+
+        await _repo.DeleteByIdAsync(1);
+
+        (await _repo.GetByIdAsync(1)).ShouldBeNull();
+        (await _repo.GetByIdAsync(2)).ShouldNotBeNull();
+    }
+
+    [Fact]
+    public async Task DeleteByIdAsync_NonExistentId_DoesNotThrow()
+    {
+        await _repo.DeleteByIdAsync(999); // should complete without error
+    }
+
+    [Fact]
+    public async Task DeleteByIdAsync_RemovesSeedByNegativeId()
+    {
+        var seed = WorkItem.CreateSeed(WorkItemType.Task, "Delete Me");
+        await _repo.SaveAsync(seed);
+
+        (await _repo.GetByIdAsync(seed.Id)).ShouldNotBeNull();
+        await _repo.DeleteByIdAsync(seed.Id);
+        (await _repo.GetByIdAsync(seed.Id)).ShouldBeNull();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  GetMinSeedIdAsync tests (E1-T10, E1-T11)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task GetMinSeedIdAsync_ReturnsNull_WhenNoSeeds()
+    {
+        var result = await _repo.GetMinSeedIdAsync();
+        result.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GetMinSeedIdAsync_ReturnsNull_WhenOnlyNonSeeds()
+    {
+        var item = CreateWorkItem(1, "Task", "Regular", "Active");
+        await _repo.SaveAsync(item);
+
+        var result = await _repo.GetMinSeedIdAsync();
+        result.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GetMinSeedIdAsync_ReturnsSmallestSeedId()
+    {
+        WorkItem.InitializeSeedCounter(-10);
+        var seed1 = WorkItem.CreateSeed(WorkItemType.Task, "Seed 1"); // -11
+        var seed2 = WorkItem.CreateSeed(WorkItemType.Task, "Seed 2"); // -12
+        var seed3 = WorkItem.CreateSeed(WorkItemType.Task, "Seed 3"); // -13
+        await _repo.SaveBatchAsync(new[] { seed1, seed2, seed3 });
+
+        var minId = await _repo.GetMinSeedIdAsync();
+
+        minId.ShouldNotBeNull();
+        minId.Value.ShouldBe(new[] { seed1.Id, seed2.Id, seed3.Id }.Min());
+    }
+
+    [Fact]
+    public async Task GetMinSeedIdAsync_IgnoresNonSeedItems()
+    {
+        var regular = CreateWorkItem(1, "Task", "Regular", "Active");
+        WorkItem.InitializeSeedCounter(-5);
+        var seed = WorkItem.CreateSeed(WorkItemType.Task, "Seed");
+        await _repo.SaveAsync(regular);
+        await _repo.SaveAsync(seed);
+
+        var minId = await _repo.GetMinSeedIdAsync();
+
+        minId.ShouldNotBeNull();
+        minId.Value.ShouldBe(seed.Id);
+    }
+
     private static WorkItem CreateWorkItem(
         int id, string type, string title, string state,
         int? parentId = null, string? assignedTo = null,

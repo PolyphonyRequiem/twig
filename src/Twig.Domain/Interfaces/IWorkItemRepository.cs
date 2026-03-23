@@ -27,4 +27,15 @@ public interface IWorkItemRepository
     /// Used by working-set eviction to bound cache size after context switches.
     /// </summary>
     Task EvictExceptAsync(IReadOnlySet<int> keepIds, CancellationToken ct = default);
+
+    /// <summary>
+    /// Deletes a single work item by its ID.
+    /// </summary>
+    Task DeleteByIdAsync(int id, CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns the smallest seed ID in the cache, or null if no seeds exist.
+    /// Used to initialize <see cref="WorkItem.InitializeSeedCounter"/> on startup.
+    /// </summary>
+    Task<int?> GetMinSeedIdAsync(CancellationToken ct = default);
 }

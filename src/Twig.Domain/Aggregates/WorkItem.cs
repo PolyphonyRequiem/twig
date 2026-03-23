@@ -62,6 +62,16 @@ public sealed class WorkItem
 
     internal void SetField(string fieldName, string? value) => _fields[fieldName] = value;
 
+    /// <summary>
+    /// Bulk-imports fields without setting the dirty flag.
+    /// Intended for hydration from ADO response mapping and test convenience.
+    /// </summary>
+    internal void ImportFields(IEnumerable<KeyValuePair<string, string?>> fields)
+    {
+        foreach (var kvp in fields)
+            _fields[kvp.Key] = kvp.Value;
+    }
+
     internal bool TryGetField(string fieldName, out string? value) => _fields.TryGetValue(fieldName, out value);
 
     internal void AddPendingNote(PendingNote note) => _pendingNotes.Add(note);

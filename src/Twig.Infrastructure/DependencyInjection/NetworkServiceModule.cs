@@ -44,7 +44,8 @@ public static class NetworkServiceModule
                 sp.GetRequiredService<HttpClient>(),
                 sp.GetRequiredService<IAuthenticationProvider>(),
                 cfg.Organization,
-                cfg.Project);
+                cfg.Project,
+                sp.GetService<IFieldDefinitionStore>());
         });
 
         // IAdoGitService — conditional registration; only when git project and repository are resolved.

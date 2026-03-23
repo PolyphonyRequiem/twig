@@ -425,14 +425,14 @@ private static string? ExtractIdentityDisplayName(JsonElement element)
 /// Bulk-imports field values during hydration (API mapping or SQLite deserialization).
 /// Does not set dirty flag. Not for interactive edits — use <see cref="UpdateField"/> instead.
 /// </summary>
-public void ImportFields(IEnumerable<KeyValuePair<string, string?>> fields)
+internal void ImportFields(IEnumerable<KeyValuePair<string, string?>> fields)
 {
     foreach (var kvp in fields)
         _fields[kvp.Key] = kvp.Value;
 }
 ```
 
-> **Note on `SetField()` vs `ImportFields()`**: The mapper uses `SetField()` directly (it has access via `InternalsVisibleTo`). `ImportFields()` is a public convenience for callers outside `Twig.Infrastructure` (e.g., test code). `SqliteWorkItemRepository.MapRow()` already uses `SetField()` (lines 370-376) and does not need modification — the round-trip already works correctly once the mapper populates the fields.
+> **Note on `SetField()` vs `ImportFields()`**: The mapper uses `SetField()` directly (it has access via `InternalsVisibleTo`). `ImportFields()` is an internal convenience accessible via `InternalsVisibleTo` (Twig.TestKit, Twig.Infrastructure, and relevant test assemblies). `SqliteWorkItemRepository.MapRow()` already uses `SetField()` (lines 370-376) and does not need modification — the round-trip already works correctly once the mapper populates the fields.
 
 #### 5. Status Command Enhancement
 
@@ -563,7 +563,7 @@ After the existing Area field (row 7, line 95), add read-only `TextField` elemen
 | **Suffix matching for effort display** | Process-agnostic: catches StoryPoints (Agile), Effort (Scrum), Size (CMMI) without hardcoding prefixes. Config escape hatch via `display.columns`. |
 | **Display-worthy readonly allowlist** | Tags, Description, dates, CreatedBy/ChangedBy are read-only in ADO but essential for display. Small curated set (8 entries) avoids importing 50+ system revision fields while ensuring universally useful fields are available. |
 | **HTML stored as-is, stripped at render** | Preserves original data fidelity; existing `StripHtmlTags` and `FormatterHelpers.FormatFieldValue` handle display-time formatting. |
-| **Public ImportFields for test convenience** | Test code can't access SetField() (InternalsVisibleTo for Twig.Domain grants access to Twig.Infrastructure and test projects, but ImportFields is a cleaner public API for bulk setup). |
+| **Internal ImportFields for test convenience** | Test code accesses `ImportFields()` via `InternalsVisibleTo` (Twig.Domain grants access to Twig.Infrastructure, Twig.TestKit, and test assemblies). Internal scoping prevents external callers from bypassing dirty tracking. |
 | **No schema migration** | `fields_json` column exists as `TEXT NOT NULL` defaulting to `{}`. No DDL changes needed. |
 
 ---
@@ -638,7 +638,7 @@ Introduce a `WorkItemFetchOrchestrator` that wraps `IAdoWorkItemService` and enr
 | `AdoRestClient` | Modified: new `IFieldDefinitionStore?` constructor parameter, lazy field def loading, pass lookup to all MapWorkItem calls |
 | `NetworkServiceModule` | Modified: pass `IFieldDefinitionStore` in AdoRestClient factory registration |
 | `AdoResponseMapper` | Modified: new field import loop in `MapWorkItem()` and `MapWorkItemWithLinks()`, new `ParseFieldValue()` and `ExtractIdentityDisplayName()` helpers |
-| `WorkItem` | Modified: new `ImportFields()` public method for bulk hydration |
+| `WorkItem` | Modified: new `ImportFields()` internal method for bulk hydration |
 | `HumanOutputFormatter` | Modified: extended fields in `FormatWorkItem`, effort in `FormatTree` |
 | `SpectreRenderer` | Modified: extended fields in `RenderStatusAsync`, effort in tree nodes |
 | `StatusCommand` | Modified: load field definitions, pass to formatter for extended display |
@@ -721,7 +721,7 @@ Introduce a `WorkItemFetchOrchestrator` that wraps `IAdoWorkItemService` and enr
 
 | File Path | Changes |
 |-----------|---------|
-| `src/Twig.Domain/Aggregates/WorkItem.cs` | Add `ImportFields()` public method for bulk hydration |
+| `src/Twig.Domain/Aggregates/WorkItem.cs` | Add `ImportFields()` internal method for bulk hydration |
 | `src/Twig.Infrastructure/Ado/AdoResponseMapper.cs` | Add field import loop in `MapWorkItem()`, forward `fieldDefLookup` in `MapWorkItemWithLinks()`, add `ParseFieldValue()` and `ExtractIdentityDisplayName()` helpers |
 | `src/Twig.Infrastructure/Ado/AdoRestClient.cs` | Add `IFieldDefinitionStore?` constructor parameter, lazy `GetFieldDefLookupAsync()`, pass lookup to mapper in `FetchAsync()`, `FetchWithLinksAsync()`, `FetchBatchChunkAsync()` |
 | `src/Twig.Infrastructure/DependencyInjection/NetworkServiceModule.cs` | Pass `IFieldDefinitionStore` to AdoRestClient factory |

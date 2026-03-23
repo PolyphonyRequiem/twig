@@ -196,6 +196,30 @@ public class SqliteWorkItemRepositoryTests : IDisposable
     }
 
     [Fact]
+    public async Task SaveAsync_PopulatedFields_RoundTripsAllEntries()
+    {
+        var item = CreateWorkItem(1, "Task", "Field enrichment test", "Active");
+        item.SetField("Microsoft.VSTS.Common.Priority", "2");
+        item.SetField("System.CreatedBy", "Alice");
+        item.SetField("System.ChangedDate", "2025-01-15T10:30:00Z");
+        item.SetField("System.Tags", "backend; api");
+        item.SetField("System.Description", "<p>HTML content</p>");
+        item.SetField("Custom.Team", "Platform");
+
+        await _repo.SaveAsync(item);
+
+        var loaded = await _repo.GetByIdAsync(1);
+        loaded.ShouldNotBeNull();
+        loaded.Fields.Count.ShouldBe(6);
+        loaded.Fields["Microsoft.VSTS.Common.Priority"].ShouldBe("2");
+        loaded.Fields["System.CreatedBy"].ShouldBe("Alice");
+        loaded.Fields["System.ChangedDate"].ShouldBe("2025-01-15T10:30:00Z");
+        loaded.Fields["System.Tags"].ShouldBe("backend; api");
+        loaded.Fields["System.Description"].ShouldBe("<p>HTML content</p>");
+        loaded.Fields["Custom.Team"].ShouldBe("Platform");
+    }
+
+    [Fact]
     public async Task GetParentChainAsync_ReturnsEmptyForOrphan()
     {
         // Item with parent_id that doesn't exist in DB
@@ -419,6 +443,27 @@ public class SqliteWorkItemRepositoryTests : IDisposable
                 try { File.Delete(file); } catch { /* best effort */ }
             }
         }
+    }
+
+    [Fact]
+    public async Task SaveAsync_FieldsRoundTrip_WithPriorityStoryPointsTags()
+    {
+        var item = CreateWorkItem(1, "User Story", "Field Round-Trip", "Active");
+        item.SetField("Microsoft.VSTS.Common.Priority", "2");
+        item.SetField("Microsoft.VSTS.Scheduling.StoryPoints", "8");
+        item.SetField("System.Tags", "backend; api");
+
+        await _repo.SaveAsync(item);
+
+        var loaded = await _repo.GetByIdAsync(1);
+        loaded.ShouldNotBeNull();
+        loaded.Fields.Count.ShouldBeGreaterThanOrEqualTo(3);
+        loaded.Fields.ShouldContainKey("Microsoft.VSTS.Common.Priority");
+        loaded.Fields["Microsoft.VSTS.Common.Priority"].ShouldBe("2");
+        loaded.Fields.ShouldContainKey("Microsoft.VSTS.Scheduling.StoryPoints");
+        loaded.Fields["Microsoft.VSTS.Scheduling.StoryPoints"].ShouldBe("8");
+        loaded.Fields.ShouldContainKey("System.Tags");
+        loaded.Fields["System.Tags"].ShouldBe("backend; api");
     }
 
     private static WorkItem CreateWorkItem(

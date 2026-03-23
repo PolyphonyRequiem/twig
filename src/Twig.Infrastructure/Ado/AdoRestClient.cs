@@ -22,12 +22,15 @@ internal sealed class AdoRestClient : IAdoWorkItemService
     private readonly IAuthenticationProvider _authProvider;
     private readonly string _orgUrl;
     private readonly string _project;
+    private readonly IFieldDefinitionStore? _fieldDefStore;
+    private IReadOnlyDictionary<string, FieldDefinition>? _fieldDefLookup;
 
     public AdoRestClient(
         HttpClient httpClient,
         IAuthenticationProvider authProvider,
         string orgUrl,
-        string project)
+        string project,
+        IFieldDefinitionStore? fieldDefStore = null)
     {
         if (string.IsNullOrWhiteSpace(orgUrl))
             throw new InvalidOperationException("Organization is not configured. Run 'twig init --org <org> --project <project>' first.");
@@ -38,6 +41,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         _authProvider = authProvider;
         _orgUrl = NormalizeOrgUrl(orgUrl);
         _project = project;
+        _fieldDefStore = fieldDefStore;
     }
 
     /// <summary>
@@ -59,7 +63,8 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}?$expand=relations&api-version={ApiVersion}";
         using var response = await SendAsync(HttpMethod.Get, url, content: null, ifMatch: null, ct);
         var dto = await DeserializeWorkItemAsync(response, ct);
-        return AdoResponseMapper.MapWorkItem(dto);
+        var lookup = await GetFieldDefLookupAsync(ct);
+        return AdoResponseMapper.MapWorkItem(dto, lookup);
     }
 
     public async Task<(WorkItem Item, IReadOnlyList<WorkItemLink> Links)> FetchWithLinksAsync(int id, CancellationToken ct = default)
@@ -67,7 +72,8 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}?$expand=relations&api-version={ApiVersion}";
         using var response = await SendAsync(HttpMethod.Get, url, content: null, ifMatch: null, ct);
         var dto = await DeserializeWorkItemAsync(response, ct);
-        return AdoResponseMapper.MapWorkItemWithLinks(dto);
+        var lookup = await GetFieldDefLookupAsync(ct);
+        return AdoResponseMapper.MapWorkItemWithLinks(dto, lookup);
     }
 
     public async Task<IReadOnlyList<WorkItem>> FetchChildrenAsync(int parentId, CancellationToken ct = default)
@@ -181,13 +187,35 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         if (result?.Value is null || result.Value.Count == 0)
             return Array.Empty<WorkItem>();
 
+        var lookup = await GetFieldDefLookupAsync(ct);
         var items = new List<WorkItem>(result.Value.Count);
         foreach (var dto in result.Value)
         {
-            items.Add(AdoResponseMapper.MapWorkItem(dto));
+            items.Add(AdoResponseMapper.MapWorkItem(dto, lookup));
         }
 
         return items;
+    }
+
+    // ── Field definition lookup (lazy cache) ──────────────────────
+
+    /// <summary>
+    /// Lazy-loads and caches field definitions from the store.
+    /// Note: intentionally not thread-safe — CLI is single-threaded per command.
+    /// Concurrent callers may redundantly build the lookup, which is benign.
+    /// </summary>
+    private async Task<IReadOnlyDictionary<string, FieldDefinition>?> GetFieldDefLookupAsync(CancellationToken ct)
+    {
+        if (_fieldDefLookup is not null) return _fieldDefLookup;
+        if (_fieldDefStore is null) return null;
+
+        var defs = await _fieldDefStore.GetAllAsync(ct);
+        if (defs.Count == 0) return null;
+
+        var lookup = new Dictionary<string, FieldDefinition>(defs.Count, StringComparer.OrdinalIgnoreCase);
+        foreach (var d in defs) lookup[d.ReferenceName] = d;
+        _fieldDefLookup = lookup;
+        return _fieldDefLookup;
     }
 
     // ── HTTP plumbing ───────────────────────────────────────────────

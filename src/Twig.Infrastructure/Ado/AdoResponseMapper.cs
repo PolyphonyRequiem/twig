@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado.Dtos;
 
@@ -24,8 +25,11 @@ internal static class AdoResponseMapper
     /// <summary>
     /// Maps an ADO work item response DTO to a domain <see cref="WorkItem"/>.
     /// Extracts parent ID from relation links.
+    /// When <paramref name="fieldDefLookup"/> is provided, filters imported fields using
+    /// <see cref="FieldImportFilter"/>; otherwise imports all non-core fields.
     /// </summary>
-    public static WorkItem MapWorkItem(AdoWorkItemResponse dto)
+    public static WorkItem MapWorkItem(AdoWorkItemResponse dto,
+        IReadOnlyDictionary<string, FieldDefinition>? fieldDefLookup = null)
     {
         var fields = dto.Fields ?? new Dictionary<string, object?>();
 
@@ -40,6 +44,16 @@ internal static class AdoResponseMapper
             AreaPath = ParseAreaPath(GetStringField(fields, "System.AreaPath")),
             ParentId = ExtractParentId(dto.Relations),
         };
+
+        // Import filtered fields into the extensible Fields dictionary
+        foreach (var kvp in fields)
+        {
+            FieldDefinition? fieldDef = null;
+            fieldDefLookup?.TryGetValue(kvp.Key, out fieldDef);
+            if (!FieldImportFilter.ShouldImport(kvp.Key, fieldDef)) continue;
+            var value = ParseFieldValue(kvp.Value);
+            if (value is not null) workItem.SetField(kvp.Key, value);
+        }
 
         workItem.MarkSynced(dto.Rev);
 
@@ -125,9 +139,10 @@ internal static class AdoResponseMapper
     /// <summary>
     /// Maps an ADO work item response DTO to a domain <see cref="WorkItem"/> plus non-hierarchy links.
     /// </summary>
-    public static (WorkItem Item, IReadOnlyList<WorkItemLink> Links) MapWorkItemWithLinks(AdoWorkItemResponse dto)
+    public static (WorkItem Item, IReadOnlyList<WorkItemLink> Links) MapWorkItemWithLinks(AdoWorkItemResponse dto,
+        IReadOnlyDictionary<string, FieldDefinition>? fieldDefLookup = null)
     {
-        var item = MapWorkItem(dto);
+        var item = MapWorkItem(dto, fieldDefLookup);
         var links = ExtractNonHierarchyLinks(dto.Id, dto.Relations);
         return (item, links);
     }
@@ -212,6 +227,39 @@ internal static class AdoResponseMapper
         }
 
         return value?.ToString();
+    }
+
+    /// <summary>
+    /// Parses an arbitrary field value from the ADO response into a string representation.
+    /// Handles JSON primitives, identity objects (with displayName/uniqueName), and nulls.
+    /// </summary>
+    private static string? ParseFieldValue(object? value)
+    {
+        if (value is null) return null;
+
+        if (value is JsonElement element)
+        {
+            return element.ValueKind switch
+            {
+                JsonValueKind.Null => null,
+                JsonValueKind.String => element.GetString(),
+                JsonValueKind.Object => ExtractIdentityDisplayName(element) ?? element.ToString(),
+                _ => element.ToString(),
+            };
+        }
+
+        return value.ToString();
+    }
+
+    /// <summary>
+    /// Extracts a display name from an identity-like JSON object.
+    /// Falls back to uniqueName if displayName is not present.
+    /// </summary>
+    private static string? ExtractIdentityDisplayName(JsonElement element)
+    {
+        if (element.TryGetProperty("displayName", out var displayName)) return displayName.GetString();
+        if (element.TryGetProperty("uniqueName", out var uniqueName)) return uniqueName.GetString();
+        return null;
     }
 
     /// <summary>

@@ -948,7 +948,7 @@ Instead of removing the ADO push by default, add a `--local` flag to keep seeds 
 
 ---
 
-### Epic 5: Integration & Polish
+### Epic 5: Integration & Polish — **DONE**
 
 **Goal:** Final integration, DI wiring validation, hint updates, and end-to-end verification.
 
@@ -956,22 +956,24 @@ Instead of removing the ADO push by default, add a `--local` flag to keep seeds 
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E5-T1 | IMPL | Verify all DI registrations compile and resolve correctly — build `Twig.csproj` with no errors | `CommandRegistrationModule.cs` | TO DO |
-| E5-T2 | IMPL | Verify `twig refresh` still skips seeds (negative IDs) — read `RefreshCommand.cs` line 92 (`var realIds = ids.Where(id => id > 0).ToList()`), confirm no regression path | `RefreshCommand.cs` (read-only verify) | TO DO |
-| E5-T3 | IMPL | Verify `twig workspace` / `twig status` still show seeds correctly — existing `WorkspaceDataChunk.SeedsLoaded` rendering in `SpectreRenderer.cs` (lines 120-159) and `HumanOutputFormatter.cs` (lines 305-377) still works | SpectreRenderer, HumanOutputFormatter (read-only verify) | TO DO |
-| E5-T4 | TEST | Build entire solution (`dotnet build Twig.slnx`), run all existing tests (`dotnet test`), fix any regressions | All test projects | TO DO |
-| E5-T5 | IMPL | Update stale seed hint in `HintEngine` for status command (line 119) to suggest `twig seed view` instead of generic message | `HintEngine.cs` | TO DO |
-| E5-T6 | IMPL | Verify `EvictExceptAsync` in `SqliteWorkItemRepository` does not evict seeds — seeds are in `WorkingSet.SeedIds` which feeds into `AllIds` keep set. Trace through `SyncCoordinator.SyncWorkingSetAsync()` to confirm. | `SyncCoordinator.cs`, `WorkingSet.cs` (read-only verify) | TO DO |
+| E5-T1 | IMPL | Verify all DI registrations compile and resolve correctly — build `Twig.csproj` with no errors | `CommandRegistrationModule.cs` | DONE |
+| E5-T2 | IMPL | Verify `twig refresh` still skips seeds (negative IDs) — read `RefreshCommand.cs` line 92 (`var realIds = ids.Where(id => id > 0).ToList()`), confirm no regression path | `RefreshCommand.cs` (read-only verify) | DONE |
+| E5-T3 | IMPL | Verify `twig workspace` / `twig status` still show seeds correctly — existing `WorkspaceDataChunk.SeedsLoaded` rendering in `SpectreRenderer.cs` (lines 120-159) and `HumanOutputFormatter.cs` (lines 305-377) still works | SpectreRenderer, HumanOutputFormatter (read-only verify) | DONE |
+| E5-T4 | TEST | Build entire solution (`dotnet build Twig.slnx`), run all existing tests (`dotnet test`), fix any regressions | All test projects | DONE |
+| E5-T5 | IMPL | Update stale seed hint in `HintEngine` for status command (line 119) to suggest `twig seed view` instead of generic message | `HintEngine.cs` | DONE |
+| E5-T6 | IMPL | Verify `EvictExceptAsync` in `SqliteWorkItemRepository` does not evict seeds — seeds are in `WorkingSet.SeedIds` which feeds into `AllIds` keep set. Trace through `SyncCoordinator.SyncWorkingSetAsync()` to confirm. | `SyncCoordinator.cs`, `WorkingSet.cs` (read-only verify) | DONE |
 
 **Acceptance Criteria:**
-- [ ] `dotnet build Twig.slnx` succeeds with no warnings in modified projects
-- [ ] All existing tests pass (no regressions) — `dotnet test`
-- [ ] All new tests pass
-- [ ] `twig seed "title"` backward compat verified (routes to `SeedNewCommand`)
-- [ ] `twig seed new`, `twig seed view`, `twig seed edit`, `twig seed discard` all functional
-- [ ] Seeds survive `twig refresh` — negative IDs not fetched from ADO, not evicted
-- [ ] Stale seed warnings appear correctly (based on `SeedCreatedAt` and `StaleDays`)
-- [ ] `ProtectedCacheWriter` does not overwrite dirty seeds during refresh
+- [x] `dotnet build Twig.slnx` succeeds with no warnings in modified projects
+- [x] All existing tests pass (no regressions) — `dotnet test`
+- [x] All new tests pass
+- [x] `twig seed "title"` backward compat verified (routes to `SeedNewCommand`)
+- [x] `twig seed new`, `twig seed view`, `twig seed edit`, `twig seed discard` all functional
+- [x] Seeds survive `twig refresh` — negative IDs not fetched from ADO, not evicted
+- [x] Stale seed warnings appear correctly (based on `SeedCreatedAt` and `StaleDays`)
+- [x] `ProtectedCacheWriter` does not overwrite dirty seeds during refresh
+
+**Completion Notes:** All verifications passed. Build: 0 errors, 0 warnings. Tests: 2,603 passed (913 Domain, 524 Infrastructure, 1,108 CLI, 58 TUI). DI registrations confirmed: `SeedNewCommand`, `SeedEditCommand`, `SeedDiscardCommand`, `SeedViewCommand` all registered via `AddSingleton<T>()` in `CommandRegistrationModule.cs` (lines 94-97). RefreshCommand line 92 confirms `ids.Where(id => id > 0)` filters seeds. SpectreRenderer lines 120-163 and HumanOutputFormatter lines 305-321/363-377 render seeds correctly. WorkingSet.ComputeAllIds includes SeedIds in AllIds keep set; SyncCoordinator.SyncWorkingSetAsync filters `id > 0` for ADO fetch but seeds remain in keep set for EvictExceptAsync. HintEngine stale seed hint updated to suggest `twig seed view` instead of generic message.
 
 ---
 

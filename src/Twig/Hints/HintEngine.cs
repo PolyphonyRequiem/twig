@@ -116,7 +116,7 @@ public sealed class HintEngine
                 if (staleSeedCount > 0)
                 {
                     var noun = staleSeedCount == 1 ? "seed" : "seeds";
-                    hints.Add($"⚠ {staleSeedCount} stale {noun}. Consider completing or cutting them.");
+                    hints.Add($"⚠ {staleSeedCount} stale {noun}. Run 'twig seed view' to review.");
                 }
                 break;
 

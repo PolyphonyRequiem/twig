@@ -26,7 +26,8 @@ public interface IAsyncRenderer
         Func<Task<IReadOnlyList<WorkItem>>> getChildren,
         int maxChildren,
         int? activeId,
-        CancellationToken ct);
+        CancellationToken ct,
+        Func<int, Task<int?>>? getSiblingCount = null);
 
     Task RenderStatusAsync(
         Func<Task<WorkItem?>> getItem,

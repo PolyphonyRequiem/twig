@@ -662,24 +662,31 @@ TreeCommand.ExecuteAsync()
 
 **Prerequisites**: None (independent of Epic 1 — can be developed in parallel)
 
+**Status**: DONE
+
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E2-T1 | IMPL | Extend `WorkTree` with `SiblingCounts` dictionary property (`IReadOnlyDictionary<int, int?>`, optional, defaults to empty). Add as optional parameter to `Build()` | `src/Twig.Domain/ReadModels/WorkTree.cs` | TO DO |
-| E2-T2 | IMPL | In `TreeCommand` sync path: compute sibling counts via `GetChildrenAsync(node.ParentId).Count` for each parent chain node + focused item | `src/Twig/Commands/TreeCommand.cs` | TO DO |
-| E2-T3 | IMPL | Extend `IAsyncRenderer.RenderTreeAsync()` with `Func<int, Task<int?>> getSiblingCount` parameter | `src/Twig/Rendering/IAsyncRenderer.cs` | TO DO |
-| E2-T4 | IMPL | In `SpectreRenderer.RenderTreeAsync()`: after each parent node and focused node, add dimmed `...N` or `...?` text node | `src/Twig/Rendering/SpectreRenderer.cs` | TO DO |
-| E2-T5 | IMPL | In `HumanOutputFormatter.FormatTree()`: after each parent/focused line, emit dimmed `...N` or `...?` at same indentation | `src/Twig/Formatters/HumanOutputFormatter.cs` | TO DO |
-| E2-T6 | IMPL | Update `TreeCommand` async path: pass sibling count callback wrapping `GetChildrenAsync` | `src/Twig/Commands/TreeCommand.cs` | TO DO |
-| E2-T7 | TEST | Tests for sibling count in `HumanOutputFormatter` — known count, unknown, root node, omitted when no sibling data | `tests/Twig.Cli.Tests/Formatters/TreeSiblingCountTests.cs` | TO DO |
-| E2-T8 | TEST | Tests for sibling count in `SpectreRenderer` — verify dimmed output | `tests/Twig.Cli.Tests/Commands/TreeCommandAsyncTests.cs` | TO DO |
-| E2-T9 | TEST | Test `WorkTree.Build()` backward compat — existing callers without sibling counts still work | `tests/Twig.Domain.Tests/ReadModels/WorkTreeTests.cs` | TO DO |
+| E2-T1 | IMPL | Extend `WorkTree` with `SiblingCounts` dictionary property (`IReadOnlyDictionary<int, int?>`, optional, defaults to empty). Add as optional parameter to `Build()` | `src/Twig.Domain/ReadModels/WorkTree.cs` | DONE |
+| E2-T2 | IMPL | In `TreeCommand` sync path: compute sibling counts via `GetChildrenAsync(node.ParentId).Count` for each parent chain node + focused item | `src/Twig/Commands/TreeCommand.cs` | DONE |
+| E2-T3 | IMPL | Extend `IAsyncRenderer.RenderTreeAsync()` with `Func<int, Task<int?>> getSiblingCount` parameter | `src/Twig/Rendering/IAsyncRenderer.cs` | DONE |
+| E2-T4 | IMPL | In `SpectreRenderer.RenderTreeAsync()`: after each parent node and focused node, add dimmed `...N` or `...?` text node | `src/Twig/Rendering/SpectreRenderer.cs` | DONE |
+| E2-T5 | IMPL | In `HumanOutputFormatter.FormatTree()`: after each parent/focused line, emit dimmed `...N` or `...?` at same indentation | `src/Twig/Formatters/HumanOutputFormatter.cs` | DONE |
+| E2-T6 | IMPL | Update `TreeCommand` async path: pass sibling count callback wrapping `GetChildrenAsync` | `src/Twig/Commands/TreeCommand.cs` | DONE |
+| E2-T7 | TEST | Tests for sibling count in `HumanOutputFormatter` — known count, unknown, root node, omitted when no sibling data | `tests/Twig.Cli.Tests/Formatters/TreeSiblingCountTests.cs` | DONE |
+| E2-T8 | TEST | Tests for sibling count in `SpectreRenderer` — verify dimmed output | `tests/Twig.Cli.Tests/Commands/TreeCommandAsyncTests.cs` | DONE |
+| E2-T9 | TEST | Test `WorkTree.Build()` backward compat — existing callers without sibling counts still work | `tests/Twig.Domain.Tests/ReadModels/WorkTreeTests.cs` | DONE |
 
 **Acceptance Criteria**:
-- [ ] Each parent chain node shows `...N` (dimmed) below it in both renderers
-- [ ] Focused item shows sibling count below it
-- [ ] Root nodes (no parent) omit sibling count
-- [ ] Existing `WorkTree.Build()` callers compile without changes
-- [ ] All existing tests pass
+- [x] Each parent chain node shows `...N` (dimmed) below it in both renderers
+- [x] Focused item shows sibling count below it
+- [x] Root nodes (no parent) omit sibling count
+- [x] Existing `WorkTree.Build()` callers compile without changes
+- [x] All existing tests pass
+
+**Completion Notes**:
+- Review pass fixed CancellationToken forwarding omissions in `TreeCommand.cs` async path: `GetParentChainAsync` (line 67) and `GetChildrenAsync` (line 68) lambdas now correctly forward `ct`
+- Test simplification: `BuildSpectreTreeAsync_NullCount_OmitsIndicator` dead conditional `id == 100 ? null : null` replaced with unconditional `return Task.FromResult<int?>(null)` (callbackInvoked sentinel preserved)
+- Pre-existing issue tracked (out of scope): sync/non-live path (lines 112–116, 124–134) has four additional `GetParentChainAsync`/`GetChildrenAsync` calls also missing CancellationToken forwarding
 
 ### Epic 3: Related Links Feature
 

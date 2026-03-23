@@ -218,7 +218,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         Func<Task<IReadOnlyList<WorkItem>>> getChildren,
         int maxChildren,
         int? activeId,
-        CancellationToken ct)
+        CancellationToken ct,
+        Func<int, Task<int?>>? getSiblingCount = null)
     {
         // Stage 1: Load focused item and parent chain
         var focusedItem = await getFocusedItem();
@@ -229,7 +230,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
         // Build the Spectre Tree rooted at the topmost parent (or focused item if no parents).
         // focusContainer is the IHasTreeNodes where children should be appended.
-        var (tree, focusContainer) = BuildSpectreTree(focusedItem, parentChain, activeId);
+        var (tree, focusContainer) = await BuildSpectreTreeAsync(focusedItem, parentChain, activeId, getSiblingCount);
 
         // EPIC-005: Unparented banner for tree view
         IRenderable treeRenderable = tree;
@@ -278,35 +279,67 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     }
 
     /// <summary>
-    /// Builds a Spectre.Console <see cref="Tree"/> from the parent chain and focused item.
-    /// Parent chain nodes are dimmed; the focused item is bold.
-    /// Returns the tree and the <see cref="IHasTreeNodes"/> where children should be appended.
+    /// Builds a Spectre.Console <see cref="Tree"/> from the parent chain and focused item,
+    /// optionally appending dimmed sibling count indicators (<c>...N</c>) at the same tree
+    /// level as the annotated node. Null counts (root nodes) are omitted, consistent with
+    /// <see cref="Formatters.HumanOutputFormatter"/>. Returns the tree and the
+    /// <see cref="IHasTreeNodes"/> where children should be appended.
     /// </summary>
-    internal (Tree Tree, IHasTreeNodes FocusContainer) BuildSpectreTree(
-        WorkItem focusedItem, IReadOnlyList<WorkItem> parentChain, int? activeId)
+    internal async Task<(Tree Tree, IHasTreeNodes FocusContainer)> BuildSpectreTreeAsync(
+        WorkItem focusedItem, IReadOnlyList<WorkItem> parentChain, int? activeId,
+        Func<int, Task<int?>>? getSiblingCount)
     {
         if (parentChain.Count == 0)
         {
-            // Focused item is root — Tree itself is the container for children
             var tree = new Tree(FormatFocusedNode(focusedItem, activeId));
+            // Focused item is tree root — sibling count added as child (Spectre API limitation)
+            if (getSiblingCount is not null && focusedItem.ParentId.HasValue)
+            {
+                var count = await getSiblingCount(focusedItem.Id);
+                if (count.HasValue)
+                    tree.AddNode(FormatSiblingCount(count.Value));
+            }
             return (tree, tree);
         }
 
-        // Root is the topmost parent
         var root = parentChain[0];
         var tree2 = new Tree(FormatParentNode(root));
-        IHasTreeNodes current = tree2;
+        IHasTreeNodes container = tree2;
 
-        // Add remaining parents as nested nodes
-        for (var i = 1; i < parentChain.Count; i++)
+        // Root parent — sibling count added as child of tree root (Spectre API limitation)
+        if (getSiblingCount is not null && root.ParentId.HasValue)
         {
-            current = current.AddNode(FormatParentNode(parentChain[i]));
+            var rootCount = await getSiblingCount(root.Id);
+            if (rootCount.HasValue)
+                container.AddNode(FormatSiblingCount(rootCount.Value));
         }
 
-        // Add focused item as child of deepest parent
-        var focusNode = current.AddNode(FormatFocusedNode(focusedItem, activeId));
+        for (var i = 1; i < parentChain.Count; i++)
+        {
+            var parentNode = container.AddNode(FormatParentNode(parentChain[i]));
+            // Sibling count at same level as node (added to container, not parentNode)
+            if (getSiblingCount is not null && parentChain[i].ParentId.HasValue)
+            {
+                var count = await getSiblingCount(parentChain[i].Id);
+                if (count.HasValue)
+                    container.AddNode(FormatSiblingCount(count.Value));
+            }
+            container = parentNode;
+        }
+
+        var focusNode = container.AddNode(FormatFocusedNode(focusedItem, activeId));
+        // Sibling count at same level as focused item (added to container, sibling of focusNode)
+        if (getSiblingCount is not null && focusedItem.ParentId.HasValue)
+        {
+            var focusCount = await getSiblingCount(focusedItem.Id);
+            if (focusCount.HasValue)
+                container.AddNode(FormatSiblingCount(focusCount.Value));
+        }
         return (tree2, focusNode);
     }
+
+    internal static string FormatSiblingCount(int count) =>
+        $"[dim]...{count}[/]";
 
     internal string FormatParentNode(WorkItem item) =>
         $"{_theme.FormatTypeBadge(item.Type)} [dim]{Markup.Escape(item.Title)}[/] {_theme.FormatState(item.State)}";

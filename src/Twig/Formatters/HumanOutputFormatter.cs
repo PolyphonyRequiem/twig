@@ -112,6 +112,13 @@ public sealed class HumanOutputFormatter : IOutputFormatter
             lines.Add(new AlignedLine(
                 $"{indent}{parentTypeColor}{badge}{Reset} {Dim}{parent.Title}{Reset}",
                 $"[{parentStateColor}{parent.State}{Reset}]", ""));
+
+            // Sibling count indicator for parent chain nodes (skip root nodes with no parent)
+            if (tree.SiblingCounts is not null && parent.ParentId.HasValue
+                && tree.SiblingCounts.TryGetValue(parent.Id, out var parentSibCount) && parentSibCount.HasValue)
+            {
+                lines.Add(new AlignedLine($"{indent}{Dim}...{parentSibCount.Value}{Reset}", "", ""));
+            }
         }
 
         // Focused item with active marker at its natural depth
@@ -123,6 +130,13 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         lines.Add(new AlignedLine(
             $"{focusIndent}{Cyan}●{Reset} {focusTypeColor}{focusBadge}{Reset} {Bold}#{tree.FocusedItem.Id} {tree.FocusedItem.Title}{Reset}",
             $"[{focusStateColor}{tree.FocusedItem.State}{Reset}]", focusDirty));
+
+        // Sibling count indicator for focused item (skip root nodes with no parent)
+        if (tree.SiblingCounts is not null && tree.FocusedItem.ParentId.HasValue
+            && tree.SiblingCounts.TryGetValue(tree.FocusedItem.Id, out var focusSibCount) && focusSibCount.HasValue)
+        {
+            lines.Add(new AlignedLine($"{focusIndent}{Dim}...{focusSibCount.Value}{Reset}", "", ""));
+        }
 
         // Children with box-drawing at focused+1 depth
         var childIndent = new string(' ', (focusDepth + 1) * 2);

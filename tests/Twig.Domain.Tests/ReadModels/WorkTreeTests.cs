@@ -233,4 +233,47 @@ public class WorkTreeTests
         result.ShouldBeOfType<MatchResult.NoMatch>();
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    //  SiblingCounts
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void Build_WithoutSiblingCounts_DefaultsToNull()
+    {
+        var focus = WorkItemBuilder.Simple(10, "Focus");
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), Array.Empty<WorkItem>());
+
+        tree.SiblingCounts.ShouldBeNull();
+    }
+
+    [Fact]
+    public void Build_WithSiblingCounts_StoresValues()
+    {
+        var focus = WorkItemBuilder.Simple(10, "Focus");
+        var parent = WorkItemBuilder.Simple(5, "Parent");
+        var counts = new Dictionary<int, int?> { [5] = null, [10] = 3 };
+
+        var tree = WorkTree.Build(focus, new[] { parent }, Array.Empty<WorkItem>(), counts);
+
+        tree.SiblingCounts.ShouldNotBeNull();
+        tree.SiblingCounts[5].ShouldBeNull();
+        tree.SiblingCounts[10].ShouldBe(3);
+    }
+
+    [Fact]
+    public void Build_BackwardCompat_ExistingCallersCompileWithoutChanges()
+    {
+        var focus = WorkItemBuilder.Simple(10, "Focus");
+        var parent = WorkItemBuilder.Simple(5, "Parent");
+        var child = WorkItemBuilder.Simple(20, "Child");
+
+        // Three-parameter overload — must still work
+        var tree = WorkTree.Build(focus, new[] { parent }, new[] { child });
+
+        tree.FocusedItem.Id.ShouldBe(10);
+        tree.ParentChain.Count.ShouldBe(1);
+        tree.Children.Count.ShouldBe(1);
+        tree.SiblingCounts.ShouldBeNull();
+    }
+
 }

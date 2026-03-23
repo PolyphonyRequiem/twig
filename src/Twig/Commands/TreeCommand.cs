@@ -64,11 +64,27 @@ public sealed class TreeCommand(
                 getFocusedItem: () => Task.FromResult<Domain.Aggregates.WorkItem?>(resolvedItem),
                 getParentChain: async () => resolvedItem?.ParentId is null
                     ? Array.Empty<Domain.Aggregates.WorkItem>()
-                    : await workItemRepo.GetParentChainAsync(resolvedItem.ParentId.Value),
-                getChildren: () => workItemRepo.GetChildrenAsync(activeId.Value),
+                    : await workItemRepo.GetParentChainAsync(resolvedItem.ParentId.Value, ct),
+                getChildren: () => workItemRepo.GetChildrenAsync(activeId.Value, ct),
                 maxChildren: maxChildren,
                 activeId: activeId,
-                ct: CancellationToken.None);
+                ct: ct,
+                getSiblingCount: async (nodeId) =>
+                {
+                    // Find the node in the resolved item or its future parent chain
+                    int? parentId = null;
+                    if (resolvedItem is not null && resolvedItem.Id == nodeId)
+                        parentId = resolvedItem.ParentId;
+                    else
+                    {
+                        // Parent chain will be fetched by the renderer; look up from repo
+                        var node = await workItemRepo.GetByIdAsync(nodeId, ct);
+                        parentId = node?.ParentId;
+                    }
+                    if (!parentId.HasValue) return null;
+                    var siblings = await workItemRepo.GetChildrenAsync(parentId.Value, ct);
+                    return siblings.Count;
+                });
 
             // Sync working set after cached render (EPIC-004) — best-effort
             try
@@ -98,7 +114,32 @@ public sealed class TreeCommand(
             : Array.Empty<Domain.Aggregates.WorkItem>();
 
         var children = await workItemRepo.GetChildrenAsync(item.Id);
-        var tree = WorkTree.Build(item, parentChain, children);
+
+        // Compute sibling counts for parent chain + focused item
+        var siblingCounts = new Dictionary<int, int?>();
+        foreach (var node in parentChain)
+        {
+            if (node.ParentId.HasValue)
+            {
+                var siblings = await workItemRepo.GetChildrenAsync(node.ParentId.Value);
+                siblingCounts[node.Id] = siblings.Count;
+            }
+            else
+            {
+                siblingCounts[node.Id] = null;
+            }
+        }
+        if (item.ParentId.HasValue)
+        {
+            var focusedSiblings = await workItemRepo.GetChildrenAsync(item.ParentId.Value);
+            siblingCounts[item.Id] = focusedSiblings.Count;
+        }
+        else
+        {
+            siblingCounts[item.Id] = null;
+        }
+
+        var tree = WorkTree.Build(item, parentChain, children, siblingCounts);
 
         // EPIC-005: Load process config for unparented banner
         if (fmt is HumanOutputFormatter humanFmt)

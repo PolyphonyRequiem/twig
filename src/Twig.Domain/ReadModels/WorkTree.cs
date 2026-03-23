@@ -20,19 +20,31 @@ public sealed class WorkTree
     /// <summary>Direct children of the focused item.</summary>
     public IReadOnlyList<WorkItem> Children { get; }
 
-    private WorkTree(WorkItem focusedItem, IReadOnlyList<WorkItem> parentChain, IReadOnlyList<WorkItem> children)
+    /// <summary>
+    /// Optional sibling counts keyed by work item ID.
+    /// Value is <c>null</c> for root nodes (no parent to query); otherwise the count of children under that node's parent.
+    /// </summary>
+    public IReadOnlyDictionary<int, int?>? SiblingCounts { get; }
+
+    private WorkTree(WorkItem focusedItem, IReadOnlyList<WorkItem> parentChain, IReadOnlyList<WorkItem> children,
+        IReadOnlyDictionary<int, int?>? siblingCounts)
     {
         FocusedItem = focusedItem;
         ParentChain = parentChain;
         Children = children;
+        SiblingCounts = siblingCounts;
     }
 
     /// <summary>
     /// Builds an immutable <see cref="WorkTree"/> from the focused item, its parent chain, and children.
     /// </summary>
-    public static WorkTree Build(WorkItem focus, IReadOnlyList<WorkItem> parentChain, IReadOnlyList<WorkItem> children)
+    public static WorkTree Build(
+        WorkItem focus,
+        IReadOnlyList<WorkItem> parentChain,
+        IReadOnlyList<WorkItem> children,
+        IReadOnlyDictionary<int, int?>? siblingCounts = null)
     {
-        return new WorkTree(focus, parentChain, children);
+        return new WorkTree(focus, parentChain, children, siblingCounts);
     }
 
     /// <summary>

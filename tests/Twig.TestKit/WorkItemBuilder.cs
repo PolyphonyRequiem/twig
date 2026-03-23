@@ -21,6 +21,7 @@ public sealed class WorkItemBuilder
     private DateTimeOffset? _seedCreatedAt;
     private DateTimeOffset? _lastSyncedAt;
     private bool _dirty;
+    private readonly Dictionary<string, string?> _fields = new(StringComparer.OrdinalIgnoreCase);
 
     public WorkItemBuilder(int id, string title)
     {
@@ -47,6 +48,19 @@ public sealed class WorkItemBuilder
     public WorkItemBuilder LastSyncedAt(DateTimeOffset? value) { _lastSyncedAt = value; return this; }
     public WorkItemBuilder Dirty() { _dirty = true; return this; }
 
+    public WorkItemBuilder WithField(string key, string? value)
+    {
+        _fields[key] = value;
+        return this;
+    }
+
+    public WorkItemBuilder WithFields(IEnumerable<KeyValuePair<string, string?>> fields)
+    {
+        foreach (var kvp in fields)
+            _fields[kvp.Key] = kvp.Value;
+        return this;
+    }
+
     public WorkItem Build()
     {
         var item = new WorkItem
@@ -66,6 +80,9 @@ public sealed class WorkItemBuilder
 
         if (_dirty)
             item.SetDirty();
+
+        if (_fields.Count > 0)
+            item.ImportFields(_fields);
 
         return item;
     }

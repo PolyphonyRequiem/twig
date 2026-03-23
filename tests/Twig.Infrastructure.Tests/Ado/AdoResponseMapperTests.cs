@@ -318,7 +318,493 @@ public class AdoResponseMapperTests
         result.ShouldContain(op => op.Path == "/fields/System.IterationPath");
     }
 
+    // ── Field Import Loop (MapWorkItem with field population) ────────
+
+    [Fact]
+    public void MapWorkItem_CoreFields_ExcludedFromFieldsDictionary()
+    {
+        var dto = new AdoWorkItemResponse
+        {
+            Id = 1,
+            Rev = 1,
+            Fields = new Dictionary<string, object?>
+            {
+                ["System.Id"] = JsonElement(1),
+                ["System.Rev"] = JsonElement(1),
+                ["System.WorkItemType"] = JsonElement("Task"),
+                ["System.Title"] = JsonElement("Test"),
+                ["System.State"] = JsonElement("Active"),
+                ["System.AssignedTo"] = JsonElement("Alice"),
+                ["System.IterationPath"] = JsonElement(@"Project\Sprint1"),
+                ["System.AreaPath"] = JsonElement(@"Project\Area"),
+                ["Microsoft.VSTS.Common.Priority"] = JsonElement("2"),
+            },
+        };
+
+        var result = AdoResponseMapper.MapWorkItem(dto);
+
+        // Core fields should NOT appear in Fields dictionary
+        result.Fields.ShouldNotContainKey("System.Id");
+        result.Fields.ShouldNotContainKey("System.Rev");
+        result.Fields.ShouldNotContainKey("System.WorkItemType");
+        result.Fields.ShouldNotContainKey("System.Title");
+        result.Fields.ShouldNotContainKey("System.State");
+        result.Fields.ShouldNotContainKey("System.AssignedTo");
+        result.Fields.ShouldNotContainKey("System.IterationPath");
+        result.Fields.ShouldNotContainKey("System.AreaPath");
+
+        // Non-core field should be imported
+        result.Fields.ShouldContainKey("Microsoft.VSTS.Common.Priority");
+        result.Fields["Microsoft.VSTS.Common.Priority"].ShouldBe("2");
+    }
+
+    [Fact]
+    public void MapWorkItem_WithFieldDefLookup_ReadOnlyNonDisplayWorthy_Excluded()
+    {
+        var dto = new AdoWorkItemResponse
+        {
+            Id = 1,
+            Rev = 1,
+            Fields = new Dictionary<string, object?>
+            {
+                ["System.WorkItemType"] = JsonElement("Task"),
+                ["System.Title"] = JsonElement("Test"),
+                ["System.State"] = JsonElement("Active"),
+                ["System.Watermark"] = JsonElement(42),
+                ["Microsoft.VSTS.Common.Priority"] = JsonElement("1"),
+            },
+        };
+
+        var lookup = new Dictionary<string, FieldDefinition>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["System.Watermark"] = new FieldDefinition("System.Watermark", "Watermark", "integer", true),
+            ["Microsoft.VSTS.Common.Priority"] = new FieldDefinition("Microsoft.VSTS.Common.Priority", "Priority", "integer", false),
+        };
+
+        var result = AdoResponseMapper.MapWorkItem(dto, lookup);
+
+        // Read-only non-display-worthy field excluded
+        result.Fields.ShouldNotContainKey("System.Watermark");
+        // Editable importable field included
+        result.Fields.ShouldContainKey("Microsoft.VSTS.Common.Priority");
+        result.Fields["Microsoft.VSTS.Common.Priority"].ShouldBe("1");
+    }
+
+    [Fact]
+    public void MapWorkItem_WithFieldDefLookup_DisplayWorthyReadOnly_Included()
+    {
+        var dto = new AdoWorkItemResponse
+        {
+            Id = 1,
+            Rev = 1,
+            Fields = new Dictionary<string, object?>
+            {
+                ["System.WorkItemType"] = JsonElement("Task"),
+                ["System.Title"] = JsonElement("Test"),
+                ["System.State"] = JsonElement("Active"),
+                ["System.Tags"] = JsonElement("backend; api"),
+                ["System.CreatedDate"] = JsonElement("2025-01-15T10:00:00Z"),
+                ["System.Description"] = JsonElement("<p>Some HTML</p>"),
+            },
+        };
+
+        var lookup = new Dictionary<string, FieldDefinition>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["System.Tags"] = new FieldDefinition("System.Tags", "Tags", "plainText", true),
+            ["System.CreatedDate"] = new FieldDefinition("System.CreatedDate", "Created Date", "dateTime", true),
+            ["System.Description"] = new FieldDefinition("System.Description", "Description", "html", true),
+        };
+
+        var result = AdoResponseMapper.MapWorkItem(dto, lookup);
+
+        result.Fields.ShouldContainKey("System.Tags");
+        result.Fields["System.Tags"].ShouldBe("backend; api");
+        result.Fields.ShouldContainKey("System.CreatedDate");
+        result.Fields["System.CreatedDate"].ShouldBe("2025-01-15T10:00:00Z");
+        result.Fields.ShouldContainKey("System.Description");
+        result.Fields["System.Description"].ShouldBe("<p>Some HTML</p>");
+    }
+
+    [Fact]
+    public void MapWorkItem_NullFieldDefLookup_ImportsAllNonCoreFields()
+    {
+        var dto = new AdoWorkItemResponse
+        {
+            Id = 1,
+            Rev = 1,
+            Fields = new Dictionary<string, object?>
+            {
+                ["System.WorkItemType"] = JsonElement("Task"),
+                ["System.Title"] = JsonElement("Test"),
+                ["System.State"] = JsonElement("Active"),
+                ["Microsoft.VSTS.Common.Priority"] = JsonElement("2"),
+                ["Custom.MyField"] = JsonElement("custom_value"),
+                ["System.Watermark"] = JsonElement(42),
+            },
+        };
+
+        // No field def lookup — fallback imports all non-core fields
+        var result = AdoResponseMapper.MapWorkItem(dto, fieldDefLookup: null);
+
+        result.Fields.ShouldContainKey("Microsoft.VSTS.Common.Priority");
+        result.Fields.ShouldContainKey("Custom.MyField");
+        result.Fields.ShouldContainKey("System.Watermark");
+        // Core fields still excluded
+        result.Fields.ShouldNotContainKey("System.Title");
+        result.Fields.ShouldNotContainKey("System.State");
+    }
+
+    [Fact]
+    public void MapWorkItem_IdentityObjectInArbitraryField_ResolvesDisplayName()
+    {
+        var dto = new AdoWorkItemResponse
+        {
+            Id = 1,
+            Rev = 1,
+            Fields = new Dictionary<string, object?>
+            {
+                ["System.WorkItemType"] = JsonElement("Task"),
+                ["System.Title"] = JsonElement("Test"),
+                ["System.State"] = JsonElement("Active"),
+                ["System.CreatedBy"] = JsonElement(new { displayName = "Alice", uniqueName = "alice@example.com" }),
+                ["System.ChangedBy"] = JsonElement(new { displayName = "Bob" }),
+            },
+        };
+
+        var result = AdoResponseMapper.MapWorkItem(dto);
+
+        result.Fields.ShouldContainKey("System.CreatedBy");
+        result.Fields["System.CreatedBy"].ShouldBe("Alice");
+        result.Fields.ShouldContainKey("System.ChangedBy");
+        result.Fields["System.ChangedBy"].ShouldBe("Bob");
+    }
+
+    [Fact]
+    public void MapWorkItem_IdentityObjectWithUniqueNameOnly_FallsBackToUniqueName()
+    {
+        var dto = new AdoWorkItemResponse
+        {
+            Id = 1,
+            Rev = 1,
+            Fields = new Dictionary<string, object?>
+            {
+                ["System.WorkItemType"] = JsonElement("Task"),
+                ["System.Title"] = JsonElement("Test"),
+                ["System.State"] = JsonElement("Active"),
+                ["System.CreatedBy"] = JsonElement(new { uniqueName = "alice@example.com" }),
+            },
+        };
+
+        var result = AdoResponseMapper.MapWorkItem(dto);
+
+        result.Fields.ShouldContainKey("System.CreatedBy");
+        result.Fields["System.CreatedBy"].ShouldBe("alice@example.com");
+    }
+
+    [Fact]
+    public void MapWorkItem_HtmlFieldValue_StoredAsIs()
+    {
+        var dto = new AdoWorkItemResponse
+        {
+            Id = 1,
+            Rev = 1,
+            Fields = new Dictionary<string, object?>
+            {
+                ["System.WorkItemType"] = JsonElement("Task"),
+                ["System.Title"] = JsonElement("Test"),
+                ["System.State"] = JsonElement("Active"),
+                ["System.Description"] = JsonElement("<div><p>Rich <b>HTML</b> content</p></div>"),
+            },
+        };
+
+        var result = AdoResponseMapper.MapWorkItem(dto);
+
+        result.Fields.ShouldContainKey("System.Description");
+        result.Fields["System.Description"].ShouldBe("<div><p>Rich <b>HTML</b> content</p></div>");
+    }
+
+    [Fact]
+    public void MapWorkItem_WithFieldDefLookup_NonImportableDataType_Excluded()
+    {
+        var dto = new AdoWorkItemResponse
+        {
+            Id = 1,
+            Rev = 1,
+            Fields = new Dictionary<string, object?>
+            {
+                ["System.WorkItemType"] = JsonElement("Task"),
+                ["System.Title"] = JsonElement("Test"),
+                ["System.State"] = JsonElement("Active"),
+                ["Custom.BoolField"] = JsonElement(true),
+                ["Custom.TreeField"] = JsonElement("Some\\Path"),
+                ["Microsoft.VSTS.Common.Priority"] = JsonElement("1"),
+            },
+        };
+
+        var lookup = new Dictionary<string, FieldDefinition>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Custom.BoolField"] = new FieldDefinition("Custom.BoolField", "Bool", "boolean", false),
+            ["Custom.TreeField"] = new FieldDefinition("Custom.TreeField", "Tree", "treePath", false),
+            ["Microsoft.VSTS.Common.Priority"] = new FieldDefinition("Microsoft.VSTS.Common.Priority", "Priority", "integer", false),
+        };
+
+        var result = AdoResponseMapper.MapWorkItem(dto, lookup);
+
+        // Non-importable data types excluded
+        result.Fields.ShouldNotContainKey("Custom.BoolField");
+        result.Fields.ShouldNotContainKey("Custom.TreeField");
+        // Importable data type included
+        result.Fields.ShouldContainKey("Microsoft.VSTS.Common.Priority");
+    }
+
+    [Fact]
+    public void MapWorkItem_NullFieldValue_SkippedInFieldsDictionary()
+    {
+        var dto = new AdoWorkItemResponse
+        {
+            Id = 1,
+            Rev = 1,
+            Fields = new Dictionary<string, object?>
+            {
+                ["System.WorkItemType"] = JsonElement("Task"),
+                ["System.Title"] = JsonElement("Test"),
+                ["System.State"] = JsonElement("Active"),
+                ["Microsoft.VSTS.Common.Priority"] = null,
+                ["Custom.NonNull"] = JsonElement("value"),
+            },
+        };
+
+        var result = AdoResponseMapper.MapWorkItem(dto);
+
+        // Null values are not imported
+        result.Fields.ShouldNotContainKey("Microsoft.VSTS.Common.Priority");
+        result.Fields.ShouldContainKey("Custom.NonNull");
+    }
+
+    [Fact]
+    public void MapWorkItemWithLinks_ForwardsFieldDefLookup()
+    {
+        var dto = new AdoWorkItemResponse
+        {
+            Id = 1,
+            Rev = 1,
+            Fields = new Dictionary<string, object?>
+            {
+                ["System.WorkItemType"] = JsonElement("Task"),
+                ["System.Title"] = JsonElement("Test"),
+                ["System.State"] = JsonElement("Active"),
+                ["Microsoft.VSTS.Common.Priority"] = JsonElement("3"),
+                ["System.Watermark"] = JsonElement(99),
+            },
+        };
+
+        var lookup = new Dictionary<string, FieldDefinition>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Microsoft.VSTS.Common.Priority"] = new FieldDefinition("Microsoft.VSTS.Common.Priority", "Priority", "integer", false),
+            ["System.Watermark"] = new FieldDefinition("System.Watermark", "Watermark", "integer", true),
+        };
+
+        var (item, links) = AdoResponseMapper.MapWorkItemWithLinks(dto, lookup);
+
+        item.Fields.ShouldContainKey("Microsoft.VSTS.Common.Priority");
+        item.Fields.ShouldNotContainKey("System.Watermark");
+    }
+
+    // ── Field import pipeline ────────────────────────────────────────
+
+    [Fact]
+    public void MapWorkItem_PopulatesFieldsFromResponse()
+    {
+        var dto = new AdoWorkItemResponse
+        {
+            Id = 1, Rev = 3,
+            Fields = new Dictionary<string, object?>
+            {
+                ["System.WorkItemType"] = JsonElement("Task"),
+                ["System.Title"] = JsonElement("A task"),
+                ["System.State"] = JsonElement("Active"),
+                ["Microsoft.VSTS.Common.Priority"] = JsonElement("2"),
+                ["Custom.Team"] = JsonElement("Platform"),
+            },
+        };
+
+        var lookup = BuildLookup(
+            new FieldDefinition("Microsoft.VSTS.Common.Priority", "Priority", "integer", false),
+            new FieldDefinition("Custom.Team", "Team", "string", false));
+
+        var result = AdoResponseMapper.MapWorkItem(dto, lookup);
+
+        result.Fields.ShouldContainKey("Microsoft.VSTS.Common.Priority");
+        result.Fields["Microsoft.VSTS.Common.Priority"].ShouldBe("2");
+        result.Fields.ShouldContainKey("Custom.Team");
+        result.Fields["Custom.Team"].ShouldBe("Platform");
+    }
+
+    [Fact]
+    public void MapWorkItem_CoreFieldsExcludedFromFields()
+    {
+        var dto = new AdoWorkItemResponse
+        {
+            Id = 1, Rev = 1,
+            Fields = new Dictionary<string, object?>
+            {
+                ["System.Id"] = JsonElement(1),
+                ["System.Rev"] = JsonElement(1),
+                ["System.WorkItemType"] = JsonElement("Task"),
+                ["System.Title"] = JsonElement("Test"),
+                ["System.State"] = JsonElement("New"),
+                ["System.AssignedTo"] = JsonElement("Alice"),
+                ["System.IterationPath"] = JsonElement(@"Project\Sprint1"),
+                ["System.AreaPath"] = JsonElement(@"Project\Area"),
+                ["Custom.Priority"] = JsonElement("1"),
+            },
+        };
+
+        var lookup = BuildLookup(
+            new FieldDefinition("Custom.Priority", "Priority", "string", false));
+
+        var result = AdoResponseMapper.MapWorkItem(dto, lookup);
+
+        result.Fields.ShouldNotContainKey("System.Id");
+        result.Fields.ShouldNotContainKey("System.Rev");
+        result.Fields.ShouldNotContainKey("System.WorkItemType");
+        result.Fields.ShouldNotContainKey("System.Title");
+        result.Fields.ShouldNotContainKey("System.State");
+        result.Fields.ShouldNotContainKey("System.AssignedTo");
+        result.Fields.ShouldNotContainKey("System.IterationPath");
+        result.Fields.ShouldNotContainKey("System.AreaPath");
+        result.Fields.ShouldContainKey("Custom.Priority");
+    }
+
+    [Fact]
+    public void MapWorkItem_ReadOnlyNonDisplayWorthy_FilteredOut()
+    {
+        var dto = new AdoWorkItemResponse
+        {
+            Id = 1, Rev = 1,
+            Fields = new Dictionary<string, object?>
+            {
+                ["System.WorkItemType"] = JsonElement("Task"),
+                ["System.Title"] = JsonElement("Test"),
+                ["System.State"] = JsonElement("New"),
+                ["System.Watermark"] = JsonElement(12345),
+            },
+        };
+
+        var lookup = BuildLookup(
+            new FieldDefinition("System.Watermark", "Watermark", "integer", true));
+
+        var result = AdoResponseMapper.MapWorkItem(dto, lookup);
+
+        result.Fields.ShouldNotContainKey("System.Watermark");
+    }
+
+    [Fact]
+    public void MapWorkItem_NullDefinitions_ImportsAllNonCore()
+    {
+        var dto = new AdoWorkItemResponse
+        {
+            Id = 1, Rev = 1,
+            Fields = new Dictionary<string, object?>
+            {
+                ["System.WorkItemType"] = JsonElement("Task"),
+                ["System.Title"] = JsonElement("Test"),
+                ["System.State"] = JsonElement("New"),
+                ["Custom.Priority"] = JsonElement("1"),
+                ["Custom.Team"] = JsonElement("Backend"),
+            },
+        };
+
+        // No fieldDefLookup — fallback: import all non-core
+        var result = AdoResponseMapper.MapWorkItem(dto, fieldDefLookup: null);
+
+        result.Fields.ShouldContainKey("Custom.Priority");
+        result.Fields["Custom.Priority"].ShouldBe("1");
+        result.Fields.ShouldContainKey("Custom.Team");
+        result.Fields["Custom.Team"].ShouldBe("Backend");
+    }
+
+    [Fact]
+    public void MapWorkItem_IdentityObjectField_ResolvesToDisplayName()
+    {
+        var dto = new AdoWorkItemResponse
+        {
+            Id = 1, Rev = 1,
+            Fields = new Dictionary<string, object?>
+            {
+                ["System.WorkItemType"] = JsonElement("Task"),
+                ["System.Title"] = JsonElement("Test"),
+                ["System.State"] = JsonElement("New"),
+                ["System.CreatedBy"] = JsonElement(new { displayName = "Alice Smith", uniqueName = "alice@example.com" }),
+            },
+        };
+
+        var lookup = BuildLookup(
+            new FieldDefinition("System.CreatedBy", "Created By", "string", true));
+
+        var result = AdoResponseMapper.MapWorkItem(dto, lookup);
+
+        result.Fields.ShouldContainKey("System.CreatedBy");
+        result.Fields["System.CreatedBy"].ShouldBe("Alice Smith");
+    }
+
+    [Fact]
+    public void MapWorkItem_IdentityObjectField_UniqueNameFallback()
+    {
+        var dto = new AdoWorkItemResponse
+        {
+            Id = 1, Rev = 1,
+            Fields = new Dictionary<string, object?>
+            {
+                ["System.WorkItemType"] = JsonElement("Task"),
+                ["System.Title"] = JsonElement("Test"),
+                ["System.State"] = JsonElement("New"),
+                ["System.ChangedBy"] = JsonElement(new { uniqueName = "bob@example.com" }),
+            },
+        };
+
+        var lookup = BuildLookup(
+            new FieldDefinition("System.ChangedBy", "Changed By", "string", true));
+
+        var result = AdoResponseMapper.MapWorkItem(dto, lookup);
+
+        result.Fields.ShouldContainKey("System.ChangedBy");
+        result.Fields["System.ChangedBy"].ShouldBe("bob@example.com");
+    }
+
+    [Fact]
+    public void MapWorkItem_HtmlFieldStoredAsIs()
+    {
+        var htmlContent = "<div><p>Rich <strong>description</strong></p></div>";
+        var dto = new AdoWorkItemResponse
+        {
+            Id = 1, Rev = 1,
+            Fields = new Dictionary<string, object?>
+            {
+                ["System.WorkItemType"] = JsonElement("Task"),
+                ["System.Title"] = JsonElement("Test"),
+                ["System.State"] = JsonElement("New"),
+                ["System.Description"] = JsonElement(htmlContent),
+            },
+        };
+
+        var lookup = BuildLookup(
+            new FieldDefinition("System.Description", "Description", "html", true));
+
+        var result = AdoResponseMapper.MapWorkItem(dto, lookup);
+
+        result.Fields.ShouldContainKey("System.Description");
+        result.Fields["System.Description"].ShouldBe(htmlContent);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
+
+    private static Dictionary<string, FieldDefinition> BuildLookup(params FieldDefinition[] defs)
+    {
+        var lookup = new Dictionary<string, FieldDefinition>(StringComparer.OrdinalIgnoreCase);
+        foreach (var d in defs) lookup[d.ReferenceName] = d;
+        return lookup;
+    }
 
     private static AdoWorkItemResponse CreateWorkItemDto(
         int id,

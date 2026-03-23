@@ -6,6 +6,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
+using Twig.TestKit;
 using Twig.Tui.Views;
 using Xunit;
 
@@ -13,7 +14,7 @@ namespace Twig.Tui.Tests;
 
 public class TreeNavigatorViewTests
 {
-    private static WorkItem CreateWorkItem(int id, string title, string type = "User Story", int? parentId = null, string state = "Active")
+    private static WorkItem CreateWorkItem(int id, string title, string type = "User Story", int? parentId = null, string state = "Active", string? assignedTo = null)
     {
         var wit = WorkItemType.Parse(type).Value;
         return new WorkItem
@@ -23,6 +24,7 @@ public class TreeNavigatorViewTests
             Type = wit,
             State = state,
             ParentId = parentId,
+            AssignedTo = assignedTo,
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project\\Team").Value,
         };
@@ -333,6 +335,95 @@ public class TreeNavigatorViewTests
         found.ShouldBeTrue();
         view._treeView.SelectedObject.ShouldNotBeNull();
         view._treeView.SelectedObject!.WorkItem.Id.ShouldBe(6);
+    }
+
+    [Fact]
+    public void WorkItemNode_ToString_ShowsAssignedTo_WhenPresent()
+    {
+        var item = new WorkItemBuilder(42, "My Story")
+            .AsUserStory()
+            .AssignedTo("Alice")
+            .Build();
+        var node = new WorkItemNode(item, isActive: false);
+
+        var text = node.ToString();
+
+        text.ShouldContain("→ Alice");
+    }
+
+    [Fact]
+    public void WorkItemNode_ToString_OmitsAssignedTo_WhenNull()
+    {
+        var item = new WorkItemBuilder(42, "My Story")
+            .AsUserStory()
+            .AssignedTo(null)
+            .Build();
+        var node = new WorkItemNode(item, isActive: false);
+
+        var text = node.ToString();
+
+        text.ShouldNotContain("→");
+    }
+
+    [Fact]
+    public void WorkItemNode_ToString_OmitsAssignedTo_WhenEmpty()
+    {
+        var item = new WorkItemBuilder(42, "My Story")
+            .AsUserStory()
+            .AssignedTo("")
+            .Build();
+        var node = new WorkItemNode(item, isActive: false);
+
+        var text = node.ToString();
+
+        text.ShouldNotContain("→");
+    }
+
+    [Fact]
+    public void WorkItemNode_ToString_ShowsDirtyMarker_WhenDirty()
+    {
+        var item = new WorkItemBuilder(42, "My Story")
+            .AsUserStory()
+            .Dirty()
+            .Build();
+        var node = new WorkItemNode(item, isActive: false);
+
+        var text = node.ToString();
+
+        text.ShouldEndWith("•");
+    }
+
+    [Fact]
+    public void WorkItemNode_ToString_OmitsDirtyMarker_WhenNotDirty()
+    {
+        var item = new WorkItemBuilder(42, "My Story")
+            .AsUserStory()
+            .Build();
+        var node = new WorkItemNode(item, isActive: false);
+
+        var text = node.ToString();
+
+        text.ShouldNotContain("•");
+    }
+
+    [Fact]
+    public void WorkItemNode_ToString_ShowsBothAssignedToAndDirty()
+    {
+        var item = new WorkItemBuilder(42, "Dirty Assigned Story")
+            .AsUserStory()
+            .AssignedTo("Bob")
+            .Dirty()
+            .Build();
+        var node = new WorkItemNode(item, isActive: true);
+
+        var text = node.ToString();
+
+        text.ShouldContain("→ Bob");
+        text.ShouldContain("•");
+        // AssignedTo should appear before dirty marker
+        var assignedIdx = text.IndexOf("→ Bob");
+        var dirtyIdx = text.IndexOf("•");
+        assignedIdx.ShouldBeLessThan(dirtyIdx);
     }
 
     /// <summary>

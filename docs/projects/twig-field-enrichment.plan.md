@@ -2,7 +2,7 @@
 
 | Metadata | Value |
 |----------|-------|
-| **Status** | DRAFT |
+| **Status** | DONE |
 | **Author** | Copilot (Principal Architect) |
 | **Revision** | 2 — Addresses technical review feedback |
 | **Epic** | EPIC-007: Field Enrichment |
@@ -810,7 +810,7 @@ Introduce a `WorkItemFetchOrchestrator` that wraps `IAdoWorkItemService` and enr
 
 ---
 
-### Epic 3: TUI View Enhancements
+### Epic 3: TUI View Enhancements — DONE
 
 **Goal**: Enhance Terminal.Gui views with enriched field data — AssignedTo/dirty in tree, read-only fields in form.
 
@@ -818,16 +818,16 @@ Introduce a `WorkItemFetchOrchestrator` that wraps `IAdoWorkItemService` and enr
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E3-T1 | IMPL | Enhance `WorkItemNode.ToString()` (line 193-197) to append `→ {AssignedTo}` when `WorkItem.AssignedTo` is non-null, and `•` dirty marker when `WorkItem.IsDirty` is true. Current format: `{marker}{badge} #{Id} [{Type}] {Title} ({State})`. New format: `{marker}{badge} #{Id} [{Type}] {Title} ({State}) → {AssignedTo} •` | `src/Twig.Tui/Views/TreeNavigatorView.cs` | TO DO |
-| E3-T2 | TEST | TreeNavigatorView tests: verify node string includes AssignedTo and dirty marker when present, absent when not applicable | `tests/Twig.Tui.Tests/TreeNavigatorViewTests.cs` | TO DO |
-| E3-T3 | IMPL | Add read-only `TextField` elements to `WorkItemFormView` after the Area field (line 95) for common extended fields: effort/points, priority, tags, description. Populate from `WorkItem.Fields` via suffix matching in `LoadWorkItem()`. Use `SpectreRenderer.StripHtmlTags()` for HTML fields. | `src/Twig.Tui/Views/WorkItemFormView.cs` | TO DO |
-| E3-T4 | TEST | WorkItemFormView tests: verify extended fields display with values, update on LoadWorkItem, read-only behavior, HTML stripping | `tests/Twig.Tui.Tests/WorkItemFormViewTests.cs` | TO DO |
+| E3-T1 | IMPL | Enhance `WorkItemNode.ToString()` (line 193-197) to append `→ {AssignedTo}` when `WorkItem.AssignedTo` is non-null, and `•` dirty marker when `WorkItem.IsDirty` is true. Current format: `{marker}{badge} #{Id} [{Type}] {Title} ({State})`. New format: `{marker}{badge} #{Id} [{Type}] {Title} ({State}) → {AssignedTo} •` | `src/Twig.Tui/Views/TreeNavigatorView.cs` | DONE |
+| E3-T2 | TEST | TreeNavigatorView tests: verify node string includes AssignedTo and dirty marker when present, absent when not applicable | `tests/Twig.Tui.Tests/TreeNavigatorViewTests.cs` | DONE |
+| E3-T3 | IMPL | Add read-only `TextField` elements to `WorkItemFormView` after the Area field (line 95) for common extended fields: effort/points, priority, tags, description. Populate from `WorkItem.Fields` via suffix matching in `LoadWorkItem()`. Use `SpectreRenderer.StripHtmlTags()` for HTML fields. | `src/Twig.Tui/Views/WorkItemFormView.cs` | DONE |
+| E3-T4 | TEST | WorkItemFormView tests: verify extended fields display with values, update on LoadWorkItem, read-only behavior, HTML stripping | `tests/Twig.Tui.Tests/WorkItemFormViewTests.cs` | DONE |
 
 **Acceptance Criteria**:
-- [ ] TUI tree nodes show `→ AssignedTo •` when assigned and dirty
-- [ ] TUI form shows read-only effort, priority, tags, description fields populated from Fields dict
-- [ ] Extended fields update correctly when switching between work items in the tree
-- [ ] All existing TUI tests pass without modification
+- [x] TUI tree nodes show `→ AssignedTo •` when assigned and dirty
+- [x] TUI form shows read-only effort, priority, tags, description fields populated from Fields dict
+- [x] Extended fields update correctly when switching between work items in the tree
+- [x] All existing TUI tests pass without modification
 
 ---
 

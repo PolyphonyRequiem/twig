@@ -32,6 +32,10 @@ internal sealed class WorkItemFormView : View
     internal readonly TextField _assignedToField;
     internal readonly TextField _iterationField;
     internal readonly TextField _areaField;
+    internal readonly TextField _effortField;
+    internal readonly TextField _priorityField;
+    internal readonly TextField _tagsField;
+    internal readonly TextField _descriptionField;
     internal readonly Label _dirtyIndicator;
     internal readonly Button _saveButton;
     internal readonly Label _statusLabel;
@@ -93,6 +97,30 @@ internal sealed class WorkItemFormView : View
         Add(new Label { Text = "Area:", X = 1, Y = row });
         _areaField = new TextField { X = 16, Y = row, Width = Dim.Fill(1), Text = "", ReadOnly = true };
         Add(_areaField);
+        row++;
+
+        // Effort/Points (read-only, populated from Fields dict)
+        Add(new Label { Text = "Effort:", X = 1, Y = row });
+        _effortField = new TextField { X = 16, Y = row, Width = Dim.Fill(1), Text = "", ReadOnly = true };
+        Add(_effortField);
+        row++;
+
+        // Priority (read-only, populated from Fields dict)
+        Add(new Label { Text = "Priority:", X = 1, Y = row });
+        _priorityField = new TextField { X = 16, Y = row, Width = Dim.Fill(1), Text = "", ReadOnly = true };
+        Add(_priorityField);
+        row++;
+
+        // Tags (read-only, populated from Fields dict)
+        Add(new Label { Text = "Tags:", X = 1, Y = row });
+        _tagsField = new TextField { X = 16, Y = row, Width = Dim.Fill(1), Text = "", ReadOnly = true };
+        Add(_tagsField);
+        row++;
+
+        // Description (read-only, HTML-stripped from Fields dict)
+        Add(new Label { Text = "Description:", X = 1, Y = row });
+        _descriptionField = new TextField { X = 16, Y = row, Width = Dim.Fill(1), Text = "", ReadOnly = true };
+        Add(_descriptionField);
         row += 2; // spacer
 
         // Save button
@@ -147,6 +175,12 @@ internal sealed class WorkItemFormView : View
         _assignedToField.Text = assignedTo;
         _iterationField.Text = item.IterationPath.ToString();
         _areaField.Text = item.AreaPath.ToString();
+
+        // Populate extended fields from WorkItem.Fields dict
+        _effortField.Text = GetEffortValue(item) ?? "";
+        _priorityField.Text = GetFieldExact(item, "Microsoft.VSTS.Common.Priority") ?? "";
+        _tagsField.Text = GetFieldExact(item, "System.Tags") ?? "";
+        _descriptionField.Text = StripHtmlTags(GetFieldExact(item, "System.Description") ?? "");
 
         _originalTitle = title;
         _originalState = state;
@@ -234,5 +268,80 @@ internal sealed class WorkItemFormView : View
         }
 
         e.Handled = true;
+    }
+
+    /// <summary>
+    /// Returns the effort/points value from the Fields dict using suffix matching,
+    /// following the same pattern as <c>FormatterHelpers.GetEffortDisplay()</c>.
+    /// </summary>
+    private static string? GetEffortValue(WorkItem item)
+    {
+        foreach (var key in item.Fields.Keys)
+        {
+            if (key.EndsWith("StoryPoints", StringComparison.OrdinalIgnoreCase)
+                || key.EndsWith("Effort", StringComparison.OrdinalIgnoreCase)
+                || key.EndsWith("Size", StringComparison.OrdinalIgnoreCase))
+            {
+                var value = item.Fields[key];
+                if (!string.IsNullOrWhiteSpace(value))
+                    return value;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Returns the value of a specific field by exact reference name (case-insensitive).
+    /// </summary>
+    private static string? GetFieldExact(WorkItem item, string fieldName)
+    {
+        if (item.Fields.TryGetValue(fieldName, out var value) && !string.IsNullOrWhiteSpace(value))
+            return value;
+        return null;
+    }
+
+    /// <summary>
+    /// Strips HTML tags from input text. Duplicated from SpectreRenderer.StripHtmlTags()
+    /// because Twig.Tui cannot reference Twig without creating a circular dependency.
+    /// If a shared utility project (e.g. Twig.Domain.Common) is introduced, this should
+    /// be consolidated there.
+    /// </summary>
+    internal static string StripHtmlTags(string input)
+    {
+        var result = new System.Text.StringBuilder(input.Length);
+        var buffer = new System.Text.StringBuilder();
+        var inTag = false;
+        foreach (var c in input)
+        {
+            if (c == '<')
+            {
+                if (inTag)
+                {
+                    result.Append(buffer);
+                    buffer.Clear();
+                }
+                inTag = true;
+                buffer.Append(c);
+                continue;
+            }
+            if (c == '>' && inTag)
+            {
+                inTag = false;
+                buffer.Clear();
+                continue;
+            }
+            if (inTag)
+            {
+                buffer.Append(c);
+            }
+            else
+            {
+                result.Append(c);
+            }
+        }
+        if (inTag)
+            result.Append(buffer);
+        return result.ToString();
     }
 }

@@ -193,7 +193,15 @@ internal sealed class WorkItemNode
     public override string ToString()
     {
         var marker = IsActive ? "► " : "  ";
-        return $"{marker}{_badge} #{WorkItem.Id} [{WorkItem.Type}] {WorkItem.Title} ({WorkItem.State})";
+        var result = $"{marker}{_badge} #{WorkItem.Id} [{WorkItem.Type}] {WorkItem.Title} ({WorkItem.State})";
+
+        if (!string.IsNullOrEmpty(WorkItem.AssignedTo))
+            result += $" → {WorkItem.AssignedTo}";
+
+        if (WorkItem.IsDirty)
+            result += " •";
+
+        return result;
     }
 }
 

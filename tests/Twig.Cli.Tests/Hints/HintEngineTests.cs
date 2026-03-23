@@ -128,7 +128,8 @@ public class HintEngineTests
 
         hints.Count.ShouldBe(1);
         hints[0].ShouldContain("#42");
-        hints[0].ShouldContain("twig set 42");
+        hints[0].ShouldContain("twig seed edit 42");
+        hints[0].ShouldContain("twig seed view 42");
     }
 
     // ── note command ────────────────────────────────────────────────

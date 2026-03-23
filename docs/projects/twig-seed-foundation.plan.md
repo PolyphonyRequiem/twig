@@ -860,27 +860,29 @@ Instead of removing the ADO push by default, add a `--local` flag to keep seeds 
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E2-T1 | IMPL | Create `SeedNewCommand` with primary constructor taking `ActiveItemResolver`, `IWorkItemRepository`, `IProcessConfigurationProvider`, `IFieldDefinitionStore`, `IEditorLauncher`, `OutputFormatterFactory`, `HintEngine`. Implement `ExecuteAsync(string? title, string? type, bool editor, string outputFormat, CancellationToken)` with local-only creation (no ADO) | `SeedNewCommand.cs` | TO DO |
-| E2-T2 | IMPL | Add `--editor` workflow to `SeedNewCommand` — call `GetMinSeedIdAsync` + `InitializeSeedCounter`, call `SeedFactory.Create`, then `fieldDefStore.GetAllAsync()`, `SeedEditorFormat.Generate()`, `editorLauncher.LaunchAsync()`, `SeedEditorFormat.Parse()`, apply fields via `WithSeedFields()`, save | `SeedNewCommand.cs` | TO DO |
-| E2-T3 | IMPL | Handle `--editor` with and without title: if title is null, use placeholder `"(untitled)"` for SeedFactory, then let editor provide real title. If title is provided, pre-fill in editor buffer | `SeedNewCommand.cs` | TO DO |
-| E2-T4 | IMPL | Wire routing in `Program.cs` — keep bare `Seed([Argument] string title, ...)` routing to `SeedNewCommand`. Add `[Command("seed new")] SeedNew([Argument] string? title = null, ..., bool editor = false)` routing to `SeedNewCommand` | `Program.cs` | TO DO |
-| E2-T5 | IMPL | Update `GroupedHelp.Show()` in `Program.cs` — change seed entry from `seed <title>` to show `seed new <title>` and subcommands | `Program.cs` | TO DO |
-| E2-T6 | IMPL | Register `SeedNewCommand` in `CommandRegistrationModule` with factory lambda (7 deps). Remove `SeedCommand` registration (lines 93-99) | `CommandRegistrationModule.cs` | TO DO |
-| E2-T7 | IMPL | Delete `SeedCommand.cs` | `SeedCommand.cs` | TO DO |
-| E2-T8 | IMPL | Update `HintEngine` seed hints — change `$"Created #{createdId.Value}. Try: twig set {createdId.Value} to switch context"` to reference local ID and suggest `twig seed edit` and `twig seed view` | `HintEngine.cs` | TO DO |
-| E2-T9 | TEST | Write `SeedNewCommandTests` — verify: no `IAdoWorkItemService` dependency, local creation produces negative ID, `SaveAsync` called, editor flow with mock `IEditorLauncher`, backward compat via bare `Seed()` | `SeedNewCommandTests.cs` | TO DO |
-| E2-T10 | TEST | Verify no existing test file references `SeedCommand` (there isn't one — `tests/Twig.Cli.Tests/Commands/` has no `SeedCommandTests.cs`). If any do, update them | Existing test files | TO DO |
+| E2-T1 | IMPL | Create `SeedNewCommand` with primary constructor taking `ActiveItemResolver`, `IWorkItemRepository`, `IProcessConfigurationProvider`, `IFieldDefinitionStore`, `IEditorLauncher`, `OutputFormatterFactory`, `HintEngine`. Implement `ExecuteAsync(string? title, string? type, bool editor, string outputFormat, CancellationToken)` with local-only creation (no ADO) | `SeedNewCommand.cs` | DONE |
+| E2-T2 | IMPL | Add `--editor` workflow to `SeedNewCommand` — call `GetMinSeedIdAsync` + `InitializeSeedCounter`, call `SeedFactory.Create`, then `fieldDefStore.GetAllAsync()`, `SeedEditorFormat.Generate()`, `editorLauncher.LaunchAsync()`, `SeedEditorFormat.Parse()`, apply fields via `WithSeedFields()`, save | `SeedNewCommand.cs` | DONE |
+| E2-T3 | IMPL | Handle `--editor` with and without title: if title is null, use placeholder `"(untitled)"` for SeedFactory, then let editor provide real title. If title is provided, pre-fill in editor buffer | `SeedNewCommand.cs` | DONE |
+| E2-T4 | IMPL | Wire routing in `Program.cs` — keep bare `Seed([Argument] string title, ...)` routing to `SeedNewCommand`. Add `[Command("seed new")] SeedNew([Argument] string? title = null, ..., bool editor = false)` routing to `SeedNewCommand` | `Program.cs` | DONE |
+| E2-T5 | IMPL | Update `GroupedHelp.Show()` in `Program.cs` — change seed entry from `seed <title>` to show `seed new <title>` and subcommands | `Program.cs` | DONE |
+| E2-T6 | IMPL | Register `SeedNewCommand` in `CommandRegistrationModule` with factory lambda (7 deps). Remove `SeedCommand` registration (lines 93-99) | `CommandRegistrationModule.cs` | DONE |
+| E2-T7 | IMPL | Delete `SeedCommand.cs` | `SeedCommand.cs` | DONE |
+| E2-T8 | IMPL | Update `HintEngine` seed hints — change `$"Created #{createdId.Value}. Try: twig set {createdId.Value} to switch context"` to reference local ID and suggest `twig seed edit` and `twig seed view` | `HintEngine.cs` | DONE |
+| E2-T9 | TEST | Write `SeedNewCommandTests` — verify: no `IAdoWorkItemService` dependency, local creation produces negative ID, `SaveAsync` called, editor flow with mock `IEditorLauncher`, backward compat via bare `Seed()` | `SeedNewCommandTests.cs` | DONE |
+| E2-T10 | TEST | Verify no existing test file references `SeedCommand` (there isn't one — `tests/Twig.Cli.Tests/Commands/` has no `SeedCommandTests.cs`). If any do, update them | Existing test files | DONE |
 
 **Acceptance Criteria:**
-- [ ] `twig seed "title"` creates a local seed with negative ID — no ADO calls
-- [ ] `twig seed new "title"` creates a local seed with negative ID
-- [ ] `twig seed new --editor` opens editor with field template
-- [ ] `twig seed new --editor "title"` opens editor with title pre-filled
-- [ ] `IAdoWorkItemService` is NOT a dependency of `SeedNewCommand`
-- [ ] Seed counter initialized from DB before creation — no ID collisions
-- [ ] Existing `SeedCommand.cs` is deleted
-- [ ] `GroupedHelp` updated with new subcommand tree
-- [ ] All tests pass (no `SeedCommandTests` to worry about — none existed)
+- [x] `twig seed "title"` creates a local seed with negative ID — no ADO calls
+- [x] `twig seed new "title"` creates a local seed with negative ID
+- [x] `twig seed new --editor` opens editor with field template
+- [x] `twig seed new --editor "title"` opens editor with title pre-filled
+- [x] `IAdoWorkItemService` is NOT a dependency of `SeedNewCommand`
+- [x] Seed counter initialized from DB before creation — no ID collisions
+- [x] Existing `SeedCommand.cs` is deleted
+- [x] `GroupedHelp` updated with new subcommand tree
+- [x] All tests pass (no `SeedCommandTests` to worry about — none existed)
+
+**Completion Notes:** All 2,575 tests pass. 15 new tests in `SeedNewCommandTests` cover all scenarios. Note: `HintEngine` seed hints reference `twig seed edit` and `twig seed view` which do not yet exist — forward-looking hints intentionally point to commands implemented in Epic 3/4.
 
 ---
 

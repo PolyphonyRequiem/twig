@@ -100,7 +100,7 @@ public sealed class HintEngine
             case "seed":
                 if (createdId.HasValue)
                 {
-                    hints.Add($"Created #{createdId.Value}. Try: twig set {createdId.Value} to switch context");
+                    hints.Add($"Created local seed #{createdId.Value}. Try: twig seed edit {createdId.Value}, twig seed view {createdId.Value}");
                 }
                 break;
 

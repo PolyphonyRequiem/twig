@@ -90,13 +90,7 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
             sp.GetRequiredService<RenderingPipelineFactory>()));
-        services.AddSingleton<SeedCommand>(sp => new SeedCommand(
-            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
-            sp.GetRequiredService<IProcessConfigurationProvider>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>()));
+        services.AddSingleton<SeedNewCommand>();
         services.AddSingleton<NoteCommand>(sp => new NoteCommand(
             sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
             sp.GetRequiredService<IWorkItemRepository>(),

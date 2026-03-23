@@ -292,9 +292,14 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> Down([Argument] string? idOrPattern = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<NavigationCommands>().DownAsync(idOrPattern, output, ct);
 
-    /// <summary>Create a new child work item under the active item.</summary>
-    public async Task<int> Seed([Argument] string title, string? type = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SeedCommand>().ExecuteAsync(title, type, output, ct);
+    /// <summary>Create a new child work item under the active item (backward compat shortcut).</summary>
+    public async Task<int> Seed([Argument] string title, string? type = null, bool editor = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<SeedNewCommand>().ExecuteAsync(title, type, editor, output, ct);
+
+    /// <summary>Create a new local seed work item.</summary>
+    [Command("seed new")]
+    public async Task<int> SeedNew([Argument] string? title = null, string? type = null, bool editor = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<SeedNewCommand>().ExecuteAsync(title, type, editor, output, ct);
 
     /// <summary>Add a note to the active work item.</summary>
     public async Task<int> Note(string? text = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
@@ -497,7 +502,8 @@ Work Items:
   note                 Add a note to the active work item.
   update <field> <v>   Update a field on the active work item.
   edit                 Edit work item fields in an external editor.
-  seed <title>         Create a new child work item.
+  seed new <title>     Create a new local seed (child work item).
+  seed new --editor    Create a seed via editor with field template.
   save                 Push pending changes to Azure DevOps.
 
 Git:

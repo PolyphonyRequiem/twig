@@ -719,7 +719,7 @@ Negligible. The status-fields file is tiny (<5KB). File read is a single `File.R
 
 ---
 
-### Epic 2: TwigPaths and CLI Command
+### Epic 2: TwigPaths and CLI Command — DONE
 
 **Goal**: Implement the `twig config status-fields` command and wire it into the CLI routing.
 
@@ -727,20 +727,20 @@ Negligible. The status-fields file is tiny (<5KB). File read is a single `File.R
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E2-T1 | IMPL | Add `StatusFieldsPath` computed property to `TwigPaths`: `public string StatusFieldsPath => Path.Combine(TwigDir, "status-fields");` | `src/Twig.Infrastructure/Config/TwigPaths.cs` | TO DO |
-| E2-T2 | IMPL | Create `ConfigStatusFieldsCommand` with primary constructor DI pattern accepting `IFieldDefinitionStore`, `IEditorLauncher`, `TwigPaths`, `OutputFormatterFactory`. Implement `ExecuteAsync()`: load definitions, guard empty, load existing file, generate content, launch editor, handle cancel, write file, print success with count. | `src/Twig/Commands/ConfigStatusFieldsCommand.cs` | TO DO |
-| E2-T3 | IMPL | Register `ConfigStatusFieldsCommand` in `CommandRegistrationModule.AddCoreCommands()` with DI factory lambda injecting `IFieldDefinitionStore`, `IEditorLauncher`, `TwigPaths`, `OutputFormatterFactory`. | `src/Twig/DependencyInjection/CommandRegistrationModule.cs` | TO DO |
-| E2-T4 | IMPL | **(1)** Add `[Command("config")]` attribute to the existing `Config` method in `TwigCommands` (line 332 of `Program.cs`) to make routing explicit — required for disambiguation with the new subcommand (see DD-9). **(2)** Add `[Command("config status-fields")]` method `ConfigStatusFields` in `TwigCommands` that resolves `ConfigStatusFieldsCommand` from `IServiceProvider` and calls `ExecuteAsync()`. **(3)** Add entry to `GroupedHelp.Show()` under the System section: `config status-fields  Configure which fields appear in status view.` | `src/Twig/Program.cs` | TO DO |
-| E2-T5 | TEST | Unit tests for `ConfigStatusFieldsCommand`: (1) Success path — mock `IFieldDefinitionStore` returns definitions, mock `IEditorLauncher` returns edited content → file written to correct path, exit 0, (2) Empty definitions → prints error, returns 1, (3) Editor cancellation (launcher returns null) → prints message, returns 0, no file written, (4) Existing file → merged content passed to editor, (5) Verify correct `StatusFieldsPath` used. | `tests/Twig.Cli.Tests/Commands/ConfigStatusFieldsCommandTests.cs` | TO DO |
+| E2-T1 | IMPL | Add `StatusFieldsPath` computed property to `TwigPaths`: `public string StatusFieldsPath => Path.Combine(TwigDir, "status-fields");` | `src/Twig.Infrastructure/Config/TwigPaths.cs` | DONE |
+| E2-T2 | IMPL | Create `ConfigStatusFieldsCommand` with primary constructor DI pattern accepting `IFieldDefinitionStore`, `IEditorLauncher`, `TwigPaths`, `OutputFormatterFactory`. Implement `ExecuteAsync()`: load definitions, guard empty, load existing file, generate content, launch editor, handle cancel, write file, print success with count. | `src/Twig/Commands/ConfigStatusFieldsCommand.cs` | DONE |
+| E2-T3 | IMPL | Register `ConfigStatusFieldsCommand` in `CommandRegistrationModule.AddCoreCommands()` with DI factory lambda injecting `IFieldDefinitionStore`, `IEditorLauncher`, `TwigPaths`, `OutputFormatterFactory`. | `src/Twig/DependencyInjection/CommandRegistrationModule.cs` | DONE |
+| E2-T4 | IMPL | **(1)** Add `[Command("config")]` attribute to the existing `Config` method in `TwigCommands` (line 332 of `Program.cs`) to make routing explicit — required for disambiguation with the new subcommand (see DD-9). **(2)** Add `[Command("config status-fields")]` method `ConfigStatusFields` in `TwigCommands` that resolves `ConfigStatusFieldsCommand` from `IServiceProvider` and calls `ExecuteAsync()`. **(3)** Add entry to `GroupedHelp.Show()` under the System section: `config status-fields  Configure which fields appear in status view.` | `src/Twig/Program.cs` | DONE |
+| E2-T5 | TEST | Unit tests for `ConfigStatusFieldsCommand`: (1) Success path — mock `IFieldDefinitionStore` returns definitions, mock `IEditorLauncher` returns edited content → file written to correct path, exit 0, (2) Empty definitions → prints error, returns 1, (3) Editor cancellation (launcher returns null) → prints message, returns 0, no file written, (4) Existing file → merged content passed to editor, (5) Verify correct `StatusFieldsPath` used. | `tests/Twig.Cli.Tests/Commands/ConfigStatusFieldsCommandTests.cs` | DONE |
 
 **Acceptance Criteria**:
-- `twig config status-fields` generates correct content and opens editor
-- Cancelled edit prints message and returns 0
-- Successful edit writes to `.twig/status-fields`
-- Empty field definitions store returns helpful error
-- Merge with existing file works correctly
-- Command appears in `twig --help` grouped output
-- All unit tests pass
+- [x] `twig config status-fields` generates correct content and opens editor
+- [x] Cancelled edit prints message and returns 0
+- [x] Successful edit writes to `.twig/status-fields`
+- [x] Empty field definitions store returns helpful error
+- [x] Merge with existing file works correctly
+- [x] Command appears in `twig --help` grouped output
+- [x] All unit tests pass
 
 ---
 

@@ -329,8 +329,14 @@ public sealed class TwigCommands(IServiceProvider services)
         => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, ct: ct, sprintLayout: true);
 
     /// <summary>Read or set a configuration value.</summary>
+    [Command("config")]
     public async Task<int> Config([Argument] string key, [Argument] string? value = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ConfigCommand>().ExecuteAsync(key, value, output, ct);
+
+    /// <summary>Configure which fields appear in status view.</summary>
+    [Command("config status-fields")]
+    public async Task<int> ConfigStatusFields(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<ConfigStatusFieldsCommand>().ExecuteAsync(output, ct);
 
     /// <summary>Create/checkout a branch for the active work item and optionally link it.</summary>
     public async Task<int> Branch(bool noLink = false, bool noTransition = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
@@ -512,6 +518,7 @@ Workflow:
 
 System:
   config <key> [val]   Read or set a configuration value.
+  config status-fields Configure which fields appear in status view.
   version              Show the current version.
   upgrade              Check for and apply updates.
   changelog            Display recent release notes.

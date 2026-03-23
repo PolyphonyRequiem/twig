@@ -156,6 +156,11 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<Domain.Services.WorkingSetService>(),
             sp.GetRequiredService<RenderingPipelineFactory>()));
         services.AddSingleton<ConfigCommand>();
+        services.AddSingleton<ConfigStatusFieldsCommand>(sp => new ConfigStatusFieldsCommand(
+            sp.GetRequiredService<IFieldDefinitionStore>(),
+            sp.GetRequiredService<IEditorLauncher>(),
+            sp.GetRequiredService<TwigPaths>(),
+            sp.GetRequiredService<OutputFormatterFactory>()));
     }
 
     private static void AddGitCommands(IServiceCollection services)

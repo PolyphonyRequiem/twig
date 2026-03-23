@@ -49,6 +49,15 @@ public interface IAsyncRenderer
     void RenderHints(IReadOnlyList<string> hints);
 
     /// <summary>
+    /// Renders the seed view dashboard with Spectre.Console table rendering.
+    /// </summary>
+    Task RenderSeedViewAsync(
+        Func<Task<IReadOnlyList<SeedViewGroup>>> getData,
+        int totalWritableFields,
+        int staleDays,
+        CancellationToken ct);
+
+    /// <summary>
     /// Cache-render-fetch-revise primitive. Renders the cached view immediately,
     /// performs a background sync, then revises the display in-place based on the result.
     /// </summary>

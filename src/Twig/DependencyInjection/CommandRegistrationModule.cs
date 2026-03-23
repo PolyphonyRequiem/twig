@@ -94,6 +94,7 @@ public static class CommandRegistrationModule
         services.AddSingleton<SeedNewCommand>();
         services.AddSingleton<SeedEditCommand>();
         services.AddSingleton<SeedDiscardCommand>();
+        services.AddSingleton<SeedViewCommand>();
         services.AddSingleton<NoteCommand>(sp => new NoteCommand(
             sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
             sp.GetRequiredService<IWorkItemRepository>(),

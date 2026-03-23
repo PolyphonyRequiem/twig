@@ -335,6 +335,66 @@ public sealed class JsonOutputFormatter : IOutputFormatter
         return Encoding.UTF8.GetString(stream.ToArray());
     }
 
+    public string FormatSeedView(
+        IReadOnlyList<SeedViewGroup> groups,
+        int totalWritableFields,
+        int staleDays)
+    {
+        using var stream = new MemoryStream();
+        using var writer = new Utf8JsonWriter(stream, WriterOptions);
+
+        writer.WriteStartObject();
+
+        writer.WriteStartArray("groups");
+        foreach (var group in groups)
+        {
+            writer.WriteStartObject();
+
+            writer.WritePropertyName("parent");
+            if (group.Parent is not null)
+                WriteWorkItemObject(writer, group.Parent);
+            else
+                writer.WriteNullValue();
+
+            writer.WriteStartArray("seeds");
+            foreach (var seed in group.Seeds)
+            {
+                writer.WriteStartObject();
+                writer.WriteNumber("id", seed.Id);
+                writer.WriteString("title", seed.Title);
+                writer.WriteString("type", seed.Type.ToString());
+                if (seed.ParentId.HasValue)
+                    writer.WriteNumber("parentId", seed.ParentId.Value);
+                else
+                    writer.WriteNull("parentId");
+                writer.WriteString("seedCreatedAt", seed.SeedCreatedAt?.ToString("o"));
+                writer.WriteString("age", HumanOutputFormatter.FormatSeedAge(seed.SeedCreatedAt));
+
+                var filled = HumanOutputFormatter.CountNonEmptyFields(seed);
+                writer.WriteNumber("filledFields", filled);
+                writer.WriteNumber("totalWritableFields", totalWritableFields);
+
+                writer.WriteBoolean("isStale", HumanOutputFormatter.IsStaleSeed(seed, staleDays));
+
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+
+        var totalSeeds = 0;
+        foreach (var g in groups)
+            totalSeeds += g.Seeds.Count;
+        writer.WriteNumber("totalSeeds", totalSeeds);
+
+        writer.WriteEndObject();
+
+        writer.Flush();
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
     /// <summary>
     /// Writes a WorkItem as a JSON object for nested contexts (tree, workspace).
     /// Deliberately omits areaPath and iterationPath to keep nested payloads lean —

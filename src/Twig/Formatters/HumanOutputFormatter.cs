@@ -769,6 +769,59 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         return $"  PR !{prId}: {title} [{statusColor}{status}{Reset}]";
     }
 
+    public string FormatSeedView(
+        IReadOnlyList<SeedViewGroup> groups,
+        int totalWritableFields,
+        int staleDays)
+    {
+        var sb = new StringBuilder();
+        var totalSeeds = 0;
+        foreach (var g in groups)
+            totalSeeds += g.Seeds.Count;
+
+        sb.AppendLine($"{Bold}Seeds ({totalSeeds}){Reset}");
+        sb.AppendLine(new string('─', 50));
+
+        if (totalSeeds == 0)
+        {
+            sb.Append($"  {Dim}No seeds{Reset}");
+            return sb.ToString();
+        }
+
+        foreach (var group in groups)
+        {
+            sb.AppendLine();
+            if (group.Parent is not null)
+            {
+                var parentTypeColor = GetTypeColor(group.Parent.Type);
+                var parentBadge = GetTypeBadge(group.Parent.Type);
+                sb.AppendLine($"  {Bold}Parent:{Reset} #{group.Parent.Id} {parentTypeColor}{parentBadge} {group.Parent.Type}{Reset} — {group.Parent.Title}");
+            }
+            else
+            {
+                sb.AppendLine($"  {Bold}Orphan Seeds{Reset}");
+            }
+
+            foreach (var seed in group.Seeds)
+            {
+                var seedTypeColor = GetTypeColor(seed.Type);
+                var seedBadge = GetTypeBadge(seed.Type);
+                var age = FormatSeedAge(seed.SeedCreatedAt);
+                var filled = CountNonEmptyFields(seed);
+                var staleWarning = IsStaleSeed(seed, staleDays) ? $" {Red}⚠ stale{Reset}" : "";
+                sb.AppendLine($"    #{seed.Id}  {seedTypeColor}{seedBadge} {seed.Type}{Reset}  {seed.Title}  {Dim}{age}{Reset}  {Dim}{filled}/{totalWritableFields} fields{Reset}{staleWarning}");
+            }
+        }
+
+        // Remove trailing newline
+        if (sb.Length > 0 && sb[sb.Length - 1] == '\n')
+            sb.Length -= 1;
+        if (sb.Length > 0 && sb[sb.Length - 1] == '\r')
+            sb.Length -= 1;
+
+        return sb.ToString();
+    }
+
     public string FormatAnnotatedLogEntry(string hash, string message, string? workItemType, string? workItemState, int? workItemId)
     {
         var shortHash = hash.Length > 7 ? hash[..7] : hash;
@@ -785,6 +838,39 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         }
 
         return $"{Yellow}{shortHash}{Reset} {message}";
+    }
+
+    // ── Seed view helpers ───────────────────────────────────────────
+
+    internal static string FormatSeedAge(DateTimeOffset? seedCreatedAt)
+    {
+        if (seedCreatedAt is null)
+            return "?d ago";
+
+        var elapsed = DateTimeOffset.UtcNow - seedCreatedAt.Value;
+        if (elapsed.TotalDays >= 30)
+            return $"{(int)(elapsed.TotalDays / 30)}mo ago";
+        if (elapsed.TotalDays >= 14)
+            return $"{(int)(elapsed.TotalDays / 7)}w ago";
+        return $"{(int)elapsed.TotalDays}d ago";
+    }
+
+    internal static int CountNonEmptyFields(WorkItem seed)
+    {
+        var filled = 0;
+        foreach (var kvp in seed.Fields)
+        {
+            if (!string.IsNullOrWhiteSpace(kvp.Value))
+                filled++;
+        }
+        return filled;
+    }
+
+    /// <summary>Determines whether a seed is stale based on its age and the configured threshold.</summary>
+    internal static bool IsStaleSeed(WorkItem seed, int staleDays)
+    {
+        return staleDays > 0 && seed.SeedCreatedAt.HasValue
+            && (DateTimeOffset.UtcNow - seed.SeedCreatedAt.Value).TotalDays >= staleDays;
     }
 
     private string GetTypeColor(WorkItemType type)

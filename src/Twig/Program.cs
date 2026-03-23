@@ -311,6 +311,11 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> SeedDiscard([Argument] int id, bool yes = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SeedDiscardCommand>().ExecuteAsync(id, yes, output, ct);
 
+    /// <summary>Show seed dashboard grouped by parent.</summary>
+    [Command("seed view")]
+    public async Task<int> SeedView(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<SeedViewCommand>().ExecuteAsync(output, ct);
+
     /// <summary>Add a note to the active work item.</summary>
     public async Task<int> Note(string? text = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<NoteCommand>().ExecuteAsync(text, output, ct);
@@ -516,6 +521,7 @@ Work Items:
   seed new --editor    Create a seed via editor with field template.
   seed edit <id>       Edit a local seed in an external editor.
   seed discard <id>    Delete a local seed (prompts for confirmation).
+  seed view            Show seed dashboard grouped by parent.
   save                 Push pending changes to Azure DevOps.
 
 Git:

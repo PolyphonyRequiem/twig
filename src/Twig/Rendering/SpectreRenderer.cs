@@ -860,4 +860,68 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             _console.MarkupLine($"[dim]  hint: {Markup.Escape(hint)}[/]");
         }
     }
+
+    public async Task RenderSeedViewAsync(
+        Func<Task<IReadOnlyList<Domain.ReadModels.SeedViewGroup>>> getData,
+        int totalWritableFields,
+        int staleDays,
+        CancellationToken ct)
+    {
+        var groups = await getData();
+
+        var totalSeeds = 0;
+        foreach (var g in groups)
+            totalSeeds += g.Seeds.Count;
+
+        _console.MarkupLine($"[bold]Seeds ({totalSeeds})[/]");
+        _console.Write(new Rule().RuleStyle("dim"));
+
+        if (totalSeeds == 0)
+        {
+            _console.MarkupLine("[dim]  No seeds[/]");
+            return;
+        }
+
+        foreach (var group in groups)
+        {
+            _console.WriteLine();
+            if (group.Parent is not null)
+            {
+                var parentBadge = _theme.FormatTypeBadge(group.Parent.Type);
+                _console.MarkupLine($"  [bold]Parent:[/] #{group.Parent.Id} {parentBadge} {Markup.Escape(group.Parent.Type.ToString())} — {Markup.Escape(group.Parent.Title)}");
+            }
+            else
+            {
+                _console.MarkupLine("  [bold]Orphan Seeds[/]");
+            }
+
+            var table = new Table()
+                .Border(TableBorder.None)
+                .HideHeaders()
+                .AddColumn(new TableColumn("ID").RightAligned())
+                .AddColumn(new TableColumn("Type"))
+                .AddColumn(new TableColumn("Title"))
+                .AddColumn(new TableColumn("Age").RightAligned())
+                .AddColumn(new TableColumn("Fields").RightAligned())
+                .AddColumn(new TableColumn("Status"));
+
+            foreach (var seed in group.Seeds)
+            {
+                var badge = _theme.FormatTypeBadge(seed.Type);
+                var age = Formatters.HumanOutputFormatter.FormatSeedAge(seed.SeedCreatedAt);
+                var filled = Formatters.HumanOutputFormatter.CountNonEmptyFields(seed);
+                var staleWarning = Formatters.HumanOutputFormatter.IsStaleSeed(seed, staleDays) ? "[red]⚠ stale[/]" : "";
+
+                table.AddRow(
+                    $"{seed.Id}",
+                    $"{badge} {Markup.Escape(seed.Type.ToString())}",
+                    Markup.Escape(seed.Title),
+                    $"[dim]{Markup.Escape(age)}[/]",
+                    $"[dim]{filled}/{totalWritableFields} fields[/]",
+                    staleWarning);
+            }
+
+            _console.Write(table);
+        }
+    }
 }

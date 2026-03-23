@@ -38,4 +38,12 @@ public interface IOutputFormatter
     /// JSON and Minimal formatters return empty string (no change to their output).
     /// </summary>
     string FormatStatusSummary(WorkItem item);
+
+    // ── Seed view formatting (EPIC-004) ─────────────────────────────
+
+    /// <summary>Formats the seed view dashboard grouped by parent.</summary>
+    string FormatSeedView(
+        IReadOnlyList<SeedViewGroup> groups,
+        int totalWritableFields,
+        int staleDays);
 }

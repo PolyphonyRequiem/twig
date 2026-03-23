@@ -917,30 +917,34 @@ Instead of removing the ADO push by default, add a `--local` flag to keep seeds 
 
 ### Epic 4: Seed View Dashboard
 
+**Status:** DONE
+
 **Goal:** Implement the seed dashboard with both rendering paths.
 
 **Prerequisites:** Epic 1
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E4-T1 | IMPL | Create `SeedViewCommand` with primary constructor taking `IWorkItemRepository`, `IFieldDefinitionStore`, `TwigConfiguration`, `OutputFormatterFactory`, `RenderingPipelineFactory`. Implement `ExecuteAsync(string outputFormat, CancellationToken)` — query seeds via `GetSeedsAsync()`, group by `ParentId`, fetch parent metadata, count writable fields for completeness, compute age, route to renderer | `SeedViewCommand.cs` | TO DO |
-| E4-T2 | IMPL | Add `FormatSeedView(IReadOnlyList<SeedViewGroup> groups, int totalWritableFields, int staleDays)` to `IOutputFormatter` interface | `IOutputFormatter.cs` | TO DO |
-| E4-T3 | IMPL | Implement `FormatSeedView()` in `HumanOutputFormatter` — grouped display with ANSI colors, type badges (reuse `GetTypeBadge`/`GetTypeColor`), age formatting, field completeness `n/m fields`, stale warning `⚠ stale` | `HumanOutputFormatter.cs` | TO DO |
-| E4-T4 | IMPL | Implement `FormatSeedView()` in `JsonOutputFormatter` — structured JSON array with groups | `JsonOutputFormatter.cs` | TO DO |
-| E4-T5 | IMPL | Implement `FormatSeedView()` in `MinimalOutputFormatter` — compact one-line-per-seed format | `MinimalOutputFormatter.cs` | TO DO |
-| E4-T6 | IMPL | Add `RenderSeedViewAsync(Func<Task<IReadOnlyList<SeedViewGroup>>> getData, int totalWritableFields, int staleDays, CancellationToken ct)` to `IAsyncRenderer` and implement in `SpectreRenderer` with Spectre.Console table rendering | `IAsyncRenderer.cs`, `SpectreRenderer.cs` | TO DO |
-| E4-T7 | IMPL | Wire `[Command("seed view")] SeedView(string output = ..., CancellationToken ct = default)` routing in `Program.cs` | `Program.cs` | TO DO |
-| E4-T8 | IMPL | Register `SeedViewCommand` in `CommandRegistrationModule.AddCoreCommands()` with factory lambda | `CommandRegistrationModule.cs` | TO DO |
-| E4-T9 | TEST | Write `SeedViewCommandTests` — empty seeds shows "No seeds", multiple parents grouped correctly, orphan seeds grouped under "Orphan Seeds", stale detection based on StaleDays, field completeness calculation | `SeedViewCommandTests.cs` | TO DO |
+| E4-T1 | IMPL | Create `SeedViewCommand` with primary constructor taking `IWorkItemRepository`, `IFieldDefinitionStore`, `TwigConfiguration`, `OutputFormatterFactory`, `RenderingPipelineFactory`. Implement `ExecuteAsync(string outputFormat, CancellationToken)` — query seeds via `GetSeedsAsync()`, group by `ParentId`, fetch parent metadata, count writable fields for completeness, compute age, route to renderer | `SeedViewCommand.cs` | DONE |
+| E4-T2 | IMPL | Add `FormatSeedView(IReadOnlyList<SeedViewGroup> groups, int totalWritableFields, int staleDays)` to `IOutputFormatter` interface | `IOutputFormatter.cs` | DONE |
+| E4-T3 | IMPL | Implement `FormatSeedView()` in `HumanOutputFormatter` — grouped display with ANSI colors, type badges (reuse `GetTypeBadge`/`GetTypeColor`), age formatting, field completeness `n/m fields`, stale warning `⚠ stale` | `HumanOutputFormatter.cs` | DONE |
+| E4-T4 | IMPL | Implement `FormatSeedView()` in `JsonOutputFormatter` — structured JSON array with groups | `JsonOutputFormatter.cs` | DONE |
+| E4-T5 | IMPL | Implement `FormatSeedView()` in `MinimalOutputFormatter` — compact one-line-per-seed format | `MinimalOutputFormatter.cs` | DONE |
+| E4-T6 | IMPL | Add `RenderSeedViewAsync(Func<Task<IReadOnlyList<SeedViewGroup>>> getData, int totalWritableFields, int staleDays, CancellationToken ct)` to `IAsyncRenderer` and implement in `SpectreRenderer` with Spectre.Console table rendering | `IAsyncRenderer.cs`, `SpectreRenderer.cs` | DONE |
+| E4-T7 | IMPL | Wire `[Command("seed view")] SeedView(string output = ..., CancellationToken ct = default)` routing in `Program.cs` | `Program.cs` | DONE |
+| E4-T8 | IMPL | Register `SeedViewCommand` in `CommandRegistrationModule.AddCoreCommands()` with factory lambda | `CommandRegistrationModule.cs` | DONE |
+| E4-T9 | TEST | Write `SeedViewCommandTests` — empty seeds shows "No seeds", multiple parents grouped correctly, orphan seeds grouped under "Orphan Seeds", stale detection based on StaleDays, field completeness calculation | `SeedViewCommandTests.cs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] `twig seed view` shows seeds grouped by parent
-- [ ] Each seed shows: ID, type badge, title, age, field completeness, stale warning
-- [ ] Orphan seeds (no parent) grouped under "Orphan Seeds" header
-- [ ] Human, JSON, and Minimal output formats all produce correct output
-- [ ] Spectre live rendering path works for `seed view`
-- [ ] Empty seed list shows "No seeds" message
-- [ ] All tests pass
+- [x] `twig seed view` shows seeds grouped by parent
+- [x] Each seed shows: ID, type badge, title, age, field completeness, stale warning
+- [x] Orphan seeds (no parent) grouped under "Orphan Seeds" header
+- [x] Human, JSON, and Minimal output formats all produce correct output
+- [x] Spectre live rendering path works for `seed view`
+- [x] Empty seed list shows "No seeds" message
+- [x] All tests pass
+
+**Completion Notes:** All tests pass. Review fixes applied: (1) seed ID shows `#{id}` prefix in HumanOutputFormatter; (2) OperationCanceledException propagated correctly in BuildGroupsAsync; (3) stale detection extracted into `IsStaleSeed()` static helper on HumanOutputFormatter, shared across all four rendering paths; (4) null SeedCreatedAt edge case covered by `NullSeedCreatedAt_ShowsQuestionMarkAge` test; regression test `HumanFormat_SeedIdIncludesHashPrefix` added; SeedViewCommandTests implements IDisposable for Console.Out teardown. SpectreRenderer renders seed IDs as bare integers (no `#`) consistent with other Spectre table columns.
 
 ---
 

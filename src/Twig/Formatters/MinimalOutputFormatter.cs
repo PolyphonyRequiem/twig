@@ -214,4 +214,37 @@ public sealed class MinimalOutputFormatter : IOutputFormatter
         return $"{shortHash} {message}";
     }
 
+    public string FormatSeedView(
+        IReadOnlyList<SeedViewGroup> groups,
+        int totalWritableFields,
+        int staleDays)
+    {
+        var totalSeeds = 0;
+        foreach (var g in groups)
+            totalSeeds += g.Seeds.Count;
+
+        if (totalSeeds == 0)
+            return "No seeds";
+
+        var sb = new StringBuilder();
+        foreach (var group in groups)
+        {
+            foreach (var seed in group.Seeds)
+            {
+                var age = HumanOutputFormatter.FormatSeedAge(seed.SeedCreatedAt);
+                var filled = HumanOutputFormatter.CountNonEmptyFields(seed);
+                var staleWarning = HumanOutputFormatter.IsStaleSeed(seed, staleDays) ? " STALE" : "";
+                var parentLabel = group.Parent is not null ? $" parent:#{group.Parent.Id}" : " orphan";
+                sb.AppendLine($"SEED #{seed.Id} \"{seed.Title}\" {seed.Type} {age} {filled}/{totalWritableFields}{parentLabel}{staleWarning}");
+            }
+        }
+
+        // Remove trailing newline
+        if (sb.Length > 0 && sb[sb.Length - 1] == '\n')
+            sb.Length -= 1;
+        if (sb.Length > 0 && sb[sb.Length - 1] == '\r')
+            sb.Length -= 1;
+
+        return sb.ToString();
+    }
 }

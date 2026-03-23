@@ -888,26 +888,30 @@ Instead of removing the ADO push by default, add a `--local` flag to keep seeds 
 
 ### Epic 3: SeedEditCommand and SeedDiscardCommand
 
+**Status:** DONE
+
 **Goal:** Implement seed editing and discarding capabilities.
 
-**Prerequisites:** Epic 1, Epic 2
+**Prerequisites:** Epic 1 (DONE), Epic 2 (DONE)
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E3-T1 | IMPL | Create `SeedEditCommand` with primary constructor taking `IWorkItemRepository`, `IFieldDefinitionStore`, `IEditorLauncher`, `OutputFormatterFactory`. Implement `ExecuteAsync(int id, string outputFormat, CancellationToken)` — load seed, validate `IsSeed`, generate editor buffer, launch editor, parse changes, compute diff, apply via `WithSeedFields()`, save via `SaveAsync()` | `SeedEditCommand.cs` | TO DO |
-| E3-T2 | IMPL | Create `SeedDiscardCommand` with primary constructor taking `IWorkItemRepository`, `IConsoleInput`, `OutputFormatterFactory`. Implement `ExecuteAsync(int id, bool yes, string outputFormat, CancellationToken)` — load seed, validate `IsSeed`, prompt confirmation (skip if `--yes`), delete via `DeleteByIdAsync()` | `SeedDiscardCommand.cs` | TO DO |
-| E3-T3 | IMPL | Wire `[Command("seed edit")] SeedEdit([Argument] int id, ...)` and `[Command("seed discard")] SeedDiscard([Argument] int id, bool yes = false, ...)` routing in `Program.cs` TwigCommands class | `Program.cs` | TO DO |
-| E3-T4 | IMPL | Register `SeedEditCommand` and `SeedDiscardCommand` in `CommandRegistrationModule.AddCoreCommands()` with factory lambdas | `CommandRegistrationModule.cs` | TO DO |
-| E3-T5 | TEST | Write `SeedEditCommandTests` — load/edit/save flow with mock `IEditorLauncher`, cancel handling (null return), non-seed ID rejection, title change creates new WorkItem | `SeedEditCommandTests.cs` | TO DO |
-| E3-T6 | TEST | Write `SeedDiscardCommandTests` — successful discard with confirmation, --yes flag bypass, non-seed ID rejection, non-existent ID error, prompt rejection cancels | `SeedDiscardCommandTests.cs` | TO DO |
+| E3-T1 | IMPL | Create `SeedEditCommand` with primary constructor taking `IWorkItemRepository`, `IFieldDefinitionStore`, `IEditorLauncher`, `OutputFormatterFactory`. Implement `ExecuteAsync(int id, string outputFormat, CancellationToken)` — load seed, validate `IsSeed`, generate editor buffer, launch editor, parse changes, compute diff, apply via `WithSeedFields()`, save via `SaveAsync()` | `SeedEditCommand.cs` | DONE |
+| E3-T2 | IMPL | Create `SeedDiscardCommand` with primary constructor taking `IWorkItemRepository`, `IConsoleInput`, `OutputFormatterFactory`. Implement `ExecuteAsync(int id, bool yes, string outputFormat, CancellationToken)` — load seed, validate `IsSeed`, prompt confirmation (skip if `--yes`), delete via `DeleteByIdAsync()` | `SeedDiscardCommand.cs` | DONE |
+| E3-T3 | IMPL | Wire `[Command("seed edit")] SeedEdit([Argument] int id, ...)` and `[Command("seed discard")] SeedDiscard([Argument] int id, bool yes = false, ...)` routing in `Program.cs` TwigCommands class | `Program.cs` | DONE |
+| E3-T4 | IMPL | Register `SeedEditCommand` and `SeedDiscardCommand` in `CommandRegistrationModule.AddCoreCommands()` with factory lambdas | `CommandRegistrationModule.cs` | DONE |
+| E3-T5 | TEST | Write `SeedEditCommandTests` — load/edit/save flow with mock `IEditorLauncher`, cancel handling (null return), non-seed ID rejection, title change creates new WorkItem | `SeedEditCommandTests.cs` | DONE |
+| E3-T6 | TEST | Write `SeedDiscardCommandTests` — successful discard with confirmation, --yes flag bypass, non-seed ID rejection, non-existent ID error, prompt rejection cancels | `SeedDiscardCommandTests.cs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] `twig seed edit <id>` opens editor with current seed fields, saves changes
-- [ ] `twig seed edit <id>` on non-seed ID returns error
-- [ ] `twig seed discard <id>` prompts and deletes seed
-- [ ] `twig seed discard <id> --yes` skips prompt
-- [ ] `twig seed discard <id>` on non-seed ID returns error
-- [ ] All tests pass
+- [x] `twig seed edit <id>` opens editor with current seed fields, saves changes
+- [x] `twig seed edit <id>` on non-seed ID returns error
+- [x] `twig seed discard <id>` prompts and deletes seed
+- [x] `twig seed discard <id> --yes` skips prompt
+- [x] `twig seed discard <id>` on non-seed ID returns error
+- [x] All tests pass
+
+**Completion Notes:** All 16 seed edit/discard tests pass. Review fix applied: added `seed edit <id>` and `seed discard <id>` entries to `GroupedHelp.Show()` in `Program.cs` so the commands are discoverable via `twig --help`. Updated `CommandRegistrationModule` XML doc comment to reflect mixed registration pattern.
 
 ---
 

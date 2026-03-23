@@ -12,7 +12,8 @@ namespace Twig.DependencyInjection;
 
 /// <summary>
 /// Registers all CLI command classes into the DI container.
-/// Preserves factory lambdas for commands that require explicit constructor wiring.
+/// Uses factory lambdas only for commands that require explicit constructor wiring;
+/// auto-resolves all others.
 /// </summary>
 public static class CommandRegistrationModule
 {
@@ -91,6 +92,8 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
             sp.GetRequiredService<RenderingPipelineFactory>()));
         services.AddSingleton<SeedNewCommand>();
+        services.AddSingleton<SeedEditCommand>();
+        services.AddSingleton<SeedDiscardCommand>();
         services.AddSingleton<NoteCommand>(sp => new NoteCommand(
             sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
             sp.GetRequiredService<IWorkItemRepository>(),

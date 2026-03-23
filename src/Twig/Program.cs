@@ -301,6 +301,16 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> SeedNew([Argument] string? title = null, string? type = null, bool editor = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SeedNewCommand>().ExecuteAsync(title, type, editor, output, ct);
 
+    /// <summary>Edit seed fields in an external editor.</summary>
+    [Command("seed edit")]
+    public async Task<int> SeedEdit([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<SeedEditCommand>().ExecuteAsync(id, output, ct);
+
+    /// <summary>Discard (delete) a local seed.</summary>
+    [Command("seed discard")]
+    public async Task<int> SeedDiscard([Argument] int id, bool yes = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<SeedDiscardCommand>().ExecuteAsync(id, yes, output, ct);
+
     /// <summary>Add a note to the active work item.</summary>
     public async Task<int> Note(string? text = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<NoteCommand>().ExecuteAsync(text, output, ct);
@@ -504,6 +514,8 @@ Work Items:
   edit                 Edit work item fields in an external editor.
   seed new <title>     Create a new local seed (child work item).
   seed new --editor    Create a seed via editor with field template.
+  seed edit <id>       Edit a local seed in an external editor.
+  seed discard <id>    Delete a local seed (prompts for confirmation).
   save                 Push pending changes to Azure DevOps.
 
 Git:

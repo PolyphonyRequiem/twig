@@ -58,6 +58,7 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
             sp.GetRequiredService<Domain.Services.WorkingSetService>(),
             sp.GetRequiredService<Domain.Services.SyncCoordinator>(),
+            sp.GetRequiredService<TwigPaths>(),
             sp.GetRequiredService<RenderingPipelineFactory>(),
             sp.GetService<IGitService>(),
             sp.GetService<IAdoGitService>(),

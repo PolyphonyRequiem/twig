@@ -89,7 +89,8 @@ public class OfflineModeTests
         var statusCmd = new StatusCommand(
             _contextStore, _workItemRepo, _pendingChangeStore,
             new TwigConfiguration(), _formatterFactory, _hintEngine,
-            _activeItemResolver, _workingSetService, _syncCoordinator);
+            _activeItemResolver, _workingSetService, _syncCoordinator,
+            new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db")));
         var result = await statusCmd.ExecuteAsync();
 
         result.ShouldBe(0);

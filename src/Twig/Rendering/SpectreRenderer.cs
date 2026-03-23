@@ -380,7 +380,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         Func<Task<WorkItem?>> getItem,
         Func<Task<IReadOnlyList<PendingChangeRecord>>> getPendingChanges,
         CancellationToken ct,
-        IReadOnlyList<Domain.ValueObjects.FieldDefinition>? fieldDefinitions = null)
+        IReadOnlyList<Domain.ValueObjects.FieldDefinition>? fieldDefinitions = null,
+        IReadOnlyList<Domain.ValueObjects.StatusFieldEntry>? statusFieldEntries = null)
     {
         var item = await getItem();
         if (item is null)
@@ -403,7 +404,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         itemGrid.AddRow("[dim]Iteration:[/]", Markup.Escape(item.IterationPath.ToString()));
 
         // Extended fields from the Fields dictionary
-        AddExtendedFieldRows(itemGrid, item, fieldDefinitions);
+        AddExtendedFieldRows(itemGrid, item, fieldDefinitions, statusFieldEntries);
 
         var itemPanel = new Panel(itemGrid)
             .Header($"[bold]#{item.Id} {Markup.Escape(item.Title)}[/]{dirty}")
@@ -516,7 +517,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     /// </summary>
     private static void AddExtendedFieldRows(
         Grid grid, WorkItem item,
-        IReadOnlyList<Domain.ValueObjects.FieldDefinition>? fieldDefinitions)
+        IReadOnlyList<Domain.ValueObjects.FieldDefinition>? fieldDefinitions,
+        IReadOnlyList<Domain.ValueObjects.StatusFieldEntry>? statusFieldEntries = null)
     {
         if (item.Fields.Count == 0)
             return;
@@ -526,6 +528,27 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         {
             foreach (var def in fieldDefinitions)
                 defLookup[def.ReferenceName] = def;
+        }
+
+        if (statusFieldEntries is not null)
+        {
+            foreach (var entry in statusFieldEntries)
+            {
+                if (!entry.IsIncluded)
+                    continue;
+                if (!item.Fields.TryGetValue(entry.ReferenceName, out var value) || string.IsNullOrWhiteSpace(value))
+                    continue;
+
+                var displayName = defLookup.TryGetValue(entry.ReferenceName, out var def)
+                    ? def.DisplayName
+                    : Domain.Services.ColumnResolver.DeriveDisplayName(entry.ReferenceName);
+                var dataType = def?.DataType ?? "string";
+                var formatted = Formatters.FormatterHelpers.FormatFieldValue(value, dataType, maxWidth: 60);
+
+                if (!string.IsNullOrWhiteSpace(formatted))
+                    grid.AddRow($"[dim]{Markup.Escape(displayName)}:[/]", Markup.Escape(formatted));
+            }
+            return;
         }
 
         var count = 0;
@@ -538,10 +561,10 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             if (count >= 10)
                 break;
 
-            var displayName = defLookup.TryGetValue(kvp.Key, out var def)
-                ? def.DisplayName
+            var displayName = defLookup.TryGetValue(kvp.Key, out var def2)
+                ? def2.DisplayName
                 : Domain.Services.ColumnResolver.DeriveDisplayName(kvp.Key);
-            var dataType = def?.DataType ?? "string";
+            var dataType = def2?.DataType ?? "string";
             var formatted = Formatters.FormatterHelpers.FormatFieldValue(kvp.Value, dataType, maxWidth: 60);
 
             if (!string.IsNullOrWhiteSpace(formatted))

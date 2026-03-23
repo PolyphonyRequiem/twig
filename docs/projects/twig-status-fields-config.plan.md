@@ -746,31 +746,33 @@ Negligible. The status-fields file is tiny (<5KB). File read is a single `File.R
 
 ### Epic 3: Rendering Integration
 
+**Status**: DONE
+
 **Goal**: Modify `twig status` to read the status-fields config and use it to control field display in both rendering paths.
 
 **Prerequisites**: Epic 1 (StatusFieldsConfig), Epic 2 (TwigPaths.StatusFieldsPath).
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E3-T1 | IMPL | Add optional `IReadOnlyList<StatusFieldEntry>? statusFieldEntries = null` parameter to `IAsyncRenderer.RenderStatusAsync()`. | `src/Twig/Rendering/IAsyncRenderer.cs` | TO DO |
-| E3-T2 | IMPL | Modify `SpectreRenderer.RenderStatusAsync()` to accept `statusFieldEntries` and forward to `AddExtendedFieldRows()`. Modify `AddExtendedFieldRows()`: when entries provided, iterate included entries in order looking up values from `item.Fields` with display name resolution from `defLookup`. When null, preserve current behavior (dictionary iteration with 10-field cap). | `src/Twig/Rendering/SpectreRenderer.cs` | TO DO |
-| E3-T3 | IMPL | Add optional `IReadOnlyList<StatusFieldEntry>? statusFieldEntries = null` parameter to the existing `FormatWorkItem(WorkItem, bool, IReadOnlyList<FieldDefinition>?)` overload in `HumanOutputFormatter`. Modify `GetExtendedFields()` to accept optional `IReadOnlyList<StatusFieldEntry>?`: when provided, iterate included entries in order; when null, preserve current behavior. | `src/Twig/Formatters/HumanOutputFormatter.cs` | TO DO |
-| E3-T4 | IMPL | **StatusCommand constructor change:** Add `TwigPaths paths` as a required parameter to `StatusCommand`'s primary constructor (insert after `SyncCoordinator`, before the optional `RenderingPipelineFactory?`). This is the integration point for reading `.twig/status-fields`. | `src/Twig/Commands/StatusCommand.cs` | TO DO |
-| E3-T5 | IMPL | **StatusCommand DI registration update:** Update the `StatusCommand` factory lambda in `CommandRegistrationModule.AddCoreCommands()` (line 51) to inject `sp.GetRequiredService<TwigPaths>()` matching the new constructor parameter position. | `src/Twig/DependencyInjection/CommandRegistrationModule.cs` | TO DO |
-| E3-T6 | IMPL | **StatusCommand config loading:** In `StatusCommand.ExecuteAsync()`, add logic after field definition loading to: (a) check `File.Exists(paths.StatusFieldsPath)`, (b) read and parse via `StatusFieldsConfig.Parse()`, (c) pass `statusFieldEntries` to both `renderer.RenderStatusAsync()` (Spectre path) and `humanFmt.FormatWorkItem()` (sync path). Handle file read errors with try/catch fallback to `null`. | `src/Twig/Commands/StatusCommand.cs` | TO DO |
-| E3-T7 | TEST | **Update StatusCommandTests:** Modify test constructor (line 57 of `StatusCommandTests.cs`) to include `TwigPaths` parameter. Create a temp `.twig` directory for test paths. Verify all existing tests still pass with the updated constructor. | `tests/Twig.Cli.Tests/Commands/StatusCommandTests.cs` | TO DO |
-| E3-T8 | TEST | Tests for rendering integration: (1) `AddExtendedFieldRows` with status entries shows only starred fields in correct order, (2) `AddExtendedFieldRows` without entries preserves current behavior (10-field cap), (3) `GetExtendedFields` with status entries filters correctly, (4) Unknown reference names in entries are silently skipped, (5) All-unstarred entries results in no extended fields shown. (6) `StatusCommand` with config file present passes entries to renderer. | `tests/Twig.Cli.Tests/Commands/StatusCommandTests.cs` (extend), `tests/Twig.Cli.Tests/Formatters/HumanOutputFormatterTests.cs` (extend) | TO DO |
+| E3-T1 | IMPL | Add optional `IReadOnlyList<StatusFieldEntry>? statusFieldEntries = null` parameter to `IAsyncRenderer.RenderStatusAsync()`. | `src/Twig/Rendering/IAsyncRenderer.cs` | DONE |
+| E3-T2 | IMPL | Modify `SpectreRenderer.RenderStatusAsync()` to accept `statusFieldEntries` and forward to `AddExtendedFieldRows()`. Modify `AddExtendedFieldRows()`: when entries provided, iterate included entries in order looking up values from `item.Fields` with display name resolution from `defLookup`. When null, preserve current behavior (dictionary iteration with 10-field cap). | `src/Twig/Rendering/SpectreRenderer.cs` | DONE |
+| E3-T3 | IMPL | Add optional `IReadOnlyList<StatusFieldEntry>? statusFieldEntries = null` parameter to the existing `FormatWorkItem(WorkItem, bool, IReadOnlyList<FieldDefinition>?)` overload in `HumanOutputFormatter`. Modify `GetExtendedFields()` to accept optional `IReadOnlyList<StatusFieldEntry>?`: when provided, iterate included entries in order; when null, preserve current behavior. | `src/Twig/Formatters/HumanOutputFormatter.cs` | DONE |
+| E3-T4 | IMPL | **StatusCommand constructor change:** Add `TwigPaths paths` as a required parameter to `StatusCommand`'s primary constructor (insert after `SyncCoordinator`, before the optional `RenderingPipelineFactory?`). This is the integration point for reading `.twig/status-fields`. | `src/Twig/Commands/StatusCommand.cs` | DONE |
+| E3-T5 | IMPL | **StatusCommand DI registration update:** Update the `StatusCommand` factory lambda in `CommandRegistrationModule.AddCoreCommands()` (line 51) to inject `sp.GetRequiredService<TwigPaths>()` matching the new constructor parameter position. | `src/Twig/DependencyInjection/CommandRegistrationModule.cs` | DONE |
+| E3-T6 | IMPL | **StatusCommand config loading:** In `StatusCommand.ExecuteAsync()`, add logic after field definition loading to: (a) check `File.Exists(paths.StatusFieldsPath)`, (b) read and parse via `StatusFieldsConfig.Parse()`, (c) pass `statusFieldEntries` to both `renderer.RenderStatusAsync()` (Spectre path) and `humanFmt.FormatWorkItem()` (sync path). Handle file read errors with try/catch fallback to `null`. | `src/Twig/Commands/StatusCommand.cs` | DONE |
+| E3-T7 | TEST | **Update StatusCommandTests:** Modify test constructor (line 57 of `StatusCommandTests.cs`) to include `TwigPaths` parameter. Create a temp `.twig` directory for test paths. Verify all existing tests still pass with the updated constructor. | `tests/Twig.Cli.Tests/Commands/StatusCommandTests.cs` | DONE |
+| E3-T8 | TEST | Tests for rendering integration: (1) `AddExtendedFieldRows` with status entries shows only starred fields in correct order, (2) `AddExtendedFieldRows` without entries preserves current behavior (10-field cap), (3) `GetExtendedFields` with status entries filters correctly, (4) Unknown reference names in entries are silently skipped, (5) All-unstarred entries results in no extended fields shown. (6) `StatusCommand` with config file present passes entries to renderer. | `tests/Twig.Cli.Tests/Commands/StatusCommandTests.cs` (extend), `tests/Twig.Cli.Tests/Formatters/HumanOutputFormatterTests.cs` (extend) | DONE |
 
 **Acceptance Criteria**:
-- `StatusCommand` constructor includes `TwigPaths` and compiles correctly
-- `CommandRegistrationModule` injects `TwigPaths` into `StatusCommand` factory
-- `twig status` with `.twig/status-fields` present shows only starred fields in file order
-- `twig status` without `.twig/status-fields` shows current behavior (no regression)
-- Unknown reference names in config are silently ignored
-- Empty fields (no value on the work item) are skipped even if starred
-- Both Spectre (live) and Human (sync) rendering paths respect the config
-- All existing status command tests continue to pass after constructor update
-- All new tests pass
+- [x] `StatusCommand` constructor includes `TwigPaths` and compiles correctly
+- [x] `CommandRegistrationModule` injects `TwigPaths` into `StatusCommand` factory
+- [x] `twig status` with `.twig/status-fields` present shows only starred fields in file order
+- [x] `twig status` without `.twig/status-fields` shows current behavior (no regression)
+- [x] Unknown reference names in config are silently ignored
+- [x] Empty fields (no value on the work item) are skipped even if starred
+- [x] Both Spectre (live) and Human (sync) rendering paths respect the config
+- [x] All existing status command tests continue to pass after constructor update
+- [x] All new tests pass
 
 ---
 

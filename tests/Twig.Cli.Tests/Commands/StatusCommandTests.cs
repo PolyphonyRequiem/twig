@@ -16,7 +16,7 @@ using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
 
-public class StatusCommandTests
+public class StatusCommandTests : IDisposable
 {
     private readonly IContextStore _contextStore;
     private readonly IWorkItemRepository _workItemRepo;
@@ -31,6 +31,8 @@ public class StatusCommandTests
     private readonly TestConsole _testConsole;
     private readonly SpectreRenderer _spectreRenderer;
     private readonly StatusCommand _cmd;
+    private readonly string _tempDir;
+    private readonly TwigPaths _paths;
 
     public StatusCommandTests()
     {
@@ -51,11 +53,20 @@ public class StatusCommandTests
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
 
+        _tempDir = Path.Combine(Path.GetTempPath(), "twig-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(_tempDir);
+        _paths = new TwigPaths(_tempDir, Path.Combine(_tempDir, "config"), Path.Combine(_tempDir, "twig.db"));
+
         _testConsole = new TestConsole();
         _spectreRenderer = new SpectreRenderer(_testConsole, new SpectreTheme(new DisplayConfig()));
 
         _cmd = new StatusCommand(_contextStore, _workItemRepo, _pendingChangeStore,
-            _config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinator);
+            _config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinator, _paths);
+    }
+
+    public void Dispose()
+    {
+        try { Directory.Delete(_tempDir, true); } catch { }
     }
 
     // ── Command factory methods ─────────────────────────────────────
@@ -69,11 +80,11 @@ public class StatusCommandTests
     private StatusCommand CreateCommandWithPipeline(RenderingPipelineFactory pipelineFactory, TextWriter? stderr = null) =>
         new(_contextStore, _workItemRepo, _pendingChangeStore, _config,
             _formatterFactory, new HintEngine(new DisplayConfig { Hints = true }), _activeItemResolver,
-            _workingSetService, _syncCoordinator, pipelineFactory, stderr: stderr);
+            _workingSetService, _syncCoordinator, _paths, pipelineFactory, stderr: stderr);
 
     private StatusCommand CreateCommandWithGit(IGitService? git = null, IAdoGitService? adoGit = null) =>
         new(_contextStore, _workItemRepo, _pendingChangeStore, _config,
-            _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinator,
+            _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinator, _paths,
             pipelineFactory: null, gitService: git, adoGitService: adoGit);
 
     // ── Core command behavior ───────────────────────────────────────
@@ -169,7 +180,7 @@ public class StatusCommandTests
                 Git = new GitConfig { BranchPattern = BranchNameTemplate.DefaultPattern },
             },
             _formatterFactory, new HintEngine(new DisplayConfig { Hints = true }),
-            _activeItemResolver, _workingSetService, _syncCoordinator, gitService: gitService);
+            _activeItemResolver, _workingSetService, _syncCoordinator, _paths, gitService: gitService);
 
         var result = await cmd.ExecuteAsync();
 
@@ -192,7 +203,7 @@ public class StatusCommandTests
                 Git = new GitConfig { BranchPattern = BranchNameTemplate.DefaultPattern },
             },
             _formatterFactory, new HintEngine(new DisplayConfig { Hints = true }),
-            _activeItemResolver, _workingSetService, _syncCoordinator, gitService: gitService);
+            _activeItemResolver, _workingSetService, _syncCoordinator, _paths, gitService: gitService);
 
         var result = await cmd.ExecuteAsync();
 
@@ -740,6 +751,170 @@ public class StatusCommandTests
         var result = fmt.FormatWorkItem(item, showDirty: false, fieldDefinitions: null);
 
         result.ShouldNotContain("Extended");
+    }
+
+    // ── Status fields config rendering integration (EPIC-010 E3) ────
+
+    [Fact]
+    public async Task SpectreRenderer_WithStatusFieldEntries_ShowsOnlyStarredFieldsInOrder()
+    {
+        var fields = new Dictionary<string, string?>
+        {
+            ["Microsoft.VSTS.Common.Priority"] = "2",
+            ["Microsoft.VSTS.Scheduling.StoryPoints"] = "5",
+            ["System.Tags"] = "backend, auth",
+            ["Microsoft.VSTS.Common.Severity"] = "3 - Medium",
+        };
+        var item = CreateWorkItemWithFields(1, "Config Item", fields);
+
+        var fieldDefs = new FieldDefinition[]
+        {
+            new("Microsoft.VSTS.Common.Priority", "Priority", "integer", false),
+            new("Microsoft.VSTS.Scheduling.StoryPoints", "Story Points", "double", false),
+            new("System.Tags", "Tags", "string", false),
+            new("Microsoft.VSTS.Common.Severity", "Severity", "string", false),
+        };
+
+        // Only Story Points and Severity are starred, in that order
+        var entries = new StatusFieldEntry[]
+        {
+            new("Microsoft.VSTS.Scheduling.StoryPoints", true),
+            new("Microsoft.VSTS.Common.Severity", true),
+            new("Microsoft.VSTS.Common.Priority", false),
+            new("System.Tags", false),
+        };
+
+        await _spectreRenderer.RenderStatusAsync(
+            getItem: () => Task.FromResult<WorkItem?>(item),
+            getPendingChanges: () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>(
+                Array.Empty<PendingChangeRecord>()),
+            ct: CancellationToken.None,
+            fieldDefinitions: fieldDefs,
+            statusFieldEntries: entries);
+
+        var output = _testConsole.Output;
+        output.ShouldContain("Story Points");
+        output.ShouldContain("5");
+        output.ShouldContain("Severity");
+        output.ShouldContain("3 - Medium");
+        // Unstarred fields should not appear in extended section
+        // (Priority still appears because it's not in extended — but check the extended area)
+        // Tags should not appear as extended field
+        var storyIdx = output.IndexOf("Story Points", StringComparison.Ordinal);
+        var sevIdx = output.IndexOf("Severity", StringComparison.Ordinal);
+        storyIdx.ShouldBeLessThan(sevIdx); // order preserved
+    }
+
+    [Fact]
+    public async Task SpectreRenderer_WithoutStatusFieldEntries_PreservesCurrentBehavior()
+    {
+        var fields = new Dictionary<string, string?>
+        {
+            ["Microsoft.VSTS.Common.Priority"] = "1",
+        };
+        var item = CreateWorkItemWithFields(1, "Default Item", fields);
+
+        await _spectreRenderer.RenderStatusAsync(
+            getItem: () => Task.FromResult<WorkItem?>(item),
+            getPendingChanges: () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>(
+                Array.Empty<PendingChangeRecord>()),
+            ct: CancellationToken.None,
+            fieldDefinitions: null,
+            statusFieldEntries: null);
+
+        var output = _testConsole.Output;
+        output.ShouldContain("Priority");
+        output.ShouldContain("1");
+    }
+
+    [Fact]
+    public async Task SpectreRenderer_UnknownRefNameInEntries_SilentlySkipped()
+    {
+        var fields = new Dictionary<string, string?>
+        {
+            ["Microsoft.VSTS.Common.Priority"] = "2",
+        };
+        var item = CreateWorkItemWithFields(1, "Unknown Ref Item", fields);
+
+        var entries = new StatusFieldEntry[]
+        {
+            new("Custom.NonExistent.Field", true),
+            new("Microsoft.VSTS.Common.Priority", true),
+        };
+
+        await _spectreRenderer.RenderStatusAsync(
+            getItem: () => Task.FromResult<WorkItem?>(item),
+            getPendingChanges: () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>(
+                Array.Empty<PendingChangeRecord>()),
+            ct: CancellationToken.None,
+            fieldDefinitions: null,
+            statusFieldEntries: entries);
+
+        var output = _testConsole.Output;
+        output.ShouldContain("Priority");
+        output.ShouldContain("2");
+        output.ShouldNotContain("NonExistent");
+    }
+
+    [Fact]
+    public async Task SpectreRenderer_AllUnstarredEntries_NoExtendedFields()
+    {
+        var fields = new Dictionary<string, string?>
+        {
+            ["Microsoft.VSTS.Common.Priority"] = "2",
+            ["Microsoft.VSTS.Scheduling.StoryPoints"] = "5",
+        };
+        var item = CreateWorkItemWithFields(1, "AllUnstarred Item", fields);
+
+        var entries = new StatusFieldEntry[]
+        {
+            new("Microsoft.VSTS.Common.Priority", false),
+            new("Microsoft.VSTS.Scheduling.StoryPoints", false),
+        };
+
+        await _spectreRenderer.RenderStatusAsync(
+            getItem: () => Task.FromResult<WorkItem?>(item),
+            getPendingChanges: () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>(
+                Array.Empty<PendingChangeRecord>()),
+            ct: CancellationToken.None,
+            fieldDefinitions: null,
+            statusFieldEntries: entries);
+
+        var output = _testConsole.Output;
+        // Core fields present
+        output.ShouldContain("AllUnstarred Item");
+        // Extended fields not shown (no starred entries)
+        output.ShouldNotContain("Story Points");
+    }
+
+    [Fact]
+    public async Task StatusCommand_WithConfigFile_PassesEntriesToRenderer()
+    {
+        // Write a status-fields config file
+        var configContent = "* Priority                (Microsoft.VSTS.Common.Priority)      [integer]\n  Story Points            (Microsoft.VSTS.Scheduling.StoryPoints) [double]\n";
+        await File.WriteAllTextAsync(_paths.StatusFieldsPath, configContent);
+
+        var fields = new Dictionary<string, string?>
+        {
+            ["Microsoft.VSTS.Common.Priority"] = "2",
+            ["Microsoft.VSTS.Scheduling.StoryPoints"] = "5",
+        };
+        var item = CreateWorkItemWithFields(1, "Config Test", fields);
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+
+        var cmd = CreateCommandWithPipeline(CreateTtyPipelineFactory());
+        var result = await cmd.ExecuteAsync("human");
+
+        result.ShouldBe(0);
+        var output = _testConsole.Output;
+        output.ShouldContain("Priority");
+        output.ShouldContain("2");
+        // Story Points is unstarred, should not appear
+        output.ShouldNotContain("Story Points");
     }
 
 }

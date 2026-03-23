@@ -2,6 +2,7 @@ using System.Globalization;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
 using Twig.Domain.Services;
+using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
@@ -23,6 +24,7 @@ public sealed class StatusCommand(
     ActiveItemResolver activeItemResolver,
     WorkingSetService workingSetService,
     SyncCoordinator syncCoordinator,
+    TwigPaths paths,
     RenderingPipelineFactory? pipelineFactory = null,
     IGitService? gitService = null,
     IAdoGitService? adoGitService = null,
@@ -69,19 +71,31 @@ public sealed class StatusCommand(
             return 1;
         }
 
+        // Load field definitions and status-fields config (best-effort, shared by both paths)
+        var fieldDefs = fieldDefinitionStore is not null
+            ? await fieldDefinitionStore.GetAllAsync(ct)
+            : null;
+
+        IReadOnlyList<StatusFieldEntry>? statusFieldEntries = null;
+        if (File.Exists(paths.StatusFieldsPath))
+        {
+            try
+            {
+                var configContent = await File.ReadAllTextAsync(paths.StatusFieldsPath, ct);
+                statusFieldEntries = StatusFieldsConfig.Parse(configContent);
+            }
+            catch { /* best-effort — fall back to default behavior */ }
+        }
+
         if (renderer is not null)
         {
-            // Load field definitions for display name resolution (best-effort)
-            var fieldDefs = fieldDefinitionStore is not null
-                ? await fieldDefinitionStore.GetAllAsync(ct)
-                : null;
-
             // Async progressive rendering path — dashboard layout via SpectreRenderer
             await renderer.RenderStatusAsync(
                 getItem: () => Task.FromResult<Domain.Aggregates.WorkItem?>(item),
                 getPendingChanges: () => pendingChangeStore.GetChangesAsync(item.Id),
                 ct: CancellationToken.None,
-                fieldDefinitions: fieldDefs);
+                fieldDefinitions: fieldDefs,
+                statusFieldEntries: statusFieldEntries);
 
             // Sync working set after cached render (EPIC-004) — best-effort
             try
@@ -126,14 +140,9 @@ public sealed class StatusCommand(
         if (!string.IsNullOrEmpty(summary))
             Console.WriteLine(summary);
 
-        // Load field definitions for display name resolution (sync path, best-effort)
-        var syncFieldDefs = fieldDefinitionStore is not null
-            ? await fieldDefinitionStore.GetAllAsync(ct)
-            : null;
-
         // Use overload with field definitions when formatter supports it
         if (fmt is HumanOutputFormatter humanFmt)
-            Console.WriteLine(humanFmt.FormatWorkItem(item, showDirty: true, syncFieldDefs));
+            Console.WriteLine(humanFmt.FormatWorkItem(item, showDirty: true, fieldDefs, statusFieldEntries));
         else
             Console.WriteLine(fmt.FormatWorkItem(item, showDirty: true));
 

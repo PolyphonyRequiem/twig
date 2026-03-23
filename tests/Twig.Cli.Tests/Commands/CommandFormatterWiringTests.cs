@@ -183,6 +183,7 @@ public class CommandFormatterWiringTests
         var wss = new WorkingSetService(contextStore, workItemRepo, pendingChangeStore, iterSvc, null);
         services.AddSingleton(wss);
         services.AddSingleton(new StatusOrchestrator(contextStore, workItemRepo, pendingChangeStore, activeItemResolver, wss, sc));
+        services.AddSingleton(new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db")));
         services.AddSingleton<StatusCommand>();
 
         var provider = services.BuildServiceProvider();
@@ -227,7 +228,8 @@ public class CommandFormatterWiringTests
         var wss = new WorkingSetService(contextStore, workItemRepo, pcs, iterSvc, null);
         var statusOrchestrator = new StatusOrchestrator(contextStore, workItemRepo, pendingChangeStore, activeItemResolver, wss, sc);
         return new StatusCommand(contextStore, workItemRepo, pendingChangeStore,
-            config, factory, hintEngine, activeItemResolver, wss, sc);
+            config, factory, hintEngine, activeItemResolver, wss, sc,
+            new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db")));
     }
 
     private static WorkItem CreateWorkItem(int id, string title)

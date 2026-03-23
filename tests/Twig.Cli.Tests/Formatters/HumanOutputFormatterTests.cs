@@ -1522,4 +1522,103 @@ public class HumanOutputFormatterTests
         result.ShouldContain("Priority");
         result.ShouldContain("1");
     }
+
+    // ── Status fields config rendering integration (EPIC-010 E3) ────
+
+    [Fact]
+    public void GetExtendedFields_WithStatusEntries_ShowsOnlyStarredInOrder()
+    {
+        var item = CreateWorkItem(1, "Config Item", "Active");
+        item.ImportFields(new Dictionary<string, string?>
+        {
+            ["Microsoft.VSTS.Common.Priority"] = "2",
+            ["Microsoft.VSTS.Scheduling.StoryPoints"] = "5",
+            ["System.Tags"] = "backend",
+        });
+
+        var fieldDefs = new FieldDefinition[]
+        {
+            new("Microsoft.VSTS.Common.Priority", "Priority", "integer", false),
+            new("Microsoft.VSTS.Scheduling.StoryPoints", "Story Points", "double", false),
+            new("System.Tags", "Tags", "string", false),
+        };
+
+        // Only Story Points is starred
+        var entries = new StatusFieldEntry[]
+        {
+            new("Microsoft.VSTS.Scheduling.StoryPoints", true),
+            new("Microsoft.VSTS.Common.Priority", false),
+            new("System.Tags", false),
+        };
+
+        var result = _formatter.FormatWorkItem(item, showDirty: false, fieldDefs, entries);
+
+        result.ShouldContain("Story Points");
+        result.ShouldContain("5");
+        result.ShouldNotContain("Priority:");
+        result.ShouldNotContain("Tags:");
+    }
+
+    [Fact]
+    public void GetExtendedFields_WithoutEntries_PreservesCurrentBehavior()
+    {
+        var item = CreateWorkItem(1, "Default Item", "Active");
+        item.ImportFields(new Dictionary<string, string?>
+        {
+            ["Microsoft.VSTS.Common.Priority"] = "1",
+            ["Microsoft.VSTS.Scheduling.StoryPoints"] = "3",
+        });
+
+        var fieldDefs = new FieldDefinition[]
+        {
+            new("Microsoft.VSTS.Common.Priority", "Priority", "integer", false),
+            new("Microsoft.VSTS.Scheduling.StoryPoints", "Story Points", "double", false),
+        };
+
+        var result = _formatter.FormatWorkItem(item, showDirty: false, fieldDefs, statusFieldEntries: null);
+
+        result.ShouldContain("Priority");
+        result.ShouldContain("Story Points");
+    }
+
+    [Fact]
+    public void GetExtendedFields_UnknownRefName_SilentlySkipped()
+    {
+        var item = CreateWorkItem(1, "Unknown Ref", "Active");
+        item.ImportFields(new Dictionary<string, string?>
+        {
+            ["Microsoft.VSTS.Common.Priority"] = "2",
+        });
+
+        var entries = new StatusFieldEntry[]
+        {
+            new("Custom.NonExistent.Field", true),
+            new("Microsoft.VSTS.Common.Priority", true),
+        };
+
+        var result = _formatter.FormatWorkItem(item, showDirty: false, fieldDefinitions: null, statusFieldEntries: entries);
+
+        result.ShouldContain("Priority");
+        result.ShouldNotContain("NonExistent");
+    }
+
+    [Fact]
+    public void GetExtendedFields_AllUnstarred_NoExtendedSection()
+    {
+        var item = CreateWorkItem(1, "AllUnstarred", "Active");
+        item.ImportFields(new Dictionary<string, string?>
+        {
+            ["Microsoft.VSTS.Common.Priority"] = "2",
+        });
+
+        var entries = new StatusFieldEntry[]
+        {
+            new("Microsoft.VSTS.Common.Priority", false),
+        };
+
+        var result = _formatter.FormatWorkItem(item, showDirty: false, fieldDefinitions: null, statusFieldEntries: entries);
+
+        result.ShouldNotContain("Extended");
+        result.ShouldNotContain("Priority:");
+    }
 }

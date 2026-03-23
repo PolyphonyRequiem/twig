@@ -61,7 +61,9 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         return FormatWorkItem(item, showDirty, fieldDefinitions: null);
     }
 
-    public string FormatWorkItem(WorkItem item, bool showDirty, IReadOnlyList<FieldDefinition>? fieldDefinitions)
+    public string FormatWorkItem(WorkItem item, bool showDirty,
+        IReadOnlyList<FieldDefinition>? fieldDefinitions,
+        IReadOnlyList<StatusFieldEntry>? statusFieldEntries = null)
     {
         var sb = new StringBuilder();
         var stateColor = GetStateColor(item.State);
@@ -80,7 +82,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         if (item.Fields.Count > 0)
         {
             var defLookup = BuildFieldDefinitionLookup(fieldDefinitions);
-            var extendedFields = GetExtendedFields(item, defLookup);
+            var extendedFields = GetExtendedFields(item, defLookup, statusFieldEntries);
             if (extendedFields.Count > 0)
             {
                 sb.AppendLine();
@@ -919,9 +921,31 @@ public sealed class HumanOutputFormatter : IOutputFormatter
     }
 
     private static List<(string DisplayName, string Value)> GetExtendedFields(
-        WorkItem item, Dictionary<string, FieldDefinition> defLookup)
+        WorkItem item, Dictionary<string, FieldDefinition> defLookup,
+        IReadOnlyList<StatusFieldEntry>? statusFieldEntries = null)
     {
         var result = new List<(string, string)>();
+
+        if (statusFieldEntries is not null)
+        {
+            foreach (var entry in statusFieldEntries)
+            {
+                if (!entry.IsIncluded)
+                    continue;
+                if (!item.Fields.TryGetValue(entry.ReferenceName, out var value) || string.IsNullOrWhiteSpace(value))
+                    continue;
+
+                var displayName = defLookup.TryGetValue(entry.ReferenceName, out var def)
+                    ? def.DisplayName
+                    : ColumnResolver.DeriveDisplayName(entry.ReferenceName);
+                var dataType = def?.DataType ?? "string";
+                var formatted = FormatterHelpers.FormatFieldValue(value, dataType, maxWidth: 60);
+
+                if (!string.IsNullOrWhiteSpace(formatted))
+                    result.Add((displayName, formatted));
+            }
+            return result;
+        }
 
         foreach (var kvp in item.Fields)
         {
@@ -930,10 +954,10 @@ public sealed class HumanOutputFormatter : IOutputFormatter
             if (CoreFieldPrefixes.Contains(kvp.Key))
                 continue;
 
-            var displayName = defLookup.TryGetValue(kvp.Key, out var def)
-                ? def.DisplayName
+            var displayName = defLookup.TryGetValue(kvp.Key, out var def2)
+                ? def2.DisplayName
                 : ColumnResolver.DeriveDisplayName(kvp.Key);
-            var dataType = def?.DataType ?? "string";
+            var dataType = def2?.DataType ?? "string";
             var formatted = FormatterHelpers.FormatFieldValue(kvp.Value, dataType, maxWidth: 60);
 
             if (!string.IsNullOrWhiteSpace(formatted))

@@ -62,6 +62,14 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         return AdoResponseMapper.MapWorkItem(dto);
     }
 
+    public async Task<(WorkItem Item, IReadOnlyList<WorkItemLink> Links)> FetchWithLinksAsync(int id, CancellationToken ct = default)
+    {
+        var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}?$expand=relations&api-version={ApiVersion}";
+        using var response = await SendAsync(HttpMethod.Get, url, content: null, ifMatch: null, ct);
+        var dto = await DeserializeWorkItemAsync(response, ct);
+        return AdoResponseMapper.MapWorkItemWithLinks(dto);
+    }
+
     public async Task<IReadOnlyList<WorkItem>> FetchChildrenAsync(int parentId, CancellationToken ct = default)
     {
         // Flat WIQL query returns queryType="flat" with a workItems array

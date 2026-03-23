@@ -24,6 +24,7 @@ public class SqliteCacheStoreTests
         TableExists(conn, "process_types").ShouldBeTrue();
         TableExists(conn, "context").ShouldBeTrue();
         TableExists(conn, "field_definitions").ShouldBeTrue();
+        TableExists(conn, "work_item_links").ShouldBeTrue();
     }
 
     [Fact]
@@ -108,9 +109,9 @@ public class SqliteCacheStoreTests
     }
 
     [Fact]
-    public void SchemaVersion_IsFive()
+    public void SchemaVersion_IsSix()
     {
-        SqliteCacheStore.SchemaVersion.ShouldBe(5);
+        SqliteCacheStore.SchemaVersion.ShouldBe(6);
     }
 
     [Fact]

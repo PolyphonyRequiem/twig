@@ -10,6 +10,7 @@ namespace Twig.Domain.Interfaces;
 public interface IAdoWorkItemService
 {
     Task<WorkItem> FetchAsync(int id, CancellationToken ct = default);
+    Task<(WorkItem Item, IReadOnlyList<WorkItemLink> Links)> FetchWithLinksAsync(int id, CancellationToken ct = default);
     Task<IReadOnlyList<WorkItem>> FetchChildrenAsync(int parentId, CancellationToken ct = default);
     Task<int> PatchAsync(int id, IReadOnlyList<FieldChange> changes, int expectedRevision, CancellationToken ct = default);
     Task<int> CreateAsync(WorkItem seed, CancellationToken ct = default);

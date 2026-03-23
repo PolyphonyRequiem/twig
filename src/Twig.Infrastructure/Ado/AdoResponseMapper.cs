@@ -14,6 +14,13 @@ internal static class AdoResponseMapper
 {
     private const string ParentRelationType = "System.LinkTypes.Hierarchy-Reverse";
 
+    private static readonly Dictionary<string, string> NonHierarchyRelMap = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["System.LinkTypes.Related"] = LinkTypes.Related,
+        ["System.LinkTypes.Dependency-Forward"] = LinkTypes.Successor,
+        ["System.LinkTypes.Dependency-Reverse"] = LinkTypes.Predecessor,
+    };
+
     /// <summary>
     /// Maps an ADO work item response DTO to a domain <see cref="WorkItem"/>.
     /// Extracts parent ID from relation links.
@@ -113,6 +120,49 @@ internal static class AdoResponseMapper
         }
 
         return operations;
+    }
+
+    /// <summary>
+    /// Maps an ADO work item response DTO to a domain <see cref="WorkItem"/> plus non-hierarchy links.
+    /// </summary>
+    public static (WorkItem Item, IReadOnlyList<WorkItemLink> Links) MapWorkItemWithLinks(AdoWorkItemResponse dto)
+    {
+        var item = MapWorkItem(dto);
+        var links = ExtractNonHierarchyLinks(dto.Id, dto.Relations);
+        return (item, links);
+    }
+
+    /// <summary>
+    /// Extracts non-hierarchy links (Related, Predecessor, Successor) from the relations array.
+    /// Uses the same URL-suffix ID parsing pattern as <see cref="ExtractParentId"/>.
+    /// </summary>
+    internal static List<WorkItemLink> ExtractNonHierarchyLinks(int sourceId, List<AdoRelation>? relations)
+    {
+        if (relations is null || relations.Count == 0)
+            return [];
+
+        var links = new List<WorkItemLink>();
+
+        foreach (var relation in relations)
+        {
+            if (string.IsNullOrEmpty(relation.Rel) || !NonHierarchyRelMap.TryGetValue(relation.Rel, out var linkType))
+                continue;
+
+            if (string.IsNullOrEmpty(relation.Url))
+                continue;
+
+            var lastSlash = relation.Url.LastIndexOf('/');
+            if (lastSlash >= 0 && lastSlash < relation.Url.Length - 1)
+            {
+                var idStr = relation.Url[(lastSlash + 1)..];
+                if (int.TryParse(idStr, out var targetId))
+                {
+                    links.Add(new WorkItemLink(sourceId, targetId, linkType));
+                }
+            }
+        }
+
+        return links;
     }
 
     /// <summary>

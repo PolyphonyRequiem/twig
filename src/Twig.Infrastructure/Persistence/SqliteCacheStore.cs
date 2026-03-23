@@ -12,7 +12,7 @@ public sealed class SqliteCacheStore : IDisposable
     /// Current schema version compiled into the binary.
     /// If the DB schema version differs, all tables are dropped and recreated.
     /// </summary>
-    internal const int SchemaVersion = 5;
+    internal const int SchemaVersion = 6;
 
     private readonly SqliteConnection _connection;
     private bool _schemaRebuilt;
@@ -98,7 +98,7 @@ public sealed class SqliteCacheStore : IDisposable
     {
         // Table names are compile-time constants — not user-supplied values — so
         // string interpolation is safe here. SQLite does not support parameterised DDL identifiers.
-        string[] tables = ["pending_changes", "work_items", "process_types", "context", "metadata", "field_definitions"];
+        string[] tables = ["pending_changes", "work_items", "process_types", "context", "metadata", "field_definitions", "work_item_links"];
         foreach (var table in tables)
         {
             using var cmd = _connection.CreateCommand();
@@ -186,6 +186,14 @@ public sealed class SqliteCacheStore : IDisposable
             is_read_only INTEGER NOT NULL DEFAULT 0,
             last_synced_at TEXT NOT NULL
         );
+
+        CREATE TABLE work_item_links (
+            source_id INTEGER NOT NULL,
+            target_id INTEGER NOT NULL,
+            link_type TEXT NOT NULL,
+            PRIMARY KEY (source_id, target_id, link_type)
+        );
+        CREATE INDEX idx_work_item_links_source ON work_item_links(source_id);
         """;
 
     public void Dispose()

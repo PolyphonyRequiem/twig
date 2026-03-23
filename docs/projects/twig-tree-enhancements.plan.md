@@ -1,14 +1,14 @@
 # Twig Tree Enhancements: Sibling Counts & Related Links
 
-> **Revision:** 6 — Fixes critical Link Persistence Write Path gap (score 88→revised)  
+> **Revision:** 7 — Fresh revision grounded in current codebase (SchemaVersion 5→6, verified call sites, corrected ADO reference names)  
 > **Status:** Draft  
-> **Date:** 2026-03-18
+> **Date:** 2026-03-22
 
 ---
 
 ## Executive Summary
 
-This design adds two focused features to the `twig tree` command: (1) a **sibling count indicator** displaying `...N` (known) or `...?` (unknown) below tree nodes to show sibling count at each level, and (2) a **related links section** showing non-hierarchy relationships (Related, Predecessor, Successor) of the focused work item below the main tree, rendered via box-drawing lines. Both features require: adding a `WorkItemLink` value object to the domain, extracting non-hierarchy relations in `AdoResponseMapper`, persisting them in a new `work_item_links` SQLite table (schema version 4 → 5), enriching the `WorkTree` read model, and modifying both rendering paths (`SpectreRenderer` and `HumanOutputFormatter`). The design is additive — existing `WorkItem` aggregate, `IAdoWorkItemService`, and `IWorkItemRepository` interfaces gain new members without breaking existing consumers.
+This design adds two focused features to the `twig tree` command: (1) a **sibling count indicator** displaying `...N` (known) or `...?` (unknown) below tree nodes so users know how many siblings exist at each level, and (2) a **related links section** showing non-hierarchy relationships (Related, Predecessor, Successor) of the focused work item below the main tree, rendered with box-drawing lines. Both features require: adding a `WorkItemLink` value object to the domain, extracting non-hierarchy relations in `AdoResponseMapper`, persisting them in a new `work_item_links` SQLite table (schema version 5 → 6), enriching the `WorkTree` read model, and modifying both rendering paths (`SpectreRenderer` and `HumanOutputFormatter`). The design is additive — existing `WorkItem` aggregate, `IAdoWorkItemService`, and `IWorkItemRepository` interfaces gain new members without breaking existing consumers.
 
 ---
 
@@ -20,38 +20,40 @@ The `twig tree` command follows a four-layer architecture:
 
 1. **Domain Layer** (`Twig.Domain`)
    - `WorkItem` aggregate (`src/Twig.Domain/Aggregates/WorkItem.cs`): stores identity (Id, Type, Title, State), hierarchy (ParentId), metadata. Has **no** knowledge of non-hierarchy relations (Related, Predecessor, Successor).
-   - `WorkTree` read model (`src/Twig.Domain/ReadModels/WorkTree.cs`): immutable composite of `FocusedItem`, `ParentChain` (root → parent), and `Children`. No sibling count or link data.
+   - `WorkTree` read model (`src/Twig.Domain/ReadModels/WorkTree.cs`): immutable composite of `FocusedItem`, `ParentChain` (root → parent), and `Children`. No sibling count or link data. `Build()` factory takes 3 parameters: `(WorkItem focus, IReadOnlyList<WorkItem> parentChain, IReadOnlyList<WorkItem> children)`.
    - `IWorkItemRepository` (`src/Twig.Domain/Interfaces/IWorkItemRepository.cs`): provides `GetChildrenAsync(parentId)` and `GetParentChainAsync(id)`. No relation-querying methods.
    - `IAdoWorkItemService` (`src/Twig.Domain/Interfaces/IAdoWorkItemService.cs`): domain-side contract with `FetchAsync`, `FetchBatchAsync`, `FetchChildrenAsync`. Returns `WorkItem` — DTO relations are discarded.
 
 2. **Infrastructure Layer** (`Twig.Infrastructure`)
    - `AdoRestClient` (`src/Twig.Infrastructure/Ado/AdoRestClient.cs`): implements `IAdoWorkItemService`. All fetch methods use `$expand=relations` — the ADO response **already contains** all relation data, but `AdoResponseMapper.MapWorkItem()` only extracts `ParentId` from `System.LinkTypes.Hierarchy-Reverse` and discards everything else.
-   - `AdoResponseMapper` (`src/Twig.Infrastructure/Ado/AdoResponseMapper.cs`): anti-corruption layer. `ExtractParentId()` filters for hierarchy-reverse relation and parses URL suffix. Non-hierarchy relations are ignored.
-   - `SqliteWorkItemRepository` (`src/Twig.Infrastructure/Persistence/SqliteWorkItemRepository.cs`): SQLite-backed repository. Schema version 4 with `work_items` table. `GetChildrenAsync(parentId)` executes `SELECT * FROM work_items WHERE parent_id = @parentId ORDER BY type, title` and returns `IReadOnlyList<WorkItem>` (full objects, not counts).
-   - `SqliteCacheStore` (`src/Twig.Infrastructure/Persistence/SqliteCacheStore.cs`): manages DB lifecycle, schema versioning (currently `SchemaVersion = 4`), WAL mode.
-   - `SyncCoordinator` (`src/Twig.Domain/Services/SyncCoordinator.cs`): coordinates sync between local cache and ADO. All writes go through `ProtectedCacheWriter` which wraps `IWorkItemRepository` with dirty-item protection logic via `SyncGuard`.
-   - `ProtectedCacheWriter` (`src/Twig.Domain/Services/ProtectedCacheWriter.cs`): wraps `IWorkItemRepository.SaveAsync`/`SaveBatchAsync` with dirty-item protection. Checks `SyncGuard.GetProtectedItemIdsAsync()` before every write to prevent overwriting locally-modified items.
+   - `AdoResponseMapper` (`src/Twig.Infrastructure/Ado/AdoResponseMapper.cs`): anti-corruption layer. `ExtractParentId()` filters for hierarchy-reverse relation and parses the work item ID from the URL suffix. Non-hierarchy relations are ignored.
+   - `SqliteWorkItemRepository` (`src/Twig.Infrastructure/Persistence/SqliteWorkItemRepository.cs`): SQLite-backed repository. `GetChildrenAsync(parentId)` executes `SELECT * FROM work_items WHERE parent_id = @parentId ORDER BY type, title` and returns `IReadOnlyList<WorkItem>` (full objects, not counts).
+   - `SqliteCacheStore` (`src/Twig.Infrastructure/Persistence/SqliteCacheStore.cs`): manages DB lifecycle, schema versioning (currently **`SchemaVersion = 5`**), WAL mode. Tables: `metadata`, `work_items`, `pending_changes`, `process_types`, `context`, `field_definitions`. `DropAllTables()` drops all six tables. `EnsureSchema()` drops + recreates all tables on version mismatch.
+   - `SyncCoordinator` (`src/Twig.Domain/Services/SyncCoordinator.cs`): coordinates sync between local cache and ADO. Constructor takes 4 parameters: `(IWorkItemRepository, IAdoWorkItemService, ProtectedCacheWriter, int cacheStaleMinutes)`. All writes go through `ProtectedCacheWriter` which wraps `IWorkItemRepository` with dirty-item protection logic via `SyncGuard`.
+   - `ProtectedCacheWriter` (`src/Twig.Domain/Services/ProtectedCacheWriter.cs`): wraps `IWorkItemRepository.SaveAsync`/`SaveBatchAsync` with dirty-item protection.
 
 3. **CLI Layer** (`Twig`)
-   - `TreeCommand` (`src/Twig/Commands/TreeCommand.cs`): orchestrates tree rendering. Resolves rendering pipeline (async Spectre vs. sync formatter), loads focused item + parent chain + children.
+   - `TreeCommand` (`src/Twig/Commands/TreeCommand.cs`): orchestrates tree rendering. Resolves rendering pipeline (async Spectre vs. sync formatter), loads focused item + parent chain + children, builds `WorkTree`, renders.
    - `SpectreRenderer` (`src/Twig/Rendering/SpectreRenderer.cs`): async Spectre.Console Live() rendering. `RenderTreeAsync()` builds tree progressively: parent chain → focused item → children. Uses `BuildSpectreTree()` to construct `Spectre.Console.Tree`.
-   - `HumanOutputFormatter` (`src/Twig/Formatters/HumanOutputFormatter.cs`): sync ANSI formatter. `FormatTree()` renders with box-drawing chars (├── └──), right-aligned state badges.
-   - `IAsyncRenderer` (`src/Twig/Rendering/IAsyncRenderer.cs`): interface for `RenderTreeAsync()`.
-   - `IOutputFormatter` (`src/Twig/Formatters/IOutputFormatter.cs`): interface for `FormatTree()`.
+   - `HumanOutputFormatter` (`src/Twig/Formatters/HumanOutputFormatter.cs`): sync ANSI formatter. `FormatTree()` renders with box-drawing chars (├── └──), right-aligned state badges via `AlignedLine` + `FlushAlignedLines()`.
+   - `IAsyncRenderer` (`src/Twig/Rendering/IAsyncRenderer.cs`): interface for `RenderTreeAsync()` — 6 parameters: `(getFocusedItem, getParentChain, getChildren, maxChildren, activeId, ct)`.
+   - `IOutputFormatter` (`src/Twig/Formatters/IOutputFormatter.cs`): interface with `FormatTree(WorkTree, maxChildren, activeId)`.
 
-4. **TUI Layer** (`Twig.Tui`)
-   - `src/Twig.Tui/`: Separate TUI project with its own test project. Does **not** reference `WorkTree` and is **unchanged** by this design.
+4. **TUI Layer** (`Twig.Tui`) — Separate project; does **not** reference `WorkTree`; **unchanged** by this design.
 
-5. **Test Coverage**
-   - `TreeCommandTests.cs`, `TreeCommandAsyncTests.cs`: test both sync/async paths, depth limiting, active markers, dirty indicators.
-   - `HumanOutputFormatterTests.cs`: tests box-drawing, state alignment, badge rendering.
-   - `AdoResponseMapperTests.cs`: tests ExtractParentId, MapWorkItem, MapPatchDocument.
+5. **DI Registration**
+   - `TwigServiceRegistration.cs` (`src/Twig.Infrastructure/TwigServiceRegistration.cs`): registers core services (repositories, stores, config).
+   - `CommandServiceModule.cs` (`src/Twig/DependencyInjection/CommandServiceModule.cs`): registers `SyncCoordinator` with explicit factory: `new SyncCoordinator(workItemRepo, adoService, protectedCacheWriter, cacheStaleMinutes)`.
+
+6. **Serialization** — `TwigJsonContext.cs` (`src/Twig.Infrastructure/Serialization/TwigJsonContext.cs`): AOT source-generated JSON context. All new DTO types must be registered here.
+
+7. **Test Infrastructure** — xUnit + NSubstitute + Shouldly. `WorkItemBuilder` in `tests/Twig.TestKit/` for fluent test data creation.
 
 ### Context
 
-- ADO REST API already returns all relations via `$expand=relations` — no additional API calls needed
-- ADO relation reference names: `System.LinkTypes.Related` (network topology), `System.LinkTypes.Dependency-Forward` (Successor), `System.LinkTypes.Dependency-Reverse` (Predecessor)
-- The `TreeCommand` currently calls `workItemRepo.GetChildrenAsync(parentId)` to compute children, which also provides a natural place to compute sibling counts
+- ADO REST API already returns all relations via `$expand=relations` — no additional API calls needed for new data
+- ADO relation reference names in REST API `rel` field: `System.LinkTypes.Related` (network), `System.LinkTypes.Dependency-Forward` (Successor), `System.LinkTypes.Dependency-Reverse` (Predecessor)
+- The `TreeCommand` currently calls `workItemRepo.GetChildrenAsync(parentId)` to compute children, providing a natural place to compute sibling counts
 
 ---
 
@@ -95,13 +97,13 @@ The `twig tree` command follows a four-layer architecture:
 | FR-7 | If the target item is not in cache, show ID only with "(not cached)" indicator |
 | FR-8 | Links section connected to tree via box-drawing lines |
 | FR-9 | Link data persisted in SQLite `work_item_links` table |
-| FR-10 | Schema version bumped from 4 to 5 (triggers clean rebuild) |
+| FR-10 | Schema version bumped from 5 to 6 (triggers clean rebuild) |
 
 ### Non-Functional
 
 | ID | Requirement |
 |----|------------|
-| NFR-1 | Link extraction uses existing `$expand=relations` ADO response. Link sync adds 1 API call per `twig tree` invocation (same endpoint, same response shape) — no new API surface |
+| NFR-1 | Link extraction uses existing `$expand=relations` ADO response — no new API surface. Link sync adds 1 API call per `twig tree` invocation (same endpoint, same response shape) |
 | NFR-2 | Sibling count computation reuses `GetChildrenAsync` returning full objects, with `.Count` for the count — no more than 1 query per parent chain node |
 | NFR-3 | AOT-compatible — no reflection-based serialization |
 
@@ -181,12 +183,12 @@ Add new `ExtractNonHierarchyLinks()` method alongside existing `ExtractParentId(
 internal static List<WorkItemLink> ExtractNonHierarchyLinks(int sourceId, List<AdoRelation>? relations)
 ```
 
-Maps ADO relation reference names:
+Maps ADO relation reference names from the REST API `rel` field:
 - `System.LinkTypes.Related` → "Related"
-- `System.LinkTypes.Dependency-Forward` → "Successor"  
+- `System.LinkTypes.Dependency-Forward` → "Successor"
 - `System.LinkTypes.Dependency-Reverse` → "Predecessor"
 
-Parses target work item ID from the relation URL suffix (same pattern as `ExtractParentId`).
+Parses target work item ID from the relation URL suffix (same pattern as `ExtractParentId` at line 137 of `AdoResponseMapper.cs`).
 
 Add overload `MapWorkItemWithLinks()` that returns `(WorkItem Item, IReadOnlyList<WorkItemLink> Links)`.
 
@@ -198,7 +200,7 @@ Add new method:
 Task<(WorkItem Item, IReadOnlyList<WorkItemLink> Links)> FetchWithLinksAsync(int id, CancellationToken ct = default);
 ```
 
-**Additive** — existing `FetchAsync` remains unchanged. `FetchWithLinksAsync` calls the same ADO endpoint but uses the new `MapWorkItemWithLinks` mapper. This avoids breaking the 19 production files and 38 test files that reference `IAdoWorkItemService`.
+**Additive** — existing `FetchAsync` remains unchanged. `FetchWithLinksAsync` calls the same ADO endpoint but uses the new `MapWorkItemWithLinks` mapper. This avoids breaking 7 existing methods on the interface and all their consumers across 19+ production files and 38+ test files.
 
 #### 4. `IWorkItemLinkRepository` (NEW Interface)
 
@@ -225,9 +227,9 @@ CREATE TABLE work_item_links (
 CREATE INDEX idx_work_item_links_source ON work_item_links(source_id);
 ```
 
-`SchemaVersion` bumped from 4 to 5. This triggers a full schema rebuild on next CLI invocation (existing behavior — `EnsureSchema()` drops + recreates all tables on version mismatch).
+`SchemaVersion` bumped from **5 to 6**. This triggers a full schema rebuild on next CLI invocation (existing behavior — `EnsureSchema()` drops + recreates all tables on version mismatch).
 
-`DropAllTables()` updated to include `"work_item_links"` in the tables array (currently: `["pending_changes", "work_items", "process_types", "context", "metadata"]`).
+`DropAllTables()` updated to include `"work_item_links"` in the tables array (currently: `["pending_changes", "work_items", "process_types", "context", "metadata", "field_definitions"]`).
 
 `SqliteWorkItemLinkRepository` implements `IWorkItemLinkRepository`:
 - `GetLinksAsync`: `SELECT * FROM work_item_links WHERE source_id = @id`
@@ -246,14 +248,16 @@ Update `Build()` factory to accept these:
 
 ```csharp
 public static WorkTree Build(
-    WorkItem focus, 
-    IReadOnlyList<WorkItem> parentChain, 
+    WorkItem focus,
+    IReadOnlyList<WorkItem> parentChain,
     IReadOnlyList<WorkItem> children,
     IReadOnlyDictionary<int, int?>? siblingCounts = null,
     IReadOnlyList<WorkItemLink>? focusedItemLinks = null)
 ```
 
-Default `null` parameters ensure backward compatibility with all 41 existing call sites (3 production in `TreeCommand.cs` + `NavigationCommands.cs`, 38 in tests across `WorkTreeTests.cs`, `HumanOutputFormatterTests.cs`, `JsonOutputFormatterTests.cs`, `MinimalOutputFormatterTests.cs`).
+Default `null` parameters ensure backward compatibility with all existing call sites:
+- **3 production**: `TreeCommand.cs` (line 101), `NavigationCommands.cs` (lines 47, ~80)
+- **~41 test call sites**: across `WorkTreeTests.cs` (14), `HumanOutputFormatterTests.cs` (16), `JsonOutputFormatterTests.cs` (5), `MinimalOutputFormatterTests.cs` (6)
 
 **Sibling count dictionary**: keys are work item IDs (from parent chain + focused item), values are `int?` — `null` means unknown (parent not in cache), `int` means known count.
 
@@ -283,8 +287,6 @@ foreach (var node in parentChain)
 // Focused item: siblings = children of focused item's parent
 if (item.ParentId.HasValue)
 {
-    // Note: item.ParentId is the last element of parentChain.
-    // We need GetChildrenAsync(item.ParentId) — NOT the children of the focused item.
     var focusedSiblings = await workItemRepo.GetChildrenAsync(item.ParentId.Value);
     siblingCounts[item.Id] = focusedSiblings.Count;
 }
@@ -294,7 +296,7 @@ else
 }
 ```
 
-**Note on `GetChildrenAsync` returning full objects**: The existing `GetChildrenAsync` returns `IReadOnlyList<WorkItem>` (full row hydration via `SELECT * FROM work_items WHERE parent_id = @parentId ORDER BY type, title`). We call `.Count` on the result. This is slightly wasteful compared to a `SELECT COUNT(*)` query, but acceptable because: (a) parent chains are typically 2–4 levels deep, (b) each query is ~1ms on indexed `parent_id`, (c) it avoids adding a new repository method for a single use case. If profiling reveals this as a bottleneck, a `GetChildCountAsync(parentId)` method can be added later.
+**Note on `GetChildrenAsync` returning full objects**: The existing `GetChildrenAsync` returns `IReadOnlyList<WorkItem>` (full row hydration). We call `.Count` on the result. This is slightly wasteful compared to a `SELECT COUNT(*)` query, but acceptable because: (a) parent chains are typically 2–4 levels deep, (b) each query is ~1ms on indexed `parent_id`, (c) it avoids adding a new repository method for a single use case.
 
 For the async path (`SpectreRenderer.RenderTreeAsync`), add new callback parameters:
 - `Func<int, Task<int?>> getSiblingCount` — given a work item ID, returns its sibling count
@@ -345,8 +347,8 @@ public async Task<IReadOnlyList<WorkItemLink>> SyncLinksAsync(int itemId, Cancel
 
 1. **Explicit production caller**: `TreeCommand.ExecuteAsync()` calls `SyncLinksAsync(focusedId)` — verified call chain exists.
 2. **Follows existing naming pattern**: sits alongside `SyncItemAsync`, `SyncWorkingSetAsync`, `SyncChildrenAsync`.
-3. **Single API call**: `FetchWithLinksAsync` hits the same ADO endpoint (`$expand=relations`) as existing `FetchAsync` — one HTTP round-trip fetches both the work item and its links.
-4. **Piggyback work-item refresh**: saves the fetched work item through `ProtectedCacheWriter` as a bonus refresh, which is harmless (idempotent) and may save a later stale-check fetch.
+3. **Single API call**: `FetchWithLinksAsync` hits the same ADO endpoint (`$expand=relations`) as existing `FetchAsync` — one HTTP round-trip.
+4. **Piggyback work-item refresh**: saves the fetched work item through `ProtectedCacheWriter` as a bonus refresh.
 5. **Direct link persistence**: Links bypass `ProtectedCacheWriter` because they have no dirty/pending semantics (per non-goal N4). `SyncCoordinator` injects `IWorkItemLinkRepository` directly.
 
 **TreeCommand integration** (sync path):
@@ -372,24 +374,32 @@ getLinks: async () =>
 }
 ```
 
-**Architectural decision**: `SyncCoordinator` writes work items through `ProtectedCacheWriter`, which wraps `IWorkItemRepository` with dirty-item protection via `SyncGuard`. Links, however, have **no dirty/pending semantics** — they are server-authoritative metadata that cannot be locally edited (per non-goal N4). Therefore, `SyncCoordinator` injects `IWorkItemLinkRepository` directly and calls `SaveLinksAsync()` without going through `ProtectedCacheWriter`.
+**SyncCoordinator constructor change**: Adds `IWorkItemLinkRepository` as a 5th constructor parameter. This affects:
+- 1 DI registration in `CommandServiceModule.cs` (line 44)
+- ~24 direct `new SyncCoordinator(...)` calls across ~18 test files (see grep count below)
 
-This is the correct approach because:
-1. `ProtectedCacheWriter` guards against overwriting locally-modified work item fields. Links have no local modification path.
-2. Creating a `ProtectedLinkWriter` analog would add complexity with no benefit — there are no dirty links to protect.
-3. Direct injection into `SyncCoordinator` follows the existing pattern where `SyncCoordinator` already holds `IWorkItemRepository` directly (for read operations like staleness checks) alongside `ProtectedCacheWriter` (for writes).
-
-```csharp
-public sealed class SyncCoordinator
-{
-    private readonly IWorkItemRepository _workItemRepo;
-    private readonly IAdoWorkItemService _adoService;
-    private readonly ProtectedCacheWriter _protectedCacheWriter;
-    private readonly IWorkItemLinkRepository _linkRepo;  // NEW
-    private readonly int _cacheStaleMinutes;
-    // ...
-}
-```
+Verified constructor call sites (from `grep 'new SyncCoordinator\('`):
+| File | Count |
+|------|-------|
+| `src/Twig/DependencyInjection/CommandServiceModule.cs` | 1 |
+| `tests/Twig.Cli.Tests/Rendering/CacheRefreshTests.cs` | 4 |
+| `tests/Twig.Cli.Tests/Commands/CacheFirstReadCommandTests.cs` | 1 |
+| `tests/Twig.Cli.Tests/Commands/CommandFormatterWiringTests.cs` | 3 |
+| `tests/Twig.Domain.Tests/Services/ProtectedCacheWriterTests.cs` | 1 |
+| `tests/Twig.Domain.Tests/Services/RefreshOrchestratorTests.cs` | 1 |
+| `tests/Twig.Domain.Tests/Services/StatusOrchestratorTests.cs` | 1 |
+| `tests/Twig.Domain.Tests/Services/SyncCoordinatorTests.cs` | 1 |
+| `tests/Twig.Cli.Tests/Commands/OfflineModeTests.cs` | 1 |
+| `tests/Twig.Cli.Tests/Commands/PromptStateIntegrationTests.cs` | 3 |
+| `tests/Twig.Cli.Tests/Commands/RefreshCommandTests.cs` | 1 |
+| `tests/Twig.Cli.Tests/Commands/RefreshDirtyGuardTests.cs` | 1 |
+| `tests/Twig.Cli.Tests/Commands/SetCommandDisambiguationTests.cs` | 1 |
+| `tests/Twig.Cli.Tests/Commands/SetCommandTests.cs` | 1 |
+| `tests/Twig.Cli.Tests/Commands/StatusCommandTests.cs` | 1 |
+| `tests/Twig.Cli.Tests/Commands/TreeCommandTests.cs` | 1 |
+| `tests/Twig.Cli.Tests/Commands/TreeNavCommandTests.cs` | 1 |
+| `tests/Twig.Cli.Tests/Commands/WorkingSetCommandTests.cs` | 1 |
+| **Total** | **~25** |
 
 **DI registration** (in `CommandServiceModule.cs`, line 44):
 ```csharp
@@ -445,15 +455,15 @@ TreeCommand.ExecuteAsync()
 
 | Decision | Rationale |
 |----------|-----------|
-| New `FetchWithLinksAsync` method instead of modifying `FetchAsync` | Additive change — avoids breaking 19 production files and 38 test files that reference `IAdoWorkItemService` |
+| New `FetchWithLinksAsync` method instead of modifying `FetchAsync` | Additive change — avoids breaking all production and test consumers of `IAdoWorkItemService` |
 | Separate `work_item_links` table instead of JSON column on `work_items` | Enables querying links by target (future), avoids deserializing all fields for link lookup |
-| Schema version bump (4→5) triggers full rebuild | Existing `SqliteCacheStore` behavior — simpler than ALTER TABLE migration for a local cache |
+| Schema version bump (5→6) triggers full rebuild | Existing `SqliteCacheStore` behavior — simpler than ALTER TABLE migration for a local cache |
 | `WorkItemLink` as value object, not entity | Links are identity-less tuples; they're replaced wholesale on each sync |
-| `WorkTree.Build()` default parameters | Backward compat — all 41 existing call sites (3 production + 38 test) don't need changes |
-| Sibling count via `GetChildrenAsync` on parent, using `.Count` | Reuses existing SQLite query returning `IReadOnlyList<WorkItem>` ordered by type, title — no new repository method. Slightly over-fetches (full objects vs count-only) but acceptable for 2–4 nodes at ~1ms each |
-| Only 3 link types (Related, Predecessor, Successor) | These are the standard ADO work link types; CMMI-specific and test types excluded per non-goal N3 |
-| New `SyncLinksAsync` method on `SyncCoordinator` | `SyncItemAsync` has zero production callers — all commands use `SyncWorkingSetAsync` or `ActiveItemResolver`. A new dedicated method with an explicit caller (`TreeCommand`) ensures links are actually persisted during `twig tree` usage. |
-| Link writes bypass `ProtectedCacheWriter` | Links have no dirty/pending semantics (N4: no editing). Direct `IWorkItemLinkRepository` injection into `SyncCoordinator` is correct — no protection needed |
+| `WorkTree.Build()` default parameters | Backward compat — all ~44 existing call sites don't need changes |
+| Sibling count via `GetChildrenAsync(parent).Count` | Reuses existing SQLite query — no new repository method. Over-fetches slightly but acceptable for 2–4 nodes at ~1ms each |
+| Only 3 link types (Related, Predecessor, Successor) | Standard ADO work link types; CMMI-specific and test types excluded per N3 |
+| New `SyncLinksAsync` method on `SyncCoordinator` | `SyncItemAsync` has zero production callers. A new dedicated method with an explicit `TreeCommand` caller ensures links are actually persisted |
+| Link writes bypass `ProtectedCacheWriter` | Links have no dirty/pending semantics (N4). Direct `IWorkItemLinkRepository` injection is correct |
 
 ---
 
@@ -462,7 +472,7 @@ TreeCommand.ExecuteAsync()
 ### Modifying `FetchAsync` Return Type
 **Option**: Change `FetchAsync` to return `(WorkItem, IReadOnlyList<WorkItemLink>)`.
 **Pros**: No new method.
-**Cons**: Breaks all 19 production consumers and 38 test files. Massive blast radius.
+**Cons**: Breaks all production consumers and test files. Massive blast radius.
 **Decision**: Rejected — additive `FetchWithLinksAsync` is safer.
 
 ### Storing Links on WorkItem Aggregate
@@ -471,35 +481,17 @@ TreeCommand.ExecuteAsync()
 **Cons**: Violates aggregate design (WorkItem is the aggregate root for *this* item, not its relations). Requires changing `MapRow()`, `SaveWorkItem()`, serialization. Bloats the aggregate with data only used by tree view.
 **Decision**: Rejected — separate repository and value object keeps concerns clean.
 
-### Computing Sibling Counts from Existing Children Data
-**Option**: Since we already fetch children of the focused item, could we derive sibling count?
-**Pros**: No additional queries.
-**Cons**: Children of focused item ≠ siblings of focused item. Siblings = children of focused item's *parent*. For parent chain nodes, we'd need separate queries anyway.
-**Decision**: Rejected — explicit `GetChildrenAsync(parentId)` queries needed for correct counts.
-
 ### Adding a `GetChildCountAsync` Repository Method
 **Option**: Add `Task<int> GetChildCountAsync(int parentId)` to `IWorkItemRepository` using `SELECT COUNT(*)`.
-**Pros**: More efficient — avoids hydrating full `WorkItem` objects just to get a count.
-**Cons**: Adds a new method to a widely-implemented interface for a marginal gain (~1ms per query with 2–4 queries). Increases surface area.
-**Decision**: Deferred — use `GetChildrenAsync(...).Count` for now. If profiling shows this matters, add the count-only method as a follow-up.
-
-### Routing Links Through ProtectedCacheWriter
-**Option**: Create a `ProtectedLinkWriter` analog or extend `ProtectedCacheWriter` to handle links.
-**Pros**: Consistent write path for all data.
-**Cons**: Links are server-authoritative and cannot be locally edited (N4). `SyncGuard` dirty-item protection adds overhead with zero benefit. `ProtectedCacheWriter` is designed around `IWorkItemRepository` — extending it for a separate repository type adds unnecessary coupling.
-**Decision**: Rejected — direct `IWorkItemLinkRepository` injection into `SyncCoordinator` is simpler and correct.
-
-### Persisting Links in SyncItemAsync
-**Option**: Modify `SyncItemAsync` to call `FetchWithLinksAsync` and `SaveLinksAsync` instead of `FetchAsync`.
-**Pros**: Minimal code change; sits alongside existing sync logic.
-**Cons**: `SyncItemAsync` has **zero production callers** — all commands use `SyncWorkingSetAsync()` (batch) or `ActiveItemResolver.ResolveByIdAsync()` (cache-first). Neither would invoke the modified method, meaning links would never be persisted during normal usage.
-**Decision**: Rejected — a new `SyncLinksAsync` method with an explicit `TreeCommand` call site is required.
+**Pros**: More efficient — avoids hydrating full `WorkItem` objects just for a count.
+**Cons**: Adds a new method to a widely-implemented interface for marginal gain (~1ms per query, 2–4 queries). Increases surface area.
+**Decision**: Deferred — use `GetChildrenAsync(...).Count` for now. Add count-only method if profiling warrants it.
 
 ### Piggybacking on SyncWorkingSetAsync
-**Option**: Modify `SyncWorkingSetAsync` to call `FetchWithLinksAsync` (or `MapWorkItemWithLinks`) instead of `FetchAsync` for stale items, persisting links for all re-fetched items during batch sync.
-**Pros**: No extra API call for the focused item when it's stale; links sync alongside work items.
-**Cons**: (1) Links are only needed for the focused item in tree view — extracting links for all working-set items is wasteful. (2) If the focused item is fresh (not stale), it won't be re-fetched, so links won't be captured. (3) Changes the batch sync return type and processing logic.
-**Decision**: Rejected — a dedicated `SyncLinksAsync` call for the focused item is simpler and always correct regardless of staleness state.
+**Option**: Modify `SyncWorkingSetAsync` to call `FetchWithLinksAsync` for stale items, persisting links for all re-fetched items during batch sync.
+**Pros**: No extra API call when focused item is stale.
+**Cons**: (1) Links are only needed for the focused item. (2) If the focused item is fresh, it won't be re-fetched, so links won't be captured. (3) Changes batch sync logic.
+**Decision**: Rejected — dedicated `SyncLinksAsync` is simpler and always correct regardless of staleness state.
 
 ---
 
@@ -510,7 +502,7 @@ TreeCommand.ExecuteAsync()
 - **Spectre.Console**: Already in use for tree rendering — no new packages
 
 ### Internal
-- `SqliteCacheStore` schema versioning (version 4 → 5)
+- `SqliteCacheStore` schema versioning (version 5 → 6)
 - `AdoResponseMapper` existing relation-parsing infrastructure (`ExtractParentId` pattern)
 - `SpectreRenderer.BuildSpectreTree()` internal method (needs extension)
 
@@ -528,36 +520,35 @@ TreeCommand.ExecuteAsync()
 | Component | Impact |
 |-----------|--------|
 | `WorkItem` aggregate | **Unchanged** — no modifications |
-| `WorkTree` read model | Extended with 2 optional properties (backward compatible) |
+| `WorkTree` read model | Extended with 2 optional properties (backward compatible via default params) |
 | `IAdoWorkItemService` | New method `FetchWithLinksAsync` (additive) |
 | `IWorkItemRepository` | **Unchanged** — existing `GetChildrenAsync` reused for sibling counts |
 | `AdoResponseMapper` | New methods `ExtractNonHierarchyLinks`, `MapWorkItemWithLinks` (additive) |
 | `AdoRestClient` | New `FetchWithLinksAsync` implementation |
-| `SqliteCacheStore` | Schema version 4→5, new `work_item_links` DDL, `DropAllTables` updated |
+| `SqliteCacheStore` | Schema version 5→6, new `work_item_links` DDL, `DropAllTables` updated |
 | `SqliteWorkItemLinkRepository` | **New** — implements `IWorkItemLinkRepository` |
-| `SyncCoordinator` | New `IWorkItemLinkRepository` dependency; new `SyncLinksAsync` method. Constructor change affects DI registration in `CommandServiceModule.cs` (line 44) and ~25 direct `new SyncCoordinator(...)` calls across 17 test files. |
+| `SyncCoordinator` | New `IWorkItemLinkRepository` dependency; new `SyncLinksAsync` method. Constructor gains 5th parameter — affects DI registration + ~25 test instantiations |
 | `ProtectedCacheWriter` | **Unchanged** — links bypass this component |
-| `TreeCommand` | Extended to call `SyncLinksAsync` (best-effort) for focused item, compute sibling counts, pass both to WorkTree and renderers |
-| `SpectreRenderer` | `RenderTreeAsync` extended with new callbacks |
-| `HumanOutputFormatter` | `FormatTree` extended to render sibling counts + links |
-| `IAsyncRenderer` | `RenderTreeAsync` signature extended with new parameters |
-| `IOutputFormatter` | **Unchanged** — `FormatTree` signature unchanged; WorkTree carries new data |
+| `TreeCommand` | Extended to call `SyncLinksAsync`, compute sibling counts, pass both to WorkTree and renderers |
+| `SpectreRenderer` | `RenderTreeAsync` extended with new callbacks for sibling counts + links |
+| `HumanOutputFormatter` | `FormatTree` extended to render sibling count lines + links section |
+| `IAsyncRenderer` | `RenderTreeAsync` signature extended (6 → 8 parameters) |
+| `IOutputFormatter` | **Unchanged** — `FormatTree` signature unchanged; `WorkTree` carries new data internally |
 | `JsonOutputFormatter` | May add links to JSON output (optional) |
 | `MinimalOutputFormatter` | **Unchanged** |
 | `Twig.Tui` | **Unchanged** — does not reference `WorkTree` |
 
 ### Backward Compatibility
-- `WorkTree.Build()` uses default parameters — **all 41 existing call sites unaffected** (3 production + 38 test)
+- `WorkTree.Build()` uses default parameters — **all ~44 existing call sites unaffected**
 - `IAdoWorkItemService.FetchAsync()` — **unchanged**
-- `IOutputFormatter.FormatTree()` — **unchanged signature** (WorkTree internal change)
-- `IAsyncRenderer.RenderTreeAsync()` — **breaking change** to interface, but only `SpectreRenderer` implements it. Tests use the concrete type.
+- `IOutputFormatter.FormatTree()` — **unchanged signature** (WorkTree internal change only)
+- `IAsyncRenderer.RenderTreeAsync()` — **breaking change** to interface, but only `SpectreRenderer` implements it
 - Schema version bump clears cache — acceptable for local dev tool
 
 ### Performance
-- Sibling count adds N calls to `GetChildrenAsync` per parent chain node (typically 2–4 nodes). Each call executes `SELECT * FROM work_items WHERE parent_id = @parentId ORDER BY type, title`, returning full `WorkItem` objects. We use `.Count` on the result. Each query is ~1ms on the indexed `parent_id` column. This over-fetches compared to a `SELECT COUNT(*)` but is acceptable for this use case.
-- Link sync adds 1 ADO API call per `twig tree` invocation — `FetchWithLinksAsync` hits the same `$expand=relations` endpoint as `FetchAsync`. This also piggybacks a work-item refresh.
-- Link loading from SQLite adds 1 query per tree render (only when reading from cache after initial sync)
-- No additional API calls beyond the 1 link sync call
+- Sibling count adds N calls to `GetChildrenAsync` per parent chain node (typically 2–4). Each is ~1ms on indexed `parent_id`. Slightly over-fetches vs `SELECT COUNT(*)` but acceptable.
+- Link sync adds 1 ADO API call per `twig tree` invocation — same `$expand=relations` endpoint (~200ms round-trip). Also piggybacks a work-item refresh.
+- Link loading from SQLite adds 1 indexed query per tree render
 
 ---
 
@@ -568,9 +559,8 @@ TreeCommand.ExecuteAsync()
 | Schema rebuild clears user cache | Medium | Low | Expected behavior; cache rebuilds on next `twig refresh`. Document in changelog. |
 | `IAsyncRenderer.RenderTreeAsync` signature change | Low | Medium | Only `SpectreRenderer` implements it. Update tests directly. |
 | Sibling count queries slow for deep trees | Low | Low | Parent chains are typically 2-4 levels. Query is indexed on `parent_id`. |
-| Future link types not supported | Low | Low | `ExtractNonHierarchyLinks` uses a whitelist; easy to extend. |
-| `SyncCoordinator` constructor change breaks tests | Medium | Medium | Constructor gains `IWorkItemLinkRepository` parameter. ~25 `new SyncCoordinator(...)` calls across 17 test files need updates. Use find-and-replace; pass a null/mock `IWorkItemLinkRepository`. Update DI registration in `CommandServiceModule.cs`. |
-| Link sync adds 1 extra API call per `twig tree` | Low | Low | Same endpoint as `FetchAsync` (`$expand=relations`). ~200ms round-trip. Acceptable for a CLI command. Piggybacks work-item refresh. |
+| `SyncCoordinator` constructor change breaks tests | Medium | Medium | ~25 `new SyncCoordinator(...)` calls across 18 test files need updates. Use find-and-replace; pass a `Substitute.For<IWorkItemLinkRepository>()`. |
+| Link sync adds 1 extra API call per `twig tree` | Low | Low | Same endpoint as `FetchAsync`. ~200ms. Best-effort — failures don't break tree rendering. |
 
 ---
 
@@ -593,7 +583,7 @@ TreeCommand.ExecuteAsync()
 **Exit Criteria**: `WorkTree` carries sibling counts, `TreeCommand` computes them, both renderers display `...N`/`...?` indicators, tests pass.
 
 ### Phase 3: Related Links Feature
-**Exit Criteria**: `SyncLinksAsync` wired in `SyncCoordinator` with explicit `TreeCommand` call site, `TreeCommand` loads links, both renderers display Links section, test `SyncCoordinator` constructors updated, tests pass.
+**Exit Criteria**: `SyncLinksAsync` wired in `SyncCoordinator` with explicit `TreeCommand` call site, `TreeCommand` loads links, both renderers display Links section, ~25 test `SyncCoordinator` constructors updated, tests pass.
 
 ---
 
@@ -619,9 +609,9 @@ TreeCommand.ExecuteAsync()
 | `src/Twig.Infrastructure/Ado/AdoRestClient.cs` | Add `FetchWithLinksAsync()` implementation |
 | `src/Twig.Domain/Interfaces/IAdoWorkItemService.cs` | Add `FetchWithLinksAsync()` method |
 | `src/Twig.Domain/ReadModels/WorkTree.cs` | Add `SiblingCounts`, `FocusedItemLinks` properties; update `Build()` |
-| `src/Twig.Infrastructure/Persistence/SqliteCacheStore.cs` | Bump `SchemaVersion` to 5, add `work_item_links` DDL + index, add `"work_item_links"` to `DropAllTables` |
+| `src/Twig.Infrastructure/Persistence/SqliteCacheStore.cs` | Bump `SchemaVersion` to 6, add `work_item_links` DDL + index, add `"work_item_links"` to `DropAllTables` array |
 | `src/Twig.Domain/Services/SyncCoordinator.cs` | Add `IWorkItemLinkRepository` constructor parameter; add `SyncLinksAsync` method |
-| `src/Twig/Commands/TreeCommand.cs` | Call `SyncLinksAsync` for focused item; load sibling counts; pass both to WorkTree.Build() and renderer |
+| `src/Twig/Commands/TreeCommand.cs` | Call `SyncLinksAsync` for focused item; compute sibling counts; pass both to `WorkTree.Build()` and renderer |
 | `src/Twig/Rendering/IAsyncRenderer.cs` | Extend `RenderTreeAsync()` with sibling count + links callbacks |
 | `src/Twig/Rendering/SpectreRenderer.cs` | Render sibling counts below nodes; render Links section |
 | `src/Twig/Formatters/HumanOutputFormatter.cs` | Render sibling count lines; render Links section |
@@ -639,7 +629,7 @@ TreeCommand.ExecuteAsync()
 
 ## Implementation Plan
 
-### Epic 1: Domain & Infrastructure Foundation
+### Epic 1: Domain & Infrastructure Foundation ✅ DONE
 
 **Goal**: Establish domain types, mapper extraction, SQLite persistence for work item links.
 
@@ -647,24 +637,24 @@ TreeCommand.ExecuteAsync()
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E1-T1 | IMPL | Create `WorkItemLink` value object and `LinkTypes` constants | `src/Twig.Domain/ValueObjects/WorkItemLink.cs` | TO DO |
-| E1-T2 | IMPL | Add `ExtractNonHierarchyLinks()` to `AdoResponseMapper` — parse Related, Predecessor, Successor from relations array | `src/Twig.Infrastructure/Ado/AdoResponseMapper.cs` | TO DO |
-| E1-T3 | TEST | Unit tests for `ExtractNonHierarchyLinks` — valid relations, empty, null, mixed types, URL parsing | `tests/Twig.Infrastructure.Tests/Ado/AdoResponseMapperLinkTests.cs` | TO DO |
-| E1-T4 | IMPL | Add `MapWorkItemWithLinks()` overload to `AdoResponseMapper` | `src/Twig.Infrastructure/Ado/AdoResponseMapper.cs` | TO DO |
-| E1-T5 | IMPL | Create `IWorkItemLinkRepository` interface | `src/Twig.Domain/Interfaces/IWorkItemLinkRepository.cs` | TO DO |
-| E1-T6 | IMPL | Bump `SqliteCacheStore.SchemaVersion` to 5, add `work_item_links` table DDL + index, add `"work_item_links"` to `DropAllTables` array | `src/Twig.Infrastructure/Persistence/SqliteCacheStore.cs` | TO DO |
-| E1-T7 | IMPL | Implement `SqliteWorkItemLinkRepository` (GetLinksAsync, SaveLinksAsync) | `src/Twig.Infrastructure/Persistence/SqliteWorkItemLinkRepository.cs` | TO DO |
-| E1-T8 | TEST | Integration tests for `SqliteWorkItemLinkRepository` — save/load/replace/empty | `tests/Twig.Infrastructure.Tests/Persistence/SqliteWorkItemLinkRepositoryTests.cs` | TO DO |
-| E1-T9 | IMPL | Add `FetchWithLinksAsync()` to `IAdoWorkItemService` and implement in `AdoRestClient` | `src/Twig.Domain/Interfaces/IAdoWorkItemService.cs`, `src/Twig.Infrastructure/Ado/AdoRestClient.cs` | TO DO |
-| E1-T10 | IMPL | Register `IWorkItemLinkRepository` in DI container | `src/Twig.Infrastructure/TwigServiceRegistration.cs` | TO DO |
+| E1-T1 | IMPL | Create `WorkItemLink` value object (`readonly record struct`) and `LinkTypes` constants class | `src/Twig.Domain/ValueObjects/WorkItemLink.cs` | DONE |
+| E1-T2 | IMPL | Add `ExtractNonHierarchyLinks()` to `AdoResponseMapper` — parse Related, Predecessor, Successor from relations array using same URL-suffix pattern as `ExtractParentId` | `src/Twig.Infrastructure/Ado/AdoResponseMapper.cs` | DONE |
+| E1-T3 | TEST | Unit tests for `ExtractNonHierarchyLinks` — valid relations, empty, null, mixed types, unrecognized types, URL parsing | `tests/Twig.Infrastructure.Tests/Ado/AdoResponseMapperLinkTests.cs` | DONE |
+| E1-T4 | IMPL | Add `MapWorkItemWithLinks()` overload to `AdoResponseMapper` — calls `MapWorkItem` + `ExtractNonHierarchyLinks` and returns tuple | `src/Twig.Infrastructure/Ado/AdoResponseMapper.cs` | DONE |
+| E1-T5 | IMPL | Create `IWorkItemLinkRepository` interface in domain | `src/Twig.Domain/Interfaces/IWorkItemLinkRepository.cs` | DONE |
+| E1-T6 | IMPL | Bump `SqliteCacheStore.SchemaVersion` from 5 to 6, add `work_item_links` table DDL + index to `Ddl` string, add `"work_item_links"` to `DropAllTables` array | `src/Twig.Infrastructure/Persistence/SqliteCacheStore.cs` | DONE |
+| E1-T7 | IMPL | Implement `SqliteWorkItemLinkRepository` — `GetLinksAsync` (SELECT), `SaveLinksAsync` (DELETE + INSERT in transaction) | `src/Twig.Infrastructure/Persistence/SqliteWorkItemLinkRepository.cs` | DONE |
+| E1-T8 | TEST | Integration tests for `SqliteWorkItemLinkRepository` — save/load/replace/empty/multiple sources | `tests/Twig.Infrastructure.Tests/Persistence/SqliteWorkItemLinkRepositoryTests.cs` | DONE |
+| E1-T9 | IMPL | Add `FetchWithLinksAsync()` to `IAdoWorkItemService` interface and implement in `AdoRestClient` — reuse same endpoint as `FetchAsync`, call `MapWorkItemWithLinks` | `src/Twig.Domain/Interfaces/IAdoWorkItemService.cs`, `src/Twig.Infrastructure/Ado/AdoRestClient.cs` | DONE |
+| E1-T10 | IMPL | Register `IWorkItemLinkRepository` → `SqliteWorkItemLinkRepository` in DI container | `src/Twig.Infrastructure/TwigServiceRegistration.cs` | DONE |
 
 **Acceptance Criteria**:
-- [ ] `WorkItemLink` value object compiles and is immutable
-- [ ] `ExtractNonHierarchyLinks` correctly parses Related, Predecessor, Successor from ADO relations
-- [ ] `SqliteWorkItemLinkRepository` round-trips links through SQLite
-- [ ] `FetchWithLinksAsync` returns both WorkItem and links from ADO response
-- [ ] Schema version 5 creates `work_item_links` table with correct indexes
-- [ ] All existing tests pass (no regressions)
+- [x] `WorkItemLink` value object compiles and is immutable
+- [x] `ExtractNonHierarchyLinks` correctly parses Related, Predecessor, Successor from ADO relations
+- [x] `SqliteWorkItemLinkRepository` round-trips links through SQLite
+- [x] `FetchWithLinksAsync` returns both WorkItem and links from ADO response
+- [x] Schema version 6 creates `work_item_links` table with correct indexes
+- [x] All existing tests pass (no regressions)
 
 ### Epic 2: Sibling Count Feature
 
@@ -674,20 +664,20 @@ TreeCommand.ExecuteAsync()
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E2-T1 | IMPL | Extend `WorkTree` with `SiblingCounts` dictionary property (optional, defaults to empty) | `src/Twig.Domain/ReadModels/WorkTree.cs` | TO DO |
+| E2-T1 | IMPL | Extend `WorkTree` with `SiblingCounts` dictionary property (`IReadOnlyDictionary<int, int?>`, optional, defaults to empty). Add as optional parameter to `Build()` | `src/Twig.Domain/ReadModels/WorkTree.cs` | TO DO |
 | E2-T2 | IMPL | In `TreeCommand` sync path: compute sibling counts via `GetChildrenAsync(node.ParentId).Count` for each parent chain node + focused item | `src/Twig/Commands/TreeCommand.cs` | TO DO |
 | E2-T3 | IMPL | Extend `IAsyncRenderer.RenderTreeAsync()` with `Func<int, Task<int?>> getSiblingCount` parameter | `src/Twig/Rendering/IAsyncRenderer.cs` | TO DO |
 | E2-T4 | IMPL | In `SpectreRenderer.RenderTreeAsync()`: after each parent node and focused node, add dimmed `...N` or `...?` text node | `src/Twig/Rendering/SpectreRenderer.cs` | TO DO |
-| E2-T5 | IMPL | In `HumanOutputFormatter.FormatTree()`: after each parent/focused line, emit dimmed `...N` or `...?` aligned line | `src/Twig/Formatters/HumanOutputFormatter.cs` | TO DO |
+| E2-T5 | IMPL | In `HumanOutputFormatter.FormatTree()`: after each parent/focused line, emit dimmed `...N` or `...?` at same indentation | `src/Twig/Formatters/HumanOutputFormatter.cs` | TO DO |
 | E2-T6 | IMPL | Update `TreeCommand` async path: pass sibling count callback wrapping `GetChildrenAsync` | `src/Twig/Commands/TreeCommand.cs` | TO DO |
-| E2-T7 | TEST | Tests for sibling count in `HumanOutputFormatter` — known count, unknown, root node | `tests/Twig.Cli.Tests/Formatters/TreeSiblingCountTests.cs` | TO DO |
+| E2-T7 | TEST | Tests for sibling count in `HumanOutputFormatter` — known count, unknown, root node, omitted when no sibling data | `tests/Twig.Cli.Tests/Formatters/TreeSiblingCountTests.cs` | TO DO |
 | E2-T8 | TEST | Tests for sibling count in `SpectreRenderer` — verify dimmed output | `tests/Twig.Cli.Tests/Commands/TreeCommandAsyncTests.cs` | TO DO |
 | E2-T9 | TEST | Test `WorkTree.Build()` backward compat — existing callers without sibling counts still work | `tests/Twig.Domain.Tests/ReadModels/WorkTreeTests.cs` | TO DO |
 
 **Acceptance Criteria**:
 - [ ] Each parent chain node shows `...N` (dimmed) below it in both renderers
 - [ ] Focused item shows sibling count below it
-- [ ] Root nodes (no parent) omit sibling count or show `...?`
+- [ ] Root nodes (no parent) omit sibling count
 - [ ] Existing `WorkTree.Build()` callers compile without changes
 - [ ] All existing tests pass
 
@@ -699,20 +689,20 @@ TreeCommand.ExecuteAsync()
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E3-T1 | IMPL | Extend `WorkTree` with `FocusedItemLinks` property (optional, defaults to empty list) | `src/Twig.Domain/ReadModels/WorkTree.cs` | TO DO |
-| E3-T2 | IMPL | Add `IWorkItemLinkRepository` constructor parameter to `SyncCoordinator`; implement `SyncLinksAsync(int itemId, ct)` — calls `FetchWithLinksAsync`, saves work item via `ProtectedCacheWriter`, saves links via `IWorkItemLinkRepository`, returns links | `src/Twig.Domain/Services/SyncCoordinator.cs` | TO DO |
+| E3-T1 | IMPL | Extend `WorkTree` with `FocusedItemLinks` property (`IReadOnlyList<WorkItemLink>`, optional, defaults to empty list). Add as optional parameter to `Build()` | `src/Twig.Domain/ReadModels/WorkTree.cs` | TO DO |
+| E3-T2 | IMPL | Add `IWorkItemLinkRepository` constructor parameter to `SyncCoordinator` (5th param); implement `SyncLinksAsync(int itemId, ct)` — calls `FetchWithLinksAsync`, saves work item via `ProtectedCacheWriter`, saves links via `IWorkItemLinkRepository`, returns links | `src/Twig.Domain/Services/SyncCoordinator.cs` | TO DO |
 | E3-T2b | IMPL | Update `SyncCoordinator` DI registration in `CommandServiceModule.cs` to pass `IWorkItemLinkRepository` | `src/Twig/DependencyInjection/CommandServiceModule.cs` | TO DO |
-| E3-T2c | TEST | Update ~25 `new SyncCoordinator(...)` calls across 17 test files to pass mock/null `IWorkItemLinkRepository` | Multiple test files | TO DO |
+| E3-T2c | TEST | Update ~25 `new SyncCoordinator(...)` calls across 18 test files to pass `Substitute.For<IWorkItemLinkRepository>()` as 5th argument | Multiple test files (see call site table above) | TO DO |
 | E3-T3 | IMPL | In `TreeCommand` sync path: call `syncCoordinator.SyncLinksAsync(focusedId)` (best-effort, wrapped in try/catch), pass returned links to `WorkTree.Build()` | `src/Twig/Commands/TreeCommand.cs` | TO DO |
 | E3-T4 | IMPL | Extend `IAsyncRenderer.RenderTreeAsync()` with `Func<Task<IReadOnlyList<WorkItemLink>>> getLinks` parameter | `src/Twig/Rendering/IAsyncRenderer.cs` | TO DO |
-| E3-T5 | IMPL | In `SpectreRenderer.RenderTreeAsync()`: after children, add Links section with box-drawing | `src/Twig/Rendering/SpectreRenderer.cs` | TO DO |
-| E3-T6 | IMPL | In `HumanOutputFormatter.FormatTree()`: after children, render Links section with box-drawing lines, right-aligned state | `src/Twig/Formatters/HumanOutputFormatter.cs` | TO DO |
+| E3-T5 | IMPL | In `SpectreRenderer.RenderTreeAsync()`: after children, add Links section with markup | `src/Twig/Rendering/SpectreRenderer.cs` | TO DO |
+| E3-T6 | IMPL | In `HumanOutputFormatter.FormatTree()`: after children, render Links section with box-drawing lines (┊ ╰── Links, ├──, └──), right-aligned state badges | `src/Twig/Formatters/HumanOutputFormatter.cs` | TO DO |
 | E3-T7 | IMPL | In `TreeCommand` async path: pass links callback wrapping `syncCoordinator.SyncLinksAsync(focusedId)` (best-effort, returns empty on failure) | `src/Twig/Commands/TreeCommand.cs` | TO DO |
 | E3-T8 | IMPL | Add links array to `JsonOutputFormatter.FormatTree()` output | `src/Twig/Formatters/JsonOutputFormatter.cs` | TO DO |
-| E3-T9 | TEST | Tests for `SyncLinksAsync` — verifies links are fetched, persisted, and returned; verifies work item is also saved via ProtectedCacheWriter | `tests/Twig.Domain.Tests/Services/SyncCoordinatorTests.cs` | TO DO |
+| E3-T9 | TEST | Tests for `SyncLinksAsync` — verifies links are fetched, persisted, and returned; verifies work item is also saved via `ProtectedCacheWriter` | `tests/Twig.Domain.Tests/Services/SyncCoordinatorTests.cs` | TO DO |
 | E3-T10 | TEST | Tests for Links section in `HumanOutputFormatter` — with/without links, target in cache, target not cached | `tests/Twig.Cli.Tests/Commands/TreeCommandLinkTests.cs` | TO DO |
 | E3-T11 | TEST | Tests for Links section in `SpectreRenderer` async path | `tests/Twig.Cli.Tests/Commands/TreeCommandAsyncTests.cs` | TO DO |
-| E3-T12 | TEST | End-to-end: TreeCommand with links — verify SyncLinksAsync is called, links flow through WorkTree to both renderers | `tests/Twig.Cli.Tests/Commands/TreeCommandLinkTests.cs` | TO DO |
+| E3-T12 | TEST | End-to-end: TreeCommand with links — verify `SyncLinksAsync` is called, links flow through WorkTree to both renderers | `tests/Twig.Cli.Tests/Commands/TreeCommandLinkTests.cs` | TO DO |
 
 **Acceptance Criteria**:
 - [ ] `SyncLinksAsync` fetches links from ADO, persists them, and returns them to caller
@@ -731,11 +721,15 @@ TreeCommand.ExecuteAsync()
 
 - [ADO REST API — Work Item Relation Types](https://learn.microsoft.com/en-us/rest/api/azure/devops/wit/work-item-relation-types/list?view=azure-devops-rest-7.1)
 - [ADO Link Types Reference](https://learn.microsoft.com/en-us/azure/devops/boards/queries/link-type-reference?view=azure-devops)
-- ADO relation reference names:
-  - `System.LinkTypes.Related` — Related (network topology)
+- ADO relation reference names (REST API `rel` field):
+  - `System.LinkTypes.Related` — Related (network topology, bidirectional)
   - `System.LinkTypes.Dependency-Forward` — Successor
   - `System.LinkTypes.Dependency-Reverse` — Predecessor
   - `System.LinkTypes.Hierarchy-Forward` — Child (already handled)
   - `System.LinkTypes.Hierarchy-Reverse` — Parent (already handled)
-- Existing codebase: `AdoResponseMapper.ExtractParentId()` at `src/Twig.Infrastructure/Ado/AdoResponseMapper.cs:123-147`
-- Existing schema: `SqliteCacheStore.Ddl` at `src/Twig.Infrastructure/Persistence/SqliteCacheStore.cs:125-181`
+- Existing codebase:
+  - `AdoResponseMapper.ExtractParentId()` at `src/Twig.Infrastructure/Ado/AdoResponseMapper.cs:123-147`
+  - `SqliteCacheStore.Ddl` at `src/Twig.Infrastructure/Persistence/SqliteCacheStore.cs:125-189`
+  - `SqliteCacheStore.SchemaVersion` = 5 at `src/Twig.Infrastructure/Persistence/SqliteCacheStore.cs:15`
+  - `SyncCoordinator` constructor at `src/Twig.Domain/Services/SyncCoordinator.cs:18-28`
+  - `CommandServiceModule` DI at `src/Twig/DependencyInjection/CommandServiceModule.cs:44-48`

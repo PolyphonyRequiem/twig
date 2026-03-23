@@ -1,6 +1,7 @@
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
 using Twig.Domain.Services;
+using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Infrastructure.Config;
 using Twig.Rendering;
@@ -84,6 +85,11 @@ public sealed class TreeCommand(
                     if (!parentId.HasValue) return null;
                     var siblings = await workItemRepo.GetChildrenAsync(parentId.Value, ct);
                     return siblings.Count;
+                },
+                getLinks: async () =>
+                {
+                    try { return await syncCoordinator.SyncLinksAsync(resolvedItem.Id, ct); }
+                    catch (Exception ex) when (ex is not OperationCanceledException) { return Array.Empty<WorkItemLink>(); }
                 });
 
             // Sync working set after cached render (EPIC-004) — best-effort
@@ -139,7 +145,15 @@ public sealed class TreeCommand(
             siblingCounts[item.Id] = null;
         }
 
-        var tree = WorkTree.Build(item, parentChain, children, siblingCounts);
+        // Fetch related links (best-effort)
+        IReadOnlyList<WorkItemLink> links = Array.Empty<WorkItemLink>();
+        try
+        {
+            links = await syncCoordinator.SyncLinksAsync(item.Id, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
+
+        var tree = WorkTree.Build(item, parentChain, children, siblingCounts, links);
 
         // EPIC-005: Load process config for unparented banner
         if (fmt is HumanOutputFormatter humanFmt)

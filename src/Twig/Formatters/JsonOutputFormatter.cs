@@ -77,6 +77,19 @@ public sealed class JsonOutputFormatter : IOutputFormatter
         writer.WriteEndArray();
 
         writer.WriteNumber("totalChildren", tree.Children.Count);
+
+        // Non-hierarchy links for the focused item
+        writer.WriteStartArray("links");
+        foreach (var link in tree.FocusedItemLinks)
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("sourceId", link.SourceId);
+            writer.WriteNumber("targetId", link.TargetId);
+            writer.WriteString("linkType", link.LinkType);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+
         writer.WriteEndObject();
 
         writer.Flush();

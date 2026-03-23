@@ -1,6 +1,7 @@
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Services;
+using Twig.Domain.ValueObjects;
 
 namespace Twig.Domain.ReadModels;
 
@@ -26,13 +27,20 @@ public sealed class WorkTree
     /// </summary>
     public IReadOnlyDictionary<int, int?>? SiblingCounts { get; }
 
+    /// <summary>
+    /// Non-hierarchy links (Related, Predecessor, Successor) for the focused item.
+    /// Empty when no links exist or links have not been fetched.
+    /// </summary>
+    public IReadOnlyList<WorkItemLink> FocusedItemLinks { get; }
+
     private WorkTree(WorkItem focusedItem, IReadOnlyList<WorkItem> parentChain, IReadOnlyList<WorkItem> children,
-        IReadOnlyDictionary<int, int?>? siblingCounts)
+        IReadOnlyDictionary<int, int?>? siblingCounts, IReadOnlyList<WorkItemLink> focusedItemLinks)
     {
         FocusedItem = focusedItem;
         ParentChain = parentChain;
         Children = children;
         SiblingCounts = siblingCounts;
+        FocusedItemLinks = focusedItemLinks;
     }
 
     /// <summary>
@@ -42,9 +50,11 @@ public sealed class WorkTree
         WorkItem focus,
         IReadOnlyList<WorkItem> parentChain,
         IReadOnlyList<WorkItem> children,
-        IReadOnlyDictionary<int, int?>? siblingCounts = null)
+        IReadOnlyDictionary<int, int?>? siblingCounts = null,
+        IReadOnlyList<WorkItemLink>? focusedItemLinks = null)
     {
-        return new WorkTree(focus, parentChain, children, siblingCounts);
+        return new WorkTree(focus, parentChain, children, siblingCounts,
+            focusedItemLinks ?? Array.Empty<WorkItemLink>());
     }
 
     /// <summary>

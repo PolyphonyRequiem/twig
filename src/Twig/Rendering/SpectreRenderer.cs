@@ -219,7 +219,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         int maxChildren,
         int? activeId,
         CancellationToken ct,
-        Func<int, Task<int?>>? getSiblingCount = null)
+        Func<int, Task<int?>>? getSiblingCount = null,
+        Func<Task<IReadOnlyList<Domain.ValueObjects.WorkItemLink>>>? getLinks = null)
     {
         // Stage 1: Load focused item and parent chain
         var focusedItem = await getFocusedItem();
@@ -274,6 +275,28 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                 {
                     focusContainer.AddNode($"[dim]... and {children.Count - maxChildren} more[/]");
                     ctx.Refresh();
+                }
+
+                // Links section — fetch and render non-hierarchy links for focused item
+                if (getLinks is not null)
+                {
+                    try
+                    {
+                        var links = await getLinks();
+                        if (links.Count > 0)
+                        {
+                            focusContainer.AddNode("[dim]┊[/]");
+                            var linksNode = focusContainer.AddNode("[dim]Links[/]");
+                            for (var li = 0; li < links.Count; li++)
+                            {
+                                var link = links[li];
+                                var linkLabel = $"[dim]{Markup.Escape(link.LinkType)}: #{link.TargetId}[/]";
+                                linksNode.AddNode(linkLabel);
+                            }
+                            ctx.Refresh();
+                        }
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort — don't fail tree rendering */ }
                 }
             });
     }

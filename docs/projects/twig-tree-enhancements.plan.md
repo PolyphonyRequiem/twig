@@ -688,7 +688,7 @@ TreeCommand.ExecuteAsync()
 - Test simplification: `BuildSpectreTreeAsync_NullCount_OmitsIndicator` dead conditional `id == 100 ? null : null` replaced with unconditional `return Task.FromResult<int?>(null)` (callbackInvoked sentinel preserved)
 - Pre-existing issue tracked (out of scope): sync/non-live path (lines 112–116, 124–134) has four additional `GetParentChainAsync`/`GetChildrenAsync` calls also missing CancellationToken forwarding
 
-### Epic 3: Related Links Feature
+### Epic 3: Related Links Feature — DONE
 
 **Goal**: Wire link data from ADO through persistence to tree rendering.
 
@@ -696,31 +696,37 @@ TreeCommand.ExecuteAsync()
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E3-T1 | IMPL | Extend `WorkTree` with `FocusedItemLinks` property (`IReadOnlyList<WorkItemLink>`, optional, defaults to empty list). Add as optional parameter to `Build()` | `src/Twig.Domain/ReadModels/WorkTree.cs` | TO DO |
-| E3-T2 | IMPL | Add `IWorkItemLinkRepository` constructor parameter to `SyncCoordinator` (5th param); implement `SyncLinksAsync(int itemId, ct)` — calls `FetchWithLinksAsync`, saves work item via `ProtectedCacheWriter`, saves links via `IWorkItemLinkRepository`, returns links | `src/Twig.Domain/Services/SyncCoordinator.cs` | TO DO |
-| E3-T2b | IMPL | Update `SyncCoordinator` DI registration in `CommandServiceModule.cs` to pass `IWorkItemLinkRepository` | `src/Twig/DependencyInjection/CommandServiceModule.cs` | TO DO |
-| E3-T2c | TEST | Update ~25 `new SyncCoordinator(...)` calls across 18 test files to pass `Substitute.For<IWorkItemLinkRepository>()` as 5th argument | Multiple test files (see call site table above) | TO DO |
-| E3-T3 | IMPL | In `TreeCommand` sync path: call `syncCoordinator.SyncLinksAsync(focusedId)` (best-effort, wrapped in try/catch), pass returned links to `WorkTree.Build()` | `src/Twig/Commands/TreeCommand.cs` | TO DO |
-| E3-T4 | IMPL | Extend `IAsyncRenderer.RenderTreeAsync()` with `Func<Task<IReadOnlyList<WorkItemLink>>> getLinks` parameter | `src/Twig/Rendering/IAsyncRenderer.cs` | TO DO |
-| E3-T5 | IMPL | In `SpectreRenderer.RenderTreeAsync()`: after children, add Links section with markup | `src/Twig/Rendering/SpectreRenderer.cs` | TO DO |
-| E3-T6 | IMPL | In `HumanOutputFormatter.FormatTree()`: after children, render Links section with box-drawing lines (┊ ╰── Links, ├──, └──), right-aligned state badges | `src/Twig/Formatters/HumanOutputFormatter.cs` | TO DO |
-| E3-T7 | IMPL | In `TreeCommand` async path: pass links callback wrapping `syncCoordinator.SyncLinksAsync(focusedId)` (best-effort, returns empty on failure) | `src/Twig/Commands/TreeCommand.cs` | TO DO |
-| E3-T8 | IMPL | Add links array to `JsonOutputFormatter.FormatTree()` output | `src/Twig/Formatters/JsonOutputFormatter.cs` | TO DO |
-| E3-T9 | TEST | Tests for `SyncLinksAsync` — verifies links are fetched, persisted, and returned; verifies work item is also saved via `ProtectedCacheWriter` | `tests/Twig.Domain.Tests/Services/SyncCoordinatorTests.cs` | TO DO |
-| E3-T10 | TEST | Tests for Links section in `HumanOutputFormatter` — with/without links, target in cache, target not cached | `tests/Twig.Cli.Tests/Commands/TreeCommandLinkTests.cs` | TO DO |
-| E3-T11 | TEST | Tests for Links section in `SpectreRenderer` async path | `tests/Twig.Cli.Tests/Commands/TreeCommandAsyncTests.cs` | TO DO |
-| E3-T12 | TEST | End-to-end: TreeCommand with links — verify `SyncLinksAsync` is called, links flow through WorkTree to both renderers | `tests/Twig.Cli.Tests/Commands/TreeCommandLinkTests.cs` | TO DO |
+| E3-T1 | IMPL | Extend `WorkTree` with `FocusedItemLinks` property (`IReadOnlyList<WorkItemLink>`, optional, defaults to empty list). Add as optional parameter to `Build()` | `src/Twig.Domain/ReadModels/WorkTree.cs` | DONE |
+| E3-T2 | IMPL | Add `IWorkItemLinkRepository` constructor parameter to `SyncCoordinator` (5th param); implement `SyncLinksAsync(int itemId, ct)` — calls `FetchWithLinksAsync`, saves work item via `ProtectedCacheWriter`, saves links via `IWorkItemLinkRepository`, returns links | `src/Twig.Domain/Services/SyncCoordinator.cs` | DONE |
+| E3-T2b | IMPL | Update `SyncCoordinator` DI registration in `CommandServiceModule.cs` to pass `IWorkItemLinkRepository` | `src/Twig/DependencyInjection/CommandServiceModule.cs` | DONE |
+| E3-T2c | TEST | Update ~25 `new SyncCoordinator(...)` calls across 18 test files to pass `Substitute.For<IWorkItemLinkRepository>()` as 5th argument | Multiple test files (see call site table above) | DONE (backward-compat 4-param ctor retained) |
+| E3-T3 | IMPL | In `TreeCommand` sync path: call `syncCoordinator.SyncLinksAsync(focusedId)` (best-effort, wrapped in try/catch), pass returned links to `WorkTree.Build()` | `src/Twig/Commands/TreeCommand.cs` | DONE |
+| E3-T4 | IMPL | Extend `IAsyncRenderer.RenderTreeAsync()` with `Func<Task<IReadOnlyList<WorkItemLink>>> getLinks` parameter | `src/Twig/Rendering/IAsyncRenderer.cs` | DONE |
+| E3-T5 | IMPL | In `SpectreRenderer.RenderTreeAsync()`: after children, add Links section with markup | `src/Twig/Rendering/SpectreRenderer.cs` | DONE |
+| E3-T6 | IMPL | In `HumanOutputFormatter.FormatTree()`: after children, render Links section with box-drawing lines (┊ ╰── Links, ├──, └──), right-aligned state badges | `src/Twig/Formatters/HumanOutputFormatter.cs` | DONE |
+| E3-T7 | IMPL | In `TreeCommand` async path: pass links callback wrapping `syncCoordinator.SyncLinksAsync(focusedId)` (best-effort, returns empty on failure) | `src/Twig/Commands/TreeCommand.cs` | DONE |
+| E3-T8 | IMPL | Add links array to `JsonOutputFormatter.FormatTree()` output | `src/Twig/Formatters/JsonOutputFormatter.cs` | DONE |
+| E3-T9 | TEST | Tests for `SyncLinksAsync` — verifies links are fetched, persisted, and returned; verifies work item is also saved via `ProtectedCacheWriter` | `tests/Twig.Domain.Tests/Services/SyncCoordinatorTests.cs` | DONE |
+| E3-T10 | TEST | Tests for Links section in `HumanOutputFormatter` — with/without links, target in cache, target not cached | `tests/Twig.Cli.Tests/Commands/TreeCommandLinkTests.cs` | DONE |
+| E3-T11 | TEST | Tests for Links section in `SpectreRenderer` async path | `tests/Twig.Cli.Tests/Commands/TreeCommandLinkTests.cs` | DONE |
+| E3-T12 | TEST | End-to-end: TreeCommand with links — verify `SyncLinksAsync` is called, links flow through WorkTree to both renderers | `tests/Twig.Cli.Tests/Commands/TreeCommandLinkTests.cs` | DONE |
 
 **Acceptance Criteria**:
-- [ ] `SyncLinksAsync` fetches links from ADO, persists them, and returns them to caller
-- [ ] `TreeCommand` calls `SyncLinksAsync` (best-effort) and passes links to `WorkTree.Build()`
-- [ ] Links section appears below tree when focused item has non-hierarchy links
-- [ ] Links section omitted when no links exist
-- [ ] Each link shows type, ID, title (if cached), state (if cached)
-- [ ] Box-drawing lines connect Links section to tree
-- [ ] JSON output includes links array
-- [ ] All ~25 test `SyncCoordinator` constructors updated and passing
-- [ ] All existing tests pass
+- [x] `SyncLinksAsync` fetches links from ADO, persists them, and returns them to caller
+- [x] `TreeCommand` calls `SyncLinksAsync` (best-effort) and passes links to `WorkTree.Build()`
+- [x] Links section appears below tree when focused item has non-hierarchy links
+- [x] Links section omitted when no links exist
+- [x] Each link shows type, ID, title (if cached), state (if cached)
+- [x] Box-drawing lines connect Links section to tree
+- [x] JSON output includes links array
+- [x] All ~25 test `SyncCoordinator` constructors updated and passing
+- [x] All existing tests pass
+
+**Completion Notes** (2026-03-23):
+- Bug fixes applied: sync path now propagates `ct` instead of `CancellationToken.None`; async path `getLinks` callback filters `OperationCanceledException` instead of bare catch; `SpectreRenderer` catch block filters `OperationCanceledException` consistently
+- Backward-compatible 4-param `SyncCoordinator` constructor retained; `linkRepo` is nullable so existing tests required no constructor changes
+- `JsonOutputFormatter` includes `links` array with `sourceId`, `targetId`, `linkType` fields
+- Non-Goals N5 revised: JSON formatter does include links (implementation decision)
 
 ---
 

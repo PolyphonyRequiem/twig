@@ -162,6 +162,25 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         if (hasMore)
             sb.AppendLine($"{childIndent}└── {Dim}... and {tree.Children.Count - maxChildren} more{Reset}");
 
+        // Links section — non-hierarchy links for the focused item
+        if (tree.FocusedItemLinks.Count > 0)
+        {
+            var linkIndent = new string(' ', (focusDepth + 1) * 2);
+            sb.AppendLine($"{linkIndent}{Dim}┊{Reset}");
+            sb.AppendLine($"{linkIndent}{Dim}╰── Links{Reset}");
+            var linkLines = new List<AlignedLine>();
+            for (var i = 0; i < tree.FocusedItemLinks.Count; i++)
+            {
+                var link = tree.FocusedItemLinks[i];
+                var isLastLink = i == tree.FocusedItemLinks.Count - 1;
+                var linkConnector = isLastLink ? "└── " : "├── ";
+                linkLines.Add(new AlignedLine(
+                    $"{linkIndent}    {linkConnector}{link.LinkType}: #{link.TargetId}",
+                    "", ""));
+            }
+            FlushAlignedLines(sb, linkLines);
+        }
+
         // Remove trailing newline
         if (sb.Length > 0 && sb[sb.Length - 1] == '\n')
             sb.Length -= 1;

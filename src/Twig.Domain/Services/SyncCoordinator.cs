@@ -1,5 +1,6 @@
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
+using Twig.Domain.ValueObjects;
 
 namespace Twig.Domain.Services;
 
@@ -13,7 +14,22 @@ public sealed class SyncCoordinator
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IAdoWorkItemService _adoService;
     private readonly ProtectedCacheWriter _protectedCacheWriter;
+    private readonly IWorkItemLinkRepository? _linkRepo;
     private readonly int _cacheStaleMinutes;
+
+    public SyncCoordinator(
+        IWorkItemRepository workItemRepo,
+        IAdoWorkItemService adoService,
+        ProtectedCacheWriter protectedCacheWriter,
+        IWorkItemLinkRepository linkRepo,
+        int cacheStaleMinutes)
+    {
+        _workItemRepo = workItemRepo;
+        _adoService = adoService;
+        _protectedCacheWriter = protectedCacheWriter;
+        _linkRepo = linkRepo;
+        _cacheStaleMinutes = cacheStaleMinutes;
+    }
 
     public SyncCoordinator(
         IWorkItemRepository workItemRepo,
@@ -148,5 +164,19 @@ public sealed class SyncCoordinator
         {
             return new SyncResult.Failed(ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Fetches a work item with its non-hierarchy links from ADO, persists both,
+    /// and returns the links. Requires <see cref="IWorkItemLinkRepository"/> to be
+    /// provided via the 5-parameter constructor.
+    /// </summary>
+    public async Task<IReadOnlyList<WorkItemLink>> SyncLinksAsync(int itemId, CancellationToken ct = default)
+    {
+        var (fetched, links) = await _adoService.FetchWithLinksAsync(itemId, ct);
+        await _protectedCacheWriter.SaveProtectedAsync(fetched, ct);
+        if (_linkRepo is not null)
+            await _linkRepo.SaveLinksAsync(itemId, links, ct);
+        return links;
     }
 }

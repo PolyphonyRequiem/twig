@@ -45,6 +45,7 @@ public static class CommandServiceModule
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IAdoWorkItemService>(),
             sp.GetRequiredService<ProtectedCacheWriter>(),
+            sp.GetRequiredService<IWorkItemLinkRepository>(),
             sp.GetRequiredService<TwigConfiguration>().Display.CacheStaleMinutes));
 
         // DD-02: WorkingSetService accepts string? userDisplayName primitive (same pattern)

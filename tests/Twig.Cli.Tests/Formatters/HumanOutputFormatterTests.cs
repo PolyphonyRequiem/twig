@@ -1404,4 +1404,122 @@ public class HumanOutputFormatterTests
 
         result.ShouldBeEmpty();
     }
+
+    // ── Effort display in tree (EPIC-007 E2-T10) ───────────────────
+
+    [Fact]
+    public void FormatTree_ChildWithStoryPoints_ShowsEffortInline()
+    {
+        var focus = CreateWorkItem(1, "Focus", "Active");
+        var child = CreateWorkItem(10, "Child Task", "New");
+        child.ImportFields(new Dictionary<string, string?>
+        {
+            ["Microsoft.VSTS.Scheduling.StoryPoints"] = "5",
+        });
+
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child });
+        var result = _formatter.FormatTree(tree, 10, null);
+
+        result.ShouldContain("(5 pts)");
+    }
+
+    [Fact]
+    public void FormatTree_ChildWithEffortField_ShowsEffortInline()
+    {
+        var focus = CreateWorkItem(1, "Focus", "Active");
+        var child = CreateWorkItem(10, "Scrum Task", "New");
+        child.ImportFields(new Dictionary<string, string?>
+        {
+            ["Microsoft.VSTS.Scheduling.Effort"] = "8",
+        });
+
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child });
+        var result = _formatter.FormatTree(tree, 10, null);
+
+        result.ShouldContain("(8 pts)");
+    }
+
+    [Fact]
+    public void FormatTree_ChildWithSizeField_ShowsEffortInline()
+    {
+        var focus = CreateWorkItem(1, "Focus", "Active");
+        var child = CreateWorkItem(10, "CMMI Task", "New");
+        child.ImportFields(new Dictionary<string, string?>
+        {
+            ["Microsoft.VSTS.Scheduling.Size"] = "3",
+        });
+
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child });
+        var result = _formatter.FormatTree(tree, 10, null);
+
+        result.ShouldContain("(3 pts)");
+    }
+
+    [Fact]
+    public void FormatTree_ChildWithoutEffort_NoEffortShown()
+    {
+        var focus = CreateWorkItem(1, "Focus", "Active");
+        var child = CreateWorkItem(10, "Plain Task", "New");
+
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child });
+        var result = _formatter.FormatTree(tree, 10, null);
+
+        result.ShouldNotContain("pts");
+    }
+
+    [Fact]
+    public void FormatTree_ChildWithEmptyEffort_NoEffortShown()
+    {
+        var focus = CreateWorkItem(1, "Focus", "Active");
+        var child = CreateWorkItem(10, "Empty Effort", "New");
+        child.ImportFields(new Dictionary<string, string?>
+        {
+            ["Microsoft.VSTS.Scheduling.StoryPoints"] = "",
+        });
+
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child });
+        var result = _formatter.FormatTree(tree, 10, null);
+
+        result.ShouldNotContain("pts");
+    }
+
+    // ── Extended fields in FormatWorkItem (EPIC-007 E2-T10) ─────────
+
+    [Fact]
+    public void FormatWorkItem_WithExtendedFields_ShowsExtendedSection()
+    {
+        var item = CreateWorkItem(1, "Extended Item", "Active");
+        item.ImportFields(new Dictionary<string, string?>
+        {
+            ["Microsoft.VSTS.Common.Priority"] = "2",
+            ["Microsoft.VSTS.Scheduling.StoryPoints"] = "5",
+        });
+
+        var fieldDefs = new FieldDefinition[]
+        {
+            new("Microsoft.VSTS.Common.Priority", "Priority", "integer", false),
+            new("Microsoft.VSTS.Scheduling.StoryPoints", "Story Points", "double", false),
+        };
+
+        var result = _formatter.FormatWorkItem(item, showDirty: false, fieldDefs);
+
+        result.ShouldContain("Extended");
+        result.ShouldContain("Priority");
+        result.ShouldContain("Story Points");
+    }
+
+    [Fact]
+    public void FormatWorkItem_NoFieldDefinitions_DeriveDisplayNames()
+    {
+        var item = CreateWorkItem(1, "Derive Names", "Active");
+        item.ImportFields(new Dictionary<string, string?>
+        {
+            ["Microsoft.VSTS.Common.Priority"] = "1",
+        });
+
+        var result = _formatter.FormatWorkItem(item, showDirty: false, fieldDefinitions: null);
+
+        result.ShouldContain("Priority");
+        result.ShouldContain("1");
+    }
 }

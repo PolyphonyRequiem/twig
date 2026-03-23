@@ -621,4 +621,125 @@ public class StatusCommandTests
         AreaPath = AreaPath.Parse("Project").Value,
     };
 
+    private static WorkItem CreateWorkItemWithFields(int id, string title, Dictionary<string, string?> fields)
+    {
+        var item = CreateWorkItem(id, title);
+        item.ImportFields(fields);
+        return item;
+    }
+
+    // ── Extended fields display (EPIC-007 E2-T6) ────────────────────
+
+    [Fact]
+    public async Task SpectreRenderer_RenderStatusAsync_ShowsExtendedFields()
+    {
+        var fields = new Dictionary<string, string?>
+        {
+            ["Microsoft.VSTS.Common.Priority"] = "2",
+            ["Microsoft.VSTS.Scheduling.StoryPoints"] = "5",
+            ["System.Tags"] = "backend, auth",
+        };
+        var item = CreateWorkItemWithFields(1, "Extended Item", fields);
+
+        var fieldDefs = new FieldDefinition[]
+        {
+            new("Microsoft.VSTS.Common.Priority", "Priority", "integer", false),
+            new("Microsoft.VSTS.Scheduling.StoryPoints", "Story Points", "double", false),
+            new("System.Tags", "Tags", "string", false),
+        };
+
+        await _spectreRenderer.RenderStatusAsync(
+            getItem: () => Task.FromResult<WorkItem?>(item),
+            getPendingChanges: () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>(
+                Array.Empty<PendingChangeRecord>()),
+            ct: CancellationToken.None,
+            fieldDefinitions: fieldDefs);
+
+        var output = _testConsole.Output;
+        output.ShouldContain("Priority");
+        output.ShouldContain("2");
+        output.ShouldContain("Story Points");
+        output.ShouldContain("5");
+        output.ShouldContain("Tags");
+        output.ShouldContain("backend, auth");
+    }
+
+    [Fact]
+    public async Task SpectreRenderer_RenderStatusAsync_NoFieldDefs_FallsBackToDerivedNames()
+    {
+        var fields = new Dictionary<string, string?>
+        {
+            ["Microsoft.VSTS.Common.Priority"] = "1",
+        };
+        var item = CreateWorkItemWithFields(1, "Fallback Item", fields);
+
+        await _spectreRenderer.RenderStatusAsync(
+            getItem: () => Task.FromResult<WorkItem?>(item),
+            getPendingChanges: () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>(
+                Array.Empty<PendingChangeRecord>()),
+            ct: CancellationToken.None,
+            fieldDefinitions: null);
+
+        var output = _testConsole.Output;
+        output.ShouldContain("Priority");
+        output.ShouldContain("1");
+    }
+
+    [Fact]
+    public async Task SpectreRenderer_RenderStatusAsync_SkipsCoreFields()
+    {
+        var fields = new Dictionary<string, string?>
+        {
+            ["System.Title"] = "Should not duplicate",
+            ["System.State"] = "New",
+            ["Microsoft.VSTS.Common.Priority"] = "3",
+        };
+        var item = CreateWorkItemWithFields(1, "Core Skip Item", fields);
+
+        await _spectreRenderer.RenderStatusAsync(
+            getItem: () => Task.FromResult<WorkItem?>(item),
+            getPendingChanges: () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>(
+                Array.Empty<PendingChangeRecord>()),
+            ct: CancellationToken.None);
+
+        var output = _testConsole.Output;
+        output.ShouldContain("Priority");
+        output.ShouldContain("3");
+    }
+
+    [Fact]
+    public void HumanOutputFormatter_FormatWorkItem_ShowsExtendedFields()
+    {
+        var fields = new Dictionary<string, string?>
+        {
+            ["Microsoft.VSTS.Common.Priority"] = "2",
+            ["Microsoft.VSTS.Scheduling.StoryPoints"] = "5",
+        };
+        var item = CreateWorkItemWithFields(1, "Extended Item", fields);
+        var fieldDefs = new FieldDefinition[]
+        {
+            new("Microsoft.VSTS.Common.Priority", "Priority", "integer", false),
+            new("Microsoft.VSTS.Scheduling.StoryPoints", "Story Points", "double", false),
+        };
+
+        var fmt = new HumanOutputFormatter();
+        var result = fmt.FormatWorkItem(item, showDirty: false, fieldDefs);
+
+        result.ShouldContain("Extended");
+        result.ShouldContain("Priority");
+        result.ShouldContain("2");
+        result.ShouldContain("Story Points");
+        result.ShouldContain("5");
+    }
+
+    [Fact]
+    public void HumanOutputFormatter_FormatWorkItem_NoFields_NoExtendedSection()
+    {
+        var item = CreateWorkItem(1, "Plain Item");
+        var fmt = new HumanOutputFormatter();
+        var result = fmt.FormatWorkItem(item, showDirty: false, fieldDefinitions: null);
+
+        result.ShouldNotContain("Extended");
+    }
+
 }

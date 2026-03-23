@@ -60,7 +60,8 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<Domain.Services.SyncCoordinator>(),
             sp.GetRequiredService<RenderingPipelineFactory>(),
             sp.GetService<IGitService>(),
-            sp.GetService<IAdoGitService>()));
+            sp.GetService<IAdoGitService>(),
+            sp.GetService<IFieldDefinitionStore>()));
         services.AddSingleton<StateCommand>(sp => new StateCommand(
             sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
             sp.GetRequiredService<IWorkItemRepository>(),

@@ -780,31 +780,33 @@ Introduce a `WorkItemFetchOrchestrator` that wraps `IAdoWorkItemService` and enr
 
 ---
 
-### Epic 2: CLI View Enhancements
+### Epic 2: CLI View Enhancements — DONE
 
 **Goal**: Surface enriched field data in workspace, sprint, status, and tree CLI views. Keep HumanOutputFormatter and SpectreRenderer in sync. Add process-agnostic effort display helper.
 
 **Prerequisites**: Epic 1
 
+**Completed**: 2026-03-23. All 10 tasks implemented and approved. 2442 passing tests. Reviewer confirmed solid, well-structured, backward-compatible implementation.
+
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E2-T1 | IMPL | Verify workspace/sprint dynamic columns work end-to-end with populated Fields — the existing ColumnResolver + SpectreRenderer pipeline should auto-activate via `WorkspaceCommand.ResolveDynamicColumnsAsync()`; fix any gaps in the Spectre or HumanOutputFormatter table rendering paths | `WorkspaceCommand.cs`, `SpectreRenderer.cs` | TO DO |
-| E2-T2 | TEST | Integration test: workspace command with items having populated Fields shows dynamic columns in output | `tests/Twig.Cli.Tests/Commands/WorkspaceCommandTests.cs` | TO DO |
-| E2-T3 | IMPL | Enhance `HumanOutputFormatter.FormatWorkItem()` to append populated Fields with display_name labels after core fields. Accept optional `IReadOnlyList<FieldDefinition>?` parameter for display name resolution, falling back to `ColumnResolver.DeriveDisplayName()`. Format values using `FormatterHelpers.FormatFieldValue()` with increased `maxWidth` for status display. | `src/Twig/Formatters/HumanOutputFormatter.cs` | TO DO |
-| E2-T4 | IMPL | Enhance `SpectreRenderer.RenderStatusAsync()` to iterate all populated `item.Fields` entries (beyond the existing Description/History/Tags) and add them as labeled rows in the detail grid. Use field definitions for display names. | `src/Twig/Rendering/SpectreRenderer.cs` | TO DO |
-| E2-T5 | IMPL | Load field definitions in `StatusCommand`, pass to both sync path (`FormatWorkItem`) and async path (`RenderStatusAsync`) for display_name resolution. `StatusCommand` already has access to formatter and renderer. | `src/Twig/Commands/StatusCommand.cs` | TO DO |
-| E2-T6 | TEST | Status command tests: verify extended fields appear in both sync and async output with correct display names | `tests/Twig.Cli.Tests/Commands/StatusCommandTests.cs` | TO DO |
-| E2-T7 | IMPL | Add `GetEffortDisplay(WorkItem)` helper to `FormatterHelpers` using suffix matching (StoryPoints/Effort/Size) for process-agnostic effort detection. Returns formatted string or null. | `src/Twig/Formatters/FormatterHelpers.cs` | TO DO |
-| E2-T8 | IMPL | Enhance `HumanOutputFormatter.FormatTree()` child nodes to show effort inline after state badge when `GetEffortDisplay()` returns non-null | `src/Twig/Formatters/HumanOutputFormatter.cs` | TO DO |
-| E2-T9 | IMPL | Enhance `SpectreRenderer.RenderTreeAsync()` child node labels (line 269) to show effort inline after state badge using `GetEffortDisplay()` | `src/Twig/Rendering/SpectreRenderer.cs` | TO DO |
-| E2-T10 | TEST | Tree view tests: verify effort appears inline when available, absent when not, across both formatters | `tests/Twig.Cli.Tests/Commands/TreeCommandTests.cs`, `tests/Twig.Cli.Tests/Formatters/HumanOutputFormatterTests.cs` | TO DO |
+| E2-T1 | IMPL | Verify workspace/sprint dynamic columns work end-to-end with populated Fields — the existing ColumnResolver + SpectreRenderer pipeline should auto-activate via `WorkspaceCommand.ResolveDynamicColumnsAsync()`; fix any gaps in the Spectre or HumanOutputFormatter table rendering paths | `WorkspaceCommand.cs`, `SpectreRenderer.cs` | DONE |
+| E2-T2 | TEST | Integration test: workspace command with items having populated Fields shows dynamic columns in output | `tests/Twig.Cli.Tests/Commands/WorkspaceCommandTests.cs` | DONE |
+| E2-T3 | IMPL | Enhance `HumanOutputFormatter.FormatWorkItem()` to append populated Fields with display_name labels after core fields. Accept optional `IReadOnlyList<FieldDefinition>?` parameter for display name resolution, falling back to `ColumnResolver.DeriveDisplayName()`. Format values using `FormatterHelpers.FormatFieldValue()` with increased `maxWidth` for status display. | `src/Twig/Formatters/HumanOutputFormatter.cs` | DONE |
+| E2-T4 | IMPL | Enhance `SpectreRenderer.RenderStatusAsync()` to iterate all populated `item.Fields` entries (beyond the existing Description/History/Tags) and add them as labeled rows in the detail grid. Use field definitions for display names. | `src/Twig/Rendering/SpectreRenderer.cs` | DONE |
+| E2-T5 | IMPL | Load field definitions in `StatusCommand`, pass to both sync path (`FormatWorkItem`) and async path (`RenderStatusAsync`) for display_name resolution. `StatusCommand` already has access to formatter and renderer. | `src/Twig/Commands/StatusCommand.cs` | DONE |
+| E2-T6 | TEST | Status command tests: verify extended fields appear in both sync and async output with correct display names | `tests/Twig.Cli.Tests/Commands/StatusCommandTests.cs` | DONE |
+| E2-T7 | IMPL | Add `GetEffortDisplay(WorkItem)` helper to `FormatterHelpers` using suffix matching (StoryPoints/Effort/Size) for process-agnostic effort detection. Returns formatted string or null. | `src/Twig/Formatters/FormatterHelpers.cs` | DONE |
+| E2-T8 | IMPL | Enhance `HumanOutputFormatter.FormatTree()` child nodes to show effort inline after state badge when `GetEffortDisplay()` returns non-null | `src/Twig/Formatters/HumanOutputFormatter.cs` | DONE |
+| E2-T9 | IMPL | Enhance `SpectreRenderer.RenderTreeAsync()` child node labels (line 269) to show effort inline after state badge using `GetEffortDisplay()` | `src/Twig/Rendering/SpectreRenderer.cs` | DONE |
+| E2-T10 | TEST | Tree view tests: verify effort appears inline when available, absent when not, across both formatters | `tests/Twig.Cli.Tests/Commands/TreeCommandTests.cs`, `tests/Twig.Cli.Tests/Formatters/HumanOutputFormatterTests.cs` | DONE |
 
 **Acceptance Criteria**:
-- [ ] `twig workspace` shows dynamic columns when items have >40% fill rate on extended fields
-- [ ] `twig status` displays all populated Fields with display_name labels
-- [ ] `twig tree` shows effort/points inline after state badge when available
-- [ ] HumanOutputFormatter and SpectreRenderer produce equivalent enriched output
-- [ ] JSON and Minimal formatters handle extended fields gracefully (no crashes)
+- [x] `twig workspace` shows dynamic columns when items have >40% fill rate on extended fields
+- [x] `twig status` displays all populated Fields with display_name labels
+- [x] `twig tree` shows effort/points inline after state badge when available
+- [x] HumanOutputFormatter and SpectreRenderer produce equivalent enriched output
+- [x] JSON and Minimal formatters handle extended fields gracefully (no crashes)
 
 ---
 

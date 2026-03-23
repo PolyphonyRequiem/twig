@@ -58,6 +58,11 @@ public sealed class HumanOutputFormatter : IOutputFormatter
 
     public string FormatWorkItem(WorkItem item, bool showDirty)
     {
+        return FormatWorkItem(item, showDirty, fieldDefinitions: null);
+    }
+
+    public string FormatWorkItem(WorkItem item, bool showDirty, IReadOnlyList<FieldDefinition>? fieldDefinitions)
+    {
         var sb = new StringBuilder();
         var stateColor = GetStateColor(item.State);
         var dirty = showDirty && item.IsDirty ? $" {Yellow}•{Reset}" : "";
@@ -70,6 +75,29 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         sb.AppendLine($"  Assigned:  {item.AssignedTo ?? "(unassigned)"}");
         sb.AppendLine($"  Area:      {item.AreaPath}");
         sb.Append($"  Iteration: {item.IterationPath}");
+
+        // Extended fields section — append populated Fields with display names
+        if (item.Fields.Count > 0)
+        {
+            var defLookup = BuildFieldDefinitionLookup(fieldDefinitions);
+            var extendedFields = GetExtendedFields(item, defLookup);
+            if (extendedFields.Count > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine($"  {Dim}── Extended ──────────────────{Reset}");
+                foreach (var (displayName, value) in extendedFields)
+                {
+                    var label = displayName + ":";
+                    var padding = Math.Max(1, 13 - label.Length);
+                    sb.AppendLine($"  {label}{new string(' ', padding)}{value}");
+                }
+                // Remove trailing newline from last AppendLine
+                if (sb.Length > 0 && sb[sb.Length - 1] == '\n')
+                    sb.Length -= 1;
+                if (sb.Length > 0 && sb[sb.Length - 1] == '\r')
+                    sb.Length -= 1;
+            }
+        }
 
         return sb.ToString();
     }
@@ -152,9 +180,11 @@ public sealed class HumanOutputFormatter : IOutputFormatter
             var childTypeColor = GetTypeColor(child.Type);
             var childBadge = GetTypeBadge(child.Type);
             var activeMarker = (activeId.HasValue && child.Id == activeId.Value) ? $"{Cyan}●{Reset} " : "";
+            var effort = FormatterHelpers.GetEffortDisplay(child);
+            var effortSuffix = effort is not null ? $" {Dim}{effort}{Reset}" : "";
             lines.Add(new AlignedLine(
                 $"{childIndent}{connector}{activeMarker}{childTypeColor}{childBadge}{Reset} #{child.Id} {child.Title}",
-                $"[{childStateColor}{child.State}{Reset}]", dirty));
+                $"[{childStateColor}{child.State}{Reset}]{effortSuffix}", dirty));
         }
 
         FlushAlignedLines(sb, lines);
@@ -866,6 +896,51 @@ public sealed class HumanOutputFormatter : IOutputFormatter
     {
         try { return Console.WindowWidth; }
         catch (Exception) { return 120; }
+    }
+
+    // Core fields excluded from extended display (already shown as dedicated lines)
+    private static readonly HashSet<string> CoreFieldPrefixes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "System.Id", "System.WorkItemType", "System.Title", "System.State",
+        "System.AssignedTo", "System.IterationPath", "System.AreaPath",
+        "System.Rev", "System.TeamProject",
+    };
+
+    private static Dictionary<string, FieldDefinition> BuildFieldDefinitionLookup(
+        IReadOnlyList<FieldDefinition>? definitions)
+    {
+        var lookup = new Dictionary<string, FieldDefinition>(StringComparer.OrdinalIgnoreCase);
+        if (definitions is not null)
+        {
+            foreach (var def in definitions)
+                lookup[def.ReferenceName] = def;
+        }
+        return lookup;
+    }
+
+    private static List<(string DisplayName, string Value)> GetExtendedFields(
+        WorkItem item, Dictionary<string, FieldDefinition> defLookup)
+    {
+        var result = new List<(string, string)>();
+
+        foreach (var kvp in item.Fields)
+        {
+            if (string.IsNullOrWhiteSpace(kvp.Value))
+                continue;
+            if (CoreFieldPrefixes.Contains(kvp.Key))
+                continue;
+
+            var displayName = defLookup.TryGetValue(kvp.Key, out var def)
+                ? def.DisplayName
+                : ColumnResolver.DeriveDisplayName(kvp.Key);
+            var dataType = def?.DataType ?? "string";
+            var formatted = FormatterHelpers.FormatFieldValue(kvp.Value, dataType, maxWidth: 60);
+
+            if (!string.IsNullOrWhiteSpace(formatted))
+                result.Add((displayName, formatted));
+        }
+
+        return result;
     }
 
 }

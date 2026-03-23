@@ -266,7 +266,9 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                     var activeMarker = (activeId.HasValue && child.Id == activeId.Value)
                         ? "[aqua]●[/] " : "";
                     var dirty = child.IsDirty ? " [yellow]•[/]" : "";
-                    var label = $"{activeMarker}{_theme.FormatTypeBadge(child.Type)} #{child.Id} {Markup.Escape(child.Title)}{dirty} {_theme.FormatState(child.State)}";
+                    var effort = Formatters.FormatterHelpers.GetEffortDisplay(child);
+                    var effortSuffix = effort is not null ? $" [dim]{Markup.Escape(effort)}[/]" : "";
+                    var label = $"{activeMarker}{_theme.FormatTypeBadge(child.Type)} #{child.Id} {Markup.Escape(child.Title)}{dirty} {_theme.FormatState(child.State)}{effortSuffix}";
                     focusContainer.AddNode(label);
                     ctx.Refresh();
                 }
@@ -377,7 +379,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     public async Task RenderStatusAsync(
         Func<Task<WorkItem?>> getItem,
         Func<Task<IReadOnlyList<PendingChangeRecord>>> getPendingChanges,
-        CancellationToken ct)
+        CancellationToken ct,
+        IReadOnlyList<Domain.ValueObjects.FieldDefinition>? fieldDefinitions = null)
     {
         var item = await getItem();
         if (item is null)
@@ -398,6 +401,9 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         itemGrid.AddRow("[dim]Assigned:[/]", Markup.Escape(item.AssignedTo ?? "(unassigned)"));
         itemGrid.AddRow("[dim]Area:[/]", Markup.Escape(item.AreaPath.ToString()));
         itemGrid.AddRow("[dim]Iteration:[/]", Markup.Escape(item.IterationPath.ToString()));
+
+        // Extended fields from the Fields dictionary
+        AddExtendedFieldRows(itemGrid, item, fieldDefinitions);
 
         var itemPanel = new Panel(itemGrid)
             .Header($"[bold]#{item.Id} {Markup.Escape(item.Title)}[/]{dirty}")
@@ -494,6 +500,56 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                     ctx.Refresh();
                 }
             });
+    }
+
+    // Core fields excluded from extended display (already shown as dedicated rows)
+    private static readonly HashSet<string> CoreFields = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "System.Id", "System.WorkItemType", "System.Title", "System.State",
+        "System.AssignedTo", "System.IterationPath", "System.AreaPath",
+        "System.Rev", "System.TeamProject",
+    };
+
+    /// <summary>
+    /// Adds extended field rows to a grid for status display.
+    /// Shows populated Fields with display names resolved from field definitions.
+    /// </summary>
+    private static void AddExtendedFieldRows(
+        Grid grid, WorkItem item,
+        IReadOnlyList<Domain.ValueObjects.FieldDefinition>? fieldDefinitions)
+    {
+        if (item.Fields.Count == 0)
+            return;
+
+        var defLookup = new Dictionary<string, Domain.ValueObjects.FieldDefinition>(StringComparer.OrdinalIgnoreCase);
+        if (fieldDefinitions is not null)
+        {
+            foreach (var def in fieldDefinitions)
+                defLookup[def.ReferenceName] = def;
+        }
+
+        var count = 0;
+        foreach (var kvp in item.Fields)
+        {
+            if (string.IsNullOrWhiteSpace(kvp.Value))
+                continue;
+            if (CoreFields.Contains(kvp.Key))
+                continue;
+            if (count >= 10)
+                break;
+
+            var displayName = defLookup.TryGetValue(kvp.Key, out var def)
+                ? def.DisplayName
+                : Domain.Services.ColumnResolver.DeriveDisplayName(kvp.Key);
+            var dataType = def?.DataType ?? "string";
+            var formatted = Formatters.FormatterHelpers.FormatFieldValue(kvp.Value, dataType, maxWidth: 60);
+
+            if (!string.IsNullOrWhiteSpace(formatted))
+            {
+                grid.AddRow($"[dim]{Markup.Escape(displayName)}:[/]", Markup.Escape(formatted));
+                count++;
+            }
+        }
     }
 
     /// <summary>

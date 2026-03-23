@@ -26,6 +26,7 @@ public sealed class StatusCommand(
     RenderingPipelineFactory? pipelineFactory = null,
     IGitService? gitService = null,
     IAdoGitService? adoGitService = null,
+    IFieldDefinitionStore? fieldDefinitionStore = null,
     TextWriter? stderr = null)
 {
     private readonly TextWriter _stderr = stderr ?? Console.Error;
@@ -70,11 +71,17 @@ public sealed class StatusCommand(
 
         if (renderer is not null)
         {
+            // Load field definitions for display name resolution (best-effort)
+            var fieldDefs = fieldDefinitionStore is not null
+                ? await fieldDefinitionStore.GetAllAsync(ct)
+                : null;
+
             // Async progressive rendering path — dashboard layout via SpectreRenderer
             await renderer.RenderStatusAsync(
                 getItem: () => Task.FromResult<Domain.Aggregates.WorkItem?>(item),
                 getPendingChanges: () => pendingChangeStore.GetChangesAsync(item.Id),
-                ct: CancellationToken.None);
+                ct: CancellationToken.None,
+                fieldDefinitions: fieldDefs);
 
             // Sync working set after cached render (EPIC-004) — best-effort
             try
@@ -118,7 +125,17 @@ public sealed class StatusCommand(
         var summary = fmt.FormatStatusSummary(item);
         if (!string.IsNullOrEmpty(summary))
             Console.WriteLine(summary);
-        Console.WriteLine(fmt.FormatWorkItem(item, showDirty: true));
+
+        // Load field definitions for display name resolution (sync path, best-effort)
+        var syncFieldDefs = fieldDefinitionStore is not null
+            ? await fieldDefinitionStore.GetAllAsync(ct)
+            : null;
+
+        // Use overload with field definitions when formatter supports it
+        if (fmt is HumanOutputFormatter humanFmt)
+            Console.WriteLine(humanFmt.FormatWorkItem(item, showDirty: true, syncFieldDefs));
+        else
+            Console.WriteLine(fmt.FormatWorkItem(item, showDirty: true));
 
         // Git context enrichment (EPIC-006) — additive, never changes existing behavior
         await WriteGitContextAsync(fmt);

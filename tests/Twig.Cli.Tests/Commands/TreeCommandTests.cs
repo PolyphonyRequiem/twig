@@ -509,4 +509,52 @@ public class TreeCommandTests
         };
     }
 
+    private static WorkItem CreateWorkItemWithEffort(int id, string title, string effortValue, int? parentId = null)
+    {
+        var item = CreateWorkItem(id, title, parentId);
+        item.ImportFields(new Dictionary<string, string?>
+        {
+            ["Microsoft.VSTS.Scheduling.StoryPoints"] = effortValue,
+        });
+        return item;
+    }
+
+    // ── Effort display in tree (EPIC-007 E2-T10) ───────────────────
+
+    [Fact]
+    public async Task SpectreRenderer_RenderTreeAsync_ChildWithEffort_ShowsPts()
+    {
+        var focus = CreateWorkItem(1, "Focus", parentId: null);
+        var child = CreateWorkItemWithEffort(10, "Child With Points", "5", parentId: 1);
+
+        await _spectreRenderer.RenderTreeAsync(
+            getFocusedItem: () => Task.FromResult<WorkItem?>(focus),
+            getParentChain: () => Task.FromResult<IReadOnlyList<WorkItem>>(Array.Empty<WorkItem>()),
+            getChildren: () => Task.FromResult<IReadOnlyList<WorkItem>>(new[] { child }),
+            maxChildren: 10,
+            activeId: null,
+            ct: CancellationToken.None);
+
+        var output = _testConsole.Output;
+        output.ShouldContain("(5 pts)");
+    }
+
+    [Fact]
+    public async Task SpectreRenderer_RenderTreeAsync_ChildWithoutEffort_NoPts()
+    {
+        var focus = CreateWorkItem(1, "Focus", parentId: null);
+        var child = CreateWorkItem(10, "Child No Points", parentId: 1);
+
+        await _spectreRenderer.RenderTreeAsync(
+            getFocusedItem: () => Task.FromResult<WorkItem?>(focus),
+            getParentChain: () => Task.FromResult<IReadOnlyList<WorkItem>>(Array.Empty<WorkItem>()),
+            getChildren: () => Task.FromResult<IReadOnlyList<WorkItem>>(new[] { child }),
+            maxChildren: 10,
+            activeId: null,
+            ct: CancellationToken.None);
+
+        var output = _testConsole.Output;
+        output.ShouldNotContain("pts");
+    }
+
 }

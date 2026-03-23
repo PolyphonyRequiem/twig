@@ -1,3 +1,5 @@
+using Twig.Domain.Aggregates;
+
 namespace Twig.Formatters;
 
 /// <summary>
@@ -68,6 +70,26 @@ internal static class FormatterHelpers
         if (elapsed.TotalHours < 24) return $"{(int)elapsed.TotalHours}h ago";
         if (elapsed.TotalDays < 30) return $"{(int)elapsed.TotalDays}d ago";
         return $"{(int)(elapsed.TotalDays / 30)}mo ago";
+    }
+
+    /// <summary>
+    /// Returns a formatted effort/points display string for a work item, or null if no effort field is found.
+    /// Detects process-agnostic effort fields by suffix: StoryPoints (Agile), Effort (Scrum), Size (CMMI).
+    /// </summary>
+    internal static string? GetEffortDisplay(WorkItem item)
+    {
+        foreach (var key in item.Fields.Keys)
+        {
+            if (key.EndsWith("StoryPoints", StringComparison.OrdinalIgnoreCase)
+                || key.EndsWith("Effort", StringComparison.OrdinalIgnoreCase)
+                || key.EndsWith("Size", StringComparison.OrdinalIgnoreCase))
+            {
+                if (item.Fields.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value))
+                    return $"({value} pts)";
+            }
+        }
+
+        return null;
     }
 
     private static string Truncate(string value, int maxLength)

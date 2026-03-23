@@ -852,4 +852,85 @@ public class WorkspaceCommandTests
             AreaPath = AreaPath.Parse("Project").Value,
         };
     }
+
+    private static WorkItem CreateWorkItemWithFields(int id, string title, Dictionary<string, string?> fields)
+    {
+        var item = CreateWorkItem(id, title);
+        item.ImportFields(fields);
+        return item;
+    }
+
+    // ── Dynamic column tests (EPIC-007 E2-T2) ──────────────────────
+
+    [Fact]
+    public async Task AsyncPath_WithPopulatedFields_ShowsDynamicColumns()
+    {
+        var fields = new Dictionary<string, string?>
+        {
+            ["Microsoft.VSTS.Scheduling.StoryPoints"] = "5",
+            ["Microsoft.VSTS.Common.Priority"] = "2",
+        };
+
+        var active = CreateWorkItemWithFields(1, "Active Item", fields);
+        var item2 = CreateWorkItemWithFields(2, "Other Item", fields);
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(active);
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { active, item2 });
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _fieldDefinitionStore.GetAllAsync(Arg.Any<CancellationToken>())
+            .Returns(new FieldDefinition[]
+            {
+                new("Microsoft.VSTS.Scheduling.StoryPoints", "Story Points", "double", false),
+                new("Microsoft.VSTS.Common.Priority", "Priority", "integer", false),
+            });
+
+        // Config-specified columns for the async streaming path (auto-discovery requires all items upfront)
+        _config.Display.Columns = new DisplayColumnsConfig
+        {
+            Workspace = new List<string>
+            {
+                "Microsoft.VSTS.Scheduling.StoryPoints",
+                "Microsoft.VSTS.Common.Priority",
+            },
+        };
+
+        var cmd = CreateCommandWithPipeline(CreateTtyPipelineFactory());
+        var result = await cmd.ExecuteAsync("human");
+
+        result.ShouldBe(0);
+
+        var output = _testConsole.Output;
+        output.ShouldContain("Story Points");
+        output.ShouldContain("Priority");
+        output.ShouldContain("5");
+        output.ShouldContain("2");
+    }
+
+    [Fact]
+    public async Task Workspace_WithPopulatedFields_SyncPath_Succeeds()
+    {
+        var fields = new Dictionary<string, string?>
+        {
+            ["Microsoft.VSTS.Scheduling.StoryPoints"] = "3",
+        };
+
+        var active = CreateWorkItemWithFields(1, "Active Item", fields);
+        var item2 = CreateWorkItemWithFields(2, "Other Item", fields);
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(active);
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { active, item2 });
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _fieldDefinitionStore.GetAllAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<FieldDefinition>());
+
+        var result = await _cmd.ExecuteAsync();
+
+        result.ShouldBe(0);
+    }
 }

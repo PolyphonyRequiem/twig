@@ -681,23 +681,25 @@ None. All features are local-only (SQLite + CLI). No new NuGet packages required
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E2-T1 | IMPL | Create `SeedLinkCommand` with `LinkAsync`, `UnlinkAsync`, `ListLinksAsync` methods | `src/Twig/Commands/SeedLinkCommand.cs` | TO DO |
-| E2-T2 | IMPL | Add `SeedLink`, `SeedUnlink`, `SeedLinks` routing in `TwigCommands` (Program.cs) | `src/Twig/Program.cs` | TO DO |
-| E2-T3 | IMPL | Register `SeedLinkCommand` in `CommandRegistrationModule` | `src/Twig/DependencyInjection/CommandRegistrationModule.cs` | TO DO |
-| E2-T4 | IMPL | Add `FormatSeedLinks()` to `IOutputFormatter` and implement in Human/JSON/Minimal formatters | `src/Twig/Formatters/IOutputFormatter.cs`, `HumanOutputFormatter.cs`, `JsonOutputFormatter.cs`, `MinimalOutputFormatter.cs` | TO DO |
-| E2-T5 | TEST | Command tests: link creation, duplicate handling, validation (at least one negative ID), invalid type | `tests/Twig.Cli.Tests/Commands/SeedLinkCommandTests.cs` | TO DO |
-| E2-T6 | TEST | Command tests: unlink existing/non-existent, list all/by-id | `tests/Twig.Cli.Tests/Commands/SeedLinkCommandTests.cs` | TO DO |
-| E2-T7 | IMPL | Update `GroupedHelp.Show()` with seed link commands | `src/Twig/Program.cs` | TO DO |
+| E2-T1 | IMPL | Create `SeedLinkCommand` with `LinkAsync`, `UnlinkAsync`, `ListLinksAsync` methods | `src/Twig/Commands/SeedLinkCommand.cs` | DONE |
+| E2-T2 | IMPL | Add `SeedLink`, `SeedUnlink`, `SeedLinks` routing in `TwigCommands` (Program.cs) | `src/Twig/Program.cs` | DONE |
+| E2-T3 | IMPL | Register `SeedLinkCommand` in `CommandRegistrationModule` | `src/Twig/DependencyInjection/CommandRegistrationModule.cs` | DONE |
+| E2-T4 | IMPL | Add `FormatSeedLinks()` to `IOutputFormatter` and implement in Human/JSON/Minimal formatters | `src/Twig/Formatters/IOutputFormatter.cs`, `HumanOutputFormatter.cs`, `JsonOutputFormatter.cs`, `MinimalOutputFormatter.cs` | DONE |
+| E2-T5 | TEST | Command tests: link creation, duplicate handling, validation (at least one negative ID), invalid type | `tests/Twig.Cli.Tests/Commands/SeedLinkCommandTests.cs` | DONE |
+| E2-T6 | TEST | Command tests: unlink existing/non-existent, list all/by-id | `tests/Twig.Cli.Tests/Commands/SeedLinkCommandTests.cs` | DONE |
+| E2-T7 | IMPL | Update `GroupedHelp.Show()` with seed link commands | `src/Twig/Program.cs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] `twig seed link -1 -2` creates a "related" link
-- [ ] `twig seed link -1 12345 --type blocks` creates a "blocks" link
-- [ ] `twig seed link 100 200` rejected with error (no seeds involved)
-- [ ] `twig seed link -1 -2 --type invalid` rejected with error listing valid types
-- [ ] `twig seed unlink -1 -2` removes the link
-- [ ] `twig seed links` shows all virtual links
-- [ ] `twig seed links -1` shows links for seed -1
-- [ ] Human, JSON, and minimal output formats work correctly
+- [x] `twig seed link -1 -2` creates a "related" link
+- [x] `twig seed link -1 12345 --type blocks` creates a "blocks" link
+- [x] `twig seed link 100 200` rejected with error (no seeds involved)
+- [x] `twig seed link -1 -2 --type invalid` rejected with error listing valid types
+- [x] `twig seed unlink -1 -2` removes the link
+- [x] `twig seed links` shows all virtual links
+- [x] `twig seed links -1` shows links for seed -1
+- [x] Human, JSON, and minimal output formats work correctly
+
+**Completion Notes:** Bug fix applied — `UnlinkAsync` now validates link types with the same null-check guard as `LinkAsync` (returns exit code 1 with FormatError listing valid types). `Unlink_InvalidType_Rejected` test added covering exit code 1 and no-call-to-repository assertions.
 
 ---
 

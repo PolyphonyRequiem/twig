@@ -3,6 +3,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.ReadModels;
 using Twig.Domain.Services;
+using Twig.Domain.ValueObjects;
 
 namespace Twig.Rendering;
 
@@ -55,7 +56,8 @@ public interface IAsyncRenderer
         Func<Task<IReadOnlyList<SeedViewGroup>>> getData,
         int totalWritableFields,
         int staleDays,
-        CancellationToken ct);
+        CancellationToken ct,
+        IReadOnlyDictionary<int, IReadOnlyList<SeedLink>>? links = null);
 
     /// <summary>
     /// Cache-render-fetch-revise primitive. Renders the cached view immediately,

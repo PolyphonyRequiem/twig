@@ -1,6 +1,7 @@
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
+using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Infrastructure.Config;
 using Twig.Rendering;
@@ -14,6 +15,7 @@ namespace Twig.Commands;
 public sealed class SeedViewCommand(
     IWorkItemRepository workItemRepo,
     IFieldDefinitionStore fieldDefStore,
+    ISeedLinkRepository seedLinkRepo,
     TwigConfiguration config,
     RenderingPipelineFactory renderingPipelineFactory)
 {
@@ -35,19 +37,50 @@ public sealed class SeedViewCommand(
 
         var staleDays = config.Seed.StaleDays;
 
+        // Build link map: seed ID → list of links touching that seed
+        var linkMap = await BuildLinkMapAsync(ct);
+
         if (renderer is not null)
         {
             await renderer.RenderSeedViewAsync(
                 () => BuildGroupsAsync(ct),
                 totalWritableFields,
                 staleDays,
-                ct);
+                ct,
+                linkMap);
             return 0;
         }
 
         var groups = await BuildGroupsAsync(ct);
-        Console.WriteLine(fmt.FormatSeedView(groups, totalWritableFields, staleDays));
+        Console.WriteLine(fmt.FormatSeedView(groups, totalWritableFields, staleDays, linkMap));
         return 0;
+    }
+
+    private async Task<IReadOnlyDictionary<int, IReadOnlyList<SeedLink>>?> BuildLinkMapAsync(CancellationToken ct)
+    {
+        var allLinks = await seedLinkRepo.GetAllSeedLinksAsync(ct);
+        if (allLinks.Count == 0)
+            return null;
+
+        var map = new Dictionary<int, List<SeedLink>>();
+
+        foreach (var link in allLinks)
+        {
+            GetOrAdd(link.SourceId).Add(link);
+            GetOrAdd(link.TargetId).Add(link);
+        }
+
+        var result = new Dictionary<int, IReadOnlyList<SeedLink>>(map.Count);
+        foreach (var kvp in map)
+            result[kvp.Key] = kvp.Value;
+        return result;
+
+        List<SeedLink> GetOrAdd(int id)
+        {
+            if (!map.TryGetValue(id, out var list))
+                map[id] = list = [];
+            return list;
+        }
     }
 
     private async Task<IReadOnlyList<SeedViewGroup>> BuildGroupsAsync(CancellationToken ct)

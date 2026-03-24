@@ -865,7 +865,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         Func<Task<IReadOnlyList<Domain.ReadModels.SeedViewGroup>>> getData,
         int totalWritableFields,
         int staleDays,
-        CancellationToken ct)
+        CancellationToken ct,
+        IReadOnlyDictionary<int, IReadOnlyList<Domain.ValueObjects.SeedLink>>? links = null)
     {
         var groups = await getData();
 
@@ -912,13 +913,31 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                 var filled = Formatters.HumanOutputFormatter.CountNonEmptyFields(seed);
                 var staleWarning = Formatters.HumanOutputFormatter.IsStaleSeed(seed, staleDays) ? "[red]⚠ stale[/]" : "";
 
+                // Build link annotations for this seed
+                var linkText = "";
+                if (links is not null && links.TryGetValue(seed.Id, out var seedLinks))
+                {
+                    var annotations = new List<string>();
+                    foreach (var link in seedLinks)
+                    {
+                        var annotation = Formatters.HumanOutputFormatter.FormatLinkAnnotation(seed.Id, link);
+                        annotations.Add($"[cyan]→ {Markup.Escape(annotation)}[/]");
+                    }
+                    if (annotations.Count > 0)
+                        linkText = string.Join("  ", annotations);
+                }
+
+                var statusCol = staleWarning;
+                if (!string.IsNullOrEmpty(linkText))
+                    statusCol = string.IsNullOrEmpty(statusCol) ? linkText : $"{statusCol}  {linkText}";
+
                 table.AddRow(
                     $"{seed.Id}",
                     $"{badge} {Markup.Escape(seed.Type.ToString())}",
                     Markup.Escape(seed.Title),
                     $"[dim]{Markup.Escape(age)}[/]",
                     $"[dim]{filled}/{totalWritableFields} fields[/]",
-                    staleWarning);
+                    statusCol);
             }
 
             _console.Write(table);

@@ -772,7 +772,8 @@ public sealed class HumanOutputFormatter : IOutputFormatter
     public string FormatSeedView(
         IReadOnlyList<SeedViewGroup> groups,
         int totalWritableFields,
-        int staleDays)
+        int staleDays,
+        IReadOnlyDictionary<int, IReadOnlyList<SeedLink>>? links = null)
     {
         var sb = new StringBuilder();
         var totalSeeds = 0;
@@ -810,7 +811,40 @@ public sealed class HumanOutputFormatter : IOutputFormatter
                 var filled = CountNonEmptyFields(seed);
                 var staleWarning = IsStaleSeed(seed, staleDays) ? $" {Red}⚠ stale{Reset}" : "";
                 sb.AppendLine($"    #{seed.Id}  {seedTypeColor}{seedBadge} {seed.Type}{Reset}  {seed.Title}  {Dim}{age}{Reset}  {Dim}{filled}/{totalWritableFields} fields{Reset}{staleWarning}");
+
+                // Display links for this seed
+                if (links is not null && links.TryGetValue(seed.Id, out var seedLinks))
+                {
+                    foreach (var link in seedLinks)
+                    {
+                        var annotation = FormatLinkAnnotation(seed.Id, link);
+                        sb.AppendLine($"      {Cyan}→ {annotation}{Reset}");
+                    }
+                }
             }
+        }
+
+        // Remove trailing newline
+        if (sb.Length > 0 && sb[sb.Length - 1] == '\n')
+            sb.Length -= 1;
+        if (sb.Length > 0 && sb[sb.Length - 1] == '\r')
+            sb.Length -= 1;
+
+        return sb.ToString();
+    }
+
+    public string FormatSeedLinks(IReadOnlyList<SeedLink> links)
+    {
+        if (links.Count == 0)
+            return $"{Dim}No virtual links.{Reset}";
+
+        var sb = new StringBuilder();
+        sb.AppendLine($"{Bold}Virtual Links ({links.Count}){Reset}");
+        sb.AppendLine(new string('─', 50));
+
+        foreach (var link in links)
+        {
+            sb.AppendLine($"  #{link.SourceId} {Cyan}──{link.LinkType}──▶{Reset} #{link.TargetId}  {Dim}{link.CreatedAt:yyyy-MM-dd}{Reset}");
         }
 
         // Remove trailing newline
@@ -872,6 +906,34 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         return staleDays > 0 && seed.SeedCreatedAt.HasValue
             && (DateTimeOffset.UtcNow - seed.SeedCreatedAt.Value).TotalDays >= staleDays;
     }
+
+    /// <summary>
+    /// Formats a link annotation from the perspective of a given seed.
+    /// E.g., "blocks -2", "depends on #12345", "related -3".
+    /// </summary>
+    internal static string FormatLinkAnnotation(int seedId, SeedLink link)
+    {
+        var otherId = link.SourceId == seedId ? link.TargetId : link.SourceId;
+        var idLabel = otherId < 0 ? $"{otherId}" : $"#{otherId}";
+
+        // When seed is the target, use the reverse link type for the label
+        var effectiveType = link.SourceId == seedId
+            ? link.LinkType
+            : SeedLinkTypes.GetReverse(link.LinkType) ?? link.LinkType;
+
+        return $"{FormatLinkTypeLabel(effectiveType)} {idLabel}";
+    }
+
+    private static string FormatLinkTypeLabel(string linkType) => linkType switch
+    {
+        SeedLinkTypes.Blocks => "blocks",
+        SeedLinkTypes.BlockedBy => "blocked by",
+        SeedLinkTypes.DependsOn => "depends on",
+        SeedLinkTypes.DependedOnBy => "depended on by",
+        SeedLinkTypes.Related => "related",
+        SeedLinkTypes.ParentChild => "parent-child",
+        _ => linkType,
+    };
 
     private string GetTypeColor(WorkItemType type)
     {

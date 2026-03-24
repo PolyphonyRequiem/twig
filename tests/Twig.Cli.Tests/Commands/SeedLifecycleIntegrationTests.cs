@@ -141,6 +141,7 @@ public class SeedLifecycleIntegrationTests : IDisposable
 
         var seedViewCmd = new SeedViewCommand(
             _workItemRepo, _fieldDefStore,
+            Substitute.For<ISeedLinkRepository>(),
             new TwigConfiguration(), renderingPipelineFactory);
 
         var viewWriter = new StringWriter();
@@ -154,7 +155,7 @@ public class SeedLifecycleIntegrationTests : IDisposable
         _workItemRepo.GetByIdAsync(savedSeed.Id, Arg.Any<CancellationToken>()).Returns(updatedSeed);
 
         var seedDiscardCmd = new SeedDiscardCommand(
-            _workItemRepo, _consoleInput, _formatterFactory);
+            _workItemRepo, Substitute.For<ISeedLinkRepository>(), _consoleInput, _formatterFactory);
 
         Console.SetOut(new StringWriter());
         var discardResult = await seedDiscardCmd.ExecuteAsync(savedSeed.Id, yes: true);

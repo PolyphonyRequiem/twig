@@ -217,7 +217,8 @@ public sealed class MinimalOutputFormatter : IOutputFormatter
     public string FormatSeedView(
         IReadOnlyList<SeedViewGroup> groups,
         int totalWritableFields,
-        int staleDays)
+        int staleDays,
+        IReadOnlyDictionary<int, IReadOnlyList<SeedLink>>? links = null)
     {
         var totalSeeds = 0;
         foreach (var g in groups)
@@ -236,7 +237,37 @@ public sealed class MinimalOutputFormatter : IOutputFormatter
                 var staleWarning = HumanOutputFormatter.IsStaleSeed(seed, staleDays) ? " STALE" : "";
                 var parentLabel = group.Parent is not null ? $" parent:#{group.Parent.Id}" : " orphan";
                 sb.AppendLine($"SEED #{seed.Id} \"{seed.Title}\" {seed.Type} {age} {filled}/{totalWritableFields}{parentLabel}{staleWarning}");
+
+                // Display links for this seed
+                if (links is not null && links.TryGetValue(seed.Id, out var seedLinks))
+                {
+                    foreach (var link in seedLinks)
+                    {
+                        var annotation = HumanOutputFormatter.FormatLinkAnnotation(seed.Id, link);
+                        sb.AppendLine($"  LINK → {annotation}");
+                    }
+                }
             }
+        }
+
+        // Remove trailing newline
+        if (sb.Length > 0 && sb[sb.Length - 1] == '\n')
+            sb.Length -= 1;
+        if (sb.Length > 0 && sb[sb.Length - 1] == '\r')
+            sb.Length -= 1;
+
+        return sb.ToString();
+    }
+
+    public string FormatSeedLinks(IReadOnlyList<SeedLink> links)
+    {
+        if (links.Count == 0)
+            return "No links";
+
+        var sb = new StringBuilder();
+        foreach (var link in links)
+        {
+            sb.AppendLine($"LINK #{link.SourceId} {link.LinkType} #{link.TargetId}");
         }
 
         // Remove trailing newline

@@ -9,6 +9,7 @@ namespace Twig.Commands;
 /// </summary>
 public sealed class SeedDiscardCommand(
     IWorkItemRepository workItemRepo,
+    ISeedLinkRepository seedLinkRepo,
     IConsoleInput consoleInput,
     OutputFormatterFactory formatterFactory)
 {
@@ -45,6 +46,7 @@ public sealed class SeedDiscardCommand(
             }
         }
 
+        await seedLinkRepo.DeleteLinksForItemAsync(id, ct);
         await workItemRepo.DeleteByIdAsync(id, ct);
         Console.WriteLine(fmt.FormatSuccess($"Discarded seed #{id}"));
         return 0;

@@ -45,5 +45,11 @@ public interface IOutputFormatter
     string FormatSeedView(
         IReadOnlyList<SeedViewGroup> groups,
         int totalWritableFields,
-        int staleDays);
+        int staleDays,
+        IReadOnlyDictionary<int, IReadOnlyList<SeedLink>>? links = null);
+
+    // ── Seed link formatting ────────────────────────────────────────
+
+    /// <summary>Formats a list of virtual seed links for display.</summary>
+    string FormatSeedLinks(IReadOnlyList<SeedLink> links);
 }

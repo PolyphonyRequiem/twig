@@ -711,21 +711,23 @@ None. All features are local-only (SQLite + CLI). No new NuGet packages required
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E3-T1 | IMPL | Inject `ISeedLinkRepository` into `SeedDiscardCommand`, call `DeleteLinksForItemAsync` on discard | `src/Twig/Commands/SeedDiscardCommand.cs` | TO DO |
-| E3-T2 | TEST | Test cascade: discard seed removes its links from `seed_links` table | `tests/Twig.Cli.Tests/Commands/SeedDiscardCommandTests.cs` | TO DO |
-| E3-T3 | IMPL | Update `SeedViewCommand` to fetch links for all seeds, pass link map to formatters | `src/Twig/Commands/SeedViewCommand.cs` | TO DO |
-| E3-T4 | IMPL | Update `FormatSeedView` in `HumanOutputFormatter` to display links per seed | `src/Twig/Formatters/HumanOutputFormatter.cs` | TO DO |
-| E3-T5 | IMPL | Update `FormatSeedView` in `JsonOutputFormatter` to include links in output | `src/Twig/Formatters/JsonOutputFormatter.cs` | TO DO |
-| E3-T6 | IMPL | Update `FormatSeedView` in `MinimalOutputFormatter` | `src/Twig/Formatters/MinimalOutputFormatter.cs` | TO DO |
-| E3-T7 | IMPL | Update `IOutputFormatter.FormatSeedView` signature to accept link map parameter | `src/Twig/Formatters/IOutputFormatter.cs` | TO DO |
-| E3-T8 | IMPL | Update `IAsyncRenderer.RenderSeedViewAsync` signature and `SpectreRenderer` implementation | `src/Twig/Rendering/IAsyncRenderer.cs`, `src/Twig/Rendering/SpectreRenderer.cs` | TO DO |
-| E3-T9 | TEST | Test seed view displays links correctly | `tests/Twig.Cli.Tests/Commands/SeedViewCommandTests.cs` | TO DO |
+| E3-T1 | IMPL | Inject `ISeedLinkRepository` into `SeedDiscardCommand`, call `DeleteLinksForItemAsync` on discard | `src/Twig/Commands/SeedDiscardCommand.cs` | DONE |
+| E3-T2 | TEST | Test cascade: discard seed removes its links from `seed_links` table | `tests/Twig.Cli.Tests/Commands/SeedDiscardCommandTests.cs` | DONE |
+| E3-T3 | IMPL | Update `SeedViewCommand` to fetch links for all seeds, pass link map to formatters | `src/Twig/Commands/SeedViewCommand.cs` | DONE |
+| E3-T4 | IMPL | Update `FormatSeedView` in `HumanOutputFormatter` to display links per seed | `src/Twig/Formatters/HumanOutputFormatter.cs` | DONE |
+| E3-T5 | IMPL | Update `FormatSeedView` in `JsonOutputFormatter` to include links in output | `src/Twig/Formatters/JsonOutputFormatter.cs` | DONE |
+| E3-T6 | IMPL | Update `FormatSeedView` in `MinimalOutputFormatter` | `src/Twig/Formatters/MinimalOutputFormatter.cs` | DONE |
+| E3-T7 | IMPL | Update `IOutputFormatter.FormatSeedView` signature to accept link map parameter | `src/Twig/Formatters/IOutputFormatter.cs` | DONE |
+| E3-T8 | IMPL | Update `IAsyncRenderer.RenderSeedViewAsync` signature and `SpectreRenderer` implementation | `src/Twig/Rendering/IAsyncRenderer.cs`, `src/Twig/Rendering/SpectreRenderer.cs` | DONE |
+| E3-T9 | TEST | Test seed view displays links correctly | `tests/Twig.Cli.Tests/Commands/SeedViewCommandTests.cs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] Discarding seed -1 removes all `seed_links` where source_id=-1 or target_id=-1
-- [ ] `twig seed view` shows links per seed (e.g., "→ blocks -2", "→ depends on #12345")
-- [ ] SpectreRenderer and HumanOutputFormatter both display links
-- [ ] Seeds with no links show no link annotation
+- [x] Discarding seed -1 removes all `seed_links` where source_id=-1 or target_id=-1
+- [x] `twig seed view` shows links per seed (e.g., "→ blocks -2", "→ depends on #12345")
+- [x] SpectreRenderer and HumanOutputFormatter both display links
+- [x] Seeds with no links show no link annotation
+
+**Completion Notes:** `ISeedLinkRepository` injected into both `SeedDiscardCommand` (cascade delete before discard) and `SeedViewCommand` (link map built via `BuildLinkMapAsync()`). All three formatters (Human, JSON, Minimal) and `SpectreRenderer` updated to accept and render the nullable link map. `IOutputFormatter.FormatSeedView` and `IAsyncRenderer.RenderSeedViewAsync` signatures extended with optional `links` parameter (default null). `SeedLifecycleIntegrationTests` updated to pass `ISeedLinkRepository` mock to updated constructors. Minor trade-off: `SpectreRenderer` cyan annotation rendering is not covered by unit tests (accepted convention in this codebase).
 
 ---
 

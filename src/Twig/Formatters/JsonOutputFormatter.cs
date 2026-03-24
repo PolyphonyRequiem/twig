@@ -338,7 +338,8 @@ public sealed class JsonOutputFormatter : IOutputFormatter
     public string FormatSeedView(
         IReadOnlyList<SeedViewGroup> groups,
         int totalWritableFields,
-        int staleDays)
+        int staleDays,
+        IReadOnlyDictionary<int, IReadOnlyList<SeedLink>>? links = null)
     {
         using var stream = new MemoryStream();
         using var writer = new Utf8JsonWriter(stream, WriterOptions);
@@ -376,6 +377,22 @@ public sealed class JsonOutputFormatter : IOutputFormatter
 
                 writer.WriteBoolean("isStale", HumanOutputFormatter.IsStaleSeed(seed, staleDays));
 
+                // Include links for this seed
+                writer.WriteStartArray("links");
+                if (links is not null && links.TryGetValue(seed.Id, out var seedLinks))
+                {
+                    foreach (var link in seedLinks)
+                    {
+                        writer.WriteStartObject();
+                        writer.WriteNumber("sourceId", link.SourceId);
+                        writer.WriteNumber("targetId", link.TargetId);
+                        writer.WriteString("linkType", link.LinkType);
+                        writer.WriteString("annotation", HumanOutputFormatter.FormatLinkAnnotation(seed.Id, link));
+                        writer.WriteEndObject();
+                    }
+                }
+                writer.WriteEndArray();
+
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();
@@ -389,6 +406,30 @@ public sealed class JsonOutputFormatter : IOutputFormatter
             totalSeeds += g.Seeds.Count;
         writer.WriteNumber("totalSeeds", totalSeeds);
 
+        writer.WriteEndObject();
+
+        writer.Flush();
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    public string FormatSeedLinks(IReadOnlyList<SeedLink> links)
+    {
+        using var stream = new MemoryStream();
+        using var writer = new Utf8JsonWriter(stream, WriterOptions);
+
+        writer.WriteStartObject();
+        writer.WriteStartArray("links");
+        foreach (var link in links)
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("sourceId", link.SourceId);
+            writer.WriteNumber("targetId", link.TargetId);
+            writer.WriteString("linkType", link.LinkType);
+            writer.WriteString("createdAt", link.CreatedAt.ToString("o"));
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+        writer.WriteNumber("count", links.Count);
         writer.WriteEndObject();
 
         writer.Flush();

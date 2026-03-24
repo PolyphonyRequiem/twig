@@ -15,6 +15,7 @@ public class SeedViewCommandTests : IDisposable
 {
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IFieldDefinitionStore _fieldDefStore;
+    private readonly ISeedLinkRepository _seedLinkRepo;
     private readonly TwigConfiguration _config;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly RenderingPipelineFactory _renderingPipelineFactory;
@@ -26,6 +27,7 @@ public class SeedViewCommandTests : IDisposable
         _originalOut = Console.Out;
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _fieldDefStore = Substitute.For<IFieldDefinitionStore>();
+        _seedLinkRepo = Substitute.For<ISeedLinkRepository>();
         _config = new TwigConfiguration();
 
         _formatterFactory = new OutputFormatterFactory(
@@ -49,9 +51,13 @@ public class SeedViewCommandTests : IDisposable
             new("System.Rev", "Rev", "integer", true),
         });
 
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<SeedLink>());
+
         _cmd = new SeedViewCommand(
             _workItemRepo,
             _fieldDefStore,
+            _seedLinkRepo,
             _config,
             _renderingPipelineFactory);
     }
@@ -320,6 +326,180 @@ public class SeedViewCommandTests : IDisposable
 
         result.ShouldBe(0);
         writer.ToString().ShouldContain("#-1");
+    }
+
+    // ── Link display tests ──────────────────────────────────────────
+
+    [Fact]
+    public async Task HumanFormat_ShowsLinksPerSeed()
+    {
+        var seeds = new List<WorkItem>
+        {
+            CreateSeed(-1, "Linked seed", "Task", parentId: null),
+            CreateSeed(-2, "Target seed", "Task", parentId: null),
+        };
+
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(seeds);
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<SeedLink>
+            {
+                new(-1, -2, SeedLinkTypes.Blocks, DateTimeOffset.UtcNow),
+            });
+
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+
+        var result = await _cmd.ExecuteAsync("human");
+
+        result.ShouldBe(0);
+        var output = writer.ToString();
+        output.ShouldContain("→ blocks -2");
+        output.ShouldContain("→ blocked by -1");
+    }
+
+    [Fact]
+    public async Task HumanFormat_DependsOnLink_ShowsCorrectAnnotation()
+    {
+        var seeds = new List<WorkItem>
+        {
+            CreateSeed(-1, "Depends seed", "Task", parentId: null),
+        };
+
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(seeds);
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<SeedLink>
+            {
+                new(-1, 12345, SeedLinkTypes.DependsOn, DateTimeOffset.UtcNow),
+            });
+
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+
+        var result = await _cmd.ExecuteAsync("human");
+
+        result.ShouldBe(0);
+        var output = writer.ToString();
+        output.ShouldContain("→ depends on #12345");
+    }
+
+    [Fact]
+    public async Task HumanFormat_NoLinks_ShowsNoLinkAnnotation()
+    {
+        var seeds = new List<WorkItem>
+        {
+            CreateSeed(-1, "No links seed", "Task", parentId: null),
+        };
+
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(seeds);
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<SeedLink>());
+
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+
+        var result = await _cmd.ExecuteAsync("human");
+
+        result.ShouldBe(0);
+        var output = writer.ToString();
+        output.ShouldNotContain("→");
+    }
+
+    [Fact]
+    public async Task JsonFormat_IncludesLinksPerSeed()
+    {
+        var seeds = new List<WorkItem>
+        {
+            CreateSeed(-1, "Json linked", "Task", parentId: null),
+        };
+
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(seeds);
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<SeedLink>
+            {
+                new(-1, -3, SeedLinkTypes.Related, DateTimeOffset.UtcNow),
+            });
+
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+
+        var result = await _cmd.ExecuteAsync("json");
+
+        result.ShouldBe(0);
+        var output = writer.ToString();
+        output.ShouldContain("\"links\"");
+        output.ShouldContain("\"linkType\": \"related\"");
+        output.ShouldContain("\"annotation\": \"related -3\"");
+    }
+
+    [Fact]
+    public async Task JsonFormat_NoLinks_EmptyLinksArray()
+    {
+        var seeds = new List<WorkItem>
+        {
+            CreateSeed(-1, "No links json", "Task", parentId: null),
+        };
+
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(seeds);
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<SeedLink>());
+
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+
+        var result = await _cmd.ExecuteAsync("json");
+
+        result.ShouldBe(0);
+        var output = writer.ToString();
+        output.ShouldContain("\"links\": []");
+    }
+
+    [Fact]
+    public async Task MinimalFormat_ShowsLinksPerSeed()
+    {
+        var parent = CreateWorkItem(10, "Parent item", "User Story");
+        var seeds = new List<WorkItem>
+        {
+            CreateSeed(-1, "Minimal linked", "Task", parentId: 10),
+        };
+
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(seeds);
+        _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(parent);
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<SeedLink>
+            {
+                new(-1, -2, SeedLinkTypes.Blocks, DateTimeOffset.UtcNow),
+            });
+
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+
+        var result = await _cmd.ExecuteAsync("minimal");
+
+        result.ShouldBe(0);
+        var output = writer.ToString();
+        output.ShouldContain("LINK → blocks -2");
+    }
+
+    [Fact]
+    public async Task MinimalFormat_NoLinks_NoLinkLines()
+    {
+        var seeds = new List<WorkItem>
+        {
+            CreateSeed(-1, "Unconnected seed", "Task", parentId: null),
+        };
+
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(seeds);
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<SeedLink>());
+
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+
+        var result = await _cmd.ExecuteAsync("minimal");
+
+        result.ShouldBe(0);
+        var output = writer.ToString();
+        output.ShouldNotContain("LINK →");
     }
 
     public void Dispose()

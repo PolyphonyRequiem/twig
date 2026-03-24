@@ -56,6 +56,19 @@ public static class CommandServiceModule
             sp.GetRequiredService<IIterationService>(),
             sp.GetRequiredService<TwigConfiguration>().User.DisplayName));
 
+        // EPIC-003: Seed publish orchestrator
+        services.AddSingleton<BacklogOrderer>(sp => new BacklogOrderer(
+            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IFieldDefinitionStore>()));
+        services.AddSingleton<SeedPublishOrchestrator>(sp => new SeedPublishOrchestrator(
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<ISeedLinkRepository>(),
+            sp.GetRequiredService<IPublishIdMapRepository>(),
+            sp.GetRequiredService<ISeedPublishRulesProvider>(),
+            sp.GetRequiredService<IUnitOfWork>(),
+            sp.GetRequiredService<BacklogOrderer>()));
+
         // EPIC-002: Domain orchestration services
         services.AddSingleton<FlowTransitionService>(sp => new FlowTransitionService(
             sp.GetRequiredService<ActiveItemResolver>(),

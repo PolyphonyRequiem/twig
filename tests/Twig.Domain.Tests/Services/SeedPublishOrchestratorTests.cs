@@ -22,6 +22,7 @@ public class SeedPublishOrchestratorTests
     private readonly ISeedPublishRulesProvider _rulesProvider = Substitute.For<ISeedPublishRulesProvider>();
     private readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
     private readonly ITransaction _transaction = Substitute.For<ITransaction>();
+    private readonly IFieldDefinitionStore _fieldDefinitionStore = Substitute.For<IFieldDefinitionStore>();
 
     private readonly SeedPublishOrchestrator _orchestrator;
 
@@ -30,13 +31,15 @@ public class SeedPublishOrchestratorTests
         _unitOfWork.BeginAsync(Arg.Any<CancellationToken>()).Returns(_transaction);
         _rulesProvider.GetRulesAsync(Arg.Any<CancellationToken>()).Returns(SeedPublishRules.Default);
 
+        var backlogOrderer = new BacklogOrderer(_adoService, _fieldDefinitionStore);
         _orchestrator = new SeedPublishOrchestrator(
             _workItemRepo,
             _adoService,
             _seedLinkRepo,
             _publishIdMapRepo,
             _rulesProvider,
-            _unitOfWork);
+            _unitOfWork,
+            backlogOrderer);
     }
 
     // ═══════════════════════════════════════════════════════════════

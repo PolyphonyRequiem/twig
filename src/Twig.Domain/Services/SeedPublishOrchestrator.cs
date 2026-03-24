@@ -18,6 +18,7 @@ public sealed class SeedPublishOrchestrator
     private readonly ISeedPublishRulesProvider _rulesProvider;
     private readonly IUnitOfWork _unitOfWork;
     private readonly SeedLinkPromoter _linkPromoter;
+    private readonly BacklogOrderer _backlogOrderer;
 
     public SeedPublishOrchestrator(
         IWorkItemRepository workItemRepo,
@@ -25,7 +26,8 @@ public sealed class SeedPublishOrchestrator
         ISeedLinkRepository seedLinkRepo,
         IPublishIdMapRepository publishIdMapRepo,
         ISeedPublishRulesProvider rulesProvider,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        BacklogOrderer backlogOrderer)
     {
         _workItemRepo = workItemRepo;
         _adoService = adoService;
@@ -34,6 +36,7 @@ public sealed class SeedPublishOrchestrator
         _rulesProvider = rulesProvider;
         _unitOfWork = unitOfWork;
         _linkPromoter = new SeedLinkPromoter(seedLinkRepo, adoService);
+        _backlogOrderer = backlogOrderer;
     }
 
     /// <summary>
@@ -161,7 +164,10 @@ public sealed class SeedPublishOrchestrator
         // Step 11: Promote seed links to ADO relations
         var linkWarnings = await _linkPromoter.PromoteLinksAsync(newId, ct);
 
-        // Step 12: Return success result
+        // Step 12: Best-effort backlog ordering
+        await _backlogOrderer.TryOrderAsync(newId, seed.ParentId, ct);
+
+        // Step 13: Return success result
         return new SeedPublishResult
         {
             OldId = seedId,

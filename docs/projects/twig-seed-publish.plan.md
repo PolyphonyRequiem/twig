@@ -1026,17 +1026,19 @@ Epics must be implemented in order: Rules → Validate → Publish (Core + Paren
 
 **Prerequisites**: Epic 3.
 
+**Status**: DONE
+
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E6-T1 | IMPL | Create `BacklogOrderer` service | `src/Twig.Domain/Services/BacklogOrderer.cs` | TO DO |
-| E6-T2 | IMPL | Integrate `BacklogOrderer.TryOrderAsync` into `SeedPublishOrchestrator.PublishAsync` | `src/Twig.Domain/Services/SeedPublishOrchestrator.cs` | TO DO |
-| E6-T3 | TEST | Unit tests for `BacklogOrderer` | `tests/Twig.Domain.Tests/Services/BacklogOrdererTests.cs` | TO DO |
+| E6-T1 | IMPL | Create `BacklogOrderer` service | `src/Twig.Domain/Services/BacklogOrderer.cs` | DONE |
+| E6-T2 | IMPL | Integrate `BacklogOrderer.TryOrderAsync` into `SeedPublishOrchestrator.PublishAsync` | `src/Twig.Domain/Services/SeedPublishOrchestrator.cs` | DONE |
+| E6-T3 | TEST | Unit tests for `BacklogOrderer` | `tests/Twig.Domain.Tests/Services/BacklogOrdererTests.cs` | DONE |
 
 **Acceptance Criteria**:
-- [ ] Detects StackRank (Agile) or BacklogPriority (Scrum/CMMI) dynamically
-- [ ] Sets value after last sibling when siblings exist
-- [ ] No-op when no parent or no ordering field found
-- [ ] Patch failure logged as warning, publish still succeeds
+- [x] Detects StackRank (Agile) or BacklogPriority (Scrum/CMMI) dynamically
+- [x] Sets value after last sibling when siblings exist
+- [x] No-op when no parent or no ordering field found
+- [x] Patch failure logged as warning, publish still succeeds
 
 ---
 

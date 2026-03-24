@@ -969,20 +969,24 @@ Epics must be implemented in order: Rules → Validate → Publish (Core + Paren
 
 **Prerequisites**: None (can parallel with Epic 3).
 
+**Status**: DONE
+
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E4-T1 | IMPL | Create `SeedLinkTypeMapper` mapping SeedLinkTypes constants to ADO relation type reference names | `src/Twig.Domain/Services/SeedLinkTypeMapper.cs` | TO DO |
-| E4-T2 | IMPL | Add `AddLinkAsync(int sourceId, int targetId, string adoLinkType)` to `IAdoWorkItemService` | `src/Twig.Domain/Interfaces/IAdoWorkItemService.cs` | TO DO |
-| E4-T3 | IMPL | Implement `AddLinkAsync` in `AdoRestClient` using PATCH with `/relations/-` | `src/Twig.Infrastructure/Ado/AdoRestClient.cs` | TO DO |
-| E4-T4 | TEST | Unit tests for `SeedLinkTypeMapper` | `tests/Twig.Domain.Tests/Services/SeedLinkTypeMapperTests.cs` | TO DO |
-| E4-T5 | TEST | Tests for `AdoRestClient.AddLinkAsync` | `tests/Twig.Infrastructure.Tests/Ado/AdoRestClientLinkTests.cs` | TO DO |
+| E4-T1 | IMPL | Create `SeedLinkTypeMapper` mapping SeedLinkTypes constants to ADO relation type reference names | `src/Twig.Domain/Services/SeedLinkTypeMapper.cs` | DONE |
+| E4-T2 | IMPL | Add `AddLinkAsync(int sourceId, int targetId, string adoLinkType)` to `IAdoWorkItemService` | `src/Twig.Domain/Interfaces/IAdoWorkItemService.cs` | DONE |
+| E4-T3 | IMPL | Implement `AddLinkAsync` in `AdoRestClient` using PATCH with `/relations/-` | `src/Twig.Infrastructure/Ado/AdoRestClient.cs` | DONE |
+| E4-T4 | TEST | Unit tests for `SeedLinkTypeMapper` | `tests/Twig.Domain.Tests/Services/SeedLinkTypeMapperTests.cs` | DONE |
+| E4-T5 | TEST | Tests for `AdoRestClient.AddLinkAsync` | `tests/Twig.Infrastructure.Tests/Ado/AdoRestClientLinkTests.cs` | DONE |
 
 **Acceptance Criteria**:
-- [ ] All SeedLinkTypes map to correct ADO relation reference names
-- [ ] `AddLinkAsync` sends correct PATCH with `/relations/-` operation
-- [ ] `parent-child` maps to `System.LinkTypes.Hierarchy-Forward`
-- [ ] `depends-on` maps to `System.LinkTypes.Dependency-Reverse`
-- [ ] `related` maps to `System.LinkTypes.Related`
+- [x] All SeedLinkTypes map to correct ADO relation reference names
+- [x] `AddLinkAsync` sends correct PATCH with `/relations/-` operation
+- [x] `parent-child` maps to `System.LinkTypes.Hierarchy-Forward`
+- [x] `depends-on` maps to `System.LinkTypes.Dependency-Reverse`
+- [x] `related` maps to `System.LinkTypes.Related`
+
+**Completion Notes** (2026-03-24): `SeedLinkTypeMapper` implemented as a pure static class in Domain with no infrastructure dependencies, mapping all 6 SeedLinkTypes to ADO relation type reference names. `AddLinkAsync` follows the established `SendAsync`/`JsonPatchMediaType`/source-gen serialization pattern. Target URL correctly uses `_orgUrl` (not project-scoped). No `If-Match` header sent (link creation does not require optimistic concurrency). 21 focused, non-redundant tests across `SeedLinkTypeMapperTests` and `AdoRestClientLinkTests`.
 
 ---
 

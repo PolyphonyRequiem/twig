@@ -17,4 +17,5 @@ public interface IAdoWorkItemService
     Task AddCommentAsync(int id, string text, CancellationToken ct = default);
     Task<IReadOnlyList<int>> QueryByWiqlAsync(string wiql, CancellationToken ct = default);
     Task<IReadOnlyList<WorkItem>> FetchBatchAsync(IReadOnlyList<int> ids, CancellationToken ct = default);
+    Task AddLinkAsync(int sourceId, int targetId, string adoLinkType, CancellationToken ct = default);
 }

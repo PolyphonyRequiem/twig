@@ -145,6 +145,28 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         return ids;
     }
 
+    public async Task AddLinkAsync(int sourceId, int targetId, string adoLinkType, CancellationToken ct = default)
+    {
+        var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{sourceId}?api-version={ApiVersion}";
+        var patchDoc = new List<AdoPatchOperation>
+        {
+            new()
+            {
+                Op = "add",
+                Path = "/relations/-",
+                Value = new System.Text.Json.Nodes.JsonObject
+                {
+                    ["rel"] = System.Text.Json.Nodes.JsonValue.Create(adoLinkType),
+                    ["url"] = System.Text.Json.Nodes.JsonValue.Create($"{_orgUrl}/_apis/wit/workitems/{targetId}"),
+                },
+            },
+        };
+        var json = JsonSerializer.Serialize(patchDoc, TwigJsonContext.Default.ListAdoPatchOperation);
+        var content = new StringContent(json, Encoding.UTF8, JsonPatchMediaType);
+
+        using var _ = await SendAsync(HttpMethod.Patch, url, content, ifMatch: null, ct);
+    }
+
     // ── Batch fetch ─────────────────────────────────────────────────
 
     /// <summary>

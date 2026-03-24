@@ -318,6 +318,91 @@ public class AdoResponseMapperTests
         result.ShouldContain(op => op.Path == "/fields/System.IterationPath");
     }
 
+    [Fact]
+    public void MapSeedToCreatePayload_IncludesPopulatedFields()
+    {
+        var seed = Domain.Aggregates.WorkItem.CreateSeed(WorkItemType.Task, "Task with fields");
+        seed.ImportFields(new Dictionary<string, string?>
+        {
+            ["System.Description"] = "A description",
+            ["Microsoft.VSTS.Common.Priority"] = "1",
+        });
+
+        var result = AdoResponseMapper.MapSeedToCreatePayload(seed, "https://dev.azure.com/org");
+
+        result.ShouldContain(op => op.Path == "/fields/System.Description" && op.Value!.GetValue<string>() == "A description");
+        result.ShouldContain(op => op.Path == "/fields/Microsoft.VSTS.Common.Priority" && op.Value!.GetValue<string>() == "1");
+    }
+
+    [Fact]
+    public void MapSeedToCreatePayload_SkipsEmptyFields()
+    {
+        var seed = Domain.Aggregates.WorkItem.CreateSeed(WorkItemType.Task, "Task");
+        seed.ImportFields(new Dictionary<string, string?>
+        {
+            ["System.Description"] = "",
+            ["Microsoft.VSTS.Common.Priority"] = null,
+        });
+
+        var result = AdoResponseMapper.MapSeedToCreatePayload(seed, "https://dev.azure.com/org");
+
+        result.ShouldNotContain(op => op.Path == "/fields/System.Description");
+        result.ShouldNotContain(op => op.Path == "/fields/Microsoft.VSTS.Common.Priority");
+    }
+
+    [Fact]
+    public void MapSeedToCreatePayload_SkipsReadOnlyFields()
+    {
+        var seed = Domain.Aggregates.WorkItem.CreateSeed(WorkItemType.Task, "Task");
+        seed.ImportFields(new Dictionary<string, string?>
+        {
+            ["System.Id"] = "999",
+            ["System.Rev"] = "5",
+            ["System.CreatedDate"] = "2024-01-01",
+            ["System.ChangedDate"] = "2024-01-02",
+            ["System.CreatedBy"] = "alice",
+            ["System.ChangedBy"] = "bob",
+            ["System.Watermark"] = "123",
+            ["System.WorkItemType"] = "Task",
+        });
+
+        var result = AdoResponseMapper.MapSeedToCreatePayload(seed, "https://dev.azure.com/org");
+
+        result.ShouldNotContain(op => op.Path == "/fields/System.Id");
+        result.ShouldNotContain(op => op.Path == "/fields/System.Rev");
+        result.ShouldNotContain(op => op.Path == "/fields/System.CreatedDate");
+        result.ShouldNotContain(op => op.Path == "/fields/System.ChangedDate");
+        result.ShouldNotContain(op => op.Path == "/fields/System.CreatedBy");
+        result.ShouldNotContain(op => op.Path == "/fields/System.ChangedBy");
+        result.ShouldNotContain(op => op.Path == "/fields/System.Watermark");
+        result.ShouldNotContain(op => op.Path == "/fields/System.WorkItemType");
+    }
+
+    [Fact]
+    public void MapSeedToCreatePayload_DoesNotDuplicateExplicitlyHandledFields()
+    {
+        var seed = Domain.Aggregates.WorkItem.CreateSeed(
+            WorkItemType.Task, "My Task",
+            areaPath: AreaPath.Parse(@"Proj\Area").Value,
+            iterationPath: IterationPath.Parse(@"Proj\Sprint").Value);
+        seed.ImportFields(new Dictionary<string, string?>
+        {
+            ["System.Title"] = "My Task",
+            ["System.AreaPath"] = @"Proj\Area",
+            ["System.IterationPath"] = @"Proj\Sprint",
+            ["Microsoft.VSTS.Common.Priority"] = "2",
+        });
+
+        var result = AdoResponseMapper.MapSeedToCreatePayload(seed, "https://dev.azure.com/org");
+
+        // Title, AreaPath, IterationPath should appear exactly once each
+        result.Count(op => op.Path == "/fields/System.Title").ShouldBe(1);
+        result.Count(op => op.Path == "/fields/System.AreaPath").ShouldBe(1);
+        result.Count(op => op.Path == "/fields/System.IterationPath").ShouldBe(1);
+        // Custom field should be included
+        result.ShouldContain(op => op.Path == "/fields/Microsoft.VSTS.Common.Priority");
+    }
+
     // ── Field Import Loop (MapWorkItem with field population) ────────
 
     [Fact]

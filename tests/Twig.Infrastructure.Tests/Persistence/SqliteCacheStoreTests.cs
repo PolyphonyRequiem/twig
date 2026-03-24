@@ -112,7 +112,7 @@ public class SqliteCacheStoreTests
     [Fact]
     public void SchemaVersion_IsSeven()
     {
-        SqliteCacheStore.SchemaVersion.ShouldBe(7);
+        SqliteCacheStore.SchemaVersion.ShouldBe(8);
     }
 
     [Fact]

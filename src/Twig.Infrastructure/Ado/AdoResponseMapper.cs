@@ -81,8 +81,36 @@ internal static class AdoResponseMapper
     }
 
     /// <summary>
+    /// Fields that are handled explicitly in the create payload (Title, AreaPath, IterationPath)
+    /// or are read-only/computed and must not be sent to ADO on create.
+    /// Shared constant extracted from <see cref="Twig.Domain.Services.SeedEditorFormat"/> excluded set.
+    /// </summary>
+    private static readonly HashSet<string> CreatePayloadExcludedFields = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // Already handled explicitly in the payload
+        "System.Title",
+        "System.AreaPath",
+        "System.IterationPath",
+        // Read-only / computed fields (same set as SeedEditorFormat.ExcludedFields)
+        "System.Id",
+        "System.Rev",
+        "System.CreatedDate",
+        "System.ChangedDate",
+        "System.Watermark",
+        "System.CreatedBy",
+        "System.ChangedBy",
+        "System.AuthorizedDate",
+        "System.RevisedDate",
+        "System.BoardColumn",
+        "System.BoardColumnDone",
+        "System.BoardLane",
+        // Other read-only fields
+        "System.WorkItemType",
+    };
+
+    /// <summary>
     /// Maps a seed <see cref="WorkItem"/> to an ADO JSON Patch document for creation.
-    /// Includes optional parent link.
+    /// Includes optional parent link and all populated non-readonly fields from seed.Fields.
     /// </summary>
     public static List<AdoPatchOperation> MapSeedToCreatePayload(
         WorkItem seed,
@@ -130,6 +158,20 @@ internal static class AdoResponseMapper
                     ["rel"] = JsonValue.Create(ParentRelationType),
                     ["url"] = JsonValue.Create($"{orgUrl}/_apis/wit/workitems/{parentId.Value}"),
                 },
+            });
+        }
+
+        // Include all populated, non-excluded fields from seed.Fields
+        foreach (var (refName, value) in seed.Fields)
+        {
+            if (string.IsNullOrEmpty(value)) continue;
+            if (CreatePayloadExcludedFields.Contains(refName)) continue;
+
+            operations.Add(new AdoPatchOperation
+            {
+                Op = "add",
+                Path = $"/fields/{refName}",
+                Value = JsonValue.Create(value),
             });
         }
 

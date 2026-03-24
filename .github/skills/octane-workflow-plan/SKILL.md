@@ -8,7 +8,7 @@ user-invokable: true
 
 Orchestrated planning workflow powered by the `conductor` skill. Produces a high-quality design and implementation plan through multi-agent review loops with quality gates.
 
-> **This workflow is long-running** — typically 5–15 minutes per run. You MUST use `read_file` to load the full conductor skill instructions from the installed conductor skill's `SKILL.md` and follow its execution procedure exactly. **Always launch with `conductor --silent run ... --web-bg`** — this suppresses console noise and opens a real-time web dashboard.
+> **This workflow is long-running** — typically 5–15 minutes per run. You MUST use `read_file` to load the full conductor skill instructions from the installed conductor skill's `SKILL.md` and follow its execution procedure exactly. **Always launch with `conductor --silent run ... --web`** — this suppresses console noise and opens a real-time web dashboard. Do NOT use `--web-bg` — this workflow contains a `human_gate` for open questions that requires the interactive dashboard.
 
 ## Prerequisites
 
@@ -30,10 +30,10 @@ A single workflow template is included in `assets/` (relative to this skill):
 
 ```bash
 # Plan: solution design + implementation plan
-conductor --silent run assets/plan.yaml --input purpose="Build OAuth2 authentication with PKCE flow" --web-bg
+conductor --silent run assets/plan.yaml --input purpose="Build OAuth2 authentication with PKCE flow" --web
 
 # Plan: with explicit output path
-conductor --silent run assets/plan.yaml --input purpose="..." --input output_path="docs/auth-migration.plan.md" --web-bg
+conductor --silent run assets/plan.yaml --input purpose="..." --input output_path="docs/auth-migration.plan.md" --web
 
 # Dry run to preview execution
 conductor run assets/plan.yaml --input purpose="..." --dry-run

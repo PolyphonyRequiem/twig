@@ -278,4 +278,29 @@ public sealed class MinimalOutputFormatter : IOutputFormatter
 
         return sb.ToString();
     }
+
+    public string FormatSeedValidation(IReadOnlyList<SeedValidationResult> results)
+    {
+        if (results.Count == 0)
+            return "No seeds";
+
+        var sb = new StringBuilder();
+        foreach (var result in results)
+        {
+            var status = result.Passed ? "PASS" : "FAIL";
+            sb.AppendLine($"VALIDATE #{result.SeedId} {status} \"{result.Title}\"");
+            foreach (var f in result.Failures)
+            {
+                sb.AppendLine($"  FAIL [{f.Rule}] {f.Message}");
+            }
+        }
+
+        // Remove trailing newline
+        if (sb.Length > 0 && sb[sb.Length - 1] == '\n')
+            sb.Length -= 1;
+        if (sb.Length > 0 && sb[sb.Length - 1] == '\r')
+            sb.Length -= 1;
+
+        return sb.ToString();
+    }
 }

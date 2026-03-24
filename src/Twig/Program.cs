@@ -344,6 +344,11 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> SeedChain(int? parent = null, string? type = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SeedChainCommand>().ExecuteAsync(parent, type, output, ct);
 
+    /// <summary>Validate seeds against publish rules.</summary>
+    [Command("seed validate")]
+    public async Task<int> SeedValidate([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<SeedValidateCommand>().ExecuteAsync(id, output, ct);
+
     /// <summary>Add a note to the active work item.</summary>
     public async Task<int> Note(string? text = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<NoteCommand>().ExecuteAsync(text, output, ct);
@@ -556,6 +561,7 @@ Work Items:
   seed unlink <s> <t>  Remove a virtual link between two items.
   seed links [id]      List virtual links (all or for a specific item).
   seed chain           Interactively create a chain of linked seeds.
+  seed validate [id]   Validate seeds against publish rules.
   save                 Push pending changes to Azure DevOps.
 
 Git:

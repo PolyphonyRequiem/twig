@@ -436,6 +436,41 @@ public sealed class JsonOutputFormatter : IOutputFormatter
         return Encoding.UTF8.GetString(stream.ToArray());
     }
 
+    public string FormatSeedValidation(IReadOnlyList<SeedValidationResult> results)
+    {
+        using var stream = new MemoryStream();
+        using var writer = new Utf8JsonWriter(stream, WriterOptions);
+
+        writer.WriteStartObject();
+        writer.WriteStartArray("results");
+        var passCount = 0;
+        foreach (var result in results)
+        {
+            if (result.Passed) passCount++;
+            writer.WriteStartObject();
+            writer.WriteNumber("seedId", result.SeedId);
+            writer.WriteString("title", result.Title);
+            writer.WriteBoolean("passed", result.Passed);
+            writer.WriteStartArray("failures");
+            foreach (var f in result.Failures)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("rule", f.Rule);
+                writer.WriteString("message", f.Message);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+        writer.WriteNumber("passed", passCount);
+        writer.WriteNumber("total", results.Count);
+        writer.WriteEndObject();
+
+        writer.Flush();
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
     /// <summary>
     /// Writes a WorkItem as a JSON object for nested contexts (tree, workspace).
     /// Deliberately omits areaPath and iterationPath to keep nested payloads lean —

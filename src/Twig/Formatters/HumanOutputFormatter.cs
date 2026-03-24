@@ -856,6 +856,42 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         return sb.ToString();
     }
 
+    public string FormatSeedValidation(IReadOnlyList<SeedValidationResult> results)
+    {
+        if (results.Count == 0)
+            return $"{Dim}No seeds to validate.{Reset}";
+
+        var sb = new StringBuilder();
+        var passCount = results.Count(r => r.Passed);
+
+        sb.AppendLine($"{Bold}Seed Validation ({passCount}/{results.Count} passed){Reset}");
+        sb.AppendLine(new string('─', 50));
+
+        foreach (var result in results)
+        {
+            if (result.Passed)
+            {
+                sb.AppendLine($"  {Green}✔{Reset} #{result.SeedId}  {result.Title}");
+            }
+            else
+            {
+                sb.AppendLine($"  {Red}✘{Reset} #{result.SeedId}  {result.Title}");
+                foreach (var f in result.Failures)
+                {
+                    sb.AppendLine($"      {Red}•{Reset} [{f.Rule}] {f.Message}");
+                }
+            }
+        }
+
+        // Remove trailing newline
+        if (sb.Length > 0 && sb[sb.Length - 1] == '\n')
+            sb.Length -= 1;
+        if (sb.Length > 0 && sb[sb.Length - 1] == '\r')
+            sb.Length -= 1;
+
+        return sb.ToString();
+    }
+
     public string FormatAnnotatedLogEntry(string hash, string message, string? workItemType, string? workItemState, int? workItemId)
     {
         var shortHash = hash.Length > 7 ? hash[..7] : hash;

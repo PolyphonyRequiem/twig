@@ -893,24 +893,26 @@ Epics must be implemented in order: Rules → Validate → Publish (Core + Paren
 
 **Goal**: Implement validation logic and the `twig seed validate` command.
 
+**Status**: DONE ✓ (Completed 2026-03-24)
+
 **Prerequisites**: Epic 1.
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E2-T1 | IMPL | Create `SeedValidationResult` and `SeedValidationFailure` value objects | `src/Twig.Domain/ValueObjects/SeedValidationResult.cs` | TO DO |
-| E2-T2 | IMPL | Create `SeedValidator` static class with `Validate(WorkItem, SeedPublishRules)` method | `src/Twig.Domain/Services/SeedValidator.cs` | TO DO |
-| E2-T3 | IMPL | Add `FormatSeedValidation` to `IOutputFormatter` and implement in `HumanOutputFormatter`, `JsonOutputFormatter`, `MinimalOutputFormatter` | formatters | TO DO |
-| E2-T4 | IMPL | Create `SeedValidateCommand` with single-seed and all-seeds modes | `src/Twig/Commands/SeedValidateCommand.cs` | TO DO |
-| E2-T5 | IMPL | Register `SeedValidateCommand` in DI and add routing in `Program.cs` | DI + Program.cs | TO DO |
-| E2-T6 | TEST | Unit tests for `SeedValidator` | `tests/Twig.Domain.Tests/Services/SeedValidatorTests.cs` | TO DO |
-| E2-T7 | TEST | CLI tests for `SeedValidateCommand` | `tests/Twig.Cli.Tests/Commands/SeedValidateCommandTests.cs` | TO DO |
+| E2-T1 | IMPL | Create `SeedValidationResult` and `SeedValidationFailure` value objects | `src/Twig.Domain/ValueObjects/SeedValidationResult.cs` | DONE |
+| E2-T2 | IMPL | Create `SeedValidator` static class with `Validate(WorkItem, SeedPublishRules)` method | `src/Twig.Domain/Services/SeedValidator.cs` | DONE |
+| E2-T3 | IMPL | Add `FormatSeedValidation` to `IOutputFormatter` and implement in `HumanOutputFormatter`, `JsonOutputFormatter`, `MinimalOutputFormatter` | formatters | DONE |
+| E2-T4 | IMPL | Create `SeedValidateCommand` with single-seed and all-seeds modes | `src/Twig/Commands/SeedValidateCommand.cs` | DONE |
+| E2-T5 | IMPL | Register `SeedValidateCommand` in DI and add routing in `Program.cs` | DI + Program.cs | DONE |
+| E2-T6 | TEST | Unit tests for `SeedValidator` | `tests/Twig.Domain.Tests/Services/SeedValidatorTests.cs` | DONE |
+| E2-T7 | TEST | CLI tests for `SeedValidateCommand` | `tests/Twig.Cli.Tests/Commands/SeedValidateCommandTests.cs` | DONE |
 
 **Acceptance Criteria**:
-- [ ] `SeedValidator.Validate` returns pass for seed with all required fields
-- [ ] `SeedValidator.Validate` returns failure with specific rule/message for missing fields
-- [ ] `twig seed validate` with ID shows detailed per-rule results
-- [ ] `twig seed validate` without ID shows summary for all seeds
-- [ ] Exit code 0 when all pass, non-zero when any fail
+- [x] `SeedValidator.Validate` returns pass for seed with all required fields
+- [x] `SeedValidator.Validate` returns failure with specific rule/message for missing fields
+- [x] `twig seed validate` with ID shows detailed per-rule results
+- [x] `twig seed validate` without ID shows summary for all seeds
+- [x] Exit code 0 when all pass, non-zero when any fail
 
 ---
 

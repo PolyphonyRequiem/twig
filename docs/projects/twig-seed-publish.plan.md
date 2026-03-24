@@ -1074,25 +1074,27 @@ Epics must be implemented in order: Rules → Validate → Publish (Core + Paren
 
 **Prerequisites**: Epics 3, 5, 6, 7.
 
+**Status**: DONE ✓ (Completed 2026-03-24)
+
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E8-T1 | IMPL | Add `FormatSeedPublishResult` and `FormatSeedPublishBatchResult` to `IOutputFormatter` and implement | formatters | TO DO |
-| E8-T2 | IMPL | Create `SeedPublishCommand` with `<id>`, `--all`, `--force`, `--dry-run` | `src/Twig/Commands/SeedPublishCommand.cs` | TO DO |
-| E8-T3 | IMPL | Register orchestrators in `CommandServiceModule` | `src/Twig/DependencyInjection/CommandServiceModule.cs` | TO DO |
-| E8-T4 | IMPL | Register commands in `CommandRegistrationModule` | `src/Twig/DependencyInjection/CommandRegistrationModule.cs` | TO DO |
-| E8-T5 | IMPL | Add command routing in `Program.cs` with help text | `src/Twig/Program.cs` | TO DO |
-| E8-T6 | TEST | CLI integration tests for `SeedPublishCommand` | `tests/Twig.Cli.Tests/Commands/SeedPublishCommandTests.cs` | TO DO |
-| E8-T7 | TEST | End-to-end lifecycle test: create → validate → publish → verify (includes parent-child publish order) | `tests/Twig.Cli.Tests/Commands/SeedLifecycleIntegrationTests.cs` | TO DO |
+| E8-T1 | IMPL | Add `FormatSeedPublishResult` and `FormatSeedPublishBatchResult` to `IOutputFormatter` and implement | formatters | DONE |
+| E8-T2 | IMPL | Create `SeedPublishCommand` with `<id>`, `--all`, `--force`, `--dry-run` | `src/Twig/Commands/SeedPublishCommand.cs` | DONE |
+| E8-T3 | IMPL | Register orchestrators in `CommandServiceModule` | `src/Twig/DependencyInjection/CommandServiceModule.cs` | DONE |
+| E8-T4 | IMPL | Register commands in `CommandRegistrationModule` | `src/Twig/DependencyInjection/CommandRegistrationModule.cs` | DONE |
+| E8-T5 | IMPL | Add command routing in `Program.cs` with help text | `src/Twig/Program.cs` | DONE |
+| E8-T6 | TEST | CLI integration tests for `SeedPublishCommand` | `tests/Twig.Cli.Tests/Commands/SeedPublishCommandTests.cs` | DONE |
+| E8-T7 | TEST | End-to-end lifecycle test: create → validate → publish → verify (includes parent-child publish order) | `tests/Twig.Cli.Tests/Commands/SeedLifecycleIntegrationTests.cs` | DONE |
 
 **Acceptance Criteria**:
-- [ ] `twig seed publish -5` publishes seed and outputs "Published seed #-5 as #N: Title"
-- [ ] `twig seed publish -5` with ParentId < 0 errors with "publish parent first" message
-- [ ] `twig seed publish --all` publishes in topological order (parents before children)
-- [ ] `twig seed publish --dry-run` shows plan without API calls
-- [ ] `twig seed publish --force` skips validation
-- [ ] Help text updated with new commands
-- [ ] All new services registered in DI (including IPublishIdMapRepository)
-- [ ] Lifecycle test passes: seed → validate → publish → verify
+- [x] `twig seed publish -5` publishes seed and outputs "Published seed #-5 as #N: Title"
+- [x] `twig seed publish -5` with ParentId < 0 errors with "publish parent first" message
+- [x] `twig seed publish --all` publishes in topological order (parents before children)
+- [x] `twig seed publish --dry-run` shows plan without API calls
+- [x] `twig seed publish --force` skips validation
+- [x] Help text updated with new commands
+- [x] All new services registered in DI (including IPublishIdMapRepository)
+- [x] Lifecycle test passes: seed → validate → publish → verify
 
 ---
 

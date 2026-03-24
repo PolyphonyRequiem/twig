@@ -68,6 +68,10 @@ public static class CommandServiceModule
             sp.GetRequiredService<ISeedPublishRulesProvider>(),
             sp.GetRequiredService<IUnitOfWork>(),
             sp.GetRequiredService<BacklogOrderer>()));
+        services.AddSingleton<SeedReconcileOrchestrator>(sp => new SeedReconcileOrchestrator(
+            sp.GetRequiredService<ISeedLinkRepository>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IPublishIdMapRepository>()));
 
         // EPIC-002: Domain orchestration services
         services.AddSingleton<FlowTransitionService>(sp => new FlowTransitionService(

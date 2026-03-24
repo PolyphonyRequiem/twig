@@ -62,4 +62,12 @@ public interface IOutputFormatter
 
     /// <summary>Formats the result of a seed reconcile operation.</summary>
     string FormatSeedReconcileResult(SeedReconcileResult result);
+
+    // ── Seed publish formatting ─────────────────────────────────────
+
+    /// <summary>Formats a single seed publish result for display.</summary>
+    string FormatSeedPublishResult(SeedPublishResult result);
+
+    /// <summary>Formats a batch seed publish result for display.</summary>
+    string FormatSeedPublishBatchResult(SeedPublishBatchResult result);
 }

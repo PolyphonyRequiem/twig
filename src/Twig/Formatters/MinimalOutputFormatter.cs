@@ -327,4 +327,37 @@ public sealed class MinimalOutputFormatter : IOutputFormatter
 
         return sb.ToString();
     }
+
+    public string FormatSeedPublishResult(SeedPublishResult result)
+    {
+        return result.Status switch
+        {
+            SeedPublishStatus.Created => $"PUBLISH #{result.OldId} => #{result.NewId} \"{result.Title}\"",
+            SeedPublishStatus.Skipped => $"PUBLISH #{result.OldId} SKIPPED",
+            SeedPublishStatus.DryRun => $"PUBLISH #{result.OldId} DRYRUN \"{result.Title}\"",
+            SeedPublishStatus.ValidationFailed => $"PUBLISH #{result.OldId} VALIDATION_FAILED \"{result.Title}\"",
+            SeedPublishStatus.Error => $"PUBLISH #{result.OldId} ERROR {result.ErrorMessage}",
+            _ => $"PUBLISH #{result.OldId} UNKNOWN",
+        };
+    }
+
+    public string FormatSeedPublishBatchResult(SeedPublishBatchResult result)
+    {
+        if (result.Results.Count == 0 && result.CycleErrors.Count == 0)
+            return "PUBLISH NONE";
+
+        var sb = new StringBuilder();
+        foreach (var r in result.Results)
+            sb.AppendLine(FormatSeedPublishResult(r));
+        foreach (var err in result.CycleErrors)
+            sb.AppendLine($"PUBLISH CYCLE {err}");
+
+        // Remove trailing newline
+        if (sb.Length > 0 && sb[sb.Length - 1] == '\n')
+            sb.Length -= 1;
+        if (sb.Length > 0 && sb[sb.Length - 1] == '\r')
+            sb.Length -= 1;
+
+        return sb.ToString();
+    }
 }

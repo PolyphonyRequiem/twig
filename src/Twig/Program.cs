@@ -349,6 +349,16 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> SeedValidate([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SeedValidateCommand>().ExecuteAsync(id, output, ct);
 
+    /// <summary>Publish seeds to Azure DevOps. Use --all for batch, --dry-run to preview, --force to skip validation.</summary>
+    [Command("seed publish")]
+    public async Task<int> SeedPublish([Argument] int? id = null, bool all = false, bool force = false, bool dryRun = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<SeedPublishCommand>().ExecuteAsync(id, all, force, dryRun, output, ct);
+
+    /// <summary>Reconcile stale seed links and parent references after partial publishes.</summary>
+    [Command("seed reconcile")]
+    public async Task<int> SeedReconcile(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<SeedReconcileCommand>().ExecuteAsync(output, ct);
+
     /// <summary>Add a note to the active work item.</summary>
     public async Task<int> Note(string? text = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<NoteCommand>().ExecuteAsync(text, output, ct);
@@ -562,6 +572,9 @@ Work Items:
   seed links [id]      List virtual links (all or for a specific item).
   seed chain           Interactively create a chain of linked seeds.
   seed validate [id]   Validate seeds against publish rules.
+  seed publish <id>    Publish a seed to Azure DevOps.
+  seed publish --all   Publish all seeds in dependency order.
+  seed reconcile       Repair stale links after partial publishes.
   save                 Push pending changes to Azure DevOps.
 
 Git:

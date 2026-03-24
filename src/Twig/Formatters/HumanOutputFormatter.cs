@@ -920,6 +920,62 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         return sb.ToString();
     }
 
+    public string FormatSeedPublishResult(SeedPublishResult result)
+    {
+        return result.Status switch
+        {
+            SeedPublishStatus.Created =>
+                $"{Green}Published seed #{result.OldId} as #{result.NewId}: {result.Title}{Reset}"
+                + (result.LinkWarnings.Count > 0
+                    ? Environment.NewLine + string.Join(Environment.NewLine, result.LinkWarnings.Select(w => $"  {Yellow}⚠{Reset} {w}"))
+                    : ""),
+            SeedPublishStatus.Skipped =>
+                $"{Dim}Seed #{result.OldId} already published — skipped.{Reset}",
+            SeedPublishStatus.DryRun =>
+                $"{Cyan}[dry-run]{Reset} Would publish seed #{result.OldId}: {result.Title}",
+            SeedPublishStatus.ValidationFailed =>
+                $"{Red}✘{Reset} Seed #{result.OldId} failed validation: {result.Title}"
+                + Environment.NewLine + string.Join(Environment.NewLine, result.ValidationFailures.Select(f => $"    {Red}•{Reset} [{f.Rule}] {f.Message}")),
+            SeedPublishStatus.Error =>
+                $"{Red}✘{Reset} Seed #{result.OldId}: {result.ErrorMessage}",
+            _ => result.ErrorMessage ?? "Unknown status",
+        };
+    }
+
+    public string FormatSeedPublishBatchResult(SeedPublishBatchResult result)
+    {
+        var sb = new StringBuilder();
+
+        if (result.Results.Count == 0 && result.CycleErrors.Count == 0)
+        {
+            return $"{Dim}No seeds to publish.{Reset}";
+        }
+
+        sb.AppendLine($"{Bold}Seed Publish{Reset}");
+        sb.AppendLine(new string('─', 40));
+
+        foreach (var r in result.Results)
+        {
+            sb.AppendLine($"  {FormatSeedPublishResult(r)}");
+        }
+
+        foreach (var err in result.CycleErrors)
+        {
+            sb.AppendLine($"  {Red}⚠{Reset} {err}");
+        }
+
+        sb.AppendLine(new string('─', 40));
+        sb.AppendLine($"  Created: {result.CreatedCount}  Skipped: {result.SkippedCount}  Errors: {result.Results.Count(r => !r.IsSuccess)}");
+
+        // Remove trailing newline
+        if (sb.Length > 0 && sb[sb.Length - 1] == '\n')
+            sb.Length -= 1;
+        if (sb.Length > 0 && sb[sb.Length - 1] == '\r')
+            sb.Length -= 1;
+
+        return sb.ToString();
+    }
+
     public string FormatAnnotatedLogEntry(string hash, string message, string? workItemType, string? workItemState, int? workItemId)
     {
         var shortHash = hash.Length > 7 ? hash[..7] : hash;

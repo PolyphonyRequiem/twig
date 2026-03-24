@@ -81,6 +81,8 @@ namespace Twig.Infrastructure.Serialization;
 // GitHub Release DTOs (EPIC-005 — self-update)
 [JsonSerializable(typeof(GitHubRelease))]
 [JsonSerializable(typeof(List<GitHubRelease>))]
+// Seed publish rules (Epic 1 — publish rules configuration)
+[JsonSerializable(typeof(SeedPublishRules))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]

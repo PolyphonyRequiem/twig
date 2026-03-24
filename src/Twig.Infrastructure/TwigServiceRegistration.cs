@@ -78,6 +78,13 @@ public static class TwigServiceRegistration
         // runtime auto-detection of the git remote URL during DI composition.
         services.AddSingleton<IGitService, GitCliService>();
 
+        // Seed publish rules provider — loads .twig/seed-rules.json or falls back to defaults.
+        services.AddSingleton<ISeedPublishRulesProvider>(sp =>
+        {
+            var paths = sp.GetRequiredService<TwigPaths>();
+            return new FileSeedPublishRulesProvider(paths.TwigDir);
+        });
+
         // Prompt state writer — writes .twig/prompt.json atomically after mutating commands.
         services.AddSingleton<IPromptStateWriter>(sp => new PromptStateWriter(
             sp.GetRequiredService<IContextStore>(),

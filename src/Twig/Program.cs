@@ -316,6 +316,26 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> SeedView(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SeedViewCommand>().ExecuteAsync(output, ct);
 
+    /// <summary>Create a virtual link between two items (at least one must be a seed).</summary>
+    [Command("seed link")]
+    public async Task<int> SeedLink([Argument] int sourceId, [Argument] int targetId, string? type = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<SeedLinkCommand>().LinkAsync(sourceId, targetId, type, output, ct);
+
+    /// <summary>Remove a virtual link between two items.</summary>
+    [Command("seed unlink")]
+    public async Task<int> SeedUnlink([Argument] int sourceId, [Argument] int targetId, string? type = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<SeedLinkCommand>().UnlinkAsync(sourceId, targetId, type, output, ct);
+
+    /// <summary>List virtual links, optionally filtered by item ID.</summary>
+    [Command("seed links")]
+    public async Task<int> SeedLinks([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<SeedLinkCommand>().ListLinksAsync(id, output, ct);
+
+    /// <summary>Interactively create a chain of linked seeds.</summary>
+    [Command("seed chain")]
+    public async Task<int> SeedChain(int? parent = null, string? type = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<SeedChainCommand>().ExecuteAsync(parent, type, output, ct);
+
     /// <summary>Add a note to the active work item.</summary>
     public async Task<int> Note(string? text = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<NoteCommand>().ExecuteAsync(text, output, ct);
@@ -522,6 +542,10 @@ Work Items:
   seed edit <id>       Edit a local seed in an external editor.
   seed discard <id>    Delete a local seed (prompts for confirmation).
   seed view            Show seed dashboard grouped by parent.
+  seed link <s> <t>    Create a virtual link between two items.
+  seed unlink <s> <t>  Remove a virtual link between two items.
+  seed links [id]      List virtual links (all or for a specific item).
+  seed chain           Interactively create a chain of linked seeds.
   save                 Push pending changes to Azure DevOps.
 
 Git:

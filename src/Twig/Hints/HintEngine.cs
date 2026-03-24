@@ -104,6 +104,10 @@ public sealed class HintEngine
                 }
                 break;
 
+            case "seed-chain":
+                hints.Add("Try: twig seed view, twig seed links");
+                break;
+
             case "note":
                 hints.Add("Note staged. Will push on next twig update or twig save");
                 break;

@@ -739,28 +739,30 @@ None. All features are local-only (SQLite + CLI). No new NuGet packages required
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E4-T1 | IMPL | Create `SeedChainCommand` with interactive loop, `--parent`, `--type` options | `src/Twig/Commands/SeedChainCommand.cs` | TO DO |
-| E4-T2 | IMPL | Add `SeedChain` routing in `TwigCommands` (Program.cs) | `src/Twig/Program.cs` | TO DO |
-| E4-T3 | IMPL | Register `SeedChainCommand` in `CommandRegistrationModule` | `src/Twig/DependencyInjection/CommandRegistrationModule.cs` | TO DO |
-| E4-T4 | TEST | Test chain creates N seeds with N-1 links, summary output correct | `tests/Twig.Cli.Tests/Commands/SeedChainCommandTests.cs` | TO DO |
-| E4-T5 | TEST | Test chain with `--parent` override and `--type` override | `tests/Twig.Cli.Tests/Commands/SeedChainCommandTests.cs` | TO DO |
-| E4-T6 | TEST | Test chain in piped mode (multi-line stdin, empty line terminates) | `tests/Twig.Cli.Tests/Commands/SeedChainCommandTests.cs` | TO DO |
-| E4-T7 | TEST | Test chain with no parent context (error) and empty input (0 seeds created) | `tests/Twig.Cli.Tests/Commands/SeedChainCommandTests.cs` | TO DO |
-| E4-T8 | IMPL | Add chain builder hint in `HintEngine` | `src/Twig/Hints/HintEngine.cs` | TO DO |
-| E4-T9 | IMPL | Update `GroupedHelp.Show()` with chain command | `src/Twig/Program.cs` | TO DO |
+| E4-T1 | IMPL | Create `SeedChainCommand` with interactive loop, `--parent`, `--type` options | `src/Twig/Commands/SeedChainCommand.cs` | DONE |
+| E4-T2 | IMPL | Add `SeedChain` routing in `TwigCommands` (Program.cs) | `src/Twig/Program.cs` | DONE |
+| E4-T3 | IMPL | Register `SeedChainCommand` in `CommandRegistrationModule` | `src/Twig/DependencyInjection/CommandRegistrationModule.cs` | DONE |
+| E4-T4 | TEST | Test chain creates N seeds with N-1 links, summary output correct | `tests/Twig.Cli.Tests/Commands/SeedChainCommandTests.cs` | DONE |
+| E4-T5 | TEST | Test chain with `--parent` override and `--type` override | `tests/Twig.Cli.Tests/Commands/SeedChainCommandTests.cs` | DONE |
+| E4-T6 | TEST | Test chain in piped mode (multi-line stdin, empty line terminates) | `tests/Twig.Cli.Tests/Commands/SeedChainCommandTests.cs` | DONE |
+| E4-T7 | TEST | Test chain with no parent context (error) and empty input (0 seeds created) | `tests/Twig.Cli.Tests/Commands/SeedChainCommandTests.cs` | DONE |
+| E4-T8 | IMPL | Add chain builder hint in `HintEngine` | `src/Twig/Hints/HintEngine.cs` | DONE |
+| E4-T9 | IMPL | Update `GroupedHelp.Show()` with chain command | `src/Twig/Program.cs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] `twig seed chain` prompts for titles in a loop
-- [ ] Each seed is linked to the previous one with "related" type
-- [ ] Summary displays "Created N seeds: #-1 → #-2 → #-3"
-- [ ] `--parent <id>` overrides active parent context
-- [ ] `--type <type>` sets work item type for all chain seeds
-- [ ] Empty input (or EOF in piped mode) terminates the loop
-- [ ] Zero titles entered prints "No seeds created." and returns 0
+- [x] `twig seed chain` prompts for titles in a loop
+- [x] Each seed is linked to the previous one with "related" type
+- [x] Summary displays "Created N seeds: #-1 → #-2 → #-3"
+- [x] `--parent <id>` overrides active parent context
+- [x] `--type <type>` sets work item type for all chain seeds
+- [x] Empty input (or EOF in piped mode) terminates the loop
+- [x] Zero titles entered prints "No seeds created." and returns 0
+
+**Completion Notes:** Two review fixes applied: (1) `SeedChainCommand.cs` line 114 routes the zero-result message through `fmt.FormatInfo("No seeds created.")` instead of raw `Console.WriteLine`, consistent with all other informational output in the file and matching the pattern in `SeedNewCommand`; (2) `Chain_NullInput_ZeroSeeds_ReturnsZero` test now captures stdout and asserts `ShouldContain("No seeds created.")`, matching the parallel `Chain_EmptyInput_ZeroSeeds_ReturnsZero` test. The two zero-seed test cases were also consolidated into a `[Theory]` to eliminate duplication. All acceptance criteria verified.
 
 ---
 
-### Epic 5: Next/Prev Sibling Navigation
+### Epic 5:Next/Prev Sibling Navigation
 
 **Goal:** `twig next` and `twig prev` for horizontal sibling traversal.
 

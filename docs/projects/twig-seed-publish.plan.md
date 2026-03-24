@@ -922,37 +922,44 @@ Epics must be implemented in order: Rules → Validate → Publish (Core + Paren
 
 **Prerequisites**: Epic 2.
 
+**Status**: DONE
+
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E3-T1 | IMPL | Create `SeedPublishResult` and `SeedPublishBatchResult` value objects | `src/Twig.Domain/ValueObjects/SeedPublishResult.cs` | TO DO |
-| E3-T2 | IMPL | Add `WithParentId(int?)` and `WithIsSeed(bool)` copy methods to `WorkItem` | `src/Twig.Domain/Aggregates/WorkItem.cs` | TO DO |
-| E3-T3 | IMPL | Expand `AdoResponseMapper.MapSeedToCreatePayload` to include all populated non-readonly fields from `seed.Fields` | `src/Twig.Infrastructure/Ado/AdoResponseMapper.cs` | TO DO |
-| E3-T4 | IMPL | Add `RemapIdAsync(int oldId, int newId)` to `ISeedLinkRepository` | `src/Twig.Domain/Interfaces/ISeedLinkRepository.cs` | TO DO |
-| E3-T5 | IMPL | Implement `RemapIdAsync` in `SqliteSeedLinkRepository` | `src/Twig.Infrastructure/Persistence/SqliteSeedLinkRepository.cs` | TO DO |
-| E3-T6 | IMPL | Add `RemapParentIdAsync(int oldParentId, int newParentId)` to `IWorkItemRepository` | `src/Twig.Domain/Interfaces/IWorkItemRepository.cs` | TO DO |
-| E3-T7 | IMPL | Implement `RemapParentIdAsync` in `SqliteWorkItemRepository` | `src/Twig.Infrastructure/Persistence/SqliteWorkItemRepository.cs` | TO DO |
-| E3-T8 | IMPL | Create `IPublishIdMapRepository` interface and `SqlitePublishIdMapRepository` implementation | `src/Twig.Domain/Interfaces/IPublishIdMapRepository.cs`, `src/Twig.Infrastructure/Persistence/SqlitePublishIdMapRepository.cs` | TO DO |
-| E3-T9 | IMPL | Add `publish_id_map` table to `SqliteCacheStore` schema, bump `SchemaVersion` to 8 | `src/Twig.Infrastructure/Persistence/SqliteCacheStore.cs` | TO DO |
-| E3-T10 | IMPL | Create `SeedPublishOrchestrator` with `PublishAsync(seedId, force, dryRun)` using `IUnitOfWork` for transactional local update | `src/Twig.Domain/Services/SeedPublishOrchestrator.cs` | TO DO |
-| E3-T11 | TEST | Unit tests for `WithParentId` and `WithIsSeed` | `tests/Twig.Domain.Tests/Aggregates/WorkItemCopyTests.cs` | TO DO |
-| E3-T12 | TEST | Unit tests for expanded `MapSeedToCreatePayload` | `tests/Twig.Infrastructure.Tests/Ado/AdoResponseMapperTests.cs` | TO DO |
-| E3-T13 | TEST | Unit tests for `RemapIdAsync` and `RemapParentIdAsync` | `tests/Twig.Infrastructure.Tests/Persistence/` | TO DO |
-| E3-T14 | TEST | Unit tests for `SqlitePublishIdMapRepository` | `tests/Twig.Infrastructure.Tests/Persistence/SqlitePublishIdMapRepositoryTests.cs` | TO DO |
-| E3-T15 | TEST | Unit tests for `SeedPublishOrchestrator.PublishAsync` including transactional flow and ParentId guard | `tests/Twig.Domain.Tests/Services/SeedPublishOrchestratorTests.cs` | TO DO |
+| E3-T1 | IMPL | Create `SeedPublishResult` and `SeedPublishBatchResult` value objects | `src/Twig.Domain/ValueObjects/SeedPublishResult.cs` | DONE |
+| E3-T2 | IMPL | Add `WithParentId(int?)` and `WithIsSeed(bool)` copy methods to `WorkItem` | `src/Twig.Domain/Aggregates/WorkItem.cs` | DONE |
+| E3-T3 | IMPL | Expand `AdoResponseMapper.MapSeedToCreatePayload` to include all populated non-readonly fields from `seed.Fields` | `src/Twig.Infrastructure/Ado/AdoResponseMapper.cs` | DONE |
+| E3-T4 | IMPL | Add `RemapIdAsync(int oldId, int newId)` to `ISeedLinkRepository` | `src/Twig.Domain/Interfaces/ISeedLinkRepository.cs` | DONE |
+| E3-T5 | IMPL | Implement `RemapIdAsync` in `SqliteSeedLinkRepository` | `src/Twig.Infrastructure/Persistence/SqliteSeedLinkRepository.cs` | DONE |
+| E3-T6 | IMPL | Add `RemapParentIdAsync(int oldParentId, int newParentId)` to `IWorkItemRepository` | `src/Twig.Domain/Interfaces/IWorkItemRepository.cs` | DONE |
+| E3-T7 | IMPL | Implement `RemapParentIdAsync` in `SqliteWorkItemRepository` | `src/Twig.Infrastructure/Persistence/SqliteWorkItemRepository.cs` | DONE |
+| E3-T8 | IMPL | Create `IPublishIdMapRepository` interface and `SqlitePublishIdMapRepository` implementation | `src/Twig.Domain/Interfaces/IPublishIdMapRepository.cs`, `src/Twig.Infrastructure/Persistence/SqlitePublishIdMapRepository.cs` | DONE |
+| E3-T9 | IMPL | Add `publish_id_map` table to `SqliteCacheStore` schema, bump `SchemaVersion` to 8 | `src/Twig.Infrastructure/Persistence/SqliteCacheStore.cs` | DONE |
+| E3-T10 | IMPL | Create `SeedPublishOrchestrator` with `PublishAsync(seedId, force, dryRun)` using `IUnitOfWork` for transactional local update | `src/Twig.Domain/Services/SeedPublishOrchestrator.cs` | DONE |
+| E3-T11 | TEST | Unit tests for `WithParentId` and `WithIsSeed` | `tests/Twig.Domain.Tests/Aggregates/WorkItemCopyTests.cs` | DONE |
+| E3-T12 | TEST | Unit tests for expanded `MapSeedToCreatePayload` | `tests/Twig.Infrastructure.Tests/Ado/AdoResponseMapperTests.cs` | DONE |
+| E3-T13 | TEST | Unit tests for `RemapIdAsync` and `RemapParentIdAsync` | `tests/Twig.Infrastructure.Tests/Persistence/RemapRepositoryTests.cs` | DONE |
+| E3-T14 | TEST | Unit tests for `SqlitePublishIdMapRepository` | `tests/Twig.Infrastructure.Tests/Persistence/SqlitePublishIdMapRepositoryTests.cs` | DONE |
+| E3-T15 | TEST | Unit tests for `SeedPublishOrchestrator.PublishAsync` including transactional flow and ParentId guard | `tests/Twig.Domain.Tests/Services/SeedPublishOrchestratorTests.cs` | DONE |
+| E3-T16 | FIX | Add `ActiveTransaction` ambient property to `SqliteCacheStore`; update `SqliteUnitOfWork` to set/clear it; enroll all five publish-flow repository commands (`SaveAsync`, `DeleteByIdAsync`, `RemapParentIdAsync`, `RemapIdAsync`, `RecordMappingAsync`) in the ambient transaction | `src/Twig.Infrastructure/Persistence/SqliteCacheStore.cs`, `src/Twig.Infrastructure/Persistence/SqliteUnitOfWork.cs`, `src/Twig.Infrastructure/Persistence/SqliteWorkItemRepository.cs`, `src/Twig.Infrastructure/Persistence/SqliteSeedLinkRepository.cs`, `src/Twig.Infrastructure/Persistence/SqlitePublishIdMapRepository.cs` | DONE |
+| E3-T17 | FIX | Renumber step comments in `SeedPublishOrchestrator.PublishAsync` so Step 1 guard precedes Step 2 load | `src/Twig.Domain/Services/SeedPublishOrchestrator.cs` | DONE |
+| E3-T18 | TEST | Integration tests (`SeedPublishTransactionIntegrationTests`) verifying commit, explicit rollback, and exception-triggered rollback paths against real in-memory SQLite | `tests/Twig.Infrastructure.Tests/Persistence/SeedPublishTransactionIntegrationTests.cs` | DONE |
 
 **Acceptance Criteria**:
-- [ ] `CreateAsync` payload includes all non-empty, non-readonly seed fields
-- [ ] `RemapIdAsync` updates both source_id and target_id references
-- [ ] `RemapParentIdAsync` updates all child seeds' parent_id
-- [ ] `WithIsSeed(true)` correctly preserves seed provenance on fetched-back items
-- [ ] `WithParentId` correctly creates copy with new parent reference
-- [ ] Orchestrator creates ADO item, fetches it back, replaces local row
-- [ ] Local operations (remap + delete + save) are wrapped in a single transaction
-- [ ] Publish ID map records the old→new mapping
-- [ ] Single-seed publish guards against ParentId < 0 with clear error
-- [ ] Already-published seed (positive ID) is skipped with success
+- [x] `CreateAsync` payload includes all non-empty, non-readonly seed fields
+- [x] `RemapIdAsync` updates both source_id and target_id references
+- [x] `RemapParentIdAsync` updates all child seeds' parent_id
+- [x] `WithIsSeed(true)` correctly preserves seed provenance on fetched-back items
+- [x] `WithParentId` correctly creates copy with new parent reference
+- [x] Orchestrator creates ADO item, fetches it back, replaces local row
+- [x] Local operations (remap + delete + save) are wrapped in a single transaction
+- [x] Publish ID map records the old→new mapping
+- [x] Single-seed publish guards against ParentId < 0 with clear error
+- [x] Already-published seed (positive ID) is skipped with success
 - [ ] `--force` bypasses validation
 - [ ] `--dry-run` returns plan without API calls
+
+**Completion Notes** (2026-03-24): Post-review fixes applied — ambient transaction pattern (`SqliteCacheStore.ActiveTransaction`) ensures all five publish-flow repository commands enroll in the SQLite transaction without cascading interface changes. Three-location clear (commit/rollback/dispose) provides safety net. Integration tests cover commit, explicit rollback, and exception rollback paths. Two load-bearing constraints documented: (1) `SaveBatchAsync` and large-batch `EvictExceptAsync` call `conn.BeginTransaction()` directly and must not be invoked while `ActiveTransaction` is non-null; (2) read operations do not set `cmd.Transaction` and must not be called within a transaction block.
 
 ---
 

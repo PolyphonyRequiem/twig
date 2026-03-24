@@ -12,7 +12,7 @@ public sealed class SqliteCacheStore : IDisposable
     /// Current schema version compiled into the binary.
     /// If the DB schema version differs, all tables are dropped and recreated.
     /// </summary>
-    internal const int SchemaVersion = 7;
+    internal const int SchemaVersion = 8;
 
     private readonly SqliteConnection _connection;
     private bool _schemaRebuilt;
@@ -51,6 +51,13 @@ public sealed class SqliteCacheStore : IDisposable
     /// Gets the open SQLite connection.
     /// </summary>
     public SqliteConnection GetConnection() => _connection;
+
+    /// <summary>
+    /// The currently active ambient transaction, if any.
+    /// Set by <see cref="SqliteUnitOfWork.BeginAsync"/> and cleared on commit, rollback, or dispose.
+    /// Repository implementations use this to enroll commands in the active transaction.
+    /// </summary>
+    internal SqliteTransaction? ActiveTransaction { get; set; }
 
     /// <summary>
     /// Indicates whether the schema was rebuilt during initialization (version mismatch or missing).
@@ -98,7 +105,7 @@ public sealed class SqliteCacheStore : IDisposable
     {
         // Table names are compile-time constants — not user-supplied values — so
         // string interpolation is safe here. SQLite does not support parameterised DDL identifiers.
-        string[] tables = ["pending_changes", "work_items", "process_types", "context", "metadata", "field_definitions", "work_item_links", "seed_links"];
+        string[] tables = ["pending_changes", "work_items", "process_types", "context", "metadata", "field_definitions", "work_item_links", "seed_links", "publish_id_map"];
         foreach (var table in tables)
         {
             using var cmd = _connection.CreateCommand();
@@ -204,6 +211,12 @@ public sealed class SqliteCacheStore : IDisposable
         );
         CREATE INDEX idx_seed_links_source ON seed_links(source_id);
         CREATE INDEX idx_seed_links_target ON seed_links(target_id);
+
+        CREATE TABLE publish_id_map (
+            old_id INTEGER PRIMARY KEY,
+            new_id INTEGER NOT NULL,
+            published_at TEXT NOT NULL
+        );
         """;
 
     public void Dispose()

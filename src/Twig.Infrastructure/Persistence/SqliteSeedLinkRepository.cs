@@ -96,4 +96,25 @@ public sealed class SqliteSeedLinkRepository : ISeedLinkRepository
 
         return Task.CompletedTask;
     }
+
+    public Task RemapIdAsync(int oldId, int newId, CancellationToken ct = default)
+    {
+        var conn = _store.GetConnection();
+
+        using var srcCmd = conn.CreateCommand();
+        srcCmd.Transaction = _store.ActiveTransaction;
+        srcCmd.CommandText = "UPDATE seed_links SET source_id = @newId WHERE source_id = @oldId;";
+        srcCmd.Parameters.AddWithValue("@newId", newId);
+        srcCmd.Parameters.AddWithValue("@oldId", oldId);
+        srcCmd.ExecuteNonQuery();
+
+        using var tgtCmd = conn.CreateCommand();
+        tgtCmd.Transaction = _store.ActiveTransaction;
+        tgtCmd.CommandText = "UPDATE seed_links SET target_id = @newId WHERE target_id = @oldId;";
+        tgtCmd.Parameters.AddWithValue("@newId", newId);
+        tgtCmd.Parameters.AddWithValue("@oldId", oldId);
+        tgtCmd.ExecuteNonQuery();
+
+        return Task.CompletedTask;
+    }
 }

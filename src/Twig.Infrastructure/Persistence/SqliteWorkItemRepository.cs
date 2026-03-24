@@ -156,7 +156,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
 
     public Task SaveAsync(WorkItem workItem, CancellationToken ct = default)
     {
-        SaveWorkItem(_store.GetConnection(), workItem);
+        SaveWorkItem(_store.GetConnection(), workItem, _store.ActiveTransaction);
         return Task.CompletedTask;
     }
 
@@ -184,8 +184,21 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
     {
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
+        cmd.Transaction = _store.ActiveTransaction;
         cmd.CommandText = "DELETE FROM work_items WHERE id = @id;";
         cmd.Parameters.AddWithValue("@id", id);
+        cmd.ExecuteNonQuery();
+        return Task.CompletedTask;
+    }
+
+    public Task RemapParentIdAsync(int oldParentId, int newParentId, CancellationToken ct = default)
+    {
+        var conn = _store.GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = _store.ActiveTransaction;
+        cmd.CommandText = "UPDATE work_items SET parent_id = @newParentId WHERE parent_id = @oldParentId;";
+        cmd.Parameters.AddWithValue("@newParentId", newParentId);
+        cmd.Parameters.AddWithValue("@oldParentId", oldParentId);
         cmd.ExecuteNonQuery();
         return Task.CompletedTask;
     }

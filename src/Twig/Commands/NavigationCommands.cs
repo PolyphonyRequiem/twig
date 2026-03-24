@@ -7,8 +7,8 @@ using Twig.Rendering;
 namespace Twig.Commands;
 
 /// <summary>
-/// Implements <c>twig up</c> and <c>twig down &lt;idOrPattern&gt;</c>: tree navigation
-/// that delegates to SetCommand logic.
+/// Implements <c>twig up</c>, <c>twig down</c>, <c>twig next</c>, and <c>twig prev</c>:
+/// tree navigation that delegates to SetCommand logic.
 /// </summary>
 public sealed class NavigationCommands(
     IContextStore contextStore,
@@ -135,5 +135,65 @@ public sealed class NavigationCommands(
                 Console.Error.WriteLine(fmt.FormatError("Unexpected match result."));
                 return 1;
         }
+    }
+
+    /// <summary>Navigate to the next sibling work item (by ID order).</summary>
+    public async Task<int> NextAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await NavigateSiblingAsync(direction: +1, outputFormat, ct);
+
+    /// <summary>Navigate to the previous sibling work item (by ID order).</summary>
+    public async Task<int> PrevAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await NavigateSiblingAsync(direction: -1, outputFormat, ct);
+
+    private async Task<int> NavigateSiblingAsync(int direction, string outputFormat, CancellationToken ct)
+    {
+        var fmt = formatterFactory.GetFormatter(outputFormat);
+
+        var activeId = await contextStore.GetActiveWorkItemIdAsync();
+        if (activeId is null)
+        {
+            Console.Error.WriteLine(fmt.FormatError("No active work item. Run 'twig set <id>' first."));
+            return 1;
+        }
+
+        // Resolve active item with auto-fetch on cache miss
+        var resolveResult = await activeItemResolver.ResolveByIdAsync(activeId.Value, ct);
+        if (!resolveResult.TryGetWorkItem(out var item, out _, out _))
+        {
+            Console.Error.WriteLine(fmt.FormatError($"Work item #{activeId.Value} not found in cache."));
+            return 1;
+        }
+
+        if (!item!.ParentId.HasValue)
+        {
+            Console.Error.WriteLine(fmt.FormatError("Cannot navigate siblings — item has no parent."));
+            return 1;
+        }
+
+        var siblings = await workItemRepo.GetChildrenAsync(item.ParentId.Value, ct);
+        var sorted = siblings.OrderBy(s => s.Id).ToList();
+
+        var currentIndex = sorted.FindIndex(s => s.Id == item.Id);
+        if (currentIndex < 0)
+        {
+            Console.Error.WriteLine(fmt.FormatError("Current item not found among siblings."));
+            return 1;
+        }
+
+        var targetIndex = currentIndex + direction;
+
+        if (targetIndex < 0)
+        {
+            Console.Error.WriteLine(fmt.FormatError($"Already at first sibling under #{item.ParentId.Value}."));
+            return 1;
+        }
+
+        if (targetIndex >= sorted.Count)
+        {
+            Console.Error.WriteLine(fmt.FormatError($"Already at last sibling under #{item.ParentId.Value}."));
+            return 1;
+        }
+
+        return await setCommand.ExecuteAsync(sorted[targetIndex].Id.ToString(), outputFormat, ct);
     }
 }

@@ -57,6 +57,8 @@ public sealed class HintEngine
         {
             case "set":
                 hints.Add("Try: twig status, twig tree, twig state <name>");
+                if (item?.ParentId.HasValue == true)
+                    hints.Add("Siblings: twig next, twig prev");
                 break;
 
             case "state":
@@ -158,6 +160,11 @@ public sealed class HintEngine
                         hints.Add($"{dirtyItems.Count} dirty {noun}. Run twig save to push changes.");
                     }
                 }
+                break;
+
+            case "next":
+            case "prev":
+                hints.Add("Try: twig next, twig prev, twig up, twig status");
                 break;
         }
 

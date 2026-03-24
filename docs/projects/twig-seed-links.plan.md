@@ -1,7 +1,7 @@
 # Twig Virtual Links + Chain Builder + Navigation
 
 **Plan:** 2 of 3 — Virtual Links + Chain Builder + Navigation  
-**Status:** Draft  
+**Status:** Complete  
 **Revision:** 1 — Initial draft.
 
 ---
@@ -770,22 +770,24 @@ None. All features are local-only (SQLite + CLI). No new NuGet packages required
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E5-T1 | IMPL | Add `NextAsync` and `PrevAsync` methods to `NavigationCommands` | `src/Twig/Commands/NavigationCommands.cs` | TO DO |
-| E5-T2 | IMPL | Add `Next()` and `Prev()` routing in `TwigCommands` (Program.cs) | `src/Twig/Program.cs` | TO DO |
-| E5-T3 | TEST | Test next: moves to next sibling by ID, handles boundary | `tests/Twig.Cli.Tests/Commands/NextPrevCommandTests.cs` | TO DO |
-| E5-T4 | TEST | Test prev: moves to previous sibling by ID, handles boundary | `tests/Twig.Cli.Tests/Commands/NextPrevCommandTests.cs` | TO DO |
-| E5-T5 | TEST | Test next/prev with no parent (error), single child (boundary), mixed seeds+real items | `tests/Twig.Cli.Tests/Commands/NextPrevCommandTests.cs` | TO DO |
-| E5-T6 | IMPL | Update `GroupedHelp.Show()` with next/prev in Navigation section | `src/Twig/Program.cs` | TO DO |
-| E5-T7 | IMPL | Add next/prev hints in `HintEngine` | `src/Twig/Hints/HintEngine.cs` | TO DO |
+| E5-T1 | IMPL | Add `NextAsync` and `PrevAsync` methods to `NavigationCommands` | `src/Twig/Commands/NavigationCommands.cs` | DONE |
+| E5-T2 | IMPL | Add `Next()` and `Prev()` routing in `TwigCommands` (Program.cs) | `src/Twig/Program.cs` | DONE |
+| E5-T3 | TEST | Test next: moves to next sibling by ID, handles boundary | `tests/Twig.Cli.Tests/Commands/NextPrevCommandTests.cs` | DONE |
+| E5-T4 | TEST | Test prev: moves to previous sibling by ID, handles boundary | `tests/Twig.Cli.Tests/Commands/NextPrevCommandTests.cs` | DONE |
+| E5-T5 | TEST | Test next/prev with no parent (error), single child (boundary), mixed seeds+real items | `tests/Twig.Cli.Tests/Commands/NextPrevCommandTests.cs` | DONE |
+| E5-T6 | IMPL | Update `GroupedHelp.Show()` with next/prev in Navigation section | `src/Twig/Program.cs` | DONE |
+| E5-T7 | IMPL | Add next/prev hints in `HintEngine` | `src/Twig/Hints/HintEngine.cs` | DONE |
 
 **Acceptance Criteria:**
-- [ ] `twig next` sets context to next sibling (by ID order) and displays it
-- [ ] `twig prev` sets context to previous sibling (by ID order) and displays it
-- [ ] At last sibling: "Already at last sibling under #<parentId>."
-- [ ] At first sibling: "Already at first sibling under #<parentId>."
-- [ ] No parent: "Cannot navigate siblings — item has no parent."
-- [ ] Works with both real items and seeds
-- [ ] `GroupedHelp` shows next/prev under Navigation section
+- [x] `twig next` sets context to next sibling (by ID order) and displays it
+- [x] `twig prev` sets context to previous sibling (by ID order) and displays it
+- [x] At last sibling: "Already at last sibling under #<parentId>."
+- [x] At first sibling: "Already at first sibling under #<parentId>."
+- [x] No parent: "Cannot navigate siblings — item has no parent."
+- [x] Works with both real items and seeds
+- [x] `GroupedHelp` shows next/prev under Navigation section
+
+**Completion Notes:** Shared `NavigateSiblingAsync(int direction, ...)` helper avoids duplication between `NextAsync`/`PrevAsync`. Siblings sorted by ID for deterministic ordering (negative seed IDs sort before positive ADO IDs). `GetChildrenAsync` call correctly passes `ct` cancellation token — an improvement over the equivalent call in `UpAsync`/`DownAsync`. `SetCommand.ExecuteAsync` delegated for context switching, consistent with existing navigation pattern. `HintEngine` adds `next`/`prev` hints and a sibling navigation hint on `set` when the item has a parent. All 12 new tests pass alongside 8 existing `TreeNavCommandTests`.
 
 ---
 

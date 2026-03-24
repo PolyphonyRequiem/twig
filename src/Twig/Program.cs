@@ -292,6 +292,14 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> Down([Argument] string? idOrPattern = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<NavigationCommands>().DownAsync(idOrPattern, output, ct);
 
+    /// <summary>Navigate to the next sibling work item.</summary>
+    public async Task<int> Next(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<NavigationCommands>().NextAsync(output, ct);
+
+    /// <summary>Navigate to the previous sibling work item.</summary>
+    public async Task<int> Prev(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<NavigationCommands>().PrevAsync(output, ct);
+
     /// <summary>Create a new child work item under the active item (backward compat shortcut).</summary>
     public async Task<int> Seed([Argument] string title, string? type = null, bool editor = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SeedNewCommand>().ExecuteAsync(title, type, editor, output, ct);
@@ -531,6 +539,8 @@ Context:
 Navigation:
   up                   Navigate to the parent work item.
   down [pattern]       Navigate to a child work item.
+  next                 Navigate to the next sibling work item.
+  prev                 Navigate to the previous sibling work item.
 
 Work Items:
   state <name>         Change the state (e.g. Active, Closed).

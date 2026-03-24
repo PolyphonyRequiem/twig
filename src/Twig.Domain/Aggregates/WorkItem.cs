@@ -167,6 +167,61 @@ public sealed class WorkItem
         return copy;
     }
 
+    /// <summary>
+    /// Returns a copy with a different <see cref="ParentId"/>.
+    /// All other properties (including fields and dirty state) are preserved.
+    /// </summary>
+    public WorkItem WithParentId(int? newParentId)
+    {
+        var copy = new WorkItem
+        {
+            Id = Id,
+            Type = Type,
+            Title = Title,
+            State = State,
+            AssignedTo = AssignedTo,
+            IterationPath = IterationPath,
+            AreaPath = AreaPath,
+            ParentId = newParentId,
+            IsSeed = IsSeed,
+            SeedCreatedAt = SeedCreatedAt,
+            LastSyncedAt = LastSyncedAt,
+        };
+
+        if (Revision > 0) copy.MarkSynced(Revision);
+        copy.ImportFields(Fields);
+        if (IsDirty) copy.SetDirty();
+
+        return copy;
+    }
+
+    /// <summary>
+    /// Returns a copy with a different <see cref="IsSeed"/> flag.
+    /// Used to mark a fetched-back ADO item as seed provenance.
+    /// </summary>
+    public WorkItem WithIsSeed(bool isSeed)
+    {
+        var copy = new WorkItem
+        {
+            Id = Id,
+            Type = Type,
+            Title = Title,
+            State = State,
+            AssignedTo = AssignedTo,
+            IterationPath = IterationPath,
+            AreaPath = AreaPath,
+            ParentId = ParentId,
+            IsSeed = isSeed,
+            SeedCreatedAt = SeedCreatedAt,
+            LastSyncedAt = LastSyncedAt,
+        };
+
+        if (Revision > 0) copy.MarkSynced(Revision);
+        copy.ImportFields(Fields);
+
+        return copy;
+    }
+
     // ── Seed factory ────────────────────────────────────────────────
 
     /// <summary>

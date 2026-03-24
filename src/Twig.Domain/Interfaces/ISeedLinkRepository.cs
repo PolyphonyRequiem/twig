@@ -13,4 +13,10 @@ public interface ISeedLinkRepository
     Task<IReadOnlyList<SeedLink>> GetLinksForItemAsync(int itemId, CancellationToken ct = default);
     Task<IReadOnlyList<SeedLink>> GetAllSeedLinksAsync(CancellationToken ct = default);
     Task DeleteLinksForItemAsync(int itemId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Remaps all references to <paramref name="oldId"/> (in both source_id and target_id)
+    /// to <paramref name="newId"/>. Used during seed publish to update link references.
+    /// </summary>
+    Task RemapIdAsync(int oldId, int newId, CancellationToken ct = default);
 }

@@ -996,25 +996,27 @@ Epics must be implemented in order: Rules → Validate → Publish (Core + Paren
 
 **Prerequisites**: Epic 3, Epic 4.
 
+**Status**: DONE
+
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E5-T1 | IMPL | Create `SeedLinkPromoter` service | `src/Twig.Domain/Services/SeedLinkPromoter.cs` | TO DO |
-| E5-T2 | IMPL | Create `SeedDependencyGraph` with topological sort and cycle detection. Graph includes: (a) seed_links edges for `depends-on`, `blocked-by`, `blocks`, `depended-on-by`; (b) ParentId < 0 edges (child→parent) | `src/Twig.Domain/Services/SeedDependencyGraph.cs` | TO DO |
-| E5-T3 | IMPL | Add `PublishAllAsync(force, dryRun)` to `SeedPublishOrchestrator` — re-loads each seed before publish to pick up remapped ParentId | `src/Twig.Domain/Services/SeedPublishOrchestrator.cs` | TO DO |
-| E5-T4 | IMPL | Integrate `SeedLinkPromoter` into `PublishAsync` after ID remap step | `src/Twig.Domain/Services/SeedPublishOrchestrator.cs` | TO DO |
-| E5-T5 | TEST | Unit tests for `SeedLinkPromoter` | `tests/Twig.Domain.Tests/Services/SeedLinkPromoterTests.cs` | TO DO |
-| E5-T6 | TEST | Unit tests for `SeedDependencyGraph` — includes ParentId edges, all four directional link types, cycle detection | `tests/Twig.Domain.Tests/Services/SeedDependencyGraphTests.cs` | TO DO |
-| E5-T7 | TEST | Integration test for `PublishAllAsync` — verifies parent-child publish order with ParentId remapping | `tests/Twig.Domain.Tests/Services/SeedPublishOrchestratorTests.cs` | TO DO |
+| E5-T1 | IMPL | Create `SeedLinkPromoter` service | `src/Twig.Domain/Services/SeedLinkPromoter.cs` | DONE |
+| E5-T2 | IMPL | Create `SeedDependencyGraph` with topological sort and cycle detection. Graph includes: (a) seed_links edges for `depends-on`, `blocked-by`, `blocks`, `depended-on-by`; (b) ParentId < 0 edges (child→parent) | `src/Twig.Domain/Services/SeedDependencyGraph.cs` | DONE |
+| E5-T3 | IMPL | Add `PublishAllAsync(force, dryRun)` to `SeedPublishOrchestrator` — re-loads each seed before publish to pick up remapped ParentId | `src/Twig.Domain/Services/SeedPublishOrchestrator.cs` | DONE |
+| E5-T4 | IMPL | Integrate `SeedLinkPromoter` into `PublishAsync` after ID remap step | `src/Twig.Domain/Services/SeedPublishOrchestrator.cs` | DONE |
+| E5-T5 | TEST | Unit tests for `SeedLinkPromoter` | `tests/Twig.Domain.Tests/Services/SeedLinkPromoterTests.cs` | DONE |
+| E5-T6 | TEST | Unit tests for `SeedDependencyGraph` — includes ParentId edges, all four directional link types, cycle detection | `tests/Twig.Domain.Tests/Services/SeedDependencyGraphTests.cs` | DONE |
+| E5-T7 | TEST | Integration test for `PublishAllAsync` — verifies parent-child publish order with ParentId remapping | `tests/Twig.Domain.Tests/Services/SeedPublishOrchestratorTests.cs` | DONE |
 
 **Acceptance Criteria**:
-- [ ] Link promoter calls `AddLinkAsync` only when both endpoints have positive IDs
-- [ ] Parent-child links are skipped (already set at creation)
-- [ ] Topological sort produces correct publish order for dependency chains
-- [ ] Topological sort includes `blocks` and `depended-on-by` edges (not just `depends-on` and `blocked-by`)
-- [ ] Topological sort includes ParentId < 0 edges (child waits for parent)
-- [ ] Batch publish re-loads each seed before CreateAsync to get remapped ParentId
-- [ ] Circular dependency detected and reported as error
-- [ ] Link promotion failure is a warning, not a publish failure
+- [x] Link promoter calls `AddLinkAsync` only when both endpoints have positive IDs
+- [x] Parent-child links are skipped (already set at creation)
+- [x] Topological sort produces correct publish order for dependency chains
+- [x] Topological sort includes `blocks` and `depended-on-by` edges (not just `depends-on` and `blocked-by`)
+- [x] Topological sort includes ParentId < 0 edges (child waits for parent)
+- [x] Batch publish re-loads each seed before CreateAsync to get remapped ParentId
+- [x] Circular dependency detected and reported as error
+- [x] Link promotion failure is a warning, not a publish failure
 
 ---
 

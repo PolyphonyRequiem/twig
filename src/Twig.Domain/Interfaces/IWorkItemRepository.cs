@@ -34,6 +34,12 @@ public interface IWorkItemRepository
     Task DeleteByIdAsync(int id, CancellationToken ct = default);
 
     /// <summary>
+    /// Updates all work items whose parent_id equals <paramref name="oldParentId"/>
+    /// to reference <paramref name="newParentId"/> instead. Used during seed publish.
+    /// </summary>
+    Task RemapParentIdAsync(int oldParentId, int newParentId, CancellationToken ct = default);
+
+    /// <summary>
     /// Returns the smallest seed ID in the cache, or null if no seeds exist.
     /// Used to initialize <see cref="WorkItem.InitializeSeedCounter"/> on startup.
     /// </summary>

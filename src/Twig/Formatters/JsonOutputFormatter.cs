@@ -471,6 +471,26 @@ public sealed class JsonOutputFormatter : IOutputFormatter
         return Encoding.UTF8.GetString(stream.ToArray());
     }
 
+    public string FormatSeedReconcileResult(SeedReconcileResult result)
+    {
+        using var stream = new MemoryStream();
+        using var writer = new Utf8JsonWriter(stream, WriterOptions);
+
+        writer.WriteStartObject();
+        writer.WriteNumber("linksRepaired", result.LinksRepaired);
+        writer.WriteNumber("linksRemoved", result.LinksRemoved);
+        writer.WriteNumber("parentIdsFixed", result.ParentIdsFixed);
+        writer.WriteBoolean("nothingToDo", result.NothingToDo);
+        writer.WriteStartArray("warnings");
+        foreach (var warning in result.Warnings)
+            writer.WriteStringValue(warning);
+        writer.WriteEndArray();
+        writer.WriteEndObject();
+
+        writer.Flush();
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
     /// <summary>
     /// Writes a WorkItem as a JSON object for nested contexts (tree, workspace).
     /// Deliberately omits areaPath and iterationPath to keep nested payloads lean —

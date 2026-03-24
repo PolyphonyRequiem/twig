@@ -303,4 +303,28 @@ public sealed class MinimalOutputFormatter : IOutputFormatter
 
         return sb.ToString();
     }
+
+    public string FormatSeedReconcileResult(SeedReconcileResult result)
+    {
+        if (result.NothingToDo)
+            return "RECONCILE NOTHING";
+
+        var sb = new StringBuilder();
+        if (result.LinksRepaired > 0)
+            sb.AppendLine($"RECONCILE REPAIRED {result.LinksRepaired}");
+        if (result.LinksRemoved > 0)
+            sb.AppendLine($"RECONCILE REMOVED {result.LinksRemoved}");
+        if (result.ParentIdsFixed > 0)
+            sb.AppendLine($"RECONCILE PARENTS {result.ParentIdsFixed}");
+        foreach (var warning in result.Warnings)
+            sb.AppendLine($"RECONCILE WARN {warning}");
+
+        // Remove trailing newline
+        if (sb.Length > 0 && sb[sb.Length - 1] == '\n')
+            sb.Length -= 1;
+        if (sb.Length > 0 && sb[sb.Length - 1] == '\r')
+            sb.Length -= 1;
+
+        return sb.ToString();
+    }
 }

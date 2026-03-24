@@ -57,4 +57,9 @@ public interface IOutputFormatter
 
     /// <summary>Formats seed validation results for display.</summary>
     string FormatSeedValidation(IReadOnlyList<SeedValidationResult> results);
+
+    // ── Seed reconcile formatting ───────────────────────────────────
+
+    /// <summary>Formats the result of a seed reconcile operation.</summary>
+    string FormatSeedReconcileResult(SeedReconcileResult result);
 }

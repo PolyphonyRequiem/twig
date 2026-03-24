@@ -1048,21 +1048,23 @@ Epics must be implemented in order: Rules → Validate → Publish (Core + Paren
 
 **Prerequisites**: Epic 3.
 
+**Status**: DONE ✓ (Completed 2026-03-24)
+
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E7-T1 | IMPL | Create `SeedReconcileResult` value object | `src/Twig.Domain/ValueObjects/SeedReconcileResult.cs` | TO DO |
-| E7-T2 | IMPL | Create `SeedReconcileOrchestrator` — uses `IPublishIdMapRepository` to repair stale negative-ID references, deletes orphaned links, fixes stale parent_id values | `src/Twig.Domain/Services/SeedReconcileOrchestrator.cs` | TO DO |
-| E7-T3 | IMPL | Add `FormatSeedReconcileResult` to `IOutputFormatter` and implement | formatters | TO DO |
-| E7-T4 | IMPL | Create `SeedReconcileCommand` CLI command | `src/Twig/Commands/SeedReconcileCommand.cs` | TO DO |
-| E7-T5 | TEST | Unit tests for reconcile orchestrator — stale reference repair, orphan cleanup, parent_id fix | `tests/Twig.Domain.Tests/Services/SeedReconcileOrchestratorTests.cs` | TO DO |
-| E7-T6 | TEST | CLI tests for `SeedReconcileCommand` | `tests/Twig.Cli.Tests/Commands/SeedReconcileCommandTests.cs` | TO DO |
+| E7-T1 | IMPL | Create `SeedReconcileResult` value object | `src/Twig.Domain/ValueObjects/SeedReconcileResult.cs` | DONE |
+| E7-T2 | IMPL | Create `SeedReconcileOrchestrator` — uses `IPublishIdMapRepository` to repair stale negative-ID references, deletes orphaned links, fixes stale parent_id values | `src/Twig.Domain/Services/SeedReconcileOrchestrator.cs` | DONE |
+| E7-T3 | IMPL | Add `FormatSeedReconcileResult` to `IOutputFormatter` and implement | formatters | DONE |
+| E7-T4 | IMPL | Create `SeedReconcileCommand` CLI command | `src/Twig/Commands/SeedReconcileCommand.cs` | DONE |
+| E7-T5 | TEST | Unit tests for reconcile orchestrator — stale reference repair, orphan cleanup, parent_id fix | `tests/Twig.Domain.Tests/Services/SeedReconcileOrchestratorTests.cs` | DONE |
+| E7-T6 | TEST | CLI tests for `SeedReconcileCommand` | `tests/Twig.Cli.Tests/Commands/SeedReconcileCommandTests.cs` | DONE |
 
 **Acceptance Criteria**:
-- [ ] Orphaned links (endpoint deleted, not in publish_id_map) are removed
-- [ ] Stale negative-ID references (found in publish_id_map) are remapped to new positive ID
-- [ ] Stale parent_id < 0 values are fixed using publish_id_map
-- [ ] Clean system reports "nothing to reconcile"
-- [ ] Output shows summary of actions taken
+- [x] Orphaned links (endpoint deleted, not in publish_id_map) are removed
+- [x] Stale negative-ID references (found in publish_id_map) are remapped to new positive ID
+- [x] Stale parent_id < 0 values are fixed using publish_id_map
+- [x] Clean system reports "nothing to reconcile"
+- [x] Output shows summary of actions taken
 
 ---
 

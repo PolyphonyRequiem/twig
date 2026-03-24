@@ -892,6 +892,34 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         return sb.ToString();
     }
 
+    public string FormatSeedReconcileResult(SeedReconcileResult result)
+    {
+        if (result.NothingToDo)
+            return $"{Green}Nothing to reconcile.{Reset}";
+
+        var sb = new StringBuilder();
+        sb.AppendLine($"{Bold}Seed Reconciliation{Reset}");
+        sb.AppendLine(new string('─', 40));
+
+        if (result.LinksRepaired > 0)
+            sb.AppendLine($"  {Green}✔{Reset} Links repaired:   {result.LinksRepaired}");
+        if (result.LinksRemoved > 0)
+            sb.AppendLine($"  {Yellow}✔{Reset} Links removed:    {result.LinksRemoved}");
+        if (result.ParentIdsFixed > 0)
+            sb.AppendLine($"  {Green}✔{Reset} Parent IDs fixed:  {result.ParentIdsFixed}");
+
+        foreach (var warning in result.Warnings)
+            sb.AppendLine($"  {Yellow}⚠{Reset} {warning}");
+
+        // Remove trailing newline
+        if (sb.Length > 0 && sb[sb.Length - 1] == '\n')
+            sb.Length -= 1;
+        if (sb.Length > 0 && sb[sb.Length - 1] == '\r')
+            sb.Length -= 1;
+
+        return sb.ToString();
+    }
+
     public string FormatAnnotatedLogEntry(string hash, string message, string? workItemType, string? workItemState, int? workItemId)
     {
         var shortHash = hash.Length > 7 ? hash[..7] : hash;

@@ -726,16 +726,16 @@ None — this feature is self-contained and does not depend on other in-flight w
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
 | E5-T1 | IMPL | Update grouped help text in `Program.cs` to include nav back/fore/history | `src/Twig/Program.cs` | DONE |
-| E5-T2 | IMPL | Add backward-compat aliases if needed (e.g., bare `back`/`fore` like `up`/`down`) | `src/Twig/Program.cs` | TO DO |
-| E5-T3 | TEST | End-to-end integration test: set → set → back → fore → history | `tests/Twig.Cli.Tests/Commands/NavigationHistoryCommandTests.cs` | TO DO |
-| E5-T4 | TEST | Verify `twig init --force` clears history (database deletion) | `tests/Twig.Cli.Tests/Commands/InitCommandTests.cs` | TO DO |
+| E5-T2 | IMPL | Add backward-compat aliases if needed (e.g., bare `back`/`fore` like `up`/`down`) | `src/Twig/Program.cs` | DONE |
+| E5-T3 | TEST | End-to-end integration test: set → set → back → fore → history | `tests/Twig.Cli.Tests/Commands/NavigationHistoryCommandTests.cs` | DONE |
+| E5-T4 | TEST | Verify `twig init --force` clears history (database deletion) | `tests/Twig.Cli.Tests/Commands/InitCommandTests.cs` | DONE |
 
 **Acceptance Criteria**:
-- [ ] Help text shows nav back/fore/history in Navigation section
-- [ ] Full build succeeds with no warnings
-- [ ] All existing tests pass
-- [ ] All new tests pass
-- [ ] End-to-end: set A → set B → back → verify A → fore → verify B → history shows both
+- [x] Help text shows nav back/fore/history in Navigation section
+- [x] Full build succeeds with no warnings
+- [x] All existing tests pass
+- [x] All new tests pass
+- [x] End-to-end: set A → set B → back → verify A → fore → verify B → history shows both
 
 ---
 

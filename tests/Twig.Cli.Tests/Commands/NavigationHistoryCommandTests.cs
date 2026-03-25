@@ -685,3 +685,175 @@ public class NavigationHistoryCommandTests
         };
     }
 }
+
+/// <summary>
+/// End-to-end integration tests that exercise the full navigation history sequence
+/// using a real SqliteNavigationHistoryStore on an in-memory database.
+/// Verifies: set A → set B → back → verify A → fore → verify B → history shows both.
+/// </summary>
+public class NavigationHistoryEndToEndTests : IDisposable
+{
+    private readonly Infrastructure.Persistence.SqliteCacheStore _store;
+    private readonly Infrastructure.Persistence.SqliteNavigationHistoryStore _historyStore;
+    private readonly IPublishIdMapRepository _publishIdMapRepo;
+    private readonly IWorkItemRepository _workItemRepo;
+    private readonly IContextStore _contextStore;
+    private readonly OutputFormatterFactory _formatterFactory;
+    private readonly NavigationHistoryCommands _cmd;
+
+    public NavigationHistoryEndToEndTests()
+    {
+        _store = new Infrastructure.Persistence.SqliteCacheStore("Data Source=:memory:");
+        _historyStore = new Infrastructure.Persistence.SqliteNavigationHistoryStore(_store);
+        _publishIdMapRepo = Substitute.For<IPublishIdMapRepository>();
+        _workItemRepo = Substitute.For<IWorkItemRepository>();
+        _contextStore = Substitute.For<IContextStore>();
+        _formatterFactory = new OutputFormatterFactory(
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
+        _cmd = new NavigationHistoryCommands(
+            _historyStore, _publishIdMapRepo, _workItemRepo, _contextStore,
+            _formatterFactory);
+    }
+
+    public void Dispose() => _store.Dispose();
+
+    [Fact]
+    public async Task EndToEnd_SetA_SetB_Back_Fore_History()
+    {
+        // Arrange: work items A=100, B=200
+        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(100, "Item A"));
+        _workItemRepo.GetByIdAsync(200, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(200, "Item B"));
+
+        // Step 1: Simulate "set A" — record visit to 100
+        await _historyStore.RecordVisitAsync(100);
+
+        // Step 2: Simulate "set B" — record visit to 200
+        await _historyStore.RecordVisitAsync(200);
+
+        // Step 3: Back → should return to A (100) and set context
+        var backResult = await _cmd.BackAsync();
+        backResult.ShouldBe(0);
+        await _contextStore.Received(1).SetActiveWorkItemIdAsync(100, Arg.Any<CancellationToken>());
+
+        // Step 4: Fore → should return to B (200) and set context
+        var foreResult = await _cmd.ForeAsync();
+        foreResult.ShouldBe(0);
+        await _contextStore.Received(1).SetActiveWorkItemIdAsync(200, Arg.Any<CancellationToken>());
+
+        // Step 5: History → should show both entries with cursor at B
+        var historyResult = await _cmd.HistoryAsync(nonInteractive: true);
+        historyResult.ShouldBe(0);
+
+        var (entries, cursorEntryId) = await _historyStore.GetHistoryAsync();
+        entries.Count.ShouldBe(2);
+        entries[0].WorkItemId.ShouldBe(100);
+        entries[1].WorkItemId.ShouldBe(200);
+        // Cursor should be at the last entry (B) after fore
+        cursorEntryId.ShouldBe(entries[1].Id);
+    }
+
+    [Fact]
+    public async Task EndToEnd_Back_AtOldest_ReturnsError()
+    {
+        // Record only one item
+        await _historyStore.RecordVisitAsync(100);
+        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(100, "Item A"));
+
+        // Back should fail — already at oldest
+        var result = await _cmd.BackAsync();
+        result.ShouldBe(1);
+        await _contextStore.DidNotReceive().SetActiveWorkItemIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task EndToEnd_Fore_AtNewest_ReturnsError()
+    {
+        // Record two items, cursor is at newest
+        await _historyStore.RecordVisitAsync(100);
+        await _historyStore.RecordVisitAsync(200);
+
+        // Fore should fail — already at newest
+        var result = await _cmd.ForeAsync();
+        result.ShouldBe(1);
+        await _contextStore.DidNotReceive().SetActiveWorkItemIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task EndToEnd_BackThenNewVisit_PrunesForwardHistory()
+    {
+        _workItemRepo.GetByIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo => CreateWorkItem(callInfo.ArgAt<int>(0), $"Item {callInfo.ArgAt<int>(0)}"));
+
+        // Record A, B, C
+        await _historyStore.RecordVisitAsync(100);
+        await _historyStore.RecordVisitAsync(200);
+        await _historyStore.RecordVisitAsync(300);
+
+        // Back twice → cursor at A
+        await _cmd.BackAsync();
+        await _cmd.BackAsync();
+
+        // New visit D → should prune B and C
+        await _historyStore.RecordVisitAsync(400);
+
+        var (entries, _) = await _historyStore.GetHistoryAsync();
+        entries.Count.ShouldBe(2);
+        entries[0].WorkItemId.ShouldBe(100);
+        entries[1].WorkItemId.ShouldBe(400);
+    }
+
+    [Fact]
+    public async Task EndToEnd_HistoryJson_ReturnsValidOutput()
+    {
+        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(100, "Item A"));
+        _workItemRepo.GetByIdAsync(200, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(200, "Item B"));
+
+        await _historyStore.RecordVisitAsync(100);
+        await _historyStore.RecordVisitAsync(200);
+
+        var result = await _cmd.HistoryAsync(nonInteractive: true, outputFormat: "json");
+        result.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task EndToEnd_EmptyHistory_BackAndForeReturnError()
+    {
+        // No history recorded — both back and fore should fail
+        var backResult = await _cmd.BackAsync();
+        backResult.ShouldBe(1);
+
+        var foreResult = await _cmd.ForeAsync();
+        foreResult.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task EndToEnd_HistoryCursorMarker_PointsToCurrentPosition()
+    {
+        _workItemRepo.GetByIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo => CreateWorkItem(callInfo.ArgAt<int>(0), $"Item {callInfo.ArgAt<int>(0)}"));
+
+        await _historyStore.RecordVisitAsync(100);
+        await _historyStore.RecordVisitAsync(200);
+        await _historyStore.RecordVisitAsync(300);
+
+        // Back once → cursor should be at B (200)
+        await _cmd.BackAsync();
+        var (entries, cursorEntryId) = await _historyStore.GetHistoryAsync();
+        entries.Count.ShouldBe(3);
+        cursorEntryId.ShouldBe(entries[1].Id);
+        entries[1].WorkItemId.ShouldBe(200);
+    }
+
+    private static WorkItem CreateWorkItem(int id, string title)
+    {
+        return new WorkItem
+        {
+            Id = id,
+            Type = WorkItemType.Task,
+            Title = title,
+            State = "Active",
+            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
+            AreaPath = AreaPath.Parse("Project").Value,
+        };
+    }
+}

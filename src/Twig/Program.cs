@@ -314,12 +314,12 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> NavFore(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<NavigationHistoryCommands>().ForeAsync(output, ct);
 
-    /// <summary>Display the navigation history (not yet implemented).</summary>
+    /// <summary>Display the navigation history.</summary>
     [Command("nav history")]
     public async Task<int> NavHistory(bool nonInteractive = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<NavigationHistoryCommands>().HistoryAsync(nonInteractive, output, ct);
 
-    // ── Backward-compat aliases (bare up/down/next/prev) ────────────
+    // ── Backward-compat aliases (bare up/down/next/prev/back/fore/history) ─
 
     /// <summary>Navigate to the parent work item (alias for nav up).</summary>
     [Hidden]
@@ -340,6 +340,21 @@ public sealed class TwigCommands(IServiceProvider services)
     [Hidden]
     public async Task<int> Prev(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<NavigationCommands>().PrevAsync(output, ct);
+
+    /// <summary>Navigate backward in navigation history (alias for nav back).</summary>
+    [Hidden]
+    public async Task<int> Back(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<NavigationHistoryCommands>().BackAsync(output, ct);
+
+    /// <summary>Navigate forward in navigation history (alias for nav fore).</summary>
+    [Hidden]
+    public async Task<int> Fore(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<NavigationHistoryCommands>().ForeAsync(output, ct);
+
+    /// <summary>Display the navigation history (alias for nav history).</summary>
+    [Hidden]
+    public async Task<int> History(bool nonInteractive = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<NavigationHistoryCommands>().HistoryAsync(nonInteractive, output, ct);
 
     /// <summary>Open the active work item in the browser.</summary>
     public async Task<int> Web([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)

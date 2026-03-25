@@ -253,6 +253,50 @@ public class InitCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task Init_Force_ClearsNavigationHistory()
+    {
+        const string org = "https://dev.azure.com/org";
+        const string project = "MyProject";
+
+        // First init to create the workspace and database
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var result = await cmd.ExecuteAsync(org, project);
+        result.ShouldBe(0);
+
+        // Insert navigation history entries into the context-specific DB
+        var dbPath = TwigPaths.GetContextDbPath(_twigDir, org, project);
+        File.Exists(dbPath).ShouldBeTrue();
+
+        using (var store = new SqliteCacheStore($"Data Source={dbPath}"))
+        {
+            var navStore = new SqliteNavigationHistoryStore(store);
+            await navStore.RecordVisitAsync(100);
+            await navStore.RecordVisitAsync(200);
+
+            var (entries, _) = await navStore.GetHistoryAsync();
+            entries.Count.ShouldBe(2);
+        }
+
+        // Force clear all SQLite pools so the file can be deleted
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+
+        // Re-init with --force — this deletes and recreates the database
+        var cmd2 = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        var result2 = await cmd2.ExecuteAsync(org, project, force: true);
+        result2.ShouldBe(0);
+
+        // Verify navigation history is now empty in the fresh database
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        using (var store = new SqliteCacheStore($"Data Source={dbPath}"))
+        {
+            var navStore = new SqliteNavigationHistoryStore(store);
+            var (entries, cursorEntryId) = await navStore.GetHistoryAsync();
+            entries.Count.ShouldBe(0);
+            cursorEntryId.ShouldBeNull();
+        }
+    }
+
+    [Fact]
     public async Task Init_PersistsTypeAppearances_InConfig()
     {
         var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);

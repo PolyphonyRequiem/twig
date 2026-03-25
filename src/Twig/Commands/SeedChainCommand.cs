@@ -101,7 +101,7 @@ public sealed class SeedChainCommand(
             {
                 var previousSeed = createdSeeds[^1];
                 await seedLinkRepo.AddLinkAsync(
-                    new SeedLink(previousSeed.Id, seed.Id, SeedLinkTypes.Related, DateTimeOffset.UtcNow), ct);
+                    new SeedLink(previousSeed.Id, seed.Id, SeedLinkTypes.Successor, DateTimeOffset.UtcNow), ct);
             }
 
             Console.WriteLine(fmt.FormatInfo($"  #{seed.Id} {seed.Title}"));

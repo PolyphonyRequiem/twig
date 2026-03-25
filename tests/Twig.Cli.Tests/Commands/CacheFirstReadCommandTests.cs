@@ -31,6 +31,8 @@ public class CacheFirstReadCommandTests
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
     private readonly IProcessTypeStore _processTypeStore;
+    private readonly ISeedLinkRepository _seedLinkRepo;
+    private readonly IWorkItemLinkRepository _workItemLinkRepo;
 
     public CacheFirstReadCommandTests()
     {
@@ -38,6 +40,12 @@ public class CacheFirstReadCommandTests
         _adoService = Substitute.For<IAdoWorkItemService>();
         _contextStore = Substitute.For<IContextStore>();
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
+        _seedLinkRepo = Substitute.For<ISeedLinkRepository>();
+        _workItemLinkRepo = Substitute.For<IWorkItemLinkRepository>();
+        _seedLinkRepo.GetLinksForItemAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<SeedLink>());
+        _workItemLinkRepo.GetLinksAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItemLink>());
         _adoService.FetchChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
@@ -303,7 +311,7 @@ public class CacheFirstReadCommandTests
 
         var setCmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
             _workingSetService, _formatterFactory, _hintEngine);
-        var navCmd = new NavigationCommands(_contextStore, _workItemRepo, setCmd, _formatterFactory,
+        var navCmd = new NavigationCommands(_contextStore, _workItemRepo, _seedLinkRepo, _workItemLinkRepo, setCmd, _formatterFactory,
             _activeItemResolver);
         var result = await navCmd.UpAsync();
 

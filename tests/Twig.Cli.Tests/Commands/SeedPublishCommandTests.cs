@@ -20,6 +20,7 @@ public class SeedPublishCommandTests : IDisposable
     private readonly ISeedPublishRulesProvider _rulesProvider;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IFieldDefinitionStore _fieldDefStore;
+    private readonly IContextStore _contextStore;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly SeedPublishCommand _cmd;
     private readonly TextWriter _originalOut;
@@ -37,6 +38,7 @@ public class SeedPublishCommandTests : IDisposable
         _rulesProvider = Substitute.For<ISeedPublishRulesProvider>();
         _unitOfWork = Substitute.For<IUnitOfWork>();
         _fieldDefStore = Substitute.For<IFieldDefinitionStore>();
+        _contextStore = Substitute.For<IContextStore>();
 
         _rulesProvider.GetRulesAsync(Arg.Any<CancellationToken>())
             .Returns(SeedPublishRules.Default);
@@ -52,7 +54,7 @@ public class SeedPublishCommandTests : IDisposable
             _workItemRepo, _adoService, _seedLinkRepo, _publishIdMapRepo,
             _rulesProvider, _unitOfWork, backlogOrderer);
 
-        _cmd = new SeedPublishCommand(orchestrator, _formatterFactory);
+        _cmd = new SeedPublishCommand(orchestrator, _contextStore, _formatterFactory);
     }
 
     public void Dispose()

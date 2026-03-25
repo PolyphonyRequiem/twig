@@ -17,6 +17,8 @@ public class NextPrevCommandTests
     private readonly IContextStore _contextStore;
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IAdoWorkItemService _adoService;
+    private readonly ISeedLinkRepository _seedLinkRepo;
+    private readonly IWorkItemLinkRepository _workItemLinkRepo;
     private readonly NavigationCommands _navCmd;
 
     public NextPrevCommandTests()
@@ -24,6 +26,12 @@ public class NextPrevCommandTests
         _contextStore = Substitute.For<IContextStore>();
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _adoService = Substitute.For<IAdoWorkItemService>();
+        _seedLinkRepo = Substitute.For<ISeedLinkRepository>();
+        _workItemLinkRepo = Substitute.For<IWorkItemLinkRepository>();
+        _seedLinkRepo.GetLinksForItemAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<SeedLink>());
+        _workItemLinkRepo.GetLinksAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItemLink>());
         var formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
@@ -39,7 +47,7 @@ public class NextPrevCommandTests
         var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, iterationService, null);
         var setCommand = new SetCommand(_workItemRepo, _contextStore, activeItemResolver, syncCoordinator,
             workingSetService, formatterFactory, hintEngine);
-        _navCmd = new NavigationCommands(_contextStore, _workItemRepo, setCommand, formatterFactory, activeItemResolver);
+        _navCmd = new NavigationCommands(_contextStore, _workItemRepo, _seedLinkRepo, _workItemLinkRepo, setCommand, formatterFactory, activeItemResolver);
     }
 
     // --- E5-T3: Next sibling tests ---

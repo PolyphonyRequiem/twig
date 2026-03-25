@@ -87,6 +87,8 @@ public static class CommandRegistrationModule
         services.AddSingleton<NavigationCommands>(sp => new NavigationCommands(
             sp.GetRequiredService<IContextStore>(),
             sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<ISeedLinkRepository>(),
+            sp.GetRequiredService<IWorkItemLinkRepository>(),
             sp.GetRequiredService<SetCommand>(),
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
@@ -100,6 +102,7 @@ public static class CommandRegistrationModule
         services.AddSingleton<SeedValidateCommand>();
         services.AddSingleton<SeedPublishCommand>();
         services.AddSingleton<SeedReconcileCommand>();
+        services.AddSingleton<WebCommand>();
         services.AddSingleton<NoteCommand>(sp => new NoteCommand(
             sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
             sp.GetRequiredService<IWorkItemRepository>(),

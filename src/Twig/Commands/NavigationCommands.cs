@@ -1,6 +1,7 @@
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
 using Twig.Domain.Services;
+using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Rendering;
 
@@ -13,6 +14,8 @@ namespace Twig.Commands;
 public sealed class NavigationCommands(
     IContextStore contextStore,
     IWorkItemRepository workItemRepo,
+    ISeedLinkRepository seedLinkRepo,
+    IWorkItemLinkRepository workItemLinkRepo,
     SetCommand setCommand,
     OutputFormatterFactory formatterFactory,
     ActiveItemResolver activeItemResolver,
@@ -137,11 +140,11 @@ public sealed class NavigationCommands(
         }
     }
 
-    /// <summary>Navigate to the next sibling work item (by ID order).</summary>
+    /// <summary>Navigate to the next sibling work item (by successor links, then fallback to display order).</summary>
     public async Task<int> NextAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await NavigateSiblingAsync(direction: +1, outputFormat, ct);
 
-    /// <summary>Navigate to the previous sibling work item (by ID order).</summary>
+    /// <summary>Navigate to the previous sibling work item (by predecessor links, then fallback to display order).</summary>
     public async Task<int> PrevAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await NavigateSiblingAsync(direction: -1, outputFormat, ct);
 
@@ -170,10 +173,16 @@ public sealed class NavigationCommands(
             return 1;
         }
 
-        var siblings = await workItemRepo.GetChildrenAsync(item.ParentId.Value, ct);
-        var sorted = siblings.OrderBy(s => s.Id).ToList();
+        // Try link-based navigation first (successor/predecessor)
+        var linkTarget = await FindLinkedSiblingAsync(item, direction, ct);
+        if (linkTarget.HasValue)
+            return await setCommand.ExecuteAsync(linkTarget.Value.ToString(), outputFormat, ct);
 
-        var currentIndex = sorted.FindIndex(s => s.Id == item.Id);
+        // Fallback: navigate by display order (same ordering as GetChildrenAsync)
+        var siblings = await workItemRepo.GetChildrenAsync(item.ParentId.Value, ct);
+        var ordered = siblings.ToList(); // already in display order from repo
+
+        var currentIndex = ordered.FindIndex(s => s.Id == item.Id);
         if (currentIndex < 0)
         {
             Console.Error.WriteLine(fmt.FormatError("Current item not found among siblings."));
@@ -188,12 +197,62 @@ public sealed class NavigationCommands(
             return 1;
         }
 
-        if (targetIndex >= sorted.Count)
+        if (targetIndex >= ordered.Count)
         {
             Console.Error.WriteLine(fmt.FormatError($"Already at last sibling under #{item.ParentId.Value}."));
             return 1;
         }
 
-        return await setCommand.ExecuteAsync(sorted[targetIndex].Id.ToString(), outputFormat, ct);
+        return await setCommand.ExecuteAsync(ordered[targetIndex].Id.ToString(), outputFormat, ct);
+    }
+
+    /// <summary>
+    /// Finds the next or previous sibling by following successor/predecessor links.
+    /// Checks seed links (for unpublished seeds) and work item links (for published items).
+    /// Returns null if no link-based sibling was found.
+    /// </summary>
+    private async Task<int?> FindLinkedSiblingAsync(Domain.Aggregates.WorkItem item, int direction, CancellationToken ct)
+    {
+        // Check seed links (covers unpublished seeds)
+        var seedLinks = await seedLinkRepo.GetLinksForItemAsync(item.Id, ct);
+
+        int? targetId;
+        if (direction > 0) // next: follow successor link where we are the source
+        {
+            targetId = seedLinks
+                .Where(l => l.SourceId == item.Id && l.LinkType == SeedLinkTypes.Successor)
+                .Select(l => (int?)l.TargetId)
+                .FirstOrDefault();
+        }
+        else // prev: follow successor link where we are the target (reverse direction)
+        {
+            targetId = seedLinks
+                .Where(l => l.TargetId == item.Id && l.LinkType == SeedLinkTypes.Successor)
+                .Select(l => (int?)l.SourceId)
+                .FirstOrDefault();
+        }
+
+        if (targetId.HasValue)
+            return targetId;
+
+        // Check work item links (covers published items)
+        var workLinks = await workItemLinkRepo.GetLinksAsync(item.Id, ct);
+
+        if (direction > 0)
+        {
+            targetId = workLinks
+                .Where(l => l.LinkType == LinkTypes.Successor)
+                .Select(l => (int?)l.TargetId)
+                .FirstOrDefault();
+        }
+        else
+        {
+            targetId = workLinks
+                .Where(l => l.LinkType == LinkTypes.Predecessor)
+                .Select(l => (int?)l.TargetId)
+                .FirstOrDefault();
+        }
+
+        return targetId;
     }
 }

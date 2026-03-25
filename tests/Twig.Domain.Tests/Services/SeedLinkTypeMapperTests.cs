@@ -17,6 +17,8 @@ public class SeedLinkTypeMapperTests
     [InlineData(SeedLinkTypes.DependsOn, "System.LinkTypes.Dependency-Reverse")]
     [InlineData(SeedLinkTypes.DependedOnBy, "System.LinkTypes.Dependency-Forward")]
     [InlineData(SeedLinkTypes.Related, "System.LinkTypes.Related")]
+    [InlineData(SeedLinkTypes.Successor, "System.LinkTypes.Dependency-Forward")]
+    [InlineData(SeedLinkTypes.Predecessor, "System.LinkTypes.Dependency-Reverse")]
     public void ToAdoRelationType_KnownType_ReturnsMappedValue(string seedLinkType, string expectedAdo)
     {
         SeedLinkTypeMapper.ToAdoRelationType(seedLinkType).ShouldBe(expectedAdo);
@@ -41,6 +43,8 @@ public class SeedLinkTypeMapperTests
     [InlineData(SeedLinkTypes.DependsOn, "System.LinkTypes.Dependency-Reverse")]
     [InlineData(SeedLinkTypes.DependedOnBy, "System.LinkTypes.Dependency-Forward")]
     [InlineData(SeedLinkTypes.Related, "System.LinkTypes.Related")]
+    [InlineData(SeedLinkTypes.Successor, "System.LinkTypes.Dependency-Forward")]
+    [InlineData(SeedLinkTypes.Predecessor, "System.LinkTypes.Dependency-Reverse")]
     public void TryToAdoRelationType_KnownType_ReturnsTrueAndMappedValue(string seedLinkType, string expectedAdo)
     {
         SeedLinkTypeMapper.TryToAdoRelationType(seedLinkType, out var result).ShouldBeTrue();

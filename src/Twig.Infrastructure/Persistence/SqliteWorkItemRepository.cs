@@ -36,7 +36,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
     {
         var conn = _store.GetConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT * FROM work_items WHERE parent_id = @parentId ORDER BY type, title;";
+        cmd.CommandText = "SELECT * FROM work_items WHERE parent_id = @parentId ORDER BY CASE WHEN id < 0 THEN 1 ELSE 0 END, CASE WHEN id >= 0 THEN type END, CASE WHEN id >= 0 THEN title END, ABS(id);";
         cmd.Parameters.AddWithValue("@parentId", parentId);
 
         var items = ReadAll(cmd);

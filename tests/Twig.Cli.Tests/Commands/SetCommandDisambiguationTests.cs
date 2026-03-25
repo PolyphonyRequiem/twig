@@ -26,12 +26,20 @@ public class SetCommandDisambiguationTests
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
     private readonly IAsyncRenderer _mockRenderer;
+    private readonly ISeedLinkRepository _seedLinkRepo;
+    private readonly IWorkItemLinkRepository _workItemLinkRepo;
 
     public SetCommandDisambiguationTests()
     {
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _adoService = Substitute.For<IAdoWorkItemService>();
         _contextStore = Substitute.For<IContextStore>();
+        _seedLinkRepo = Substitute.For<ISeedLinkRepository>();
+        _workItemLinkRepo = Substitute.For<IWorkItemLinkRepository>();
+        _seedLinkRepo.GetLinksForItemAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<SeedLink>());
+        _workItemLinkRepo.GetLinksAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItemLink>());
         _adoService.FetchChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
@@ -209,7 +217,7 @@ public class SetCommandDisambiguationTests
 
         var setCmd = CreateCommand(CreateTtyPipelineFactory());
         var navCmd = new NavigationCommands(
-            _contextStore, _workItemRepo, setCmd, _formatterFactory, _activeItemResolver, CreateTtyPipelineFactory());
+            _contextStore, _workItemRepo, _seedLinkRepo, _workItemLinkRepo, setCmd, _formatterFactory, _activeItemResolver, CreateTtyPipelineFactory());
 
         var result = await navCmd.DownAsync("auth");
 
@@ -236,7 +244,7 @@ public class SetCommandDisambiguationTests
 
         var setCmd = CreateCommand(CreateTtyPipelineFactory());
         var navCmd = new NavigationCommands(
-            _contextStore, _workItemRepo, setCmd, _formatterFactory, _activeItemResolver, CreateTtyPipelineFactory());
+            _contextStore, _workItemRepo, _seedLinkRepo, _workItemLinkRepo, setCmd, _formatterFactory, _activeItemResolver, CreateTtyPipelineFactory());
 
         var result = await navCmd.DownAsync("auth");
 
@@ -258,7 +266,7 @@ public class SetCommandDisambiguationTests
 
         var setCmd = CreateCommand(CreateTtyPipelineFactory());
         var navCmd = new NavigationCommands(
-            _contextStore, _workItemRepo, setCmd, _formatterFactory, _activeItemResolver, CreateTtyPipelineFactory());
+            _contextStore, _workItemRepo, _seedLinkRepo, _workItemLinkRepo, setCmd, _formatterFactory, _activeItemResolver, CreateTtyPipelineFactory());
 
         var result = await navCmd.DownAsync("auth", "json");
 
@@ -287,7 +295,7 @@ public class SetCommandDisambiguationTests
 
         var setCmd = CreateCommand(CreateTtyPipelineFactory());
         var navCmd = new NavigationCommands(
-            _contextStore, _workItemRepo, setCmd, _formatterFactory, _activeItemResolver, CreateTtyPipelineFactory());
+            _contextStore, _workItemRepo, _seedLinkRepo, _workItemLinkRepo, setCmd, _formatterFactory, _activeItemResolver, CreateTtyPipelineFactory());
 
         var result = await navCmd.DownAsync("login");
 
@@ -306,7 +314,7 @@ public class SetCommandDisambiguationTests
 
         var setCmd = CreateCommand(CreateTtyPipelineFactory());
         var navCmd = new NavigationCommands(
-            _contextStore, _workItemRepo, setCmd, _formatterFactory, _activeItemResolver, CreateTtyPipelineFactory());
+            _contextStore, _workItemRepo, _seedLinkRepo, _workItemLinkRepo, setCmd, _formatterFactory, _activeItemResolver, CreateTtyPipelineFactory());
 
         var result = await navCmd.DownAsync("nonexistent");
 
@@ -340,7 +348,7 @@ public class SetCommandDisambiguationTests
 
         var setCmd = CreateCommand(CreateTtyPipelineFactory());
         var navCmd = new NavigationCommands(
-            _contextStore, _workItemRepo, setCmd, _formatterFactory, _activeItemResolver, CreateTtyPipelineFactory());
+            _contextStore, _workItemRepo, _seedLinkRepo, _workItemLinkRepo, setCmd, _formatterFactory, _activeItemResolver, CreateTtyPipelineFactory());
 
         var result = await navCmd.DownAsync();
 
@@ -367,7 +375,7 @@ public class SetCommandDisambiguationTests
 
         var setCmd = CreateCommand(CreateTtyPipelineFactory());
         var navCmd = new NavigationCommands(
-            _contextStore, _workItemRepo, setCmd, _formatterFactory, _activeItemResolver, CreateTtyPipelineFactory());
+            _contextStore, _workItemRepo, _seedLinkRepo, _workItemLinkRepo, setCmd, _formatterFactory, _activeItemResolver, CreateTtyPipelineFactory());
 
         var result = await navCmd.DownAsync();
 
@@ -389,7 +397,7 @@ public class SetCommandDisambiguationTests
 
         var setCmd = CreateCommand(CreateTtyPipelineFactory());
         var navCmd = new NavigationCommands(
-            _contextStore, _workItemRepo, setCmd, _formatterFactory, _activeItemResolver, CreateTtyPipelineFactory());
+            _contextStore, _workItemRepo, _seedLinkRepo, _workItemLinkRepo, setCmd, _formatterFactory, _activeItemResolver, CreateTtyPipelineFactory());
 
         var result = await navCmd.DownAsync(outputFormat: "json");
 

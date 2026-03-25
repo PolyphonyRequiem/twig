@@ -65,7 +65,7 @@ public class SeedChainCommandTests
 
         // Two links created (A→B, B→C)
         await _seedLinkRepo.Received(2).AddLinkAsync(
-            Arg.Is<SeedLink>(l => l.LinkType == SeedLinkTypes.Related),
+            Arg.Is<SeedLink>(l => l.LinkType == SeedLinkTypes.Successor),
             Arg.Any<CancellationToken>());
     }
 
@@ -191,7 +191,7 @@ public class SeedChainCommandTests
             Arg.Any<CancellationToken>());
 
         await _seedLinkRepo.Received(1).AddLinkAsync(
-            Arg.Is<SeedLink>(l => l.LinkType == SeedLinkTypes.Related),
+            Arg.Is<SeedLink>(l => l.LinkType == SeedLinkTypes.Successor),
             Arg.Any<CancellationToken>());
     }
 
@@ -289,12 +289,12 @@ public class SeedChainCommandTests
         // First link: seed[0] → seed[1]
         links[0].SourceId.ShouldBe(savedIds[0]);
         links[0].TargetId.ShouldBe(savedIds[1]);
-        links[0].LinkType.ShouldBe(SeedLinkTypes.Related);
+        links[0].LinkType.ShouldBe(SeedLinkTypes.Successor);
 
         // Second link: seed[1] → seed[2]
         links[1].SourceId.ShouldBe(savedIds[1]);
         links[1].TargetId.ShouldBe(savedIds[2]);
-        links[1].LinkType.ShouldBe(SeedLinkTypes.Related);
+        links[1].LinkType.ShouldBe(SeedLinkTypes.Successor);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────

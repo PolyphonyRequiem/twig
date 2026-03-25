@@ -300,6 +300,10 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> Prev(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<NavigationCommands>().PrevAsync(output, ct);
 
+    /// <summary>Open the active work item in the browser.</summary>
+    public async Task<int> Web([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<WebCommand>().ExecuteAsync(id, output, ct);
+
     /// <summary>Create a new child work item under the active item (backward compat shortcut).</summary>
     public async Task<int> Seed([Argument] string title, string? type = null, bool editor = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SeedNewCommand>().ExecuteAsync(title, type, editor, output, ct);

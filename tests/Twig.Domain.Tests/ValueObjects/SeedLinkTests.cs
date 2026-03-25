@@ -64,7 +64,7 @@ public class SeedLinkTests
     [Fact]
     public void All_ContainsSixTypes()
     {
-        SeedLinkTypes.All.Count.ShouldBe(6);
+        SeedLinkTypes.All.Count.ShouldBe(8);
     }
 
     [Theory]
@@ -74,6 +74,8 @@ public class SeedLinkTests
     [InlineData(SeedLinkTypes.DependsOn)]
     [InlineData(SeedLinkTypes.DependedOnBy)]
     [InlineData(SeedLinkTypes.Related)]
+    [InlineData(SeedLinkTypes.Successor)]
+    [InlineData(SeedLinkTypes.Predecessor)]
     public void All_ContainsType(string linkType)
     {
         SeedLinkTypes.All.ShouldContain(linkType);
@@ -88,6 +90,8 @@ public class SeedLinkTests
     [InlineData(SeedLinkTypes.BlockedBy, SeedLinkTypes.Blocks)]
     [InlineData(SeedLinkTypes.DependsOn, SeedLinkTypes.DependedOnBy)]
     [InlineData(SeedLinkTypes.DependedOnBy, SeedLinkTypes.DependsOn)]
+    [InlineData(SeedLinkTypes.Successor, SeedLinkTypes.Predecessor)]
+    [InlineData(SeedLinkTypes.Predecessor, SeedLinkTypes.Successor)]
     public void GetReverse_DirectionalType_ReturnsInverse(string input, string expected)
     {
         SeedLinkTypes.GetReverse(input).ShouldBe(expected);

@@ -25,12 +25,20 @@ public class TreeNavCommandTests
     private readonly SyncCoordinator _syncCoordinator;
     private readonly IProcessTypeStore _processTypeStore;
     private readonly SetCommand _setCommand;
+    private readonly ISeedLinkRepository _seedLinkRepo;
+    private readonly IWorkItemLinkRepository _workItemLinkRepo;
 
     public TreeNavCommandTests()
     {
         _contextStore = Substitute.For<IContextStore>();
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _adoService = Substitute.For<IAdoWorkItemService>();
+        _seedLinkRepo = Substitute.For<ISeedLinkRepository>();
+        _workItemLinkRepo = Substitute.For<IWorkItemLinkRepository>();
+        _seedLinkRepo.GetLinksForItemAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<SeedLink>());
+        _workItemLinkRepo.GetLinksAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItemLink>());
         _config = new TwigConfiguration();
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
@@ -108,7 +116,7 @@ public class TreeNavCommandTests
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var navCmd = new NavigationCommands(_contextStore, _workItemRepo, _setCommand, _formatterFactory, _activeItemResolver);
+        var navCmd = new NavigationCommands(_contextStore, _workItemRepo, _seedLinkRepo, _workItemLinkRepo, _setCommand, _formatterFactory, _activeItemResolver);
         var result = await navCmd.UpAsync();
 
         result.ShouldBe(1);
@@ -130,7 +138,7 @@ public class TreeNavCommandTests
         _adoService.FetchChildrenAsync(1, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var navCmd = new NavigationCommands(_contextStore, _workItemRepo, _setCommand, _formatterFactory, _activeItemResolver);
+        var navCmd = new NavigationCommands(_contextStore, _workItemRepo, _seedLinkRepo, _workItemLinkRepo, _setCommand, _formatterFactory, _activeItemResolver);
         var result = await navCmd.UpAsync();
 
         result.ShouldBe(0);
@@ -151,7 +159,7 @@ public class TreeNavCommandTests
         _adoService.FetchChildrenAsync(2, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var navCmd = new NavigationCommands(_contextStore, _workItemRepo, _setCommand, _formatterFactory, _activeItemResolver);
+        var navCmd = new NavigationCommands(_contextStore, _workItemRepo, _seedLinkRepo, _workItemLinkRepo, _setCommand, _formatterFactory, _activeItemResolver);
         var result = await navCmd.DownAsync("login");
 
         result.ShouldBe(0);
@@ -167,7 +175,7 @@ public class TreeNavCommandTests
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var navCmd = new NavigationCommands(_contextStore, _workItemRepo, _setCommand, _formatterFactory, _activeItemResolver);
+        var navCmd = new NavigationCommands(_contextStore, _workItemRepo, _seedLinkRepo, _workItemLinkRepo, _setCommand, _formatterFactory, _activeItemResolver);
         var result = await navCmd.DownAsync("nonexistent");
 
         result.ShouldBe(1);
@@ -182,7 +190,7 @@ public class TreeNavCommandTests
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var navCmd = new NavigationCommands(_contextStore, _workItemRepo, _setCommand, _formatterFactory, _activeItemResolver);
+        var navCmd = new NavigationCommands(_contextStore, _workItemRepo, _seedLinkRepo, _workItemLinkRepo, _setCommand, _formatterFactory, _activeItemResolver);
         var result = await navCmd.DownAsync();
 
         result.ShouldBe(1);
@@ -202,7 +210,7 @@ public class TreeNavCommandTests
         _adoService.FetchChildrenAsync(2, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var navCmd = new NavigationCommands(_contextStore, _workItemRepo, _setCommand, _formatterFactory, _activeItemResolver);
+        var navCmd = new NavigationCommands(_contextStore, _workItemRepo, _seedLinkRepo, _workItemLinkRepo, _setCommand, _formatterFactory, _activeItemResolver);
         var result = await navCmd.DownAsync();
 
         result.ShouldBe(0);

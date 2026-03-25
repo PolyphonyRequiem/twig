@@ -301,7 +301,7 @@ public class SeedLifecycleIntegrationTests : IDisposable
             _workItemRepo, _adoService, _seedLinkRepo, _publishIdMapRepo,
             _rulesProvider, _unitOfWork, backlogOrderer);
 
-        var publishCmd = new SeedPublishCommand(orchestrator, _formatterFactory);
+        var publishCmd = new SeedPublishCommand(orchestrator, _contextStore, _formatterFactory);
         var publishWriter = new StringWriter();
         Console.SetOut(publishWriter);
 
@@ -360,7 +360,7 @@ public class SeedLifecycleIntegrationTests : IDisposable
             _workItemRepo, _adoService, _seedLinkRepo, _publishIdMapRepo,
             _rulesProvider, _unitOfWork, backlogOrderer);
 
-        var publishCmd = new SeedPublishCommand(orchestrator, _formatterFactory);
+        var publishCmd = new SeedPublishCommand(orchestrator, _contextStore, _formatterFactory);
         var publishWriter = new StringWriter();
         Console.SetOut(publishWriter);
 

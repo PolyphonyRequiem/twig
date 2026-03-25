@@ -15,6 +15,8 @@ public static class SeedLinkTypeMapper
         [SeedLinkTypes.DependsOn] = "System.LinkTypes.Dependency-Reverse",
         [SeedLinkTypes.DependedOnBy] = "System.LinkTypes.Dependency-Forward",
         [SeedLinkTypes.Related] = "System.LinkTypes.Related",
+        [SeedLinkTypes.Successor] = "System.LinkTypes.Dependency-Forward",
+        [SeedLinkTypes.Predecessor] = "System.LinkTypes.Dependency-Reverse",
     };
 
     /// <summary>

@@ -20,10 +20,12 @@ public static class SeedLinkTypes
     public const string DependsOn = "depends-on";
     public const string DependedOnBy = "depended-on-by";
     public const string Related = "related";
+    public const string Successor = "successor";
+    public const string Predecessor = "predecessor";
 
     public static readonly IReadOnlyList<string> All = new[]
     {
-        ParentChild, Blocks, BlockedBy, DependsOn, DependedOnBy, Related
+        ParentChild, Blocks, BlockedBy, DependsOn, DependedOnBy, Related, Successor, Predecessor
     };
 
     /// <summary>
@@ -35,6 +37,8 @@ public static class SeedLinkTypes
         BlockedBy => Blocks,
         DependsOn => DependedOnBy,
         DependedOnBy => DependsOn,
+        Successor => Predecessor,
+        Predecessor => Successor,
         ParentChild => null,
         Related => null,
         _ => null,

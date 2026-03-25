@@ -467,4 +467,43 @@ public class FlowStartCommandTests
 
         result.ShouldBe(0);
     }
+
+    // ── Navigation History (Epic 2) ───────────────────────────────
+
+    [Fact]
+    public async Task FlowStart_RecordsNavigationHistory_WhenHistoryStoreProvided()
+    {
+        var item = CreateWorkItem(1, "Test", "New");
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+
+        var historyStore = Substitute.For<INavigationHistoryStore>();
+        var cmd = new FlowStartCommand(_workItemRepo, _adoService, _contextStore, _activeItemResolver, _protectedCacheWriter,
+            _processConfigProvider, _consoleInput, _formatterFactory, _hintEngine, _config,
+            pipelineFactory: null, gitService: null, iterationService: null,
+            promptStateWriter: null, historyStore: historyStore);
+
+        var result = await cmd.ExecuteAsync("1");
+
+        result.ShouldBe(0);
+        await _contextStore.Received().SetActiveWorkItemIdAsync(1, Arg.Any<CancellationToken>());
+        await historyStore.Received(1).RecordVisitAsync(1, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task FlowStart_NullHistoryStore_DoesNotThrow()
+    {
+        var item = CreateWorkItem(1, "Test", "New");
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+
+        // CreateCommand() creates with null historyStore — should succeed
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync("1");
+
+        result.ShouldBe(0);
+        await _contextStore.Received().SetActiveWorkItemIdAsync(1, Arg.Any<CancellationToken>());
+    }
 }

@@ -28,7 +28,8 @@ public sealed class FlowStartCommand(
     RenderingPipelineFactory? pipelineFactory = null,
     IGitService? gitService = null,
     IIterationService? iterationService = null,
-    IPromptStateWriter? promptStateWriter = null)
+    IPromptStateWriter? promptStateWriter = null,
+    INavigationHistoryStore? historyStore = null)
 {
     /// <summary>Begin working on a work item: set context, transition state, assign, create branch.</summary>
     public async Task<int> ExecuteAsync(
@@ -158,6 +159,8 @@ public sealed class FlowStartCommand(
 
         // 4. Set active context
         await contextStore.SetActiveWorkItemIdAsync(item.Id);
+        if (historyStore is not null)
+            await historyStore.RecordVisitAsync(item.Id, ct);
 
         // 5. State transition: if Proposed → InProgress
         string? newState = null;

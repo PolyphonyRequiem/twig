@@ -652,24 +652,24 @@ None — this feature is self-contained and does not depend on other in-flight w
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E2-T1 | IMPL | Add `INavigationHistoryStore?` optional parameter to `SetCommand` constructor | `src/Twig/Commands/SetCommand.cs` | TO DO |
-| E2-T2 | IMPL | Call `historyStore.RecordVisitAsync(item.Id)` after `contextStore.SetActiveWorkItemIdAsync` in `SetCommand.ExecuteAsync` (line 113) | `src/Twig/Commands/SetCommand.cs` | TO DO |
-| E2-T3 | IMPL | Add `INavigationHistoryStore?` optional parameter to `FlowStartCommand` constructor | `src/Twig/Commands/FlowStartCommand.cs` | TO DO |
-| E2-T4 | IMPL | Call `historyStore.RecordVisitAsync(item.Id)` after `contextStore.SetActiveWorkItemIdAsync` in `FlowStartCommand.ExecuteAsync` (line 160) | `src/Twig/Commands/FlowStartCommand.cs` | TO DO |
-| E2-T5 | IMPL | Update `SetCommand` DI registration to pass `INavigationHistoryStore` | `src/Twig/DependencyInjection/CommandRegistrationModule.cs` | TO DO |
-| E2-T6 | IMPL | Update `FlowStartCommand` DI registration to pass `INavigationHistoryStore` | `src/Twig/DependencyInjection/CommandRegistrationModule.cs` | TO DO |
-| E2-T7 | IMPL | Register `INavigationHistoryStore` → `SqliteNavigationHistoryStore` in `TwigServiceRegistration` | `src/Twig.Infrastructure/TwigServiceRegistration.cs` | TO DO |
-| E2-T8 | TEST | Add test: `SetCommand` records history entry on successful set | `tests/Twig.Cli.Tests/Commands/SetCommandTests.cs` | TO DO |
-| E2-T9 | TEST | Add test: `FlowStartCommand` records history entry on successful flow-start | `tests/Twig.Cli.Tests/Commands/FlowStartCommandTests.cs` | TO DO |
-| E2-T10 | TEST | Verify existing `SetCommand` and `FlowStartCommand` tests pass (null history store) | `tests/Twig.Cli.Tests/Commands/` | TO DO |
+| E2-T1 | IMPL | Add `INavigationHistoryStore?` optional parameter to `SetCommand` constructor | `src/Twig/Commands/SetCommand.cs` | DONE |
+| E2-T2 | IMPL | Call `historyStore.RecordVisitAsync(item.Id)` after `contextStore.SetActiveWorkItemIdAsync` in `SetCommand.ExecuteAsync` (line 113) | `src/Twig/Commands/SetCommand.cs` | DONE |
+| E2-T3 | IMPL | Add `INavigationHistoryStore?` optional parameter to `FlowStartCommand` constructor | `src/Twig/Commands/FlowStartCommand.cs` | DONE |
+| E2-T4 | IMPL | Call `historyStore.RecordVisitAsync(item.Id)` after `contextStore.SetActiveWorkItemIdAsync` in `FlowStartCommand.ExecuteAsync` (line 160) | `src/Twig/Commands/FlowStartCommand.cs` | DONE |
+| E2-T5 | IMPL | Update `SetCommand` DI registration to pass `INavigationHistoryStore` | `src/Twig/DependencyInjection/CommandRegistrationModule.cs` | DONE |
+| E2-T6 | IMPL | Update `FlowStartCommand` DI registration to pass `INavigationHistoryStore` | `src/Twig/DependencyInjection/CommandRegistrationModule.cs` | DONE |
+| E2-T7 | IMPL | Register `INavigationHistoryStore` → `SqliteNavigationHistoryStore` in `TwigServiceRegistration` | `src/Twig.Infrastructure/TwigServiceRegistration.cs` | DONE |
+| E2-T8 | TEST | Add test: `SetCommand` records history entry on successful set | `tests/Twig.Cli.Tests/Commands/SetCommandTests.cs` | DONE |
+| E2-T9 | TEST | Add test: `FlowStartCommand` records history entry on successful flow-start | `tests/Twig.Cli.Tests/Commands/FlowStartCommandTests.cs` | DONE |
+| E2-T10 | TEST | Verify existing `SetCommand` and `FlowStartCommand` tests pass (null history store) | `tests/Twig.Cli.Tests/Commands/` | DONE |
 
 **Acceptance Criteria**:
-- [ ] `SetCommand` constructor accepts optional `INavigationHistoryStore?`
-- [ ] `FlowStartCommand` constructor accepts optional `INavigationHistoryStore?`
-- [ ] Every successful `SetCommand.ExecuteAsync` call records a history entry
-- [ ] Every successful `FlowStartCommand.ExecuteAsync` call records a history entry
-- [ ] Existing tests pass without modification (null history store path)
-- [ ] DI wiring is correct — `SqliteNavigationHistoryStore` resolves from container
+- [x] `SetCommand` constructor accepts optional `INavigationHistoryStore?`
+- [x] `FlowStartCommand` constructor accepts optional `INavigationHistoryStore?`
+- [x] Every successful `SetCommand.ExecuteAsync` call records a history entry
+- [x] Every successful `FlowStartCommand.ExecuteAsync` call records a history entry
+- [x] Existing tests pass without modification (null history store path)
+- [x] DI wiring is correct — `SqliteNavigationHistoryStore` resolves from container
 
 ### Epic 3: Back/Forward Commands
 

@@ -23,7 +23,8 @@ public sealed class SetCommand(
     HintEngine hintEngine,
     // Optional — null for backward compat with tests that predate EPIC-005
     RenderingPipelineFactory? pipelineFactory = null,
-    IPromptStateWriter? promptStateWriter = null)
+    IPromptStateWriter? promptStateWriter = null,
+    INavigationHistoryStore? historyStore = null)
 {
     public async Task<int> ExecuteAsync(string idOrPattern, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
@@ -111,6 +112,8 @@ public sealed class SetCommand(
 
         // Set as active context
         await contextStore.SetActiveWorkItemIdAsync(item.Id);
+        if (historyStore is not null)
+            await historyStore.RecordVisitAsync(item.Id, ct);
         if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
         // Working set compute + evict + sync — best-effort, never fails the command

@@ -48,7 +48,8 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<HintEngine>(),
             sp.GetRequiredService<RenderingPipelineFactory>(),
-            sp.GetService<IPromptStateWriter>()));
+            sp.GetService<IPromptStateWriter>(),
+            sp.GetService<INavigationHistoryStore>()));
         services.AddSingleton<StatusCommand>(sp => new StatusCommand(
             sp.GetRequiredService<IContextStore>(),
             sp.GetRequiredService<IWorkItemRepository>(),
@@ -252,7 +253,8 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<RenderingPipelineFactory>(),
             sp.GetService<IGitService>(),
             sp.GetService<IIterationService>(),
-            sp.GetRequiredService<IPromptStateWriter>()));
+            sp.GetRequiredService<IPromptStateWriter>(),
+            sp.GetService<INavigationHistoryStore>()));
         services.AddSingleton<FlowDoneCommand>(sp => new FlowDoneCommand(
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IPendingChangeStore>(),

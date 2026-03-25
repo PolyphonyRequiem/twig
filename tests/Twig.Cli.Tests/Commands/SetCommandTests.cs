@@ -229,6 +229,47 @@ public class SetCommandTests
             Arg.Any<IReadOnlySet<int>>(), Arg.Any<CancellationToken>());
     }
 
+    // ── Navigation History (Epic 2) ───────────────────────────────
+
+    [Fact]
+    public async Task Set_RecordsNavigationHistory_WhenHistoryStoreProvided()
+    {
+        var item = CreateWorkItem(42, "Test Item");
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        var historyStore = Substitute.For<INavigationHistoryStore>();
+
+        var formatterFactory = new OutputFormatterFactory(
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
+        var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
+        var iterationService = Substitute.For<IIterationService>();
+        iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
+            .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
+        var pendingChangeStore = Substitute.For<IPendingChangeStore>();
+        var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, iterationService, null);
+
+        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
+            workingSetService, formatterFactory, hintEngine, historyStore: historyStore);
+
+        var result = await cmd.ExecuteAsync("42");
+
+        result.ShouldBe(0);
+        await _contextStore.Received().SetActiveWorkItemIdAsync(42, Arg.Any<CancellationToken>());
+        await historyStore.Received(1).RecordVisitAsync(42, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Set_NullHistoryStore_DoesNotThrow()
+    {
+        var item = CreateWorkItem(42, "Test Item");
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+
+        // _cmd is created without historyStore (null) — should succeed
+        var result = await _cmd.ExecuteAsync("42");
+
+        result.ShouldBe(0);
+        await _contextStore.Received().SetActiveWorkItemIdAsync(42, Arg.Any<CancellationToken>());
+    }
+
     private static WorkItem CreateWorkItem(int id, string title)
     {
         return new WorkItem

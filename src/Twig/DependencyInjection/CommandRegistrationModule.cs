@@ -94,6 +94,14 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
             sp.GetRequiredService<RenderingPipelineFactory>()));
+        services.AddSingleton<NavigationHistoryCommands>(sp => new NavigationHistoryCommands(
+            sp.GetRequiredService<INavigationHistoryStore>(),
+            sp.GetRequiredService<IPublishIdMapRepository>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IContextStore>(),
+            sp.GetRequiredService<OutputFormatterFactory>(),
+            sp.GetRequiredService<RenderingPipelineFactory>(),
+            sp.GetService<IPromptStateWriter>()));
         services.AddSingleton<SeedNewCommand>();
         services.AddSingleton<SeedEditCommand>();
         services.AddSingleton<SeedDiscardCommand>();

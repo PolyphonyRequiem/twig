@@ -5,6 +5,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
+using Twig.Rendering;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
@@ -356,14 +357,317 @@ public class NavigationHistoryCommandTests
         result.ShouldBe(0);
     }
 
-    // ── HistoryAsync: stub behavior ─────────────────────────────────
+    // ── HistoryAsync: empty history ─────────────────────────────────
 
     [Fact]
-    public async Task History_ReturnsNotImplemented()
+    public async Task History_EmptyHistory_ReturnsZero()
     {
-        var result = await _cmd.HistoryAsync(nonInteractive: false);
+        _historyStore.GetHistoryAsync(Arg.Any<CancellationToken>())
+            .Returns((new List<NavigationHistoryEntry>(), (int?)null));
 
-        result.ShouldBe(1);
+        var result = await _cmd.HistoryAsync(nonInteractive: true);
+
+        result.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task History_EmptyHistory_DoesNotSetContext()
+    {
+        _historyStore.GetHistoryAsync(Arg.Any<CancellationToken>())
+            .Returns((new List<NavigationHistoryEntry>(), (int?)null));
+
+        await _cmd.HistoryAsync(nonInteractive: true);
+
+        await _contextStore.DidNotReceive().SetActiveWorkItemIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    // ── HistoryAsync: non-interactive output ─────────────────────────
+
+    [Fact]
+    public async Task History_NonInteractive_ReturnsZero()
+    {
+        var entries = new List<NavigationHistoryEntry>
+        {
+            new(1, 100, DateTimeOffset.UtcNow.AddMinutes(-10)),
+            new(2, 42, DateTimeOffset.UtcNow.AddMinutes(-5)),
+        };
+        _historyStore.GetHistoryAsync(Arg.Any<CancellationToken>())
+            .Returns((entries, (int?)2));
+        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(100, "User Auth"));
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(42, "Fix login bug"));
+
+        var result = await _cmd.HistoryAsync(nonInteractive: true);
+
+        result.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task History_NonInteractive_DoesNotSetContext()
+    {
+        var entries = new List<NavigationHistoryEntry>
+        {
+            new(1, 42, DateTimeOffset.UtcNow),
+        };
+        _historyStore.GetHistoryAsync(Arg.Any<CancellationToken>())
+            .Returns((entries, (int?)1));
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(42, "Item"));
+
+        await _cmd.HistoryAsync(nonInteractive: true);
+
+        await _contextStore.DidNotReceive().SetActiveWorkItemIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _historyStore.DidNotReceive().RecordVisitAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task History_NonInteractive_EnrichesWithWorkItemData()
+    {
+        var entries = new List<NavigationHistoryEntry>
+        {
+            new(1, 42, DateTimeOffset.UtcNow),
+        };
+        _historyStore.GetHistoryAsync(Arg.Any<CancellationToken>())
+            .Returns((entries, (int?)1));
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(42, "Item"));
+
+        await _cmd.HistoryAsync(nonInteractive: true);
+
+        await _workItemRepo.Received(1).GetByIdAsync(42, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task History_NonInteractive_ItemNotInCache_StillSucceeds()
+    {
+        var entries = new List<NavigationHistoryEntry>
+        {
+            new(1, 99, DateTimeOffset.UtcNow),
+        };
+        _historyStore.GetHistoryAsync(Arg.Any<CancellationToken>())
+            .Returns((entries, (int?)1));
+        _workItemRepo.GetByIdAsync(99, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+
+        var result = await _cmd.HistoryAsync(nonInteractive: true);
+
+        result.ShouldBe(0);
+    }
+
+    // ── HistoryAsync: seed ID resolution ─────────────────────────────
+
+    [Fact]
+    public async Task History_NegativeSeedId_ResolvesToPublishedId()
+    {
+        var entries = new List<NavigationHistoryEntry>
+        {
+            new(1, -1, DateTimeOffset.UtcNow),
+        };
+        _historyStore.GetHistoryAsync(Arg.Any<CancellationToken>())
+            .Returns((entries, (int?)1));
+        _publishIdMapRepo.GetNewIdAsync(-1, Arg.Any<CancellationToken>()).Returns(100);
+        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(100, "Published Item"));
+
+        var result = await _cmd.HistoryAsync(nonInteractive: true);
+
+        result.ShouldBe(0);
+        await _publishIdMapRepo.Received(1).GetNewIdAsync(-1, Arg.Any<CancellationToken>());
+        await _workItemRepo.Received(1).GetByIdAsync(100, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task History_NegativeSeedId_NoMapping_UsesOriginalId()
+    {
+        var entries = new List<NavigationHistoryEntry>
+        {
+            new(1, -5, DateTimeOffset.UtcNow),
+        };
+        _historyStore.GetHistoryAsync(Arg.Any<CancellationToken>())
+            .Returns((entries, (int?)1));
+        _publishIdMapRepo.GetNewIdAsync(-5, Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIdAsync(-5, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+
+        var result = await _cmd.HistoryAsync(nonInteractive: true);
+
+        result.ShouldBe(0);
+        await _workItemRepo.Received(1).GetByIdAsync(-5, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task History_PositiveId_DoesNotCallPublishIdMap()
+    {
+        var entries = new List<NavigationHistoryEntry>
+        {
+            new(1, 42, DateTimeOffset.UtcNow),
+        };
+        _historyStore.GetHistoryAsync(Arg.Any<CancellationToken>())
+            .Returns((entries, (int?)1));
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(42, "Item"));
+
+        await _cmd.HistoryAsync(nonInteractive: true);
+
+        await _publishIdMapRepo.DidNotReceive().GetNewIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    // ── HistoryAsync: JSON output format ─────────────────────────────
+
+    [Fact]
+    public async Task History_JsonFormat_ReturnsZero()
+    {
+        var entries = new List<NavigationHistoryEntry>
+        {
+            new(1, 100, DateTimeOffset.Parse("2026-03-25T10:00:00Z")),
+            new(2, 42, DateTimeOffset.Parse("2026-03-25T10:05:00Z")),
+        };
+        _historyStore.GetHistoryAsync(Arg.Any<CancellationToken>())
+            .Returns((entries, (int?)2));
+        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(100, "User Auth"));
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(42, "Fix login bug"));
+
+        var result = await _cmd.HistoryAsync(nonInteractive: true, outputFormat: "json");
+
+        result.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task History_JsonFormat_EmptyHistory_ReturnsZero()
+    {
+        _historyStore.GetHistoryAsync(Arg.Any<CancellationToken>())
+            .Returns((new List<NavigationHistoryEntry>(), (int?)null));
+
+        var result = await _cmd.HistoryAsync(nonInteractive: true, outputFormat: "json");
+
+        result.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task History_JsonFormat_ResolvesSeeds()
+    {
+        var entries = new List<NavigationHistoryEntry>
+        {
+            new(1, -1, DateTimeOffset.UtcNow),
+        };
+        _historyStore.GetHistoryAsync(Arg.Any<CancellationToken>())
+            .Returns((entries, (int?)1));
+        _publishIdMapRepo.GetNewIdAsync(-1, Arg.Any<CancellationToken>()).Returns(200);
+        _workItemRepo.GetByIdAsync(200, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(200, "Resolved"));
+
+        var result = await _cmd.HistoryAsync(nonInteractive: true, outputFormat: "json");
+
+        result.ShouldBe(0);
+        await _publishIdMapRepo.Received(1).GetNewIdAsync(-1, Arg.Any<CancellationToken>());
+    }
+
+    // ── HistoryAsync: minimal output format ──────────────────────────
+
+    [Fact]
+    public async Task History_MinimalFormat_ReturnsZero()
+    {
+        var entries = new List<NavigationHistoryEntry>
+        {
+            new(1, 100, DateTimeOffset.UtcNow),
+            new(2, 42, DateTimeOffset.UtcNow),
+        };
+        _historyStore.GetHistoryAsync(Arg.Any<CancellationToken>())
+            .Returns((entries, (int?)2));
+        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(100, "Item A"));
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(42, "Item B"));
+
+        var result = await _cmd.HistoryAsync(nonInteractive: true, outputFormat: "minimal");
+
+        result.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task History_MinimalFormat_EmptyHistory_ReturnsZero()
+    {
+        _historyStore.GetHistoryAsync(Arg.Any<CancellationToken>())
+            .Returns((new List<NavigationHistoryEntry>(), (int?)null));
+
+        var result = await _cmd.HistoryAsync(nonInteractive: true, outputFormat: "minimal");
+
+        result.ShouldBe(0);
+    }
+
+    // ── HistoryAsync: interactive selection ───────────────────────────
+
+    [Fact]
+    public async Task History_Interactive_SelectionSetsContextAndRecordsHistory()
+    {
+        var entries = new List<NavigationHistoryEntry>
+        {
+            new(1, 100, DateTimeOffset.UtcNow.AddMinutes(-10)),
+            new(2, 42, DateTimeOffset.UtcNow.AddMinutes(-5)),
+        };
+        _historyStore.GetHistoryAsync(Arg.Any<CancellationToken>())
+            .Returns((entries, (int?)2));
+        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(100, "User Auth"));
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(42, "Fix login bug"));
+
+        var asyncRenderer = Substitute.For<IAsyncRenderer>();
+        asyncRenderer.PromptDisambiguationAsync(Arg.Any<IReadOnlyList<(int Id, string Title)>>(), Arg.Any<CancellationToken>())
+            .Returns((100, "User Auth"));
+
+        var pf = new RenderingPipelineFactory(_formatterFactory, asyncRenderer, () => false);
+        var cmd = new NavigationHistoryCommands(
+            _historyStore, _publishIdMapRepo, _workItemRepo, _contextStore,
+            _formatterFactory, pf, _promptStateWriter);
+
+        var result = await cmd.HistoryAsync(nonInteractive: false);
+
+        result.ShouldBe(0);
+        await _historyStore.Received(1).RecordVisitAsync(100, Arg.Any<CancellationToken>());
+        await _contextStore.Received(1).SetActiveWorkItemIdAsync(100, Arg.Any<CancellationToken>());
+        await _promptStateWriter.Received(1).WritePromptStateAsync();
+    }
+
+    [Fact]
+    public async Task History_Interactive_CancelledSelection_DoesNotSetContext()
+    {
+        var entries = new List<NavigationHistoryEntry>
+        {
+            new(1, 42, DateTimeOffset.UtcNow),
+        };
+        _historyStore.GetHistoryAsync(Arg.Any<CancellationToken>())
+            .Returns((entries, (int?)1));
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(42, "Item"));
+
+        var asyncRenderer = Substitute.For<IAsyncRenderer>();
+        asyncRenderer.PromptDisambiguationAsync(Arg.Any<IReadOnlyList<(int Id, string Title)>>(), Arg.Any<CancellationToken>())
+            .Returns(((int Id, string Title)?)null);
+
+        var pf = new RenderingPipelineFactory(_formatterFactory, asyncRenderer, () => false);
+        var cmd = new NavigationHistoryCommands(
+            _historyStore, _publishIdMapRepo, _workItemRepo, _contextStore,
+            _formatterFactory, pf, _promptStateWriter);
+
+        var result = await cmd.HistoryAsync(nonInteractive: false);
+
+        result.ShouldBe(0);
+        await _contextStore.DidNotReceive().SetActiveWorkItemIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _historyStore.DidNotReceive().RecordVisitAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _promptStateWriter.DidNotReceive().WritePromptStateAsync();
+    }
+
+    [Fact]
+    public async Task History_NonInteractiveFlag_SuppressesInteractivePicker()
+    {
+        var entries = new List<NavigationHistoryEntry>
+        {
+            new(1, 42, DateTimeOffset.UtcNow),
+        };
+        _historyStore.GetHistoryAsync(Arg.Any<CancellationToken>())
+            .Returns((entries, (int?)1));
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(42, "Item"));
+
+        var asyncRenderer = Substitute.For<IAsyncRenderer>();
+        var pf = new RenderingPipelineFactory(_formatterFactory, asyncRenderer, () => false);
+        var cmd = new NavigationHistoryCommands(
+            _historyStore, _publishIdMapRepo, _workItemRepo, _contextStore,
+            _formatterFactory, pf, _promptStateWriter);
+
+        var result = await cmd.HistoryAsync(nonInteractive: true);
+
+        result.ShouldBe(0);
+        // PromptDisambiguationAsync should not be called when nonInteractive is true
+        await asyncRenderer.DidNotReceive().PromptDisambiguationAsync(
+            Arg.Any<IReadOnlyList<(int Id, string Title)>>(), Arg.Any<CancellationToken>());
     }
 
     // ── Helper ──────────────────────────────────────────────────────

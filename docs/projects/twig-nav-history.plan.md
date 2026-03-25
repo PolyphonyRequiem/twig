@@ -703,19 +703,19 @@ None — this feature is self-contained and does not depend on other in-flight w
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E4-T1 | IMPL | Implement `HistoryAsync` in `NavigationHistoryCommands` with non-interactive output | `src/Twig/Commands/NavigationHistoryCommands.cs` | TO DO |
-| E4-T2 | IMPL | Implement interactive Spectre.Console picker for TTY history selection | `src/Twig/Commands/NavigationHistoryCommands.cs` | TO DO |
+| E4-T1 | IMPL | Implement `HistoryAsync` in `NavigationHistoryCommands` with non-interactive output | `src/Twig/Commands/NavigationHistoryCommands.cs` | DONE |
+| E4-T2 | IMPL | Implement interactive Spectre.Console picker for TTY history selection | `src/Twig/Commands/NavigationHistoryCommands.cs` | DONE |
 | E4-T3 | IMPL | Add `[Command("nav history")]` to `Program.cs` | `src/Twig/Program.cs` | DONE |
-| E4-T4 | TEST | Unit tests: history non-interactive output, empty history, seed ID resolution | `tests/Twig.Cli.Tests/Commands/NavigationHistoryCommandTests.cs` | TO DO |
-| E4-T5 | TEST | Unit tests: history JSON and minimal output formats | `tests/Twig.Cli.Tests/Commands/NavigationHistoryCommandTests.cs` | TO DO |
+| E4-T4 | TEST | Unit tests: history non-interactive output, empty history, seed ID resolution | `tests/Twig.Cli.Tests/Commands/NavigationHistoryCommandTests.cs` | DONE |
+| E4-T5 | TEST | Unit tests: history JSON and minimal output formats | `tests/Twig.Cli.Tests/Commands/NavigationHistoryCommandTests.cs` | DONE |
 
 **Acceptance Criteria**:
-- [ ] `twig nav history` shows all entries with current position marked
-- [ ] Interactive picker works in TTY mode (Spectre.Console Live)
-- [ ] `--non-interactive` flag shows flat list
-- [ ] JSON output includes entries array and currentEntryId
-- [ ] Selecting an item sets context and records new history entry
-- [ ] Empty history shows informative message
+- [x] `twig nav history` shows all entries with current position marked
+- [x] Interactive picker works in TTY mode (Spectre.Console Live)
+- [x] `--non-interactive` flag shows flat list
+- [x] JSON output includes entries array and currentEntryId
+- [x] Selecting an item sets context and records new history entry
+- [x] Empty history shows informative message
 
 ### Epic 5: Wiring & Polish
 

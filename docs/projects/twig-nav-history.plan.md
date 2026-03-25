@@ -679,21 +679,21 @@ None — this feature is self-contained and does not depend on other in-flight w
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E3-T1 | IMPL | Create `NavigationHistoryCommands` with `BackAsync` and `ForeAsync` | `src/Twig/Commands/NavigationHistoryCommands.cs` | TO DO |
-| E3-T2 | IMPL | Implement seed ID resolution in back/fore using `IPublishIdMapRepository.GetNewIdAsync` | `src/Twig/Commands/NavigationHistoryCommands.cs` | TO DO |
-| E3-T3 | IMPL | Register `NavigationHistoryCommands` in `CommandRegistrationModule` | `src/Twig/DependencyInjection/CommandRegistrationModule.cs` | TO DO |
-| E3-T4 | IMPL | Add `[Command("nav back")]` and `[Command("nav fore")]` to `Program.cs` | `src/Twig/Program.cs` | TO DO |
-| E3-T5 | TEST | Unit tests: back from various positions, back at boundary, empty history | `tests/Twig.Cli.Tests/Commands/NavigationHistoryCommandTests.cs` | TO DO |
-| E3-T6 | TEST | Unit tests: fore from various positions, fore at boundary | `tests/Twig.Cli.Tests/Commands/NavigationHistoryCommandTests.cs` | TO DO |
-| E3-T7 | TEST | Unit tests: seed ID resolution in back/fore | `tests/Twig.Cli.Tests/Commands/NavigationHistoryCommandTests.cs` | TO DO |
+| E3-T1 | IMPL | Create `NavigationHistoryCommands` with `BackAsync` and `ForeAsync` | `src/Twig/Commands/NavigationHistoryCommands.cs` | DONE |
+| E3-T2 | IMPL | Implement seed ID resolution in back/fore using `IPublishIdMapRepository.GetNewIdAsync` | `src/Twig/Commands/NavigationHistoryCommands.cs` | DONE |
+| E3-T3 | IMPL | Register `NavigationHistoryCommands` in `CommandRegistrationModule` | `src/Twig/DependencyInjection/CommandRegistrationModule.cs` | DONE |
+| E3-T4 | IMPL | Add `[Command("nav back")]` and `[Command("nav fore")]` to `Program.cs` | `src/Twig/Program.cs` | DONE |
+| E3-T5 | TEST | Unit tests: back from various positions, back at boundary, empty history | `tests/Twig.Cli.Tests/Commands/NavigationHistoryCommandTests.cs` | DONE |
+| E3-T6 | TEST | Unit tests: fore from various positions, fore at boundary | `tests/Twig.Cli.Tests/Commands/NavigationHistoryCommandTests.cs` | DONE |
+| E3-T7 | TEST | Unit tests: seed ID resolution in back/fore | `tests/Twig.Cli.Tests/Commands/NavigationHistoryCommandTests.cs` | DONE |
 
 **Acceptance Criteria**:
-- [ ] `twig nav back` moves cursor backward and sets context
-- [ ] `twig nav fore` moves cursor forward and sets context
-- [ ] Returns error at boundaries (oldest/newest)
-- [ ] Negative seed IDs are resolved to published ADO IDs
-- [ ] Back/fore do NOT record new history entries
-- [ ] Prompt state is updated after context change
+- [x] `twig nav back` moves cursor backward and sets context
+- [x] `twig nav fore` moves cursor forward and sets context
+- [x] Returns error at boundaries (oldest/newest)
+- [x] Negative seed IDs are resolved to published ADO IDs
+- [x] Back/fore do NOT record new history entries
+- [x] Prompt state is updated after context change
 
 ### Epic 4: History Command
 
@@ -705,7 +705,7 @@ None — this feature is self-contained and does not depend on other in-flight w
 |---------|------|-------------|-------|--------|
 | E4-T1 | IMPL | Implement `HistoryAsync` in `NavigationHistoryCommands` with non-interactive output | `src/Twig/Commands/NavigationHistoryCommands.cs` | TO DO |
 | E4-T2 | IMPL | Implement interactive Spectre.Console picker for TTY history selection | `src/Twig/Commands/NavigationHistoryCommands.cs` | TO DO |
-| E4-T3 | IMPL | Add `[Command("nav history")]` to `Program.cs` | `src/Twig/Program.cs` | TO DO |
+| E4-T3 | IMPL | Add `[Command("nav history")]` to `Program.cs` | `src/Twig/Program.cs` | DONE |
 | E4-T4 | TEST | Unit tests: history non-interactive output, empty history, seed ID resolution | `tests/Twig.Cli.Tests/Commands/NavigationHistoryCommandTests.cs` | TO DO |
 | E4-T5 | TEST | Unit tests: history JSON and minimal output formats | `tests/Twig.Cli.Tests/Commands/NavigationHistoryCommandTests.cs` | TO DO |
 
@@ -725,7 +725,7 @@ None — this feature is self-contained and does not depend on other in-flight w
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E5-T1 | IMPL | Update grouped help text in `Program.cs` to include nav back/fore/history | `src/Twig/Program.cs` | TO DO |
+| E5-T1 | IMPL | Update grouped help text in `Program.cs` to include nav back/fore/history | `src/Twig/Program.cs` | DONE |
 | E5-T2 | IMPL | Add backward-compat aliases if needed (e.g., bare `back`/`fore` like `up`/`down`) | `src/Twig/Program.cs` | TO DO |
 | E5-T3 | TEST | End-to-end integration test: set → set → back → fore → history | `tests/Twig.Cli.Tests/Commands/NavigationHistoryCommandTests.cs` | TO DO |
 | E5-T4 | TEST | Verify `twig init --force` clears history (database deletion) | `tests/Twig.Cli.Tests/Commands/InitCommandTests.cs` | TO DO |

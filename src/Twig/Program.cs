@@ -304,6 +304,21 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> NavPrev(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<NavigationCommands>().PrevAsync(output, ct);
 
+    /// <summary>Navigate backward in navigation history.</summary>
+    [Command("nav back")]
+    public async Task<int> NavBack(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<NavigationHistoryCommands>().BackAsync(output, ct);
+
+    /// <summary>Navigate forward in navigation history.</summary>
+    [Command("nav fore")]
+    public async Task<int> NavFore(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<NavigationHistoryCommands>().ForeAsync(output, ct);
+
+    /// <summary>Display the navigation history (not yet implemented).</summary>
+    [Command("nav history")]
+    public async Task<int> NavHistory(bool nonInteractive = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<NavigationHistoryCommands>().HistoryAsync(nonInteractive, output, ct);
+
     // ── Backward-compat aliases (bare up/down/next/prev) ────────────
 
     /// <summary>Navigate to the parent work item (alias for nav up).</summary>
@@ -587,6 +602,9 @@ Navigation:
   nav down [pattern]   Navigate to a child work item.
   nav next             Navigate to the next sibling (by link or order).
   nav prev             Navigate to the previous sibling (by link or order).
+  nav back             Navigate backward in navigation history.
+  nav fore             Navigate forward in navigation history.
+  nav history          Display the navigation history.
 
 Work Items:
   state <name>         Change the state (e.g. Active, Closed).

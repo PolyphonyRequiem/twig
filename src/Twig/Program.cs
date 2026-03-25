@@ -285,18 +285,44 @@ public sealed class TwigCommands(IServiceProvider services)
         => await services.GetRequiredService<TreeCommand>().ExecuteAsync(output, depth, all, noLive, ct);
 
     /// <summary>Navigate to the parent work item.</summary>
-    public async Task<int> Up(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    [Command("nav up")]
+    public async Task<int> NavUp(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<NavigationCommands>().UpAsync(output, ct);
 
     /// <summary>Navigate to a child work item.</summary>
-    public async Task<int> Down([Argument] string? idOrPattern = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    [Command("nav down")]
+    public async Task<int> NavDown([Argument] string? idOrPattern = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<NavigationCommands>().DownAsync(idOrPattern, output, ct);
 
     /// <summary>Navigate to the next sibling work item.</summary>
-    public async Task<int> Next(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    [Command("nav next")]
+    public async Task<int> NavNext(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<NavigationCommands>().NextAsync(output, ct);
 
     /// <summary>Navigate to the previous sibling work item.</summary>
+    [Command("nav prev")]
+    public async Task<int> NavPrev(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<NavigationCommands>().PrevAsync(output, ct);
+
+    // ── Backward-compat aliases (bare up/down/next/prev) ────────────
+
+    /// <summary>Navigate to the parent work item (alias for nav up).</summary>
+    [Hidden]
+    public async Task<int> Up(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<NavigationCommands>().UpAsync(output, ct);
+
+    /// <summary>Navigate to a child work item (alias for nav down).</summary>
+    [Hidden]
+    public async Task<int> Down([Argument] string? idOrPattern = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<NavigationCommands>().DownAsync(idOrPattern, output, ct);
+
+    /// <summary>Navigate to the next sibling work item (alias for nav next).</summary>
+    [Hidden]
+    public async Task<int> Next(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<NavigationCommands>().NextAsync(output, ct);
+
+    /// <summary>Navigate to the previous sibling work item (alias for nav prev).</summary>
+    [Hidden]
     public async Task<int> Prev(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<NavigationCommands>().PrevAsync(output, ct);
 
@@ -554,12 +580,13 @@ Views:
 
 Context:
   set <id|pattern>     Set the active work item.
+  web [id]             Open the active work item in the browser.
 
 Navigation:
-  up                   Navigate to the parent work item.
-  down [pattern]       Navigate to a child work item.
-  next                 Navigate to the next sibling work item.
-  prev                 Navigate to the previous sibling work item.
+  nav up               Navigate to the parent work item.
+  nav down [pattern]   Navigate to a child work item.
+  nav next             Navigate to the next sibling (by link or order).
+  nav prev             Navigate to the previous sibling (by link or order).
 
 Work Items:
   state <name>         Change the state (e.g. Active, Closed).

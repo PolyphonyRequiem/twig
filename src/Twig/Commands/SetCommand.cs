@@ -68,7 +68,7 @@ public sealed class SetCommand(
             }
             else if (cached.Count > 1)
             {
-                var matches = cached.Select(c => (c.Id, c.Title)).ToList();
+                var matches = cached.Select(c => (c.Id, $"{c.Title} [{c.State}]")).ToList();
 
                 if (renderer is not null)
                 {

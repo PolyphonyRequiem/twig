@@ -91,7 +91,7 @@ public sealed class NavigationCommands(
         // No argument: present all children interactively(or auto-navigate if only one)
         if (string.IsNullOrEmpty(idOrPattern))
         {
-            var candidates = children.Select(c => (c.Id, c.Title)).ToList();
+            var candidates = children.Select(c => (c.Id, $"{c.Title} [{c.State}]")).ToList();
             if (candidates.Count == 0)
             {
                 Console.Error.WriteLine(fmt.FormatError("No children to navigate to."));

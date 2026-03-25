@@ -89,7 +89,7 @@ public sealed class FlowStartCommand(
             }
             else if (cached.Count > 1)
             {
-                var matches = cached.Select(c => (c.Id, c.Title)).ToList();
+                var matches = cached.Select(c => (c.Id, $"{c.Title} [{c.State}]")).ToList();
 
                 if (renderer is not null)
                 {
@@ -325,7 +325,7 @@ public sealed class FlowStartCommand(
             return null;
         }
 
-        var matches = proposed.Select(p => (p.Id, p.Title)).ToList();
+        var matches = proposed.Select(p => (p.Id, $"{p.Title} [{p.State}]")).ToList();
 
         if (renderer is not null)
         {

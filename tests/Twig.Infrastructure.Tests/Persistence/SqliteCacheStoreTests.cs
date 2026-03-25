@@ -26,6 +26,7 @@ public class SqliteCacheStoreTests
         TableExists(conn, "field_definitions").ShouldBeTrue();
         TableExists(conn, "work_item_links").ShouldBeTrue();
         TableExists(conn, "seed_links").ShouldBeTrue();
+        TableExists(conn, "navigation_history").ShouldBeTrue();
     }
 
     [Fact]
@@ -110,9 +111,9 @@ public class SqliteCacheStoreTests
     }
 
     [Fact]
-    public void SchemaVersion_IsSeven()
+    public void SchemaVersion_IsNine()
     {
-        SqliteCacheStore.SchemaVersion.ShouldBe(8);
+        SqliteCacheStore.SchemaVersion.ShouldBe(9);
     }
 
     [Fact]

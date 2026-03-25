@@ -12,7 +12,7 @@ public sealed class SqliteCacheStore : IDisposable
     /// Current schema version compiled into the binary.
     /// If the DB schema version differs, all tables are dropped and recreated.
     /// </summary>
-    internal const int SchemaVersion = 8;
+    internal const int SchemaVersion = 9;
 
     private readonly SqliteConnection _connection;
     private bool _schemaRebuilt;
@@ -105,7 +105,7 @@ public sealed class SqliteCacheStore : IDisposable
     {
         // Table names are compile-time constants — not user-supplied values — so
         // string interpolation is safe here. SQLite does not support parameterised DDL identifiers.
-        string[] tables = ["pending_changes", "work_items", "process_types", "context", "metadata", "field_definitions", "work_item_links", "seed_links", "publish_id_map"];
+        string[] tables = ["pending_changes", "work_items", "process_types", "context", "metadata", "field_definitions", "work_item_links", "seed_links", "publish_id_map", "navigation_history"];
         foreach (var table in tables)
         {
             using var cmd = _connection.CreateCommand();
@@ -216,6 +216,12 @@ public sealed class SqliteCacheStore : IDisposable
             old_id INTEGER PRIMARY KEY,
             new_id INTEGER NOT NULL,
             published_at TEXT NOT NULL
+        );
+
+        CREATE TABLE navigation_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            work_item_id INTEGER NOT NULL,
+            visited_at TEXT NOT NULL
         );
         """;
 

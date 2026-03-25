@@ -123,7 +123,7 @@ if (args.Length == 1 && args[0] == "--version")
     Console.WriteLine(VersionHelper.GetVersion());
     return;
 }
-if (args.Length == 1 && args[0] is "-h" or "--help")
+if (args.Length == 1 && args[0] is "-h" or "--help" or "help")
 {
     GroupedHelp.Show();
     return;

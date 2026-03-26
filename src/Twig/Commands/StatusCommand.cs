@@ -93,29 +93,50 @@ public sealed class StatusCommand(
             var children = await workItemRepo.GetChildrenAsync(item.Id, ct);
             var childProgress = ComputeChildProgress(children);
 
-            // Async progressive rendering path — dashboard layout via SpectreRenderer
-            await renderer.RenderStatusAsync(
-                getItem: () => Task.FromResult<Domain.Aggregates.WorkItem?>(item),
-                getPendingChanges: () => pendingChangeStore.GetChangesAsync(item.Id),
-                ct: CancellationToken.None,
-                fieldDefinitions: fieldDefs,
-                statusFieldEntries: statusFieldEntries,
-                childProgress: childProgress);
-
-            // Sync working set after cached render (EPIC-004) — best-effort
-            try
+            // FIX-002: Render status panel INSIDE the Live region to prevent border
+            // corruption when the sync indicator clears. BuildStatusViewAsync returns
+            // the complete status view as a composite IRenderable.
+            if (renderer is SpectreRenderer spectreRenderer)
             {
-                var workingSet = await workingSetService.ComputeAsync(item.IterationPath);
-                await renderer.RenderWithSyncAsync(
-                    buildCachedView: () =>
-                        Task.FromResult<Spectre.Console.Rendering.IRenderable>(
-                            new Spectre.Console.Text(" ")),
-                    performSync: () => syncCoordinator.SyncWorkingSetAsync(workingSet),
-                    buildRevisedView: syncResult => Task.FromResult<Spectre.Console.Rendering.IRenderable?>(null),
-                    CancellationToken.None);
+                try
+                {
+                    var workingSet = await workingSetService.ComputeAsync(item.IterationPath);
+                    await renderer.RenderWithSyncAsync(
+                        buildCachedView: () => spectreRenderer.BuildStatusViewAsync(
+                            getItem: () => Task.FromResult<Domain.Aggregates.WorkItem?>(item),
+                            getPendingChanges: () => pendingChangeStore.GetChangesAsync(item.Id),
+                            ct: CancellationToken.None,
+                            fieldDefinitions: fieldDefs,
+                            statusFieldEntries: statusFieldEntries,
+                            childProgress: childProgress),
+                        performSync: () => syncCoordinator.SyncWorkingSetAsync(workingSet),
+                        buildRevisedView: syncResult => Task.FromResult<Spectre.Console.Rendering.IRenderable?>(null),
+                        CancellationToken.None);
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception)
+                {
+                    // Sync failed — fall back to static render
+                    await renderer.RenderStatusAsync(
+                        getItem: () => Task.FromResult<Domain.Aggregates.WorkItem?>(item),
+                        getPendingChanges: () => pendingChangeStore.GetChangesAsync(item.Id),
+                        ct: CancellationToken.None,
+                        fieldDefinitions: fieldDefs,
+                        statusFieldEntries: statusFieldEntries,
+                        childProgress: childProgress);
+                }
             }
-            catch (OperationCanceledException) { throw; }
-            catch (Exception) { /* sync is best-effort — don't fail the command */ }
+            else
+            {
+                // Non-SpectreRenderer path — render directly (no sync indicator)
+                await renderer.RenderStatusAsync(
+                    getItem: () => Task.FromResult<Domain.Aggregates.WorkItem?>(item),
+                    getPendingChanges: () => pendingChangeStore.GetChangesAsync(item.Id),
+                    ct: CancellationToken.None,
+                    fieldDefinitions: fieldDefs,
+                    statusFieldEntries: statusFieldEntries,
+                    childProgress: childProgress);
+            }
 
             var seeds = await workItemRepo.GetSeedsAsync();
             var staleSeedCount = Workspace.Build(item, [], seeds)

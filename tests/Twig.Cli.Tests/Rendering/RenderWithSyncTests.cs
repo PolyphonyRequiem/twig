@@ -234,6 +234,38 @@ public class RenderWithSyncTests
             "to prevent Spectre's Live region from collapsing and clipping content above");
     }
 
+    // ── Border corruption regression (FIX-002) ────────────────────
+
+    [Fact]
+    public async Task RenderWithSyncAsync_PanelWrittenBeforeLive_BorderSurvivesSyncClear()
+    {
+        // Regression test: writing a Panel to the console OUTSIDE Live(), then
+        // starting RenderWithSyncAsync with a minimal cached view, used to corrupt
+        // the panel's bottom border when the sync indicator cleared.
+        var panel = new Panel(new Markup("Panel Content"))
+            .Header("[bold]Test Panel[/]")
+            .Border(BoxBorder.Rounded)
+            .Expand();
+
+        _testConsole.Write(panel);
+        var outputAfterPanel = _testConsole.Output;
+        // Verify the panel border was written intact before sync
+        outputAfterPanel.ShouldContain("╰");
+        outputAfterPanel.ShouldContain("╯");
+
+        await _renderer.RenderWithSyncAsync(
+            buildCachedView: () => Task.FromResult<IRenderable>(new Text(" ")),
+            performSync: () => Task.FromResult<SyncResult>(new SyncResult.UpToDate()),
+            buildRevisedView: _ => Task.FromResult<IRenderable?>(null),
+            ct: CancellationToken.None);
+
+        var finalOutput = _testConsole.Output;
+        // The panel's bottom border characters must still be present and unbroken
+        finalOutput.ShouldContain("╰");
+        finalOutput.ShouldContain("╯");
+        finalOutput.ShouldContain("Panel Content");
+    }
+
     // ── Cancellation ────────────────────────────────────────────────
 
     [Fact]

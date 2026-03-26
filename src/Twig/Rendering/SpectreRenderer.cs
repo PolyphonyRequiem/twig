@@ -424,7 +424,13 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         return $"{marker}{_theme.FormatTypeBadge(item.Type)} [bold]#{item.Id} {Markup.Escape(item.Title)}[/]{dirty} {_theme.FormatState(item.State)}";
     }
 
-    public async Task RenderStatusAsync(
+    /// <summary>
+    /// Builds the complete status view as a composite <see cref="IRenderable"/> without
+    /// writing to the console. Used by <see cref="StatusCommand"/> to compose the status
+    /// view inside a <see cref="RenderWithSyncAsync"/> Live region, preventing border
+    /// corruption when the sync indicator clears.
+    /// </summary>
+    internal async Task<Spectre.Console.Rendering.IRenderable> BuildStatusViewAsync(
         Func<Task<WorkItem?>> getItem,
         Func<Task<IReadOnlyList<PendingChangeRecord>>> getPendingChanges,
         CancellationToken ct,
@@ -432,16 +438,13 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         IReadOnlyList<Domain.ValueObjects.StatusFieldEntry>? statusFieldEntries = null,
         (int Done, int Total)? childProgress = null)
     {
-        var item = await getItem();
-        if (item is null)
-            return;
-
+        var item = await getItem() ?? throw new InvalidOperationException("Work item must not be null when building status view.");
         var pending = await getPendingChanges();
 
         // EPIC-002: One-line summary header for quick-glance
         var summaryBadge = _theme.FormatTypeBadge(item.Type);
         var summaryState = _theme.FormatState(item.State);
-        _console.MarkupLine($"#{item.Id} [aqua]●[/] {summaryBadge} {Markup.Escape(item.Type.ToString())} — {Markup.Escape(item.Title)} {summaryState}");
+        var summaryMarkup = new Markup($"#{item.Id} [aqua]●[/] {summaryBadge} {Markup.Escape(item.Type.ToString())} — {Markup.Escape(item.Title)} {summaryState}");
 
         // Work item detail panel
         var dirty = item.IsDirty ? " [yellow]✎[/]" : "";
@@ -504,7 +507,25 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             .Border(BoxBorder.Rounded)
             .Expand();
 
-        _console.Write(itemPanel);
+        return new Rows(summaryMarkup, itemPanel);
+    }
+
+    public async Task RenderStatusAsync(
+        Func<Task<WorkItem?>> getItem,
+        Func<Task<IReadOnlyList<PendingChangeRecord>>> getPendingChanges,
+        CancellationToken ct,
+        IReadOnlyList<Domain.ValueObjects.FieldDefinition>? fieldDefinitions = null,
+        IReadOnlyList<Domain.ValueObjects.StatusFieldEntry>? statusFieldEntries = null,
+        (int Done, int Total)? childProgress = null)
+    {
+        var item = await getItem();
+        if (item is null)
+            return;
+
+        var view = await BuildStatusViewAsync(
+            () => Task.FromResult<WorkItem?>(item),
+            getPendingChanges, ct, fieldDefinitions, statusFieldEntries, childProgress);
+        _console.Write(view);
     }
 
     public async Task RenderWorkItemAsync(
@@ -914,7 +935,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                         ctx.UpdateTarget(new Rows(cachedView, new Markup("[dim]✓ up to date[/]")));
                         ctx.Refresh();
                         await Task.Delay(SyncStatusDelay, ct);
-                        ctx.UpdateTarget(cachedView);
+                        ctx.UpdateTarget(new Rows(cachedView, new Text(" ")));
                         ctx.Refresh();
                         break;
 
@@ -927,7 +948,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                         ctx.UpdateTarget(new Rows(displayView, new Markup($"[green]✓ {countLabel}[/]")));
                         ctx.Refresh();
                         await Task.Delay(SyncStatusDelay, ct);
-                        ctx.UpdateTarget(displayView);
+                        ctx.UpdateTarget(new Rows(displayView, new Text(" ")));
                         ctx.Refresh();
                         break;
 
@@ -943,7 +964,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                         ctx.UpdateTarget(new Rows(partialDisplayView, new Markup($"[yellow]⚠ {savedLabel}, {failedLabel}[/]")));
                         ctx.Refresh();
                         await Task.Delay(SyncStatusDelay, ct);
-                        ctx.UpdateTarget(partialDisplayView);
+                        ctx.UpdateTarget(new Rows(partialDisplayView, new Text(" ")));
                         ctx.Refresh();
                         break;
 
@@ -958,7 +979,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                         ctx.UpdateTarget(new Rows(cachedView, new Markup("[dim]✓ up to date[/]")));
                         ctx.Refresh();
                         await Task.Delay(SyncStatusDelay, ct);
-                        ctx.UpdateTarget(cachedView);
+                        ctx.UpdateTarget(new Rows(cachedView, new Text(" ")));
                         ctx.Refresh();
                         break;
 
@@ -967,7 +988,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                 }
             });
     }
-
+
+
     public Task RenderFlowSummaryAsync(
         WorkItem item,
         string originalState,

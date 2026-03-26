@@ -50,14 +50,12 @@ internal sealed class SpectreTheme
     }
 
     /// <summary>
-    /// Formats a state string with Spectre markup matching <c>HumanOutputFormatter</c> colors.
+    /// Returns the Spectre markup color string for a <see cref="StateCategory"/>
+    /// (e.g. "green", "blue", "grey", "red"). Single source of truth for state→color mapping.
     /// </summary>
-    internal string FormatState(string state)
+    internal static string GetCategoryMarkupColor(StateCategory category)
     {
-        if (string.IsNullOrEmpty(state))
-            return "[grey]—[/]";
-
-        var color = StateCategoryResolver.Resolve(state, _stateEntries) switch
+        return category switch
         {
             StateCategory.Completed or StateCategory.Resolved => "green",
             StateCategory.InProgress => "blue",
@@ -65,7 +63,30 @@ internal sealed class SpectreTheme
             StateCategory.Proposed => "grey",
             _ => "default",
         };
+    }
 
+    /// <summary>
+    /// Returns the Spectre markup color string for a given state (e.g. "green", "blue", "grey", "red").
+    /// Resolves the state to a <see cref="StateCategory"/> and delegates to <see cref="GetCategoryMarkupColor"/>.
+    /// </summary>
+    internal string GetStateCategoryMarkupColor(string state)
+    {
+        if (string.IsNullOrEmpty(state))
+            return "grey";
+
+        return GetCategoryMarkupColor(StateCategoryResolver.Resolve(state, _stateEntries));
+    }
+
+    /// <summary>
+    /// Formats a state string with Spectre markup matching <c>HumanOutputFormatter</c> colors.
+    /// Delegates to <see cref="GetStateCategoryMarkupColor"/> for the color.
+    /// </summary>
+    internal string FormatState(string state)
+    {
+        if (string.IsNullOrEmpty(state))
+            return "[grey]—[/]";
+
+        var color = GetStateCategoryMarkupColor(state);
         return $"[[[{color}]{Markup.Escape(state)}[/]]]";
     }
 

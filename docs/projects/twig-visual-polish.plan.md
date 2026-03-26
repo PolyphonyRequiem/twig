@@ -204,7 +204,7 @@ Standard CLI binary release. Visual changes are cosmetic — no configuration mi
 
 ## 13. Implementation Plan
 
-- EPIC-001: Sprint Progress Footer & Category Separators (`twig workspace`)
+- EPIC-001: Sprint Progress Footer & Category Separators (`twig workspace`) — **DONE**
 
 | Task | Description | Status | Relevant Files |
 |------|-------------|--------|----------------|
@@ -259,3 +259,4 @@ Standard CLI binary release. Visual changes are cosmetic — no configuration mi
 
 - 2026-03-26: Initial plan created from code review visual assessment
 - 2026-03-26: EPIC-001 DONE — Sprint Progress Footer & Category Separators implemented and approved. Fixed StateCategory.Unknown not counted in footer switch (SpectreRenderer.cs, HumanOutputFormatter.cs), and fixed two tests asserting on raw ANSI output instead of stripped output. Added FormatWorkspace_UnknownState_CountsAsProposed test for direct coverage of bug path.
+- 2026-03-26: EPIC-001 review-feedback pass approved — added negative assertions to FormatWorkspace_AllComplete_ShowsAllDone, added FormatWorkspace_UnknownState_CountsAsProposed test, refactored SpectreTheme.GetCategoryMarkupColor to static for EPIC-002 ITEM-006 prep.

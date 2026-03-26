@@ -2049,4 +2049,48 @@ public class HumanOutputFormatterTests
         // No arrow when no transition
         result.ShouldNotContain("→");
     }
+
+    [Fact]
+    public void FormatFlowSummary_BoxBordersAreAligned()
+    {
+        var result = _formatter.FormatFlowSummary(123, "Add login", "New", "Active", "feature/123-add-login");
+        var lines = result.Split('\n').Select(l => l.TrimEnd('\r')).ToArray();
+
+        // Find the top border (starts with ┌) and bottom border (starts with └)
+        var topLine = lines.First(l => l.StartsWith("┌"));
+        var bottomLine = lines.First(l => l.StartsWith("└"));
+        var contentLines = lines.Where(l => l.StartsWith("│")).ToArray();
+
+        // Strip ANSI escape sequences for length comparison
+        static string StripAnsi(string s)
+        {
+            var sb = new System.Text.StringBuilder(s.Length);
+            int i = 0;
+            while (i < s.Length)
+            {
+                if (s[i] == '\x1b' && i + 1 < s.Length && s[i + 1] == '[')
+                {
+                    i += 2;
+                    while (i < s.Length && s[i] != 'm') i++;
+                    if (i < s.Length) i++;
+                }
+                else
+                {
+                    sb.Append(s[i]);
+                    i++;
+                }
+            }
+            return sb.ToString();
+        }
+
+        var topVisibleLen = StripAnsi(topLine).Length;
+        var bottomVisibleLen = StripAnsi(bottomLine).Length;
+        topVisibleLen.ShouldBe(bottomVisibleLen, "Top and bottom borders should have same visible width");
+
+        foreach (var line in contentLines)
+        {
+            var visibleLen = StripAnsi(line).Length;
+            visibleLen.ShouldBe(topVisibleLen, $"Content line should match border width: {StripAnsi(line)}");
+        }
+    }
 }

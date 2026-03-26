@@ -68,6 +68,16 @@ public interface IAsyncRenderer
         Func<Task<SyncResult>> performSync,
         Func<SyncResult, Task<IRenderable?>> buildRevisedView,
         CancellationToken ct);
+
+    /// <summary>
+    /// Renders a flow-start summary panel with state transition, branch, and context info.
+    /// </summary>
+    Task RenderFlowSummaryAsync(
+        WorkItem item,
+        string originalState,
+        string? newState,
+        string? branchName,
+        CancellationToken ct = default);
 }
 
 /// <summary>

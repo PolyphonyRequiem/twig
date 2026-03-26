@@ -506,4 +506,143 @@ public class FlowStartCommandTests
         result.ShouldBe(0);
         await _contextStore.Received().SetActiveWorkItemIdAsync(1, Arg.Any<CancellationToken>());
     }
+
+    // ── Flow-Start Panel (EPIC-003) ────────────────────────────────
+
+    [Fact]
+    public async Task HumanFormat_RendersFlowSummaryWithBoxDrawing()
+    {
+        var item = CreateWorkItem(1, "Add login", "New");
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+        _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
+        _gitService.HasUncommittedChangesAsync(Arg.Any<CancellationToken>()).Returns(false);
+        _gitService.BranchExistsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(false);
+
+        var stdout = new StringWriter();
+        Console.SetOut(stdout);
+        try
+        {
+            var cmd = CreateCommand(_gitService);
+            var result = await cmd.ExecuteAsync("1");
+
+            result.ShouldBe(0);
+            var output = stdout.ToString();
+
+            // Box-drawing characters present
+            output.ShouldContain("┌");
+            output.ShouldContain("┘");
+            output.ShouldContain("│");
+            // Summary header
+            output.ShouldContain("Summary");
+            // Content rows
+            output.ShouldContain("State:");
+            output.ShouldContain("→");
+            output.ShouldContain("Branch:");
+            output.ShouldContain("Context:");
+            output.ShouldContain("set to #1");
+            // Success header
+            output.ShouldContain("Flow started for #1");
+            output.ShouldContain("Add login");
+        }
+        finally
+        {
+            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+        }
+    }
+
+    [Fact]
+    public async Task SpectreRenderer_CallsRenderFlowSummaryAsync()
+    {
+        var item = CreateWorkItem(1, "Add login", "New");
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+        _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
+        _gitService.HasUncommittedChangesAsync(Arg.Any<CancellationToken>()).Returns(false);
+        _gitService.BranchExistsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(false);
+
+        var renderer = Substitute.For<IAsyncRenderer>();
+        var cmd = CreateCommandWithRenderer(renderer, gitService: _gitService);
+
+        var stdout = new StringWriter();
+        Console.SetOut(stdout);
+        try
+        {
+            var result = await cmd.ExecuteAsync("1");
+            result.ShouldBe(0);
+
+            // Verify RenderFlowSummaryAsync was called with correct arguments
+            await renderer.Received(1).RenderFlowSummaryAsync(
+                Arg.Any<WorkItem>(),
+                "New",
+                "Active",
+                Arg.Any<string>(),
+                Arg.Any<CancellationToken>());
+        }
+        finally
+        {
+            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+        }
+    }
+
+    [Fact]
+    public async Task HumanFormat_NoBranch_OmitsBranchRow()
+    {
+        var item = CreateWorkItem(1, "Test", "New");
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+
+        var stdout = new StringWriter();
+        Console.SetOut(stdout);
+        try
+        {
+            var cmd = CreateCommand();
+            var result = await cmd.ExecuteAsync("1", noBranch: true);
+
+            result.ShouldBe(0);
+            var output = stdout.ToString();
+
+            output.ShouldContain("State:");
+            output.ShouldContain("Context:");
+            output.ShouldNotContain("Branch:");
+        }
+        finally
+        {
+            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+        }
+    }
+
+    [Fact]
+    public async Task HumanFormat_NoStateTransition_ShowsCurrentState()
+    {
+        // Item already Active — no state transition
+        var item = CreateWorkItem(1, "Test", "Active");
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+
+        var stdout = new StringWriter();
+        Console.SetOut(stdout);
+        try
+        {
+            var cmd = CreateCommand();
+            var result = await cmd.ExecuteAsync("1");
+
+            result.ShouldBe(0);
+            var output = stdout.ToString();
+
+            // State row present but no arrow (no transition)
+            output.ShouldContain("State:");
+            output.ShouldContain("Active");
+            output.ShouldNotContain("→");
+            output.ShouldContain("Context:");
+        }
+        finally
+        {
+            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+        }
+    }
 }

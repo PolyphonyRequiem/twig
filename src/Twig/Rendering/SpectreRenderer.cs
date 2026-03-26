@@ -903,7 +903,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         string originalState,
         string? newState,
         string? branchName,
-        IReadOnlyList<string> actions)
+        CancellationToken ct = default)
     {
         // Success header
         _console.MarkupLine($"[green]✓[/] [bold]Flow started for #{item.Id} — {Markup.Escape(item.Title)}[/]");

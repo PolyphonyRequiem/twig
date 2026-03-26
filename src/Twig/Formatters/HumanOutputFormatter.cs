@@ -636,7 +636,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
 
     public string FormatFieldChange(FieldChange change)
     {
-        return $"  {Bold}{change.FieldName}{Reset}: {Dim}{change.OldValue ?? "(empty)"}{Reset} → {change.NewValue ?? "(empty)"}";
+        return $"  {Bold}{change.FieldName}{Reset}: {Dim}{change.OldValue ?? "(empty)"}{Reset} {Green}→{Reset} {change.NewValue ?? "(empty)"}";
     }
 
     // ── State category grouping ─────────────────────────────────────
@@ -1106,6 +1106,110 @@ public sealed class HumanOutputFormatter : IOutputFormatter
     private string GetTypeBadge(WorkItemType type)
     {
         return IconSet.ResolveTypeBadge(_iconMode, type.Value, _typeIconIds);
+    }
+
+    /// <summary>
+    /// Formats a flow-start summary with box-drawing characters for the ANSI fallback path.
+    /// </summary>
+    public string FormatFlowSummary(int id, string title, string originalState, string? newState, string? branchName)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine(FormatSuccess($"Flow started for #{id} — {title}"));
+
+        var rows = new List<(string Label, string Value)>();
+
+        if (newState is not null)
+        {
+            var oldColor = GetStateColor(originalState);
+            var newColor = GetStateColor(newState);
+            rows.Add(("State", $"{oldColor}{originalState}{Reset} {Green}→{Reset} {newColor}{newState}{Reset}"));
+        }
+        else
+        {
+            var stateColor = GetStateColor(originalState);
+            rows.Add(("State", $"{stateColor}{originalState}{Reset}"));
+        }
+
+        if (branchName is not null)
+            rows.Add(("Branch", branchName));
+
+        rows.Add(("Context", $"set to #{id}"));
+
+        // Calculate max label width for alignment
+        var maxLabel = 0;
+        foreach (var (label, _) in rows)
+        {
+            if (label.Length > maxLabel)
+                maxLabel = label.Length;
+        }
+
+        // Calculate max visible value width for border sizing
+        var maxValueVisible = 0;
+        foreach (var (label, value) in rows)
+        {
+            var visibleValue = StripAnsi(value);
+            var lineWidth = maxLabel + 2 + visibleValue.Length; // "Label: Value"
+            if (lineWidth > maxValueVisible)
+                maxValueVisible = lineWidth;
+        }
+
+        var innerWidth = maxValueVisible + 2; // padding
+        var header = " Summary ";
+        var headerPad = innerWidth - header.Length;
+        var headerLeft = headerPad / 2;
+        var headerRight = headerPad - headerLeft;
+
+        sb.Append("┌");
+        sb.Append('─', headerLeft);
+        sb.Append(Bold);
+        sb.Append(header);
+        sb.Append(Reset);
+        sb.Append('─', headerRight);
+        sb.AppendLine("┐");
+
+        foreach (var (label, value) in rows)
+        {
+            sb.Append("│ ");
+            sb.Append(Dim);
+            sb.Append(label);
+            sb.Append(':');
+            sb.Append(Reset);
+            sb.Append(new string(' ', maxLabel - label.Length + 1));
+            sb.Append(value);
+            var visibleValue = StripAnsi(value);
+            var pad = innerWidth - (maxLabel + 2 + visibleValue.Length) - 2;
+            if (pad > 0) sb.Append(' ', pad);
+            sb.AppendLine(" │");
+        }
+
+        sb.Append("└");
+        sb.Append('─', innerWidth);
+        sb.Append("┘");
+
+        return sb.ToString();
+    }
+
+    private static string StripAnsi(string input)
+    {
+        var sb = new StringBuilder(input.Length);
+        var i = 0;
+        while (i < input.Length)
+        {
+            if (input[i] == '\x1b' && i + 1 < input.Length && input[i + 1] == '[')
+            {
+                // Skip ESC [ ... m
+                i += 2;
+                while (i < input.Length && input[i] != 'm')
+                    i++;
+                if (i < input.Length) i++; // skip 'm'
+            }
+            else
+            {
+                sb.Append(input[i]);
+                i++;
+            }
+        }
+        return sb.ToString();
     }
 
     private string GetStateColor(string state)

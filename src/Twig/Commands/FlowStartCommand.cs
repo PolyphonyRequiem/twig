@@ -272,9 +272,20 @@ public sealed class FlowStartCommand(
         }
         else
         {
-            Console.WriteLine(fmt.FormatSuccess($"Flow started for #{item.Id} — {item.Title}"));
-            foreach (var action in actionStrings)
-                Console.WriteLine(fmt.FormatInfo($"  {action}"));
+            if (renderer is not null)
+            {
+                await renderer.RenderFlowSummaryAsync(item, originalState, newState, branchName, ct);
+            }
+            else if (fmt is HumanOutputFormatter humanFmt)
+            {
+                Console.WriteLine(humanFmt.FormatFlowSummary(item.Id, item.Title, originalState, newState, branchName));
+            }
+            else
+            {
+                Console.WriteLine(fmt.FormatSuccess($"Flow started for #{item.Id} — {item.Title}"));
+                foreach (var action in actionStrings)
+                    Console.WriteLine(fmt.FormatInfo($"  {action}"));
+            }
         }
 
         var hints = hintEngine.GetHints("flow-start", item: item, outputFormat: outputFormat);

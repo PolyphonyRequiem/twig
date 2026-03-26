@@ -1868,10 +1868,25 @@ public class HumanOutputFormatterTests
 
         var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
 
-        // Unknown state → falls back to Dim (Proposed) or Reset depending on StateCategoryResolver
-        // The connector glyph should still appear
+        // Unknown state → StateCategoryResolver returns Unknown → GetStateColor returns Reset (\x1b[0m)
+        // REQ-005: connector wrapped in Reset for unknown state categories
+        result.ShouldContain("\x1b[0m└── \x1b[0m");
         var stripped = StripAnsi(result);
         stripped.ShouldContain("└── ");
+    }
+
+    [Fact]
+    public void FormatTree_EmptyState_FallsBackToDimConnectorColor()
+    {
+        var focus = CreateWorkItem(1, "Focus", "Active");
+        // Empty state is a distinct code path from unknown — resolves to Dim (\x1b[2m)
+        var child = CreateWorkItem(2, "Empty State Child", "");
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child });
+
+        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+
+        // Empty state → GetStateColor returns Dim (\x1b[2m)
+        result.ShouldContain("\x1b[2m└── \x1b[0m");
     }
 
     [Fact]
@@ -1939,4 +1954,99 @@ public class HumanOutputFormatterTests
     // Expose ANSI constants for test assertions
     private const string Dim = "\x1b[2m";
     private const string Reset = "\x1b[0m";
+    private const string Green = "\x1b[32m";
+    private const string Bold = "\x1b[1m";
+
+    // ── Flow-Start Panel (EPIC-003) ────────────────────────────────
+
+    [Fact]
+    public void FormatFieldChange_TransitionArrowIsGreenColored()
+    {
+        var change = new FieldChange("System.State", "New", "Active");
+
+        var result = _formatter.FormatFieldChange(change);
+
+        result.ShouldContain($"{Green}→{Reset}");
+    }
+
+    [Fact]
+    public void FormatFlowSummary_ContainsBoxDrawingCharacters()
+    {
+        var result = _formatter.FormatFlowSummary(123, "Add login", "New", "Active", "feature/123-add-login");
+
+        result.ShouldContain("┌");
+        result.ShouldContain("┐");
+        result.ShouldContain("└");
+        result.ShouldContain("┘");
+        result.ShouldContain("│");
+        result.ShouldContain("─");
+    }
+
+    [Fact]
+    public void FormatFlowSummary_ContainsStateTransitionWithArrow()
+    {
+        var result = _formatter.FormatFlowSummary(123, "Add login", "New", "Active", "feature/123-add-login");
+
+        result.ShouldContain("State:");
+        result.ShouldContain("New");
+        result.ShouldContain($"{Green}→{Reset}");
+        result.ShouldContain("Active");
+    }
+
+    [Fact]
+    public void FormatFlowSummary_ContainsBranchName()
+    {
+        var result = _formatter.FormatFlowSummary(123, "Add login", "New", "Active", "feature/123-add-login");
+
+        result.ShouldContain("Branch:");
+        result.ShouldContain("feature/123-add-login");
+    }
+
+    [Fact]
+    public void FormatFlowSummary_ContainsContext()
+    {
+        var result = _formatter.FormatFlowSummary(123, "Add login", "New", "Active", "feature/123-add-login");
+
+        result.ShouldContain("Context:");
+        result.ShouldContain("set to #123");
+    }
+
+    [Fact]
+    public void FormatFlowSummary_ContainsSuccessHeader()
+    {
+        var result = _formatter.FormatFlowSummary(123, "Add login", "New", "Active", "feature/123-add-login");
+
+        result.ShouldContain($"{Green}✓{Reset}");
+        result.ShouldContain("Flow started for #123");
+        result.ShouldContain("Add login");
+    }
+
+    [Fact]
+    public void FormatFlowSummary_ContainsSummaryHeader()
+    {
+        var result = _formatter.FormatFlowSummary(123, "Add login", "New", "Active", "feature/123-add-login");
+
+        result.ShouldContain($"{Bold} Summary {Reset}");
+    }
+
+    [Fact]
+    public void FormatFlowSummary_NullBranch_OmitsBranchRow()
+    {
+        var result = _formatter.FormatFlowSummary(42, "Test item", "New", "Active", null);
+
+        result.ShouldNotContain("Branch:");
+        result.ShouldContain("State:");
+        result.ShouldContain("Context:");
+    }
+
+    [Fact]
+    public void FormatFlowSummary_NoStateTransition_ShowsCurrentState()
+    {
+        var result = _formatter.FormatFlowSummary(42, "Test item", "Active", null, null);
+
+        result.ShouldContain("State:");
+        result.ShouldContain("Active");
+        // No arrow when no transition
+        result.ShouldNotContain("→");
+    }
 }

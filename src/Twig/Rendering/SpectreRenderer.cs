@@ -314,6 +314,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                     var dirty = child.IsDirty ? " [yellow]•[/]" : "";
                     var effort = Formatters.FormatterHelpers.GetEffortDisplay(child);
                     var effortSuffix = effort is not null ? $" [dim]{Markup.Escape(effort)}[/]" : "";
+                    // Spectre Tree owns its connector glyphs (├──/└──); use a colored │ prefix in the label instead
                     var stateColor = _theme.GetStateCategoryMarkupColor(child.State);
                     var label = $"[{stateColor}]│[/] {activeMarker}{_theme.FormatTypeBadge(child.Type)} #{child.Id} {Markup.Escape(child.Title)}{dirty} {_theme.FormatState(child.State)}{effortSuffix}";
                     focusContainer.AddNode(label);
@@ -895,6 +896,46 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                         throw new System.Diagnostics.UnreachableException($"Unhandled SyncResult: {result.GetType().Name}");
                 }
             });
+    }
+
+    public Task RenderFlowSummaryAsync(
+        WorkItem item,
+        string originalState,
+        string? newState,
+        string? branchName,
+        IReadOnlyList<string> actions)
+    {
+        // Success header
+        _console.MarkupLine($"[green]✓[/] [bold]Flow started for #{item.Id} — {Markup.Escape(item.Title)}[/]");
+
+        // Build summary grid
+        var grid = new Grid().AddColumn().AddColumn();
+
+        if (newState is not null)
+        {
+            var oldColor = _theme.GetStateCategoryMarkupColor(originalState);
+            var newColor = _theme.GetStateCategoryMarkupColor(newState);
+            grid.AddRow("[dim]State:[/]",
+                $"[{oldColor}]{Markup.Escape(originalState)}[/] [green]→[/] [{newColor}]{Markup.Escape(newState)}[/]");
+        }
+        else
+        {
+            var stateColor = _theme.GetStateCategoryMarkupColor(originalState);
+            grid.AddRow("[dim]State:[/]", $"[{stateColor}]{Markup.Escape(originalState)}[/]");
+        }
+
+        if (branchName is not null)
+            grid.AddRow("[dim]Branch:[/]", Markup.Escape(branchName));
+
+        grid.AddRow("[dim]Context:[/]", $"set to #{item.Id}");
+
+        var panel = new Panel(grid)
+            .Header("[bold]Summary[/]")
+            .Border(BoxBorder.Rounded);
+
+        _console.Write(panel);
+
+        return Task.CompletedTask;
     }
 
     public void RenderHints(IReadOnlyList<string> hints)

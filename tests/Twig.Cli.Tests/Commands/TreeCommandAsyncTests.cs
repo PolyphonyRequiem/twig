@@ -230,16 +230,60 @@ public class TreeCommandAsyncTests
         console.Output.ShouldNotContain("...");
     }
 
+    // ── EPIC-002: State-colored │ prefix on child nodes ────────────
+
+    [Fact]
+    public async Task AsyncPath_ChildNodeLabel_ContainsColoredVerticalBar()
+    {
+        var focus = CreateWorkItem(1, "Focus Task");
+        var activeChild = CreateWorkItem(2, "Active Child", state: "Active");
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(focus);
+        _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(new[] { activeChild });
+
+        var cmd = CreateCommand(CreateTtyPipelineFactory());
+        var result = await cmd.ExecuteAsync("human");
+
+        result.ShouldBe(0);
+
+        var output = _testConsole.Output;
+        // Active → InProgress → blue; Spectre markup [blue]│[/] should render │ in the output
+        output.ShouldContain("│");
+        output.ShouldContain("Active Child");
+    }
+
+    [Fact]
+    public async Task AsyncPath_ChildNodeLabel_ClosedState_ContainsVerticalBar()
+    {
+        var focus = CreateWorkItem(1, "Focus Task");
+        var closedChild = CreateWorkItem(2, "Closed Child", state: "Closed");
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(focus);
+        _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(new[] { closedChild });
+
+        var cmd = CreateCommand(CreateTtyPipelineFactory());
+        var result = await cmd.ExecuteAsync("human");
+
+        result.ShouldBe(0);
+
+        var output = _testConsole.Output;
+        // Closed → Completed → green; should show │ prefix on child label
+        output.ShouldContain("│");
+        output.ShouldContain("Closed Child");
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
-    private static WorkItem CreateWorkItem(int id, string title, int? parentId = null, string type = "Task")
+    private static WorkItem CreateWorkItem(int id, string title, int? parentId = null, string type = "Task", string state = "New")
     {
         return new WorkItem
         {
             Id = id,
             Type = WorkItemType.Parse(type).Value,
             Title = title,
-            State = "New",
+            State = state,
             ParentId = parentId,
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value,

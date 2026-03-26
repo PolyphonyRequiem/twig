@@ -73,8 +73,17 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                         case WorkspaceDataChunk.SprintItemsLoaded(var items):
                             // Group items by state category
                             var categoryGroups = GroupByStateCategory(items);
+                            var catIndex = 0;
                             foreach (var (category, catItems) in categoryGroups)
                             {
+                                // Insert separator between category groups (not before the first)
+                                if (catIndex > 0)
+                                {
+                                    var sepRow = new string[colCount];
+                                    for (var si = 0; si < colCount; si++) sepRow[si] = "[dim]────[/]";
+                                    table.AddRow(sepRow);
+                                }
+
                                 // Add category header row
                                 var headerRow = new string[colCount];
                                 headerRow[0] = $"[bold dim]{SpectreTheme.FormatCategoryHeader(category)}[/]";
@@ -113,7 +122,44 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
                                     table.AddRow(row.ToArray());
                                 }
+                                catIndex++;
                             }
+
+                            // Compute and set progress footer
+                            var sprintTotal = items.Count;
+                            if (sprintTotal > 0)
+                            {
+                                var proposed = 0;
+                                var inProgress = 0;
+                                var resolved = 0;
+                                var completed = 0;
+                                foreach (var item in items)
+                                {
+                                    switch (_theme.ResolveCategory(item.State))
+                                    {
+                                        case StateCategory.Proposed: proposed++; break;
+                                        case StateCategory.InProgress: inProgress++; break;
+                                        case StateCategory.Resolved: resolved++; break;
+                                        case StateCategory.Completed: completed++; break;
+                                        case StateCategory.Removed: proposed++; break; // Removed bucketed with Proposed
+                                        case StateCategory.Unknown: proposed++; break; // Unknown bucketed with Proposed
+                                    }
+                                }
+                                var done = resolved + completed;
+                                var doneColor = SpectreTheme.GetCategoryMarkupColor(StateCategory.Completed);
+                                var ipColor = SpectreTheme.GetCategoryMarkupColor(StateCategory.InProgress);
+                                var propColor = SpectreTheme.GetCategoryMarkupColor(StateCategory.Proposed);
+                                var segments = new List<string>();
+                                segments.Add($"[{doneColor}]{done}/{sprintTotal}[/] done");
+                                if (inProgress > 0)
+                                    segments.Add($"[{ipColor}]{inProgress}[/] in progress");
+                                if (proposed > 0)
+                                    segments.Add($"[{propColor}]{proposed}[/] proposed");
+                                var caption = $"Sprint: {string.Join(" · ", segments)}";
+                                savedCaption = caption;
+                                table.Caption(new TableTitle(caption));
+                            }
+
                             ctx.Refresh();
                             break;
 

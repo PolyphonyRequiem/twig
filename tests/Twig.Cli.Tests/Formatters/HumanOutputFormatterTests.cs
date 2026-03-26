@@ -1621,4 +1621,171 @@ public class HumanOutputFormatterTests
         result.ShouldNotContain("Extended");
         result.ShouldNotContain("Priority:");
     }
+
+    // ── EPIC-001: Sprint progress footer & category separators ──────
+
+    [Fact]
+    public void FormatWorkspace_MixedStates_ShowsProgressFooter()
+    {
+        var items = new[]
+        {
+            CreateWorkItem(1, "New Item", "New"),
+            CreateWorkItem(2, "Active Item", "Active"),
+            CreateWorkItem(3, "Resolved Item", "Resolved"),
+            CreateWorkItem(4, "Closed Item", "Closed"),
+        };
+        var ws = Workspace.Build(null, items, Array.Empty<WorkItem>());
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+        var plain = StripAnsi(result);
+
+        plain.ShouldContain("Sprint:");
+        plain.ShouldContain("2/4");
+        plain.ShouldContain("done");
+        plain.ShouldContain("1 in progress");
+        plain.ShouldContain("1 proposed");
+    }
+
+    [Fact]
+    public void FormatWorkspace_AllProposed_ShowsZeroDone()
+    {
+        var items = new[]
+        {
+            CreateWorkItem(1, "New 1", "New"),
+            CreateWorkItem(2, "New 2", "New"),
+            CreateWorkItem(3, "New 3", "New"),
+        };
+        var ws = Workspace.Build(null, items, Array.Empty<WorkItem>());
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+        var plain = StripAnsi(result);
+
+        plain.ShouldContain("0/3");
+        plain.ShouldContain("done");
+        plain.ShouldContain("3 proposed");
+    }
+
+    [Fact]
+    public void FormatWorkspace_AllComplete_ShowsAllDone()
+    {
+        var items = new[]
+        {
+            CreateWorkItem(1, "Done 1", "Closed"),
+            CreateWorkItem(2, "Done 2", "Closed"),
+        };
+        var ws = Workspace.Build(null, items, Array.Empty<WorkItem>());
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+        var plain = StripAnsi(result);
+
+        plain.ShouldContain("2/2");
+        plain.ShouldContain("done");
+        plain.ShouldNotContain("in progress");
+        plain.ShouldNotContain("proposed");
+    }
+
+    [Fact]
+    public void FormatWorkspace_EmptySprint_NoProgressFooter()
+    {
+        var ws = Workspace.Build(null, Array.Empty<WorkItem>(), Array.Empty<WorkItem>());
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+
+        // No "Sprint: " progress footer when there are zero items
+        // The header "Sprint (0 items):" still exists but "Sprint: " (with colon-space) is footer-exclusive
+        result.ShouldNotContain("Sprint: ");
+    }
+
+    [Fact]
+    public void FormatWorkspace_MultipleCategoryGroups_HasSeparators()
+    {
+        var items = new[]
+        {
+            CreateWorkItem(1, "New Item", "New"),
+            CreateWorkItem(2, "Active Item", "Active"),
+        };
+        var ws = Workspace.Build(null, items, Array.Empty<WorkItem>());
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+
+        // Separator should appear between Proposed and In Progress groups
+        result.ShouldContain("────");
+    }
+
+    [Fact]
+    public void FormatWorkspace_SingleCategoryGroup_NoSeparator()
+    {
+        var items = new[]
+        {
+            CreateWorkItem(1, "New 1", "New"),
+            CreateWorkItem(2, "New 2", "New"),
+        };
+        var ws = Workspace.Build(null, items, Array.Empty<WorkItem>());
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+
+        // Only one category group, so no category separator (indented ────)
+        // The top-level ──── header is a different line
+        var lines = result.Split('\n');
+        var separatorCount = lines.Count(l => StripAnsi(l).Trim() == "────");
+        separatorCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public void FormatWorkspace_ResolvedAndCompleted_BothCountAsDone()
+    {
+        var items = new[]
+        {
+            CreateWorkItem(1, "Resolved", "Resolved"),
+            CreateWorkItem(2, "Closed", "Closed"),
+            CreateWorkItem(3, "Active", "Active"),
+        };
+        var ws = Workspace.Build(null, items, Array.Empty<WorkItem>());
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+        var plain = StripAnsi(result);
+
+        // Resolved + Completed = 2 done out of 3 total
+        plain.ShouldContain("2/3");
+        plain.ShouldContain("done");
+    }
+
+    [Fact]
+    public void FormatWorkspace_RemovedState_CountsAsProposed()
+    {
+        var items = new[]
+        {
+            CreateWorkItem(1, "Active Item", "Active"),
+            CreateWorkItem(2, "Removed Item", "Removed"),
+        };
+        var ws = Workspace.Build(null, items, Array.Empty<WorkItem>());
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+        var plain = StripAnsi(result);
+
+        // Removed items are bucketed with Proposed — total=2, done=0, in progress=1, proposed=1
+        plain.ShouldContain("Sprint:");
+        plain.ShouldContain("0/2");
+        plain.ShouldContain("done");
+        plain.ShouldContain("1 in progress");
+        plain.ShouldContain("1 proposed");
+    }
+
+    [Fact]
+    public void FormatWorkspace_UnknownState_CountsAsProposed()
+    {
+        var items = new[]
+        {
+            CreateWorkItem(1, "Active Item", "Active"),
+            CreateWorkItem(2, "Custom State", "SomeCustomState"), // → Unknown → Proposed bucket
+        };
+        var ws = Workspace.Build(null, items, Array.Empty<WorkItem>());
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+        var plain = StripAnsi(result);
+
+        plain.ShouldContain("0/2");
+        plain.ShouldContain("1 in progress");
+        plain.ShouldContain("1 proposed");
+    }
 }

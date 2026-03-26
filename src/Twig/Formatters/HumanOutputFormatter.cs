@@ -249,8 +249,13 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         sb.AppendLine($"  {Bold}Sprint ({ws.SprintItems.Count} items):{Reset}");
         var wsLines = new List<AlignedLine>();
         var categoryGroups = GroupByStateCategory(ws.SprintItems);
+        var wsCatIndex = 0;
         foreach (var (category, items) in categoryGroups)
         {
+            // Insert separator between category groups (not before the first)
+            if (wsCatIndex > 0)
+                sb.AppendLine($"    {Dim}────{Reset}");
+
             sb.AppendLine($"    {Bold}{FormatCategoryHeader(category)}{Reset} ({items.Count})");
             wsLines.Clear();
             if (ws.Hierarchy is not null)
@@ -300,6 +305,36 @@ public sealed class HumanOutputFormatter : IOutputFormatter
                 }
             }
             FlushAlignedLines(sb, wsLines);
+            wsCatIndex++;
+        }
+
+        // Sprint progress summary
+        if (ws.SprintItems.Count > 0)
+        {
+            var proposed = 0;
+            var inProgressCount = 0;
+            var doneCount = 0;
+            foreach (var item in ws.SprintItems)
+            {
+                switch (StateCategoryResolver.Resolve(item.State, _stateEntries))
+                {
+                    case StateCategory.Proposed: proposed++; break;
+                    case StateCategory.InProgress: inProgressCount++; break;
+                    case StateCategory.Resolved:
+                    case StateCategory.Completed: doneCount++; break;
+                    case StateCategory.Removed: proposed++; break; // Removed bucketed with Proposed
+                    case StateCategory.Unknown: proposed++; break; // Unknown bucketed with Proposed
+                }
+            }
+            var total = ws.SprintItems.Count;
+            var segments = new List<string>();
+            segments.Add($"{Green}{doneCount}/{total}{Reset} done");
+            if (inProgressCount > 0)
+                segments.Add($"{Blue}{inProgressCount}{Reset} in progress");
+            if (proposed > 0)
+                segments.Add($"{Dim}{proposed}{Reset} proposed");
+            sb.AppendLine();
+            sb.AppendLine($"  Sprint: {string.Join(" · ", segments)}");
         }
 
         // Seeds

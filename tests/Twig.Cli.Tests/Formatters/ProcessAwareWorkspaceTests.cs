@@ -78,11 +78,14 @@ public class ProcessAwareWorkspaceTests
         var ws = Workspace.Build(null, items, Array.Empty<WorkItem>());
 
         var output = _formatter.FormatWorkspace(ws, 14);
+        var plain = StripAnsi(output);
 
         output.ShouldContain("In Progress");
-        output.ShouldNotContain("Proposed");
-        output.ShouldNotContain("Resolved");
-        output.ShouldNotContain("Completed");
+        // Category headers for empty categories should not appear;
+        // check for header pattern "(N)" to distinguish from progress footer text
+        plain.ShouldNotContain("Proposed (");
+        plain.ShouldNotContain("Resolved (");
+        plain.ShouldNotContain("Completed (");
     }
 
     [Fact]
@@ -177,10 +180,12 @@ public class ProcessAwareWorkspaceTests
         var ws = Workspace.Build(null, items, Array.Empty<WorkItem>());
 
         var output = formatter.FormatWorkspace(ws, 14);
+        var plain = StripAnsi(output);
 
         output.ShouldContain("In Progress");
         output.ShouldContain("Completed");
-        output.ShouldNotContain("Proposed");
+        // Check for category header pattern to avoid matching progress footer "proposed"
+        plain.ShouldNotContain("Proposed (");
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -221,8 +226,8 @@ public class ProcessAwareWorkspaceTests
         var output = _formatter.FormatSprintView(ws, 14);
 
         // No category grouping — parent appears once under assignee
-        output.ShouldNotContain("Proposed");
-        output.ShouldNotContain("In Progress");
+        output.ShouldNotContain("Proposed (");
+        output.ShouldNotContain("In Progress (");
         output.ShouldContain("#42");
         output.ShouldContain("#43");
     }
@@ -249,8 +254,8 @@ public class ProcessAwareWorkspaceTests
         plain.ShouldContain("├── ");
         plain.ShouldContain("└── ");
         // No category headers
-        plain.ShouldNotContain("Proposed");
-        plain.ShouldNotContain("In Progress");
+        plain.ShouldNotContain("Proposed (");
+        plain.ShouldNotContain("In Progress (");
     }
 
     // ═══════════════════════════════════════════════════════════════════

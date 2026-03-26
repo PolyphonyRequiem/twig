@@ -214,7 +214,7 @@ Standard CLI binary release. Visual changes are cosmetic — no configuration mi
 | ITEM-004 | In `HumanOutputFormatter.FormatWorkspace`, add equivalent text progress summary line after the table output. Format: `Sprint: {done}/{total} done · {inProgress} in progress · {proposed} proposed` using ANSI color codes for each segment. Add separator lines between category groups in the sync rendered output. | Done | `src/Twig/Formatters/HumanOutputFormatter.cs` |
 | ITEM-005 | Add unit tests for workspace progress footer — verify correct counts for various category distributions (all proposed, all complete, mixed, empty sprint). Test separator row presence between categories. | Done | `tests/Twig.Cli.Tests/Formatters/HumanOutputFormatterTests.cs` |
 
-- EPIC-002: State-Colored Tree Connectors & Link Differentiation (`twig tree`)
+- EPIC-002: State-Colored Tree Connectors & Link Differentiation (`twig tree`) — **DONE**
 
 | Task | Description | Status | Relevant Files |
 |------|-------------|--------|----------------|

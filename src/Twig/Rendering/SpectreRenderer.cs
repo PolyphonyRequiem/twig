@@ -65,7 +65,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                             activeContextId = contextItem?.Id;
                             savedCaption = contextItem is not null
                                 ? $"Active: #{contextItem.Id} {Markup.Escape(contextItem.Title)}"
-                                : "[dim]No active context[/]";
+                                : "[dim italic]No active context[/]";
                             table.Caption(new TableTitle(savedCaption));
                             ctx.Refresh();
                             break;
@@ -311,7 +311,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                     var child = children[i];
                     var activeMarker = (activeId.HasValue && child.Id == activeId.Value)
                         ? "[aqua]●[/] " : "";
-                    var dirty = child.IsDirty ? " [yellow]•[/]" : "";
+                    var dirty = child.IsDirty ? " [yellow]✎[/]" : "";
                     var effort = Formatters.FormatterHelpers.GetEffortDisplay(child);
                     var effortSuffix = effort is not null ? $" [dim]{Markup.Escape(effort)}[/]" : "";
                     // Spectre Tree owns its connector glyphs (├──/└──); use a colored │ prefix in the label instead
@@ -420,7 +420,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     internal string FormatFocusedNode(WorkItem item, int? activeId)
     {
         var marker = (activeId.HasValue && item.Id == activeId.Value) ? "[aqua]●[/] " : "";
-        var dirty = item.IsDirty ? " [yellow]•[/]" : "";
+        var dirty = item.IsDirty ? " [yellow]✎[/]" : "";
         return $"{marker}{_theme.FormatTypeBadge(item.Type)} [bold]#{item.Id} {Markup.Escape(item.Title)}[/]{dirty} {_theme.FormatState(item.State)}";
     }
 
@@ -444,7 +444,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         _console.MarkupLine($"#{item.Id} [aqua]●[/] {summaryBadge} {Markup.Escape(item.Type.ToString())} — {Markup.Escape(item.Title)} {summaryState}");
 
         // Work item detail panel
-        var dirty = item.IsDirty ? " [yellow]•[/]" : "";
+        var dirty = item.IsDirty ? " [yellow]✎[/]" : "";
         var itemGrid = new Grid().AddColumn().AddColumn();
         itemGrid.AddRow("[dim]Type:[/]", _theme.FormatTypeBadge(item.Type) + " " + Markup.Escape(item.Type.ToString()));
         itemGrid.AddRow("[dim]State:[/]", _theme.FormatState(item.State));
@@ -518,7 +518,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             return;
 
         // Build initial panel with core fields only (type, state, assigned, area, iteration)
-        var dirty = showDirty && item.IsDirty ? " [yellow]•[/]" : "";
+        var dirty = showDirty && item.IsDirty ? " [yellow]✎[/]" : "";
         var grid = new Grid().AddColumn().AddColumn();
         grid.AddRow("[dim]Type:[/]", _theme.FormatTypeBadge(item.Type) + " " + Markup.Escape(item.Type.ToString()));
         grid.AddRow("[dim]State:[/]", _theme.FormatState(item.State));
@@ -835,6 +835,56 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     }
 
     /// <summary>
+    /// Enriched selection renderable with type badge and state color when available.
+    /// </summary>
+    internal static IRenderable BuildSelectionRenderable(
+        IReadOnlyList<(int Id, string Title, string? TypeName, string? State)> items,
+        int selectedIndex,
+        string filterText,
+        SpectreTheme theme)
+    {
+        var rows = new List<IRenderable>
+        {
+            new Markup("[bold]Multiple matches — select one:[/]")
+        };
+
+        if (!string.IsNullOrEmpty(filterText))
+            rows.Add(new Markup($"[dim]Filter: {Markup.Escape(filterText)}[/]"));
+
+        if (items.Count == 0)
+        {
+            rows.Add(new Markup("[yellow]No items match filter[/]"));
+        }
+        else
+        {
+            for (var i = 0; i < items.Count; i++)
+            {
+                var (id, title, typeName, state) = items[i];
+                var prefix = i == selectedIndex ? "[aqua]❯[/] " : "  ";
+                var style = i == selectedIndex ? "bold" : "dim";
+
+                var badgeMarkup = "";
+                if (typeName is not null)
+                {
+                    var parseResult = Domain.ValueObjects.WorkItemType.Parse(typeName);
+                    if (parseResult.IsSuccess)
+                        badgeMarkup = theme.FormatTypeBadge(parseResult.Value) + " ";
+                }
+
+                var stateMarkup = "";
+                if (state is not null)
+                    stateMarkup = " " + theme.FormatState(state);
+
+                rows.Add(new Markup($"{prefix}{badgeMarkup}[{style}]#{id} {Markup.Escape(title)}[/]{stateMarkup}"));
+            }
+        }
+
+        rows.Add(new Markup("[dim]↑/↓ navigate · Enter select · Esc cancel · type to filter[/]"));
+
+        return new Rows(rows);
+    }
+
+    /// <summary>
     /// Delay before clearing transient sync status messages. Exposed as internal for test overrides.
     /// </summary>
     internal TimeSpan SyncStatusDelay { get; set; } = TimeSpan.FromMilliseconds(800);
@@ -965,7 +1015,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
         foreach (var hint in hints)
         {
-            _console.MarkupLine($"[dim]  hint: {Markup.Escape(hint)}[/]");
+            _console.MarkupLine($"[yellow]→[/] [dim]hint: {Markup.Escape(hint)}[/]");
         }
     }
 
@@ -987,7 +1037,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
         if (totalSeeds == 0)
         {
-            _console.MarkupLine("[dim]  No seeds[/]");
+            _console.MarkupLine("[dim italic]  No seeds[/]");
             return;
         }
 

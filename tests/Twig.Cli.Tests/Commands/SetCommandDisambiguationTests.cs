@@ -477,4 +477,67 @@ public class SetCommandDisambiguationTests
             AreaPath = AreaPath.Parse("Project").Value,
         };
     }
+
+    // ── EPIC-005: Enriched BuildSelectionRenderable ──────────────────
+
+    [Fact]
+    public void BuildSelectionRenderable_Enriched_IncludesTypeBadgeMarkup()
+    {
+        var items = new List<(int Id, string Title, string? TypeName, string? State)>
+        {
+            (10, "Auth login page", "Bug", "Active"),
+            (11, "Auth token refresh", "Task", "New"),
+        };
+
+        var theme = new SpectreTheme(new DisplayConfig());
+        var renderable = SpectreRenderer.BuildSelectionRenderable(items, selectedIndex: 0, filterText: "", theme);
+
+        // TEST-006: BuildSelectionRenderable MUST include type badge markup when provided
+        var console = new TestConsole();
+        console.Write(renderable);
+        var output = console.Output;
+
+        output.ShouldContain("#10");
+        output.ShouldContain("#11");
+        output.ShouldContain("Auth login page");
+        output.ShouldContain("Auth token refresh");
+        // State info should be present
+        output.ShouldContain("Active");
+        output.ShouldContain("New");
+        output.ShouldContain("Multiple matches");
+    }
+
+    [Fact]
+    public void BuildSelectionRenderable_Enriched_NullType_OmitsBadge()
+    {
+        var items = new List<(int Id, string Title, string? TypeName, string? State)>
+        {
+            (10, "Plain item", null, null),
+        };
+
+        var theme = new SpectreTheme(new DisplayConfig());
+        var renderable = SpectreRenderer.BuildSelectionRenderable(items, selectedIndex: 0, filterText: "", theme);
+
+        var console = new TestConsole();
+        console.Write(renderable);
+        var output = console.Output;
+
+        output.ShouldContain("#10");
+        output.ShouldContain("Plain item");
+    }
+
+    [Fact]
+    public void BuildSelectionRenderable_Enriched_EmptyList_ShowsNoMatchMessage()
+    {
+        var items = new List<(int Id, string Title, string? TypeName, string? State)>();
+
+        var theme = new SpectreTheme(new DisplayConfig());
+        var renderable = SpectreRenderer.BuildSelectionRenderable(items, selectedIndex: 0, filterText: "xyz", theme);
+
+        var console = new TestConsole();
+        console.Write(renderable);
+        var output = console.Output;
+
+        output.ShouldContain("No items match filter");
+    }
 }

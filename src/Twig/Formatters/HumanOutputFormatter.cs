@@ -69,7 +69,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
     {
         var sb = new StringBuilder();
         var stateColor = GetStateColor(item.State);
-        var dirty = showDirty && item.IsDirty ? $" {Yellow}•{Reset}" : "";
+        var dirty = showDirty && item.IsDirty ? $" {Yellow}✎{Reset}" : "";
 
         sb.AppendLine($"{Bold}#{item.Id} {item.Title}{Reset}{dirty}");
         var typeColor = GetTypeColor(item.Type);
@@ -184,7 +184,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
 
         // Focused item with active marker at its natural depth
         var focusIndent = new string(' ', focusDepth * 2);
-        var focusDirty = tree.FocusedItem.IsDirty ? $" {Yellow}•{Reset}" : "";
+        var focusDirty = tree.FocusedItem.IsDirty ? $" {Yellow}✎{Reset}" : "";
         var focusStateColor = GetStateColor(tree.FocusedItem.State);
         var focusTypeColor = GetTypeColor(tree.FocusedItem.Type);
         var focusBadge = GetTypeBadge(tree.FocusedItem.Type);
@@ -208,7 +208,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
             var child = tree.Children[i];
             var isLast = i == displayCount - 1 && !hasMore;
             var connector = isLast ? "└── " : "├── ";
-            var dirty = child.IsDirty ? $" {Yellow}•{Reset}" : "";
+            var dirty = child.IsDirty ? $" {Yellow}✎{Reset}" : "";
             var childStateColor = GetStateColor(child.State);
             var childTypeColor = GetTypeColor(child.Type);
             var childBadge = GetTypeBadge(child.Type);
@@ -262,7 +262,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         // Active context
         if (ws.ContextItem is not null)
         {
-            var dirty = ws.ContextItem.IsDirty ? $" {Yellow}•{Reset}" : "";
+            var dirty = ws.ContextItem.IsDirty ? $" {Yellow}✎{Reset}" : "";
             sb.AppendLine($"  {Bold}Active:{Reset} #{ws.ContextItem.Id} {ws.ContextItem.Title}{dirty}");
             var stateColor = GetStateColor(ws.ContextItem.State);
             var typeColor = GetTypeColor(ws.ContextItem.Type);
@@ -326,7 +326,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
                 foreach (var item in items)
                 {
                     var marker = (ws.ContextItem is not null && item.Id == ws.ContextItem.Id) ? $"{Cyan}●{Reset}" : " ";
-                    var dirty = item.IsDirty ? $" {Yellow}•{Reset}" : "";
+                    var dirty = item.IsDirty ? $" {Yellow}✎{Reset}" : "";
                     var stateColor = GetStateColor(item.State);
                     var sprintTypeColor = GetTypeColor(item.Type);
                     var sprintBadge = GetTypeBadge(item.Type);
@@ -412,7 +412,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         // Active context
         if (ws.ContextItem is not null)
         {
-            var dirty = ws.ContextItem.IsDirty ? $" {Yellow}•{Reset}" : "";
+            var dirty = ws.ContextItem.IsDirty ? $" {Yellow}✎{Reset}" : "";
             sb.AppendLine($"  {Bold}Active:{Reset} #{ws.ContextItem.Id} {ws.ContextItem.Title}{dirty}");
         }
 
@@ -484,7 +484,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
             foreach (var item in kvp.Value)
             {
                 var marker = (ws.ContextItem is not null && item.Id == ws.ContextItem.Id) ? $"{Cyan}●{Reset}" : " ";
-                var dirty = item.IsDirty ? $" {Yellow}•{Reset}" : "";
+                var dirty = item.IsDirty ? $" {Yellow}✎{Reset}" : "";
                 var stateColor = GetStateColor(item.State);
                 var sprintTypeColor = GetTypeColor(item.Type);
                 var sprintBadge = GetTypeBadge(item.Type);
@@ -578,7 +578,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         if (node.IsSprintItem)
         {
             var marker = (ws.ContextItem is not null && node.Item.Id == ws.ContextItem.Id) ? $"{Cyan}●{Reset} " : "";
-            var dirty = node.Item.IsDirty ? $" {Yellow}•{Reset}" : "";
+            var dirty = node.Item.IsDirty ? $" {Yellow}✎{Reset}" : "";
             var assigneeSuffix = showAssignee ? $" {Dim}@{node.Item.AssignedTo ?? "(unassigned)"}{Reset}" : "";
             lines.Add(new AlignedLine(
                 $"{indent}{connector}{marker}{typeColor}{badge}{Reset} #{node.Item.Id} {node.Item.Title}{progress}{assigneeSuffix}",
@@ -781,7 +781,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
 
     public string FormatError(string message)
     {
-        return $"{Red}error:{Reset} {message}";
+        return $"{Red}✗ error:{Reset} {message}";
     }
 
     public string FormatSuccess(string message)
@@ -808,9 +808,48 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         return sb.ToString();
     }
 
+    /// <summary>
+    /// Enriched disambiguation with type badge and state color when available.
+    /// </summary>
+    public string FormatDisambiguation(IReadOnlyList<(int Id, string Title, string? TypeName, string? State)> matches)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("Multiple matches:");
+        for (var i = 0; i < matches.Count; i++)
+        {
+            var (id, title, typeName, state) = matches[i];
+            var badgePrefix = "";
+            if (typeName is not null)
+            {
+                var parseResult = WorkItemType.Parse(typeName);
+                if (parseResult.IsSuccess)
+                {
+                    var typeColor = GetTypeColor(parseResult.Value);
+                    var badge = GetTypeBadge(parseResult.Value);
+                    badgePrefix = $"{typeColor}{badge}{Reset} ";
+                }
+            }
+            var stateSuffix = "";
+            if (state is not null)
+            {
+                var stateColor = GetStateColor(state);
+                stateSuffix = $" [{stateColor}{state}{Reset}]";
+            }
+            sb.AppendLine($"  {Bold}[{i + 1}]{Reset} {badgePrefix}#{id} {title}{stateSuffix}");
+        }
+
+        // Remove trailing newline
+        if (sb.Length > 0 && sb[sb.Length - 1] == '\n')
+            sb.Length -= 1;
+        if (sb.Length > 0 && sb[sb.Length - 1] == '\r')
+            sb.Length -= 1;
+
+        return sb.ToString();
+    }
+
     public string FormatHint(string hint)
     {
-        return $"{Dim}  hint: {hint}{Reset}";
+        return $"{Yellow}→{Reset} {Dim}hint: {hint}{Reset}";
     }
 
     public string FormatInfo(string message)

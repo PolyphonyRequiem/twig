@@ -306,7 +306,7 @@ public class TreeCommandTests
 
         var output = _testConsole.Output;
         output.ShouldContain("Dirty Task");
-        output.ShouldContain("•");
+        output.ShouldContain("✎");
     }
 
     [Fact]

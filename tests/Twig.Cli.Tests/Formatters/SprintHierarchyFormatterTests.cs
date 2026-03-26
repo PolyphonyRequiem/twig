@@ -58,8 +58,8 @@ public class SprintHierarchyFormatterTests
 
         // Active marker: cyan ●
         output.ShouldContain("\x1b[36m●\x1b[0m");
-        // Dirty marker: yellow •
-        output.ShouldContain("\x1b[33m•\x1b[0m");
+        // Dirty marker: yellow ✎
+        output.ShouldContain("\x1b[33m✎\x1b[0m");
         // Item ID
         output.ShouldContain("#42");
     }

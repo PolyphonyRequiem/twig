@@ -47,7 +47,7 @@ public class HumanOutputFormatterTests
 
         var result = _formatter.FormatWorkItem(item, showDirty: true);
 
-        result.ShouldContain("•");
+        result.ShouldContain("✎");
     }
 
     [Fact]
@@ -59,7 +59,7 @@ public class HumanOutputFormatterTests
 
         var result = _formatter.FormatWorkItem(item, showDirty: false);
 
-        result.ShouldNotContain("•");
+        result.ShouldNotContain("✎");
     }
 
     [Fact]
@@ -147,7 +147,7 @@ public class HumanOutputFormatterTests
 
         var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
 
-        result.ShouldContain("•");
+        result.ShouldContain("✎");
     }
 
     [Fact]
@@ -307,6 +307,7 @@ public class HumanOutputFormatterTests
         var result = _formatter.FormatError("something went wrong");
 
         result.ShouldContain("\x1b[31m"); // Red
+        result.ShouldContain("✗ error:");
         result.ShouldContain("something went wrong");
     }
 
@@ -423,6 +424,7 @@ public class HumanOutputFormatterTests
     {
         var result = _formatter.FormatHint("test hint");
 
+        result.ShouldContain("\x1b[33m→\x1b[0m");  // Yellow arrow prefix
         result.ShouldContain("\x1b[2m");  // Dim
         result.ShouldContain("hint:");
         result.ShouldContain("test hint");
@@ -2230,6 +2232,82 @@ public class HumanOutputFormatterTests
 
         result.ShouldNotContain("field change");
         result.ShouldNotContain("staged");
+    }
+
+    // ── EPIC-005: Glyph Consistency Tests ─────────────────────────────
+
+    [Fact]
+    public void FormatHint_StartsWithYellowArrowGlyph()
+    {
+        var result = _formatter.FormatHint("run twig refresh");
+
+        // TEST-004: FormatHint output MUST start with new glyph prefix
+        result.ShouldStartWith("\x1b[33m→\x1b[0m ");
+        result.ShouldContain("hint: run twig refresh");
+    }
+
+    [Fact]
+    public void FormatError_StartsWithCrossGlyph()
+    {
+        var result = _formatter.FormatError("not found");
+
+        // TEST-005: FormatError output MUST start with ✗ error: prefix
+        result.ShouldStartWith("\x1b[31m✗ error:\x1b[0m");
+        result.ShouldContain("not found");
+    }
+
+    [Fact]
+    public void FormatWorkItem_DirtyMarker_UsesPencilGlyph()
+    {
+        var item = CreateWorkItem(1, "Edited Item", "Active");
+        item.UpdateField("System.Title", "New Title");
+        item.ApplyCommands();
+
+        var result = _formatter.FormatWorkItem(item, showDirty: true);
+
+        // TEST-009: Dirty marker MUST render as ✎ (U+270E) instead of •
+        result.ShouldContain("✎");
+        result.ShouldNotContain("•");
+    }
+
+    [Fact]
+    public void FormatDisambiguation_Enriched_ShowsTypeBadgeAndState()
+    {
+        var matches = new List<(int Id, string Title, string? TypeName, string? State)>
+        {
+            (100, "Login Bug", "Bug", "Active"),
+            (101, "Feature Request", "Feature", "New"),
+            (102, "Simple Task", null, null),
+        };
+
+        var result = _formatter.FormatDisambiguation(matches);
+
+        result.ShouldContain("Multiple matches:");
+        result.ShouldContain("#100");
+        result.ShouldContain("#101");
+        result.ShouldContain("#102");
+        result.ShouldContain("Login Bug");
+        // State should appear for items with state
+        result.ShouldContain("[");
+        result.ShouldContain("Active");
+        result.ShouldContain("New");
+        // Item without type/state should still render
+        result.ShouldContain("Simple Task");
+    }
+
+    [Fact]
+    public void FormatDisambiguation_Enriched_NullTypeAndState_FallsBackGracefully()
+    {
+        var matches = new List<(int Id, string Title, string? TypeName, string? State)>
+        {
+            (200, "Plain Item", null, null),
+        };
+
+        var result = _formatter.FormatDisambiguation(matches);
+
+        result.ShouldContain("[1]");
+        result.ShouldContain("#200");
+        result.ShouldContain("Plain Item");
     }
 
 }

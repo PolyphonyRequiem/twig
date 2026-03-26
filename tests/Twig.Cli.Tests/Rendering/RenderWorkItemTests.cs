@@ -124,7 +124,7 @@ public class RenderWorkItemTests
         await _renderer.RenderWorkItemAsync(() => Task.FromResult<WorkItem?>(item), true, CancellationToken.None);
 
         var output = _testConsole.Output;
-        output.ShouldContain("•");
+        output.ShouldContain("✎");
     }
 
     [Fact]
@@ -138,7 +138,7 @@ public class RenderWorkItemTests
         // The output should contain the title but not the dirty marker in the header
         var output = _testConsole.Output;
         output.ShouldContain("Dirty Item");
-        output.ShouldNotContain("•");
+        output.ShouldNotContain("✎");
     }
 
     // ── Null item ───────────────────────────────────────────────────

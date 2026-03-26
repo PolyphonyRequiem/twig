@@ -250,7 +250,7 @@ public class StatusCommandTests : IDisposable
 
         var output = _testConsole.Output;
         output.ShouldContain("Dirty Item");
-        output.ShouldContain("•");
+        output.ShouldContain("✎");
     }
 
     [Fact]
@@ -440,7 +440,7 @@ public class StatusCommandTests : IDisposable
 
         var output = _testConsole.Output;
         output.ShouldContain("Dirty Dashboard");
-        output.ShouldContain("•");
+        output.ShouldContain("✎");
     }
 
     [Fact]

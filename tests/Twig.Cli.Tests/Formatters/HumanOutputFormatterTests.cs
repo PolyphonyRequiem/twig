@@ -1788,4 +1788,155 @@ public class HumanOutputFormatterTests
         plain.ShouldContain("1 in progress");
         plain.ShouldContain("1 proposed");
     }
+
+    // ── EPIC-002: State-Colored Tree Connectors & Link Differentiation ──
+
+    [Fact]
+    public void FormatTree_ChildConnectorsIncludeStateColor_Active()
+    {
+        var focus = CreateWorkItem(1, "Focus", "Active");
+        var child = CreateWorkItem(2, "In Progress Child", "Active");
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child });
+
+        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+
+        // Active → InProgress → Blue (\x1b[34m)
+        result.ShouldContain("\x1b[34m└── \x1b[0m");
+    }
+
+    [Fact]
+    public void FormatTree_ChildConnectorsIncludeStateColor_Closed()
+    {
+        var focus = CreateWorkItem(1, "Focus", "Active");
+        var child = CreateWorkItem(2, "Closed Child", "Closed");
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child });
+
+        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+
+        // Closed → Completed → Green (\x1b[32m)
+        result.ShouldContain("\x1b[32m└── \x1b[0m");
+    }
+
+    [Fact]
+    public void FormatTree_ChildConnectorsIncludeStateColor_New()
+    {
+        var focus = CreateWorkItem(1, "Focus", "Active");
+        var child = CreateWorkItem(2, "New Child", "New");
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child });
+
+        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+
+        // New → Proposed → Dim (\x1b[2m)
+        result.ShouldContain("\x1b[2m└── \x1b[0m");
+    }
+
+    [Fact]
+    public void FormatTree_ChildConnectorsIncludeStateColor_Removed()
+    {
+        var focus = CreateWorkItem(1, "Focus", "Active");
+        var child = CreateWorkItem(2, "Removed Child", "Removed");
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child });
+
+        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+
+        // Removed → Red (\x1b[31m)
+        result.ShouldContain("\x1b[31m└── \x1b[0m");
+    }
+
+    [Fact]
+    public void FormatTree_MultipleChildren_ConnectorsColoredByState()
+    {
+        var focus = CreateWorkItem(1, "Focus", "Active");
+        var child1 = CreateWorkItem(2, "Active Child", "Active");
+        var child2 = CreateWorkItem(3, "Closed Child", "Closed");
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child1, child2 });
+
+        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+
+        // First child: Active → Blue with ├──
+        result.ShouldContain("\x1b[34m├── \x1b[0m");
+        // Last child: Closed → Green with └──
+        result.ShouldContain("\x1b[32m└── \x1b[0m");
+    }
+
+    [Fact]
+    public void FormatTree_UnknownState_FallsBackToDefaultConnectorColor()
+    {
+        var focus = CreateWorkItem(1, "Focus", "Active");
+        var child = CreateWorkItem(2, "Unknown Child", "SomeUnknownState");
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child });
+
+        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+
+        // Unknown state → falls back to Dim (Proposed) or Reset depending on StateCategoryResolver
+        // The connector glyph should still appear
+        var stripped = StripAnsi(result);
+        stripped.ShouldContain("└── ");
+    }
+
+    [Fact]
+    public void FormatTree_LinksSection_UsesBlueForLinkType()
+    {
+        var focus = CreateWorkItem(1, "Focus", "Active");
+        var links = new[] { new WorkItemLink(1, 42, "Related") };
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), Array.Empty<WorkItem>(),
+            focusedItemLinks: links);
+
+        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+
+        // Link type should be wrapped in Blue ANSI
+        result.ShouldContain($"\x1b[34mRelated\x1b[0m: #42");
+    }
+
+    [Fact]
+    public void FormatTree_LinksSection_ContainsSwapGlyph()
+    {
+        var focus = CreateWorkItem(1, "Focus", "Active");
+        var links = new[] { new WorkItemLink(1, 42, "Related") };
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), Array.Empty<WorkItem>(),
+            focusedItemLinks: links);
+
+        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+
+        // Links header should contain ⇄ glyph
+        result.ShouldContain("⇄ Links");
+    }
+
+    [Fact]
+    public void FormatTree_LinksSection_MultipleLinks_AllBlue()
+    {
+        var focus = CreateWorkItem(1, "Focus", "Active");
+        var links = new[]
+        {
+            new WorkItemLink(1, 42, "Related"),
+            new WorkItemLink(1, 99, "Predecessor"),
+        };
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), Array.Empty<WorkItem>(),
+            focusedItemLinks: links);
+
+        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+
+        result.ShouldContain($"\x1b[34mRelated\x1b[0m: #42");
+        result.ShouldContain($"\x1b[34mPredecessor\x1b[0m: #99");
+    }
+
+    [Fact]
+    public void FormatTree_LinksHeader_NotFullyDim()
+    {
+        var focus = CreateWorkItem(1, "Focus", "Active");
+        var links = new[] { new WorkItemLink(1, 10, "Successor") };
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), Array.Empty<WorkItem>(),
+            focusedItemLinks: links);
+
+        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+
+        // The links header should NOT be wrapped entirely in Dim
+        result.ShouldNotContain($"{Dim}╰── Links{Reset}");
+        // Should contain the ⇄ glyph prefix
+        result.ShouldContain("╰── ⇄ Links");
+    }
+
+    // Expose ANSI constants for test assertions
+    private const string Dim = "\x1b[2m";
+    private const string Reset = "\x1b[0m";
 }

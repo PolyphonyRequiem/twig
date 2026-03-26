@@ -314,7 +314,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                     var dirty = child.IsDirty ? " [yellow]•[/]" : "";
                     var effort = Formatters.FormatterHelpers.GetEffortDisplay(child);
                     var effortSuffix = effort is not null ? $" [dim]{Markup.Escape(effort)}[/]" : "";
-                    var label = $"{activeMarker}{_theme.FormatTypeBadge(child.Type)} #{child.Id} {Markup.Escape(child.Title)}{dirty} {_theme.FormatState(child.State)}{effortSuffix}";
+                    var stateColor = _theme.GetStateCategoryMarkupColor(child.State);
+                    var label = $"[{stateColor}]│[/] {activeMarker}{_theme.FormatTypeBadge(child.Type)} #{child.Id} {Markup.Escape(child.Title)}{dirty} {_theme.FormatState(child.State)}{effortSuffix}";
                     focusContainer.AddNode(label);
                     ctx.Refresh();
                 }
@@ -334,11 +335,11 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                         if (links.Count > 0)
                         {
                             focusContainer.AddNode("[dim]┊[/]");
-                            var linksNode = focusContainer.AddNode("[dim]Links[/]");
+                            var linksNode = focusContainer.AddNode("[blue]⇄[/] [dim]Links[/]");
                             for (var li = 0; li < links.Count; li++)
                             {
                                 var link = links[li];
-                                var linkLabel = $"[dim]{Markup.Escape(link.LinkType)}: #{link.TargetId}[/]";
+                                var linkLabel = $"[blue]{Markup.Escape(link.LinkType)}[/]: #{link.TargetId}";
                                 linksNode.AddNode(linkLabel);
                             }
                             ctx.Refresh();

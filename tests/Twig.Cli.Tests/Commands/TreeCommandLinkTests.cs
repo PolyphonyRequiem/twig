@@ -78,9 +78,12 @@ public class TreeCommandLinkTests
         var output = fmt.FormatTree(tree, 10, 1);
 
         output.ShouldContain("Links");
-        output.ShouldContain("Related: #456");
-        output.ShouldContain("Predecessor: #123");
-        output.ShouldContain("Successor: #789");
+        output.ShouldContain("Related");
+        output.ShouldContain(": #456");
+        output.ShouldContain("Predecessor");
+        output.ShouldContain(": #123");
+        output.ShouldContain("Successor");
+        output.ShouldContain(": #789");
     }
 
     [Fact]
@@ -113,7 +116,7 @@ public class TreeCommandLinkTests
         var output = fmt.FormatTree(tree, 10, 1);
 
         output.ShouldContain("┊");
-        output.ShouldContain("╰── Links");
+        output.ShouldContain("╰── ⇄ Links");
         output.ShouldContain("├──");
         output.ShouldContain("└──");
     }

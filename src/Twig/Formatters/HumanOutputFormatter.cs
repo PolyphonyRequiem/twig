@@ -185,7 +185,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
             var effort = FormatterHelpers.GetEffortDisplay(child);
             var effortSuffix = effort is not null ? $" {Dim}{effort}{Reset}" : "";
             lines.Add(new AlignedLine(
-                $"{childIndent}{connector}{activeMarker}{childTypeColor}{childBadge}{Reset} #{child.Id} {child.Title}",
+                $"{childIndent}{childStateColor}{connector}{Reset}{activeMarker}{childTypeColor}{childBadge}{Reset} #{child.Id} {child.Title}",
                 $"[{childStateColor}{child.State}{Reset}]{effortSuffix}", dirty));
         }
 
@@ -199,7 +199,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         {
             var linkIndent = new string(' ', (focusDepth + 1) * 2);
             sb.AppendLine($"{linkIndent}{Dim}┊{Reset}");
-            sb.AppendLine($"{linkIndent}{Dim}╰── Links{Reset}");
+            sb.AppendLine($"{linkIndent}╰── ⇄ Links");
             var linkLines = new List<AlignedLine>();
             for (var i = 0; i < tree.FocusedItemLinks.Count; i++)
             {
@@ -207,7 +207,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
                 var isLastLink = i == tree.FocusedItemLinks.Count - 1;
                 var linkConnector = isLastLink ? "└── " : "├── ";
                 linkLines.Add(new AlignedLine(
-                    $"{linkIndent}    {linkConnector}{link.LinkType}: #{link.TargetId}",
+                    $"{linkIndent}    {linkConnector}{Blue}{link.LinkType}{Reset}: #{link.TargetId}",
                     "", ""));
             }
             FlushAlignedLines(sb, linkLines);

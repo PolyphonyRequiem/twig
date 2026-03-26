@@ -2093,4 +2093,143 @@ public class HumanOutputFormatterTests
             visibleLen.ShouldBe(topVisibleLen, $"Content line should match border width: {StripAnsi(line)}");
         }
     }
+
+    // ── Status Panel Enhancements (EPIC-004 ITEM-020) ───────────────
+
+    [Fact]
+    public void FormatWorkItem_ParentWithChildren_ShowsProgressBar()
+    {
+        var item = CreateWorkItem(1, "Parent Story", "Active");
+        var result = _formatter.FormatWorkItem(item, showDirty: false,
+            fieldDefinitions: null, statusFieldEntries: null,
+            childProgress: (4, 6));
+
+        result.ShouldContain("Progress:");
+        result.ShouldContain("████");
+        result.ShouldContain("░░");
+        result.ShouldContain("4/6");
+    }
+
+    [Fact]
+    public void FormatWorkItem_LeafItem_NoProgressBar()
+    {
+        var item = CreateWorkItem(1, "Leaf Task", "Active");
+        var result = _formatter.FormatWorkItem(item, showDirty: false,
+            fieldDefinitions: null, statusFieldEntries: null,
+            childProgress: null);
+
+        result.ShouldNotContain("Progress:");
+        result.ShouldNotContain("█");
+    }
+
+    [Fact]
+    public void FormatWorkItem_ZeroChildren_NoProgressBar()
+    {
+        var item = CreateWorkItem(1, "No Children", "Active");
+        var result = _formatter.FormatWorkItem(item, showDirty: false,
+            fieldDefinitions: null, statusFieldEntries: null,
+            childProgress: (0, 0));
+
+        result.ShouldNotContain("Progress:");
+    }
+
+    [Fact]
+    public void FormatWorkItem_AllChildrenDone_GreenProgressBar()
+    {
+        var item = CreateWorkItem(1, "Complete Parent", "Active");
+        var result = _formatter.FormatWorkItem(item, showDirty: false,
+            fieldDefinitions: null, statusFieldEntries: null,
+            childProgress: (5, 5));
+
+        result.ShouldContain("Progress:");
+        result.ShouldContain($"{Green}"); // Green ANSI for complete
+        result.ShouldContain("5/5");
+    }
+
+    [Fact]
+    public void FormatWorkItem_PendingChanges_ShowsConsolidatedFooter()
+    {
+        var item = CreateWorkItem(1, "With Changes", "Active");
+        var result = _formatter.FormatWorkItem(item, showDirty: false,
+            fieldDefinitions: null, statusFieldEntries: null,
+            pendingChanges: (3, 2));
+
+        result.ShouldContain($"{Dim}3 field changes, 2 notes staged{Reset}");
+    }
+
+    [Fact]
+    public void FormatWorkItem_NoPendingChanges_NoFooter()
+    {
+        var item = CreateWorkItem(1, "No Changes", "Active");
+        var result = _formatter.FormatWorkItem(item, showDirty: false,
+            fieldDefinitions: null, statusFieldEntries: null,
+            pendingChanges: null);
+
+        result.ShouldNotContain("field change");
+        result.ShouldNotContain("staged");
+    }
+
+    [Fact]
+    public void FormatWorkItem_BothProgressAndPendingChanges()
+    {
+        var item = CreateWorkItem(1, "Full Status", "Active");
+        var result = _formatter.FormatWorkItem(item, showDirty: false,
+            fieldDefinitions: null, statusFieldEntries: null,
+            childProgress: (2, 4),
+            pendingChanges: (1, 3));
+
+        result.ShouldContain("Progress:");
+        result.ShouldContain("2/4");
+        result.ShouldContain("1 field change, 3 notes staged");
+    }
+
+    [Fact]
+    public void FormatWorkItem_PendingChanges_OnlyFields_NoNoteSegment()
+    {
+        var item = CreateWorkItem(1, "Fields Only", "Active");
+        var result = _formatter.FormatWorkItem(item, showDirty: false,
+            fieldDefinitions: null, statusFieldEntries: null,
+            pendingChanges: (2, 0));
+
+        result.ShouldContain($"{Dim}2 field changes{Reset}");
+        result.ShouldNotContain("note");
+        result.ShouldNotContain("staged");
+    }
+
+    [Fact]
+    public void FormatWorkItem_PendingChanges_OnlyNotes_NoFieldSegment()
+    {
+        var item = CreateWorkItem(1, "Notes Only", "Active");
+        var result = _formatter.FormatWorkItem(item, showDirty: false,
+            fieldDefinitions: null, statusFieldEntries: null,
+            pendingChanges: (0, 3));
+
+        result.ShouldContain($"{Dim}3 notes staged{Reset}");
+        result.ShouldNotContain("field change");
+    }
+
+    [Fact]
+    public void FormatWorkItem_PendingChanges_SingularNoteCount()
+    {
+        var item = CreateWorkItem(1, "Singular Note", "Active");
+        var result = _formatter.FormatWorkItem(item, showDirty: false,
+            fieldDefinitions: null, statusFieldEntries: null,
+            pendingChanges: (2, 1));
+
+        result.ShouldContain("1 note staged");
+        result.ShouldNotContain("notes staged");
+    }
+
+    [Fact]
+    public void FormatWorkItem_PendingChanges_ZeroBoth_NoFooter()
+    {
+        var item = CreateWorkItem(1, "Zero Both", "Active");
+        var result = _formatter.FormatWorkItem(item, showDirty: false,
+            fieldDefinitions: null, statusFieldEntries: null,
+            pendingChanges: (0, 0));
+
+        result.ShouldNotContain("field change");
+        result.ShouldNotContain("staged");
+    }
+
 }

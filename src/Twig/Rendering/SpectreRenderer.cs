@@ -429,7 +429,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         Func<Task<IReadOnlyList<PendingChangeRecord>>> getPendingChanges,
         CancellationToken ct,
         IReadOnlyList<Domain.ValueObjects.FieldDefinition>? fieldDefinitions = null,
-        IReadOnlyList<Domain.ValueObjects.StatusFieldEntry>? statusFieldEntries = null)
+        IReadOnlyList<Domain.ValueObjects.StatusFieldEntry>? statusFieldEntries = null,
+        (int Done, int Total)? childProgress = null)
     {
         var item = await getItem();
         if (item is null)
@@ -454,14 +455,23 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         // Extended fields from the Fields dictionary
         AddExtendedFieldRows(itemGrid, item, fieldDefinitions, statusFieldEntries);
 
-        var itemPanel = new Panel(itemGrid)
-            .Header($"[bold]#{item.Id} {Markup.Escape(item.Title)}[/]{dirty}")
-            .Border(BoxBorder.Rounded)
-            .Expand();
+        // EPIC-004 ITEM-016: Progress bar for parent items
+        if (childProgress is { Total: > 0 } cp)
+        {
+            // useAnsi: false — Spectre markup handles coloring; raw ANSI codes would be corrupted by Markup.Escape
+            var progressBar = Formatters.FormatterHelpers.BuildProgressBar(cp.Done, cp.Total, useAnsi: false);
+            if (!string.IsNullOrEmpty(progressBar))
+            {
+                var escaped = Markup.Escape(progressBar);
+                // Complete bars use [green] without outer [dim] to match the bright green ANSI path
+                if (Formatters.FormatterHelpers.IsProgressComplete(cp.Done, cp.Total))
+                    itemGrid.AddRow("[dim]Progress:[/]", $"[green]{escaped}[/]");
+                else
+                    itemGrid.AddRow("[dim]Progress:[/]", $"[dim]{escaped}[/]");
+            }
+        }
 
-        _console.Write(itemPanel);
-
-        // Pending changes panel (only if there are pending changes)
+        // EPIC-004 ITEM-017: Consolidated pending changes as dim footer line
         if (pending.Count > 0)
         {
             var noteCount = 0;
@@ -474,17 +484,27 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                     fieldCount++;
             }
 
-            var changesGrid = new Grid().AddColumn().AddColumn();
-            changesGrid.AddRow("[dim]Field changes:[/]", fieldCount.ToString());
-            changesGrid.AddRow("[dim]Notes:[/]", noteCount.ToString());
-
-            var changesPanel = new Panel(changesGrid)
-                .Header("[bold]Pending Changes[/]")
-                .Border(BoxBorder.Rounded)
-                .Expand();
-
-            _console.Write(changesPanel);
+            var parts = new List<string>();
+            if (fieldCount > 0)
+            {
+                var fieldLabel = fieldCount == 1 ? "field change" : "field changes";
+                parts.Add($"{fieldCount} {fieldLabel}");
+            }
+            if (noteCount > 0)
+            {
+                var noteLabel = noteCount == 1 ? "note" : "notes";
+                parts.Add($"{noteCount} {noteLabel} staged");
+            }
+            if (parts.Count > 0)
+                itemGrid.AddRow("", $"[dim]{string.Join(", ", parts)}[/]");
         }
+
+        var itemPanel = new Panel(itemGrid)
+            .Header($"[bold]#{item.Id} {Markup.Escape(item.Title)}[/]{dirty}")
+            .Border(BoxBorder.Rounded)
+            .Expand();
+
+        _console.Write(itemPanel);
     }
 
     public async Task RenderWorkItemAsync(

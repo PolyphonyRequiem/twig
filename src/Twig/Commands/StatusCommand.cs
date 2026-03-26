@@ -89,13 +89,18 @@ public sealed class StatusCommand(
 
         if (renderer is not null)
         {
+            // EPIC-004 ITEM-019: Compute child progress for parent items
+            var children = await workItemRepo.GetChildrenAsync(item.Id, ct);
+            var childProgress = ComputeChildProgress(children);
+
             // Async progressive rendering path — dashboard layout via SpectreRenderer
             await renderer.RenderStatusAsync(
                 getItem: () => Task.FromResult<Domain.Aggregates.WorkItem?>(item),
                 getPendingChanges: () => pendingChangeStore.GetChangesAsync(item.Id),
                 ct: CancellationToken.None,
                 fieldDefinitions: fieldDefs,
-                statusFieldEntries: statusFieldEntries);
+                statusFieldEntries: statusFieldEntries,
+                childProgress: childProgress);
 
             // Sync working set after cached render (EPIC-004) — best-effort
             try
@@ -142,28 +147,35 @@ public sealed class StatusCommand(
 
         // Use overload with field definitions when formatter supports it
         if (fmt is HumanOutputFormatter humanFmt)
-            Console.WriteLine(humanFmt.FormatWorkItem(item, showDirty: true, fieldDefs, statusFieldEntries));
+        {
+            // EPIC-004 ITEM-019: Compute child progress for sync path
+            var syncChildren = await workItemRepo.GetChildrenAsync(item.Id, ct);
+            var syncChildProgress = ComputeChildProgress(syncChildren);
+
+            // EPIC-004 ITEM-019: Compute pending changes for consolidated footer
+            var syncPending = await pendingChangeStore.GetChangesAsync(item.Id);
+            (int FieldCount, int NoteCount)? syncPendingChanges = null;
+            if (syncPending.Count > 0)
+            {
+                var syncNoteCount = 0;
+                var syncFieldCount = 0;
+                foreach (var change in syncPending)
+                {
+                    if (string.Equals(change.ChangeType, "note", StringComparison.OrdinalIgnoreCase))
+                        syncNoteCount++;
+                    else
+                        syncFieldCount++;
+                }
+                syncPendingChanges = (syncFieldCount, syncNoteCount);
+            }
+
+            Console.WriteLine(humanFmt.FormatWorkItem(item, showDirty: true, fieldDefs, statusFieldEntries, syncChildProgress, syncPendingChanges));
+        }
         else
             Console.WriteLine(fmt.FormatWorkItem(item, showDirty: true));
 
         // Git context enrichment (EPIC-006) — additive, never changes existing behavior
         await WriteGitContextAsync(fmt);
-
-        var pending = await pendingChangeStore.GetChangesAsync(item.Id);
-        if (pending.Count > 0)
-        {
-            var noteCount = 0;
-            var fieldCount = 0;
-            foreach (var change in pending)
-            {
-                if (string.Equals(change.ChangeType, "note", StringComparison.OrdinalIgnoreCase))
-                    noteCount++;
-                else
-                    fieldCount++;
-            }
-
-            Console.WriteLine(fmt.FormatInfo($"  Pending:   {fieldCount} field change(s), {noteCount} note(s)"));
-        }
 
         var syncSeeds = await workItemRepo.GetSeedsAsync();
         var syncStaleSeedCount = Workspace.Build(item, [], syncSeeds)
@@ -234,5 +246,20 @@ public sealed class StatusCommand(
                 // PR lookup is best-effort
             }
         }
+    }
+
+    private static (int Done, int Total)? ComputeChildProgress(IReadOnlyList<Domain.Aggregates.WorkItem> children)
+    {
+        if (children.Count == 0)
+            return null;
+
+        var done = 0;
+        foreach (var child in children)
+        {
+            var cat = Domain.Services.StateCategoryResolver.Resolve(child.State, null);
+            if (cat == Domain.Enums.StateCategory.Resolved || cat == Domain.Enums.StateCategory.Completed)
+                done++;
+        }
+        return (done, children.Count);
     }
 }

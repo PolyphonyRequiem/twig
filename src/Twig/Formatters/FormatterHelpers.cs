@@ -92,6 +92,42 @@ internal static class FormatterHelpers
         return null;
     }
 
+    /// <summary>
+    /// Builds a text-based progress bar: <c>[████░░░░░░] 4/10</c>.
+    /// Returns empty string when <paramref name="total"/> is 0.
+    /// When <paramref name="done"/> ≥ <paramref name="total"/>, the bar is all-filled and wrapped in green ANSI
+    /// (unless <paramref name="useAnsi"/> is <c>false</c>, which returns the plain bar for Spectre markup paths).
+    /// </summary>
+    internal static string BuildProgressBar(int done, int total, int width = 20, bool useAnsi = true)
+    {
+        if (total <= 0)
+            return "";
+
+        // Cap width to a reasonable maximum to avoid overflow on wide terminals
+        width = Math.Clamp(width, 1, 50);
+
+        if (done < 0) done = 0;
+        var complete = done >= total;
+        if (done > total) done = total;
+
+        var filled = (int)Math.Round((double)done / total * width);
+        // Ensure filled doesn't exceed width
+        filled = Math.Min(filled, width);
+        var empty = width - filled;
+
+        var bar = $"[{new string('█', filled)}{new string('░', empty)}] {done}/{total}";
+
+        // Green when complete (ANSI path only — Spectre callers use useAnsi: false and apply markup separately)
+        if (complete && useAnsi)
+            return $"\x1b[32m{bar}\x1b[0m";
+
+        return bar;
+    }
+
+    /// <summary>Returns <c>true</c> when <paramref name="done"/> ≥ <paramref name="total"/> and total &gt; 0.</summary>
+    internal static bool IsProgressComplete(int done, int total)
+        => total > 0 && done >= total;
+
     private static string Truncate(string value, int maxLength)
     {
         var trimmed = value.Trim();

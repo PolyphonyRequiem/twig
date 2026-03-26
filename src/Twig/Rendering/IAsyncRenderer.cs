@@ -36,7 +36,8 @@ public interface IAsyncRenderer
         Func<Task<IReadOnlyList<PendingChangeRecord>>> getPendingChanges,
         CancellationToken ct,
         IReadOnlyList<Domain.ValueObjects.FieldDefinition>? fieldDefinitions = null,
-        IReadOnlyList<Domain.ValueObjects.StatusFieldEntry>? statusFieldEntries = null);
+        IReadOnlyList<Domain.ValueObjects.StatusFieldEntry>? statusFieldEntries = null,
+        (int Done, int Total)? childProgress = null);
 
     Task RenderWorkItemAsync(
         Func<Task<WorkItem?>> getItem,

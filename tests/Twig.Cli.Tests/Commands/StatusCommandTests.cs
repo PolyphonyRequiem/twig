@@ -274,9 +274,7 @@ public class StatusCommandTests : IDisposable
         result.ShouldBe(0);
 
         var output = _testConsole.Output;
-        output.ShouldContain("Pending Changes");
-        output.ShouldContain("1"); // 1 field change
-        output.ShouldContain("2"); // 2 notes
+        output.ShouldContain("1 field change, 2 notes staged");
     }
 
     [Fact]
@@ -462,9 +460,7 @@ public class StatusCommandTests : IDisposable
             ct: CancellationToken.None);
 
         var output = _testConsole.Output;
-        output.ShouldContain("Pending Changes");
-        output.ShouldContain("2"); // 2 field changes
-        output.ShouldContain("1"); // 1 note
+        output.ShouldContain("2 field changes, 1 note staged");
     }
 
     [Fact]
@@ -916,5 +912,62 @@ public class StatusCommandTests : IDisposable
         // Story Points is unstarred, should not appear
         output.ShouldNotContain("Story Points");
     }
+
+    // ── EPIC-004: Child progress integration tests ──────────────────
+
+    [Fact]
+    public async Task AsyncPath_ParentWithChildren_ShowsProgressBar()
+    {
+        var parent = CreateWorkItem(1, "Parent Story");
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(parent);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+
+        // Set up children: 2 resolved/closed, 1 active → progress 2/3
+        var children = new WorkItem[]
+        {
+            CreateWorkItemWithState(10, "Child A", "Closed"),
+            CreateWorkItemWithState(11, "Child B", "Resolved"),
+            CreateWorkItemWithState(12, "Child C", "Active"),
+        };
+        _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(children);
+
+        var cmd = CreateCommandWithPipeline(CreateTtyPipelineFactory());
+        var result = await cmd.ExecuteAsync("human");
+
+        result.ShouldBe(0);
+        var output = _testConsole.Output;
+        output.ShouldContain("Progress");
+        output.ShouldContain("2/3");
+    }
+
+    [Fact]
+    public async Task AsyncPath_LeafItem_NoProgressBar()
+    {
+        var item = CreateWorkItem(1, "Leaf Task");
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+        _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
+
+        var cmd = CreateCommandWithPipeline(CreateTtyPipelineFactory());
+        var result = await cmd.ExecuteAsync("human");
+
+        result.ShouldBe(0);
+        var output = _testConsole.Output;
+        output.ShouldNotContain("Progress");
+    }
+
+    private static WorkItem CreateWorkItemWithState(int id, string title, string state) => new()
+    {
+        Id = id,
+        Type = WorkItemType.Task,
+        Title = title,
+        State = state,
+        IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
+        AreaPath = AreaPath.Parse("Project").Value,
+    };
 
 }

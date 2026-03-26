@@ -63,7 +63,9 @@ public sealed class HumanOutputFormatter : IOutputFormatter
 
     public string FormatWorkItem(WorkItem item, bool showDirty,
         IReadOnlyList<FieldDefinition>? fieldDefinitions,
-        IReadOnlyList<StatusFieldEntry>? statusFieldEntries = null)
+        IReadOnlyList<StatusFieldEntry>? statusFieldEntries = null,
+        (int Done, int Total)? childProgress = null,
+        (int FieldCount, int NoteCount)? pendingChanges = null)
     {
         var sb = new StringBuilder();
         var stateColor = GetStateColor(item.State);
@@ -99,6 +101,35 @@ public sealed class HumanOutputFormatter : IOutputFormatter
                 if (sb.Length > 0 && sb[sb.Length - 1] == '\r')
                     sb.Length -= 1;
             }
+        }
+
+        // EPIC-004 ITEM-018: Progress bar for parent items
+        if (childProgress is { Total: > 0 } cp)
+        {
+            var progressBar = FormatterHelpers.BuildProgressBar(cp.Done, cp.Total);
+            if (!string.IsNullOrEmpty(progressBar))
+            {
+                sb.AppendLine();
+                sb.Append($"  Progress:  {progressBar}");
+            }
+        }
+
+        // EPIC-004 ITEM-018: Consolidated pending changes footer (only non-zero segments)
+        if (pendingChanges is { } pc && (pc.FieldCount > 0 || pc.NoteCount > 0))
+        {
+            sb.AppendLine();
+            var parts = new List<string>();
+            if (pc.FieldCount > 0)
+            {
+                var fieldLabel = pc.FieldCount == 1 ? "field change" : "field changes";
+                parts.Add($"{pc.FieldCount} {fieldLabel}");
+            }
+            if (pc.NoteCount > 0)
+            {
+                var noteLabel = pc.NoteCount == 1 ? "note" : "notes";
+                parts.Add($"{pc.NoteCount} {noteLabel} staged");
+            }
+            sb.Append($"  {Dim}{string.Join(", ", parts)}{Reset}");
         }
 
         return sb.ToString();

@@ -10,6 +10,7 @@ namespace Twig.Domain.Interfaces;
 public interface IWorkItemRepository
 {
     Task<WorkItem?> GetByIdAsync(int id, CancellationToken ct = default);
+    Task<IReadOnlyList<WorkItem>> GetByIdsAsync(IEnumerable<int> ids, CancellationToken ct = default);
     Task<IReadOnlyList<WorkItem>> GetChildrenAsync(int parentId, CancellationToken ct = default);
     Task<IReadOnlyList<WorkItem>> GetByIterationAsync(IterationPath iterationPath, CancellationToken ct = default);
     Task<IReadOnlyList<WorkItem>> GetByIterationAndAssigneeAsync(IterationPath iterationPath, string assignee, CancellationToken ct = default);

@@ -4,6 +4,13 @@ namespace Twig.Domain.Interfaces;
 /// Persistent store for the active work item context and key-value settings.
 /// Implemented in Infrastructure (SQLite).
 /// </summary>
+/// <remarks>
+/// <b>Navigation history:</b> Any command that calls <see cref="SetActiveWorkItemIdAsync"/>
+/// as an explicit user-initiated context change should also call
+/// <c>INavigationHistoryStore.RecordVisitAsync</c> afterward. Implicit/automatic
+/// changes (e.g., git hook post-checkout) should NOT record history. See DD-11
+/// in <c>twig-nav-history.plan.md</c> for rationale.
+/// </remarks>
 public interface IContextStore
 {
     Task<int?> GetActiveWorkItemIdAsync(CancellationToken ct = default);

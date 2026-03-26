@@ -22,12 +22,10 @@ if (!Directory.Exists(twigDir))
 }
 
 var configPath = Path.Combine(twigDir, "config");
-var tempConfig = File.Exists(configPath)
-    ? TwigConfiguration.LoadAsync(configPath).GetAwaiter().GetResult()
-    : new TwigConfiguration();
+var config = TwigConfiguration.Load(configPath);
 
-var tempPaths = (!string.IsNullOrWhiteSpace(tempConfig.Organization) && !string.IsNullOrWhiteSpace(tempConfig.Project))
-    ? TwigPaths.ForContext(twigDir, tempConfig.Organization, tempConfig.Project)
+var tempPaths = (!string.IsNullOrWhiteSpace(config.Organization) && !string.IsNullOrWhiteSpace(config.Project))
+    ? TwigPaths.ForContext(twigDir, config.Organization, config.Project)
     : new TwigPaths(twigDir, configPath, Path.Combine(twigDir, "twig.db"));
 
 if (!File.Exists(tempPaths.DbPath))
@@ -38,10 +36,8 @@ if (!File.Exists(tempPaths.DbPath))
 
 // Build DI container using shared registration
 var services = new ServiceCollection();
-services.AddTwigCoreServices();
+services.AddTwigCoreServices(config);
 var provider = services.BuildServiceProvider();
-
-var config = provider.GetRequiredService<TwigConfiguration>();
 var workItemRepo = provider.GetRequiredService<IWorkItemRepository>();
 var contextStore = provider.GetRequiredService<IContextStore>();
 var pendingChangeStore = provider.GetRequiredService<IPendingChangeStore>();

@@ -30,17 +30,27 @@ public static class TwigServiceRegistration
     /// repositories, stores, and the process configuration provider.
     /// Uses factory-based <c>AddSingleton(sp => ...)</c> for AOT robustness.
     /// </summary>
-    public static IServiceCollection AddTwigCoreServices(this IServiceCollection services)
+    /// <param name="services">The service collection.</param>
+    /// <param name="preloadedConfig">Optional pre-loaded config to avoid redundant file I/O.
+    /// When null, config is loaded from disk on first resolution.</param>
+    public static IServiceCollection AddTwigCoreServices(
+        this IServiceCollection services,
+        TwigConfiguration? preloadedConfig = null)
     {
-        // Configuration
-        services.AddSingleton(sp =>
+        // Configuration — use pre-loaded instance if available, otherwise load on first resolution
+        if (preloadedConfig is not null)
         {
-            var twigDir = Path.Combine(Directory.GetCurrentDirectory(), ".twig");
-            var configPath = Path.Combine(twigDir, "config");
-            return File.Exists(configPath)
-                ? TwigConfiguration.LoadAsync(configPath).GetAwaiter().GetResult()
-                : new TwigConfiguration();
-        });
+            services.AddSingleton(preloadedConfig);
+        }
+        else
+        {
+            services.AddSingleton(sp =>
+            {
+                var twigDir = Path.Combine(Directory.GetCurrentDirectory(), ".twig");
+                var configPath = Path.Combine(twigDir, "config");
+                return TwigConfiguration.Load(configPath);
+            });
+        }
 
         // Multi-context DB path: .twig/{org}/{project}/twig.db
         services.AddSingleton(sp =>

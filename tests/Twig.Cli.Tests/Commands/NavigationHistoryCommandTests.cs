@@ -29,6 +29,22 @@ public class NavigationHistoryCommandTests
         _promptStateWriter = Substitute.For<IPromptStateWriter>();
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
+
+        // GetByIdsAsync delegates to per-item GetByIdAsync so existing per-ID mock setups work.
+        _workItemRepo.GetByIdsAsync(Arg.Any<IEnumerable<int>>(), Arg.Any<CancellationToken>())
+            .Returns(async ci =>
+            {
+                var ids = ci.Arg<IEnumerable<int>>().ToList();
+                var ct = ci.Arg<CancellationToken>();
+                var results = new List<WorkItem>();
+                foreach (var id in ids)
+                {
+                    var item = await _workItemRepo.GetByIdAsync(id, ct);
+                    if (item is not null) results.Add(item);
+                }
+                return (IReadOnlyList<WorkItem>)results;
+            });
+
         _cmd = new NavigationHistoryCommands(
             _historyStore, _publishIdMapRepo, _workItemRepo, _contextStore,
             _formatterFactory, promptStateWriter: _promptStateWriter);

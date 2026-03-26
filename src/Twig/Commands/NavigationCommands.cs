@@ -120,14 +120,22 @@ public sealed class NavigationCommands(
                 return await setCommand.ExecuteAsync(single.Id.ToString(), outputFormat, ct);
 
             case MatchResult.MultipleMatches multi:
+                // Enrich candidates with state for display (domain returns raw titles for pattern matching)
+                var displayCandidates = multi.Candidates
+                    .Select(c =>
+                    {
+                        var child = children.FirstOrDefault(ch => ch.Id == c.Id);
+                        return child is not null ? (c.Id, $"{c.Title} [{child.State}]") : c;
+                    })
+                    .ToList();
                 if (renderer is not null)
                 {
-                    var selected = await renderer.PromptDisambiguationAsync(multi.Candidates, ct);
+                    var selected = await renderer.PromptDisambiguationAsync(displayCandidates, ct);
                     if (selected is not null)
                         return await setCommand.ExecuteAsync(selected.Value.Id.ToString(), outputFormat, ct);
                     return 1;
                 }
-                Console.Error.WriteLine(fmt.FormatDisambiguation(multi.Candidates));
+                Console.Error.WriteLine(fmt.FormatDisambiguation(displayCandidates));
                 return 1;
 
             case MatchResult.NoMatch:

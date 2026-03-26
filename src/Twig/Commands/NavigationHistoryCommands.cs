@@ -98,11 +98,22 @@ public sealed class NavigationHistoryCommands(
         }
 
         // DD-05: Resolve seed IDs at read time and enrich with work item data (best-effort)
-        var enriched = new List<(NavigationHistoryEntry Entry, int ResolvedId, string? TypeName, string? Title, string? State)>(entries.Count);
+        // REVIEW-7: Batch-fetch work items to avoid N+1 queries.
+        var resolvedIds = new List<(NavigationHistoryEntry Entry, int ResolvedId)>(entries.Count);
         foreach (var entry in entries)
         {
             var resolvedId = await ResolveSeedIdAsync(entry.WorkItemId, ct);
-            var item = await workItemRepo.GetByIdAsync(resolvedId, ct);
+            resolvedIds.Add((entry, resolvedId));
+        }
+
+        var distinctIds = resolvedIds.Select(r => r.ResolvedId).Distinct();
+        var items = await workItemRepo.GetByIdsAsync(distinctIds, ct);
+        var itemMap = items.ToDictionary(i => i.Id);
+
+        var enriched = new List<(NavigationHistoryEntry Entry, int ResolvedId, string? TypeName, string? Title, string? State)>(entries.Count);
+        foreach (var (entry, resolvedId) in resolvedIds)
+        {
+            itemMap.TryGetValue(resolvedId, out var item);
             enriched.Add((entry, resolvedId, item?.Type.ToString(), item?.Title, item?.State));
         }
 
@@ -163,8 +174,8 @@ public sealed class NavigationHistoryCommands(
             {
                 // FR-08: On selection, record new history entry (prune forward) and set context
                 var selectedId = selected.Value.Id;
-                await historyStore.RecordVisitAsync(selectedId, ct);
                 await contextStore.SetActiveWorkItemIdAsync(selectedId, ct);
+                await historyStore.RecordVisitAsync(selectedId, ct);
 
                 var selectedItem = await workItemRepo.GetByIdAsync(selectedId, ct);
                 if (selectedItem is not null)

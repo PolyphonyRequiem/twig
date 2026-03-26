@@ -32,6 +32,28 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         return Task.FromResult(item);
     }
 
+    public Task<IReadOnlyList<WorkItem>> GetByIdsAsync(IEnumerable<int> ids, CancellationToken ct = default)
+    {
+        var idList = ids as IList<int> ?? ids.ToList();
+        if (idList.Count == 0)
+            return Task.FromResult<IReadOnlyList<WorkItem>>(Array.Empty<WorkItem>());
+
+        var conn = _store.GetConnection();
+        using var cmd = conn.CreateCommand();
+
+        var paramNames = new string[idList.Count];
+        for (var i = 0; i < idList.Count; i++)
+        {
+            paramNames[i] = $"@p{i}";
+            cmd.Parameters.AddWithValue(paramNames[i], idList[i]);
+        }
+
+        cmd.CommandText = $"SELECT * FROM work_items WHERE id IN ({string.Join(',', paramNames)});";
+
+        var items = ReadAll(cmd);
+        return Task.FromResult<IReadOnlyList<WorkItem>>(items);
+    }
+
     public Task<IReadOnlyList<WorkItem>> GetChildrenAsync(int parentId, CancellationToken ct = default)
     {
         var conn = _store.GetConnection();

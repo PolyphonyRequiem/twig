@@ -39,69 +39,12 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<TwigPaths>(),
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<HintEngine>()));
-        services.AddSingleton<SetCommand>(sp => new SetCommand(
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IContextStore>(),
-            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
-            sp.GetRequiredService<Domain.Services.SyncCoordinator>(),
-            sp.GetRequiredService<Domain.Services.WorkingSetService>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
-            sp.GetRequiredService<RenderingPipelineFactory>(),
-            sp.GetService<IPromptStateWriter>(),
-            sp.GetService<INavigationHistoryStore>()));
-        services.AddSingleton<StatusCommand>(sp => new StatusCommand(
-            sp.GetRequiredService<IContextStore>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IPendingChangeStore>(),
-            sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
-            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
-            sp.GetRequiredService<Domain.Services.WorkingSetService>(),
-            sp.GetRequiredService<Domain.Services.SyncCoordinator>(),
-            sp.GetRequiredService<TwigPaths>(),
-            sp.GetRequiredService<RenderingPipelineFactory>(),
-            sp.GetService<IGitService>(),
-            sp.GetService<IAdoGitService>(),
-            sp.GetService<IFieldDefinitionStore>()));
-        services.AddSingleton<StateCommand>(sp => new StateCommand(
-            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
-            sp.GetRequiredService<IPendingChangeStore>(),
-            sp.GetRequiredService<IProcessConfigurationProvider>(),
-            sp.GetRequiredService<IConsoleInput>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
-            sp.GetRequiredService<IPromptStateWriter>()));
-        services.AddSingleton<TreeCommand>(sp => new TreeCommand(
-            sp.GetRequiredService<IContextStore>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
-            sp.GetRequiredService<Domain.Services.WorkingSetService>(),
-            sp.GetRequiredService<Domain.Services.SyncCoordinator>(),
-            sp.GetRequiredService<IProcessTypeStore>(),
-            sp.GetRequiredService<RenderingPipelineFactory>()));
-        services.AddSingleton<NavigationCommands>(sp => new NavigationCommands(
-            sp.GetRequiredService<IContextStore>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<ISeedLinkRepository>(),
-            sp.GetRequiredService<IWorkItemLinkRepository>(),
-            sp.GetRequiredService<SetCommand>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
-            sp.GetRequiredService<RenderingPipelineFactory>()));
-        services.AddSingleton<NavigationHistoryCommands>(sp => new NavigationHistoryCommands(
-            sp.GetRequiredService<INavigationHistoryStore>(),
-            sp.GetRequiredService<IPublishIdMapRepository>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IContextStore>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<RenderingPipelineFactory>(),
-            sp.GetService<IPromptStateWriter>()));
+        services.AddSingleton<SetCommand>();
+        services.AddSingleton<StatusCommand>();
+        services.AddSingleton<StateCommand>();
+        services.AddSingleton<TreeCommand>();
+        services.AddSingleton<NavigationCommands>();
+        services.AddSingleton<NavigationHistoryCommands>();
         services.AddSingleton<SeedNewCommand>();
         services.AddSingleton<SeedEditCommand>();
         services.AddSingleton<SeedDiscardCommand>();
@@ -112,71 +55,14 @@ public static class CommandRegistrationModule
         services.AddSingleton<SeedPublishCommand>();
         services.AddSingleton<SeedReconcileCommand>();
         services.AddSingleton<WebCommand>();
-        services.AddSingleton<NoteCommand>(sp => new NoteCommand(
-            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IPendingChangeStore>(),
-            sp.GetRequiredService<IEditorLauncher>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
-            sp.GetRequiredService<IPromptStateWriter>()));
-        services.AddSingleton<UpdateCommand>(sp => new UpdateCommand(
-            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
-            sp.GetRequiredService<IPendingChangeStore>(),
-            sp.GetRequiredService<IConsoleInput>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<IPromptStateWriter>()));
-        services.AddSingleton<EditCommand>(sp => new EditCommand(
-            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IPendingChangeStore>(),
-            sp.GetRequiredService<IEditorLauncher>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
-            sp.GetRequiredService<IPromptStateWriter>()));
-        services.AddSingleton<SaveCommand>(sp => new SaveCommand(
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
-            sp.GetRequiredService<IPendingChangeStore>(),
-            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
-            sp.GetRequiredService<IConsoleInput>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<IPromptStateWriter>()));
-        services.AddSingleton<RefreshCommand>(sp => new RefreshCommand(
-            sp.GetRequiredService<IContextStore>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
-            sp.GetRequiredService<IIterationService>(),
-            sp.GetRequiredService<IPendingChangeStore>(),
-            sp.GetRequiredService<Domain.Services.ProtectedCacheWriter>(),
-            sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetRequiredService<TwigPaths>(),
-            sp.GetRequiredService<IProcessTypeStore>(),
-            sp.GetRequiredService<IFieldDefinitionStore>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<Domain.Services.WorkingSetService>(),
-            sp.GetRequiredService<Domain.Services.SyncCoordinator>(),
-            sp.GetRequiredService<IPromptStateWriter>()));
-        services.AddSingleton<WorkspaceCommand>(sp => new WorkspaceCommand(
-            sp.GetRequiredService<IContextStore>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IIterationService>(),
-            sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
-            sp.GetRequiredService<IProcessTypeStore>(),
-            sp.GetRequiredService<IFieldDefinitionStore>(),
-            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
-            sp.GetRequiredService<Domain.Services.WorkingSetService>(),
-            sp.GetRequiredService<RenderingPipelineFactory>()));
+        services.AddSingleton<NoteCommand>();
+        services.AddSingleton<UpdateCommand>();
+        services.AddSingleton<EditCommand>();
+        services.AddSingleton<SaveCommand>();
+        services.AddSingleton<RefreshCommand>();
+        services.AddSingleton<WorkspaceCommand>();
         services.AddSingleton<ConfigCommand>();
-        services.AddSingleton<ConfigStatusFieldsCommand>(sp => new ConfigStatusFieldsCommand(
-            sp.GetRequiredService<IFieldDefinitionStore>(),
-            sp.GetRequiredService<IEditorLauncher>(),
-            sp.GetRequiredService<TwigPaths>(),
-            sp.GetRequiredService<OutputFormatterFactory>()));
+        services.AddSingleton<ConfigStatusFieldsCommand>();
     }
 
     private static void AddGitCommands(IServiceCollection services)

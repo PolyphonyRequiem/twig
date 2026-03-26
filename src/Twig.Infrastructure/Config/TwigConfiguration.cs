@@ -29,6 +29,43 @@ public sealed class TwigConfiguration
     public List<TypeAppearanceConfig>? TypeAppearances { get; set; }
 
     /// <summary>
+    /// Loads configuration synchronously from a JSON file. Preferred for CLI bootstrap
+    /// where an async context is unavailable. Returns defaults for missing optional properties.
+    /// </summary>
+    public static TwigConfiguration Load(string path)
+    {
+        if (!File.Exists(path))
+            return new TwigConfiguration();
+
+        byte[] bytes;
+        try
+        {
+            bytes = File.ReadAllBytes(path);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            throw new TwigConfigurationException(
+                $"Cannot read config file '{path}': permission denied. Check file permissions.", ex);
+        }
+        catch (IOException ex)
+        {
+            throw new TwigConfigurationException(
+                $"Cannot read config file '{path}': {ex.Message}", ex);
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize(bytes, TwigJsonContext.Default.TwigConfiguration)
+                ?? new TwigConfiguration();
+        }
+        catch (JsonException ex)
+        {
+            throw new TwigConfigurationException(
+                $"Config file '{path}' contains invalid JSON. Delete the file or fix the syntax. Details: {ex.Message}", ex);
+        }
+    }
+
+    /// <summary>
     /// Loads configuration from a JSON file. Returns defaults for missing optional properties.
     /// </summary>
     public static async Task<TwigConfiguration> LoadAsync(string path, CancellationToken ct = default)

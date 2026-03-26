@@ -102,7 +102,7 @@ public sealed class WorkTree
         var candidates = new List<(int Id, string Title)>(Children.Count);
         foreach (var child in Children)
         {
-            candidates.Add((child.Id, $"{child.Title} [{child.State}]"));
+            candidates.Add((child.Id, child.Title));
         }
 
         return candidates;

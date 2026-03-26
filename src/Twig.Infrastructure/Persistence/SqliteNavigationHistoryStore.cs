@@ -23,6 +23,7 @@ public sealed class SqliteNavigationHistoryStore : INavigationHistoryStore
 
     public Task RecordVisitAsync(int workItemId, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         var conn = _store.GetConnection();
 
         // Read cursor
@@ -128,7 +129,7 @@ public sealed class SqliteNavigationHistoryStore : INavigationHistoryStore
         {
             var id = reader.GetInt32(0);
             var workItemId = reader.GetInt32(1);
-            var visitedAt = DateTimeOffset.Parse(reader.GetString(2));
+            var visitedAt = DateTimeOffset.Parse(reader.GetString(2), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind);
             entries.Add(new NavigationHistoryEntry(id, workItemId, visitedAt));
         }
         reader.Close();

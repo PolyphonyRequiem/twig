@@ -18,7 +18,7 @@ try
 {
     Console.OutputEncoding = System.Text.Encoding.UTF8;
 }
-catch
+catch (Exception)
 {
     // InvariantGlobalization or restricted environment — Unicode bytes will still be emitted; rendering depends on terminal capabilities.
 }
@@ -30,62 +30,34 @@ var app = ConsoleApp.Create()
     .ConfigureServices(services =>
     {
         // Core services (config, paths, SQLite persistence, repositories, stores)
-        services.AddTwigCoreServices();
+        // Load config once synchronously; pass to AddTwigCoreServices to avoid double-load.
+        var twigDir = Path.Combine(Directory.GetCurrentDirectory(), ".twig");
+        var configPath = Path.Combine(twigDir, "config");
+        var config = TwigConfiguration.Load(configPath);
+        services.AddTwigCoreServices(config);
 
         // ITEM-138: Migrate legacy flat twig.db → nested context path.
         // LegacyDbMigrator is internal to CLI — must be called here, not in shared registration.
-        // Config is loaded independently here; the singleton factory in AddTwigCoreServices()
-        // will load it again on first resolution (cheap — just reads a small JSON file).
-        var twigDir = Path.Combine(Directory.GetCurrentDirectory(), ".twig");
-        var configPath = Path.Combine(twigDir, "config");
-        var config = File.Exists(configPath)
-            ? TwigConfiguration.LoadAsync(configPath).GetAwaiter().GetResult()
-            : new TwigConfiguration();
         LegacyDbMigrator.MigrateIfNeeded(twigDir, config);
 
         // Git remote auto-detection (stays in Program.cs — runtime environment probe)
+        // Start in background to overlap with other DI registrations (REVIEW-6).
         var gitProject = config.GetGitProject();
         var repository = config.Git.Repository;
+        Task<(string? GitProject, string? Repository)>? gitDetectTask = null;
         if (string.IsNullOrWhiteSpace(repository))
         {
-            try
-            {
-                var psi = new System.Diagnostics.ProcessStartInfo("git", "remote get-url origin")
-                {
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                };
-                using var proc = System.Diagnostics.Process.Start(psi);
-                if (proc is not null)
-                {
-                    var stdoutTask = proc.StandardOutput.ReadToEndAsync();
-                    var stderrTask = proc.StandardError.ReadToEndAsync();
-                    System.Threading.Tasks.Task.WhenAll(stdoutTask, stderrTask)
-                        .GetAwaiter().GetResult();
-                    var exited = proc.WaitForExit(2000);
-                    if (!exited)
-                    {
-                        try { proc.Kill(); } catch (Exception) { }
-                    }
-                    var remoteUrl = stdoutTask.Result.Trim();
-                    if (exited && proc.ExitCode == 0 && !string.IsNullOrWhiteSpace(remoteUrl))
-                    {
-                        var parsed = AdoRemoteParser.Parse(remoteUrl);
-                        if (parsed is not null)
-                        {
-                            repository = parsed.Repository;
-                            if (string.IsNullOrWhiteSpace(config.Git.Project))
-                                gitProject = parsed.Project;
-                        }
-                    }
-                }
-            }
-            catch (Exception) { /* git operations are best-effort */ }
+            var capturedConfig = config;
+            gitDetectTask = Task.Run(() => DetectGitRemote(capturedConfig));
         }
 
         // Modular DI registration
+        // Resolve deferred git detection before network service registration
+        if (gitDetectTask is not null)
+        {
+            (gitProject, repository) = gitDetectTask.GetAwaiter().GetResult();
+        }
+
         services.AddTwigNetworkServices(config, gitProject, repository);
 
         // Pre-compute state entries for SpectreTheme (avoids sync-over-async in DI factory)
@@ -145,6 +117,51 @@ if (args.Length == 0)
 }
 
 app.Run(args);
+
+/// <summary>
+/// Detects the git remote URL by spawning <c>git remote get-url origin</c>.
+/// Returns resolved project and repository, or the config defaults on failure.
+/// </summary>
+static (string? GitProject, string? Repository) DetectGitRemote(TwigConfiguration config)
+{
+    var gitProject = config.GetGitProject();
+    string? repository = null;
+    try
+    {
+        var psi = new System.Diagnostics.ProcessStartInfo("git", "remote get-url origin")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        using var proc = System.Diagnostics.Process.Start(psi);
+        if (proc is not null)
+        {
+            var stdoutTask = proc.StandardOutput.ReadToEndAsync();
+            var stderrTask = proc.StandardError.ReadToEndAsync();
+            Task.WhenAll(stdoutTask, stderrTask).GetAwaiter().GetResult();
+            var exited = proc.WaitForExit(2000);
+            if (!exited)
+            {
+                try { proc.Kill(); } catch (Exception) { }
+            }
+            var remoteUrl = stdoutTask.Result.Trim();
+            if (exited && proc.ExitCode == 0 && !string.IsNullOrWhiteSpace(remoteUrl))
+            {
+                var parsed = AdoRemoteParser.Parse(remoteUrl);
+                if (parsed is not null)
+                {
+                    repository = parsed.Repository;
+                    if (string.IsNullOrWhiteSpace(config.Git.Project))
+                        gitProject = parsed.Project;
+                }
+            }
+        }
+    }
+    catch (Exception) { /* git operations are best-effort */ }
+    return (gitProject, repository);
+}
 
 /// <summary>
 /// Global exception filter that writes errors to stderr and sets exit codes.

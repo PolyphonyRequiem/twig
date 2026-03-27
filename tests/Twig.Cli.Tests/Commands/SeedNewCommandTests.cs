@@ -48,9 +48,10 @@ public class SeedNewCommandTests
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
 
         _resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var config = new TwigConfiguration { User = new UserConfig { DisplayName = "Test User" } };
         _cmd = new SeedNewCommand(
             _resolver, _workItemRepo, _processConfigProvider,
-            _fieldDefStore, _editorLauncher, formatterFactory, hintEngine);
+            _fieldDefStore, _editorLauncher, formatterFactory, hintEngine, config);
     }
 
     [Fact]

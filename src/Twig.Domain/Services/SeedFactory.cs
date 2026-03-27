@@ -17,11 +17,13 @@ public static class SeedFactory
     /// <param name="parentContext">Optional parent work item — used for type inference and path inheritance.</param>
     /// <param name="processConfig">Process configuration for validating parent/child rules.</param>
     /// <param name="typeOverride">Explicit child type. If null, inferred from parent's allowed child types.</param>
+    /// <param name="assignedTo">Optional user display name to auto-assign the seed.</param>
     public static Result<WorkItem> Create(
         string title,
         WorkItem? parentContext,
         ProcessConfiguration processConfig,
-        WorkItemType? typeOverride = null)
+        WorkItemType? typeOverride = null,
+        string? assignedTo = null)
     {
         if (string.IsNullOrWhiteSpace(title))
             return Result.Fail<WorkItem>("Seed title cannot be empty.");
@@ -67,7 +69,8 @@ public static class SeedFactory
             title,
             parentContext?.Id,
             parentContext?.AreaPath ?? default,
-            parentContext?.IterationPath ?? default);
+            parentContext?.IterationPath ?? default,
+            assignedTo);
 
         return Result.Ok(seed);
     }

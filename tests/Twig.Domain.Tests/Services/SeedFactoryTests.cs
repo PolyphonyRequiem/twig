@@ -209,4 +209,71 @@ public class SeedFactoryTests
         result.Error.ShouldContain("title cannot be empty");
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    //  Auto-assign
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void Create_WithAssignedTo_SetsAssignedToOnSeed()
+    {
+        var config = ProcessConfigBuilder.Basic();
+        var parent = new WorkItemBuilder(1, "Parent").AsEpic().WithAreaPath("Twig").WithIterationPath("Twig").Build();
+
+        var result = SeedFactory.Create("New issue", parent, config, assignedTo: "Daniel Green");
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.AssignedTo.ShouldBe("Daniel Green");
+    }
+
+    [Fact]
+    public void Create_WithAssignedTo_SetsFieldForAdoPayload()
+    {
+        var config = ProcessConfigBuilder.Basic();
+        var parent = new WorkItemBuilder(1, "Parent").AsEpic().WithAreaPath("Twig").WithIterationPath("Twig").Build();
+
+        var result = SeedFactory.Create("New issue", parent, config, assignedTo: "Daniel Green");
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.Fields.ShouldContainKey("System.AssignedTo");
+        result.Value.Fields["System.AssignedTo"].ShouldBe("Daniel Green");
+    }
+
+    [Fact]
+    public void Create_WithNullAssignedTo_LeavesUnassigned()
+    {
+        var config = ProcessConfigBuilder.Basic();
+        var parent = new WorkItemBuilder(1, "Parent").AsEpic().WithAreaPath("Twig").WithIterationPath("Twig").Build();
+
+        var result = SeedFactory.Create("New issue", parent, config, assignedTo: null);
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.AssignedTo.ShouldBeNull();
+        result.Value.Fields.ShouldNotContainKey("System.AssignedTo");
+    }
+
+    [Fact]
+    public void Create_WithEmptyAssignedTo_LeavesUnassigned()
+    {
+        var config = ProcessConfigBuilder.Basic();
+        var parent = new WorkItemBuilder(1, "Parent").AsEpic().WithAreaPath("Twig").WithIterationPath("Twig").Build();
+
+        var result = SeedFactory.Create("New issue", parent, config, assignedTo: "  ");
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.AssignedTo.ShouldBe("  ");
+        result.Value.Fields.ShouldNotContainKey("System.AssignedTo");
+    }
+
+    [Fact]
+    public void Create_NoParent_WithAssignedTo_SetsAssignedTo()
+    {
+        var config = ProcessConfigBuilder.Basic();
+
+        var result = SeedFactory.Create("Orphan epic", null, config, WorkItemType.Epic, assignedTo: "Daniel Green");
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.AssignedTo.ShouldBe("Daniel Green");
+        result.Value.Fields["System.AssignedTo"].ShouldBe("Daniel Green");
+    }
+
 }

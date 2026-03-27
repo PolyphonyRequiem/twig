@@ -245,9 +245,10 @@ public sealed class WorkItem
         string title,
         int? parentId = null,
         AreaPath areaPath = default,
-        IterationPath iterationPath = default)
+        IterationPath iterationPath = default,
+        string? assignedTo = null)
     {
-        return new WorkItem
+        var seed = new WorkItem
         {
             Id = Interlocked.Decrement(ref _seedIdCounter),
             Type = type,
@@ -257,6 +258,12 @@ public sealed class WorkItem
             ParentId = parentId,
             AreaPath = areaPath,
             IterationPath = iterationPath,
+            AssignedTo = assignedTo,
         };
+
+        if (!string.IsNullOrWhiteSpace(assignedTo))
+            seed.SetField("System.AssignedTo", assignedTo);
+
+        return seed;
     }
 }

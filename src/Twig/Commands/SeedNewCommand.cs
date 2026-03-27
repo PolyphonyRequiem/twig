@@ -4,6 +4,7 @@ using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
+using Twig.Infrastructure.Config;
 
 namespace Twig.Commands;
 
@@ -19,7 +20,8 @@ public sealed class SeedNewCommand(
     IFieldDefinitionStore fieldDefStore,
     IEditorLauncher editorLauncher,
     OutputFormatterFactory formatterFactory,
-    HintEngine hintEngine)
+    HintEngine hintEngine,
+    TwigConfiguration config)
 {
     /// <summary>Create a new local seed work item (no ADO push).</summary>
     public async Task<int> ExecuteAsync(
@@ -67,7 +69,8 @@ public sealed class SeedNewCommand(
         // Use placeholder title for editor-only flow when no title provided
         var seedTitle = string.IsNullOrWhiteSpace(title) ? "(untitled)" : title;
 
-        var seedResult = SeedFactory.Create(seedTitle, parent, processConfig, typeOverride);
+        var seedResult = SeedFactory.Create(seedTitle, parent, processConfig, typeOverride,
+            config.User.DisplayName);
         if (!seedResult.IsSuccess)
         {
             Console.Error.WriteLine(fmt.FormatError(seedResult.Error));

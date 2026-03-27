@@ -15,6 +15,7 @@ Use `twig` commands in the terminal to manage Azure DevOps work items. This skil
 4. **Set context before operating** — Most commands operate on the "active" work item. Use `twig set <id>` to set it.
 5. **Publish seeds promptly** — Seeds are local-only until published. Always `twig seed publish --all` after creating seeds.
 6. **Refresh before querying** — If data seems stale, run `twig refresh` to sync from ADO.
+7. **Use `twig note` during implementation** — Regularly capture observations, open questions, decisions, and progress updates as notes on the active work item. This creates an auditable trail in ADO and keeps stakeholders informed. Good note triggers: discovering something unexpected, making a design decision, completing a milestone, identifying a risk, or deferring something for later.
 
 ## Work Item Creation Workflow
 

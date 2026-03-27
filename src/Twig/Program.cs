@@ -306,6 +306,11 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> NavUp(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<NavigationCommands>().UpAsync(output, ct);
 
+    /// <summary>Launch the interactive tree navigator.</summary>
+    [Command("nav")]
+    public async Task<int> Nav(CancellationToken ct = default)
+        => await services.GetRequiredService<NavigationCommands>().InteractiveAsync(ct);
+
     /// <summary>Navigate to a child work item.</summary>
     [Command("nav down")]
     public async Task<int> NavDown([Argument] string? idOrPattern = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
@@ -630,6 +635,7 @@ Context:
   web [id]             Open the active work item in the browser.
 
 Navigation:
+  nav                  Launch the interactive tree navigator.
   nav up               Navigate to the parent work item.
   nav down [pattern]   Navigate to a child work item.
   nav next             Navigate to the next sibling (by link or order).

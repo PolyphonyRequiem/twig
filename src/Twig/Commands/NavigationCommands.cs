@@ -10,6 +10,7 @@ namespace Twig.Commands;
 /// <summary>
 /// Implements <c>twig up</c>, <c>twig down</c>, <c>twig next</c>, and <c>twig prev</c>:
 /// tree navigation that delegates to SetCommand logic.
+/// Also implements <c>twig nav</c> (bare): interactive tree navigator.
 /// </summary>
 public sealed class NavigationCommands(
     IContextStore contextStore,
@@ -19,8 +20,85 @@ public sealed class NavigationCommands(
     SetCommand setCommand,
     OutputFormatterFactory formatterFactory,
     ActiveItemResolver activeItemResolver,
-    RenderingPipelineFactory? pipelineFactory = null)
+    RenderingPipelineFactory? pipelineFactory = null,
+    INavigationHistoryStore? historyStore = null,
+    IPromptStateWriter? promptStateWriter = null)
 {
+    /// <summary>Launch the interactive tree navigator.</summary>
+    public async Task<int> InteractiveAsync(CancellationToken ct = default)
+    {
+        // Resolve renderer via pipeline factory (null when non-TTY / output redirected)
+        IAsyncRenderer? renderer = null;
+        if (pipelineFactory is not null)
+        {
+            var (_, r) = pipelineFactory.Resolve("human");
+            renderer = r;
+        }
+
+        if (renderer is null)
+        {
+            Console.Error.WriteLine("Interactive navigation requires a terminal. Use: twig nav up, twig nav down, twig nav next, twig nav prev");
+            return 0;
+        }
+
+        // Load initial state from active context
+        var activeId = await contextStore.GetActiveWorkItemIdAsync(ct);
+        if (activeId is null)
+        {
+            Console.Error.WriteLine("No active context. Use 'twig set <id>' to select a work item first.");
+            return 0;
+        }
+
+        var initialItem = await workItemRepo.GetByIdAsync(activeId.Value, ct);
+        if (initialItem is null)
+        {
+            Console.Error.WriteLine($"Work item #{activeId.Value} not found in cache. Run 'twig refresh' to fetch.");
+            return 1;
+        }
+
+        var initialState = await LoadNodeStateAsync(activeId.Value, ct, initialItem);
+        var result = await renderer.RenderInteractiveTreeAsync(initialState, id => LoadNodeStateAsync(id, ct), ct);
+
+        if (result is not null)
+        {
+            await contextStore.SetActiveWorkItemIdAsync(result.Value, ct);
+            if (historyStore is not null)
+                await historyStore.RecordVisitAsync(result.Value, ct);
+            if (promptStateWriter is not null)
+                await promptStateWriter.WritePromptStateAsync();
+        }
+
+        return 0;
+    }
+
+    private async Task<TreeNavigatorState> LoadNodeStateAsync(int id, CancellationToken ct, Domain.Aggregates.WorkItem? preloadedItem = null)
+    {
+        var item = preloadedItem ?? await workItemRepo.GetByIdAsync(id, ct);
+
+        var parentChain = item?.ParentId.HasValue == true
+            ? await workItemRepo.GetParentChainAsync(item.ParentId.Value, ct)
+            : Array.Empty<Domain.Aggregates.WorkItem>();
+
+        var children = await workItemRepo.GetChildrenAsync(id, ct);
+
+        // Siblings are children of the item's parent
+        IReadOnlyList<Domain.Aggregates.WorkItem> siblings;
+        if (item?.ParentId.HasValue == true)
+        {
+            siblings = await workItemRepo.GetChildrenAsync(item.ParentId.Value, ct);
+        }
+        else
+        {
+            siblings = item is not null
+                ? new[] { item }
+                : Array.Empty<Domain.Aggregates.WorkItem>();
+        }
+
+        var links = await workItemLinkRepo.GetLinksAsync(id, ct);
+        var seedLinks = await seedLinkRepo.GetLinksForItemAsync(id, ct);
+
+        return new TreeNavigatorState(item, parentChain, siblings, children, links, seedLinks);
+    }
     /// <summary>Navigate to the parent work item.</summary>
     // UpAsync: no disambiguation path — single parent, use formatter directly
     public async Task<int> UpAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)

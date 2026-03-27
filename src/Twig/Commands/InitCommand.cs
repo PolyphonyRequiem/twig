@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Data.Sqlite;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
@@ -22,6 +23,7 @@ public sealed class InitCommand
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
     private readonly IGlobalProfileStore? _globalProfileStore;
+    private readonly ITelemetryClient? _telemetryClient;
 
     /// <summary>
     /// Production constructor — accepts auth + HTTP so it can construct an
@@ -29,7 +31,8 @@ public sealed class InitCommand
     /// (not from the potentially-empty config loaded at DI time).
     /// </summary>
     public InitCommand(IAuthenticationProvider authProvider, HttpClient httpClient, TwigPaths paths,
-        OutputFormatterFactory formatterFactory, HintEngine hintEngine, IGlobalProfileStore globalProfileStore)
+        OutputFormatterFactory formatterFactory, HintEngine hintEngine, IGlobalProfileStore globalProfileStore,
+        ITelemetryClient? telemetryClient = null)
     {
         _authProvider = authProvider;
         _httpClient = httpClient;
@@ -37,6 +40,7 @@ public sealed class InitCommand
         _formatterFactory = formatterFactory;
         _hintEngine = hintEngine;
         _globalProfileStore = globalProfileStore;
+        _telemetryClient = telemetryClient;
     }
 
     /// <summary>
@@ -45,18 +49,42 @@ public sealed class InitCommand
     /// </summary>
     public InitCommand(IIterationService iterationService, TwigPaths paths,
         OutputFormatterFactory formatterFactory, HintEngine hintEngine,
-        IGlobalProfileStore? globalProfileStore = null)
+        IGlobalProfileStore? globalProfileStore = null,
+        ITelemetryClient? telemetryClient = null)
     {
         _iterationService = iterationService;
         _paths = paths;
         _formatterFactory = formatterFactory;
         _hintEngine = hintEngine;
         _globalProfileStore = globalProfileStore;
+        _telemetryClient = telemetryClient;
     }
 
     public async Task<int> ExecuteAsync(string org, string project, string? team = null, string? gitProject = null, bool force = false, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
+        var startTimestamp = Stopwatch.GetTimestamp();
+        var (exitCode, hadGlobalProfile, fieldCount) = await ExecuteCoreAsync(org, project, team, gitProject, force, outputFormat, ct);
+        _telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
+        {
+            ["command"] = "init",
+            ["exit_code"] = exitCode.ToString(),
+            ["output_format"] = outputFormat,
+            ["twig_version"] = VersionHelper.GetVersion(),
+            ["os_platform"] = System.Runtime.InteropServices.RuntimeInformation.OSDescription,
+            ["had_global_profile"] = hadGlobalProfile.ToString()
+        }, new Dictionary<string, double>
+        {
+            ["duration_ms"] = Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds,
+            ["field_count"] = fieldCount
+        });
+        return exitCode;
+    }
+
+    private async Task<(int ExitCode, bool HadGlobalProfile, int FieldCount)> ExecuteCoreAsync(string org, string project, string? team, string? gitProject, bool force, string outputFormat, CancellationToken ct)
+    {
         var fmt = _formatterFactory.GetFormatter(outputFormat);
+        var telemetryHadGlobalProfile = false;
+        var telemetryFieldCount = 0;
 
         // Derive context-specific paths from the supplied org/project args
         var contextPaths = TwigPaths.ForContext(_paths.TwigDir, org, project);
@@ -64,7 +92,7 @@ public sealed class InitCommand
         if (Directory.Exists(_paths.TwigDir) && !force)
         {
             Console.Error.WriteLine(fmt.FormatError("Twig workspace already initialized. Use --force to reinitialize."));
-            return 1;
+            return (1, false, 0);
         }
 
         // FM-008: --force reinit — delete only the current context's DB, not the entire .twig/ tree
@@ -233,6 +261,7 @@ public sealed class InitCommand
         try
         {
             var fieldDefCount = await FieldDefinitionSyncService.SyncAsync(iterationService, fieldDefStore, ct);
+            telemetryFieldCount = fieldDefCount;
             Console.WriteLine(fmt.FormatInfo($"  Loaded {fieldDefCount} field definition(s)"));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -248,6 +277,7 @@ public sealed class InitCommand
                 var metadata = await _globalProfileStore.LoadMetadataAsync(org, template, ct);
                 if (metadata is not null)
                 {
+                    telemetryHadGlobalProfile = true;
                     var fieldDefs = await fieldDefStore.GetAllAsync(ct);
                     if (fieldDefs.Count > 0)
                     {
@@ -367,7 +397,7 @@ public sealed class InitCommand
                 Console.WriteLine(formatted);
         }
 
-        return 0;
+        return (0, telemetryHadGlobalProfile, telemetryFieldCount);
     }
 
     private void AppendToGitignore()

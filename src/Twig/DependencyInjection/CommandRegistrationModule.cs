@@ -39,7 +39,8 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<TwigPaths>(),
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<HintEngine>(),
-            sp.GetRequiredService<IGlobalProfileStore>()));
+            sp.GetRequiredService<IGlobalProfileStore>(),
+            sp.GetService<ITelemetryClient>()));
         services.AddSingleton<SetCommand>();
         services.AddSingleton<StatusCommand>();
         services.AddSingleton<StateCommand>();

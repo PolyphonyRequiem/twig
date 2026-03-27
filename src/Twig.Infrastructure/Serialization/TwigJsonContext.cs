@@ -4,6 +4,7 @@ using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado.Dtos;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.GitHub;
+using Twig.Infrastructure.Telemetry;
 
 namespace Twig.Infrastructure.Serialization;
 
@@ -85,6 +86,8 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(SeedPublishRules))]
 // Global process profile metadata
 [JsonSerializable(typeof(ProfileMetadata))]
+// Telemetry envelope types (Epic 6 — lightweight AI ingestion)
+[JsonSerializable(typeof(AppInsightsEnvelope))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]

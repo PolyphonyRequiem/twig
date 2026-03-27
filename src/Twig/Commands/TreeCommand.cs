@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
 using Twig.Domain.Services;
@@ -21,10 +22,29 @@ public sealed class TreeCommand(
     WorkingSetService workingSetService,
     SyncCoordinator syncCoordinator,
     IProcessTypeStore processTypeStore,
-    RenderingPipelineFactory? pipelineFactory = null)
+    RenderingPipelineFactory? pipelineFactory = null,
+    ITelemetryClient? telemetryClient = null)
 {
     /// <summary>Display the work item hierarchy as a tree.</summary>
     public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, int? depth = null, bool all = false, bool noLive = false, CancellationToken ct = default)
+    {
+        var startTimestamp = Stopwatch.GetTimestamp();
+        var exitCode = await ExecuteCoreAsync(outputFormat, depth, all, noLive, ct);
+        telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
+        {
+            ["command"] = "tree",
+            ["exit_code"] = exitCode.ToString(),
+            ["output_format"] = outputFormat,
+            ["twig_version"] = VersionHelper.GetVersion(),
+            ["os_platform"] = System.Runtime.InteropServices.RuntimeInformation.OSDescription
+        }, new Dictionary<string, double>
+        {
+            ["duration_ms"] = Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds
+        });
+        return exitCode;
+    }
+
+    private async Task<int> ExecuteCoreAsync(string outputFormat, int? depth, bool all, bool noLive, CancellationToken ct)
     {
         var (fmt, renderer) = pipelineFactory is not null
             ? pipelineFactory.Resolve(outputFormat, noLive)

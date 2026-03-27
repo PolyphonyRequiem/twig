@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
@@ -29,11 +30,30 @@ public sealed class StatusCommand(
     IGitService? gitService = null,
     IAdoGitService? adoGitService = null,
     IFieldDefinitionStore? fieldDefinitionStore = null,
+    ITelemetryClient? telemetryClient = null,
     TextWriter? stderr = null)
 {
     private readonly TextWriter _stderr = stderr ?? Console.Error;
 
     public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool noLive = false, CancellationToken ct = default)
+    {
+        var startTimestamp = Stopwatch.GetTimestamp();
+        var exitCode = await ExecuteCoreAsync(outputFormat, noLive, ct);
+        telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
+        {
+            ["command"] = "status",
+            ["exit_code"] = exitCode.ToString(),
+            ["output_format"] = outputFormat,
+            ["twig_version"] = VersionHelper.GetVersion(),
+            ["os_platform"] = System.Runtime.InteropServices.RuntimeInformation.OSDescription
+        }, new Dictionary<string, double>
+        {
+            ["duration_ms"] = Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds
+        });
+        return exitCode;
+    }
+
+    private async Task<int> ExecuteCoreAsync(string outputFormat, bool noLive, CancellationToken ct)
     {
         var (fmt, renderer) = pipelineFactory is not null
             ? pipelineFactory.Resolve(outputFormat, noLive)

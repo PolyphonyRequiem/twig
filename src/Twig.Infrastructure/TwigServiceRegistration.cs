@@ -4,6 +4,7 @@ using Twig.Domain.Services;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Git;
 using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Telemetry;
 
 namespace Twig.Infrastructure;
 
@@ -99,6 +100,9 @@ public static class TwigServiceRegistration
 
         // Global profile store — best-effort file-backed storage for process profiles.
         services.AddSingleton<IGlobalProfileStore, GlobalProfileStore>();
+
+        // Telemetry client — no-op when TWIG_TELEMETRY_ENDPOINT is unset.
+        services.AddSingleton<ITelemetryClient, TelemetryClient>();
 
         // Prompt state writer — writes .twig/prompt.json atomically after mutating commands.
         services.AddSingleton<IPromptStateWriter>(sp => new PromptStateWriter(

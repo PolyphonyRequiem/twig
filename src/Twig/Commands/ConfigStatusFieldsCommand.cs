@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
@@ -17,11 +18,30 @@ public sealed class ConfigStatusFieldsCommand(
     TwigPaths paths,
     OutputFormatterFactory formatterFactory,
     IGlobalProfileStore globalProfileStore,
-    TwigConfiguration config)
+    TwigConfiguration config,
+    ITelemetryClient? telemetryClient = null)
 {
     public async Task<int> ExecuteAsync(
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
+    {
+        var startTimestamp = Stopwatch.GetTimestamp();
+        var exitCode = await ExecuteCoreAsync(outputFormat, ct);
+        telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
+        {
+            ["command"] = "config-status-fields",
+            ["exit_code"] = exitCode.ToString(),
+            ["output_format"] = outputFormat,
+            ["twig_version"] = VersionHelper.GetVersion(),
+            ["os_platform"] = System.Runtime.InteropServices.RuntimeInformation.OSDescription
+        }, new Dictionary<string, double>
+        {
+            ["duration_ms"] = Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds
+        });
+        return exitCode;
+    }
+
+    private async Task<int> ExecuteCoreAsync(string outputFormat, CancellationToken ct)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 

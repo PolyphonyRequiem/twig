@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Formatters;
@@ -24,9 +25,28 @@ public sealed class SetCommand(
     // Optional — null for backward compat with tests that predate EPIC-005
     RenderingPipelineFactory? pipelineFactory = null,
     IPromptStateWriter? promptStateWriter = null,
-    INavigationHistoryStore? historyStore = null)
+    INavigationHistoryStore? historyStore = null,
+    ITelemetryClient? telemetryClient = null)
 {
     public async Task<int> ExecuteAsync(string idOrPattern, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    {
+        var startTimestamp = Stopwatch.GetTimestamp();
+        var exitCode = await ExecuteCoreAsync(idOrPattern, outputFormat, ct);
+        telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
+        {
+            ["command"] = "set",
+            ["exit_code"] = exitCode.ToString(),
+            ["output_format"] = outputFormat,
+            ["twig_version"] = VersionHelper.GetVersion(),
+            ["os_platform"] = System.Runtime.InteropServices.RuntimeInformation.OSDescription
+        }, new Dictionary<string, double>
+        {
+            ["duration_ms"] = Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds
+        });
+        return exitCode;
+    }
+
+    private async Task<int> ExecuteCoreAsync(string idOrPattern, string outputFormat, CancellationToken ct)
     {
         var (fmt, renderer) = pipelineFactory is not null
             ? pipelineFactory.Resolve(outputFormat)

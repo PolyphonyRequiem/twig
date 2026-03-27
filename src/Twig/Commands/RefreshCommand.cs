@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
@@ -27,6 +28,7 @@ public sealed class RefreshCommand(
     SyncCoordinator syncCoordinator,
     IGlobalProfileStore? globalProfileStore = null,
     IPromptStateWriter? promptStateWriter = null,
+    ITelemetryClient? telemetryClient = null,
     TextWriter? stderr = null)
 {
     private readonly TextWriter _stderr = stderr ?? Console.Error;
@@ -36,7 +38,29 @@ public sealed class RefreshCommand(
     /// <param name="force">When true, bypass the dirty guard and overwrite protected items.</param>
     public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool force = false, CancellationToken ct = default)
     {
+        var startTimestamp = Stopwatch.GetTimestamp();
+        var (exitCode, itemCount, hashChanged) = await ExecuteCoreAsync(outputFormat, force, ct);
+        telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
+        {
+            ["command"] = "refresh",
+            ["exit_code"] = exitCode.ToString(),
+            ["output_format"] = outputFormat,
+            ["twig_version"] = VersionHelper.GetVersion(),
+            ["os_platform"] = System.Runtime.InteropServices.RuntimeInformation.OSDescription,
+            ["hash_changed"] = hashChanged.ToString()
+        }, new Dictionary<string, double>
+        {
+            ["duration_ms"] = Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds,
+            ["item_count"] = itemCount
+        });
+        return exitCode;
+    }
+
+    private async Task<(int ExitCode, int ItemCount, bool HashChanged)> ExecuteCoreAsync(string outputFormat, bool force, CancellationToken ct)
+    {
         var fmt = formatterFactory.GetFormatter(outputFormat);
+        var telemetryItemCount = 0;
+        var telemetryHashChanged = false;
 
         Console.WriteLine(fmt.FormatInfo("Refreshing from ADO..."));
 
@@ -133,6 +157,7 @@ public sealed class RefreshCommand(
             {
                 sprintItems = await adoService.FetchBatchAsync(realIds);
                 fetched = realIds.Count;
+                telemetryItemCount = fetched;
             }
 
             if (activeId.HasValue && activeId.Value > 0 && !realIds.Contains(activeId.Value))
@@ -260,6 +285,7 @@ public sealed class RefreshCommand(
                         var now = DateTimeOffset.UtcNow;
                         if (existing.FieldDefinitionHash != currentHash)
                         {
+                            telemetryHashChanged = true;
                             var updated = new ProfileMetadata(
                                 existing.Organization,
                                 existing.ProcessTemplate,
@@ -292,6 +318,6 @@ public sealed class RefreshCommand(
 
         if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
-        return 0;
+        return (0, telemetryItemCount, telemetryHashChanged);
     }
 }

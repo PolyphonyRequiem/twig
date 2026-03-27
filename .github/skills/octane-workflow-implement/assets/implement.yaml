@@ -422,7 +422,26 @@ agents:
          - Create a clear commit message starting with the epic ID
          - Example: "EPIC-001: Implement user authentication flow"
 
-      3. **Determine Next Steps**
+         **ADO Work Item Linking (AB#)**:
+         After determining the commit message text, check if `tools/plan-ado-map.json` exists.
+         If it does, read it and look up the current plan file path and epic ID to find the
+         ADO Issue ID. The mapping structure is:
+         ```json
+         { "docs/projects/plan-name.plan.md": { "epicId": 100, "epics": { "Epic 1": { "issueId": 101 } } } }
+         ```
+         The epic key in the map corresponds to the epic heading text (e.g., "Epic 1", "EPIC-001").
+         If a mapping is found, append ` AB#<issueId>` to the end of the commit message.
+         Example: "Epic 1: Implement core interactive loop AB#101"
+         If no mapping exists or the file is missing, commit normally without AB#.
+
+      3. **Transition ADO Work Item State**
+         After the git commit succeeds, if an ADO Issue ID was found in step 2:
+         - Run: `twig set <issueId> --output json` to set the active work item
+         - Run: `twig state Done --output json` to transition the item to Done
+         - If either command fails, log a warning and continue — ADO tracking is advisory,
+           it must never block epic execution or cause a failure.
+
+      4. **Determine Next Steps**
          - Re-read the plan document after updating it
          - Scan ALL epics in order (EPIC-001, EPIC-002, etc.)
          - Build a list of remaining epics that are NOT marked as "DONE"

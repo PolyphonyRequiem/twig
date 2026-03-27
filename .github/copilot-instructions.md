@@ -52,3 +52,14 @@ These rules are **non-negotiable** for ALL code that emits, collects, or transmi
   "field", "title", "area", "iteration", or "repo" must be rejected
 - Zero network calls when `TWIG_TELEMETRY_ENDPOINT` is unset
 - Telemetry failures must never affect command execution or return codes
+
+## ADO Work Item Tracking
+
+Twig development is tracked in `dangreen-msft/Twig` (Basic process: Epic → Issue → Task).
+Plan documents map to ADO: one Epic per plan, one Issue per plan epic, optionally one Task per
+task row. The mapping is stored in `tools/plan-ado-map.json`.
+
+When committing code that implements plan work:
+- Include `AB#<id>` in the commit message (the Issue ID from the mapping file)
+- After committing, transition the ADO item: `twig set <id>` then `twig state Done`
+- If no mapping exists for the current work, commit normally without AB# reference

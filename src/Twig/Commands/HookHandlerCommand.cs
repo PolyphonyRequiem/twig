@@ -125,6 +125,7 @@ public sealed class HookHandlerCommand(
 
     /// <summary>
     /// commit-msg: validate that the commit message contains a work item reference.
+    /// Also warns (advisory) if an AB# link is missing when plan-ado-map.json exists.
     /// Args: [commit-msg-file]
     /// </summary>
     private async Task<int> HandleCommitMsgAsync(string hookName, string[] args)
@@ -149,6 +150,16 @@ public sealed class HookHandlerCommand(
             if (!Regex.IsMatch(content, @"#\d+", RegexOptions.None, TimeSpan.FromSeconds(1)))
             {
                 _stderr.WriteLine($"Warning: commit message does not reference a work item (e.g., #{activeId.Value}).");
+            }
+
+            // Advisory: warn if AB# link is missing and a plan-ado-map.json exists
+            if (!Regex.IsMatch(content, @"AB#\d+", RegexOptions.None, TimeSpan.FromSeconds(1)))
+            {
+                var mapPath = Path.Combine(Environment.CurrentDirectory, "tools", "plan-ado-map.json");
+                if (File.Exists(mapPath))
+                {
+                    _stderr.WriteLine("Hint: commit message has no AB# link. Consider adding AB#<id> for ADO tracking.");
+                }
             }
         }
         catch (Exception ex)

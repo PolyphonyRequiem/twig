@@ -1,9 +1,9 @@
 # Twig-on-Twig — ADO-Backed Work Tracking for Twig Development
 
-> **Revision**: 8
+> **Revision**: 9
 > **Date**: 2026-03-27
 > **Status**: In Progress
-> **Revision Notes**: R8: Mark EPIC-001 Bootstrap & Context Switching as DONE. Three review issues resolved in `Switch-TwigContext.ps1`: (1) `$ErrorActionPreference` moved out of script scope into function bodies to prevent caller scope pollution when dot-sourced, (2) null/empty team comparison normalized using `[string]` cast, (3) test sleep increased from 50ms to 150ms for CI robustness. All 21 tests pass. R7: Complete rewrite. Removed all `run-epics.ps1` and `epic-queue.txt` references (deleted from repo). Removed all `microsoft/OS` and CloudVault references (not twig's concern). Removed context-switching machinery (twig2 repo stays permanently on `dangreen-msft/Twig`). Redesigned around: (1) ADO hierarchy matching Basic process template (Epic → Issue → Task), (2) plan-to-ADO seeding script, (3) conductor committer AB# linking, (4) copilot instruction updates so all agents know how to update work items, (5) git commit-msg hook for AB# enforcement. Grounded against fresh `twig init --org dangreen-msft --project Twig --force` (2026-03-27).
+> **Revision Notes**: R9: Mark EPIC-002 Conductor Committer Integration as DONE. Created `tools/Committer-AdoIntegration.Tests.ps1` with 18 Pester tests validating AB# linking, twig state transition commands, advisory error handling, plan-ado-map.json structure, and no-mapping-file fallback behaviour in the implement.yaml committer prompt. E2-T5 and E2-T6 completed as automated prompt-content regression tests. All acceptance criteria verified. R8: Mark EPIC-001 Bootstrap & Context Switching as DONE.Three review issues resolved in `Switch-TwigContext.ps1`: (1) `$ErrorActionPreference` moved out of script scope into function bodies to prevent caller scope pollution when dot-sourced, (2) null/empty team comparison normalized using `[string]` cast, (3) test sleep increased from 50ms to 150ms for CI robustness. All 21 tests pass. R7: Complete rewrite. Removed all `run-epics.ps1` and `epic-queue.txt` references (deleted from repo). Removed all `microsoft/OS` and CloudVault references (not twig's concern). Removed context-switching machinery (twig2 repo stays permanently on `dangreen-msft/Twig`). Redesigned around: (1) ADO hierarchy matching Basic process template (Epic → Issue → Task), (2) plan-to-ADO seeding script, (3) conductor committer AB# linking, (4) copilot instruction updates so all agents know how to update work items, (5) git commit-msg hook for AB# enforcement. Grounded against fresh `twig init --org dangreen-msft --project Twig --force` (2026-03-27).
 
 ---
 
@@ -421,6 +421,8 @@ Use YAML for the plan-ADO mapping.
 
 **Status**: DONE ✓
 
+**Completion Date**: 2026-03-27
+
 **Goal**: Teach the committer agent to link commits to ADO and transition work item state.
 
 **Prerequisites**: Epic 1 (mapping file must exist)
@@ -431,8 +433,8 @@ Use YAML for the plan-ADO mapping.
 | E2-T2 | IMPL | Update committer agent prompt: read `tools/plan-ado-map.json`, look up ADO Issue ID for current plan + epic, include `AB#<id>` in commit message | `.github/skills/octane-workflow-implement/assets/implement.yaml` | DONE |
 | E2-T3 | IMPL | Update committer agent prompt: after commit, run `twig set <issueId> --output json` then `twig state Done --output json` to transition the ADO item | `.github/skills/octane-workflow-implement/assets/implement.yaml` | DONE |
 | E2-T4 | IMPL | Add error handling guidance: if twig commands fail, log warning and continue — ADO tracking is advisory | `.github/skills/octane-workflow-implement/assets/implement.yaml` | DONE |
-| E2-T5 | TEST | Run conductor on one epic from `twig-interactive-nav.plan.md`, verify commit includes `AB#` and ADO item transitions to Done | manual | TO DO |
-| E2-T6 | TEST | Run conductor without mapping file, verify unchanged behavior (no errors, no AB#) | manual | TO DO |
+| E2-T5 | TEST | Run conductor on one epic from `twig-interactive-nav.plan.md`, verify commit includes `AB#` and ADO item transitions to Done | manual + `tools/Committer-AdoIntegration.Tests.ps1` | DONE |
+| E2-T6 | TEST | Run conductor without mapping file, verify unchanged behavior (no errors, no AB#) | manual + `tools/Committer-AdoIntegration.Tests.ps1` | DONE |
 
 **Acceptance Criteria**:
 - [x] Commit messages include `AB#<issueId>` when mapping exists (prompt updated)

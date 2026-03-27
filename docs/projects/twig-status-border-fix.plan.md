@@ -355,8 +355,8 @@ RenderWithSyncAsync → buildCachedView() returns Rows(summaryMarkup, itemPanel[
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E1-T1 | TEST | Add `PanelThenLiveSync_BorderCorrupted` test to `RenderWithSyncTests.cs`: write a Panel to TestConsole, then call `RenderWithSyncAsync` with `Text(" ")` cached view and `UpToDate` sync result. Assert the panel's bottom border (`╰` and `╯` characters) is present and the border line is unbroken. This test isolates the renderer-level bug. | `tests/Twig.Cli.Tests/Rendering/RenderWithSyncTests.cs` | TO DO |
-| E1-T2 | TEST | Add `StatusTtyPath_PanelBorderIntact` test to `StatusCommandTests.cs`: exercise the full StatusCommand TTY flow (RenderStatusAsync + RenderWithSyncAsync) via `CreateCommandWithPipeline(CreateTtyPipelineFactory())` and assert the TestConsole output contains intact panel border characters. Also verify summary line appears above the panel's top border with correct spacing (validates `Rows(Markup, Panel)` layout equivalence to `MarkupLine` + `Write`). | `tests/Twig.Cli.Tests/Commands/StatusCommandTests.cs` | TO DO |
+| E1-T1 | TEST | Add `PanelThenLiveSync_BorderCorrupted` test to `RenderWithSyncTests.cs`: write a Panel to TestConsole, then call `RenderWithSyncAsync` with `Text(" ")` cached view and `UpToDate` sync result. Assert the panel's bottom border (`╰` and `╯` characters) is present and the border line is unbroken. This test isolates the renderer-level bug. | `tests/Twig.Cli.Tests/Rendering/RenderWithSyncTests.cs` | DONE |
+| E1-T2 | TEST | Add `StatusTtyPath_PanelBorderIntact` test to `StatusCommandTests.cs`: exercise the full StatusCommand TTY flow (RenderStatusAsync + RenderWithSyncAsync) via `CreateCommandWithPipeline(CreateTtyPipelineFactory())` and assert the TestConsole output contains intact panel border characters. Also verify summary line appears above the panel's top border with correct spacing (validates `Rows(Markup, Panel)` layout equivalence to `MarkupLine` + `Write`). | `tests/Twig.Cli.Tests/Commands/StatusCommandTests.cs` | DONE |
 
 **Acceptance Criteria**:
 - [ ] E1-T1 test exists and demonstrates the border issue (structural assertion on output)
@@ -374,9 +374,9 @@ RenderWithSyncAsync → buildCachedView() returns Rows(summaryMarkup, itemPanel[
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E2-T1 | IMPL | Add `internal async Task<IRenderable> BuildStatusViewAsync(...)` to `SpectreRenderer`: extract panel-building logic from `RenderStatusAsync` (lines 434–487) into the new method. Return type is non-nullable `Task<IRenderable>` — throws `InvalidOperationException` if item is null (caller guarantees non-null at `StatusCommand:65–72`). Compose the summary header (currently `_console.MarkupLine(...)` at line 443) as a `Markup(...)` renderable. Return `Rows(summaryMarkup, itemPanel[, changesPanel])` composite. | `src/Twig/Rendering/SpectreRenderer.cs` | TO DO |
-| E2-T2 | IMPL | Refactor `RenderStatusAsync` to call `BuildStatusViewAsync` then write the result via `_console.Write(...)`. Preserve the existing null-item early return (`if (item is null) return;` at line 434) inside `RenderStatusAsync` itself, so it never passes a null item to `BuildStatusViewAsync`. External behavior preserved; internal implementation refactored. Note: the current `_console.MarkupLine(summary)` + `_console.Write(panel)` pattern is replaced with `_console.Write(compositeRenderable)` — the Rows renderable manages line separation equivalently. | `src/Twig/Rendering/SpectreRenderer.cs` | TO DO |
-| E2-T3 | TEST | Verify all existing `SpectreRenderer_RenderStatusAsync_*` tests still pass (no behavior change). Run the full `StatusCommandTests` suite. | `tests/Twig.Cli.Tests/Commands/StatusCommandTests.cs` | TO DO |
+| E2-T1 | IMPL | Add `internal async Task<IRenderable> BuildStatusViewAsync(...)` to `SpectreRenderer`: extract panel-building logic from `RenderStatusAsync` (lines 434–487) into the new method. Return type is non-nullable `Task<IRenderable>` — throws `InvalidOperationException` if item is null (caller guarantees non-null at `StatusCommand:65–72`). Compose the summary header (currently `_console.MarkupLine(...)` at line 443) as a `Markup(...)` renderable. Return `Rows(summaryMarkup, itemPanel[, changesPanel])` composite. | `src/Twig/Rendering/SpectreRenderer.cs` | DONE |
+| E2-T2 | IMPL | Refactor `RenderStatusAsync` to call `BuildStatusViewAsync` then write the result via `_console.Write(...)`. Preserve the existing null-item early return (`if (item is null) return;` at line 434) inside `RenderStatusAsync` itself, so it never passes a null item to `BuildStatusViewAsync`. External behavior preserved; internal implementation refactored. Note: the current `_console.MarkupLine(summary)` + `_console.Write(panel)` pattern is replaced with `_console.Write(compositeRenderable)` — the Rows renderable manages line separation equivalently. | `src/Twig/Rendering/SpectreRenderer.cs` | DONE |
+| E2-T3 | TEST | Verify all existing `SpectreRenderer_RenderStatusAsync_*` tests still pass (no behavior change). Run the full `StatusCommandTests` suite. | `tests/Twig.Cli.Tests/Commands/StatusCommandTests.cs` | DONE |
 
 **Acceptance Criteria**:
 - [ ] `BuildStatusViewAsync` returns the same visual content that `RenderStatusAsync` writes
@@ -393,8 +393,8 @@ RenderWithSyncAsync → buildCachedView() returns Rows(summaryMarkup, itemPanel[
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E3-T1 | IMPL | Modify `StatusCommand.ExecuteAsync` (lines 90-113): add `if (renderer is SpectreRenderer spectreRenderer)` guard (matching `TreeCommand:57` pattern). Replace the sequential `renderer.RenderStatusAsync(...)` + `renderer.RenderWithSyncAsync(Text(" "))` with a single `renderer.RenderWithSyncAsync(buildCachedView: () => spectreRenderer.BuildStatusViewAsync(...), ...)`. Remove the separate `RenderStatusAsync` call from the TTY path. Add fallback for non-SpectreRenderer (call `RenderStatusAsync` directly, skip sync — defensive). | `src/Twig/Commands/StatusCommand.cs` | TO DO |
-| E3-T2 | TEST | Verify E1-T1 and E1-T2 regression tests now pass. Run full test suite. | `tests/Twig.Cli.Tests/` | TO DO |
+| E3-T1 | IMPL | Modify `StatusCommand.ExecuteAsync` (lines 90-113): add `if (renderer is SpectreRenderer spectreRenderer)` guard (matching `TreeCommand:57` pattern). Replace the sequential `renderer.RenderStatusAsync(...)` + `renderer.RenderWithSyncAsync(Text(" "))` with a single `renderer.RenderWithSyncAsync(buildCachedView: () => spectreRenderer.BuildStatusViewAsync(...), ...)`. Remove the separate `RenderStatusAsync` call from the TTY path. Add fallback for non-SpectreRenderer (call `RenderStatusAsync` directly, skip sync — defensive). | `src/Twig/Commands/StatusCommand.cs` | DONE |
+| E3-T2 | TEST | Verify E1-T1 and E1-T2 regression tests now pass. Run full test suite. | `tests/Twig.Cli.Tests/` | DONE |
 
 **Acceptance Criteria**:
 - [ ] Status panel border is intact in TestConsole output
@@ -413,8 +413,8 @@ RenderWithSyncAsync → buildCachedView() returns Rows(summaryMarkup, itemPanel[
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E4-T1 | IMPL | Modify `RenderWithSyncAsync` in `SpectreRenderer.cs`: on all four "clear" transitions — `UpToDate` (line 847), `Updated` (line 860), `PartiallyUpdated` (line 876), `Skipped` (line 891) — change `ctx.UpdateTarget(displayView)` to `ctx.UpdateTarget(new Rows(displayView, new Text(" ")))`. This ensures the Live region never shrinks below the cached-view height + 1 line. The `Failed` case is excluded because it persists its indicator and does not clear. | `src/Twig/Rendering/SpectreRenderer.cs` | TO DO |
-| E4-T2 | TEST | Update `RenderWithSyncTests.cs`: verify that after sync completion, the final output contains a trailing space line (or at minimum, the Live region output length does not decrease). Update any assertions that check exact output content. | `tests/Twig.Cli.Tests/Rendering/RenderWithSyncTests.cs` | TO DO |
+| E4-T1 | IMPL | Modify `RenderWithSyncAsync` in `SpectreRenderer.cs`: on all four "clear" transitions — `UpToDate` (line 847), `Updated` (line 860), `PartiallyUpdated` (line 876), `Skipped` (line 891) — change `ctx.UpdateTarget(displayView)` to `ctx.UpdateTarget(new Rows(displayView, new Text(" ")))`. This ensures the Live region never shrinks below the cached-view height + 1 line. The `Failed` case is excluded because it persists its indicator and does not clear. | `src/Twig/Rendering/SpectreRenderer.cs` | DONE |
+| E4-T2 | TEST | Update `RenderWithSyncTests.cs`: verify that after sync completion, the final output contains a trailing space line (or at minimum, the Live region output length does not decrease). Update any assertions that check exact output content. | `tests/Twig.Cli.Tests/Rendering/RenderWithSyncTests.cs` | DONE |
 
 **Acceptance Criteria**:
 - [ ] Live region never produces fewer lines after clearing sync indicator than before showing it
@@ -431,11 +431,11 @@ RenderWithSyncAsync → buildCachedView() returns Rows(summaryMarkup, itemPanel[
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E5-T1 | IMPL | In `TreeCommand.cs` line 102: change `new Text(string.Empty)` to `new Text(" ")` in the `buildCachedView` delegate of `RenderWithSyncAsync`. | `src/Twig/Commands/TreeCommand.cs` | TO DO |
-| E5-T2 | TEST | Add test in `TreeCommandAsyncTests.cs` verifying tree output border is not corrupted when sync indicator clears. | `tests/Twig.Cli.Tests/Commands/TreeCommandAsyncTests.cs` | TO DO |
-| E5-T3 | IMPL | Audit: confirm `SetCommand.cs` line 137 uses `fmt.FormatWorkItem(item)` as cached view (content inside Live) — no fix needed. Document in code comment. | `src/Twig/Commands/SetCommand.cs` | TO DO |
-| E5-T4 | IMPL | Audit: confirm `WorkspaceCommand.cs` does NOT call `RenderWithSyncAsync` — it uses `RenderWorkspaceAsync` with a streaming `IAsyncEnumerable` pattern inside a single Live region. No fix needed. | `src/Twig/Commands/WorkspaceCommand.cs` | TO DO |
-| E5-T5 | TEST | Run full test suite (`dotnet test`) to confirm no regressions. | all test projects | TO DO |
+| E5-T1 | IMPL | In `TreeCommand.cs` line 102: change `new Text(string.Empty)` to `new Text(" ")` in the `buildCachedView` delegate of `RenderWithSyncAsync`. | `src/Twig/Commands/TreeCommand.cs` | DONE |
+| E5-T2 | TEST | Add test in `TreeCommandAsyncTests.cs` verifying tree output border is not corrupted when sync indicator clears. | `tests/Twig.Cli.Tests/Commands/TreeCommandAsyncTests.cs` | DONE |
+| E5-T3 | IMPL | Audit: confirm `SetCommand.cs` line 137 uses `fmt.FormatWorkItem(item)` as cached view (content inside Live) — no fix needed. Document in code comment. | `src/Twig/Commands/SetCommand.cs` | DONE |
+| E5-T4 | IMPL | Audit: confirm `WorkspaceCommand.cs` does NOT call `RenderWithSyncAsync` — it uses `RenderWorkspaceAsync` with a streaming `IAsyncEnumerable` pattern inside a single Live region. No fix needed. | `src/Twig/Commands/WorkspaceCommand.cs` | DONE |
+| E5-T5 | TEST | Run full test suite (`dotnet test`) to confirm no regressions. | all test projects | DONE |
 
 **Acceptance Criteria**:
 - [ ] TreeCommand uses `Text(" ")` as cached view

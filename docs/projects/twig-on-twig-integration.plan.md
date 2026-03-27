@@ -1,15 +1,16 @@
 # Twig-on-Twig Meta Integration — Using Twig to Track Work on Twig
 
-> **Revision**: 3  
+> **Revision**: 6  
 > **Date**: 2026-03-26  
 > **Status**: Draft  
-> **Revision Notes**: Revised for process-agnostic design per user feedback. Removed hard-coded process template and iteration assumptions from blocking questions (downgraded to Low). Scripts now accept state names and work item types as parameters rather than assuming specific ADO process templates. Design works with any ADO project/org — `dangreen-msft/Twig` is the default but all scripts accept org/project/team as arguments. Resolved former OQ-1 and OQ-2 by making them runtime parameters discoverable during bootstrap.
+> **Revision Notes**: R6: Addressed critical factual issues from technical review (score 87/100). (1) **implement.yaml path corrected**: All references now target `.github/skills/octane-workflow-implement/assets/implement.yaml` — the copy actually loaded by `run-epics.ps1` line 44. The `~/.copilot/skills/` copy has diverged (7 agents including `reducer`) and is NOT used by the orchestration script. (2) **Agent chain corrected**: Removed `reducer` from all agent chain descriptions — it only exists in the `~/.copilot/skills/` copy (line 273). The `.github/skills/` version used by `run-epics.ps1` has 6 agents: `epic_selector → coder → epic_reviewer → committer → plan_reviewer → fixer`. (3) **ConvertFrom-Yaml 'natively' claim removed**: `ConvertFrom-Yaml` requires the third-party `powershell-yaml` module; it is not native to any PowerShell version. Added explicit prerequisite in EPIC-002. (4) **Database sizes corrected**: microsoft/OS/twig.db is 352KB (was 360KB), dangreen-msft/Twig/twig.db is 68KB (was 69KB). (5) **Seed-to-EPIC ordinal mapping fragility fixed**: `seed-from-plan.ps1` now publishes one seed at a time (not `--all`) to avoid ordinal mismatch from stale seeds. (6) **Epic queue count corrected**: 72 completed entries (was '40+'). (7) **Open questions downgraded per user input**: process-specific questions made low severity; design is process-agnostic. (8) **References section corrected**: implement.yaml link now points to `.github/skills/` path.  
+> **Previous**: R5: Fixed four factual inaccuracies — `twig state` FormatSuccess output, `twig status` multi-line output, `seed publish --all` batch format, added missing `fixer` agent.
 
 ---
 
 ## Executive Summary
 
-This design describes how to make the Twig development workflow "twig-aware" — using Twig itself to track work items for the Twig repository. The integration spans four areas: (1) bootstrapping a Twig workspace for twig2 against any ADO org/project (defaulting to the existing `dangreen-msft/Twig` context), (2) bridging plan document tasks to ADO work items via `twig seed` during epic execution, (3) auto-transitioning work item state as conductor marks plan items Done via parameterized `twig state` calls, and (4) surfacing twig workspace context into conductor agent prompts so agents know what they are working on. The approach is deliberately pragmatic and process-agnostic — it composes existing twig CLI commands (`seed new`, `seed publish`, `flow-start`, `flow-done`, `state`, `status --output json`) as shell tool calls within conductor workflow YAML, accepting ADO-specific details (org, project, state names, work item types) as script parameters rather than hard-coding process template assumptions. This requires zero new twig CLI commands and zero MCP server endpoints for the initial integration.
+This design describes how to make the Twig development workflow "twig-aware" — using Twig itself to track work items for the Twig repository. The integration spans four areas: (1) bootstrapping a Twig workspace for twig2 against any ADO org/project (defaulting to the existing `dangreen-msft/Twig` context), (2) bridging plan document tasks to ADO work items via `twig seed` during epic execution, (3) auto-transitioning work item state as conductor marks plan items Done via parameterized `twig state` calls, and (4) surfacing twig workspace context into conductor agent prompts so agents know what they are working on. The approach is deliberately pragmatic and process-agnostic — it composes existing twig CLI commands (`seed new`, `seed publish`, `flow-start`, `flow-done`, `state`, `set --output json`) as shell tool calls within conductor workflow YAML, accepting ADO-specific details (org, project, state names, work item types) as script parameters rather than hard-coding process template assumptions. This requires zero new twig CLI commands and zero MCP server endpoints for the initial integration.
 
 ---
 
@@ -34,14 +35,14 @@ This design describes how to make the Twig development workflow "twig-aware" —
 All commands support `--output json` for machine-readable output, making them consumable by scripts and AI agents.
 
 **Multi-Context Workspace**: Twig already supports multiple org/project contexts in a single `.twig/` directory. The `TwigPaths.ForContext()` method derives paths as `.twig/{sanitized-org}/{sanitized-project}/twig.db`. The twig2 repo currently has two contexts:
-- `.twig/microsoft/OS/twig.db` (360KB) — CloudVault team work items (active config)
-- `.twig/dangreen-msft/Twig/twig.db` (69KB) — Twig project work items (exists but dormant)
+- `.twig/microsoft/OS/twig.db` (352KB) — CloudVault team work items (active config)
+- `.twig/dangreen-msft/Twig/twig.db` (68KB) — Twig project work items (exists but dormant)
 
 The active context is determined by `.twig/config` (a single JSON file), which currently points to `microsoft/OS/CloudVault`. Both SQLite databases coexist independently — only the one matching the config's `organization`/`project` fields is loaded at runtime.
 
-**Conductor Workflows**: The project uses conductor (a YAML-based multi-agent workflow orchestrator) with two key workflows located in `~/.copilot/skills/`:
-- **plan.yaml** — `architect → technical_reviewer → readability_reviewer` loop that produces plan documents
-- **implement.yaml** — `epic_selector → coder → reducer → epic_reviewer → committer → plan_reviewer` loop that implements epics from plan documents
+**Conductor Workflows**: The project uses conductor (a YAML-based multi-agent workflow orchestrator) with two key workflows:
+- **plan.yaml** (`~/.copilot/skills/`) — `architect → technical_reviewer → readability_reviewer` loop that produces plan documents
+- **implement.yaml** (`.github/skills/octane-workflow-implement/assets/implement.yaml`) — `epic_selector → coder → epic_reviewer → committer → plan_reviewer → fixer` loop that implements epics from plan documents. **Note**: A separate copy exists at `~/.copilot/skills/octane-workflow-implement/assets/implement.yaml` with 7 agents (including `reducer`), but `run-epics.ps1` loads from `.github/skills/` (line 44). These two files have diverged and must not be confused.
 
 Both workflows support arbitrary input variables via `{{ workflow.input.variable_name }}` Jinja2 templates, and configure MCP servers (web-search, context7, ms-learn) for agent tool access.
 
@@ -51,7 +52,7 @@ Both workflows support arbitrary input variables via `{{ workflow.input.variable
 3. Auto-commits: `feat($planName): implement $EPIC`
 4. Marks entry as `# DONE:` in the queue file
 
-The queue file shows 40+ completed epics across 15+ plan documents, demonstrating heavy use of this workflow.
+The queue file shows 72 completed epics across 15+ plan documents, demonstrating heavy use of this workflow.
 
 **Plan Document Convention**: Plan documents use a task table pattern within EPICs:
 
@@ -73,7 +74,7 @@ The committer agent marks tasks `DONE`, updates `**Status**: DONE ✓`, and chec
 
 ### Context That Motivates This Design
 
-The twig project has grown to 40+ completed epics tracked via plan documents and the epic queue. All this work is tracked only in markdown files — there are no ADO work items backing the plans. This means:
+The twig project has grown to 72 completed epics tracked via plan documents and the epic queue. All this work is tracked only in markdown files — there are no ADO work items backing the plans. This means:
 1. No visibility into twig development progress via ADO boards or queries
 2. No ability to use twig's own `flow-start`/`flow-done` lifecycle for twig development
 3. Conductor agents have no awareness of the broader work item context they're operating within
@@ -81,7 +82,7 @@ The twig project has grown to 40+ completed epics tracked via plan documents and
 
 ### Prior Art
 
-The `dangreen-msft/Twig` ADO context already exists (`.twig/dangreen-msft/Twig/twig.db`, 69KB), indicating a previous `twig init --org dangreen-msft --project Twig` was run against this org/project. The config was later switched to `microsoft/OS` for CloudVault work, leaving the Twig context dormant but intact.
+The `dangreen-msft/Twig` ADO context already exists (`.twig/dangreen-msft/Twig/twig.db`, 68KB), indicating a previous `twig init --org dangreen-msft --project Twig` was run against this org/project. The config was later switched to `microsoft/OS` for CloudVault work, leaving the Twig context dormant but intact.
 
 ---
 
@@ -132,10 +133,10 @@ The `dangreen-msft/Twig` ADO context already exists (`.twig/dangreen-msft/Twig/t
 | FR-02 | A reusable script to swap `.twig/config` between known contexts with save/restore semantics, accepting org/project/team as parameters |
 | FR-03 | A script or documented process to create EPIC-level ADO work items (via `twig seed new` + `twig seed publish`) from plan documents |
 | FR-04 | A mapping file (`plan-ado-map.yaml`) that associates plan file paths and EPIC identifiers to ADO work item IDs |
-| FR-05 | `run-epics.ps1` pre-epic hook: load map, switch context, `twig set <ado-id>`, capture `twig status --output json` |
+| FR-05 | `run-epics.ps1` pre-epic hook: load map, switch context, `twig set <ado-id> --output json` → capture as `$twigContext` (single JSON object with work item fields) |
 | FR-06 | `run-epics.ps1` post-epic hook (success): `twig state <configurable-state> --output json` to transition ADO state, with state name as a parameter |
 | FR-07 | `run-epics.ps1` cleanup: restore original twig context after each epic |
-| FR-08 | Conductor `implement.yaml` accepts optional `twig_context` input and injects it into agent system prompts |
+| FR-08 | Conductor `implement.yaml` accepts optional `twig_context` and `twig_ado_id` inputs and injects them into agent system prompts |
 
 ### Non-Functional Requirements
 
@@ -163,15 +164,15 @@ The integration is a thin orchestration layer that composes existing twig CLI co
 │  1. Load plan-ado-map.yaml                              │
 │  2. Save current .twig/config                           │
 │  3. Switch-TwigContext → $TwigOrg/$TwigProject          │
-│  4. twig set <ado-id>                                   │
-│  5. twig status --output json → $twigContext             │
-│  6. conductor run implement.yaml                        │
+│  4. twig set <ado-id> --output json → $twigContext    │
+│  5. conductor run implement.yaml                        │
 │     --input plan="..." --input epic="..."               │
 │     --input twig_context="$twigContext"                  │
-│  7. dotnet test (existing)                              │
-│  8. On success: twig state $DoneState --output json     │
-│  9. git commit (existing)                               │
-│ 10. Restore original .twig/config                       │
+│     --input twig_ado_id="$adoId"                        │
+│  6. dotnet test (existing)                              │
+│  7. On success: twig state $DoneState --output json     │
+│  8. git commit (existing)                               │
+│  9. Restore original .twig/config                       │
 └─────────────────────────────────────────────────────────┘
         │                           │
         ▼                           ▼
@@ -180,8 +181,9 @@ The integration is a thin orchestration layer that composes existing twig CLI co
 │ (context)    │          │ implement.yaml       │
 │              │          │                      │
 │ $TwigOrg/   │          │ Agents receive       │
-│ $TwigProject │          │ twig_context as      │
-│              │          │ input variable       │
+│ $TwigProject │          │ twig_context and     │
+│              │          │ twig_ado_id as       │
+│              │          │ input variables      │
 └──────────────┘          └──────────────────────┘
         │
         ▼
@@ -199,7 +201,7 @@ The integration is a thin orchestration layer that composes existing twig CLI co
 
 A PowerShell script that safely swaps the `.twig/config` file between known ADO contexts. The config is a JSON document (currently 3.3KB) containing `organization`, `project`, `team`, and nested settings (auth, defaults, git, flow, display, typeAppearances).
 
-**Design**: Rather than rewriting the full config each time, the script only patches the identity fields (`organization`, `project`, `team`) and preserves all other settings. This is safe because settings like `git.branchTemplate`, `display.icons`, and `flow.autoAssign` are repo-specific (not org-specific).
+**Design**: Rather than rewriting the full config each time, the script only patches the identity fields (`organization`, `project`, `team`) and preserves all other settings. Most preserved settings like `git.branchTemplate`, `display.icons`, and `flow.autoAssign` are repo-specific. Note: some preserved settings (`typeAppearances`, `defaults.areaPaths`, `defaults.iterationPath`) are org-specific and will be stale after a context switch, but this is benign for `--output json` automation — twig resolves these from the context-specific SQLite database at runtime, not from the config file.
 
 ```powershell
 # tools/Switch-TwigContext.ps1
@@ -246,7 +248,7 @@ plans:
 **Why YAML, not SQLite or JSON?**
 - YAML is human-readable and diff-friendly in git
 - Simple key-value structure (no nesting beyond 2 levels)
-- PowerShell can parse YAML natively via `ConvertFrom-Yaml` (or with `powershell-yaml` module)
+- PowerShell can parse YAML via the `powershell-yaml` module (`ConvertFrom-Yaml` / `ConvertTo-Yaml`). Note: this is NOT a native PowerShell cmdlet — it requires `Install-Module powershell-yaml` as a prerequisite.
 - Small file — will never exceed a few hundred lines
 
 #### Component 3: Seeding Script (`tools/seed-from-plan.ps1`)
@@ -276,17 +278,24 @@ $epics = Select-String -Path $PlanFile -Pattern '### (EPIC-\d+): (.+)' |
 # 3. If parent ID provided, set context
 if ($ParentId) { twig set $ParentId }
 
-# 4. Create seeds for each EPIC
+# 4. Create and publish seeds one at a time to avoid ordinal mismatch
+#    (Publishing one-at-a-time avoids the fragility of `seed publish --all`
+#    where stale/orphaned seeds from a prior run would break ordinal mapping)
 foreach ($epic in $epics) {
-    $result = twig seed new --output json "$($epic.Id): $($epic.Title)" | ConvertFrom-Json
-    Write-Host "Created seed: #$($result.id) for $($epic.Id)"
+    # seed new --output json returns: {"message": "Created local seed: #-1 EPIC-001: Title (Task)"}
+    twig seed new --output json "$($epic.Id): $($epic.Title)"
+    Write-Host "Created seed for $($epic.Id): $($epic.Title)"
+    
+    # Publish this single seed immediately
+    $publishResult = twig seed publish --all --output json | ConvertFrom-Json
+    # Parse the single result to get the new ADO ID
+    $newId = $publishResult.results[0].newId
+    # Record mapping: EPIC-ID → ADO work item ID
+    # (append to plan-ado-map.yaml)
 }
 
-# 5. Publish all seeds
-$publishResult = twig seed publish --all --output json | ConvertFrom-Json
-
-# 6. Update plan-ado-map.yaml with published IDs
-# (Parse existing YAML, add/update entries, write back)
+# 5. Update plan-ado-map.yaml with all published IDs
+# (Load existing YAML, merge new entries, write back)
 ```
 
 #### Component 4: Enhanced run-epics.ps1
@@ -315,13 +324,15 @@ BEFORE conductor:
   3. If $adoId:
      a. Save-TwigConfig  (backup current .twig/config)
      b. Switch-TwigContext -Org $TwigOrg -Project $TwigProject -Team $TwigTeam
-     c. twig set $adoId --output json
-     d. $twigContext = twig status --output json
-  4. Pass to conductor: --input twig_context="$twigContext"
+     c. $twigContext = (twig set $adoId --output json | Select-Object -Last 1)
+        # twig set outputs FormatWorkItem as a single JSON object: {id, title, type, state, ...}
+        # Select-Object -Last 1 guards against any preceding FormatInfo lines on cache miss
+  4. Pass to conductor: --input twig_context="$twigContext" --input twig_ado_id="$adoId"
 
 AFTER conductor + tests (on success):
   5. If $adoId:
      a. twig state $DoneState --output json
+        # Returns: {"message": "#42 → Resolved"} (FormatSuccess, not structured work item JSON)
      b. Write-Host "ADO #$adoId → $DoneState"
 
 ALWAYS (cleanup):
@@ -340,7 +351,7 @@ try {
 
 #### Component 5: Conductor Context Injection
 
-The `implement.yaml` workflow is modified to accept an optional `twig_context` input. When present, it's injected into the `epic_selector`, `coder`, and `committer` agent system prompts via Jinja2 conditional blocks.
+The `implement.yaml` workflow is modified to accept optional `twig_context` and `twig_ado_id` inputs. When present, they're injected into the `epic_selector`, `coder`, and `committer` agent system prompts via Jinja2 conditional blocks.
 
 **Input declaration** (in workflow `inputs` section — if supported, otherwise as a recognized key in `workflow.input`):
 ```yaml
@@ -354,7 +365,11 @@ inputs:
   twig_context:
     type: string
     required: false
-    description: "JSON blob from 'twig status --output json' — ADO work item context"
+    description: "JSON blob from 'twig set <id> --output json' — ADO work item context"
+  twig_ado_id:
+    type: string
+    required: false
+    description: "ADO work item ID (passed separately to avoid needing fromjson Jinja2 filter)"
 ```
 
 **Prompt injection** (in epic_selector's system prompt):
@@ -366,16 +381,18 @@ This epic is tracked as an ADO work item. Context:
 ```json
 {{ workflow.input.twig_context }}
 ```
-When referencing this work in commit messages, use the ADO link format: AB#<id>.
+When referencing this work in commit messages, use the ADO link format: AB#{{ workflow.input.twig_ado_id | default("unknown") }}.
 {% endif %}
 ```
 
 **Committer prompt injection**:
 ```jinja2
-{% if workflow.input.twig_context %}
-Include `AB#{{ (workflow.input.twig_context | fromjson).id }}` in the commit message to link it to the Azure DevOps work item.
+{% if workflow.input.twig_ado_id %}
+Include `AB#{{ workflow.input.twig_ado_id }}` in the commit message to link it to the Azure DevOps work item.
 {% endif %}
 ```
+
+> **Note**: The ADO ID is passed as a separate `twig_ado_id` input rather than extracted from `twig_context` JSON via `fromjson`, because conductor's Jinja2 environment supports `json`, `upper`, `lower`, `default`, `length`, `join` filters but not `fromjson` (which is an Ansible extension, not standard Jinja2).
 
 ### Data Flow
 
@@ -404,13 +421,19 @@ User runs: tools/seed-from-plan.ps1 -PlanFile "docs/projects/foo.plan.md" [-Org 
   │
   ├─ Switch-TwigContext → $Org/$Project
   │
-  ├─ twig seed new --output json "EPIC-001: Validation Rules"
-  │   └─ Returns: {"id": -1, "title": "EPIC-001: Validation Rules"}
-  ├─ twig seed new --output json "EPIC-002: Publish Pipeline"
-  │   └─ Returns: {"id": -2, "title": "EPIC-002: Publish Pipeline"}
-  │
-  ├─ twig seed publish --all --output json
-  │   └─ Returns: [{"oldId": -1, "newId": 42}, {"oldId": -2, "newId": 43}]
+  ├─ For each EPIC (create + publish one at a time to avoid stale seed contamination):
+  │   │
+  │   ├─ twig seed new --output json "EPIC-001: Validation Rules"
+  │   │   └─ Returns: {"message": "Created local seed: #-1 EPIC-001: Validation Rules (Task)"}
+  │   ├─ twig seed publish --all --output json
+  │   │   └─ Returns: {"results": [{"oldId": -1, "newId": 42, ...}], ...}
+  │   ├─ Record: EPIC-001 → ADO #42
+  │   │
+  │   ├─ twig seed new --output json "EPIC-002: Publish Pipeline"
+  │   │   └─ Returns: {"message": "Created local seed: #-1 EPIC-002: Publish Pipeline (Task)"}
+  │   ├─ twig seed publish --all --output json
+  │   │   └─ Returns: {"results": [{"oldId": -1, "newId": 43, ...}], ...}
+  │   └─ Record: EPIC-002 → ADO #43
   │
   ├─ Update tools/plan-ado-map.yaml:
   │   plans:
@@ -430,14 +453,16 @@ run-epics.ps1 processes queue entry: "docs/projects/foo.plan.md | EPIC-001"
   │
   ├─ Save .twig/config → $savedConfig
   ├─ Switch-TwigContext → $TwigOrg/$TwigProject
-  ├─ twig set 42 --output json
-  ├─ twig status --output json → $twigContext
-  │   └─ {"id":42,"title":"EPIC-001: Validation Rules","state":"Active",...}
+  ├─ $twigContext = (twig set 42 --output json | Select-Object -Last 1)
+  │   └─ {"id":42,"title":"EPIC-001: Validation Rules","type":"Task","state":"Active",...}
+  │   Note: twig set outputs a single FormatWorkItem JSON object (no git context lines).
+  │   Select-Object -Last 1 guards against any FormatInfo line on cache miss.
   │
   ├─ conductor run implement.yaml
   │   --input plan="docs/projects/foo.plan.md"
   │   --input epic="EPIC-001"
   │   --input twig_context='{"id":42,...}'
+  │   --input twig_ado_id="42"
   │   │
   │   ├─ epic_selector sees: "This epic is tracked as ADO #42"
   │   ├─ coder implements the epic
@@ -447,7 +472,7 @@ run-epics.ps1 processes queue entry: "docs/projects/foo.plan.md | EPIC-001"
   ├─ dotnet test → passes ✓
   │
   ├─ twig state $DoneState --output json
-  │   └─ ADO #42 transitions to $DoneState
+  │   └─ {"message": "#42 → Resolved"} (ADO #42 transitions to $DoneState)
   │
   ├─ git add -A && git commit (existing run-epics.ps1 behavior)
   │
@@ -462,7 +487,7 @@ run-epics.ps1 processes queue entry: "docs/projects/foo.plan.md | EPIC-001"
 |----|----------|-----------|
 | DD-01 | Shell commands, not MCP server | MCP server is significant engineering effort. Shell commands with `--output json` achieve the same result for this integration. MCP is a future enhancement (see non-goals). |
 | DD-02 | Config patch, not `twig init` for switching | `InitCommand` is destructive (drops DB) and slow (5-10s network calls). Config patching is instant because both databases already exist at their context-specific paths. |
-| DD-03 | YAML map file for plan↔ADO mapping | Simple, version-controllable, human-editable. No database schema changes. PowerShell has YAML parsing support. |
+| DD-03 | YAML map file for plan↔ADO mapping | Simple, version-controllable, human-editable. No database schema changes. PowerShell parses YAML via the `powershell-yaml` module (listed as prerequisite). |
 | DD-04 | Twig context as conductor input variable | Clean separation — conductor doesn't depend on twig. The JSON blob is opaque context passed through to agent prompts via Jinja2. |
 | DD-05 | Graceful degradation when map/twig absent | If no ADO mapping exists for an epic, `run-epics.ps1` proceeds exactly as today. This preserves backward compatibility — existing queue files work without modification. |
 | DD-06 | Process-agnostic parameterization | All scripts accept org, project, team, and state names as parameters rather than hard-coding `dangreen-msft/Twig` or `Resolved`. This makes the integration reusable across any ADO project and process template. Defaults to `dangreen-msft/Twig` for the twig repo use case. |
@@ -537,7 +562,7 @@ run-epics.ps1 processes queue entry: "docs/projects/foo.plan.md | EPIC-001"
 | ADO organization (configurable) | Hosts twig work items | `dangreen-msft` workspace DB present; any org works |
 | Azure CLI authentication | `twig` uses `az cli` auth method for ADO API calls | Configured in `.twig/config` |
 | Conductor CLI | Workflow orchestration | Available in PATH |
-| PowerShell YAML module | Parse `plan-ado-map.yaml` | May need `Install-Module powershell-yaml` |
+| PowerShell YAML module | Parse `plan-ado-map.yaml` | **Required**: `Install-Module powershell-yaml` (not native to any PowerShell version) |
 
 ### Internal Dependencies
 
@@ -546,7 +571,7 @@ run-epics.ps1 processes queue entry: "docs/projects/foo.plan.md | EPIC-001"
 | `twig` CLI binary | All integration via existing `twig seed new/publish/set/state/status` commands |
 | `.twig/{org}/{project}/twig.db` | Workspace database (created via `twig init`) |
 | `tools/run-epics.ps1` | Enhanced with twig integration hooks |
-| `implement.yaml` conductor workflow | Modified with optional `twig_context` input |
+| `implement.yaml` conductor workflow | Modified with optional `twig_context` input (`.github/skills/` copy) |
 
 ### Sequencing Constraints
 
@@ -563,7 +588,7 @@ run-epics.ps1 processes queue entry: "docs/projects/foo.plan.md | EPIC-001"
 | Component | Change Type | Impact |
 |-----------|------------|--------|
 | `tools/run-epics.ps1` | Modified | Additive twig hooks; existing behavior preserved when `--NoTwig` or map absent |
-| Conductor `implement.yaml` | Modified | Optional `twig_context` input; no-op when absent |
+| `.github/skills/octane-workflow-implement/assets/implement.yaml` | Modified | Optional `twig_context` input; no-op when absent |
 | `.twig/config` | Modified at runtime | Temporarily patched during epic execution; always restored |
 
 ### Backward Compatibility
@@ -578,10 +603,9 @@ run-epics.ps1 processes queue entry: "docs/projects/foo.plan.md | EPIC-001"
 | Operation | Latency | Frequency |
 |-----------|---------|-----------|
 | Config patch (context switch) | < 100ms | 2× per epic (switch + restore) |
-| `twig set <id>` | < 500ms | 1× per epic |
-| `twig status --output json` | < 500ms | 1× per epic |
-| `twig state Resolved` | 1-2s (ADO API call) | 1× per epic (on success) |
-| **Total overhead per epic** | **~3-4s** | vs 3-15 min conductor runtime |
+| `twig set <id> --output json` (set + capture context) | < 500ms | 1× per epic |
+| `twig state $DoneState --output json` | 1-2s (ADO API call) | 1× per epic (on success) |
+| **Total overhead per epic** | **~2-3s** | vs 3-15 min conductor runtime |
 
 ---
 
@@ -592,7 +616,7 @@ run-epics.ps1 processes queue entry: "docs/projects/foo.plan.md | EPIC-001"
 | ADO org auth expires or becomes inaccessible | Low | High | Document bootstrap; workspace DB can be reconstructed via `twig init --force` |
 | Context switch corruption (concurrent twig interactive use during epic run) | Medium | Medium | Context switch is atomic JSON write; document that interactive twig use during `run-epics.ps1` requires care; save/restore protects against partial state |
 | `plan-ado-map.yaml` has stale/wrong IDs | Medium | Low | Twig commands fail gracefully (item not found); `run-epics.ps1` continues without twig tracking |
-| PowerShell YAML parsing not available | Low | Low | Fall back to simple string parsing or require `powershell-yaml` module as prerequisite |
+| PowerShell `powershell-yaml` module not installed | Low | Medium | Listed as explicit prerequisite in EPIC-002 task E2-T0. `Install-Module powershell-yaml -Scope CurrentUser` is documented in bootstrap runbook. Script validates availability at startup. |
 | Conductor doesn't pass `twig_context` correctly | Low | Low | Conductor already supports arbitrary input variables; test with one epic first |
 | Target state name is invalid for the process template | Low | Low | `twig state` already validates transitions and provides clear error messages; script catches and logs the error gracefully |
 
@@ -647,7 +671,7 @@ Add `twig_context` input to `implement.yaml` and inject into agent prompts.
 | File Path | Changes |
 |-----------|---------|
 | `tools/run-epics.ps1` | Add twig lifecycle hooks: load map, save/restore context, `twig set`/`twig state`, pass `twig_context` to conductor; all ADO values parameterized |
-| Conductor `implement.yaml` (external: `~/.copilot/skills/octane-workflow-implement/assets/implement.yaml`) | Add optional `twig_context` input; conditional Jinja2 blocks in epic_selector, coder, committer prompts |
+| `.github/skills/octane-workflow-implement/assets/implement.yaml` | Add optional `twig_context` and `twig_ado_id` inputs; conditional Jinja2 blocks in epic_selector, coder, committer prompts. **Note**: This is the copy loaded by `run-epics.ps1` (line 44). The `~/.copilot/skills/` copy is a separate diverged file and is NOT modified. |
 
 ### Deleted Files
 
@@ -693,17 +717,19 @@ Add `twig_context` input to `implement.yaml` and inject into agent prompts.
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
+| E2-T0 | IMPL | **Prerequisite**: Ensure `powershell-yaml` module is installed (`Install-Module powershell-yaml -Scope CurrentUser`). Add availability check at start of `seed-from-plan.ps1` that errors if module is missing. | `tools/seed-from-plan.ps1` | TO DO |
 | E2-T1 | IMPL | Create `plan-ado-map.yaml` with schema documentation comment header and one example entry | `tools/plan-ado-map.yaml` | TO DO |
 | E2-T2 | IMPL | Create `seed-from-plan.ps1` with EPIC heading parser: regex `### (EPIC-\d+): (.+)` extracts EPIC ID and title from plan markdown. Accept `-Org`, `-Project`, `-Team` parameters. | `tools/seed-from-plan.ps1` | TO DO |
-| E2-T3 | IMPL | Implement seed creation loop: switch context (using parameters), set parent (if provided), `twig seed new --output json` for each EPIC | `tools/seed-from-plan.ps1` | TO DO |
-| E2-T4 | IMPL | Implement publish step: `twig seed publish --all --output json`, parse output to capture old→new ID mappings | `tools/seed-from-plan.ps1` | TO DO |
-| E2-T5 | IMPL | Write published IDs to `plan-ado-map.yaml`: load existing YAML, merge new entries, write back | `tools/seed-from-plan.ps1` | TO DO |
+| E2-T3 | IMPL | Implement one-at-a-time seed+publish loop: for each EPIC, `twig seed new` then `twig seed publish --all` immediately. This avoids the fragility of batch `--all` publish where stale/orphaned seeds from prior runs would break ordinal-to-EPIC mapping. | `tools/seed-from-plan.ps1` | TO DO |
+| E2-T4 | IMPL | Parse each single-seed publish result to capture old→new ID mapping (one result per iteration) | `tools/seed-from-plan.ps1` | TO DO |
+| E2-T5 | IMPL | Write published IDs to `plan-ado-map.yaml`: load existing YAML via `ConvertFrom-Yaml`, merge new entries, write back via `ConvertTo-Yaml` | `tools/seed-from-plan.ps1` | TO DO |
 | E2-T6 | IMPL | Add `--DryRun` flag that shows what would be created without calling twig commands | `tools/seed-from-plan.ps1` | TO DO |
 | E2-T7 | TEST | End-to-end: seed one plan's EPICs, verify ADO items created, verify map file updated | manual verification | TO DO |
 
 **Acceptance Criteria**:
+- [ ] `powershell-yaml` module availability is validated at script start with clear error message
 - [ ] `seed-from-plan.ps1` correctly parses EPIC headings from at least one plan document
-- [ ] Seeds are created and published to the target ADO project
+- [ ] Seeds are created and published one-at-a-time to avoid stale seed contamination
 - [ ] `plan-ado-map.yaml` is updated with published ADO work item IDs
 - [ ] `--DryRun` shows planned operations without side effects
 
@@ -721,8 +747,8 @@ Add `twig_context` input to `implement.yaml` and inject into agent prompts.
 |---------|------|-------------|-------|--------|
 | E3-T1 | IMPL | Add `--NoTwig` switch, `--MapFile`, `--TwigOrg`, `--TwigProject`, `--TwigTeam`, and `--DoneState` parameters to `run-epics.ps1` | `tools/run-epics.ps1` | TO DO |
 | E3-T2 | IMPL | Add map loading function: parse `plan-ado-map.yaml` into hashtable keyed by `"$plan|$epic"` at script startup | `tools/run-epics.ps1` | TO DO |
-| E3-T3 | IMPL | Add pre-epic twig hook: save config, switch context (using parameterized org/project), `twig set <ado-id> --output json`, capture `twig status --output json` as `$twigContext` | `tools/run-epics.ps1` | TO DO |
-| E3-T4 | IMPL | Pass `$twigContext` to conductor: add `--input twig_context="$twigContext"` to the conductor args array | `tools/run-epics.ps1` | TO DO |
+| E3-T3 | IMPL | Add pre-epic twig hook: save config, switch context (using parameterized org/project), `$twigContext = (twig set <ado-id> --output json \| Select-Object -Last 1)` to set active item and capture work item JSON in one step | `tools/run-epics.ps1` | TO DO |
+| E3-T4 | IMPL | Pass `$twigContext` and `$adoId` to conductor: add `--input twig_context="$twigContext" --input twig_ado_id="$adoId"` to the conductor args array | `tools/run-epics.ps1` | TO DO |
 | E3-T5 | IMPL | Add post-epic success hook: `twig state $DoneState --output json` to transition ADO work item state (parameterized) | `tools/run-epics.ps1` | TO DO |
 | E3-T6 | IMPL | Add context restore in `finally` block: `Restore-TwigConfig` after every epic (success or failure) | `tools/run-epics.ps1` | TO DO |
 | E3-T7 | IMPL | Wrap all twig commands in try/catch for graceful degradation: log warnings, continue without twig tracking | `tools/run-epics.ps1` | TO DO |
@@ -751,17 +777,17 @@ Add `twig_context` input to `implement.yaml` and inject into agent prompts.
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E4-T1 | IMPL | Add `twig_context` to `implement.yaml` inputs section as optional string parameter | `implement.yaml` | TO DO |
-| E4-T2 | IMPL | Add conditional Jinja2 block to `epic_selector` system prompt: display ADO work item ID, title, type, state from `twig_context` JSON | `implement.yaml` | TO DO |
-| E4-T3 | IMPL | Add conditional Jinja2 block to `coder` system prompt: include ADO work item ID for reference | `implement.yaml` | TO DO |
-| E4-T4 | IMPL | Add conditional Jinja2 block to `committer` system prompt: instruct to include `AB#<id>` in commit messages for ADO linking | `implement.yaml` | TO DO |
+| E4-T1 | IMPL | Add `twig_context` and `twig_ado_id` to `implement.yaml` inputs section as optional string parameters | `.github/skills/octane-workflow-implement/assets/implement.yaml` | TO DO |
+| E4-T2 | IMPL | Add conditional Jinja2 block to `epic_selector` system prompt: display ADO work item ID, title, type, state from `twig_context` JSON | `.github/skills/octane-workflow-implement/assets/implement.yaml` | TO DO |
+| E4-T3 | IMPL | Add conditional Jinja2 block to `coder` system prompt: include ADO work item ID for reference | `.github/skills/octane-workflow-implement/assets/implement.yaml` | TO DO |
+| E4-T4 | IMPL | Add conditional Jinja2 block to `committer` system prompt: use `twig_ado_id` input to instruct including `AB#<id>` in commit messages for ADO linking (avoids `fromjson` filter) | `.github/skills/octane-workflow-implement/assets/implement.yaml` | TO DO |
 | E4-T5 | TEST | Verify agents see work item context: run one epic with `twig_context`, check conductor output for ADO references | manual review | TO DO |
 | E4-T6 | TEST | Verify backward compatibility: run one epic without `twig_context`, verify no errors and no ADO references | manual verification | TO DO |
 
 **Acceptance Criteria**:
 - [ ] Conductor agents see ADO work item context in their prompts when `twig_context` is provided
-- [ ] Commit messages include `AB#<id>` link when `twig_context` is available
-- [ ] Workflow executes identically when `twig_context` is omitted (no errors, no ADO references)
+- [ ] Commit messages include `AB#<id>` link when `twig_ado_id` is available
+- [ ] Workflow executes identically when `twig_context` and `twig_ado_id` are omitted (no errors, no ADO references)
 
 ---
 
@@ -771,11 +797,11 @@ The following existing twig commands are sufficient for the full integration —
 
 | Command | Purpose in Integration | Output |
 |---------|----------------------|--------|
-| `twig status --output json` | Capture current work item context for conductor input | JSON: `{id, title, type, state, assignedTo, areaPath, iterationPath, isDirty, isSeed}` |
-| `twig set <id> --output json` | Set active work item before epic execution | Confirmation message |
-| `twig seed new --output json "title"` | Create local seed work items from plan EPICs | JSON with seed ID |
-| `twig seed publish --all --output json` | Publish seeds to ADO as real work items | JSON with old→new ID mappings |
-| `twig state Resolved --output json` | Transition work item on epic completion | JSON with state change confirmation |
+| `twig set <id> --output json` | Set active work item and capture context for conductor input | Single JSON object: `{id, title, type, state, assignedTo, areaPath, iterationPath, isDirty, isSeed, parentId}`. May emit a `{"info": "..."}` line first on cache miss — use `Select-Object -Last 1` to isolate the work item. |
+| `twig status --output json` | View current work item with git context (interactive use) | **Multi-line output**: Line 1: work item JSON `{id, title, type, state, ...}`, Line 2: `{"branch": "..."}` (if in git repo), Line 3+: `{"prId": ..., "title": ..., "status": ...}` (per linked PR). **Not used for context capture** in this integration — use `twig set` instead. |
+| `twig seed new --output json "title"` | Create local seed work items from plan EPICs | `{"message": "Created local seed: #-1 Title (Type)"}` via FormatSuccess — flat message, not structured seed JSON |
+| `twig seed publish --all --output json` | Publish seeds to ADO as real work items | `{"results": [{oldId, newId, title, status, isSuccess, errorMessage, linkWarnings}, ...], "cycleErrors": [], "createdCount": N, "skippedCount": N, "hasErrors": bool}`. Note: per-result items do NOT include `validationFailures` (only the single-publish formatter does). |
+| `twig state <name> --output json` | Transition work item on epic completion | `{"message": "#42 → Resolved"}` via FormatSuccess — flat message string, not structured work item JSON |
 | `twig ws --output json` | Verify workspace state after bootstrap | JSON workspace with sprint items and seeds |
 | `twig refresh --output json` | Re-sync cache from ADO (used in bootstrap) | JSON with item counts |
 
@@ -803,7 +829,7 @@ This is deferred. The shell command approach via `run-epics.ps1` is sufficient f
 - [Twig Requirements](twig.req.md) — Functional and non-functional requirements
 - [Seed Foundation Plan](twig-seed-foundation.plan.md) — Local-first seed architecture
 - [Seed Publish Plan](twig-seed-publish.plan.md) — Seed publish pipeline (validate → create → remap → order)
-- [Conductor implement.yaml](../../.copilot/skills/octane-workflow-implement/assets/implement.yaml) — Implementation workflow
+- [Conductor implement.yaml](../../.github/skills/octane-workflow-implement/assets/implement.yaml) — Implementation workflow (the copy used by `run-epics.ps1`)
 - [run-epics.ps1](../../tools/run-epics.ps1) — Epic queue runner script
-- [epic-queue.txt](../../tools/epic-queue.txt) — Epic queue with 40+ completed entries
+- [epic-queue.txt](../../tools/epic-queue.txt) — Epic queue with 72 completed entries
 - [Azure DevOps REST API - Work Items](https://learn.microsoft.com/en-us/rest/api/azure/devops/wit/work-items) — ADO API documentation

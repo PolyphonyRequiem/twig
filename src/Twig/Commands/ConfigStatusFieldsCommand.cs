@@ -36,7 +36,7 @@ public sealed class ConfigStatusFieldsCommand(
             ? await File.ReadAllTextAsync(paths.StatusFieldsPath, ct)
             : null;
 
-        var content = StatusFieldsConfig.Generate(definitions, existingContent);
+        var content = StatusFieldsConfig.Generate(definitions, existingContent, config.ProcessTemplate);
 
         var edited = await editorLauncher.LaunchAsync(content, ct);
         if (edited is null)

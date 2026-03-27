@@ -24,6 +24,36 @@ public static class StatusFieldsConfig
     private static readonly string[] DefaultStarKeywords =
         ["effort", "points", "priority", "severity", "tags"];
 
+    /// <summary>
+    /// Curated reference-name sets for known ADO process templates.
+    /// Fields listed here are starred by default (in addition to dateTime fields)
+    /// when a matching process template is detected on first-time generation.
+    /// </summary>
+    private static readonly Dictionary<string, HashSet<string>> ProcessTemplateDefaults = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Agile"] = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "Microsoft.VSTS.Common.Priority",
+            "Microsoft.VSTS.Scheduling.StoryPoints",
+            "Microsoft.VSTS.Common.ValueArea",
+            "System.Tags",
+        },
+        ["Scrum"] = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "Microsoft.VSTS.Scheduling.Effort",
+            "Microsoft.VSTS.Common.BusinessValue",
+            "Microsoft.VSTS.Common.BacklogPriority",
+            "System.Tags",
+        },
+        ["CMMI"] = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "Microsoft.VSTS.Common.Priority",
+            "Microsoft.VSTS.Scheduling.Size",
+            "Microsoft.VSTS.CMMI.Blocked",
+            "System.Tags",
+        },
+    };
+
     private const string CommentHeader =
         """
         # twig status-fields configuration
@@ -65,6 +95,26 @@ public static class StatusFieldsConfig
     }
 
     /// <summary>
+    /// Returns <c>true</c> if the field should be starred by default on first-time generation,
+    /// using process-template-aware curated lists when <paramref name="processTemplate"/> matches
+    /// a known template (Agile, Scrum, CMMI). For unknown or null templates, falls back to the
+    /// keyword heuristic.
+    /// </summary>
+    public static bool IsDefaultStarred(FieldDefinition def, string? processTemplate)
+    {
+        if (processTemplate is not null
+            && ProcessTemplateDefaults.TryGetValue(processTemplate, out var curatedSet))
+        {
+            if (string.Equals(def.DataType, "dateTime", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return curatedSet.Contains(def.ReferenceName);
+        }
+
+        return IsDefaultStarred(def);
+    }
+
+    /// <summary>
     /// Generates the status-fields configuration file content.
     /// When <paramref name="existingContent"/> is <c>null</c>, produces a fresh file with
     /// intelligent defaults. When provided, merges: preserves existing order and selections,
@@ -88,6 +138,29 @@ public static class StatusFieldsConfig
             return GenerateMerged(importableLookup, existingContent);
 
         return GenerateFresh(importable);
+    }
+
+    /// <summary>
+    /// Generates the status-fields configuration file content with optional process-template-aware
+    /// smart defaults. When <paramref name="existingContent"/> is <c>null</c> and
+    /// <paramref name="processTemplate"/> matches a known template, uses curated reference-name
+    /// sets for starring. When <paramref name="existingContent"/> is non-null (merge), the
+    /// <paramref name="processTemplate"/> is ignored — user selections always win.
+    /// </summary>
+    public static string Generate(IReadOnlyList<FieldDefinition> definitions, string? existingContent, string? processTemplate)
+    {
+        if (existingContent is not null || processTemplate is null)
+            return Generate(definitions, existingContent);
+
+        var importable = new List<FieldDefinition>();
+
+        foreach (var def in definitions)
+        {
+            if (IsImportable(def))
+                importable.Add(def);
+        }
+
+        return GenerateFresh(importable, processTemplate);
     }
 
     /// <summary>
@@ -128,14 +201,14 @@ public static class StatusFieldsConfig
         return entries;
     }
 
-    private static string GenerateFresh(List<FieldDefinition> importable)
+    private static string GenerateFresh(List<FieldDefinition> importable, string? processTemplate = null)
     {
         var starred = new List<FieldDefinition>();
         var unstarred = new List<FieldDefinition>();
 
         foreach (var def in importable)
         {
-            if (IsDefaultStarred(def))
+            if (IsDefaultStarred(def, processTemplate))
                 starred.Add(def);
             else
                 unstarred.Add(def);

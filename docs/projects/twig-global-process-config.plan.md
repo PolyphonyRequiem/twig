@@ -571,7 +571,7 @@ twig config status-fields
 
 ---
 
-### Epic 5: Process-Aware Smart Defaults(G-5, G-6)
+### Epic 5: Process-Aware Smart Defaults (G-5, G-6) — ✅ DONE
 
 **Goal**: Improve first-use experience with curated field star lists per known process template.
 
@@ -579,16 +579,16 @@ twig config status-fields
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E5-T1 | IMPL | Add `IsDefaultStarred(FieldDefinition def, string? processTemplate)` overload to `StatusFieldsConfig` (`StatusFieldsConfig.cs`). When `processTemplate` is non-null and matches a known template, use curated reference-name sets instead of the keyword heuristic. **Agile**: `Microsoft.VSTS.Common.Priority`, `Microsoft.VSTS.Scheduling.StoryPoints`, `Microsoft.VSTS.Common.ValueArea`, `System.Tags` + dateTime fields. **Scrum**: `Microsoft.VSTS.Scheduling.Effort`, `Microsoft.VSTS.Common.BusinessValue`, `Microsoft.VSTS.Common.BacklogPriority`, `System.Tags` + dateTime fields. **CMMI**: `Microsoft.VSTS.Common.Priority`, `Microsoft.VSTS.Scheduling.Size`, `Microsoft.VSTS.CMMI.Blocked`, `System.Tags` + dateTime fields. **Basic/unknown**: Delegate to existing `IsDefaultStarred(def)`. | `src/Twig.Domain/Services/StatusFieldsConfig.cs` | TO DO |
-| E5-T2 | IMPL | Add `Generate(IReadOnlyList<FieldDefinition> definitions, string? existingContent, string? processTemplate)` overload to `StatusFieldsConfig`. When `existingContent` is null (fresh generation), pass `processTemplate` through to `IsDefaultStarred()` for template-aware star selection. When `existingContent` is non-null (merge), template doesn't affect merge behavior — only the initial generation benefits from template awareness. | `src/Twig.Domain/Services/StatusFieldsConfig.cs` | TO DO |
-| E5-T3 | IMPL | Update `ConfigStatusFieldsCommand.ExecuteAsync()` to pass `config.ProcessTemplate` to the new `Generate` overload (for fresh generation on first use). | `src/Twig/Commands/ConfigStatusFieldsCommand.cs` | TO DO |
-| E5-T4 | TEST | Unit tests for process-aware defaults: (a) Agile template stars `StoryPoints` but not `Effort`, (b) Scrum template stars `Effort` but not `StoryPoints`, (c) CMMI template stars `Blocked`, (d) Unknown template falls back to keyword heuristic, (e) Null template falls back to keyword heuristic, (f) Template name matching is case-insensitive. | `tests/Twig.Domain.Tests/Services/StatusFieldsConfigSmartDefaultTests.cs` | TO DO |
+| E5-T1 | IMPL | Add `IsDefaultStarred(FieldDefinition def, string? processTemplate)` overload to `StatusFieldsConfig` (`StatusFieldsConfig.cs`). When `processTemplate` is non-null and matches a known template, use curated reference-name sets instead of the keyword heuristic. **Agile**: `Microsoft.VSTS.Common.Priority`, `Microsoft.VSTS.Scheduling.StoryPoints`, `Microsoft.VSTS.Common.ValueArea`, `System.Tags` + dateTime fields. **Scrum**: `Microsoft.VSTS.Scheduling.Effort`, `Microsoft.VSTS.Common.BusinessValue`, `Microsoft.VSTS.Common.BacklogPriority`, `System.Tags` + dateTime fields. **CMMI**: `Microsoft.VSTS.Common.Priority`, `Microsoft.VSTS.Scheduling.Size`, `Microsoft.VSTS.CMMI.Blocked`, `System.Tags` + dateTime fields. **Basic/unknown**: Delegate to existing `IsDefaultStarred(def)`. | `src/Twig.Domain/Services/StatusFieldsConfig.cs` | DONE |
+| E5-T2 | IMPL | Add `Generate(IReadOnlyList<FieldDefinition> definitions, string? existingContent, string? processTemplate)` overload to `StatusFieldsConfig`. When `existingContent` is null (fresh generation), pass `processTemplate` through to `IsDefaultStarred()` for template-aware star selection. When `existingContent` is non-null (merge), template doesn't affect merge behavior — only the initial generation benefits from template awareness. | `src/Twig.Domain/Services/StatusFieldsConfig.cs` | DONE |
+| E5-T3 | IMPL | Update `ConfigStatusFieldsCommand.ExecuteAsync()` to pass `config.ProcessTemplate` to the new `Generate` overload (for fresh generation on first use). | `src/Twig/Commands/ConfigStatusFieldsCommand.cs` | DONE |
+| E5-T4 | TEST | Unit tests for process-aware defaults: (a) Agile template stars `StoryPoints` but not `Effort`, (b) Scrum template stars `Effort` but not `StoryPoints`, (c) CMMI template stars `Blocked`, (d) Unknown template falls back to keyword heuristic, (e) Null template falls back to keyword heuristic, (f) Template name matching is case-insensitive. | `tests/Twig.Domain.Tests/Services/StatusFieldsConfigSmartDefaultTests.cs` | DONE |
 
 **Acceptance Criteria**:
-- [ ] Known templates produce curated star lists on first generation
-- [ ] Unknown/null templates fall back to existing keyword heuristic
-- [ ] Merge behavior unchanged by template awareness
-- [ ] All existing `StatusFieldsConfig` tests pass unchanged
+- [x] Known templates produce curated star lists on first generation
+- [x] Unknown/null templates fall back to existing keyword heuristic
+- [x] Merge behavior unchanged by template awareness
+- [x] All existing `StatusFieldsConfig` tests pass unchanged
 
 ---
 

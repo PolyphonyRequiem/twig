@@ -5,6 +5,7 @@ using Twig.Domain.Common;
 using Twig.Domain.Enums;
 using Twig.Domain.ReadModels;
 using Twig.Domain.Services;
+using Twig.Domain.ValueObjects;
 
 namespace Twig.Rendering;
 
@@ -1122,5 +1123,345 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
             _console.Write(table);
         }
+    }
+
+    // ── Interactive tree navigator ──────────────────────────────────
+
+    /// <inheritdoc />
+    public async Task<int?> RenderInteractiveTreeAsync(
+        TreeNavigatorState initialState,
+        Func<int, Task<TreeNavigatorState>> loadNodeState,
+        CancellationToken ct)
+    {
+        var state = initialState;
+        int? result = null;
+        var done = false;
+        var singleColumn = _console.Profile.Width < 80;
+
+        await _console.Live(new Markup("[dim]Loading...[/]"))
+            .StartAsync(async ctx =>
+            {
+                while (!done && !ct.IsCancellationRequested)
+                {
+                    var treePanel = BuildInteractiveTreeRenderable(state, _theme);
+                    IRenderable renderable;
+                    if (singleColumn)
+                    {
+                        renderable = treePanel;
+                    }
+                    else
+                    {
+                        var previewPanel = BuildPreviewPanel(
+                            state.CursorItem, state.Links, state.SeedLinks, _theme);
+                        renderable = new Columns(treePanel, previewPanel);
+                    }
+
+                    ctx.UpdateTarget(renderable);
+                    ctx.Refresh();
+
+                    ConsoleKeyInfo key;
+                    try
+                    {
+                        key = await Task.Run(() => System.Console.ReadKey(true), ct);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        done = true;
+                        break;
+                    }
+
+                    var action = ProcessKey(key, state);
+                    switch (action)
+                    {
+                        case NavigatorAction.CursorMoved:
+                            if (state.CursorItem is not null)
+                            {
+                                var newState = await loadNodeState(state.CursorItem.Id);
+                                state.UpdateNodeData(newState.Children, newState.Links, newState.SeedLinks);
+                            }
+                            break;
+
+                        case NavigatorAction.NeedExpand:
+                            if (state.CursorItem is not null)
+                            {
+                                var expanded = await loadNodeState(state.CursorItem.Id);
+                                state.Expand(expanded.Children);
+                            }
+                            break;
+
+                        case NavigatorAction.Committed:
+                            done = true;
+                            result = state.CursorItem?.Id;
+                            break;
+
+                        case NavigatorAction.Cancelled:
+                            done = true;
+                            result = null;
+                            break;
+                    }
+                }
+            });
+
+        return result;
+    }
+
+    /// <summary>
+    /// Action returned by <see cref="ProcessKey"/> indicating what the render loop should do next.
+    /// </summary>
+    internal enum NavigatorAction
+    {
+        /// <summary>No action needed — key was ignored or state already updated.</summary>
+        None,
+        /// <summary>Cursor moved to a different item — caller should load node data.</summary>
+        CursorMoved,
+        /// <summary>Children collapsed — no async work needed.</summary>
+        Collapsed,
+        /// <summary>Right arrow on unexpanded node — caller should load and expand children.</summary>
+        NeedExpand,
+        /// <summary>Enter pressed — commit current item.</summary>
+        Committed,
+        /// <summary>Escape pressed (outside filter mode) — cancel navigation.</summary>
+        Cancelled,
+        /// <summary>Escape pressed in filter mode — filter was cleared, no async work.</summary>
+        FilterCleared,
+    }
+
+    /// <summary>
+    /// Pure synchronous key dispatch: mutates <paramref name="state"/> and returns the
+    /// <see cref="NavigatorAction"/> the caller should perform (e.g. load data, exit loop).
+    /// Extracted from the render loop for testability.
+    /// </summary>
+    internal static NavigatorAction ProcessKey(ConsoleKeyInfo key, TreeNavigatorState state)
+    {
+        switch (key.Key)
+        {
+            case ConsoleKey.UpArrow:
+            case ConsoleKey.K when key.Modifiers == 0:
+                var prevId = state.CursorItem?.Id;
+                state.MoveCursorUp();
+                return state.CursorItem?.Id != prevId
+                    ? NavigatorAction.CursorMoved
+                    : NavigatorAction.None;
+
+            case ConsoleKey.DownArrow:
+            case ConsoleKey.J when key.Modifiers == 0:
+                var prevIdDown = state.CursorItem?.Id;
+                state.MoveCursorDown();
+                return state.CursorItem?.Id != prevIdDown
+                    ? NavigatorAction.CursorMoved
+                    : NavigatorAction.None;
+
+            case ConsoleKey.LeftArrow:
+                state.Collapse();
+                return NavigatorAction.Collapsed;
+
+            case ConsoleKey.RightArrow:
+                return state.Children.Count == 0 && state.CursorItem is not null
+                    ? NavigatorAction.NeedExpand
+                    : NavigatorAction.None;
+
+            case ConsoleKey.Enter:
+                return NavigatorAction.Committed;
+
+            case ConsoleKey.Escape:
+                if (state.IsFilterMode)
+                {
+                    state.ClearFilter();
+                    return NavigatorAction.FilterCleared;
+                }
+                return NavigatorAction.Cancelled;
+
+            case ConsoleKey.Tab:
+                // Link jump logic — stub for ITEM-013 in EPIC-003
+                return NavigatorAction.None;
+
+            default:
+                // Filter mode logic — stub for ITEM-012 in EPIC-003
+                return NavigatorAction.None;
+        }
+    }
+
+    /// <summary>
+    /// Builds the interactive tree panel from navigator state.
+    /// Shows dimmed parent chain, bold cursor with ❯ marker, children with type badges, and status bar.
+    /// </summary>
+    internal static IRenderable BuildInteractiveTreeRenderable(TreeNavigatorState state, SpectreTheme theme)
+    {
+        var rows = new List<IRenderable>();
+
+        // Build tree with parent chain as dimmed ancestors
+        IRenderable treeContent;
+        if (state.ParentChain.Count > 0)
+        {
+            var root = state.ParentChain[0];
+            var tree = new Tree($"[dim]{theme.FormatTypeBadge(root.Type)} {Markup.Escape(root.Title)}[/]");
+            IHasTreeNodes container = tree;
+
+            for (var i = 1; i < state.ParentChain.Count; i++)
+            {
+                var ancestor = state.ParentChain[i];
+                container = container.AddNode(
+                    $"[dim]{theme.FormatTypeBadge(ancestor.Type)} {Markup.Escape(ancestor.Title)}[/]");
+            }
+
+            // Add visible siblings at cursor level
+            AddSiblingsToTree(container, state, theme);
+            treeContent = tree;
+        }
+        else if (state.VisibleSiblings.Count > 0)
+        {
+            // No parent chain — siblings are the root level
+            var firstSibling = state.VisibleSiblings[0];
+            var firstLabel = FormatSiblingLabel(firstSibling, 0, state, theme);
+            var tree = new Tree(firstLabel);
+
+            // Add children if first sibling is cursor
+            if (state.CursorIndex == 0)
+                AddChildrenToNode(tree, state, theme);
+
+            for (var i = 1; i < state.VisibleSiblings.Count; i++)
+            {
+                var sibling = state.VisibleSiblings[i];
+                var label = FormatSiblingLabel(sibling, i, state, theme);
+                var node = tree.AddNode(label);
+                if (state.CursorIndex == i)
+                    AddChildrenToNode(node, state, theme);
+            }
+
+            treeContent = tree;
+        }
+        else
+        {
+            treeContent = new Markup("[dim italic]No items to display[/]");
+        }
+
+        rows.Add(treeContent);
+
+        // Sibling count hint
+        if (state.VisibleSiblings.Count > 10)
+        {
+            rows.Add(new Markup($"[dim]...{state.VisibleSiblings.Count} total[/]"));
+        }
+
+        // Status bar
+        rows.Add(new Rule().RuleStyle("dim"));
+        if (state.IsFilterMode)
+        {
+            rows.Add(new Markup($"Filter: {Markup.Escape(state.FilterText)}_"));
+        }
+        else
+        {
+            rows.Add(new Markup("[dim]↑↓ navigate · ←→ collapse/expand · Enter select · Tab link · Esc exit[/]"));
+        }
+
+        return new Panel(new Rows(rows))
+            .Header("[bold]Tree[/]")
+            .Border(BoxBorder.Rounded)
+            .Expand();
+    }
+
+    private static string FormatSiblingLabel(WorkItem item, int index, TreeNavigatorState state, SpectreTheme theme)
+    {
+        var isCursor = index == state.CursorIndex;
+        var marker = isCursor ? "[aqua]❯[/] " : "  ";
+        var style = isCursor ? "bold" : "default";
+        return $"{marker}{theme.FormatTypeBadge(item.Type)} [{style}]#{item.Id} {Markup.Escape(item.Title)}[/] {theme.FormatState(item.State)}";
+    }
+
+    private static void AddSiblingsToTree(IHasTreeNodes container, TreeNavigatorState state, SpectreTheme theme)
+    {
+        for (var i = 0; i < state.VisibleSiblings.Count; i++)
+        {
+            var sibling = state.VisibleSiblings[i];
+            var label = FormatSiblingLabel(sibling, i, state, theme);
+            var node = container.AddNode(label);
+            if (state.CursorIndex == i)
+                AddChildrenToNode(node, state, theme);
+        }
+    }
+
+    private static void AddChildrenToNode(IHasTreeNodes parentNode, TreeNavigatorState state, SpectreTheme theme)
+    {
+        for (var i = 0; i < state.Children.Count; i++)
+        {
+            var child = state.Children[i];
+            var effort = Formatters.FormatterHelpers.GetEffortDisplay(child);
+            var effortSuffix = effort is not null ? $" [dim]{Markup.Escape(effort)}[/]" : "";
+            var childLabel = $"  {theme.FormatTypeBadge(child.Type)} #{child.Id} {Markup.Escape(child.Title)} {theme.FormatState(child.State)}{effortSuffix}";
+            parentNode.AddNode(childLabel);
+        }
+    }
+
+    /// <summary>
+    /// Builds the preview panel showing metadata for the currently selected work item.
+    /// Shows type, state, assigned, iteration, effort, and links.
+    /// </summary>
+    internal static Panel BuildPreviewPanel(
+        WorkItem? item,
+        IReadOnlyList<WorkItemLink> links,
+        IReadOnlyList<SeedLink> seedLinks,
+        SpectreTheme theme)
+    {
+        if (item is null)
+        {
+            return new Panel(new Markup("[dim italic]No item selected[/]"))
+                .Header("[bold]Preview[/]")
+                .Border(BoxBorder.Rounded)
+                .Expand();
+        }
+
+        // Truncate raw title before escaping to avoid cutting into escape sequences
+        var rawTitle = item.Title;
+        var displayTitle = rawTitle.Length > 56 ? rawTitle[..56] + "..." : rawTitle;
+        var headerTitle = $"#{item.Id} {Markup.Escape(displayTitle)}";
+
+        var rows = new List<IRenderable>();
+
+        // Metadata grid
+        var grid = new Grid().AddColumn().AddColumn();
+        grid.AddRow("[bold]Type[/]", $"{theme.FormatTypeBadge(item.Type)} {Markup.Escape(item.Type.ToString())}");
+        grid.AddRow("[bold]State[/]", theme.FormatState(item.State));
+        grid.AddRow("[bold]Assigned[/]", item.AssignedTo is not null
+            ? Markup.Escape(item.AssignedTo)
+            : "[dim]unassigned[/]");
+
+        // Iteration — last segment only
+        var iterationValue = item.IterationPath.Value;
+        var lastBackslash = iterationValue.LastIndexOf('\\');
+        var iterationDisplay = lastBackslash >= 0
+            ? iterationValue[(lastBackslash + 1)..]
+            : iterationValue;
+        grid.AddRow("[bold]Iteration[/]", Markup.Escape(iterationDisplay));
+
+        // Effort — only if present
+        var effort = Formatters.FormatterHelpers.GetEffortDisplay(item);
+        if (effort is not null)
+            grid.AddRow("[bold]Effort[/]", Markup.Escape(effort));
+
+        rows.Add(grid);
+
+        // Links section
+        if (links.Count > 0 || seedLinks.Count > 0)
+        {
+            rows.Add(new Rule().RuleStyle("dim"));
+            rows.Add(new Markup("[bold]Links:[/]"));
+
+            for (var i = 0; i < links.Count; i++)
+            {
+                var link = links[i];
+                rows.Add(new Markup($"  {Markup.Escape(link.LinkType)}: #{link.TargetId}"));
+            }
+
+            for (var i = 0; i < seedLinks.Count; i++)
+            {
+                var sl = seedLinks[i];
+                rows.Add(new Markup($"  [dim]{Markup.Escape(sl.LinkType)}(seed)[/]: #{sl.TargetId}"));
+            }
+        }
+
+        return new Panel(new Rows(rows))
+            .Header($"[bold]{headerTitle}[/]")
+            .Border(BoxBorder.Rounded)
+            .Expand();
     }
 }

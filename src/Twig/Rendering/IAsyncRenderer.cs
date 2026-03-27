@@ -79,6 +79,22 @@ public interface IAsyncRenderer
         string? newState,
         string? branchName,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Launches the interactive tree navigator. Renders a Live tree with keyboard-driven
+    /// traversal — arrow keys move cursor, Enter commits, Escape cancels.
+    /// Returns the committed work item ID, or <c>null</c> if cancelled.
+    /// </summary>
+    /// <param name="initialState">Initial navigator state (cursor, siblings, parent chain).</param>
+    /// <param name="loadNodeState">
+    /// Callback to load full state (ParentChain, Children, Links, SeedLinks) for a given
+    /// work item ID. The renderer never touches repositories directly.
+    /// </param>
+    /// <param name="ct">Cancellation token.</param>
+    Task<int?> RenderInteractiveTreeAsync(
+        TreeNavigatorState initialState,
+        Func<int, Task<TreeNavigatorState>> loadNodeState,
+        CancellationToken ct);
 }
 
 /// <summary>

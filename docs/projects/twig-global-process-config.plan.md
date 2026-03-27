@@ -506,7 +506,7 @@ twig config status-fields
 
 ---
 
-### Epic 2: Init Integration (G-2, G-4)
+### Epic 2: Init Integration (G-2, G-4) — ✅ DONE
 
 **Goal**: `twig init` fetches field definitions, checks for global profiles, and applies/merges as appropriate.
 
@@ -514,19 +514,19 @@ twig config status-fields
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E2-T1 | IMPL | Add field definition fetch to `InitCommand.ExecuteAsync()`. After process type sync (~`InitCommand.cs:223–230`), add: `var fieldDefStore = new SqliteFieldDefinitionStore(cacheStore); await FieldDefinitionSyncService.SyncAsync(iterationService, fieldDefStore);`. This makes field defs available immediately after init. Also store detected template: `config.ProcessTemplate = template;` after L137 and re-save. | `src/Twig/Commands/InitCommand.cs` | TO DO |
-| E2-T2 | IMPL | Add global profile check/apply logic to `InitCommand.ExecuteAsync()`. After field definition fetch (E2-T1), add profile resolution block: (1) Load metadata via `globalProfileStore.LoadMetadataAsync(org, template)`, (2) If metadata exists, compute hash via `FieldDefinitionHasher.ComputeFieldHash(fieldDefs)`, (3) If hashes match → copy status-fields to workspace + print "✓ Applied...", (4) If hashes differ → merge via `StatusFieldsConfig.Generate(fieldDefs, profileContent)`, write merged to workspace + update global profile + print "⚠ Process fields changed...", (5) If no profile exists → skip silently (first workspace for this org/process). The `IGlobalProfileStore` must be constructed manually in init (like `SqliteCacheStore`) since DI isn't fully available during init. | `src/Twig/Commands/InitCommand.cs` | TO DO |
-| E2-T3 | TEST | Unit tests for init + profile integration. Use the existing test constructor (`InitCommand.cs:46–52`) with mock `IIterationService`. Test all three branches: (a) no profile exists → no status-fields created, (b) profile exists + hash match → status-fields copied verbatim, (c) profile exists + hash mismatch → merged content written + global profile updated. Mock `IGlobalProfileStore` via NSubstitute. Verify `StatusFieldsConfig.Generate()` is called with profile content on mismatch. | `tests/Twig.Cli.Tests/Commands/InitCommandGlobalProfileTests.cs` | TO DO |
-| E2-T4 | TEST | Integration test: full init flow with real file system. Create temp dir, run init with mock iteration service that returns known field defs. Verify `.twig/status-fields` file content matches global profile content. | `tests/Twig.Cli.Tests/Commands/InitCommandGlobalProfileTests.cs` | TO DO |
+| E2-T1 | IMPL | Add field definition fetch to `InitCommand.ExecuteAsync()`. After process type sync (~`InitCommand.cs:223–230`), add: `var fieldDefStore = new SqliteFieldDefinitionStore(cacheStore); await FieldDefinitionSyncService.SyncAsync(iterationService, fieldDefStore);`. This makes field defs available immediately after init. Also store detected template: `config.ProcessTemplate = template;` after L137 and re-save. | `src/Twig/Commands/InitCommand.cs` | DONE |
+| E2-T2 | IMPL | Add global profile check/apply logic to `InitCommand.ExecuteAsync()`. After field definition fetch (E2-T1), add profile resolution block: (1) Load metadata via `globalProfileStore.LoadMetadataAsync(org, template)`, (2) If metadata exists, compute hash via `FieldDefinitionHasher.ComputeFieldHash(fieldDefs)`, (3) If hashes match → copy status-fields to workspace + print "✓ Applied...", (4) If hashes differ → merge via `StatusFieldsConfig.Generate(fieldDefs, profileContent)`, write merged to workspace + update global profile + print "⚠ Process fields changed...", (5) If no profile exists → skip silently (first workspace for this org/process). The `IGlobalProfileStore` must be constructed manually in init (like `SqliteCacheStore`) since DI isn't fully available during init. | `src/Twig/Commands/InitCommand.cs` | DONE |
+| E2-T3 | TEST | Unit tests for init + profile integration. Use the existing test constructor (`InitCommand.cs:46–52`) with mock `IIterationService`. Test all three branches: (a) no profile exists → no status-fields created, (b) profile exists + hash match → status-fields copied verbatim, (c) profile exists + hash mismatch → merged content written + global profile updated. Mock `IGlobalProfileStore` via NSubstitute. Verify `StatusFieldsConfig.Generate()` is called with profile content on mismatch. | `tests/Twig.Cli.Tests/Commands/InitCommandGlobalProfileTests.cs` | DONE |
+| E2-T4 | TEST | Integration test: full init flow with real file system. Create temp dir, run init with mock iteration service that returns known field defs. Verify `.twig/status-fields` file content matches global profile content. | `tests/Twig.Cli.Tests/Commands/InitCommandGlobalProfileTests.cs` | DONE |
 
 **Acceptance Criteria**:
-- [ ] `twig init` fetches and caches field definitions (available for immediate `twig config status-fields`)
-- [ ] `config.ProcessTemplate` persisted to `.twig/config`
-- [ ] Profile match → status-fields file created in workspace with profile content
-- [ ] Profile mismatch → merge applied, both workspace and global profile updated
-- [ ] No profile → existing behavior unchanged
-- [ ] Init failures in profile logic don't block init completion (try-catch wrapped)
-- [ ] All existing init tests pass unchanged
+- [x] `twig init` fetches and caches field definitions (available for immediate `twig config status-fields`)
+- [x] `config.ProcessTemplate` persisted to `.twig/config`
+- [x] Profile match → status-fields file created in workspace with profile content
+- [x] Profile mismatch → merge applied, both workspace and global profile updated
+- [x] No profile → existing behavior unchanged
+- [x] Init failures in profile logic don't block init completion (try-catch wrapped)
+- [x] All existing init tests pass unchanged
 
 ---
 

@@ -38,7 +38,8 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<HttpClient>(),
             sp.GetRequiredService<TwigPaths>(),
             sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>()));
+            sp.GetRequiredService<HintEngine>(),
+            sp.GetRequiredService<IGlobalProfileStore>()));
         services.AddSingleton<SetCommand>();
         services.AddSingleton<StatusCommand>();
         services.AddSingleton<StateCommand>();

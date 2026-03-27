@@ -21,6 +21,7 @@ public sealed class InitCommand
     private readonly TwigPaths _paths;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
+    private readonly IGlobalProfileStore? _globalProfileStore;
 
     /// <summary>
     /// Production constructor — accepts auth + HTTP so it can construct an
@@ -28,13 +29,14 @@ public sealed class InitCommand
     /// (not from the potentially-empty config loaded at DI time).
     /// </summary>
     public InitCommand(IAuthenticationProvider authProvider, HttpClient httpClient, TwigPaths paths,
-        OutputFormatterFactory formatterFactory, HintEngine hintEngine)
+        OutputFormatterFactory formatterFactory, HintEngine hintEngine, IGlobalProfileStore globalProfileStore)
     {
         _authProvider = authProvider;
         _httpClient = httpClient;
         _paths = paths;
         _formatterFactory = formatterFactory;
         _hintEngine = hintEngine;
+        _globalProfileStore = globalProfileStore;
     }
 
     /// <summary>
@@ -42,12 +44,14 @@ public sealed class InitCommand
     /// so unit tests don't need real auth or HTTP.
     /// </summary>
     public InitCommand(IIterationService iterationService, TwigPaths paths,
-        OutputFormatterFactory formatterFactory, HintEngine hintEngine)
+        OutputFormatterFactory formatterFactory, HintEngine hintEngine,
+        IGlobalProfileStore? globalProfileStore = null)
     {
         _iterationService = iterationService;
         _paths = paths;
         _formatterFactory = formatterFactory;
         _hintEngine = hintEngine;
+        _globalProfileStore = globalProfileStore;
     }
 
     public async Task<int> ExecuteAsync(string org, string project, string? team = null, string? gitProject = null, bool force = false, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
@@ -129,6 +133,7 @@ public sealed class InitCommand
 
         Console.WriteLine(fmt.FormatInfo("Detecting process template..."));
         var template = await iterationService.DetectTemplateNameAsync();
+        config.ProcessTemplate = template ?? string.Empty;
         Console.WriteLine(fmt.FormatInfo($"  Process template: {template}"));
 
         Console.WriteLine(fmt.FormatInfo("Fetching type appearances..."));
@@ -220,6 +225,69 @@ public sealed class InitCommand
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             Console.WriteLine(fmt.FormatInfo($"  ⚠ Could not fetch type data: {ex.Message}"));
+        }
+
+        // DD-08: Fetch field definitions during init for immediate availability
+        var fieldDefStore = new Infrastructure.Persistence.SqliteFieldDefinitionStore(cacheStore);
+        Console.WriteLine(fmt.FormatInfo("Fetching field definitions..."));
+        try
+        {
+            var fieldDefCount = await FieldDefinitionSyncService.SyncAsync(iterationService, fieldDefStore, ct);
+            Console.WriteLine(fmt.FormatInfo($"  Loaded {fieldDefCount} field definition(s)"));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Console.WriteLine(fmt.FormatInfo($"  ⚠ Could not fetch field definitions: {ex.Message}"));
+        }
+
+        // Global profile resolution — apply or merge status-fields from global profile (FR-09: wrapped in try-catch)
+        try
+        {
+            if (_globalProfileStore is not null && template is not null)
+            {
+                var metadata = await _globalProfileStore.LoadMetadataAsync(org, template, ct);
+                if (metadata is not null)
+                {
+                    var fieldDefs = await fieldDefStore.GetAllAsync(ct);
+                    if (fieldDefs.Count > 0)
+                    {
+                        var currentHash = FieldDefinitionHasher.ComputeFieldHash(fieldDefs);
+                        var profileContent = await _globalProfileStore.LoadStatusFieldsAsync(org, template, ct);
+                        if (profileContent is not null)
+                        {
+                            if (metadata.FieldDefinitionHash == currentHash)
+                            {
+                                // Hash match → copy profile status-fields verbatim (DD-05: workspace layer)
+                                await File.WriteAllTextAsync(contextPaths.StatusFieldsPath, profileContent, ct);
+                                Console.WriteLine(fmt.FormatInfo($"✓ Applied existing field configuration for {org}/{template}"));
+                            }
+                            else
+                            {
+                                // Hash mismatch → merge with existing preferences
+                                var mergedContent = StatusFieldsConfig.Generate(fieldDefs, profileContent);
+                                await File.WriteAllTextAsync(contextPaths.StatusFieldsPath, mergedContent, ct);
+                                await _globalProfileStore.SaveStatusFieldsAsync(org, template, mergedContent, ct);
+                                var updatedMetadata = metadata with
+                                {
+                                    FieldDefinitionHash = currentHash,
+                                    LastSyncedAt = DateTimeOffset.UtcNow,
+                                    FieldCount = fieldDefs.Count
+                                };
+                                await _globalProfileStore.SaveMetadataAsync(org, template, updatedMetadata, ct);
+                                Console.WriteLine(fmt.FormatInfo("⚠ Process fields changed — merged with existing preferences"));
+                                Console.WriteLine(fmt.FormatHint("Run 'twig config status-fields' to review"));
+                            }
+                        }
+                    }
+                }
+                // If no profile exists → skip silently (first workspace for this org/process)
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // FR-09: init failures in profile logic must never block init completion
+            Console.WriteLine(fmt.FormatInfo($"  ⚠ Could not apply global profile: {ex.Message}"));
+            Console.WriteLine(fmt.FormatHint("Run 'twig config status-fields' to configure manually"));
         }
 
         // SEC-001: Append .twig/ to .gitignore

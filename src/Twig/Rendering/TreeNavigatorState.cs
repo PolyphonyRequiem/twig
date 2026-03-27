@@ -69,8 +69,8 @@ public sealed class TreeNavigatorState
     /// <summary>Seed links for the cursor item.</summary>
     public IReadOnlyList<SeedLink> SeedLinks { get; private set; }
 
-    /// <summary>Current link cycle position for Tab traversal.</summary>
-    public int LinkJumpIndex { get; private set; }
+    /// <summary>Current link cycle position for Tab traversal (-1 = no link selected).</summary>
+    public int LinkJumpIndex { get; private set; } = -1;
 
     /// <summary>Decrement CursorIndex (floor 0), update CursorItem.</summary>
     public void MoveCursorUp()
@@ -155,6 +155,54 @@ public sealed class TreeNavigatorState
     }
 
     /// <summary>
+    /// Exits filter mode while keeping the cursor on the currently selected item.
+    /// Restores all siblings and repositions cursor to match the selected item.
+    /// </summary>
+    public void AcceptFilter()
+    {
+        var selectedItem = CursorItem;
+        FilterText = string.Empty;
+        IsFilterMode = false;
+        _visibleSiblings = new List<WorkItem>(_allSiblings);
+
+        if (selectedItem is not null)
+        {
+            var idx = _visibleSiblings.FindIndex(w => w.Id == selectedItem.Id);
+            CursorIndex = Math.Max(0, idx);
+            CursorItem = _visibleSiblings.Count > 0 ? _visibleSiblings[CursorIndex] : null;
+        }
+        else
+        {
+            CursorIndex = 0;
+            CursorItem = _visibleSiblings.Count > 0 ? _visibleSiblings[0] : null;
+        }
+    }
+
+    /// <summary>
+    /// Advances <see cref="LinkJumpIndex"/> forward through the combined link list (wrapping).
+    /// Returns the <see cref="NavigatorLink"/> at the new index, or <c>null</c> if no links exist.
+    /// </summary>
+    public NavigatorLink? AdvanceLinkJump()
+    {
+        var combined = GetCombinedLinks();
+        if (combined.Count == 0) return null;
+        LinkJumpIndex = (LinkJumpIndex + 1) % combined.Count;
+        return combined[LinkJumpIndex];
+    }
+
+    /// <summary>
+    /// Moves <see cref="LinkJumpIndex"/> backward through the combined link list (wrapping).
+    /// Returns the <see cref="NavigatorLink"/> at the new index, or <c>null</c> if no links exist.
+    /// </summary>
+    public NavigatorLink? ReverseLinkJump()
+    {
+        var combined = GetCombinedLinks();
+        if (combined.Count == 0) return null;
+        LinkJumpIndex = LinkJumpIndex <= 0 ? combined.Count - 1 : LinkJumpIndex - 1;
+        return combined[LinkJumpIndex];
+    }
+
+    /// <summary>
     /// Updates children, links, seed links, and resets the link jump index.
     /// Called after loading node data for the current cursor item.
     /// </summary>
@@ -166,6 +214,6 @@ public sealed class TreeNavigatorState
         Children = children;
         Links = links;
         SeedLinks = seedLinks;
-        LinkJumpIndex = 0;
+        LinkJumpIndex = -1;
     }
 }

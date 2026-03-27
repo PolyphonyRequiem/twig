@@ -1137,6 +1137,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         int? result = null;
         var done = false;
         var singleColumn = _console.Profile.Width < 80;
+        string? linkError = null;
 
         await _console.Live(new Markup("[dim]Loading...[/]"))
             .StartAsync(async ctx =>
@@ -1151,8 +1152,20 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                     }
                     else
                     {
-                        var previewPanel = BuildPreviewPanel(
-                            state.CursorItem, state.Links, state.SeedLinks, _theme);
+                        IRenderable previewPanel;
+                        if (linkError is not null)
+                        {
+                            previewPanel = new Panel(new Markup(linkError))
+                                .Header("[bold]Preview[/]")
+                                .Border(BoxBorder.Rounded)
+                                .Expand();
+                        }
+                        else
+                        {
+                            previewPanel = BuildPreviewPanel(
+                                state.CursorItem, state.Links, state.SeedLinks, _theme,
+                                state.LinkJumpIndex);
+                        }
                         renderable = new Columns(treePanel, previewPanel);
                     }
 
@@ -1171,6 +1184,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                     }
 
                     var action = ProcessKey(key, state);
+                    linkError = null;
                     switch (action)
                     {
                         case NavigatorAction.CursorMoved:
@@ -1186,6 +1200,39 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                             {
                                 var expanded = await loadNodeState(state.CursorItem.Id);
                                 state.Expand(expanded.Children);
+                            }
+                            break;
+
+                        case NavigatorAction.FilterUpdated:
+                            if (state.CursorItem is not null)
+                            {
+                                var filterState = await loadNodeState(state.CursorItem.Id);
+                                state.UpdateNodeData(filterState.Children, filterState.Links, filterState.SeedLinks);
+                            }
+                            break;
+
+                        case NavigatorAction.FilterCleared:
+                            if (state.CursorItem is not null)
+                            {
+                                var restoredState = await loadNodeState(state.CursorItem.Id);
+                                state.UpdateNodeData(restoredState.Children, restoredState.Links, restoredState.SeedLinks);
+                            }
+                            break;
+
+                        case NavigatorAction.LinkJump:
+                            var combinedLinks = state.GetCombinedLinks();
+                            if (state.LinkJumpIndex >= 0 && state.LinkJumpIndex < combinedLinks.Count)
+                            {
+                                var targetId = combinedLinks[state.LinkJumpIndex].TargetId;
+                                var jumpState = await loadNodeState(targetId);
+                                if (jumpState.CursorItem is null)
+                                {
+                                    linkError = $"[yellow]Item #{targetId} not in cache. Run 'twig refresh' to fetch.[/]";
+                                }
+                                else
+                                {
+                                    state = jumpState;
+                                }
                             }
                             break;
 
@@ -1222,8 +1269,12 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         Committed,
         /// <summary>Escape pressed (outside filter mode) — cancel navigation.</summary>
         Cancelled,
-        /// <summary>Escape pressed in filter mode — filter was cleared, no async work.</summary>
+        /// <summary>Filter cleared via Escape or Backspace-to-empty — caller should reload node data for the restored cursor item.</summary>
         FilterCleared,
+        /// <summary>Filter text changed — caller should reload node data for cursor item.</summary>
+        FilterUpdated,
+        /// <summary>Tab/Shift+Tab — caller should load the link target and re-root.</summary>
+        LinkJump,
     }
 
     /// <summary>
@@ -1233,6 +1284,49 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     /// </summary>
     internal static NavigatorAction ProcessKey(ConsoleKeyInfo key, TreeNavigatorState state)
     {
+        // ── Filter mode intercepts ──────────────────────────────────
+        if (state.IsFilterMode)
+        {
+            switch (key.Key)
+            {
+                case ConsoleKey.Escape:
+                    state.ClearFilter();
+                    return NavigatorAction.FilterCleared;
+
+                case ConsoleKey.Enter:
+                    state.AcceptFilter();
+                    return NavigatorAction.CursorMoved;
+
+                case ConsoleKey.Backspace:
+                    if (state.FilterText.Length > 0)
+                    {
+                        var newText = state.FilterText[..^1];
+                        if (newText.Length == 0)
+                        {
+                            state.ClearFilter();
+                            return NavigatorAction.FilterCleared;
+                        }
+                        state.ApplyFilter(newText);
+                        return NavigatorAction.FilterUpdated;
+                    }
+                    state.ClearFilter();
+                    return NavigatorAction.FilterCleared;
+
+                case ConsoleKey.UpArrow:
+                case ConsoleKey.DownArrow:
+                    break; // Fall through to normal navigation
+
+                default:
+                    if (key.KeyChar != '\0' && !char.IsControl(key.KeyChar))
+                    {
+                        state.ApplyFilter(state.FilterText + key.KeyChar);
+                        return NavigatorAction.FilterUpdated;
+                    }
+                    return NavigatorAction.None;
+            }
+        }
+
+        // ── Normal (navigate) mode ──────────────────────────────────
         switch (key.Key)
         {
             case ConsoleKey.UpArrow:
@@ -1264,19 +1358,21 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                 return NavigatorAction.Committed;
 
             case ConsoleKey.Escape:
-                if (state.IsFilterMode)
-                {
-                    state.ClearFilter();
-                    return NavigatorAction.FilterCleared;
-                }
                 return NavigatorAction.Cancelled;
 
             case ConsoleKey.Tab:
-                // Link jump logic — stub for ITEM-013 in EPIC-003
-                return NavigatorAction.None;
+                var link = (key.Modifiers & ConsoleModifiers.Shift) != 0
+                    ? state.ReverseLinkJump()
+                    : state.AdvanceLinkJump();
+                return link.HasValue ? NavigatorAction.LinkJump : NavigatorAction.None;
 
             default:
-                // Filter mode logic — stub for ITEM-012 in EPIC-003
+                // Enter filter mode on printable characters
+                if (key.KeyChar != '\0' && !char.IsControl(key.KeyChar))
+                {
+                    state.ApplyFilter(state.FilterText + key.KeyChar);
+                    return NavigatorAction.FilterUpdated;
+                }
                 return NavigatorAction.None;
         }
     }
@@ -1395,12 +1491,15 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     /// <summary>
     /// Builds the preview panel showing metadata for the currently selected work item.
     /// Shows type, state, assigned, iteration, effort, and links.
+    /// When <paramref name="linkJumpIndex"/> is &gt;= 0, the link at that position in the
+    /// combined (links + seedLinks) list is highlighted with <c>[aqua]</c>.
     /// </summary>
     internal static Panel BuildPreviewPanel(
         WorkItem? item,
         IReadOnlyList<WorkItemLink> links,
         IReadOnlyList<SeedLink> seedLinks,
-        SpectreTheme theme)
+        SpectreTheme theme,
+        int linkJumpIndex = -1)
     {
         if (item is null)
         {
@@ -1449,13 +1548,20 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             for (var i = 0; i < links.Count; i++)
             {
                 var link = links[i];
-                rows.Add(new Markup($"  {Markup.Escape(link.LinkType)}: #{link.TargetId}"));
+                if (linkJumpIndex == i)
+                    rows.Add(new Markup($"  [aqua]{Markup.Escape(link.LinkType)}: #{link.TargetId}[/]"));
+                else
+                    rows.Add(new Markup($"  {Markup.Escape(link.LinkType)}: #{link.TargetId}"));
             }
 
             for (var i = 0; i < seedLinks.Count; i++)
             {
                 var sl = seedLinks[i];
-                rows.Add(new Markup($"  [dim]{Markup.Escape(sl.LinkType)}(seed)[/]: #{sl.TargetId}"));
+                var combinedIndex = links.Count + i;
+                if (linkJumpIndex == combinedIndex)
+                    rows.Add(new Markup($"  [aqua]{Markup.Escape(sl.LinkType)}(seed): #{sl.TargetId}[/]"));
+                else
+                    rows.Add(new Markup($"  [dim]{Markup.Escape(sl.LinkType)}(seed)[/]: #{sl.TargetId}"));
             }
         }
 

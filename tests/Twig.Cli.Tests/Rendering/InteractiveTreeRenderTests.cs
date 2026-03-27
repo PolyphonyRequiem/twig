@@ -467,7 +467,7 @@ public class InteractiveTreeRenderTests
     }
 
     [Fact]
-    public void ProcessKey_Tab_ReturnsNone_Stubbed()
+    public void ProcessKey_Tab_NoLinks_ReturnsNone()
     {
         var state = CreateStateWithSiblings(3);
         var key = new ConsoleKeyInfo('\t', ConsoleKey.Tab, false, false, false);
@@ -478,10 +478,282 @@ public class InteractiveTreeRenderTests
     }
 
     [Fact]
-    public void ProcessKey_UnknownKey_ReturnsNone()
+    public void ProcessKey_Tab_WithLinks_ReturnsLinkJump()
+    {
+        var item = CreateWorkItem(1, "Test");
+        var links = new List<WorkItemLink>
+        {
+            new(SourceId: 1, TargetId: 42, LinkType: "Related"),
+        };
+        var state = new TreeNavigatorState(
+            item, Array.Empty<WorkItem>(), new List<WorkItem> { item },
+            Array.Empty<WorkItem>(), links, Array.Empty<SeedLink>());
+        var key = new ConsoleKeyInfo('\t', ConsoleKey.Tab, false, false, false);
+
+        var action = SpectreRenderer.ProcessKey(key, state);
+
+        action.ShouldBe(SpectreRenderer.NavigatorAction.LinkJump);
+        state.LinkJumpIndex.ShouldBe(0);
+    }
+
+    [Fact]
+    public void ProcessKey_ShiftTab_WithLinks_ReturnsLinkJump()
+    {
+        var item = CreateWorkItem(1, "Test");
+        var links = new List<WorkItemLink>
+        {
+            new(SourceId: 1, TargetId: 42, LinkType: "Related"),
+            new(SourceId: 1, TargetId: 99, LinkType: "Predecessor"),
+        };
+        var state = new TreeNavigatorState(
+            item, Array.Empty<WorkItem>(), new List<WorkItem> { item },
+            Array.Empty<WorkItem>(), links, Array.Empty<SeedLink>());
+        var key = new ConsoleKeyInfo('\t', ConsoleKey.Tab, true, false, false);
+
+        var action = SpectreRenderer.ProcessKey(key, state);
+
+        action.ShouldBe(SpectreRenderer.NavigatorAction.LinkJump);
+        // Shift+Tab from -1 wraps to last link (index 1)
+        state.LinkJumpIndex.ShouldBe(1);
+    }
+
+    // ── ProcessKey — Filter mode (ITEM-012) ────────────────────────
+
+    [Fact]
+    public void ProcessKey_AlphanumericKey_EntersFilterMode()
     {
         var state = CreateStateWithSiblings(3);
-        var key = new ConsoleKeyInfo('z', ConsoleKey.Z, false, false, false);
+        state.IsFilterMode.ShouldBeFalse();
+        var key = new ConsoleKeyInfo('a', ConsoleKey.A, false, false, false);
+
+        var action = SpectreRenderer.ProcessKey(key, state);
+
+        action.ShouldBe(SpectreRenderer.NavigatorAction.FilterUpdated);
+        state.IsFilterMode.ShouldBeTrue();
+        state.FilterText.ShouldBe("a");
+    }
+
+    [Fact]
+    public void ProcessKey_DigitKey_EntersFilterMode()
+    {
+        var state = CreateStateWithSiblings(3);
+        var key = new ConsoleKeyInfo('5', ConsoleKey.D5, false, false, false);
+
+        var action = SpectreRenderer.ProcessKey(key, state);
+
+        action.ShouldBe(SpectreRenderer.NavigatorAction.FilterUpdated);
+        state.FilterText.ShouldBe("5");
+    }
+
+    [Fact]
+    public void ProcessKey_FilterMode_AppendCharacter()
+    {
+        var state = CreateStateWithSiblings(3);
+        state.ApplyFilter("te");
+        var key = new ConsoleKeyInfo('s', ConsoleKey.S, false, false, false);
+
+        var action = SpectreRenderer.ProcessKey(key, state);
+
+        action.ShouldBe(SpectreRenderer.NavigatorAction.FilterUpdated);
+        state.FilterText.ShouldBe("tes");
+    }
+
+    [Fact]
+    public void ProcessKey_FilterMode_Backspace_RemovesLastChar()
+    {
+        var state = CreateStateWithSiblings(3);
+        state.ApplyFilter("abc");
+        var key = new ConsoleKeyInfo('\b', ConsoleKey.Backspace, false, false, false);
+
+        var action = SpectreRenderer.ProcessKey(key, state);
+
+        action.ShouldBe(SpectreRenderer.NavigatorAction.FilterUpdated);
+        state.FilterText.ShouldBe("ab");
+    }
+
+    [Fact]
+    public void ProcessKey_FilterMode_Backspace_LastChar_ExitsFilterMode()
+    {
+        var state = CreateStateWithSiblings(3);
+        state.ApplyFilter("x");
+        var key = new ConsoleKeyInfo('\b', ConsoleKey.Backspace, false, false, false);
+
+        var action = SpectreRenderer.ProcessKey(key, state);
+
+        action.ShouldBe(SpectreRenderer.NavigatorAction.FilterCleared);
+        state.IsFilterMode.ShouldBeFalse();
+        state.FilterText.ShouldBe(string.Empty);
+    }
+
+    [Fact]
+    public void ProcessKey_FilterMode_Backspace_EmptyText_ExitsFilterMode()
+    {
+        var state = CreateStateWithSiblings(3);
+        state.ApplyFilter("");
+        state.IsFilterMode.ShouldBeTrue();
+        var key = new ConsoleKeyInfo('\b', ConsoleKey.Backspace, false, false, false);
+
+        var action = SpectreRenderer.ProcessKey(key, state);
+
+        action.ShouldBe(SpectreRenderer.NavigatorAction.FilterCleared);
+        state.IsFilterMode.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void ProcessKey_FilterMode_Enter_AcceptsFilter()
+    {
+        var siblings = new List<WorkItem>
+        {
+            CreateWorkItem(1, "Alpha task"),
+            CreateWorkItem(2, "Beta feature"),
+            CreateWorkItem(3, "Alpha bug"),
+        };
+        var state = CreateStateWithSiblings(siblings);
+        state.ApplyFilter("Alpha");
+        state.VisibleSiblings.Count.ShouldBe(2);
+        var key = new ConsoleKeyInfo('\r', ConsoleKey.Enter, false, false, false);
+
+        var action = SpectreRenderer.ProcessKey(key, state);
+
+        action.ShouldBe(SpectreRenderer.NavigatorAction.CursorMoved);
+        state.IsFilterMode.ShouldBeFalse();
+        state.VisibleSiblings.Count.ShouldBe(3); // All siblings restored
+        state.CursorItem!.Title.ShouldBe("Alpha task"); // Kept cursor on filtered selection
+    }
+
+    [Fact]
+    public void ProcessKey_FilterMode_UpDown_NavigatesWithinFilteredResults()
+    {
+        var siblings = new List<WorkItem>
+        {
+            CreateWorkItem(1, "Alpha task"),
+            CreateWorkItem(2, "Beta feature"),
+            CreateWorkItem(3, "Alpha bug"),
+        };
+        var state = CreateStateWithSiblings(siblings);
+        state.ApplyFilter("Alpha");
+        state.CursorIndex.ShouldBe(0);
+
+        var downKey = new ConsoleKeyInfo('\0', ConsoleKey.DownArrow, false, false, false);
+        var action = SpectreRenderer.ProcessKey(downKey, state);
+
+        action.ShouldBe(SpectreRenderer.NavigatorAction.CursorMoved);
+        state.CursorIndex.ShouldBe(1);
+        state.CursorItem!.Title.ShouldBe("Alpha bug");
+    }
+
+    [Fact]
+    public void ProcessKey_FilterMode_VimJ_AppendsToFilter()
+    {
+        var state = CreateStateWithSiblings(3);
+        state.ApplyFilter("item");
+        var key = new ConsoleKeyInfo('j', ConsoleKey.J, false, false, false);
+
+        var action = SpectreRenderer.ProcessKey(key, state);
+
+        action.ShouldBe(SpectreRenderer.NavigatorAction.FilterUpdated);
+        state.FilterText.ShouldBe("itemj");
+    }
+
+    [Fact]
+    public void ProcessKey_FilterMode_Tab_ReturnsNone()
+    {
+        var item = CreateWorkItem(1, "Test");
+        var links = new List<WorkItemLink>
+        {
+            new(SourceId: 1, TargetId: 42, LinkType: "Related"),
+        };
+        var state = new TreeNavigatorState(
+            item, Array.Empty<WorkItem>(), new List<WorkItem> { item },
+            Array.Empty<WorkItem>(), links, Array.Empty<SeedLink>());
+        state.ApplyFilter("Te");
+        state.IsFilterMode.ShouldBeTrue();
+        var key = new ConsoleKeyInfo('\t', ConsoleKey.Tab, false, false, false);
+
+        var action = SpectreRenderer.ProcessKey(key, state);
+
+        action.ShouldBe(SpectreRenderer.NavigatorAction.None);
+        state.LinkJumpIndex.ShouldBe(-1);
+    }
+
+    // ── BuildPreviewPanel — Link highlighting (ITEM-013) ────────────
+
+    [Fact]
+    public void BuildPreviewPanel_LinkHighlight_HighlightsCorrectLink()
+    {
+        var item = CreateWorkItem(1, "Test");
+        var links = new List<WorkItemLink>
+        {
+            new(SourceId: 1, TargetId: 42, LinkType: "Related"),
+            new(SourceId: 1, TargetId: 99, LinkType: "Predecessor"),
+        };
+
+        // Render with ANSI sequences to detect aqua color highlighting
+        var panel = SpectreRenderer.BuildPreviewPanel(
+            item, links, Array.Empty<SeedLink>(), _theme, linkJumpIndex: 0);
+        var output = RenderToAnsiString(panel);
+
+        // Both link IDs should appear
+        output.ShouldContain("#42");
+        output.ShouldContain("#99");
+
+        // Aqua ANSI escape should appear near the highlighted link (Related: #42)
+        var relatedPos = output.IndexOf("Related");
+        // Predecessor (#99) is NOT highlighted — no aqua code should bleed into it.
+        // "38;5;14" is the ANSI SGR code for aqua (bright cyan)
+        var aquaPositions = AllIndexesOf(output, "38;5;14");
+        aquaPositions.ShouldNotBeEmpty("Expected aqua ANSI code for highlighted link");
+        // At least one aqua code should appear before the highlighted link (Related)
+        aquaPositions.ShouldContain(pos => pos < relatedPos,
+            "Aqua highlight should appear before the highlighted link 'Related'");
+        // No aqua code should appear after the Related link highlight region
+        aquaPositions.ShouldNotContain(pos => pos > relatedPos,
+            "Aqua highlight should NOT extend beyond the highlighted 'Related' link");
+    }
+
+    [Fact]
+    public void BuildPreviewPanel_NoLinkHighlight_DefaultBehavior()
+    {
+        var item = CreateWorkItem(1, "Test");
+        var links = new List<WorkItemLink>
+        {
+            new(SourceId: 1, TargetId: 42, LinkType: "Related"),
+        };
+
+        var panel = SpectreRenderer.BuildPreviewPanel(item, links, Array.Empty<SeedLink>(), _theme);
+
+        var output = RenderToString(panel);
+        output.ShouldContain("#42");
+        output.ShouldContain("Related");
+    }
+
+    [Fact]
+    public void BuildPreviewPanel_SeedLinkHighlight_HighlightsSeedLink()
+    {
+        var item = CreateWorkItem(1, "Test");
+        var links = new List<WorkItemLink>
+        {
+            new(SourceId: 1, TargetId: 42, LinkType: "Related"),
+        };
+        var seedLinks = new List<SeedLink>
+        {
+            new(SourceId: 1, TargetId: -5, LinkType: "blocks", CreatedAt: DateTimeOffset.UtcNow),
+        };
+
+        // linkJumpIndex=1 → points to the seed link (index 0 in seedLinks, combined index 1)
+        var panel = SpectreRenderer.BuildPreviewPanel(item, links, seedLinks, _theme, linkJumpIndex: 1);
+
+        var output = RenderToString(panel);
+        output.ShouldContain("#-5");
+        output.ShouldContain("blocks");
+    }
+
+    [Fact]
+    public void ProcessKey_NonPrintableKey_ReturnsNone()
+    {
+        var state = CreateStateWithSiblings(3);
+        // F1 is non-printable, should be ignored
+        var key = new ConsoleKeyInfo('\0', ConsoleKey.F1, false, false, false);
 
         var action = SpectreRenderer.ProcessKey(key, state);
 
@@ -496,6 +768,26 @@ public class InteractiveTreeRenderTests
         console.Profile.Width = 120;
         console.Write(renderable);
         return console.Output;
+    }
+
+    private static string RenderToAnsiString(IRenderable renderable)
+    {
+        var console = new TestConsole().EmitAnsiSequences();
+        console.Profile.Width = 120;
+        console.Write(renderable);
+        return console.Output;
+    }
+
+    private static List<int> AllIndexesOf(string source, string value)
+    {
+        var indexes = new List<int>();
+        var index = 0;
+        while ((index = source.IndexOf(value, index, StringComparison.Ordinal)) != -1)
+        {
+            indexes.Add(index);
+            index += value.Length;
+        }
+        return indexes;
     }
 
     private static TreeNavigatorState CreateStateWithSiblings(int count, int cursorIndex = 0)

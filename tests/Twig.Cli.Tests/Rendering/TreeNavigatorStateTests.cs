@@ -383,6 +383,213 @@ public class TreeNavigatorStateTests
         state.CursorIndex.ShouldBe(0);
     }
 
+    // ── AcceptFilter ────────────────────────────────────────────────
+
+    [Fact]
+    public void AcceptFilter_KeepsCursorOnSelectedItem()
+    {
+        var siblings = new List<WorkItem>
+        {
+            CreateWorkItem(1, "Alpha task"),
+            CreateWorkItem(2, "Beta feature"),
+            CreateWorkItem(3, "Alpha bug"),
+            CreateWorkItem(4, "Gamma item"),
+        };
+        var state = CreateStateWithSiblings(siblings, cursorIndex: 0);
+        state.ApplyFilter("Alpha");
+        state.VisibleSiblings.Count.ShouldBe(2);
+        // Move cursor to second filtered result (Alpha bug, id=3)
+        state.MoveCursorDown();
+        state.CursorItem!.Id.ShouldBe(3);
+
+        state.AcceptFilter();
+
+        state.IsFilterMode.ShouldBeFalse();
+        state.FilterText.ShouldBe(string.Empty);
+        state.VisibleSiblings.Count.ShouldBe(4);
+        state.CursorItem!.Id.ShouldBe(3);
+        state.CursorIndex.ShouldBe(2); // Position of id=3 in full siblings
+    }
+
+    [Fact]
+    public void AcceptFilter_NullCursorItem_ResetsCursorToFirst()
+    {
+        var siblings = new List<WorkItem>
+        {
+            CreateWorkItem(1, "Alpha"),
+            CreateWorkItem(2, "Beta"),
+        };
+        var state = CreateStateWithSiblings(siblings);
+        state.ApplyFilter("Zulu"); // No matches
+        state.CursorItem.ShouldBeNull();
+
+        state.AcceptFilter();
+
+        state.IsFilterMode.ShouldBeFalse();
+        state.VisibleSiblings.Count.ShouldBe(2);
+        state.CursorIndex.ShouldBe(0);
+        state.CursorItem!.Id.ShouldBe(1);
+    }
+
+    [Fact]
+    public void AcceptFilter_EmptySiblings_NullCursorItem()
+    {
+        var state = CreateState(siblingCount: 0);
+        // Manually set filter mode for empty list
+        state.ApplyFilter("anything");
+
+        state.AcceptFilter();
+
+        state.IsFilterMode.ShouldBeFalse();
+        state.CursorItem.ShouldBeNull();
+    }
+
+    // ── AdvanceLinkJump ─────────────────────────────────────────────
+
+    [Fact]
+    public void AdvanceLinkJump_CyclesThroughLinks()
+    {
+        var links = new List<WorkItemLink>
+        {
+            new(SourceId: 1, TargetId: 10, LinkType: "Related"),
+            new(SourceId: 1, TargetId: 20, LinkType: "Predecessor"),
+        };
+        var state = CreateStateWithLinks(links, Array.Empty<SeedLink>());
+
+        var link1 = state.AdvanceLinkJump();
+        link1.ShouldNotBeNull();
+        link1.Value.TargetId.ShouldBe(10);
+        state.LinkJumpIndex.ShouldBe(0);
+
+        var link2 = state.AdvanceLinkJump();
+        link2.ShouldNotBeNull();
+        link2.Value.TargetId.ShouldBe(20);
+        state.LinkJumpIndex.ShouldBe(1);
+    }
+
+    [Fact]
+    public void AdvanceLinkJump_WrapsAround()
+    {
+        var links = new List<WorkItemLink>
+        {
+            new(SourceId: 1, TargetId: 10, LinkType: "Related"),
+            new(SourceId: 1, TargetId: 20, LinkType: "Predecessor"),
+        };
+        var state = CreateStateWithLinks(links, Array.Empty<SeedLink>());
+
+        state.AdvanceLinkJump(); // index 0
+        state.AdvanceLinkJump(); // index 1
+
+        var wrapped = state.AdvanceLinkJump(); // wraps to 0
+        wrapped.ShouldNotBeNull();
+        wrapped.Value.TargetId.ShouldBe(10);
+        state.LinkJumpIndex.ShouldBe(0);
+    }
+
+    [Fact]
+    public void AdvanceLinkJump_EmptyLinks_ReturnsNull()
+    {
+        var state = CreateState(siblingCount: 1);
+
+        var result = state.AdvanceLinkJump();
+
+        result.ShouldBeNull();
+    }
+
+    [Fact]
+    public void AdvanceLinkJump_IncludesSeedLinks()
+    {
+        var links = new List<WorkItemLink>
+        {
+            new(SourceId: 1, TargetId: 10, LinkType: "Related"),
+        };
+        var seedLinks = new List<SeedLink>
+        {
+            new(SourceId: 1, TargetId: -5, LinkType: "blocks", CreatedAt: DateTimeOffset.UtcNow),
+        };
+        var state = CreateStateWithLinks(links, seedLinks);
+
+        state.AdvanceLinkJump(); // index 0 → WorkItemLink
+        var seedLink = state.AdvanceLinkJump(); // index 1 → SeedLink
+
+        seedLink.ShouldNotBeNull();
+        seedLink.Value.TargetId.ShouldBe(-5);
+        seedLink.Value.IsSeed.ShouldBeTrue();
+    }
+
+    // ── ReverseLinkJump ─────────────────────────────────────────────
+
+    [Fact]
+    public void ReverseLinkJump_CyclesBackward()
+    {
+        var links = new List<WorkItemLink>
+        {
+            new(SourceId: 1, TargetId: 10, LinkType: "Related"),
+            new(SourceId: 1, TargetId: 20, LinkType: "Predecessor"),
+            new(SourceId: 1, TargetId: 30, LinkType: "Successor"),
+        };
+        var state = CreateStateWithLinks(links, Array.Empty<SeedLink>());
+
+        // First reverse from -1 → wraps to last (index 2)
+        var last = state.ReverseLinkJump();
+        last.ShouldNotBeNull();
+        last.Value.TargetId.ShouldBe(30);
+        state.LinkJumpIndex.ShouldBe(2);
+
+        var prev = state.ReverseLinkJump();
+        prev.ShouldNotBeNull();
+        prev.Value.TargetId.ShouldBe(20);
+        state.LinkJumpIndex.ShouldBe(1);
+    }
+
+    [Fact]
+    public void ReverseLinkJump_EmptyLinks_ReturnsNull()
+    {
+        var state = CreateState(siblingCount: 1);
+
+        var result = state.ReverseLinkJump();
+
+        result.ShouldBeNull();
+    }
+
+    [Fact]
+    public void ReverseLinkJump_WrapsFromZeroToLast()
+    {
+        var links = new List<WorkItemLink>
+        {
+            new(SourceId: 1, TargetId: 10, LinkType: "Related"),
+            new(SourceId: 1, TargetId: 20, LinkType: "Predecessor"),
+        };
+        var state = CreateStateWithLinks(links, Array.Empty<SeedLink>());
+        state.AdvanceLinkJump(); // index 0
+
+        var wrapped = state.ReverseLinkJump(); // 0 → wraps to 1
+        wrapped.ShouldNotBeNull();
+        wrapped.Value.TargetId.ShouldBe(20);
+        state.LinkJumpIndex.ShouldBe(1);
+    }
+
+    // ── UpdateNodeData resets LinkJumpIndex ──────────────────────────
+
+    [Fact]
+    public void UpdateNodeData_ResetsLinkJumpIndex()
+    {
+        var links = new List<WorkItemLink>
+        {
+            new(SourceId: 1, TargetId: 10, LinkType: "Related"),
+        };
+        var state = CreateStateWithLinks(links, Array.Empty<SeedLink>());
+        state.AdvanceLinkJump();
+        state.LinkJumpIndex.ShouldBe(0);
+
+        state.UpdateNodeData(
+            Array.Empty<WorkItem>(),
+            Array.Empty<WorkItemLink>(),
+            Array.Empty<SeedLink>());
+
+        state.LinkJumpIndex.ShouldBe(-1);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     private static TreeNavigatorState CreateState(int siblingCount, int cursorIndex = 0)
@@ -438,5 +645,19 @@ public class TreeNavigatorStateTests
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value,
         };
+    }
+
+    private static TreeNavigatorState CreateStateWithLinks(
+        IReadOnlyList<WorkItemLink> links,
+        IReadOnlyList<SeedLink> seedLinks)
+    {
+        var item = CreateWorkItem(1, "Test Item");
+        return new TreeNavigatorState(
+            item,
+            Array.Empty<WorkItem>(),
+            new List<WorkItem> { item },
+            Array.Empty<WorkItem>(),
+            links,
+            seedLinks);
     }
 }

@@ -21,6 +21,8 @@ param(
     [Parameter(Mandatory)][string]$PlanFile,
     [string]$PlanTitle,
     [string]$MapFile = "tools/plan-ado-map.json",
+    [string]$AssignedTo = "Daniel Green",
+    [hashtable]$EpicEffortHours = @{},
     [switch]$IncludeTasks,
     [switch]$DryRun
 )
@@ -81,6 +83,46 @@ function Get-PlanEpics {
         }
     }
     return $epics
+}
+
+function Get-PlanDescription {
+    param([string]$Path)
+    $lines = Get-Content $Path -Encoding UTF8
+    $collecting = $false
+    $desc = @()
+    foreach ($line in $lines) {
+        # Start after '# Introduction' or first H1
+        if (-not $collecting -and $line -match '^#\s+(Introduction|[^#])') {
+            $collecting = $true
+            continue
+        }
+        if ($collecting) {
+            # Stop at next heading
+            if ($line -match '^##\s') { break }
+            $desc += $line
+        }
+    }
+    $text = ($desc -join "`n").Trim()
+    # Truncate to 4000 chars (ADO description limit)
+    if ($text.Length -gt 4000) { $text = $text.Substring(0, 3997) + "..." }
+    return $text
+}
+
+function Get-EpicDescription {
+    param([string]$Path, [int]$EpicLineIndex, [int]$NextEpicLineIndex)
+    $lines = Get-Content $Path -Encoding UTF8
+    $endLine = if ($NextEpicLineIndex -gt 0) { $NextEpicLineIndex } else { $lines.Count }
+    $desc = @()
+    # Collect lines after the heading until a table row or next heading
+    for ($i = $EpicLineIndex + 1; $i -lt $endLine; $i++) {
+        $line = $lines[$i]
+        # Stop at table header or next heading
+        if ($line -match '^\|.*\b(Task|Description)\b.*\|' -or $line -match '^###?\s') { break }
+        $desc += $line
+    }
+    $text = ($desc -join "`n").Trim()
+    if ($text.Length -gt 4000) { $text = $text.Substring(0, 3997) + "..." }
+    return $text
 }
 
 function Get-EpicTasks {
@@ -258,10 +300,41 @@ function Patch-SeedPaths {
     sqlite3 $dbPath "UPDATE work_items SET area_path = '$defaultAreaPath', iteration_path = '$defaultIterationPath' WHERE id = $SeedId AND (area_path IS NULL OR area_path = '');"
 }
 
+function Patch-SeedFields {
+    param([int]$SeedId, [string]$Description, [string]$AssignedToValue, [double]$EffortHours = 0)
+    # Patch assigned_to column
+    if ($AssignedToValue) {
+        $escaped = $AssignedToValue -replace "'", "''"
+        sqlite3 $dbPath "UPDATE work_items SET assigned_to = '$escaped' WHERE id = $SeedId;"
+    }
+    # Build fields to merge into fields_json
+    $fieldsToSet = @{}
+    if ($Description) {
+        $fieldsToSet['System.Description'] = $Description
+    }
+    if ($EffortHours -gt 0) {
+        $fieldsToSet['Microsoft.VSTS.Scheduling.Effort'] = [string]$EffortHours
+    }
+    if ($fieldsToSet.Count -gt 0) {
+        # Read existing fields_json, merge, write back
+        $existingJson = sqlite3 $dbPath "SELECT fields_json FROM work_items WHERE id = $SeedId;"
+        $existing = @{}
+        if ($existingJson -and $existingJson -ne '{}') {
+            try { $existing = $existingJson | ConvertFrom-Json -AsHashtable } catch { $existing = @{} }
+        }
+        foreach ($k in $fieldsToSet.Keys) { $existing[$k] = $fieldsToSet[$k] }
+        $newJson = ($existing | ConvertTo-Json -Compress -Depth 5) -replace "'", "''"
+        sqlite3 $dbPath "UPDATE work_items SET fields_json = '$newJson', is_dirty = 1 WHERE id = $SeedId;"
+    }
+}
+
 function Clear-TwigContext {
     # Clear active work item so seed new --type Epic creates a parentless item
     sqlite3 $dbPath "DELETE FROM context WHERE key = 'active_work_item_id';"
 }
+
+# Extract plan-level description for the ADO Epic
+$planDescription = Get-PlanDescription -Path $PlanFile
 
 # Step 1: Create the ADO Epic for the plan (if not already mapped)
 if (-not $planEntry) {
@@ -272,6 +345,8 @@ if (-not $planEntry) {
     # Patch area path before publish (top-level Epic has no parent to inherit from)
     $seedId = (sqlite3 $dbPath "SELECT MIN(id) FROM work_items WHERE is_seed = 1;")
     Patch-SeedPaths -SeedId $seedId
+    # Patch description, assigned, effort on the seed before publish
+    Patch-SeedFields -SeedId $seedId -Description $planDescription -AssignedToValue $AssignedTo
     $publishResult = Invoke-TwigSeedPublish
     $epicAdoId = $publishResult.results[0].newId
     Write-Host "  → ADO Epic #$epicAdoId" -ForegroundColor Green
@@ -306,6 +381,15 @@ foreach ($epic in $epics) {
     # Set parent to the plan Epic so Issue is created as child
     Invoke-TwigSet -Id $epicAdoId
     Invoke-TwigSeedNew -Title $epicTitle -Type ""
+    # Extract epic description and effort, patch before publish
+    $issueSeedId = (sqlite3 $dbPath "SELECT MIN(id) FROM work_items WHERE is_seed = 1;")
+    $epicIdx = [Array]::IndexOf($epics, $epic)
+    $nextIdx = -1
+    if ($epicIdx -lt $epics.Count - 1) { $nextIdx = $epics[$epicIdx + 1].LineIndex }
+    $epicDesc = Get-EpicDescription -Path $PlanFile -EpicLineIndex $epic.LineIndex -NextEpicLineIndex $nextIdx
+    $effortVal = 0
+    if ($EpicEffortHours.ContainsKey($epicId)) { $effortVal = $EpicEffortHours[$epicId] }
+    Patch-SeedFields -SeedId $issueSeedId -Description $epicDesc -AssignedToValue $AssignedTo -EffortHours $effortVal
     $publishResult = Invoke-TwigSeedPublish
     $issueAdoId = $publishResult.results[0].newId
     Write-Host "    → ADO Issue #$issueAdoId" -ForegroundColor Green
@@ -335,6 +419,20 @@ foreach ($epic in $epics) {
             }
         }
     }
+}
+
+# Step 5: Transition plan Epic to "Doing" (implementation starting)
+Write-Host "`nTransitioning ADO Epic #$epicAdoId to Doing..." -ForegroundColor Green
+try {
+    Invoke-TwigSet -Id $epicAdoId
+    & twig state Doing --output json 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "  → ADO Epic #$epicAdoId state: Doing" -ForegroundColor Green
+    } else {
+        Write-Host "  [WARN] Could not transition Epic to Doing (may already be in progress)" -ForegroundColor Yellow
+    }
+} catch {
+    Write-Host "  [WARN] State transition failed: $_" -ForegroundColor Yellow
 }
 
 Write-Host "`nSeeding complete for: $PlanTitle" -ForegroundColor Cyan

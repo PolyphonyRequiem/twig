@@ -441,7 +441,15 @@ agents:
          - If either command fails, log a warning and continue — ADO tracking is advisory,
            it must never block epic execution or cause a failure.
 
-      4. **Determine Next Steps**
+      4. **Transition Plan-Level Epic When All Complete**
+         After determining next steps (step 5), if ALL epics are DONE:
+         - Read `tools/plan-ado-map.json` and look up the plan file path
+         - Get the `epicId` field (the plan-level ADO Epic ID)
+         - Run: `twig set <epicId> --output json` to set the plan Epic as active
+         - Run: `twig state Done --output json` to transition the plan Epic to Done
+         - If either command fails, log a warning and continue — advisory only.
+
+      5. **Determine Next Steps**
          - Re-read the plan document after updating it
          - Scan ALL epics in order (EPIC-001, EPIC-002, etc.)
          - Build a list of remaining epics that are NOT marked as "DONE"

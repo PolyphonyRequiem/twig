@@ -59,7 +59,17 @@ Twig development is tracked in `dangreen-msft/Twig` (Basic process: Epic → Iss
 Plan documents map to ADO: one Epic per plan, one Issue per plan epic, optionally one Task per
 task row. The mapping is stored in `tools/plan-ado-map.json`.
 
+### Seeding conventions
+- `tools/seed-from-plan.ps1` creates the ADO hierarchy from a plan document
+- Plan-level Epic gets the Introduction section as its description
+- Each Issue gets its epic's description text from the plan
+- All items are assigned to the `-AssignedTo` param (default: "Daniel Green")
+- Per-epic effort in hours can be passed via `-EpicEffortHours @{"Epic 1"=8; "Epic 2"=4}`
+- After seeding, the plan Epic is transitioned to "Doing"
+
+### Commit conventions
 When committing code that implements plan work:
 - Include `AB#<id>` in the commit message (the Issue ID from the mapping file)
 - After committing, transition the ADO item: `twig set <id>` then `twig state Done`
+- When all epics complete, also transition the plan-level Epic to Done
 - If no mapping exists for the current work, commit normally without AB# reference

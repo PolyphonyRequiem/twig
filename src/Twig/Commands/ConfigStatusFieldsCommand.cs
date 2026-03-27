@@ -1,5 +1,6 @@
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
+using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Infrastructure.Config;
 
@@ -8,12 +9,15 @@ namespace Twig.Commands;
 /// <summary>
 /// Implements <c>twig config status-fields</c>: generates a status-fields configuration
 /// file, opens it in the user's editor, and persists the result to <c>.twig/status-fields</c>.
+/// After a successful workspace save, writes back to the global profile store (FR-08).
 /// </summary>
 public sealed class ConfigStatusFieldsCommand(
     IFieldDefinitionStore fieldDefinitionStore,
     IEditorLauncher editorLauncher,
     TwigPaths paths,
-    OutputFormatterFactory formatterFactory)
+    OutputFormatterFactory formatterFactory,
+    IGlobalProfileStore globalProfileStore,
+    TwigConfiguration config)
 {
     public async Task<int> ExecuteAsync(
         string outputFormat = OutputFormatterFactory.DefaultFormat,
@@ -47,6 +51,40 @@ public sealed class ConfigStatusFieldsCommand(
         var count = entries.Count(e => e.IsIncluded);
 
         Console.WriteLine(fmt.FormatSuccess($"Saved {count} field(s) to .twig/status-fields."));
+
+        // FR-08: Write-back to global profile. FR-09: Silent on failure.
+        try
+        {
+            if (!string.IsNullOrEmpty(config.Organization) && !string.IsNullOrEmpty(config.ProcessTemplate))
+            {
+                var org = config.Organization;
+                var process = config.ProcessTemplate;
+
+                var hash = FieldDefinitionHasher.ComputeFieldHash(definitions);
+
+                await globalProfileStore.SaveStatusFieldsAsync(org, process, edited, ct);
+
+                var now = DateTimeOffset.UtcNow;
+                var existingMeta = await globalProfileStore.LoadMetadataAsync(org, process, ct);
+                var metadata = new ProfileMetadata(
+                    Organization: org,
+                    ProcessTemplate: process,
+                    CreatedAt: existingMeta?.CreatedAt ?? now,
+                    LastSyncedAt: now,
+                    FieldDefinitionHash: hash,
+                    FieldCount: definitions.Count);
+
+                await globalProfileStore.SaveMetadataAsync(org, process, metadata, ct);
+
+                Console.WriteLine(fmt.FormatSuccess($"Saved field preferences globally for {org}/{process}."));
+            }
+        }
+        catch (OperationCanceledException) { throw; }
+        catch
+        {
+            // FR-09: Write-back failure must not affect command result
+        }
+
         return 0;
     }
 }

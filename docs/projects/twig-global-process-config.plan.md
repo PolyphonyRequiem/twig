@@ -530,7 +530,7 @@ twig config status-fields
 
 ---
 
-### Epic 3: Config Status-Fields Write-Back (G-3)
+### Epic 3: Config Status-Fields Write-Back (G-3) — ✅ DONE
 
 **Goal**: `twig config status-fields` auto-writes back to global profile after every successful save.
 
@@ -538,16 +538,16 @@ twig config status-fields
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E3-T1 | IMPL | Expand `ConfigStatusFieldsCommand` primary constructor (`ConfigStatusFieldsCommand.cs:13–17`): add `IGlobalProfileStore globalProfileStore` and `TwigConfiguration config` parameters. | `src/Twig/Commands/ConfigStatusFieldsCommand.cs` | TO DO |
-| E3-T2 | IMPL | Add write-back logic after the existing `File.WriteAllTextAsync` (after `ConfigStatusFieldsCommand.cs:43`). After successful workspace save: (1) Check `config.Organization` and `config.ProcessTemplate` are non-empty, (2) Get field definitions from `fieldDefinitionStore.GetAllAsync()` (already fetched earlier at L24), (3) Compute hash via `FieldDefinitionHasher.ComputeFieldHash()`, (4) Call `globalProfileStore.SaveStatusFieldsAsync(config.Organization, config.ProcessTemplate, edited)`, (5) Build `ProfileMetadata` and call `globalProfileStore.SaveMetadataAsync()`, (6) Print "✓ Saved field preferences globally for {org}/{process}". Wrap entire write-back in try-catch (FR-09) — workspace save must succeed regardless. | `src/Twig/Commands/ConfigStatusFieldsCommand.cs` | TO DO |
-| E3-T3 | TEST | Unit tests for write-back: (a) Successful editor save triggers `SaveStatusFieldsAsync` + `SaveMetadataAsync` on mock `IGlobalProfileStore`, (b) Write-back failure doesn't affect return code (still returns 0), (c) Missing `ProcessTemplate` in config → write-back skipped silently, (d) Editor cancellation (null return) → no write-back attempted, (e) Verify metadata contains correct hash and field count. | `tests/Twig.Cli.Tests/Commands/ConfigStatusFieldsWriteBackTests.cs` | TO DO |
+| E3-T1 | IMPL | Expand `ConfigStatusFieldsCommand` primary constructor (`ConfigStatusFieldsCommand.cs:13–17`): add `IGlobalProfileStore globalProfileStore` and `TwigConfiguration config` parameters. | `src/Twig/Commands/ConfigStatusFieldsCommand.cs` | DONE |
+| E3-T2 | IMPL | Add write-back logic after the existing `File.WriteAllTextAsync` (after `ConfigStatusFieldsCommand.cs:43`). After successful workspace save: (1) Check `config.Organization` and `config.ProcessTemplate` are non-empty, (2) Get field definitions from `fieldDefinitionStore.GetAllAsync()` (already fetched earlier at L24), (3) Compute hash via `FieldDefinitionHasher.ComputeFieldHash()`, (4) Call `globalProfileStore.SaveStatusFieldsAsync(config.Organization, config.ProcessTemplate, edited)`, (5) Build `ProfileMetadata` and call `globalProfileStore.SaveMetadataAsync()`, (6) Print "✓ Saved field preferences globally for {org}/{process}". Wrap entire write-back in try-catch (FR-09) — workspace save must succeed regardless. | `src/Twig/Commands/ConfigStatusFieldsCommand.cs` | DONE |
+| E3-T3 | TEST | Unit tests for write-back: (a) Successful editor save triggers `SaveStatusFieldsAsync` + `SaveMetadataAsync` on mock `IGlobalProfileStore`, (b) Write-back failure doesn't affect return code (still returns 0), (c) Missing `ProcessTemplate` in config → write-back skipped silently, (d) Editor cancellation (null return) → no write-back attempted, (e) Verify metadata contains correct hash and field count. | `tests/Twig.Cli.Tests/Commands/ConfigStatusFieldsWriteBackTests.cs` | DONE |
 
 **Acceptance Criteria**:
-- [ ] Every successful `twig config status-fields` save updates global profile
-- [ ] Write-back failure is silent — workspace save always succeeds
-- [ ] Missing ProcessTemplate in config → write-back skipped (no error)
-- [ ] Editor cancellation → no write-back
-- [ ] All existing `ConfigStatusFieldsCommand` tests pass unchanged
+- [x] Every successful `twig config status-fields` save updates global profile
+- [x] Write-back failure is silent — workspace save always succeeds
+- [x] Missing ProcessTemplate in config → write-back skipped (no error)
+- [x] Editor cancellation → no write-back
+- [x] All existing `ConfigStatusFieldsCommand` tests pass unchanged
 
 ---
 

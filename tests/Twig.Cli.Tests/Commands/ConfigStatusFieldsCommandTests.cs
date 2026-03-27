@@ -16,6 +16,8 @@ public class ConfigStatusFieldsCommandTests : IDisposable
     private readonly TwigPaths _paths;
     private readonly IFieldDefinitionStore _fieldDefinitionStore;
     private readonly IEditorLauncher _editorLauncher;
+    private readonly IGlobalProfileStore _globalProfileStore;
+    private readonly TwigConfiguration _config;
     private readonly ConfigStatusFieldsCommand _cmd;
 
     public ConfigStatusFieldsCommandTests()
@@ -28,12 +30,15 @@ public class ConfigStatusFieldsCommandTests : IDisposable
 
         _fieldDefinitionStore = Substitute.For<IFieldDefinitionStore>();
         _editorLauncher = Substitute.For<IEditorLauncher>();
+        _globalProfileStore = Substitute.For<IGlobalProfileStore>();
+        _config = new TwigConfiguration();
 
         var formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
 
         _cmd = new ConfigStatusFieldsCommand(
-            _fieldDefinitionStore, _editorLauncher, _paths, formatterFactory);
+            _fieldDefinitionStore, _editorLauncher, _paths, formatterFactory,
+            _globalProfileStore, _config);
     }
 
     public void Dispose()

@@ -38,3 +38,38 @@
 - Tables must have header rows and consistent column alignment.
 - Lists should use consistent markers (all `-` or all `*`, not mixed).
 - Links must include descriptive text (not "click here").
+
+## Telemetry & Data Privacy
+
+Twig supports optional anonymous telemetry via environment variable opt-in. The following
+rules are **non-negotiable** and apply to all code that emits, collects, or transmits
+telemetry data:
+
+### NEVER send (even hashed)
+- Organization names, project names, or team names
+- User names, display names, or email addresses
+- Process template names (e.g., "Agile", "Scrum", "CMMI")
+- Work item type names (e.g., "User Story", "Bug", "Task")
+- Field names or reference names (e.g., "Microsoft.VSTS.Scheduling.StoryPoints")
+- Area paths or iteration paths
+- Work item IDs, titles, descriptions, or any content
+- Repository names, branch names, or commit hashes
+- Any ADO-specific identifiers or process-specific information
+
+### Safe to send
+- Twig command name (e.g., "status", "tree", "refresh")
+- Command duration in milliseconds
+- Exit code (0/1)
+- Output format (human/json/minimal)
+- Twig version string
+- OS platform (win/linux/osx)
+- Generic boolean flags (e.g., `had_profile`, `merge_needed`, `hash_changed`)
+- Generic numeric counts (e.g., `field_count: 47`, `item_count: 12` — numbers only, no identifiers)
+
+### Enforcement
+- All telemetry property keys must pass an allowlist check in tests
+- Any key containing "org", "project", "user", "type", "name", "path", "template",
+  "field", "title", "area", "iteration", or "repo" must be rejected
+- Telemetry must be completely disabled (zero network calls) when the
+  `TWIG_TELEMETRY_ENDPOINT` environment variable is unset
+- Telemetry failures must never affect command execution or return codes

@@ -1,7 +1,7 @@
 # Global Process Configuration — Solution Design & Implementation Plan
 
 **Author:** dangreen + Copilot
-**Status:** Draft
+**Status:** Complete
 **Revision:** 3 — Codebase-grounded rewrite with exact file/line references
 
 ---
@@ -592,7 +592,7 @@ twig config status-fields
 
 ---
 
-### Epic 6: Lightweight Telemetry (Opt-In via Env Var)
+### Epic 6: Lightweight Telemetry (Opt-In via Env Var) — ✅ DONE
 
 **Goal**: Wire up anonymous, privacy-safe command telemetry to an Application Insights endpoint via env var. Zero overhead when disabled. No SDK — direct HTTPS POST to AI ingestion API.
 
@@ -611,12 +611,12 @@ twig config status-fields
 | E6-T5 | TEST | Unit tests: (a) `TelemetryClient` with no env vars → `TrackEvent` is no-op (no HTTP call), (b) with env vars set → builds correct JSON envelope shape, (c) HTTP failure doesn't throw or block, (d) properties contain only safe keys (allowlist test — reject any key containing "org", "project", "user", "type", "name", "path", "template", "field"). | `tests/Twig.Infrastructure.Tests/Telemetry/TelemetryClientTests.cs` | DONE |
 
 **Acceptance Criteria**:
-- [ ] No telemetry sent when `TWIG_TELEMETRY_ENDPOINT` is unset
-- [ ] When set, events POST to the configured endpoint with correct AI envelope format
-- [ ] Zero measurable latency impact on command execution (fire-and-forget)
-- [ ] Allowlist test enforces that no identifying data leaks into properties
-- [ ] All existing tests pass (no telemetry injected in test paths)
-- [ ] AOT compatible — no reflection in JSON serialization
+- [x] No telemetry sent when `TWIG_TELEMETRY_ENDPOINT` is unset
+- [x] When set, events POST to the configured endpoint with correct AI envelope format
+- [x] Zero measurable latency impact on command execution (fire-and-forget)
+- [x] Allowlist test enforces that no identifying data leaks into properties
+- [x] All existing tests pass (no telemetry injected in test paths)
+- [x] AOT compatible — no reflection in JSON serialization
 
 ---
 

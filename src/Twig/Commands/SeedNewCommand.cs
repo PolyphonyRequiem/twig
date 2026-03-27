@@ -34,7 +34,7 @@ public sealed class SeedNewCommand(
         // Title is required unless --editor is used (editor can supply it)
         if (!editor && string.IsNullOrWhiteSpace(title))
         {
-            Console.Error.WriteLine(fmt.FormatError("Usage: twig seed new [--type <type>] \"title\""));
+            Console.Error.WriteLine(fmt.FormatError("Usage: twig seed new --title \"title\" [--type <type>]"));
             return 2;
         }
 

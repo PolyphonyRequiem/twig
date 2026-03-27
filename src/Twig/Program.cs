@@ -388,7 +388,7 @@ public sealed class TwigCommands(IServiceProvider services)
 
     /// <summary>Create a new local seed work item.</summary>
     [Command("seed new")]
-    public async Task<int> SeedNew([Argument] string? title = null, string? type = null, bool editor = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    public async Task<int> SeedNew(string? title = null, string? type = null, bool editor = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SeedNewCommand>().ExecuteAsync(title, type, editor, output, ct);
 
     /// <summary>Edit seed fields in an external editor.</summary>

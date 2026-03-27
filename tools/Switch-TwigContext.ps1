@@ -23,8 +23,6 @@ param(
     [string]$WorkspaceRoot = (Get-Location).Path
 )
 
-$ErrorActionPreference = 'Stop'
-
 function Get-TwigConfigPath {
     param([string]$Root)
     return Join-Path $Root ".twig" "config"
@@ -40,6 +38,8 @@ function Save-TwigConfig {
     $env:TWIG_CONFIG_BACKUP for cross-call access.
     #>
     param([string]$Root = (Get-Location).Path)
+
+    $ErrorActionPreference = 'Stop'
 
     $configPath = Get-TwigConfigPath -Root $Root
     if (-not (Test-Path $configPath)) {
@@ -77,6 +77,8 @@ function Restore-TwigConfig {
     #>
     param([string]$Root = (Get-Location).Path)
 
+    $ErrorActionPreference = 'Stop'
+
     $configPath = Get-TwigConfigPath -Root $Root
     $backupPath = $env:TWIG_CONFIG_BACKUP
 
@@ -110,6 +112,8 @@ function Switch-TwigContext {
         [string]$Root = (Get-Location).Path
     )
 
+    $ErrorActionPreference = 'Stop'
+
     # Validate parameters to prevent path traversal
     if ($Org -match '[/\\]|\.\.' -or $Project -match '[/\\]|\.\.') {
         Write-Error "Org and Project must not contain path separators or '..'" -ErrorAction Continue
@@ -133,7 +137,7 @@ function Switch-TwigContext {
     $config = $raw | ConvertFrom-Json
 
     # True no-op: skip write if values already match (preserves mtime)
-    if ($config.organization -eq $Org -and $config.project -eq $Project -and $config.team -eq $Team) {
+    if ([string]($config.organization) -eq $Org -and [string]($config.project) -eq $Project -and [string]($config.team) -eq $Team) {
         Write-Host "Context already set to $Org/$Project$(if ($Team) { "/$Team" }) — no change needed" -ForegroundColor Yellow
         return $true
     }
@@ -151,6 +155,7 @@ function Switch-TwigContext {
 
 # When invoked directly (not dot-sourced), execute the context switch
 if ($Org -and $Project) {
+    $ErrorActionPreference = 'Stop'
     $result = Switch-TwigContext -Org $Org -Project $Project -Team $Team -Root $WorkspaceRoot
     if (-not $result) { exit 1 }
 }

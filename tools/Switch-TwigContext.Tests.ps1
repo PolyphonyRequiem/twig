@@ -122,7 +122,7 @@ Describe "Switch-TwigContext" {
             $before = Get-Content $configPath -Raw | ConvertFrom-Json
             $mtimeBefore = (Get-Item $configPath).LastWriteTimeUtc
 
-            Start-Sleep -Milliseconds 50
+            Start-Sleep -Milliseconds 150
             Switch-TwigContext -Org "orgA" -Project "projA" -Team "teamA" -Root $testRoot | Out-Null
 
             $after = Get-Content $configPath -Raw | ConvertFrom-Json
@@ -152,6 +152,29 @@ Describe "Switch-TwigContext" {
             . $scriptPath
             $result = Switch-TwigContext -Org "orgA" -Project "proj/evil" -Root $testRoot 2>$null
             $result | Should -Be $false
+        }
+
+        It "no-op works when config has null team and no -Team is passed" {
+            . $scriptPath
+            # Write a config with no team field
+            $configPath = Join-Path $testRoot ".twig" "config"
+            $noTeamConfig = @{
+                organization = "orgA"
+                project      = "projA"
+                auth         = @{ method = "azcli" }
+            }
+            [System.IO.File]::WriteAllText(
+                $configPath,
+                ($noTeamConfig | ConvertTo-Json -Depth 20),
+                [System.Text.UTF8Encoding]::new($false)
+            )
+            $mtimeBefore = (Get-Item $configPath).LastWriteTimeUtc
+
+            Start-Sleep -Milliseconds 150
+            Switch-TwigContext -Org "orgA" -Project "projA" -Root $testRoot | Out-Null
+
+            $mtimeAfter = (Get-Item $configPath).LastWriteTimeUtc
+            $mtimeAfter | Should -Be $mtimeBefore
         }
     }
 
@@ -268,6 +291,12 @@ Describe "Switch-TwigContext" {
 
             $after = Get-Content $configPath -Raw
             $after | Should -Be $before
+        }
+
+        It "does not leak ErrorActionPreference into caller scope when dot-sourced" {
+            $ErrorActionPreference = 'Continue'
+            . $scriptPath
+            $ErrorActionPreference | Should -Be 'Continue'
         }
     }
 }

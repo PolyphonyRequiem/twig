@@ -685,6 +685,8 @@ Add `twig_context` input to `implement.yaml` and inject into agent prompts.
 
 ### EPIC-001: Bootstrap & Context Switching
 
+**Status**: IN PROGRESS
+
 **Goal**: Establish a twig workspace for the target ADO org/project and a reliable context-switching mechanism.
 
 **Prerequisites**: None
@@ -693,11 +695,11 @@ Add `twig_context` input to `implement.yaml` and inject into agent prompts.
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E1-T1 | IMPL | Create `Switch-TwigContext.ps1` that reads `.twig/config` as JSON, patches `organization`/`project`/`team` fields from parameters, writes back with UTF-8 encoding | `tools/Switch-TwigContext.ps1` | TO DO |
-| E1-T2 | IMPL | Add save/restore functions to `Switch-TwigContext.ps1`: `Save-TwigConfig` backs up current config to temp file, `Restore-TwigConfig` restores from backup | `tools/Switch-TwigContext.ps1` | TO DO |
-| E1-T3 | IMPL | Bootstrap workspace: run `twig init --org <org> --project <project> --force` and `twig refresh` to populate the context database (document as a runbook) | manual + documentation | TO DO |
-| E1-T4 | TEST | Verify workspace: `twig ws --output json` against target context returns valid JSON with workspace data | manual verification | TO DO |
-| E1-T5 | TEST | Test context round-trip: switch to context A → `twig status --output json` → switch to context B → `twig status --output json` → verify both return correct context | manual verification | TO DO |
+| E1-T1 | IMPL | Create `Switch-TwigContext.ps1` that reads `.twig/config` as JSON, patches `organization`/`project`/`team` fields from parameters, writes back with UTF-8 encoding | `tools/Switch-TwigContext.ps1` | IN PROGRESS |
+| E1-T2 | IMPL | Add save/restore functions to `Switch-TwigContext.ps1`: `Save-TwigConfig` backs up current config to temp file, `Restore-TwigConfig` restores from backup | `tools/Switch-TwigContext.ps1` | IN PROGRESS |
+| E1-T3 | IMPL | Bootstrap workspace: run `twig init --org <org> --project <project> --force` and `twig refresh` to populate the context database (document as a runbook) | manual + documentation | IN PROGRESS |
+| E1-T4 | TEST | Verify workspace: `twig ws --output json` against target context returns valid JSON with workspace data | manual verification | IN PROGRESS |
+| E1-T5 | TEST | Test context round-trip: switch to context A → `twig status --output json` → switch to context B → `twig status --output json` → verify both return correct context | manual verification | IN PROGRESS |
 
 **Acceptance Criteria**:
 - [ ] `Switch-TwigContext.ps1` exists with `-Org`, `-Project`, `-Team` parameters and swaps context in < 1 second

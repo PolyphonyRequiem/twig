@@ -1,7 +1,8 @@
 ---
 goal: Interactive Tree Navigator — keyboard-driven tree exploration with link traversal in the CLI
-version: 1.0
+version: 1.1
 date_created: 2026-03-26
+date_updated: 2026-03-27
 owner: dangreen
 tags: feature, ui, rendering, navigation, spectre
 ---
@@ -131,15 +132,26 @@ internal sealed class TreeNavigatorState
 {
     public WorkItem? CursorItem { get; set; }       // Currently highlighted item
     public IReadOnlyList<WorkItem> ParentChain { get; set; }  // Root → cursor parent
-    public IReadOnlyList<WorkItem> Children { get; set; }     // Children of cursor
+    public IReadOnlyList<WorkItem> VisibleSiblings { get; set; } // Siblings of cursor (children of cursor's parent), used for ↑/↓
+    public IReadOnlyList<WorkItem> Children { get; set; }     // Children of cursor item (shown below cursor in tree)
     public IReadOnlyList<WorkItemLink> Links { get; set; }    // Non-hierarchy links of cursor
     public IReadOnlyList<SeedLink> SeedLinks { get; set; }    // Seed links of cursor
-    public int CursorIndex { get; set; }             // Cursor position among visible siblings
+    public int CursorIndex { get; set; }             // Cursor position within VisibleSiblings
     public string FilterText { get; set; }           // Current filter string
     public int LinkJumpIndex { get; set; }           // Current link cycle position
     public bool IsFilterMode { get; set; }
 }
 ```
+
+**Navigation model**: `VisibleSiblings` are children of cursor's parent — ↑/↓ moves `CursorIndex` within this list. `Children` are the cursor item's own children — → expands (loads children), ← collapses (clears children). When filter is active, `VisibleSiblings` is narrowed to matching items.
+
+**Unified link type for `GetCombinedLinks()`**:
+
+```csharp
+internal readonly record struct NavigatorLink(int TargetId, string LinkType, bool IsSeed);
+```
+
+`GetCombinedLinks()` returns `IReadOnlyList<NavigatorLink>` by merging `Links` (with `IsSeed = false`) and `SeedLinks` (with `IsSeed = true`).
 
 ## 4. Requirements
 
@@ -219,7 +231,7 @@ internal sealed class TreeNavigatorState
 | AC-007 | Escape exits the navigator without changing context | Automated test on cancel path | REQ-001 |
 | AC-008 | Preview panel updates when cursor moves to a different node | Automated test on state change | REQ-009 |
 | AC-009 | Non-TTY falls back to help text | Automated test on redirected output | REQ-006 |
-| AC-010 | All 2,965+ existing tests pass after changes | `dotnet test Twig.slnx` exit code 0 | REQ-005 |
+| AC-010 | All 3,154+ existing tests pass after changes | `dotnet test Twig.slnx` exit code 0 | REQ-005 |
 | AC-011 | Navigator works with empty tree (no children) | Automated test on empty state | REQ-007 |
 
 ## 8. Security Considerations
@@ -257,9 +269,9 @@ Standard CLI binary release. The feature is additive — it adds a new code path
 
 - **FILE-001**: `src/Twig/Rendering/SpectreRenderer.cs` — New `RenderInteractiveTreeAsync` method (~250 lines)
 - **FILE-002**: `src/Twig/Rendering/IAsyncRenderer.cs` — New `RenderInteractiveTreeAsync` method signature
-- **FILE-003**: `src/Twig/Rendering/TreeNavigatorState.cs` — New state management class (~80 lines)
-- **FILE-004**: `src/Twig/Commands/NavigationCommands.cs` — New `InteractiveAsync` method, data orchestration
-- **FILE-005**: `src/Twig/DependencyInjection/CommandRegistrationModule.cs` — Updated DI for additional dependencies
+- **FILE-003**: `src/Twig/Rendering/TreeNavigatorState.cs` — New state management class + `NavigatorLink` record (~90 lines)
+- **FILE-004**: `src/Twig/Commands/NavigationCommands.cs` — New `InteractiveAsync` method + updated constructor (add `INavigationHistoryStore`, `IPromptStateWriter`)
+- **FILE-005**: `src/Twig/Program.cs` — New `[Command("nav")]` route to `InteractiveAsync`
 - **FILE-006**: `src/Twig/Program.cs` — Route `twig nav` bare to `InteractiveAsync`
 - **FILE-007**: `src/Twig/Rendering/SpectreTheme.cs` — Helper for link type display formatting
 - **FILE-008**: `tests/Twig.Cli.Tests/Rendering/TreeNavigatorStateTests.cs` — State management unit tests
@@ -271,10 +283,10 @@ Standard CLI binary release. The feature is additive — it adds a new code path
 
 | Task | Description | Status | Relevant Files |
 |------|-------------|--------|----------------|
-| ITEM-001 | Create `TreeNavigatorState` class in `src/Twig/Rendering/TreeNavigatorState.cs`. Properties: `CursorItem` (WorkItem?), `ParentChain` (IReadOnlyList\<WorkItem\>), `Children` (IReadOnlyList\<WorkItem\>), `VisibleSiblings` (IReadOnlyList\<WorkItem\> — siblings of cursor including cursor itself), `CursorIndex` (int — position within VisibleSiblings), `FilterText` (string), `IsFilterMode` (bool), `Links` (IReadOnlyList\<WorkItemLink\>), `SeedLinks` (IReadOnlyList\<SeedLink\>), `LinkJumpIndex` (int). Methods: `MoveCursorUp()`, `MoveCursorDown()`, `Expand()` (sets Children), `Collapse()` (clears Children), `ApplyFilter(string)`, `ClearFilter()`, `GetCombinedLinks()` (merges WorkItemLink + SeedLink into unified list). | Not Started | `src/Twig/Rendering/TreeNavigatorState.cs` |
+| ITEM-001 | Create `TreeNavigatorState` class and `NavigatorLink` record in `src/Twig/Rendering/TreeNavigatorState.cs`. `NavigatorLink`: `internal readonly record struct NavigatorLink(int TargetId, string LinkType, bool IsSeed)`. `TreeNavigatorState` properties: `CursorItem` (WorkItem?), `ParentChain` (IReadOnlyList\<WorkItem\>), `VisibleSiblings` (IReadOnlyList\<WorkItem\> — children of cursor's parent, used for ↑/↓ navigation), `Children` (IReadOnlyList\<WorkItem\> — cursor item's own children), `CursorIndex` (int — position within VisibleSiblings), `FilterText` (string), `IsFilterMode` (bool), `Links` (IReadOnlyList\<WorkItemLink\>), `SeedLinks` (IReadOnlyList\<SeedLink\>), `LinkJumpIndex` (int). Methods: `MoveCursorUp()`, `MoveCursorDown()`, `Expand()` (sets Children), `Collapse()` (clears Children), `ApplyFilter(string)`, `ClearFilter()`, `GetCombinedLinks()` (returns IReadOnlyList\<NavigatorLink\> by merging Links and SeedLinks). | Not Started | `src/Twig/Rendering/TreeNavigatorState.cs` |
 | ITEM-002 | Add `RenderInteractiveTreeAsync` to `IAsyncRenderer`. Signature: `Task<int?> RenderInteractiveTreeAsync(TreeNavigatorState initialState, Func<int, Task<TreeNavigatorState>> loadNodeState, CancellationToken ct)`. Returns the committed work item ID, or null if cancelled. The `loadNodeState` callback loads `ParentChain`, `Children`, `Links`, `SeedLinks` for a given work item ID — owned by the caller (NavigationCommands), not the renderer. | Not Started | `src/Twig/Rendering/IAsyncRenderer.cs` |
 | ITEM-003 | Implement `RenderInteractiveTreeAsync` in `SpectreRenderer`. Structure: outer `_console.Live(renderable).StartAsync()` with inner `while (!done)` loop. Each iteration: (1) build renderable from state, (2) `ctx.UpdateTarget(renderable)`, (3) `ctx.Refresh()`, (4) `await Task.Run(() => Console.ReadKey(true), ct)`, (5) dispatch keypress to state mutation, (6) if navigation changed cursor item, call `loadNodeState(newId)` to reload data. Build renderable as a `Columns(treePanel, previewPanel)` layout — tree on left (60% width), preview on right (40%). Fall back to tree-only when terminal width < 80. | Not Started | `src/Twig/Rendering/SpectreRenderer.cs` |
-| ITEM-004 | Implement tree renderable builder as a static helper `BuildInteractiveTreeRenderable(TreeNavigatorState state, SpectreTheme theme)` in `SpectreRenderer`. Builds a Spectre `Tree` from `state.ParentChain` (dimmed ancestors) → cursor item (bold, `[aqua]❯[/]` marker) → `state.Children` (with state-colored prefixes per EPIC-002 of visual-polish plan). Shows `...N` sibling count at cursor level. Appends filter status bar at bottom: `Filter: {text}_` when in filter mode, or keybinding help when in navigate mode. | Not Started | `src/Twig/Rendering/SpectreRenderer.cs` |
+| ITEM-004 | Implement tree renderable builder as a static helper `BuildInteractiveTreeRenderable(TreeNavigatorState state, SpectreTheme theme)` in `SpectreRenderer`. Builds a Spectre `Tree` from `state.ParentChain` (dimmed ancestors) → cursor item (bold, `[aqua]❯[/]` marker) → `state.Children` (with state-colored prefixes using `SpectreTheme.FormatTypeBadge` and `FormatState`). Shows `...N` sibling count at cursor level via `FormatSiblingCount`. Appends filter status bar at bottom: `Filter: {text}_` when in filter mode, or keybinding help when in navigate mode. | Not Started | `src/Twig/Rendering/SpectreRenderer.cs` |
 | ITEM-005 | Implement preview panel builder as a static helper `BuildPreviewPanel(WorkItem? item, IReadOnlyList<WorkItemLink> links, IReadOnlyList<SeedLink> seedLinks, SpectreTheme theme)` in `SpectreRenderer`. Renders a `Panel` with `Grid`: Type (badge + name), State (colored), Assigned, Iteration, Effort (if present). Below the grid, a Links section listing each link as `{linkType}: #{targetId}`. Panel header: `[bold]#{id} {title}[/]`. Panel border: `BoxBorder.Rounded`. When item is null, shows `[dim italic]No item selected[/]`. | Not Started | `src/Twig/Rendering/SpectreRenderer.cs` |
 | ITEM-006 | Add unit tests for `TreeNavigatorState`: cursor movement bounds, expand/collapse, filter application, link cycling. Test edge cases: empty children, single child, cursor at first/last position. | Not Started | `tests/Twig.Cli.Tests/Rendering/TreeNavigatorStateTests.cs` |
 | ITEM-007 | Add unit tests for `BuildInteractiveTreeRenderable` and `BuildPreviewPanel`: verify markup output contains expected badges, colors, cursor marker, and link entries. | Not Started | `tests/Twig.Cli.Tests/Rendering/SpectreRendererTests.cs` |
@@ -284,8 +296,8 @@ Standard CLI binary release. The feature is additive — it adds a new code path
 | Task | Description | Status | Relevant Files |
 |------|-------------|--------|----------------|
 | ITEM-008 | Add `InteractiveAsync` method to `NavigationCommands`. This method: (1) resolves the rendering pipeline, (2) checks if renderer is available (TTY check), (3) loads initial state from active context via `IContextStore` + `IWorkItemRepository`, (4) builds `loadNodeState` callback that calls `GetByIdAsync`, `GetParentChainAsync`, `GetChildrenAsync`, `GetLinksAsync`, `GetLinksForItemAsync` for a given work item ID and returns a new `TreeNavigatorState`, (5) calls `renderer.RenderInteractiveTreeAsync(initialState, loadNodeState, ct)`, (6) if result is non-null, sets context and records history. For non-TTY, prints fallback help text: "Interactive navigation requires a terminal. Use: twig nav up, twig nav down, twig nav next, twig nav prev". | Not Started | `src/Twig/Commands/NavigationCommands.cs` |
-| ITEM-009 | Update `NavigationCommands` constructor to accept `IWorkItemLinkRepository`, `ISeedLinkRepository`, `INavigationHistoryStore`, and `IPromptStateWriter` (all optional with `= null`). These are needed for the interactive navigator's link loading and history recording. The DI auto-resolution (from EPIC-004 of visual-polish plan) handles this automatically. | Not Started | `src/Twig/Commands/NavigationCommands.cs` |
-| ITEM-010 | Route `twig nav` (bare, no subcommand) to `NavigationCommands.InteractiveAsync`. In `Program.cs` where `TwigCommands` routes nav subcommands, add a default route for bare `twig nav` invocation. If ConsoleAppFramework does not support a bare parent command alongside subcommands, use `[Command("nav")]` with `[Argument]` optional ID parameter — when no argument is provided, launch interactive mode. | Not Started | `src/Twig/Program.cs` |
+| ITEM-009 | Update `NavigationCommands` constructor to accept `INavigationHistoryStore` and `IPromptStateWriter` (both optional with `= null`). Note: `IWorkItemLinkRepository` and `ISeedLinkRepository` are already in the constructor. The new params are needed for the interactive navigator's history recording and prompt state updates after committed selections. DI auto-resolution handles registration automatically — no changes to `CommandRegistrationModule.cs` needed. | Not Started | `src/Twig/Commands/NavigationCommands.cs` |
+| ITEM-010 | Route `twig nav` (bare, no subcommand) to `NavigationCommands.InteractiveAsync`. Add a new method to `TwigCommands` with `[Command("nav")]` attribute that delegates to `NavigationCommands.InteractiveAsync`. ConsoleAppFramework v5 supports bare parent commands alongside subcommands — its source-generated router checks `args.Length == 1` for the parent before dispatching to child subcommands like `nav up`, `nav down`, etc. No changes to existing subcommand routing needed. | Not Started | `src/Twig/Program.cs` |
 | ITEM-011 | Add integration tests for `InteractiveAsync`: mock repositories return test data, mock renderer captures `RenderInteractiveTreeAsync` call and returns a predetermined result. Verify context store and history store are called with correct IDs on commit. Verify no stores are called on cancel (null result). Verify non-TTY fallback outputs help text. | Not Started | `tests/Twig.Cli.Tests/Commands/NavigationCommandsInteractiveTests.cs` |
 
 - EPIC-003: Filter Mode & Link Traversal
@@ -299,4 +311,5 @@ Standard CLI binary release. The feature is additive — it adds a new code path
 
 ## 14. Change Log
 
+- 2026-03-27: v1.1 — Grounding review against codebase. Fixes: (1) Section 3 data model now includes `VisibleSiblings` and `NavigatorLink` record to match ITEM-001, (2) ITEM-009 corrected — `IWorkItemLinkRepository`/`ISeedLinkRepository` already exist in constructor; only `INavigationHistoryStore`/`IPromptStateWriter` need adding, (3) FILE-005 removed `CommandRegistrationModule.cs` — auto-resolution handles DI, (4) ITEM-010 clarified with concrete `[Command("nav")]` routing via ConsoleAppFramework v5 nested switch, (5) AC-010 test count updated from 2,965 to 3,154, (6) ITEM-004 cross-reference replaced with explicit `SpectreTheme` method names, (7) `GetCombinedLinks()` return type defined as `IReadOnlyList<NavigatorLink>`.
 - 2026-03-26: Initial plan created

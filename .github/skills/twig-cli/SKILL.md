@@ -15,7 +15,30 @@ Use `twig` commands in the terminal to manage Azure DevOps work items. This skil
 4. **Set context before operating** — Most commands operate on the "active" work item. Use `twig set <id>` to set it.
 5. **Publish seeds promptly** — Seeds are local-only until published. Always `twig seed publish --all` after creating seeds.
 6. **Refresh before querying** — If data seems stale, run `twig refresh` to sync from ADO.
-7. **Use `twig note` during implementation** — Regularly capture observations, open questions, decisions, and progress updates as notes on the active work item. This creates an auditable trail in ADO and keeps stakeholders informed. Good note triggers: discovering something unexpected, making a design decision, completing a milestone, identifying a risk, or deferring something for later.
+7. **Use `twig note --text "..."` during implementation** — Add notes to the active work item throughout implementation, not just at the end. Notes use the `--text` flag (positional args are not supported). Push staged notes with `twig save <id>`.
+
+### Note cadence
+
+Add a note at each of these checkpoints:
+- **Research complete** — Summarize findings: what files are involved, what the gap is, key design decision(s)
+- **Mid-implementation** — After finishing the first major code change, note what was done and what remains
+- **Tests written** — Note test count, what's covered, any edge cases deferred
+- **Done** — Final note: summary of all changes, files touched, anything noteworthy for future readers
+
+### Note content guidelines
+
+- Keep notes **2-4 sentences** — concise, not a wall of text
+- Lead with **what** was done or decided, not process narration
+- Include **specific details**: file names, method names, counts, design trade-offs
+- Flag **risks or open items** when they exist
+
+### Example notes
+
+```bash
+twig note --text "Research: gap is in StatusCommand + 3 formatters. Links data already available via SyncLinksAsync. Tree view has the pattern — status view just needs the same plumbing."
+twig note --text "Core impl done: added links param to BuildStatusViewAsync and both formatter overloads. Spectre renders grid rows, Human renders separator section, JSON adds links array."
+twig note --text "6 tests added across HumanOutputFormatterTests and JsonOutputFormatterTests. Covers links present, empty, and null for both formatters."
+```
 
 ## Work Item Creation Workflow
 

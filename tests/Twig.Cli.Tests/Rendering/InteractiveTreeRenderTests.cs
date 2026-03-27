@@ -431,11 +431,41 @@ public class InteractiveTreeRenderTests
     }
 
     [Fact]
-    public void ProcessKey_RightArrow_HasChildren_ReturnsNone()
+    public void ProcessKey_RightArrow_HasChildren_ReturnsDrillDown()
     {
         var state = CreateStateWithSiblings(3);
         state.Expand(new List<WorkItem> { CreateWorkItem(100, "Child") });
         var key = new ConsoleKeyInfo('\0', ConsoleKey.RightArrow, false, false, false);
+
+        var action = SpectreRenderer.ProcessKey(key, state);
+
+        action.ShouldBe(SpectreRenderer.NavigatorAction.DrillDown);
+    }
+
+    [Fact]
+    public void ProcessKey_LeftArrow_NoChildren_WithParentChain_ReturnsNavigateToParent()
+    {
+        var parent = CreateWorkItem(99, "Parent");
+        var siblings = new List<WorkItem> { CreateWorkItem(1, "Item 1"), CreateWorkItem(2, "Item 2") };
+        var state = new TreeNavigatorState(
+            siblings[0],
+            new[] { parent },
+            siblings,
+            Array.Empty<WorkItem>(),
+            Array.Empty<WorkItemLink>(),
+            Array.Empty<SeedLink>());
+        var key = new ConsoleKeyInfo('\0', ConsoleKey.LeftArrow, false, false, false);
+
+        var action = SpectreRenderer.ProcessKey(key, state);
+
+        action.ShouldBe(SpectreRenderer.NavigatorAction.NavigateToParent);
+    }
+
+    [Fact]
+    public void ProcessKey_LeftArrow_NoChildren_NoParentChain_ReturnsNone()
+    {
+        var state = CreateStateWithSiblings(3);
+        var key = new ConsoleKeyInfo('\0', ConsoleKey.LeftArrow, false, false, false);
 
         var action = SpectreRenderer.ProcessKey(key, state);
 

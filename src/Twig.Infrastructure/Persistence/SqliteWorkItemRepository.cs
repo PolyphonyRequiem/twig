@@ -65,6 +65,16 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         return Task.FromResult<IReadOnlyList<WorkItem>>(items);
     }
 
+    public Task<IReadOnlyList<WorkItem>> GetRootItemsAsync(CancellationToken ct = default)
+    {
+        var conn = _store.GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT * FROM work_items WHERE parent_id IS NULL AND id > 0 ORDER BY type, title;";
+
+        var items = ReadAll(cmd);
+        return Task.FromResult<IReadOnlyList<WorkItem>>(items);
+    }
+
     public Task<IReadOnlyList<WorkItem>> GetByIterationAsync(IterationPath iterationPath, CancellationToken ct = default)
     {
         var conn = _store.GetConnection();

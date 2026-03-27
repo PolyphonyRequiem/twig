@@ -1236,6 +1236,22 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                             }
                             break;
 
+                        case NavigatorAction.DrillDown:
+                            if (state.Children.Count > 0)
+                            {
+                                var firstChildId = state.Children[0].Id;
+                                state = await loadNodeState(firstChildId);
+                            }
+                            break;
+
+                        case NavigatorAction.NavigateToParent:
+                            if (state.ParentChain.Count > 0)
+                            {
+                                var parentItem = state.ParentChain[^1];
+                                state = await loadNodeState(parentItem.Id);
+                            }
+                            break;
+
                         case NavigatorAction.Committed:
                             done = true;
                             result = state.CursorItem?.Id;
@@ -1275,6 +1291,10 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         FilterUpdated,
         /// <summary>Tab/Shift+Tab — caller should load the link target and re-root.</summary>
         LinkJump,
+        /// <summary>Right arrow on expanded node — caller should re-center on first child.</summary>
+        DrillDown,
+        /// <summary>Left arrow with no children — caller should re-center on parent.</summary>
+        NavigateToParent,
     }
 
     /// <summary>
@@ -1346,12 +1366,20 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                     : NavigatorAction.None;
 
             case ConsoleKey.LeftArrow:
-                state.Collapse();
-                return NavigatorAction.Collapsed;
+                if (state.Children.Count > 0)
+                {
+                    state.Collapse();
+                    return NavigatorAction.Collapsed;
+                }
+                return state.ParentChain.Count > 0
+                    ? NavigatorAction.NavigateToParent
+                    : NavigatorAction.None;
 
             case ConsoleKey.RightArrow:
-                return state.Children.Count == 0 && state.CursorItem is not null
-                    ? NavigatorAction.NeedExpand
+                if (state.Children.Count == 0 && state.CursorItem is not null)
+                    return NavigatorAction.NeedExpand;
+                return state.Children.Count > 0
+                    ? NavigatorAction.DrillDown
                     : NavigatorAction.None;
 
             case ConsoleKey.Enter:

@@ -81,7 +81,7 @@ public sealed class NavigationCommands(
 
         var children = await workItemRepo.GetChildrenAsync(id, ct);
 
-        // Siblings are children of the item's parent
+        // Siblings are children of the item's parent, or all root items for top-level items
         IReadOnlyList<Domain.Aggregates.WorkItem> siblings;
         if (item?.ParentId.HasValue == true)
         {
@@ -89,9 +89,9 @@ public sealed class NavigationCommands(
         }
         else
         {
-            siblings = item is not null
-                ? new[] { item }
-                : Array.Empty<Domain.Aggregates.WorkItem>();
+            siblings = await workItemRepo.GetRootItemsAsync(ct);
+            if (siblings.Count == 0 && item is not null)
+                siblings = new[] { item };
         }
 
         var links = await workItemLinkRepo.GetLinksAsync(id, ct);

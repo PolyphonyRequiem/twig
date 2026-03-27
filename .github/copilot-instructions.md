@@ -69,8 +69,11 @@ task row. The mapping is stored in `tools/plan-ado-map.json`.
 
 ### Creating work items via twig CLI
 - Use the `twig-cli` skill for full command reference
+- **Always assign to the user** after creating and publishing a seed:
+  `twig set <id>` → `twig update System.AssignedTo "Daniel Green"`
 - **Always add a description** after creating and publishing a seed:
-  `twig set <id>` → `twig update System.Description "..."` → `twig save`
+  `twig set <id>` → `twig update System.Description "..."`
+- Note: `twig update` pushes immediately to ADO — no `twig save` needed afterward
 - Descriptions should explain what, why, and acceptance criteria (2-5 sentences, plain text)
 
 ### Commit conventions

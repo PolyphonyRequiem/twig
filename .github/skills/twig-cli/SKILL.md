@@ -10,9 +10,11 @@ Use `twig` commands in the terminal to manage Azure DevOps work items. This skil
 ## Core Principles
 
 1. **Always fill descriptions** — When creating work items, write a meaningful description. Use `twig update System.Description "<text>"` after creation since `seed new` only accepts title and type.
-2. **Set context before operating** — Most commands operate on the "active" work item. Use `twig set <id>` to set it.
-3. **Publish seeds promptly** — Seeds are local-only until published. Always `twig seed publish --all` after creating seeds.
-4. **Refresh before querying** — If data seems stale, run `twig refresh` to sync from ADO.
+2. **Always assign to the user** — After creating and publishing, assign with `twig update System.AssignedTo "Daniel Green"`. Every work item must have an owner.
+3. **Always use `--output json`** — When Copilot runs twig commands, always append `--output json` for machine-readable output. Human-formatted tables are for the user's terminal, not for programmatic parsing.
+4. **Set context before operating** — Most commands operate on the "active" work item. Use `twig set <id>` to set it.
+5. **Publish seeds promptly** — Seeds are local-only until published. Always `twig seed publish --all` after creating seeds.
+6. **Refresh before querying** — If data seems stale, run `twig refresh` to sync from ADO.
 
 ## Work Item Creation Workflow
 
@@ -26,12 +28,11 @@ twig seed new --title "Title here" --type Issue
 # 3. Publish to ADO
 twig seed publish --all
 
-# 4. Set context to the new item and add description
+# 4. Set context to the new item, assign, and add description
 twig set <new-id>
+twig update System.AssignedTo "Daniel Green"
 twig update System.Description "Detailed description of the work item..."
-
-# 5. Save changes to ADO
-twig save
+# ^^^ twig update pushes immediately to ADO — no twig save needed
 ```
 
 ### Description Guidelines
@@ -81,6 +82,19 @@ Keep descriptions concise (2-5 sentences). Use plain text, not HTML.
 | Priority | `Microsoft.VSTS.Common.Priority` |
 | Effort | `Microsoft.VSTS.Scheduling.Effort` |
 
+## Important: `twig update` vs `twig save`
+
+- **`twig update <field> "<value>"`** — pushes the change **immediately** to ADO via PATCH. No `twig save` needed afterward.
+- **`twig save`** — pushes **pending local changes** (queued edits from `twig edit` or editor workflows) to ADO. Only needed for batch/editor changes, not after `twig update`.
+- **`twig save` has no `--force` flag** — if it says "Nothing to save", there are no pending changes (which is correct after `twig update` since it already pushed).
+
+## Gotchas
+
+- **Don't `twig save` after `twig update`** — it will say "Nothing to save" because `update` already pushed. This is not an error.
+- **Creating root-level items (Epics)** requires workarounds today: clear context, create seed with explicit `--type`, manually set area/iteration. See #1264 for the planned `twig new` command.
+- **Seed IDs are negative** — they get remapped to positive ADO IDs on publish. Always check the publish output for the new ID.
+- **`twig set` before `twig update`** — `update` operates on the active item. Forgetting to `set` first will update the wrong item.
+
 ## Tips
 
 - `twig seed new` accepts `--title` (named) or positional arg via `twig seed "title"` (backward compat)
@@ -88,3 +102,4 @@ Keep descriptions concise (2-5 sentences). Use plain text, not HTML.
 - `twig update` works on the active item; set context first with `twig set`
 - Use `--output json` on any command for machine-readable output
 - The database is at `.twig/{org}/{project}/twig.db` — can query directly with sqlite3
+- Use `sqlite3 .twig/{org}/{project}/twig.db` for ad-hoc queries (e.g., `SELECT id, title, type FROM work_items WHERE parent_id IS NULL`)

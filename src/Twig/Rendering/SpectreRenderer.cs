@@ -224,6 +224,9 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                     }
                 }
             });
+
+        // Trailing newline prevents Oh My Posh prompt redraw from clipping the last row
+        _console.WriteLine();
     }
 
     /// <summary>
@@ -350,6 +353,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                     catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort — don't fail tree rendering */ }
                 }
             });
+
+        _console.WriteLine();
     }
 
     /// <summary>
@@ -591,6 +596,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                     ctx.Refresh();
                 }
             });
+
+        _console.WriteLine();
     }
 
     // Core fields excluded from extended display (already shown as dedicated rows)
@@ -805,6 +812,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                 }
             });
 
+        _console.WriteLine();
+
         return result;
     }
 
@@ -988,6 +997,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                         throw new System.Diagnostics.UnreachableException($"Unhandled SyncResult: {result.GetType().Name}");
                 }
             });
+
+        _console.WriteLine();
     }
 
 
@@ -1264,6 +1275,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                     }
                 }
             });
+
+        _console.WriteLine();
 
         return result;
     }

@@ -442,7 +442,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         CancellationToken ct,
         IReadOnlyList<Domain.ValueObjects.FieldDefinition>? fieldDefinitions = null,
         IReadOnlyList<Domain.ValueObjects.StatusFieldEntry>? statusFieldEntries = null,
-        (int Done, int Total)? childProgress = null)
+        (int Done, int Total)? childProgress = null,
+        IReadOnlyList<Domain.ValueObjects.WorkItemLink>? links = null)
     {
         var item = await getItem() ?? throw new InvalidOperationException("Work item must not be null when building status view.");
         var pending = await getPendingChanges();
@@ -508,6 +509,17 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                 itemGrid.AddRow("", $"[dim]{string.Join(", ", parts)}[/]");
         }
 
+        // Links section — non-hierarchy links for the work item
+        if (links is { Count: > 0 })
+        {
+            itemGrid.AddRow("", ""); // visual spacer
+            itemGrid.AddRow("[dim]⇄ Links:[/]", "");
+            foreach (var link in links)
+            {
+                itemGrid.AddRow("", $"[blue]{Markup.Escape(link.LinkType)}[/]: #{link.TargetId}");
+            }
+        }
+
         var itemPanel = new Panel(itemGrid)
             .Header($"[bold]#{item.Id} {Markup.Escape(item.Title)}[/]{dirty}")
             .Border(BoxBorder.Rounded)
@@ -522,7 +534,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         CancellationToken ct,
         IReadOnlyList<Domain.ValueObjects.FieldDefinition>? fieldDefinitions = null,
         IReadOnlyList<Domain.ValueObjects.StatusFieldEntry>? statusFieldEntries = null,
-        (int Done, int Total)? childProgress = null)
+        (int Done, int Total)? childProgress = null,
+        IReadOnlyList<Domain.ValueObjects.WorkItemLink>? links = null)
     {
         var item = await getItem();
         if (item is null)
@@ -530,7 +543,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
         var view = await BuildStatusViewAsync(
             () => Task.FromResult<WorkItem?>(item),
-            getPendingChanges, ct, fieldDefinitions, statusFieldEntries, childProgress);
+            getPendingChanges, ct, fieldDefinitions, statusFieldEntries, childProgress, links);
         _console.Write(view);
     }
 

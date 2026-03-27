@@ -37,7 +37,8 @@ public interface IAsyncRenderer
         CancellationToken ct,
         IReadOnlyList<Domain.ValueObjects.FieldDefinition>? fieldDefinitions = null,
         IReadOnlyList<Domain.ValueObjects.StatusFieldEntry>? statusFieldEntries = null,
-        (int Done, int Total)? childProgress = null);
+        (int Done, int Total)? childProgress = null,
+        IReadOnlyList<Domain.ValueObjects.WorkItemLink>? links = null);
 
     Task RenderWorkItemAsync(
         Func<Task<WorkItem?>> getItem,

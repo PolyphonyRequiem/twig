@@ -24,6 +24,11 @@ public sealed class JsonOutputFormatter : IOutputFormatter
 
     public string FormatWorkItem(WorkItem item, bool showDirty)
     {
+        return FormatWorkItem(item, showDirty, links: null);
+    }
+
+    public string FormatWorkItem(WorkItem item, bool showDirty, IReadOnlyList<WorkItemLink>? links)
+    {
         using var stream = new MemoryStream();
         using var writer = new Utf8JsonWriter(stream, WriterOptions);
 
@@ -41,6 +46,22 @@ public sealed class JsonOutputFormatter : IOutputFormatter
             writer.WriteNumber("parentId", item.ParentId.Value);
         else
             writer.WriteNull("parentId");
+
+        // Non-hierarchy links
+        if (links is { Count: > 0 })
+        {
+            writer.WriteStartArray("links");
+            foreach (var link in links)
+            {
+                writer.WriteStartObject();
+                writer.WriteNumber("sourceId", link.SourceId);
+                writer.WriteNumber("targetId", link.TargetId);
+                writer.WriteString("linkType", link.LinkType);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+        }
+
         writer.WriteEndObject();
 
         writer.Flush();

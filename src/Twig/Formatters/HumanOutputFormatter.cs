@@ -65,7 +65,8 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         IReadOnlyList<FieldDefinition>? fieldDefinitions,
         IReadOnlyList<StatusFieldEntry>? statusFieldEntries = null,
         (int Done, int Total)? childProgress = null,
-        (int FieldCount, int NoteCount)? pendingChanges = null)
+        (int FieldCount, int NoteCount)? pendingChanges = null,
+        IReadOnlyList<WorkItemLink>? links = null)
     {
         var sb = new StringBuilder();
         var stateColor = GetStateColor(item.State);
@@ -130,6 +131,20 @@ public sealed class HumanOutputFormatter : IOutputFormatter
                 parts.Add($"{pc.NoteCount} {noteLabel} staged");
             }
             sb.Append($"  {Dim}{string.Join(", ", parts)}{Reset}");
+        }
+
+        // Links section — non-hierarchy links for the work item
+        if (links is { Count: > 0 })
+        {
+            sb.AppendLine();
+            sb.AppendLine($"  {Dim}── Links ─────────────────────{Reset}");
+            for (var i = 0; i < links.Count; i++)
+            {
+                var link = links[i];
+                sb.Append($"  {Blue}{link.LinkType}{Reset}: #{link.TargetId}");
+                if (i < links.Count - 1)
+                    sb.AppendLine();
+            }
         }
 
         return sb.ToString();

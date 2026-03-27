@@ -113,6 +113,11 @@ public sealed class StatusCommand(
             var children = await workItemRepo.GetChildrenAsync(item.Id, ct);
             var childProgress = ComputeChildProgress(children);
 
+            // Fetch related links (best-effort — same pattern as TreeCommand)
+            IReadOnlyList<Domain.ValueObjects.WorkItemLink> links = [];
+            try { links = await syncCoordinator.SyncLinksAsync(item.Id, ct); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
+
             // FIX-002: Render status panel INSIDE the Live region to prevent border
             // corruption when the sync indicator clears. BuildStatusViewAsync returns
             // the complete status view as a composite IRenderable.
@@ -128,7 +133,8 @@ public sealed class StatusCommand(
                             ct: CancellationToken.None,
                             fieldDefinitions: fieldDefs,
                             statusFieldEntries: statusFieldEntries,
-                            childProgress: childProgress),
+                            childProgress: childProgress,
+                            links: links),
                         performSync: () => syncCoordinator.SyncWorkingSetAsync(workingSet),
                         buildRevisedView: syncResult => Task.FromResult<Spectre.Console.Rendering.IRenderable?>(null),
                         CancellationToken.None);
@@ -143,7 +149,8 @@ public sealed class StatusCommand(
                         ct: CancellationToken.None,
                         fieldDefinitions: fieldDefs,
                         statusFieldEntries: statusFieldEntries,
-                        childProgress: childProgress);
+                        childProgress: childProgress,
+                        links: links);
                 }
             }
             else
@@ -155,7 +162,8 @@ public sealed class StatusCommand(
                     ct: CancellationToken.None,
                     fieldDefinitions: fieldDefs,
                     statusFieldEntries: statusFieldEntries,
-                    childProgress: childProgress);
+                    childProgress: childProgress,
+                    links: links);
             }
 
             var seeds = await workItemRepo.GetSeedsAsync();
@@ -186,6 +194,11 @@ public sealed class StatusCommand(
         if (!string.IsNullOrEmpty(summary))
             Console.WriteLine(summary);
 
+        // Fetch related links (best-effort — same pattern as TreeCommand)
+        IReadOnlyList<Domain.ValueObjects.WorkItemLink> syncLinks = [];
+        try { syncLinks = await syncCoordinator.SyncLinksAsync(item.Id, ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
+
         // Use overload with field definitions when formatter supports it
         if (fmt is HumanOutputFormatter humanFmt)
         {
@@ -210,8 +223,10 @@ public sealed class StatusCommand(
                 syncPendingChanges = (syncFieldCount, syncNoteCount);
             }
 
-            Console.WriteLine(humanFmt.FormatWorkItem(item, showDirty: true, fieldDefs, statusFieldEntries, syncChildProgress, syncPendingChanges));
+            Console.WriteLine(humanFmt.FormatWorkItem(item, showDirty: true, fieldDefs, statusFieldEntries, syncChildProgress, syncPendingChanges, syncLinks));
         }
+        else if (fmt is JsonOutputFormatter jsonFmt)
+            Console.WriteLine(jsonFmt.FormatWorkItem(item, showDirty: true, syncLinks));
         else
             Console.WriteLine(fmt.FormatWorkItem(item, showDirty: true));
 

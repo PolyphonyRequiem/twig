@@ -830,6 +830,48 @@ public class HumanOutputFormatterTests
         HumanOutputFormatter.FindExpectedParentTypeName("FEATURE", parentChildMap).ShouldBe("Epic");
     }
 
+    // ── Links in status view ────────────────────────────────────────
+
+    [Fact]
+    public void FormatWorkItem_WithLinks_ShowsLinksSection()
+    {
+        var item = CreateWorkItem(42, "Linked Item", "Active");
+        var links = new List<WorkItemLink>
+        {
+            new(42, 100, "Related"),
+            new(42, 200, "Predecessor"),
+        };
+
+        var result = _formatter.FormatWorkItem(item, showDirty: false, fieldDefinitions: null, links: links);
+
+        result.ShouldContain("Links");
+        result.ShouldContain("Related");
+        result.ShouldContain("#100");
+        result.ShouldContain("Predecessor");
+        result.ShouldContain("#200");
+    }
+
+    [Fact]
+    public void FormatWorkItem_WithEmptyLinks_OmitsLinksSection()
+    {
+        var item = CreateWorkItem(42, "Empty", "Active");
+        var links = new List<WorkItemLink>();
+
+        var result = _formatter.FormatWorkItem(item, showDirty: false, fieldDefinitions: null, links: links);
+
+        result.ShouldNotContain("Links");
+    }
+
+    [Fact]
+    public void FormatWorkItem_WithNullLinks_OmitsLinksSection()
+    {
+        var item = CreateWorkItem(42, "No Refs", "Active");
+
+        var result = _formatter.FormatWorkItem(item, showDirty: false, fieldDefinitions: null, links: null);
+
+        result.ShouldNotContain("Links");
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     private static WorkItem CreateWorkItem(int id, string title, string state, string? assignedTo = null)

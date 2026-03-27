@@ -332,6 +332,58 @@ public class JsonOutputFormatterTests
 
     // ── Helpers ──────────────────────────────────────────────────────
 
+    // ── Links in status view ────────────────────────────────────────
+
+    [Fact]
+    public void FormatWorkItem_WithLinks_IncludesLinksArray()
+    {
+        var item = CreateWorkItem(42, "Linked Item", "Active");
+        var links = new List<WorkItemLink>
+        {
+            new(42, 100, "Related"),
+            new(42, 200, "Successor"),
+        };
+
+        var result = _formatter.FormatWorkItem(item, showDirty: false, links);
+        var doc = JsonDocument.Parse(result);
+        var root = doc.RootElement;
+
+        root.TryGetProperty("links", out var linksElement).ShouldBeTrue();
+        linksElement.GetArrayLength().ShouldBe(2);
+
+        var first = linksElement[0];
+        first.GetProperty("sourceId").GetInt32().ShouldBe(42);
+        first.GetProperty("targetId").GetInt32().ShouldBe(100);
+        first.GetProperty("linkType").GetString().ShouldBe("Related");
+
+        var second = linksElement[1];
+        second.GetProperty("targetId").GetInt32().ShouldBe(200);
+        second.GetProperty("linkType").GetString().ShouldBe("Successor");
+    }
+
+    [Fact]
+    public void FormatWorkItem_WithEmptyLinks_OmitsLinksArray()
+    {
+        var item = CreateWorkItem(42, "No Links", "Active");
+        var links = new List<WorkItemLink>();
+
+        var result = _formatter.FormatWorkItem(item, showDirty: false, links);
+        var doc = JsonDocument.Parse(result);
+
+        doc.RootElement.TryGetProperty("links", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void FormatWorkItem_WithNullLinks_OmitsLinksArray()
+    {
+        var item = CreateWorkItem(42, "Null Links", "Active");
+
+        var result = _formatter.FormatWorkItem(item, showDirty: false, links: null);
+        var doc = JsonDocument.Parse(result);
+
+        doc.RootElement.TryGetProperty("links", out _).ShouldBeFalse();
+    }
+
     private static WorkItem CreateWorkItem(int id, string title, string state, string? assignedTo = null)
     {
         return new WorkItem

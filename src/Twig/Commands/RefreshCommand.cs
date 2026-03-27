@@ -25,6 +25,7 @@ public sealed class RefreshCommand(
     OutputFormatterFactory formatterFactory,
     WorkingSetService workingSetService,
     SyncCoordinator syncCoordinator,
+    IGlobalProfileStore? globalProfileStore = null,
     IPromptStateWriter? promptStateWriter = null,
     TextWriter? stderr = null)
 {
@@ -240,6 +241,50 @@ public sealed class RefreshCommand(
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _stderr.WriteLine(fmt.FormatInfo($"⚠ Could not fetch field definitions: {ex.Message}"));
+        }
+
+        // Update global profile metadata with current field definition hash
+        if (globalProfileStore is not null && !string.IsNullOrWhiteSpace(config.ProcessTemplate))
+        {
+            try
+            {
+                var allFields = await fieldDefinitionStore.GetAllAsync(ct);
+                if (allFields.Count > 0)
+                {
+                    var currentHash = FieldDefinitionHasher.ComputeFieldHash(allFields);
+                    var existing = await globalProfileStore.LoadMetadataAsync(
+                        config.Organization, config.ProcessTemplate, ct);
+
+                    if (existing is not null)
+                    {
+                        var now = DateTimeOffset.UtcNow;
+                        if (existing.FieldDefinitionHash != currentHash)
+                        {
+                            var updated = new ProfileMetadata(
+                                existing.Organization,
+                                existing.ProcessTemplate,
+                                existing.CreatedAt,
+                                now,
+                                currentHash,
+                                allFields.Count);
+                            await globalProfileStore.SaveMetadataAsync(
+                                config.Organization, config.ProcessTemplate, updated, ct);
+                            _stderr.WriteLine(fmt.FormatInfo(
+                                "ℹ Field definitions changed since last profile sync"));
+                        }
+                        else
+                        {
+                            var refreshed = existing with { LastSyncedAt = now };
+                            await globalProfileStore.SaveMetadataAsync(
+                                config.Organization, config.ProcessTemplate, refreshed, ct);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // FR-09: Profile I/O failures must never block refresh
+            }
         }
 
         // Update cache freshness timestamp so subsequent reads don't show stale indicators

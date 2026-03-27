@@ -551,7 +551,7 @@ twig config status-fields
 
 ---
 
-### Epic 4: Refresh Integration (G-4)
+### Epic 4: Refresh Integration (G-4) — ✅ DONE
 
 **Goal**: `twig refresh` recomputes field definition hashes after sync and updates global profile metadata. Emits drift warning when hashes change.
 
@@ -559,19 +559,19 @@ twig config status-fields
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E4-T1 | IMPL | Add `IGlobalProfileStore` to `RefreshCommand` primary constructor (`RefreshCommand.cs:14–30`). | `src/Twig/Commands/RefreshCommand.cs` | TO DO |
-| E4-T2 | IMPL | After `FieldDefinitionSyncService.SyncAsync()` (`RefreshCommand.cs:237–243`), add hash computation and profile metadata update: (1) Fetch field defs from `fieldDefinitionStore.GetAllAsync()`, (2) Compute hash, (3) Load existing profile metadata, (4) If profile exists and hash differs, update metadata + print "ℹ Field definitions changed since last profile sync", (5) If profile exists and hash matches, update `LastSyncedAt` only. Wrap in try-catch (FR-09). | `src/Twig/Commands/RefreshCommand.cs` | TO DO |
-| E4-T3 | TEST | Unit tests: (a) field hash unchanged → metadata `LastSyncedAt` updated only, (b) field hash changed → metadata fully updated + drift warning emitted to stderr, (c) no profile exists → no action taken, (d) profile I/O failure → refresh continues normally. | `tests/Twig.Cli.Tests/Commands/RefreshCommandProfileTests.cs` | TO DO |
+| E4-T1 | IMPL | Add `IGlobalProfileStore` to `RefreshCommand` primary constructor (`RefreshCommand.cs:14–30`). | `src/Twig/Commands/RefreshCommand.cs` | DONE |
+| E4-T2 | IMPL | After `FieldDefinitionSyncService.SyncAsync()` (`RefreshCommand.cs:237–243`), add hash computation and profile metadata update: (1) Fetch field defs from `fieldDefinitionStore.GetAllAsync()`, (2) Compute hash, (3) Load existing profile metadata, (4) If profile exists and hash differs, update metadata + print "ℹ Field definitions changed since last profile sync", (5) If profile exists and hash matches, update `LastSyncedAt` only. Wrap in try-catch (FR-09). | `src/Twig/Commands/RefreshCommand.cs` | DONE |
+| E4-T3 | TEST | Unit tests: (a) field hash unchanged → metadata `LastSyncedAt` updated only, (b) field hash changed → metadata fully updated + drift warning emitted to stderr, (c) no profile exists → no action taken, (d) profile I/O failure → refresh continues normally. | `tests/Twig.Cli.Tests/Commands/RefreshCommandProfileTests.cs` | DONE |
 
 **Acceptance Criteria**:
-- [ ] `twig refresh` updates profile metadata `LastSyncedAt` on every successful run
-- [ ] Hash drift emits informational warning
-- [ ] Profile failures never block refresh
-- [ ] All existing refresh tests pass unchanged
+- [x] `twig refresh` updates profile metadata `LastSyncedAt` on every successful run
+- [x] Hash drift emits informational warning
+- [x] Profile failures never block refresh
+- [x] All existing refresh tests pass unchanged
 
 ---
 
-### Epic 5: Process-Aware Smart Defaults (G-5, G-6)
+### Epic 5: Process-Aware Smart Defaults(G-5, G-6)
 
 **Goal**: Improve first-use experience with curated field star lists per known process template.
 

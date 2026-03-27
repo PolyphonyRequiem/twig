@@ -43,10 +43,10 @@ public sealed class GlobalProfileStore : IGlobalProfileStore
 
     public async Task SaveStatusFieldsAsync(string org, string process, string content, CancellationToken ct = default)
     {
-        var tmpPath = GetStatusFieldsPath(org, process) + ".tmp";
+        var path = GetStatusFieldsPath(org, process);
+        var tmpPath = path + $".{Guid.NewGuid():N}.tmp";
         try
         {
-            var path = tmpPath[..^4]; // strip ".tmp"
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
 
             await File.WriteAllTextAsync(tmpPath, content, ct);
@@ -83,10 +83,10 @@ public sealed class GlobalProfileStore : IGlobalProfileStore
 
     public async Task SaveMetadataAsync(string org, string process, ProfileMetadata metadata, CancellationToken ct = default)
     {
-        var tmpPath = GetMetadataPath(org, process) + ".tmp";
+        var path = GetMetadataPath(org, process);
+        var tmpPath = path + $".{Guid.NewGuid():N}.tmp";
         try
         {
-            var path = tmpPath[..^4]; // strip ".tmp"
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
 
             await using (var stream = File.Create(tmpPath))

@@ -43,6 +43,27 @@ public class TwigConfigurationTests : IDisposable
     }
 
     [Fact]
+    public async Task LoadAsync_ProcessTemplate_DefaultsToEmpty_WhenKeyMissing()
+    {
+        // Simulates upgrading from a config file that predates ProcessTemplate
+        var json = """{"organization":"myorg","project":"myproj","team":"myteam"}""";
+        var path = Path.Combine(_tempDir, "config-no-template.json");
+        await File.WriteAllTextAsync(path, json);
+
+        var config = await TwigConfiguration.LoadAsync(path);
+
+        config.ProcessTemplate.ShouldBe(string.Empty);
+    }
+
+    [Fact]
+    public void SetValue_ProcessTemplate_SetsValue()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("processtemplate", "Agile").ShouldBeTrue();
+        config.ProcessTemplate.ShouldBe("Agile");
+    }
+
+    [Fact]
     public void SetValue_KnownPath_DisplayIcons_Unicode()
     {
         var config = new TwigConfiguration();

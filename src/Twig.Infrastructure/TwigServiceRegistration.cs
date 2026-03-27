@@ -97,6 +97,9 @@ public static class TwigServiceRegistration
             return new FileSeedPublishRulesProvider(paths.TwigDir);
         });
 
+        // Global profile store — best-effort file-backed storage for process profiles.
+        services.AddSingleton<IGlobalProfileStore, GlobalProfileStore>();
+
         // Prompt state writer — writes .twig/prompt.json atomically after mutating commands.
         services.AddSingleton<IPromptStateWriter>(sp => new PromptStateWriter(
             sp.GetRequiredService<IContextStore>(),

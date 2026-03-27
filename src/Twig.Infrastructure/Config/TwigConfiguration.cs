@@ -13,6 +13,7 @@ public sealed class TwigConfiguration
     public string Organization { get; set; } = string.Empty;
     public string Project { get; set; } = string.Empty;
     public string Team { get; set; } = string.Empty;
+    public string ProcessTemplate { get; set; } = string.Empty;
     public AuthConfig Auth { get; set; } = new();
     public DefaultsConfig Defaults { get; set; } = new();
     public SeedConfig Seed { get; set; } = new();
@@ -138,6 +139,9 @@ public sealed class TwigConfiguration
                 return true;
             case "team":
                 Team = value;
+                return true;
+            case "processtemplate":
+                ProcessTemplate = value;
                 return true;
             case "auth.method":
                 var authLower = value.ToLowerInvariant();

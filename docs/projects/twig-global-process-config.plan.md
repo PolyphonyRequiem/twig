@@ -476,7 +476,7 @@ twig config status-fields
 
 ## Implementation Plan
 
-### Epic 1: Foundation Infrastructure (G-1, G-4)
+### Epic 1: Foundation Infrastructure (G-1, G-4) — ✅ DONE
 
 **Goal**: Build `GlobalProfilePaths`, `GlobalProfileStore`, `FieldDefinitionHasher`, `ProfileMetadata`, and DI registration. All infrastructure needed before command integration.
 
@@ -484,25 +484,25 @@ twig config status-fields
 
 | Task ID | Type | Description | Files | Status |
 |---------|------|-------------|-------|--------|
-| E1-T1 | IMPL | Create `ProfileMetadata` sealed record in `Twig.Domain/ValueObjects/`. Fields: `Organization`, `ProcessTemplate`, `CreatedAt` (DateTimeOffset), `LastSyncedAt` (DateTimeOffset), `FieldDefinitionHash` (string), `FieldCount` (int). Follow the `FieldDefinition` pattern (`FieldDefinition.cs:7–11`). | `src/Twig.Domain/ValueObjects/ProfileMetadata.cs` | TO DO |
-| E1-T2 | IMPL | Create `IGlobalProfileStore` interface in `Twig.Domain/Interfaces/`. Four methods: `LoadStatusFieldsAsync`, `SaveStatusFieldsAsync`, `LoadMetadataAsync`, `SaveMetadataAsync`. All accept `(string org, string process, CancellationToken ct)`. Load methods return nullable. | `src/Twig.Domain/Interfaces/IGlobalProfileStore.cs` | TO DO |
-| E1-T3 | IMPL | Create `FieldDefinitionHasher` static class in `Twig.Domain/Services/`. Implement `ComputeFieldHash(IReadOnlyList<FieldDefinition>)`: sort by `ReferenceName` (StringComparison.Ordinal), concatenate `"{ReferenceName}:{DataType}\n"`, call `SHA256.HashData(Encoding.UTF8.GetBytes(combined))`, return `$"sha256:{Convert.ToHexString(hash).ToLowerInvariant()}"`. Follow `FieldDefinitionSyncService` pattern (`FieldDefinitionSyncService.cs`) — static class, static methods, no DI. | `src/Twig.Domain/Services/FieldDefinitionHasher.cs` | TO DO |
-| E1-T4 | IMPL | Create `GlobalProfilePaths` static class in `Twig.Infrastructure/Config/`. Implement `GetProfileDir(string org, string process)` using `Path.Combine(Environment.GetFolderPath(SpecialFolder.UserProfile), ".twig", "profiles", TwigPaths.SanitizePathSegment(org), TwigPaths.SanitizePathSegment(process))`. Also: `GetStatusFieldsPath()` and `GetMetadataPath()`. Follow `TwigPaths` pattern (`TwigPaths.cs`). | `src/Twig.Infrastructure/Config/GlobalProfilePaths.cs` | TO DO |
-| E1-T5 | IMPL | Create `GlobalProfileStore` class in `Twig.Infrastructure/Config/` implementing `IGlobalProfileStore`. Load methods: return null on missing file or any exception. Save methods: `Directory.CreateDirectory()` lazily → write to `path + ".tmp"` → `File.Move(overwrite: true)`. JSON serialization via `TwigJsonContext.Default.ProfileMetadata`. Wrap all I/O in try-catch (FR-09). | `src/Twig.Infrastructure/Config/GlobalProfileStore.cs` | TO DO |
-| E1-T6 | IMPL | Add `ProcessTemplate` property to `TwigConfiguration` (`TwigConfiguration.cs`): `public string ProcessTemplate { get; set; } = string.Empty;` after `Team` (L15). Backward-compatible — missing key → empty string. | `src/Twig.Infrastructure/Config/TwigConfiguration.cs` | TO DO |
-| E1-T7 | IMPL | Register `ProfileMetadata` in `TwigJsonContext`: add `[JsonSerializable(typeof(ProfileMetadata))]` to the attribute list (`TwigJsonContext.cs`, before L86). | `src/Twig.Infrastructure/Serialization/TwigJsonContext.cs` | TO DO |
-| E1-T8 | IMPL | Register `IGlobalProfileStore` → `GlobalProfileStore` in `TwigServiceRegistration.AddTwigCoreServices()` (`TwigServiceRegistration.cs`). Add `services.AddSingleton<IGlobalProfileStore, GlobalProfileStore>();` near the `ISeedPublishRulesProvider` registration (L95–99). | `src/Twig.Infrastructure/TwigServiceRegistration.cs` | TO DO |
-| E1-T9 | TEST | Unit tests for `FieldDefinitionHasher`: (a) deterministic — same input produces same hash, (b) different field sets produce different hashes, (c) order-independent — shuffled input produces same hash (sorted internally), (d) empty list produces consistent hash, (e) hash starts with `"sha256:"`. Use `FieldDefinition` instances directly — pure domain, no mocks. | `tests/Twig.Domain.Tests/Services/FieldDefinitionHasherTests.cs` | TO DO |
-| E1-T10 | TEST | Unit tests for `GlobalProfilePaths`: (a) `GetProfileDir` returns expected path structure, (b) unsafe characters sanitized in org/process segments, (c) `GetStatusFieldsPath` / `GetMetadataPath` append correct filenames. | `tests/Twig.Infrastructure.Tests/Config/GlobalProfilePathsTests.cs` | TO DO |
-| E1-T11 | TEST | Integration tests for `GlobalProfileStore` using temp directories: (a) `LoadStatusFieldsAsync` returns null for missing profile, (b) `SaveStatusFieldsAsync` + `LoadStatusFieldsAsync` round-trip, (c) `SaveMetadataAsync` + `LoadMetadataAsync` round-trip with correct JSON, (d) save creates directory tree lazily, (e) corrupt JSON file returns null (not throws), (f) concurrent saves don't corrupt (last-writer-wins). Use `Path.Combine(Path.GetTempPath(), Path.GetRandomFileName())` for isolation — matches Infrastructure test patterns. | `tests/Twig.Infrastructure.Tests/Config/GlobalProfileStoreTests.cs` | TO DO |
+| E1-T1 | IMPL | Create `ProfileMetadata` sealed record in `Twig.Domain/ValueObjects/`. Fields: `Organization`, `ProcessTemplate`, `CreatedAt` (DateTimeOffset), `LastSyncedAt` (DateTimeOffset), `FieldDefinitionHash` (string), `FieldCount` (int). Follow the `FieldDefinition` pattern (`FieldDefinition.cs:7–11`). | `src/Twig.Domain/ValueObjects/ProfileMetadata.cs` | DONE |
+| E1-T2 | IMPL | Create `IGlobalProfileStore` interface in `Twig.Domain/Interfaces/`. Four methods: `LoadStatusFieldsAsync`, `SaveStatusFieldsAsync`, `LoadMetadataAsync`, `SaveMetadataAsync`. All accept `(string org, string process, CancellationToken ct)`. Load methods return nullable. | `src/Twig.Domain/Interfaces/IGlobalProfileStore.cs` | DONE |
+| E1-T3 | IMPL | Create `FieldDefinitionHasher` static class in `Twig.Domain/Services/`. Implement `ComputeFieldHash(IReadOnlyList<FieldDefinition>)`: sort by `ReferenceName` (StringComparison.Ordinal), concatenate `"{ReferenceName}:{DataType}\n"`, call `SHA256.HashData(Encoding.UTF8.GetBytes(combined))`, return `$"sha256:{Convert.ToHexString(hash).ToLowerInvariant()}"`. Follow `FieldDefinitionSyncService` pattern (`FieldDefinitionSyncService.cs`) — static class, static methods, no DI. | `src/Twig.Domain/Services/FieldDefinitionHasher.cs` | DONE |
+| E1-T4 | IMPL | Create `GlobalProfilePaths` static class in `Twig.Infrastructure/Config/`. Implement `GetProfileDir(string org, string process)` using `Path.Combine(Environment.GetFolderPath(SpecialFolder.UserProfile), ".twig", "profiles", TwigPaths.SanitizePathSegment(org), TwigPaths.SanitizePathSegment(process))`. Also: `GetStatusFieldsPath()` and `GetMetadataPath()`. Follow `TwigPaths` pattern (`TwigPaths.cs`). | `src/Twig.Infrastructure/Config/GlobalProfilePaths.cs` | DONE |
+| E1-T5 | IMPL | Create `GlobalProfileStore` class in `Twig.Infrastructure/Config/` implementing `IGlobalProfileStore`. Load methods: return null on missing file or any exception. Save methods: `Directory.CreateDirectory()` lazily → write to `path + ".tmp"` → `File.Move(overwrite: true)`. JSON serialization via `TwigJsonContext.Default.ProfileMetadata`. Wrap all I/O in try-catch (FR-09). | `src/Twig.Infrastructure/Config/GlobalProfileStore.cs` | DONE |
+| E1-T6 | IMPL | Add `ProcessTemplate` property to `TwigConfiguration` (`TwigConfiguration.cs`): `public string ProcessTemplate { get; set; } = string.Empty;` after `Team` (L15). Backward-compatible — missing key → empty string. | `src/Twig.Infrastructure/Config/TwigConfiguration.cs` | DONE |
+| E1-T7 | IMPL | Register `ProfileMetadata` in `TwigJsonContext`: add `[JsonSerializable(typeof(ProfileMetadata))]` to the attribute list (`TwigJsonContext.cs`, before L86). | `src/Twig.Infrastructure/Serialization/TwigJsonContext.cs` | DONE |
+| E1-T8 | IMPL | Register `IGlobalProfileStore` → `GlobalProfileStore` in `TwigServiceRegistration.AddTwigCoreServices()` (`TwigServiceRegistration.cs`). Add `services.AddSingleton<IGlobalProfileStore, GlobalProfileStore>();` near the `ISeedPublishRulesProvider` registration (L95–99). | `src/Twig.Infrastructure/TwigServiceRegistration.cs` | DONE |
+| E1-T9 | TEST | Unit tests for `FieldDefinitionHasher`: (a) deterministic — same input produces same hash, (b) different field sets produce different hashes, (c) order-independent — shuffled input produces same hash (sorted internally), (d) empty list produces consistent hash, (e) hash starts with `"sha256:"`. Use `FieldDefinition` instances directly — pure domain, no mocks. | `tests/Twig.Domain.Tests/Services/FieldDefinitionHasherTests.cs` | DONE |
+| E1-T10 | TEST | Unit tests for `GlobalProfilePaths`: (a) `GetProfileDir` returns expected path structure, (b) unsafe characters sanitized in org/process segments, (c) `GetStatusFieldsPath` / `GetMetadataPath` append correct filenames. | `tests/Twig.Infrastructure.Tests/Config/GlobalProfilePathsTests.cs` | DONE |
+| E1-T11 | TEST | Integration tests for `GlobalProfileStore` using temp directories: (a) `LoadStatusFieldsAsync` returns null for missing profile, (b) `SaveStatusFieldsAsync` + `LoadStatusFieldsAsync` round-trip, (c) `SaveMetadataAsync` + `LoadMetadataAsync` round-trip with correct JSON, (d) save creates directory tree lazily, (e) corrupt JSON file returns null (not throws), (f) concurrent saves don't corrupt (last-writer-wins). Use `Path.Combine(Path.GetTempPath(), Path.GetRandomFileName())` for isolation — matches Infrastructure test patterns. | `tests/Twig.Infrastructure.Tests/Config/GlobalProfileStoreTests.cs` | DONE |
 
 **Acceptance Criteria**:
-- [ ] All 6 new types compile with `PublishAot=true` (no trimming warnings)
-- [ ] `ProfileMetadata` serializes/deserializes via `TwigJsonContext`
-- [ ] `FieldDefinitionHasher` produces deterministic hashes
-- [ ] `GlobalProfileStore` handles missing/corrupt files gracefully (returns null, no throws)
-- [ ] DI registration resolves `IGlobalProfileStore` correctly
-- [ ] All tests pass across all test projects
+- [x] All 6 new types compile with `PublishAot=true` (no trimming warnings)
+- [x] `ProfileMetadata` serializes/deserializes via `TwigJsonContext`
+- [x] `FieldDefinitionHasher` produces deterministic hashes
+- [x] `GlobalProfileStore` handles missing/corrupt files gracefully (returns null, no throws)
+- [x] DI registration resolves `IGlobalProfileStore` correctly
+- [x] All tests pass across all test projects
 
 ---
 
@@ -592,6 +592,34 @@ twig config status-fields
 
 ---
 
+### Epic 6: Lightweight Telemetry (Opt-In via Env Var)
+
+**Goal**: Wire up anonymous, privacy-safe command telemetry to an Application Insights endpoint via env var. Zero overhead when disabled. No SDK — direct HTTPS POST to AI ingestion API.
+
+**Prerequisites**: None (independent, but benefits from Epic 1 infrastructure landing first)
+
+**Data Privacy Constraints**:
+- **NEVER send**: organization names, project names, user names, process template names, work item type names, field names/references, area/iteration paths, work item IDs/titles/descriptions, or any process-specific or proprietary information — even hashed
+- **Safe to send**: twig command name, duration (ms), exit code, output format, twig version, OS platform, generic boolean flags (`had_profile`, `merge_needed`), generic numeric counts (`field_count`, `item_count` — just numbers, no identifiers)
+
+| Task ID | Type | Description | Files | Status |
+|---------|------|-------------|-------|--------|
+| E6-T1 | IMPL | Create `TelemetryClient` in `Twig.Infrastructure/Telemetry/TelemetryClient.cs`. Reads `TWIG_TELEMETRY_ENDPOINT` and `TWIG_TELEMETRY_KEY` env vars at construction. If either is unset, all methods are no-ops (returns immediately). Implements `TrackEvent(string eventName, Dictionary<string, string>? properties, Dictionary<string, double>? metrics)`. Builds AI-compatible JSON envelope (`{ "name": "AppEvents", "iKey": key, "data": { "baseType": "EventData", "baseData": { "name": eventName, "properties": ..., "measurements": ... } } }`). POSTs via `HttpClient` fire-and-forget (`Task.Run` with swallowed exceptions). No retries, no queue, no persistence. | `src/Twig.Infrastructure/Telemetry/TelemetryClient.cs` | TO DO |
+| E6-T2 | IMPL | Create `ITelemetryClient` interface in `Twig.Domain/Interfaces/ITelemetryClient.cs` with single method `void TrackEvent(string name, Dictionary<string, string>? properties = null, Dictionary<string, double>? metrics = null)`. Implementation is fire-and-forget — callers never await. | `src/Twig.Domain/Interfaces/ITelemetryClient.cs` | TO DO |
+| E6-T3 | IMPL | Register `ITelemetryClient` → `TelemetryClient` as singleton in `TwigServiceRegistration`. Create a dedicated `HttpClient` instance (no auth headers, 5s timeout). Add AI envelope JSON type to `TwigJsonContext` for AOT serialization. | `src/Twig.Infrastructure/TwigServiceRegistration.cs`, `src/Twig.Infrastructure/Serialization/TwigJsonContext.cs` | TO DO |
+| E6-T4 | IMPL | Add telemetry calls to key commands: `StatusCommand`, `TreeCommand`, `SetCommand`, `RefreshCommand`, `InitCommand`, `ConfigStatusFieldsCommand`. Each emits `CommandExecuted` with: `command`, `duration_ms`, `exit_code`, `output_format`, `twig_version`, `os_platform`. Init additionally emits: `had_global_profile` (bool), `field_count` (int). Refresh emits: `item_count` (int), `hash_changed` (bool). All property values are non-identifying. | Multiple command files | TO DO |
+| E6-T5 | TEST | Unit tests: (a) `TelemetryClient` with no env vars → `TrackEvent` is no-op (no HTTP call), (b) with env vars set → builds correct JSON envelope shape, (c) HTTP failure doesn't throw or block, (d) properties contain only safe keys (allowlist test — reject any key containing "org", "project", "user", "type", "name", "path", "template", "field"). | `tests/Twig.Infrastructure.Tests/Telemetry/TelemetryClientTests.cs` | TO DO |
+
+**Acceptance Criteria**:
+- [ ] No telemetry sent when `TWIG_TELEMETRY_ENDPOINT` is unset
+- [ ] When set, events POST to the configured endpoint with correct AI envelope format
+- [ ] Zero measurable latency impact on command execution (fire-and-forget)
+- [ ] Allowlist test enforces that no identifying data leaks into properties
+- [ ] All existing tests pass (no telemetry injected in test paths)
+- [ ] AOT compatible — no reflection in JSON serialization
+
+---
+
 ## Files Affected
 
 ### New Files
@@ -610,6 +638,9 @@ twig config status-fields
 | `tests/Twig.Cli.Tests/Commands/ConfigStatusFieldsWriteBackTests.cs` | Write-back behavior tests |
 | `tests/Twig.Cli.Tests/Commands/RefreshCommandProfileTests.cs` | Refresh hash update tests |
 | `tests/Twig.Domain.Tests/Services/StatusFieldsConfigSmartDefaultTests.cs` | Process-aware default tests |
+| `src/Twig.Domain/Interfaces/ITelemetryClient.cs` | Domain interface for fire-and-forget telemetry |
+| `src/Twig.Infrastructure/Telemetry/TelemetryClient.cs` | AI ingestion API client — env-var opt-in, no SDK |
+| `tests/Twig.Infrastructure.Tests/Telemetry/TelemetryClientTests.cs` | Telemetry no-op, envelope shape, privacy allowlist tests |
 
 ### Modified Files
 
@@ -621,7 +652,7 @@ twig config status-fields
 | `src/Twig.Domain/Services/StatusFieldsConfig.cs` | Add process-aware `IsDefaultStarred()` and `Generate()` overloads |
 | `src/Twig.Infrastructure/Config/TwigConfiguration.cs` | Add `ProcessTemplate` string property |
 | `src/Twig.Infrastructure/Serialization/TwigJsonContext.cs` | Add `[JsonSerializable(typeof(ProfileMetadata))]` |
-| `src/Twig.Infrastructure/TwigServiceRegistration.cs` | Register `IGlobalProfileStore` → `GlobalProfileStore` |
+| `src/Twig.Infrastructure/TwigServiceRegistration.cs` | Register `IGlobalProfileStore` → `GlobalProfileStore`; register `ITelemetryClient` → `TelemetryClient` |
 
 ---
 

@@ -83,6 +83,8 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(List<GitHubRelease>))]
 // Seed publish rules (Epic 1 — publish rules configuration)
 [JsonSerializable(typeof(SeedPublishRules))]
+// Global process profile metadata
+[JsonSerializable(typeof(ProfileMetadata))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]

@@ -67,6 +67,12 @@ task row. The mapping is stored in `tools/plan-ado-map.json`.
 - Per-epic effort in hours can be passed via `-EpicEffortHours @{"Epic 1"=8; "Epic 2"=4}`
 - After seeding, the plan Epic is transitioned to "Doing"
 
+### Creating work items via twig CLI
+- Use the `twig-cli` skill for full command reference
+- **Always add a description** after creating and publishing a seed:
+  `twig set <id>` → `twig update System.Description "..."` → `twig save`
+- Descriptions should explain what, why, and acceptance criteria (2-5 sentences, plain text)
+
 ### Commit conventions
 When committing code that implements plan work:
 - Include `AB#<id>` in the commit message (the Issue ID from the mapping file)

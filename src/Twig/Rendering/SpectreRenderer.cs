@@ -1434,25 +1434,28 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         }
         else if (state.VisibleSiblings.Count > 0)
         {
-            // No parent chain — siblings are the root level
-            var firstSibling = state.VisibleSiblings[0];
-            var firstLabel = FormatSiblingLabel(firstSibling, 0, state, theme);
-            var tree = new Tree(firstLabel);
-
-            // Add children if first sibling is cursor
-            if (state.CursorIndex == 0)
-                AddChildrenToNode(tree, state, theme);
-
-            for (var i = 1; i < state.VisibleSiblings.Count; i++)
+            // No parent chain — siblings are all root-level peers (flat list, not a tree)
+            var siblingRows = new List<IRenderable>();
+            for (var i = 0; i < state.VisibleSiblings.Count; i++)
             {
                 var sibling = state.VisibleSiblings[i];
                 var label = FormatSiblingLabel(sibling, i, state, theme);
-                var node = tree.AddNode(label);
-                if (state.CursorIndex == i)
-                    AddChildrenToNode(node, state, theme);
+                siblingRows.Add(new Markup(label));
+
+                if (state.CursorIndex == i && state.Children.Count > 0)
+                {
+                    // Show children indented under cursor
+                    foreach (var child in state.Children)
+                    {
+                        var effort = Formatters.FormatterHelpers.GetEffortDisplay(child);
+                        var effortSuffix = effort is not null ? $" [dim]{Markup.Escape(effort)}[/]" : "";
+                        var childLabel = $"    {theme.FormatTypeBadge(child.Type)} #{child.Id} {Markup.Escape(child.Title)} {theme.FormatState(child.State)}{effortSuffix}";
+                        siblingRows.Add(new Markup(childLabel));
+                    }
+                }
             }
 
-            treeContent = tree;
+            treeContent = new Rows(siblingRows);
         }
         else
         {

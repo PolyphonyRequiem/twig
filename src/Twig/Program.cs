@@ -297,6 +297,10 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> State([Argument] string name, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<StateCommand>().ExecuteAsync(name, output, ct);
 
+    /// <summary>Create a new top-level work item in ADO (no parent required).</summary>
+    public async Task<int> New(string title, string type, string? area = null, string? iteration = null, string? description = null, bool set = false, bool editor = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<NewCommand>().ExecuteAsync(title, type, area, iteration, description, set, editor, output, ct);
+
     /// <summary>Display the work item tree hierarchy.</summary>
     public async Task<int> Tree(string output = OutputFormatterFactory.DefaultFormat, int? depth = null, bool all = false, bool noLive = false, CancellationToken ct = default)
         => await services.GetRequiredService<TreeCommand>().ExecuteAsync(output, depth, all, noLive, ct);

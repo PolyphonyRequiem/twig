@@ -75,6 +75,31 @@ public static class SeedFactory
         return Result.Ok(seed);
     }
 
+    /// <summary>
+    /// Creates an unparented seed with explicit area/iteration paths.
+    /// Used by <c>twig new</c> for top-level work items (e.g., Epics).
+    /// </summary>
+    public static Result<WorkItem> CreateUnparented(
+        string title,
+        WorkItemType type,
+        AreaPath areaPath,
+        IterationPath iterationPath,
+        string? assignedTo = null)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+            return Result.Fail<WorkItem>("Title cannot be empty.");
+
+        var seed = WorkItem.CreateSeed(
+            type,
+            title,
+            parentId: null,
+            areaPath,
+            iterationPath,
+            assignedTo);
+
+        return Result.Ok(seed);
+    }
+
     private static bool ContainsType(IReadOnlyList<WorkItemType> types, WorkItemType target)
     {
         foreach (var t in types)

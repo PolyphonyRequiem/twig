@@ -47,6 +47,7 @@ public static class CommandRegistrationModule
         services.AddSingleton<TreeCommand>();
         services.AddSingleton<NavigationCommands>();
         services.AddSingleton<NavigationHistoryCommands>();
+        services.AddSingleton<NewCommand>();
         services.AddSingleton<SeedNewCommand>();
         services.AddSingleton<SeedEditCommand>();
         services.AddSingleton<SeedDiscardCommand>();

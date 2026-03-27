@@ -276,4 +276,60 @@ public class SeedFactoryTests
         result.Value.Fields["System.AssignedTo"].ShouldBe("Daniel Green");
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    //  CreateUnparented
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void CreateUnparented_ValidArgs_CreatesSeedWithNullParent()
+    {
+        var area = AreaPath.Parse("Proj\\Area").Value;
+        var iter = IterationPath.Parse("Proj\\Sprint1").Value;
+
+        var result = SeedFactory.CreateUnparented("New Epic", WorkItemType.Epic, area, iter);
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.IsSeed.ShouldBeTrue();
+        result.Value.ParentId.ShouldBeNull();
+        result.Value.Type.ShouldBe(WorkItemType.Epic);
+        result.Value.Title.ShouldBe("New Epic");
+    }
+
+    [Fact]
+    public void CreateUnparented_SetsAreaAndIteration()
+    {
+        var area = AreaPath.Parse("Proj\\Area").Value;
+        var iter = IterationPath.Parse("Proj\\Sprint1").Value;
+
+        var result = SeedFactory.CreateUnparented("My Item", WorkItemType.Issue, area, iter);
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.AreaPath.Value.ShouldBe("Proj\\Area");
+        result.Value.IterationPath.Value.ShouldBe("Proj\\Sprint1");
+    }
+
+    [Fact]
+    public void CreateUnparented_WithAssignedTo_SetsAssignment()
+    {
+        var area = AreaPath.Parse("Proj").Value;
+        var iter = IterationPath.Parse("Proj").Value;
+
+        var result = SeedFactory.CreateUnparented("Epic", WorkItemType.Epic, area, iter, "Daniel Green");
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.AssignedTo.ShouldBe("Daniel Green");
+        result.Value.Fields["System.AssignedTo"].ShouldBe("Daniel Green");
+    }
+
+    [Fact]
+    public void CreateUnparented_EmptyTitle_Fails()
+    {
+        var area = AreaPath.Parse("Proj").Value;
+        var iter = IterationPath.Parse("Proj").Value;
+
+        var result = SeedFactory.CreateUnparented("", WorkItemType.Epic, area, iter);
+
+        result.IsSuccess.ShouldBeFalse();
+    }
+
 }

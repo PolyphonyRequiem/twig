@@ -10,6 +10,8 @@
     <!-- SQLite -->
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="9.0.14" />
     <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.11" />
+    <!-- Markdown -->
+    <PackageVersion Include="Markdig" Version="1.1.2" />
     <!-- Rendering -->
     <PackageVersion Include="Spectre.Console" Version="0.54.0" />
     <!-- TUI -->

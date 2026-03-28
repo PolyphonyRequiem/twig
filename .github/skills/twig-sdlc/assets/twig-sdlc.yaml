@@ -447,7 +447,7 @@ agents:
       Record which Issue IDs belong to which PR group for the implementation phase.
     output:
       work_tree:
-        type: string
+        type: object
         description: JSON structure mapping PR groups to Issues to Tasks with all ADO IDs
       pr_groups:
         type: array
@@ -488,7 +488,7 @@ agents:
     prompt: |
       Manage the implementation lifecycle.
       **Work Tree:**
-      {{ work_tree_seeder.output.work_tree }}
+      {{ work_tree_seeder.output.work_tree | json }}
       **PR Groups:**
       {{ work_tree_seeder.output.pr_groups | json }}
       **Plan:** {{ architect.output.plan_path }}

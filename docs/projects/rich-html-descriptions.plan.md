@@ -1,7 +1,7 @@
 # Plan: Rich HTML Descriptions for ADO Work Items
 
 > **Date**: 2026-03-28
-> **Status**: Draft (Rev 7 — addresses tech + readability review feedback)
+> **Status**: ✅ DONE (all epics complete, PRs merged, Epic #1281 closed)
 > **ADO Epic**: #1281
 
 ---
@@ -217,12 +217,13 @@ twig update System.Description "## Summary\n\nFix the **auth** bug" --format mar
 
 ## Implementation Plan
 
-### Epic 1: Markdig Integration and Markdown Converter (PR #1)
+### Epic 1: Markdig Integration and Markdown Converter (PR #1) — ✅ DONE
 
 > **Classification:** Deep (4 files, focused library integration + pure-function design)
 > **Estimated LoC:** ~180 (converter ~30, tests ~100, csproj/props ~50)
-> **ADO Issue:** #1282
+> **ADO Issue:** #1292
 > **Predecessor**: None
+> **PR:** #1 (merged)
 
 | Task | Description | Files | Effort |
 |------|-------------|-------|--------|
@@ -286,12 +287,13 @@ xUnit `[Fact]`/`[Theory]` with Shouldly assertions:
 
 ---
 
-### Epic 2: `--format` Flag on `twig update` (PR #2)
+### Epic 2: `--format` Flag on `twig update` (PR #2) — ✅ DONE
 
 > **Classification:** Deep (3 files, command-layer wiring with validation logic)
 > **Estimated LoC:** ~200 (command changes ~40, routing ~10, tests ~150)
-> **ADO Issue:** #1283
+> **ADO Issue:** #1293
 > **Predecessor**: Epic 1
+> **PR:** #2 (merged)
 
 | Task | Description | Files | Effort |
 |------|-------------|-------|--------|
@@ -400,3 +402,28 @@ Epic 1 (Markdig Foundation — #1282)
 | `tests/Twig.Cli.Tests/Commands/UpdateCommandTests.cs` | Modified | 2 |
 
 **Total**: 2 new files (+ 2 new folders), 5 modified files across 2 epics
+
+---
+
+## Completion Summary
+
+> **Completed**: 2026-03-28
+> **Epic**: #1281 → Done
+> **Issues**: #1292 (Done), #1293 (Done)
+> **PRs**: #1 (merged), #2 (merged)
+
+All planned work has been delivered:
+
+- **Epic 1 (Markdig Foundation):** Markdig 1.1.2 integrated via central package management,
+  `MarkdownConverter` static class created in `Twig.Infrastructure/Content/`, comprehensive
+  unit tests covering headings, bold/italic, lists, tables, code blocks, task lists, and
+  null/empty/whitespace edge cases. AOT-compatible with zero trim warnings.
+
+- **Epic 2 (`--format` flag):** `--format markdown` parameter added to `UpdateCommand.ExecuteAsync()`
+  and wired through `TwigCommands.Update()`. Format validation with exit code 2 for unknown
+  formats. Success messages echo original markdown input (FR-06). Case-insensitive matching.
+  Full test coverage including JSON output mode interaction.
+
+Both PRs went through code review with reducer passes for quality. The implementation
+closely followed the plan with minor adjustments during review (e.g., test framework
+alignment from MSTest v4 to xUnit+Shouldly to match actual codebase conventions).

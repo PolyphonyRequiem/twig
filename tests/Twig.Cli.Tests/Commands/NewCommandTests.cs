@@ -72,10 +72,6 @@ public class NewCommandTests : IDisposable
         Console.SetError(_originalErr);
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  Happy path — create + publish
-    // ═══════════════════════════════════════════════════════════════
-
     [Fact]
     public async Task New_ValidTitleAndType_CreatesAndPublishes()
     {
@@ -86,7 +82,6 @@ public class NewCommandTests : IDisposable
 
         result.ShouldBe(0);
 
-        // ADO create was called with the in-memory work item
         await _adoService.Received(1).CreateAsync(
             Arg.Is<WorkItem>(w =>
                 w.Title == "My Epic" &&
@@ -94,10 +89,8 @@ public class NewCommandTests : IDisposable
                 w.ParentId == null),
             Arg.Any<CancellationToken>());
 
-        // Fetch was called with the returned ID
         await _adoService.Received(1).FetchAsync(100, Arg.Any<CancellationToken>());
 
-        // Fetched item was saved (positive ID, not a seed)
         await _workItemRepo.Received(1).SaveAsync(
             Arg.Is<WorkItem>(w => w.Id > 0 && !w.IsSeed),
             Arg.Any<CancellationToken>());
@@ -170,10 +163,6 @@ public class NewCommandTests : IDisposable
         writer.ToString().ShouldContain("My Epic");
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  --set flag
-    // ═══════════════════════════════════════════════════════════════
-
     [Fact]
     public async Task New_WithSetFlag_SetsActiveContext()
     {
@@ -196,10 +185,6 @@ public class NewCommandTests : IDisposable
         await _contextStore.DidNotReceive().SetActiveWorkItemIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  --description
-    // ═══════════════════════════════════════════════════════════════
-
     [Fact]
     public async Task New_WithDescription_SetsDescriptionField()
     {
@@ -213,10 +198,6 @@ public class NewCommandTests : IDisposable
                 && w.Fields["System.Description"] == "This is a test description"),
             Arg.Any<CancellationToken>());
     }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  Validation errors
-    // ═══════════════════════════════════════════════════════════════
 
     [Fact]
     public async Task New_MissingTitle_Returns2()
@@ -243,14 +224,9 @@ public class NewCommandTests : IDisposable
         result.ShouldBe(1);
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  Path resolution defaults chain
-    // ═══════════════════════════════════════════════════════════════
-
     [Fact]
     public async Task New_NoDefaultsConfigured_FallsBackToProject()
     {
-        // Config with no defaults, just project
         var configNoDefaults = new TwigConfiguration
         {
             Project = "MyProject",
@@ -274,10 +250,6 @@ public class NewCommandTests : IDisposable
                 w.IterationPath.Value == "MyProject"),
             Arg.Any<CancellationToken>());
     }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  Create failure — no cleanup needed
-    // ═══════════════════════════════════════════════════════════════
 
     [Fact]
     public async Task New_CreateFailure_Returns1()

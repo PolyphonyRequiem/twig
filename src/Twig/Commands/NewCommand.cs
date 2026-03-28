@@ -37,14 +37,12 @@ public sealed class NewCommand(
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
-        // ── Validate title ──────────────────────────────────────────
         if (!editor && string.IsNullOrWhiteSpace(title))
         {
             Console.Error.WriteLine(fmt.FormatError("Usage: twig new --title \"title\" --type <type>"));
             return 2;
         }
 
-        // ── Parse type ──────────────────────────────────────────────
         var typeResult = WorkItemType.Parse(type);
         if (!typeResult.IsSuccess)
         {
@@ -52,7 +50,6 @@ public sealed class NewCommand(
             return 1;
         }
 
-        // ── Resolve area path: flag → config.Defaults → config.Project ─
         var areaResult = ResolveAreaPath(area);
         if (!areaResult.IsSuccess)
         {
@@ -60,7 +57,6 @@ public sealed class NewCommand(
             return 1;
         }
 
-        // ── Resolve iteration path: flag → config.Defaults → config.Project ─
         var iterResult = ResolveIterationPath(iteration);
         if (!iterResult.IsSuccess)
         {
@@ -68,7 +64,6 @@ public sealed class NewCommand(
             return 1;
         }
 
-        // ── Create in-memory work item ──────────────────────────────
         var seedTitle = string.IsNullOrWhiteSpace(title) ? "(untitled)" : title;
 
         var seedResult = SeedFactory.CreateUnparented(
@@ -86,11 +81,9 @@ public sealed class NewCommand(
 
         var seed = seedResult.Value;
 
-        // ── Apply description ───────────────────────────────────────
         if (!string.IsNullOrWhiteSpace(description))
             seed.SetField("System.Description", description);
 
-        // ── Editor flow ─────────────────────────────────────────────
         if (editor)
         {
             var fieldDefs = await fieldDefStore.GetAllAsync(ct);
@@ -109,7 +102,6 @@ public sealed class NewCommand(
             seed = seed.WithSeedFields(newTitle, parsedFields);
         }
 
-        // ── Create in ADO ───────────────────────────────────────────
         int newId;
         try
         {
@@ -121,7 +113,6 @@ public sealed class NewCommand(
             return 1;
         }
 
-        // ── Fetch back the full ADO item ────────────────────────────
         WorkItem fetched;
         try
         {
@@ -134,14 +125,11 @@ public sealed class NewCommand(
             return 1;
         }
 
-        // ── Save fetched item locally ───────────────────────────────
         await workItemRepo.SaveAsync(fetched, ct);
 
-        // ── Set context ─────────────────────────────────────────────
         if (set && newId > 0)
             await contextStore.SetActiveWorkItemIdAsync(newId, ct);
 
-        // ── Output ──────────────────────────────────────────────────
         Console.WriteLine(fmt.FormatSuccess(
             $"Created #{newId} {fetched.Title} ({typeResult.Value})"));
 

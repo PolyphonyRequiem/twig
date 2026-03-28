@@ -78,14 +78,10 @@ twig update System.Description "## Summary\n\nFix the **auth** bug" --format mar
 
 | ID | Non-Goal |
 |----|----------|
-| NG1 | Embedded Mermaid diagram rendering (ADO doesn't render Mermaid natively) |
-| NG2 | Reverse conversion (HTML → Markdown) for display purposes |
-| NG3 | Adding `--format` to `twig edit` or `twig seed edit` (editor workflow handles raw values) |
-| NG4 | Sanitizing user-provided HTML (ADO handles its own sanitization) |
-| NG5 | Stdin/pipe input (covered by shell substitution; `--file -` could be added later) |
-| NG6 | `--file` flag for reading content from files (defer to follow-on) |
-| NG7 | Field-type validation — `--format` does not check `FieldDefinition.DataType` (see DD-09) |
-| NG8 | Adding `--format` to `twig new` or `twig note` (not in #1281 acceptance criteria; defer to follow-on) |
+| NG1 | Reverse conversion (HTML → Markdown) for display purposes |
+| NG2 | Adding `--format` to `twig edit` or `twig seed edit` (editor workflow handles raw values) |
+| NG3 | Field-type validation — `--format` does not check `FieldDefinition.DataType` (see DD-09) |
+| NG4 | Adding `--format` to `twig new` or `twig note` (not in #1281 acceptance criteria; defer to follow-on) |
 
 ---
 
@@ -163,55 +159,24 @@ private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder(
     .Build();
 ```
 
-### Design: Success Message Preservation (FR-06)
+### Design: Success Message Preservation
 
-The success message at `UpdateCommand.cs:66` uses the `value` parameter directly:
-```csharp
-Console.WriteLine(fmt.FormatSuccess($"#{local.Id} updated: {field} = '{value}'"));
-```
+When `--format markdown` is used, `UpdateCommand.ExecuteAsync()` converts the input via
+`MarkdownConverter.ToHtml()` into a new `effectiveValue` variable. The converted HTML is
+used for the `FieldChange` sent to ADO, but the **original `value` parameter** is used in
+the success message (`fmt.FormatSuccess($"#{local.Id} updated: {field} = '{value}'")`).
 
-When `--format markdown` is active, the implementation must store the converted HTML in
-a separate local variable (e.g., `effectiveValue`) and use that for `FieldChange`, while
-preserving the original `value` parameter for the success message:
-
-```csharp
-var effectiveValue = format is not null &&
-    string.Equals(format, "markdown", StringComparison.OrdinalIgnoreCase)
-        ? MarkdownConverter.ToHtml(value)
-        : value;
-
-var changes = new[] { new FieldChange(field, null, effectiveValue) };
-// ... success message still references `value` (the original input)
-```
-
-This ensures all output modes behave correctly:
-- **Human**: `#42 updated: System.Description = '## Summary'`
-- **JSON**: `{"message": "#42 updated: System.Description = '## Summary'"}`
-- **Compact / Minimal**: same — the formatter receives the original input, not HTML
-
-`JsonOutputFormatter.FormatSuccess()` wraps the message in `{"message": "..."}` via
-`Utf8JsonWriter` (see `JsonOutputFormatter.cs`). Since the message string itself
-contains the original markdown, no special JSON-mode handling is needed.
-
-### Command Flow: `twig update --format` (Epic 2)
+This separation ensures the user sees the input they typed, not the generated HTML:
 
 ```
-twig update System.Description "## Summary\n\nFix the **auth** bug" --format markdown
-
-1. Parse field="System.Description", value="## Summary\n...", format="markdown"
-2. Validate format (case-insensitive via OrdinalIgnoreCase):
-   "markdown" → proceed
-   Unknown value → fmt.FormatError("Unknown format 'xyz'. Supported formats: markdown"),
-                   return exit code 2
-3. format == "markdown" → effectiveValue = MarkdownConverter.ToHtml(value)
-   → "<h2>Summary</h2>\n<p>Fix the <strong>auth</strong> bug</p>\n"
-4. Create FieldChange("System.Description", null, effectiveValue)
-5. PatchAsync(id, changes, revision) → sends HTML to ADO
-6. ADO renders the HTML natively in the web UI
-7. Success message echoes original markdown input (FR-06):
-   fmt.FormatSuccess($"#{id} updated: System.Description = '## Summary\n...'")
+twig update System.Description "## Summary" --format markdown
+# → success message: #42 updated: System.Description = '## Summary'
+# → ADO receives: <h2>Summary</h2>
 ```
 
+This applies uniformly to all output modes (human, JSON, compact, minimal) because the
+`fmt.FormatSuccess()` call always receives the original `value`, regardless of format
+conversion. No special per-output-mode handling is required.
 
 ---
 
@@ -307,22 +272,22 @@ Add `string? format = null` parameter to `UpdateCommand.ExecuteAsync()` (after `
 before `CancellationToken`). Insert validation and conversion logic between the conflict
 resolution block and the `FieldChange` creation:
 
-1. **Validate format** (after line 51, before line 54):
+1. **Validate format** (after the `ConflictResolutionFlow.ResolveAsync()` block, before `FieldChange` creation):
    - `null` → no conversion, proceed with original `value`
    - `"markdown"` (case-insensitive via `StringComparison.OrdinalIgnoreCase`) → convert
    - Any other value → write error via `fmt.FormatError("Unknown format '{format}'. Supported formats: markdown")`
      to `Console.Error`, return exit code 2
 2. **Convert if needed**: `var effectiveValue = MarkdownConverter.ToHtml(value)`
-3. **Use `effectiveValue` for FieldChange** at current line 54:
+3. **Use `effectiveValue` for FieldChange** at the `new FieldChange(...)` construction:
    `new FieldChange(field, null, effectiveValue)`
-4. **Preserve original `value`** in success message at current line 66 (unchanged)
+4. **Preserve original `value`** in the `fmt.FormatSuccess()` call (unchanged — see *Design: Success Message Preservation*)
 
-Exit code 2 for invalid format follows the existing convention (missing field returns 2
-at line 29; `NewCommand` returns 2 for missing title at line 44).
+Exit code 2 for invalid format follows the existing convention (`UpdateCommand.ExecuteAsync()` returns 2
+for missing field in the `string.IsNullOrWhiteSpace(field)` guard; `NewCommand` returns 2 for missing title).
 
 #### T6: Wire `format` Through TwigCommands.Update()
 
-Add `string? format = null` parameter to `TwigCommands.Update()` in `Program.cs` (line ~453).
+Add `string? format = null` parameter to `TwigCommands.Update()` in `Program.cs` (in the `TwigCommands` class, `Update` method).
 Pass through to `UpdateCommand.ExecuteAsync()`.
 
 Add XML doc comment:
@@ -362,9 +327,9 @@ with Shouldly assertions and NSubstitute mocking (matching existing patterns):
 ## Execution Order
 
 ```
-Epic 1 (Markdig Foundation — #1282)
+Epic 1 (Markdig Foundation — #1292)
     │
-    └──► Epic 2 (--format on twig update — #1283)
+    └──► Epic 2 (--format on twig update — #1293)
 ```
 
 ---
@@ -374,34 +339,6 @@ Epic 1 (Markdig Foundation — #1282)
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
 | Markdig produces trim/AOT warnings under `PublishAot=true` | Low | High | Markdig is widely used in AOT contexts. Verify with `dotnet publish src/Twig/Twig.csproj -c Release -r win-x64` early in T4. If warnings appear, evaluate `<SuppressTrimAnalysisWarnings>` scoped to Markdig only, or fall back to a minimal hand-rolled converter. |
-| `--format` / `--output` naming proximity causes user confusion | Low | Medium | Semantically distinct: `--format` = input conversion, `--output` = display format. XML doc comment on `TwigCommands.Update()` will document both clearly. ConsoleAppFramework auto-generates `--help` from parameter names and XML docs. |
-| Shell escaping of Markdown characters (`*`, `#`, etc.) | Medium | Medium | Standard shell concern — users must quote arguments. Success messages echo the original input value, not converted HTML (FR-06), which aids debugging when conversion produces unexpected results. |
-| `--format markdown` applied to non-HTML fields (e.g., System.Title) | Low | Low | By design (DD-09), twig does not restrict `--format` to specific field types. Callers are responsible for applying it to appropriate fields. ADO may sanitize or reject unexpected HTML. Documented in `--help` text. |
-
----
-
-## Revision History
-
-| Rev | Date | Changes |
-|-----|------|---------|
-| 7 | 2026-03-28 | Addressed review feedback: (1) Fixed task numbering — Epic 2 now uses T5–T7, sequential from T4 with no gaps; (2) Added FR-07 and DD-10 for whitespace-only markdown input edge case; (3) Added *Design: `--format` + `--output` Interaction Matrix* section and new test case `Format_Markdown_JsonOutput_EchoesOriginalInput` in T7 to explicitly verify JSON output echoes original markdown; (4) Moved implementation details from FR-06 to new *Design: Success Message Preservation* section, keeping FR-06 as a clean requirement statement; (5) Broke T5–T7 task descriptions into separate sub-sections with structured details instead of dense table cells; (6) Fixed architecture diagram — AdoRestClient now drawn in its own labeled box with clear layer annotation. |
-| 6 | 2026-03-28 | Addresses readability review feedback. |
-
----
-
-## File Change Summary
-
-| File | Change Type | Epic |
-|------|-------------|------|
-| `Directory.Packages.props` | Modified | 1 |
-| `src/Twig.Infrastructure/Twig.Infrastructure.csproj` | Modified | 1 |
-| `src/Twig.Infrastructure/Content/MarkdownConverter.cs` | **New** (new folder) | 1 |
-| `tests/Twig.Infrastructure.Tests/Content/MarkdownConverterTests.cs` | **New** (new folder) | 1 |
-| `src/Twig/Commands/UpdateCommand.cs` | Modified | 2 |
-| `src/Twig/Program.cs` | Modified | 2 |
-| `tests/Twig.Cli.Tests/Commands/UpdateCommandTests.cs` | Modified | 2 |
-
-**Total**: 2 new files (+ 2 new folders), 5 modified files across 2 epics
 
 ---
 
@@ -423,7 +360,3 @@ All planned work has been delivered:
   and wired through `TwigCommands.Update()`. Format validation with exit code 2 for unknown
   formats. Success messages echo original markdown input (FR-06). Case-insensitive matching.
   Full test coverage including JSON output mode interaction.
-
-Both PRs went through code review with reducer passes for quality. The implementation
-closely followed the plan with minor adjustments during review (e.g., test framework
-alignment from MSTest v4 to xUnit+Shouldly to match actual codebase conventions).

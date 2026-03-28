@@ -1,3 +1,4 @@
+using System.Text.Json;
 using NSubstitute;
 using Shouldly;
 using Twig.Commands;
@@ -204,6 +205,101 @@ public class UpdateCommandTests
         var output = stdout.ToString();
         output.ShouldContain("# Heading");
         output.ShouldNotContain("<h1");
+    }
+
+    [Fact]
+    public async Task Format_Markdown_ConvertsValue()
+    {
+        SetupSuccessfulPatch();
+
+        var result = await _cmd.ExecuteAsync("System.Description", "# Hello", format: "markdown");
+
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(1,
+            Arg.Is<IReadOnlyList<FieldChange>>(c =>
+                c.Count == 1 &&
+                c[0].FieldName == "System.Description" &&
+                c[0].NewValue!.Contains("<h1") &&
+                c[0].NewValue!.Contains("Hello</h1>")),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Format_Markdown_CaseInsensitive()
+    {
+        SetupSuccessfulPatch();
+
+        var result = await _cmd.ExecuteAsync("System.Description", "# Hello", format: "MARKDOWN");
+
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(1,
+            Arg.Is<IReadOnlyList<FieldChange>>(c =>
+                c[0].NewValue!.Contains("<h1") &&
+                c[0].NewValue!.Contains("Hello</h1>")),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Format_Invalid_ReturnsExitCode2()
+    {
+        SetupSuccessfulPatch();
+
+        var stderr = new StringWriter();
+        var cmd = CreateCommand(stderr: stderr);
+
+        var result = await cmd.ExecuteAsync("System.Description", "value", format: "xyz");
+
+        result.ShouldBe(2);
+        stderr.ToString().ShouldContain("Unknown format 'xyz'. Supported formats: markdown");
+        await _adoService.DidNotReceive().PatchAsync(
+            Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Format_Null_PassesThroughUnchanged()
+    {
+        SetupSuccessfulPatch();
+
+        var result = await _cmd.ExecuteAsync("System.Description", "plain text", format: null);
+
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(1,
+            Arg.Is<IReadOnlyList<FieldChange>>(c =>
+                c[0].NewValue == "plain text"),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Format_Markdown_SuccessEchoesOriginalInput()
+    {
+        SetupSuccessfulPatch();
+        var stdout = new StringWriter();
+        var cmd = CreateCommand(stdout: stdout);
+
+        var result = await cmd.ExecuteAsync("System.Description", "# Hello", format: "markdown");
+
+        result.ShouldBe(0);
+        var output = stdout.ToString();
+        output.ShouldContain("# Hello");
+        output.ShouldNotContain("<h1>");
+    }
+
+    [Fact]
+    public async Task Format_Markdown_JsonOutput_EchoesOriginalInput()
+    {
+        SetupSuccessfulPatch();
+        var stdout = new StringWriter();
+        var cmd = CreateCommand(stdout: stdout);
+
+        var result = await cmd.ExecuteAsync("System.Description", "# Hello", outputFormat: "json", format: "markdown");
+
+        result.ShouldBe(0);
+        var output = stdout.ToString();
+        using var doc = JsonDocument.Parse(output);
+        var message = doc.RootElement.GetProperty("message").GetString();
+        message.ShouldNotBeNull();
+        message.ShouldContain("# Hello");
+        message.ShouldNotContain("<h1>");
     }
 
     private void SetupActiveItem(WorkItem item)

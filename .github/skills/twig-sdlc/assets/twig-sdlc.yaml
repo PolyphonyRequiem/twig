@@ -12,10 +12,10 @@
 # Models: Opus 1M for deep reasoning (architect, coder, pr_reviewer, close_out)
 #         Sonnet for focused tasks (everything else)
 #
-# Usage:
-#   conductor --silent run twig-sdlc.yaml --input work_item_id=1273 --web-bg
-#   conductor --silent run twig-sdlc.yaml --input prompt="Add a twig export command" --web-bg
-#   conductor --silent run twig-sdlc.yaml --input work_item_id=1273 --input skip_plan_review=true --web-bg
+# Usage (always use --web, NOT --web-bg which doesn't work correctly):
+#   conductor --silent run twig-sdlc.yaml --input work_item_id=1273 --web
+#   conductor --silent run twig-sdlc.yaml --input prompt="Add a twig export command" --web
+#   conductor --silent run twig-sdlc.yaml --input work_item_id=1273 --input skip_plan_review=true --web
 #   conductor --silent run twig-sdlc.yaml --input work_item_id=1281 --input plan_path="docs/projects/rich-html-descriptions.plan.md" --web
 workflow:
   name: twig-sdlc

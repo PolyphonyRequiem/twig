@@ -7,7 +7,7 @@
 #   Phase 4: Implementation — per-task coder/reducer/reviewer loop with PR lifecycle
 #   Phase 5: Close-out — holistic reduction, meta-observations
 #
-# Agents: 18 agents + 3 human gates + 1 parallel group
+# Agents: 22 agents + 3 human gates + 1 parallel group
 # Models: Opus 1M for deep reasoning (architect, coder, pr_reviewer, close_out)
 #         Sonnet for focused tasks (everything else)
 #
@@ -540,6 +540,7 @@ agents:
       - architect.output
       - implementation_manager.output?
       - task_reviewer.output?
+      - issue_reviewer.output?
       - pr_merge.output?
       - user_acceptance.output?
     system_prompt: |
@@ -597,21 +598,34 @@ agents:
       If changes requested, the feedback describes what to fix — start the next task iteration.
       {% endif %}
 
+      {% if issue_reviewer is defined and issue_reviewer.output and issue_reviewer.output.approved %}
+      **Issue review passed.** The issue is ready to close (or go to user_acceptance if needed).
+      {% endif %}
+
+      {% if issue_reviewer is defined and issue_reviewer.output and not issue_reviewer.output.approved %}
+      **Issue review failed — changes needed:**
+      {{ issue_reviewer.output.feedback }}
+      Create a fix task for this issue and set action=implement_task.
+      {% endif %}
+
       ## Decision Logic
 
       1. If there are more tasks in the current issue → start next task, set action=implement_task
-      2. If the current issue's tasks are all done AND no user_acceptance pending:
+      2. If the current issue's tasks are all done AND issue_reviewer has NOT yet reviewed:
+         → set action=issue_review (sends to reducer_issue then issue_reviewer)
+      3. If issue_reviewer approved AND no user_acceptance pending:
          a. Check if this issue has user-facing changes or complex acceptance criteria
          b. If yes and user_acceptance not yet received → set action=needs_acceptance
          c. If user_acceptance received or not needed:
             - Close the issue: `twig set <issue_id>` → `twig state Done` → `twig note`
             - If more issues in current PR group → start next issue and its first task, action=implement_task
             - If PR group done → set action=submit_pr
-      3. If a PR was just merged and more PR groups remain:
+      4. If issue_reviewer rejected → create a fix approach and set action=implement_task
+      5. If a PR was just merged and more PR groups remain:
          a. Create a new branch: `git checkout -b <branch_name>`
          b. Start first issue and task in the new PR group
          c. Set action=implement_task
-      4. If all PR groups are done → set action=all_complete
+      6. If all PR groups are done → set action=all_complete
 
       When starting an issue: `twig set <id>` → `twig state Doing` → `twig note --text "Starting: ..."`
       When starting a task: `twig set <id>` → `twig state Doing` → `twig note --text "Starting: ..."`
@@ -623,7 +637,7 @@ agents:
     output:
       action:
         type: string
-        description: Next action — implement_task, needs_acceptance, submit_pr, or all_complete
+        description: Next action — implement_task, issue_review, needs_acceptance, submit_pr, or all_complete
       current_pr_group:
         type: string
         description: Current PR group name/index
@@ -660,6 +674,8 @@ agents:
     routes:
       - to: coder
         when: "{{ output.action == 'implement_task' }}"
+      - to: reducer_issue
+        when: "{{ output.action == 'issue_review' }}"
       - to: user_acceptance
         when: "{{ output.action == 'needs_acceptance' }}"
       - to: pr_submit
@@ -880,6 +896,90 @@ agents:
       - label: "Skip — no acceptance needed"
         value: skipped
         route: implementation_manager
+
+  - name: reducer_issue
+    description: Post-issue code sweep — simplifies across all tasks in the completed issue
+    model: claude-sonnet-4.6
+    max_agent_iterations: 50
+    input:
+      - implementation_manager.output
+      - architect.output
+    system_prompt: !file ../../../prompts/reducer.md
+    prompt: |
+      Perform a post-issue reduction sweep for issue #{{ implementation_manager.output.current_issue_id }} — {{ implementation_manager.output.current_issue_title }}.
+
+      **Plan:** Read `{{ architect.output.plan_path }}` for this issue's scope.
+      **Completed Tasks:** {{ implementation_manager.output.completed_tasks | json }}
+
+      Review ALL files changed across this issue's tasks for cross-task opportunities:
+      1. Duplicate patterns introduced by separate tasks
+      2. Abstractions that can be consolidated now that all tasks are done
+      3. Dead code left behind by incremental implementation
+      4. Test helpers or utilities used only once
+
+      If you make changes:
+      - Run tests: `dotnet test --settings test.runsettings`
+      - Commit: `git add -A && git commit -m "reduce: post-issue sweep for #{{ implementation_manager.output.current_issue_id }}"`
+      - Add note: `twig note --text "Reducer: <what was simplified>"`
+
+      If nothing to reduce, say so.
+    output:
+      findings:
+        type: array
+        description: Reductions applied or recommended
+      changes_applied:
+        type: array
+        description: Specific changes made
+      lines_removed:
+        type: number
+        description: Net lines removed
+    routes:
+      - to: issue_reviewer
+
+  - name: issue_reviewer
+    description: Reviews the complete issue implementation against acceptance criteria
+    model: claude-opus-4.6-1m
+    max_agent_iterations: 80
+    input:
+      - implementation_manager.output
+      - architect.output
+      - reducer_issue.output
+    system_prompt: |
+      You are a Senior Issue Reviewer for a .NET 10 AOT CLI project. You review
+      completed issues holistically — verifying that all tasks together satisfy the
+      issue's acceptance criteria, checking cross-cutting concerns, documentation,
+      and integration between the tasks.
+    prompt: |
+      Review issue #{{ implementation_manager.output.current_issue_id }} — {{ implementation_manager.output.current_issue_title }}.
+
+      **Plan:** Read `{{ architect.output.plan_path }}` for this issue's acceptance criteria.
+      **Completed Tasks:** {{ implementation_manager.output.completed_tasks | json }}
+      **Reducer findings:** {{ reducer_issue.output.findings | join(", ") }}
+
+      ## Review Criteria
+
+      1. **Acceptance criteria met** — Does the combined implementation satisfy the issue's requirements?
+      2. **Cross-cutting concerns** — Error handling, logging, security consistent across tasks?
+      3. **Documentation** — Any new public APIs or behaviors documented?
+      4. **Integration** — Components from different tasks work together correctly?
+      5. **Test coverage** — Run `dotnet test --settings test.runsettings` to verify all tests pass
+
+      Provide APPROVE or REQUEST_CHANGES with specific feedback.
+    output:
+      decision:
+        type: string
+        description: APPROVE or REQUEST_CHANGES
+      feedback:
+        type: string
+        description: Detailed review feedback
+      issues:
+        type: array
+        description: Specific issues to fix (empty if approved)
+      approved:
+        type: boolean
+        description: True if the issue implementation is approved
+    routes:
+      - to: implementation_manager
 
   - name: pr_submit
     description: Creates a GitHub PR for the current PR group

@@ -67,7 +67,7 @@ architect → open_questions_gate (human gate, conditional) → reducer_plan
 
 Creates ADO Issues and Tasks from the plan via `twig seed new`, `twig seed chain`, and `twig seed publish`. Maps plan Epics → ADO Issues, plan Tasks → ADO Tasks. Uses successor links for execution ordering.
 
-### Phase 4: Implementation (7 agents + 1 human gate)
+### Phase 4: Implementation (9 agents + 1 human gate)
 
 ```
 implementation_manager → coder → reducer_code → task_reviewer
@@ -78,7 +78,13 @@ implementation_manager → coder → reducer_code → task_reviewer
      │              │
      ├── task approved, more tasks ──────────────────┘
      │
-     ├── issue tasks done → user_acceptance (human gate, conditional)
+     ├── all tasks done → reducer_issue → issue_reviewer
+     │                                       │
+     │                   ┌── REQUEST_CHANGES ┘
+     │                   ↓
+     │     implementation_manager (fix task)
+     │                   │
+     ├── issue approved → user_acceptance (human gate, conditional)
      │                        │
      │                        ├── accepted/skipped → close issue
      │                        └── changes → implementation_manager
@@ -95,6 +101,8 @@ implementation_manager → coder → reducer_code → task_reviewer
 - **coder** (Opus 1M) — implements one task at a time with incremental commits and twig notes
 - **reducer_code** (Sonnet) — simplifies each task's implementation
 - **task_reviewer** (Sonnet) — per-task quality gate
+- **reducer_issue** (Sonnet) — post-issue code sweep across all tasks in completed issue
+- **issue_reviewer** (Opus 1M) — per-issue acceptance criteria, cross-cutting concerns, integration
 - **user_acceptance** — human gate, conditional per-issue when user-facing changes are flagged
 - **pr_submit** (Sonnet) — creates GitHub PR via `gh pr create`
 - **pr_reviewer** (Opus 1M) — holistic PR review
@@ -123,6 +131,8 @@ implementation_manager → coder → reducer_code → task_reviewer
 | coder | Opus 1M | Task implementation |
 | reducer_code | Sonnet | Per-task code simplification |
 | task_reviewer | Sonnet | Per-task quality gate |
+| reducer_issue | Sonnet | Post-issue cross-task code sweep |
+| issue_reviewer | Opus 1M | Per-issue acceptance criteria check |
 | user_acceptance | Human Gate | Conditional per-issue acceptance |
 | pr_submit | Sonnet | GitHub PR creation |
 | pr_reviewer | Opus 1M | Holistic PR review |

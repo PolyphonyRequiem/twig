@@ -31,6 +31,7 @@ public class NewCommandTests : IDisposable
     {
         _originalOut = Console.Out;
         _originalErr = Console.Error;
+        Console.SetOut(new StringWriter());
 
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _adoService = Substitute.For<IAdoWorkItemService>();
@@ -76,7 +77,6 @@ public class NewCommandTests : IDisposable
     public async Task New_ValidTitleAndType_CreatesAndPublishes()
     {
         ArrangeCreateSuccess();
-        Console.SetOut(new StringWriter());
 
         var result = await _cmd.ExecuteAsync("My Epic", "Epic");
 
@@ -100,7 +100,6 @@ public class NewCommandTests : IDisposable
     public async Task New_SetsAreaAndIterationFromConfig()
     {
         ArrangeCreateSuccess();
-        Console.SetOut(new StringWriter());
 
         await _cmd.ExecuteAsync("My Epic", "Epic");
 
@@ -115,7 +114,6 @@ public class NewCommandTests : IDisposable
     public async Task New_ExplicitArea_OverridesConfig()
     {
         ArrangeCreateSuccess();
-        Console.SetOut(new StringWriter());
 
         await _cmd.ExecuteAsync("My Epic", "Epic", area: "Custom\\Path");
 
@@ -128,7 +126,6 @@ public class NewCommandTests : IDisposable
     public async Task New_ExplicitIteration_OverridesConfig()
     {
         ArrangeCreateSuccess();
-        Console.SetOut(new StringWriter());
 
         await _cmd.ExecuteAsync("My Epic", "Epic", iteration: "Custom\\Sprint 5");
 
@@ -141,7 +138,6 @@ public class NewCommandTests : IDisposable
     public async Task New_AutoAssignsToConfiguredUser()
     {
         ArrangeCreateSuccess();
-        Console.SetOut(new StringWriter());
 
         await _cmd.ExecuteAsync("My Epic", "Epic");
 
@@ -190,7 +186,6 @@ public class NewCommandTests : IDisposable
     public async Task New_WithSetFlag_SetsActiveContext()
     {
         ArrangeCreateSuccess(newId: 42);
-        Console.SetOut(new StringWriter());
 
         await _cmd.ExecuteAsync("My Epic", "Epic", set: true);
 
@@ -201,7 +196,6 @@ public class NewCommandTests : IDisposable
     public async Task New_WithoutSetFlag_DoesNotSetContext()
     {
         ArrangeCreateSuccess(newId: 42);
-        Console.SetOut(new StringWriter());
 
         await _cmd.ExecuteAsync("My Epic", "Epic", set: false);
 
@@ -212,7 +206,6 @@ public class NewCommandTests : IDisposable
     public async Task New_WithDescription_SetsDescriptionField()
     {
         ArrangeCreateSuccess();
-        Console.SetOut(new StringWriter());
 
         await _cmd.ExecuteAsync("My Epic", "Epic", description: "This is a test description");
 
@@ -227,7 +220,6 @@ public class NewCommandTests : IDisposable
     {
         var errWriter = new StringWriter();
         Console.SetError(errWriter);
-        Console.SetOut(new StringWriter());
 
         var result = await _cmd.ExecuteAsync(null, "Epic");
 
@@ -238,10 +230,6 @@ public class NewCommandTests : IDisposable
     [Fact]
     public async Task New_EmptyType_Returns1()
     {
-        var errWriter = new StringWriter();
-        Console.SetError(errWriter);
-        Console.SetOut(new StringWriter());
-
         var result = await _cmd.ExecuteAsync("My Item", "");
 
         result.ShouldBe(1);
@@ -263,7 +251,6 @@ public class NewCommandTests : IDisposable
             _hintEngine, configNoDefaults);
 
         ArrangeCreateSuccess();
-        Console.SetOut(new StringWriter());
 
         await cmd.ExecuteAsync("My Epic", "Epic");
 
@@ -282,7 +269,6 @@ public class NewCommandTests : IDisposable
 
         var errWriter = new StringWriter();
         Console.SetError(errWriter);
-        Console.SetOut(new StringWriter());
 
         var result = await _cmd.ExecuteAsync("Fail Epic", "Epic");
 
@@ -307,7 +293,6 @@ public class NewCommandTests : IDisposable
 
         var errWriter = new StringWriter();
         Console.SetError(errWriter);
-        Console.SetOut(new StringWriter());
 
         var result = await _cmd.ExecuteAsync("My Epic", "Epic");
 
@@ -327,7 +312,6 @@ public class NewCommandTests : IDisposable
     public async Task New_DoesNotSaveSeedBeforeCreate_AndFetchedItemSaved()
     {
         ArrangeCreateSuccess(newId: 55);
-        Console.SetOut(new StringWriter());
 
         await _cmd.ExecuteAsync("My Epic", "Epic");
 
@@ -336,10 +320,6 @@ public class NewCommandTests : IDisposable
             Arg.Is<WorkItem>(w => w.Id > 0 && !w.IsSeed),
             Arg.Any<CancellationToken>());
     }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  Helpers
-    // ═══════════════════════════════════════════════════════════════
 
     private void ArrangeCreateSuccess(int newId = 100, string title = "My Epic")
     {

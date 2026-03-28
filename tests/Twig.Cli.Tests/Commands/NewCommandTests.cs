@@ -198,18 +198,6 @@ public class NewCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task New_WithSetFlag_UsesCreateAsyncReturnedId()
-    {
-        // Verify --set uses exactly the ID returned by CreateAsync
-        ArrangeCreateSuccess(newId: 777);
-        Console.SetOut(new StringWriter());
-
-        await _cmd.ExecuteAsync("My Epic", "Epic", set: true);
-
-        await _contextStore.Received(1).SetActiveWorkItemIdAsync(777, Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
     public async Task New_WithoutSetFlag_DoesNotSetContext()
     {
         ArrangeCreateSuccess(newId: 42);

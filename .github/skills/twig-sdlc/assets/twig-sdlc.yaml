@@ -3,18 +3,20 @@
 # 5-phase workflow for implementing features in the twig codebase:
 #   Phase 1: Intake — read existing work item or create from prompt
 #   Phase 2: Planning — architect → reducer → technical review → readability review → approval gate
-#   Phase 3: Work Tree Seeding — create ADO Issues/Tasks via twig CLI
+#            (BYPASS: if plan already approved or --input plan_path provided, skips to Phase 3 via plan_reader)
+#   Phase 3: Work Tree Seeding — create ADO Issues/Tasks via twig CLI (dupe guard reuses existing items)
 #   Phase 4: Implementation — per-task coder/reducer/reviewer loop with PR lifecycle
 #   Phase 5: Close-out — holistic reduction, meta-observations
 #
-# Agents: 22 agents + 3 human gates
+# Agents: 23 agents + 3 human gates (includes plan_reader for bypass)
 # Models: Opus 1M for deep reasoning (architect, coder, pr_reviewer, close_out)
 #         Sonnet for focused tasks (everything else)
 #
-# Usage:
-#   conductor --silent run twig-sdlc.yaml --input work_item_id=1273 --web-bg
-#   conductor --silent run twig-sdlc.yaml --input prompt="Add a twig export command" --web-bg
-#   conductor --silent run twig-sdlc.yaml --input work_item_id=1273 --input skip_plan_review=true --web-bg
+# Usage (always use --web, NOT --web-bg which doesn't work correctly):
+#   conductor --silent run twig-sdlc.yaml --input work_item_id=1273 --web
+#   conductor --silent run twig-sdlc.yaml --input prompt="Add a twig export command" --web
+#   conductor --silent run twig-sdlc.yaml --input work_item_id=1273 --input skip_plan_review=true --web
+#   conductor --silent run twig-sdlc.yaml --input work_item_id=1281 --input plan_path="docs/projects/rich-html-descriptions.plan.md" --web
 workflow:
   name: twig-sdlc
   description: End-to-end SDLC workflow — intake through planning, implementation, PR lifecycle, and close-out
@@ -53,6 +55,10 @@ workflow:
       required: false
       default: false
       description: Skip the human plan approval gate.
+    plan_path:
+      type: string
+      required: false
+      description: Path to an already-approved plan file. Bypasses planning entirely and jumps to work tree seeding.
   context:
     mode: explicit
   limits:
@@ -70,6 +76,7 @@ agents:
     input:
       - workflow.input.work_item_id?
       - workflow.input.prompt?
+      - workflow.input.plan_path?
     system_prompt: |
       You are an Intake agent for the twig SDLC workflow. You gather context about
       the work to be done by reading ADO work items via the twig CLI.
@@ -99,7 +106,22 @@ agents:
          - `twig update System.AssignedTo "Daniel Green"`
          - `twig update System.Description "<derived description>"`
       {% endif %}
-      Output the work item details for the planning phase.
+      ## Plan Detection
+      {% if workflow.input.plan_path %}
+      A plan file was explicitly provided: `{{ workflow.input.plan_path }}`
+      Read the file and check its `> **Status**:` header line.
+      If the status contains "Approved", "In Progress", or "Done",
+      set `plan_already_approved` to true and `existing_plan_path` to the path.
+      {% else %}
+      After gathering work item details, search for an existing plan file:
+      1. Look for `docs/projects/*.plan.md` files that reference this epic's ID
+         (e.g., grep for `#{{ workflow.input.work_item_id }}` in plan files)
+      2. If found, read the `> **Status**:` header line
+      3. If status contains "Approved" or "In Progress", the plan is ready —
+         set `plan_already_approved` to true and `existing_plan_path` to the path
+      4. If no approved plan exists, set `plan_already_approved` to false
+      {% endif %}
+      Output the work item details for the next phase.
     output:
       epic_id:
         type: number
@@ -116,8 +138,53 @@ agents:
       item_type:
         type: string
         description: Work item type (Epic or Issue)
+      plan_already_approved:
+        type: boolean
+        description: True if an existing approved/in-progress plan was found
+      existing_plan_path:
+        type: string
+        description: Path to existing plan file (empty string if none found)
     routes:
+      - to: plan_reader
+        when: "{{ output.plan_already_approved }}"
       - to: architect
+  # ---------------------------------------------------------------------------
+  # PLAN READER (bypass — reads existing approved plan, skips planning phase)
+  # ---------------------------------------------------------------------------
+  - name: plan_reader
+    description: Reads an existing approved plan file and extracts metadata (bypasses architect)
+    model: claude-sonnet-4.6
+    input:
+      - intake.output
+    system_prompt: |
+      You are a Plan Reader. You read an existing implementation plan document and
+      extract its metadata so the workflow can skip directly to work tree seeding
+      and implementation. You produce the same output schema as the architect agent.
+    prompt: |
+      Read the approved plan and extract its metadata.
+      **Plan file:** {{ intake.output.existing_plan_path }}
+      ## Steps
+      1. Read the plan file
+      2. Count the number of implementation Epics (PR groups)
+      3. Extract the executive summary
+      4. Estimate total LoC from the plan's estimates
+      5. Return the metadata
+      Do NOT modify the plan. Just read and summarize.
+    output:
+      plan_path:
+        type: string
+        description: Path to the .plan.md file
+      plan_summary:
+        type: string
+        description: Executive summary of the plan
+      epic_count:
+        type: number
+        description: Number of implementation epics in the plan
+      total_estimated_loc:
+        type: number
+        description: Rough total lines of code across all epics
+    routes:
+      - to: work_tree_seeder
   # ---------------------------------------------------------------------------
   # PHASE 2: PLANNING
   # ---------------------------------------------------------------------------
@@ -408,7 +475,8 @@ agents:
     model: claude-sonnet-4.6
     input:
       - intake.output
-      - architect.output
+      - architect.output?
+      - plan_reader.output?
     system_prompt: |
       You are a Work Tree Seeder. You create ADO work items from implementation plans
       using the twig CLI. You create Issues (one per plan Epic/PR group) and Tasks
@@ -425,21 +493,41 @@ agents:
     prompt: |
       Create the ADO work tree from the implementation plan.
       **Parent:** #{{ intake.output.epic_id }} — {{ intake.output.epic_title }}
-      **Plan:** Read `{{ architect.output.plan_path }}` to get the epic/task structure
-      ## Steps
+      **Plan:** Read `{{ (architect.output.plan_path if architect is defined and architect.output else plan_reader.output.plan_path) }}` to get the epic/task structure
+      ## Plan Status Update (FIRST)
+      Update the plan file's Status line to `> **Status**: 🔨 In Progress` before creating any items.
+      ## Duplicate Guard (MANDATORY first step)
+      Before creating ANY items, inventory what already exists:
+      1. `twig set {{ intake.output.epic_id }} --output json`
+      2. `twig tree --output json` to list existing children (Issues)
+      3. For each existing Issue, drill in: `twig set <id>; twig tree --output json`
+         to discover its child Tasks.
+      4. Now compare each **planned** item against the existing inventory.
+         Use YOUR judgment about **functional similarity** — not just exact title
+         matching. Two items are duplicates if they cover the same deliverable,
+         even when worded differently. Examples:
+         - "Add Markdig NuGet package" ≈ "Add Markdig to central package management"
+         - "Wire format through Program.cs" ≈ "Wire --format flag in CLI entrypoint"
+         - "Unit tests for converter" ≈ "MarkdownConverter test coverage"
+         A title that is a subset, restatement, or synonym of an existing item is
+         a duplicate. When in doubt, **reuse** rather than create.
+      5. For each match: **reuse** the existing item — record its ID, skip creation.
+      6. Only create items that have NO functional match in the existing tree.
+      ## Steps (create only missing items)
       1. Read the plan file to extract all Epics and their Tasks
       2. Set context to the parent: `twig set {{ intake.output.epic_id }} --output json`
-      3. For each plan Epic (PR group):
+      3. For each plan Epic (PR group) that needs a NEW Issue:
          a. Create an Issue: `twig seed new --title "<epic title>" --type Issue --output json`
-      4. Publish all Issues: `twig seed publish --all --output json`
+      4. Publish new Issues: `twig seed publish --all --output json`
       5. Wait and refresh: `Start-Sleep -Seconds 3; twig refresh`
-      6. For each published Issue, set context and add description + assignment
-      7. For each Issue, create its Tasks:
+      6. For each Issue (new or reused), set context and add description + assignment
+      7. For each Issue, create only MISSING Tasks:
          a. `twig set <issue_id> --output json`
          b. Use `twig seed chain` for linked tasks if multiple
          c. `twig seed publish --all --output json`
          d. Wait, refresh, then update each Task with description + assignment
       Record the full work tree structure: PR groups → Issues → Tasks with all IDs.
+      Include both reused and newly-created items in the output.
       **CRITICAL:** Use successor links (twig seed chain) within each Issue's tasks
       to enforce execution order. Tasks within an Issue execute sequentially.
       ## PR Group Mapping
@@ -469,7 +557,8 @@ agents:
     input:
       - work_tree_seeder.output
       - intake.output
-      - architect.output
+      - architect.output?
+      - plan_reader.output?
       - implementation_manager.output?
       - task_reviewer.output?
       - issue_reviewer.output?
@@ -491,7 +580,7 @@ agents:
       {{ work_tree_seeder.output.work_tree | json }}
       **PR Groups:**
       {{ work_tree_seeder.output.pr_groups | json }}
-      **Plan:** {{ architect.output.plan_path }}
+      **Plan:** {{ (architect.output.plan_path if architect is defined and architect.output else plan_reader.output.plan_path) }}
       {% if implementation_manager is defined and implementation_manager.output %}
       **Current State:**
       - PR Group: {{ implementation_manager.output.current_pr_group }}
@@ -528,9 +617,18 @@ agents:
       {{ issue_reviewer.output.feedback }}
       Create a fix task for this issue and set action=implement_task.
       {% endif %}
+      ## Task Verification (MANDATORY before every decision)
+      Do NOT rely solely on completed_tasks from your prior output. Before choosing
+      the next action, always verify the ground truth:
+      1. `twig set <current_issue_id> --output json` then `twig tree --output json`
+      2. Check the state of every child Task — any Task not in state "Done" still
+         needs work.
+      3. Update your completed_tasks list from twig's actual state.
+      This prevents skipping tasks whose IDs may have shifted between workflow runs.
       ## Decision Logic
-      1. If there are more tasks in the current issue → start next task, set action=implement_task
-      2. If the current issue's tasks are all done AND issue_reviewer has NOT yet reviewed:
+      1. If the current issue has Tasks NOT in state "Done" → pick the next undone
+         task (by successor order), start it, set action=implement_task
+      2. If ALL tasks in the current issue are Done AND issue_reviewer has NOT yet reviewed:
          → set action=issue_review (sends to reducer_issue then issue_reviewer)
       3. If issue_reviewer approved AND no user_acceptance pending:
          a. Check if this issue has user-facing changes or complex acceptance criteria
@@ -604,7 +702,8 @@ agents:
     model: claude-opus-4.6-1m
     input:
       - implementation_manager.output
-      - architect.output
+      - architect.output?
+      - plan_reader.output?
       - intake.output
       - task_reviewer.output?
       - pr_reviewer.output?
@@ -634,7 +733,7 @@ agents:
       **Description:** {{ implementation_manager.output.current_task_description }}
       **Issue:** #{{ implementation_manager.output.current_issue_id }} — {{ implementation_manager.output.current_issue_title }}
       **Branch:** {{ implementation_manager.output.branch_name }}
-      **Plan:** Read `{{ architect.output.plan_path }}` for full context.
+      **Plan:** Read `{{ (architect.output.plan_path if architect is defined and architect.output else plan_reader.output.plan_path) }}` for full context.
       {% if task_reviewer is defined and task_reviewer.output and not task_reviewer.output.approved %}
       **Previous review — fix these issues:**
       {{ task_reviewer.output.feedback }}
@@ -721,7 +820,8 @@ agents:
       - coder.output
       - reducer_code.output
       - implementation_manager.output
-      - architect.output
+      - architect.output?
+      - plan_reader.output?
     system_prompt: |
       You are a Code Reviewer for a .NET 10 AOT CLI project. You review individual
       task implementations for quality, correctness, test coverage, and adherence
@@ -729,7 +829,7 @@ agents:
     prompt: |
       Review the implementation of task #{{ implementation_manager.output.current_task_id }} — {{ implementation_manager.output.current_task_title }}.
       **Task description:** {{ implementation_manager.output.current_task_description }}
-      **Plan:** Read `{{ architect.output.plan_path }}` for acceptance criteria.
+      **Plan:** Read `{{ (architect.output.plan_path if architect is defined and architect.output else plan_reader.output.plan_path) }}` for acceptance criteria.
       **Coder's changes:** {{ coder.output.changes_summary }}
       **Files:** {{ coder.output.files_modified | join(", ") }}
       **Tests:** {{ coder.output.tests_added | join(", ") }}
@@ -764,11 +864,12 @@ agents:
     description: Conditional user acceptance gate — triggered when an issue has user-facing changes
     input:
       - implementation_manager.output
-      - architect.output
+      - architect.output?
+      - plan_reader.output?
     prompt: |
       ## User Acceptance Check
       All tasks for issue #{{ implementation_manager.output.current_issue_id }} — {{ implementation_manager.output.current_issue_title }} are complete.
-      **Plan:** {{ architect.output.plan_path }}
+      **Plan:** {{ (architect.output.plan_path if architect is defined and architect.output else plan_reader.output.plan_path) }}
       **Completed Tasks:** {{ implementation_manager.output.completed_tasks | json }}
       **Progress:** {{ implementation_manager.output.progress_summary }}
       Please verify the implementation meets your expectations.
@@ -788,11 +889,12 @@ agents:
     model: claude-sonnet-4.6
     input:
       - implementation_manager.output
-      - architect.output
+      - architect.output?
+      - plan_reader.output?
     system_prompt: !file ../../../prompts/reducer.md
     prompt: |
       Perform a post-issue reduction sweep for issue #{{ implementation_manager.output.current_issue_id }} — {{ implementation_manager.output.current_issue_title }}.
-      **Plan:** Read `{{ architect.output.plan_path }}` for this issue's scope.
+      **Plan:** Read `{{ (architect.output.plan_path if architect is defined and architect.output else plan_reader.output.plan_path) }}` for this issue's scope.
       **Completed Tasks:** {{ implementation_manager.output.completed_tasks | json }}
       Review ALL files changed across this issue's tasks for cross-task opportunities:
       1. Duplicate patterns introduced by separate tasks
@@ -821,7 +923,8 @@ agents:
     model: claude-opus-4.6-1m
     input:
       - implementation_manager.output
-      - architect.output
+      - architect.output?
+      - plan_reader.output?
       - reducer_issue.output
     system_prompt: |
       You are a Senior Issue Reviewer for a .NET 10 AOT CLI project. You review
@@ -830,7 +933,7 @@ agents:
       and integration between the tasks.
     prompt: |
       Review issue #{{ implementation_manager.output.current_issue_id }} — {{ implementation_manager.output.current_issue_title }}.
-      **Plan:** Read `{{ architect.output.plan_path }}` for this issue's acceptance criteria.
+      **Plan:** Read `{{ (architect.output.plan_path if architect is defined and architect.output else plan_reader.output.plan_path) }}` for this issue's acceptance criteria.
       **Completed Tasks:** {{ implementation_manager.output.completed_tasks | json }}
       **Reducer findings:** {{ reducer_issue.output.findings | join(", ") }}
       ## Review Criteria
@@ -860,7 +963,8 @@ agents:
     model: claude-sonnet-4.6
     input:
       - implementation_manager.output
-      - architect.output
+      - architect.output?
+      - plan_reader.output?
       - work_tree_seeder.output
     system_prompt: |
       You create GitHub pull requests using the gh CLI. You write clear PR descriptions
@@ -901,7 +1005,8 @@ agents:
     model: claude-opus-4.6-1m
     input:
       - pr_submit.output
-      - architect.output
+      - architect.output?
+      - plan_reader.output?
       - implementation_manager.output
     system_prompt: |
       You are a Senior Architecture Reviewer. You review pull requests holistically,
@@ -909,7 +1014,7 @@ agents:
       that per-task reviews might miss.
     prompt: |
       Review the PR: {{ pr_submit.output.pr_url }}
-      **Plan:** Read `{{ architect.output.plan_path }}` for the design intent.
+      **Plan:** Read `{{ (architect.output.plan_path if architect is defined and architect.output else plan_reader.output.plan_path) }}` for the design intent.
       ## Steps
       1. Read the PR diff: `gh pr diff {{ pr_submit.output.pr_number }}`
       2. Review for:
@@ -944,7 +1049,8 @@ agents:
     input:
       - pr_reviewer.output
       - pr_submit.output
-      - architect.output
+      - architect.output?
+      - plan_reader.output?
     system_prompt: |
       You are a Senior Software Engineer fixing issues identified during PR review.
       Make targeted, precise fixes without changing unrelated code.
@@ -1002,13 +1108,14 @@ agents:
     model: claude-sonnet-4.6
     input:
       - implementation_manager.output
-      - architect.output
+      - architect.output?
+      - plan_reader.output?
       - intake.output
     system_prompt: !file ../../../prompts/reducer.md
     prompt: |
       Perform a final holistic reduction pass.
       **Epic:** #{{ intake.output.epic_id }} — {{ intake.output.epic_title }}
-      **Plan:** Read `{{ architect.output.plan_path }}`
+      **Plan:** Read `{{ (architect.output.plan_path if architect is defined and architect.output else plan_reader.output.plan_path) }}`
       Review ALL changes made during this workflow:
       1. `git log --oneline main..HEAD` to see all commits (if on a branch)
       2. Or review the plan to identify all files changed
@@ -1036,7 +1143,8 @@ agents:
     model: claude-opus-4.6-1m
     input:
       - intake.output
-      - architect.output
+      - architect.output?
+      - plan_reader.output?
       - implementation_manager.output
       - reducer_final.output
     system_prompt: |
@@ -1047,13 +1155,14 @@ agents:
       **Epic:** #{{ intake.output.epic_id }} — {{ intake.output.epic_title }}
       **Completed Issues:** {{ implementation_manager.output.completed_issues | json }}
       **Completed PRs:** {{ implementation_manager.output.completed_prs | json }}
-      **Plan:** {{ architect.output.plan_path }}
+      **Plan:** {{ (architect.output.plan_path if architect is defined and architect.output else plan_reader.output.plan_path) }}
       ## Steps
       1. **Transition the Epic to Done:**
          - `twig set {{ intake.output.epic_id }} --output json`
          - `twig note --text "All work complete. <progress summary>"`
          - `twig state Done --output json`
-      2. **Update the plan document:**
+      2. **Update the plan document** at `{{ (architect.output.plan_path if architect is defined and architect.output else plan_reader.output.plan_path) }}`:
+         - Change the Status line from its current value to `> **Status**: ✅ Done`
          - Mark all Epics and Tasks as DONE in the plan file
          - Add a completion section with date and summary
       3. **Produce meta-observations:**

@@ -2,6 +2,7 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
+using Twig.Infrastructure.Content;
 
 namespace Twig.Commands;
 
@@ -16,32 +17,35 @@ public sealed class UpdateCommand(
     IPendingChangeStore pendingChangeStore,
     IConsoleInput consoleInput,
     OutputFormatterFactory formatterFactory,
-    IPromptStateWriter? promptStateWriter = null)
+    IPromptStateWriter? promptStateWriter = null,
+    TextWriter? stderr = null,
+    TextWriter? stdout = null)
 {
+    private readonly TextWriter _stderr = stderr ?? Console.Error;
+    private readonly TextWriter _stdout = stdout ?? Console.Out;
+
     /// <summary>Update a field on the active work item and push to ADO.</summary>
-    public async Task<int> ExecuteAsync(string field, string value, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    public async Task<int> ExecuteAsync(string field, string value, string outputFormat = OutputFormatterFactory.DefaultFormat, string? format = null, CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
         if (string.IsNullOrWhiteSpace(field))
         {
-            Console.Error.WriteLine(fmt.FormatError("Usage: twig update <field> <value>"));
+            _stderr.WriteLine(fmt.FormatError("Usage: twig update <field> <value>"));
             return 2;
         }
 
         var resolved = await activeItemResolver.GetActiveItemAsync();
         if (!resolved.TryGetWorkItem(out var local, out var errorId, out var errorReason))
         {
-            Console.Error.WriteLine(fmt.FormatError(errorId is not null
+            _stderr.WriteLine(fmt.FormatError(errorId is not null
                 ? $"Work item #{errorId} not found in cache."
                 : "No active work item. Run 'twig set <id>' first."));
             return 1;
         }
 
-        // Pull latest from ADO
         var remote = await adoService.FetchAsync(local.Id);
 
-        // FM-006: Conflict resolution with l/r/a prompt
         var conflictOutcome = await ConflictResolutionFlow.ResolveAsync(
             local, remote, fmt, outputFormat, consoleInput, workItemRepo,
             $"#{local.Id} updated from remote.");
@@ -50,20 +54,24 @@ public sealed class UpdateCommand(
         if (conflictOutcome is ConflictOutcome.AcceptedRemote or ConflictOutcome.Aborted)
             return 0;
 
-        // Apply the update
-        var changes = new[] { new FieldChange(field, null, value) };
+        if (format is not null && !string.Equals(format, "markdown", StringComparison.OrdinalIgnoreCase))
+        {
+            _stderr.WriteLine(fmt.FormatError($"Unknown format '{format}'. Supported formats: markdown"));
+            return 2;
+        }
+        var effectiveValue = format is null ? value : MarkdownConverter.ToHtml(value);
+
+        var changes = new[] { new FieldChange(field, null, effectiveValue) };
         var newRevision = await adoService.PatchAsync(local.Id, changes, remote.Revision);
 
-        // Auto-push pending notes (preserve field changes)
         await AutoPushNotesHelper.PushAndClearAsync(local.Id, pendingChangeStore, adoService);
 
-        // Refresh cache with the latest from ADO
         var updated = await adoService.FetchAsync(local.Id);
         await workItemRepo.SaveAsync(updated);
 
         if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
-        Console.WriteLine(fmt.FormatSuccess($"#{local.Id} updated: {field} = '{value}'"));
+        _stdout.WriteLine(fmt.FormatSuccess($"#{local.Id} updated: {field} = '{value}'"));
 
         return 0;
     }

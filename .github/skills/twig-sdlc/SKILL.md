@@ -8,7 +8,7 @@ user-invokable: true
 
 Orchestrated SDLC pipeline powered by the `conductor` skill. Takes an ADO work item (Epic or Issue) or a natural language prompt and drives it through planning, implementation, code review, PR management, and close-out — all via multi-agent orchestration.
 
-> **This workflow is long-running** — typically 30-120+ minutes depending on scope. You MUST use `read_file` to load the full conductor skill instructions from `.github/skills/conductor/SKILL.md` and follow its execution procedure exactly. **Always launch with `conductor --silent run ... --web-bg`** — this suppresses console noise and opens a real-time web dashboard.
+> **This workflow is long-running** — typically 30-120+ minutes depending on scope. You MUST use `read_file` to load the full conductor skill instructions from `.github/skills/conductor/SKILL.md` and follow its execution procedure exactly. **Always launch with `conductor --silent run ... --web`** — this suppresses console noise and opens a real-time web dashboard. **Do NOT use `--web-bg`** — it does not work correctly; always use `--web`.
 
 ## Prerequisites
 
@@ -23,19 +23,22 @@ One workflow template is included in `assets/`:
 
 | Workflow | Purpose | Key Inputs |
 |----------|---------|------------|
-| `twig-sdlc.yaml` | Full SDLC pipeline: intake → plan → seed → implement → PR → close-out | `work_item_id` or `prompt`, optional `skip_plan_review` |
+| `twig-sdlc.yaml` | Full SDLC pipeline: intake → plan → seed → implement → PR → close-out | `work_item_id` or `prompt`, optional `skip_plan_review`, optional `plan_path` |
 
 ## Quick Reference
 
 ```bash
 # Implement an existing ADO work item end-to-end
-conductor --silent run assets/twig-sdlc.yaml --input work_item_id=1273 --web-bg
+conductor --silent run assets/twig-sdlc.yaml --input work_item_id=1273 --web
 
 # Start from a natural language prompt (creates new Epic)
-conductor --silent run assets/twig-sdlc.yaml --input prompt="Add a twig export command that outputs CSV" --web-bg
+conductor --silent run assets/twig-sdlc.yaml --input prompt="Add a twig export command that outputs CSV" --web
 
 # Skip the human plan approval gate
-conductor --silent run assets/twig-sdlc.yaml --input work_item_id=1273 --input skip_plan_review=true --web-bg
+conductor --silent run assets/twig-sdlc.yaml --input work_item_id=1273 --input skip_plan_review=true --web
+
+# Resume with an already-approved plan (bypass planning phase)
+conductor --silent run assets/twig-sdlc.yaml --input work_item_id=1281 --input plan_path="docs/projects/my-feature.plan.md" --web
 ```
 
 > **Always use absolute paths** for workflow templates — see the `conductor` skill's execution guidance.
@@ -119,6 +122,7 @@ implementation_manager → coder → reducer_code → task_reviewer
 | Agent | Model | Role |
 |-------|-------|------|
 | intake | Sonnet | Read work item / create Epic |
+| plan_reader | Sonnet | Read existing approved plan (bypass planning) |
 | architect | Opus 1M | Design + implementation plan |
 | open_questions_gate | Human Gate | Blocking open questions during planning |
 | reducer_plan | Sonnet | Plan-level complexity reduction |

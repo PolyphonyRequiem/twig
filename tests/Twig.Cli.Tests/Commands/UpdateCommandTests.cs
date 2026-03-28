@@ -1,3 +1,4 @@
+using System.Text.Json;
 using NSubstitute;
 using Shouldly;
 using Twig.Commands;
@@ -7,8 +8,6 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
-using Twig.Hints;
-using Twig.Infrastructure.Config;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
@@ -30,26 +29,31 @@ public class UpdateCommandTests
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
         _consoleInput = Substitute.For<IConsoleInput>();
 
+        _cmd = CreateCommand();
+    }
+
+    private UpdateCommand CreateCommand(TextWriter? stderr = null, TextWriter? stdout = null)
+    {
         var formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
-        var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
-
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        _cmd = new UpdateCommand(resolver, _workItemRepo, _adoService, _pendingChangeStore,
-            _consoleInput, formatterFactory);
+        return new UpdateCommand(resolver, _workItemRepo, _adoService, _pendingChangeStore,
+            _consoleInput, formatterFactory, stderr: stderr, stdout: stdout);
+    }
+
+    private void SetupSuccessfulPatch()
+    {
+        var local = CreateWorkItem(1, "Test");
+        SetupActiveItem(local);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(1, "Test"));
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>()).Returns(Array.Empty<PendingChangeRecord>());
     }
 
     [Fact]
     public async Task Update_PullApplyPush()
     {
-        var local = CreateWorkItem(1, "Test");
-        var remote = CreateWorkItem(1, "Test");
-        SetupActiveItem(local);
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
-        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(2);
-        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<PendingChangeRecord>());
+        SetupSuccessfulPatch();
 
         var result = await _cmd.ExecuteAsync("System.Title", "Updated Title");
 
@@ -106,12 +110,7 @@ public class UpdateCommandTests
     [Fact]
     public async Task Update_AutoPushesNotes()
     {
-        var local = CreateWorkItem(1, "Test");
-        var remote = CreateWorkItem(1, "Test");
-        SetupActiveItem(local);
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
-        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(2);
+        SetupSuccessfulPatch();
 
         var pendingNote = new PendingChangeRecord(1, "note", null, null, "My note");
         _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
@@ -131,6 +130,88 @@ public class UpdateCommandTests
         var result = await _cmd.ExecuteAsync("System.Title", "Value");
 
         result.ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData("markdown")]
+    [InlineData("MARKDOWN")]
+    public async Task Format_Markdown_ConvertsValue(string format)
+    {
+        SetupSuccessfulPatch();
+
+        var result = await _cmd.ExecuteAsync("System.Description", "# Hello", format: format);
+
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(1,
+            Arg.Is<IReadOnlyList<FieldChange>>(c =>
+                c.Count == 1 &&
+                c[0].FieldName == "System.Description" &&
+                c[0].NewValue!.Contains("<h1") &&
+                c[0].NewValue!.Contains("Hello</h1>")),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Format_Invalid_ReturnsExitCode2()
+    {
+        SetupSuccessfulPatch();
+
+        var stderr = new StringWriter();
+        var cmd = CreateCommand(stderr: stderr);
+
+        var result = await cmd.ExecuteAsync("System.Description", "value", format: "xyz");
+
+        result.ShouldBe(2);
+        stderr.ToString().ShouldContain("Unknown format 'xyz'. Supported formats: markdown");
+        await _adoService.DidNotReceive().PatchAsync(
+            Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Format_Null_PassesThroughUnchanged()
+    {
+        SetupSuccessfulPatch();
+
+        var result = await _cmd.ExecuteAsync("System.Description", "plain text", format: null);
+
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(1,
+            Arg.Is<IReadOnlyList<FieldChange>>(c =>
+                c[0].NewValue == "plain text"),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Format_Markdown_SuccessEchoesOriginalInput()
+    {
+        SetupSuccessfulPatch();
+        var stdout = new StringWriter();
+        var cmd = CreateCommand(stdout: stdout);
+
+        var result = await cmd.ExecuteAsync("System.Description", "# Hello", format: "markdown");
+
+        result.ShouldBe(0);
+        var output = stdout.ToString();
+        output.ShouldContain("# Hello");
+        output.ShouldNotContain("<h1>");
+    }
+
+    [Fact]
+    public async Task Format_Markdown_JsonOutput_EchoesOriginalInput()
+    {
+        SetupSuccessfulPatch();
+        var stdout = new StringWriter();
+        var cmd = CreateCommand(stdout: stdout);
+
+        var result = await cmd.ExecuteAsync("System.Description", "# Hello", outputFormat: "json", format: "markdown");
+
+        result.ShouldBe(0);
+        var output = stdout.ToString();
+        using var doc = JsonDocument.Parse(output);
+        var message = doc.RootElement.GetProperty("message").GetString();
+        message.ShouldNotBeNull();
+        message.ShouldContain("# Hello");
+        message.ShouldNotContain("<h1>");
     }
 
     private void SetupActiveItem(WorkItem item)

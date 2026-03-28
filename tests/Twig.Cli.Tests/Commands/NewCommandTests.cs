@@ -164,6 +164,29 @@ public class NewCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task New_SuccessOutput_UsesFetchedTitle_NotSeedTitle()
+    {
+        // ADO may normalize the title; output should reflect what ADO returned
+        _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>())
+            .Returns(99);
+        _adoService.FetchAsync(99, Arg.Any<CancellationToken>())
+            .Returns(new WorkItemBuilder(99, "Server-Normalized Title")
+                .AsEpic()
+                .WithAreaPath("TestProject\\Area1")
+                .WithIterationPath("TestProject\\Sprint 1")
+                .Build());
+
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+
+        await _cmd.ExecuteAsync("  Original Title  ", "Epic");
+
+        var output = writer.ToString();
+        output.ShouldContain("#99");
+        output.ShouldContain("Server-Normalized Title");
+    }
+
+    [Fact]
     public async Task New_WithSetFlag_SetsActiveContext()
     {
         ArrangeCreateSuccess(newId: 42);
@@ -172,6 +195,18 @@ public class NewCommandTests : IDisposable
         await _cmd.ExecuteAsync("My Epic", "Epic", set: true);
 
         await _contextStore.Received(1).SetActiveWorkItemIdAsync(42, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task New_WithSetFlag_UsesCreateAsyncReturnedId()
+    {
+        // Verify --set uses exactly the ID returned by CreateAsync
+        ArrangeCreateSuccess(newId: 777);
+        Console.SetOut(new StringWriter());
+
+        await _cmd.ExecuteAsync("My Epic", "Epic", set: true);
+
+        await _contextStore.Received(1).SetActiveWorkItemIdAsync(777, Arg.Any<CancellationToken>());
     }
 
     [Fact]

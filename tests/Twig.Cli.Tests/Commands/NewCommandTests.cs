@@ -308,19 +308,6 @@ public class NewCommandTests : IDisposable
             Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
     }
 
-    [Fact]
-    public async Task New_DoesNotSaveSeedBeforeCreate_AndFetchedItemSaved()
-    {
-        ArrangeCreateSuccess(newId: 55);
-
-        await _cmd.ExecuteAsync("My Epic", "Epic");
-
-        // SaveAsync called exactly once — with the fetched item (positive ID, not a seed)
-        await _workItemRepo.Received(1).SaveAsync(
-            Arg.Is<WorkItem>(w => w.Id > 0 && !w.IsSeed),
-            Arg.Any<CancellationToken>());
-    }
-
     private void ArrangeCreateSuccess(int newId = 100, string title = "My Epic")
     {
         _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>())

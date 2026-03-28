@@ -1,7 +1,7 @@
 # Plan: `twig new` — Direct ADO Creation (Bypass Seed Pipeline)
 
 > **Date**: 2026-03-28
-> **Status**: 🔨 In Progress
+> **Status**: ✅ Done
 > **ADO Issue**: #1278
 > **Supersedes**: Partial rework of #1264 (`twig-new-command.plan.md`)
 
@@ -187,3 +187,30 @@ NewCommand.ExecuteAsync()
 | # | Question | Severity | Resolution |
 |---|----------|----------|------------|
 | 1 | Should `SeedFactory.CreateUnparented` be renamed since `NewCommand` uses it as a field container, not a seed? | Low | Out of scope (NG1). The name is accurate for all other callers. |
+
+---
+
+## Completion
+
+> **Completed**: 2026-03-28
+> **PR**: "Refactor NewCommand to Direct ADO Creation" (#4, merged to main)
+
+### Summary
+
+All tasks (T1–T6) completed and merged. `NewCommand` now calls `IAdoWorkItemService.CreateAsync`
+directly, bypassing the 13-step `SeedPublishOrchestrator` pipeline. The refactor removed ~30 lines
+of unnecessary seed lifecycle code, eliminated 6 transitive DI dependencies from `NewCommand`, and
+ensured items created via `twig new` are saved with `IsSeed=false` (correct provenance). Tests were
+rewritten to verify the direct creation flow, including error-handling paths for `CreateAsync` and
+`FetchAsync` failures. The `twig seed new` → `twig seed publish` workflow remains untouched.
+
+### Tasks — Final Status
+
+| Task | Status |
+|------|--------|
+| T1: Update `NewCommand` constructor | ✅ DONE |
+| T2: Refactor `ExecuteAsync` core flow | ✅ DONE |
+| T3: Update error handling | ✅ DONE |
+| T4: Update success output and context | ✅ DONE |
+| T5: Rewrite `NewCommandTests` | ✅ DONE |
+| T6: Add new tests | ✅ DONE |

@@ -16,6 +16,7 @@ Use `twig` commands in the terminal to manage Azure DevOps work items. This skil
 5. **Publish seeds promptly** — Seeds are local-only until published. Always `twig seed publish --all` after creating seeds.
 6. **Refresh before querying** — If data seems stale, run `twig refresh` to sync from ADO.
 7. **Use `twig note --text "..."` during implementation** — Add notes to the active work item throughout implementation, not just at the end. Notes use the `--text` flag (positional args are not supported). Push staged notes with `twig save <id>`.
+8. **Decompose large issues into task chains** — If an issue is estimated to take more than 30 minutes of implementation effort, decompose it into a sequence of Tasks before coding. Use `twig seed chain` to create them as successor-linked seeds under the parent Issue, then publish and execute them one at a time. Each task should be independently committable and testable. Complete each task (commit, tests pass, `twig state Done`) before starting the next.
 
 ### Note cadence
 

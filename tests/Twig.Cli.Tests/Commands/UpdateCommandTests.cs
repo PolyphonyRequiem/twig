@@ -28,12 +28,7 @@ public class UpdateCommandTests
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
         _consoleInput = Substitute.For<IConsoleInput>();
 
-        var formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
-
-        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        _cmd = new UpdateCommand(resolver, _workItemRepo, _adoService, _pendingChangeStore,
-            _consoleInput, formatterFactory);
+        _cmd = CreateCommand();
     }
 
     private UpdateCommand CreateCommand(TextWriter? stderr = null, TextWriter? stdout = null)

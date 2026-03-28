@@ -265,8 +265,13 @@ public class NewCommandTests : IDisposable
 
         result.ShouldBe(1);
         errWriter.ToString().ShouldContain("Create failed");
+        errWriter.ToString().ShouldContain("Service unavailable");
 
-        // No seed cleanup — nothing was saved
+        // Pipeline short-circuits: no fetch, no save, no cleanup
+        await _adoService.DidNotReceive().FetchAsync(
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _workItemRepo.DidNotReceive().SaveAsync(
+            Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
         await _workItemRepo.DidNotReceive().DeleteByIdAsync(
             Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
@@ -286,8 +291,15 @@ public class NewCommandTests : IDisposable
         var result = await _cmd.ExecuteAsync("My Epic", "Epic");
 
         result.ShouldBe(1);
-        errWriter.ToString().ShouldContain("42");
-        errWriter.ToString().ShouldContain("twig refresh");
+        var stderr = errWriter.ToString();
+        stderr.ShouldContain("#42");
+        stderr.ShouldContain("fetch-back failed");
+        stderr.ShouldContain("Fetch failed");
+        stderr.ShouldContain("twig refresh");
+
+        // Save never called — pipeline stops after fetch failure
+        await _workItemRepo.DidNotReceive().SaveAsync(
+            Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

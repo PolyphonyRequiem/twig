@@ -113,6 +113,11 @@ public sealed class StatusCommand(
             var children = await workItemRepo.GetChildrenAsync(item.Id, ct);
             var childProgress = ComputeChildProgress(children);
 
+            // Fetch parent item for hierarchy display (best-effort)
+            Domain.Aggregates.WorkItem? parent = item.ParentId.HasValue
+                ? await workItemRepo.GetByIdAsync(item.ParentId.Value, ct)
+                : null;
+
             // Fetch related links (best-effort — same pattern as TreeCommand)
             IReadOnlyList<Domain.ValueObjects.WorkItemLink> links = [];
             try { links = await syncCoordinator.SyncLinksAsync(item.Id, ct); }
@@ -134,7 +139,9 @@ public sealed class StatusCommand(
                             fieldDefinitions: fieldDefs,
                             statusFieldEntries: statusFieldEntries,
                             childProgress: childProgress,
-                            links: links),
+                            links: links,
+                            parent: parent,
+                            children: children),
                         performSync: () => syncCoordinator.SyncWorkingSetAsync(workingSet),
                         buildRevisedView: syncResult => Task.FromResult<Spectre.Console.Rendering.IRenderable?>(null),
                         CancellationToken.None);
@@ -150,7 +157,9 @@ public sealed class StatusCommand(
                         fieldDefinitions: fieldDefs,
                         statusFieldEntries: statusFieldEntries,
                         childProgress: childProgress,
-                        links: links);
+                        links: links,
+                        parent: parent,
+                        children: children);
                 }
             }
             else
@@ -163,7 +172,9 @@ public sealed class StatusCommand(
                     fieldDefinitions: fieldDefs,
                     statusFieldEntries: statusFieldEntries,
                     childProgress: childProgress,
-                    links: links);
+                    links: links,
+                    parent: parent,
+                    children: children);
             }
 
             var seeds = await workItemRepo.GetSeedsAsync();
@@ -199,11 +210,18 @@ public sealed class StatusCommand(
         try { syncLinks = await syncCoordinator.SyncLinksAsync(item.Id, ct); }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
+        // Fetch parent item for hierarchy display (best-effort)
+        Domain.Aggregates.WorkItem? syncParent = item.ParentId.HasValue
+            ? await workItemRepo.GetByIdAsync(item.ParentId.Value, ct)
+            : null;
+
+        // Fetch children for hierarchy display + progress
+        var syncChildren = await workItemRepo.GetChildrenAsync(item.Id, ct);
+
         // Use overload with field definitions when formatter supports it
         if (fmt is HumanOutputFormatter humanFmt)
         {
             // EPIC-004 ITEM-019: Compute child progress for sync path
-            var syncChildren = await workItemRepo.GetChildrenAsync(item.Id, ct);
             var syncChildProgress = ComputeChildProgress(syncChildren);
 
             // EPIC-004 ITEM-019: Compute pending changes for consolidated footer
@@ -223,10 +241,10 @@ public sealed class StatusCommand(
                 syncPendingChanges = (syncFieldCount, syncNoteCount);
             }
 
-            Console.WriteLine(humanFmt.FormatWorkItem(item, showDirty: true, fieldDefs, statusFieldEntries, syncChildProgress, syncPendingChanges, syncLinks));
+            Console.WriteLine(humanFmt.FormatWorkItem(item, showDirty: true, fieldDefs, statusFieldEntries, syncChildProgress, syncPendingChanges, syncLinks, syncParent, syncChildren));
         }
         else if (fmt is JsonOutputFormatter jsonFmt)
-            Console.WriteLine(jsonFmt.FormatWorkItem(item, showDirty: true, syncLinks));
+            Console.WriteLine(jsonFmt.FormatWorkItem(item, showDirty: true, syncLinks, syncParent, syncChildren));
         else
             Console.WriteLine(fmt.FormatWorkItem(item, showDirty: true));
 

@@ -27,7 +27,8 @@ public sealed class JsonOutputFormatter : IOutputFormatter
         return FormatWorkItem(item, showDirty, links: null);
     }
 
-    public string FormatWorkItem(WorkItem item, bool showDirty, IReadOnlyList<WorkItemLink>? links)
+    public string FormatWorkItem(WorkItem item, bool showDirty, IReadOnlyList<WorkItemLink>? links,
+        WorkItem? parent = null, IReadOnlyList<WorkItem>? children = null)
     {
         using var stream = new MemoryStream();
         using var writer = new Utf8JsonWriter(stream, WriterOptions);
@@ -47,7 +48,32 @@ public sealed class JsonOutputFormatter : IOutputFormatter
         else
             writer.WriteNull("parentId");
 
-        // Non-hierarchy links
+        // Relationships — hierarchy + non-hierarchy
+        if (parent is not null)
+        {
+            writer.WritePropertyName("parent");
+            writer.WriteStartObject();
+            writer.WriteNumber("id", parent.Id);
+            writer.WriteString("title", parent.Title);
+            writer.WriteString("type", parent.Type.ToString());
+            writer.WriteEndObject();
+        }
+
+        if (children is { Count: > 0 })
+        {
+            writer.WriteStartArray("children");
+            foreach (var child in children)
+            {
+                writer.WriteStartObject();
+                writer.WriteNumber("id", child.Id);
+                writer.WriteString("title", child.Title);
+                writer.WriteString("type", child.Type.ToString());
+                writer.WriteString("state", child.State);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+        }
+
         if (links is { Count: > 0 })
         {
             writer.WriteStartArray("links");

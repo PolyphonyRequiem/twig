@@ -332,7 +332,7 @@ public class JsonOutputFormatterTests
 
     // ── Helpers ──────────────────────────────────────────────────────
 
-    // ── Links in status view ────────────────────────────────────────
+    // ── Relationships in status view ───────────────────────────────
 
     [Fact]
     public void FormatWorkItem_WithLinks_IncludesLinksArray()
@@ -362,26 +362,59 @@ public class JsonOutputFormatterTests
     }
 
     [Fact]
-    public void FormatWorkItem_WithEmptyLinks_OmitsLinksArray()
+    public void FormatWorkItem_WithNoRelationships_OmitsAllRelationshipFields()
     {
-        var item = CreateWorkItem(42, "No Links", "Active");
-        var links = new List<WorkItemLink>();
-
-        var result = _formatter.FormatWorkItem(item, showDirty: false, links);
-        var doc = JsonDocument.Parse(result);
-
-        doc.RootElement.TryGetProperty("links", out _).ShouldBeFalse();
-    }
-
-    [Fact]
-    public void FormatWorkItem_WithNullLinks_OmitsLinksArray()
-    {
-        var item = CreateWorkItem(42, "Null Links", "Active");
+        var item = CreateWorkItem(42, "No Rels", "Active");
 
         var result = _formatter.FormatWorkItem(item, showDirty: false, links: null);
         var doc = JsonDocument.Parse(result);
 
         doc.RootElement.TryGetProperty("links", out _).ShouldBeFalse();
+        doc.RootElement.TryGetProperty("parent", out _).ShouldBeFalse();
+        doc.RootElement.TryGetProperty("children", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void FormatWorkItem_WithParent_IncludesParentObject()
+    {
+        var item = CreateWorkItem(42, "Child", "Active");
+        var parentItem = new WorkItem
+        {
+            Id = 10, Title = "Parent Epic", State = "Doing",
+            Type = WorkItemType.Epic,
+            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
+            AreaPath = AreaPath.Parse("Project").Value,
+        };
+
+        var result = _formatter.FormatWorkItem(item, showDirty: false, links: null, parent: parentItem);
+        var doc = JsonDocument.Parse(result);
+        var root = doc.RootElement;
+
+        root.TryGetProperty("parent", out var parentEl).ShouldBeTrue();
+        parentEl.GetProperty("id").GetInt32().ShouldBe(10);
+        parentEl.GetProperty("title").GetString().ShouldBe("Parent Epic");
+        parentEl.GetProperty("type").GetString().ShouldBe("Epic");
+    }
+
+    [Fact]
+    public void FormatWorkItem_WithChildren_IncludesChildrenArray()
+    {
+        var item = CreateWorkItem(10, "Parent", "Active");
+        var children = new List<WorkItem>
+        {
+            CreateWorkItem(20, "Task A", "Done"),
+            CreateWorkItem(21, "Task B", "To Do"),
+        };
+
+        var result = _formatter.FormatWorkItem(item, showDirty: false, links: null, children: children);
+        var doc = JsonDocument.Parse(result);
+        var root = doc.RootElement;
+
+        root.TryGetProperty("children", out var childrenEl).ShouldBeTrue();
+        childrenEl.GetArrayLength().ShouldBe(2);
+        childrenEl[0].GetProperty("id").GetInt32().ShouldBe(20);
+        childrenEl[0].GetProperty("state").GetString().ShouldBe("Done");
+        childrenEl[1].GetProperty("id").GetInt32().ShouldBe(21);
     }
 
     private static WorkItem CreateWorkItem(int id, string title, string state, string? assignedTo = null)

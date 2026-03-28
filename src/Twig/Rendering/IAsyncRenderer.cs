@@ -38,7 +38,9 @@ public interface IAsyncRenderer
         IReadOnlyList<Domain.ValueObjects.FieldDefinition>? fieldDefinitions = null,
         IReadOnlyList<Domain.ValueObjects.StatusFieldEntry>? statusFieldEntries = null,
         (int Done, int Total)? childProgress = null,
-        IReadOnlyList<Domain.ValueObjects.WorkItemLink>? links = null);
+        IReadOnlyList<Domain.ValueObjects.WorkItemLink>? links = null,
+        WorkItem? parent = null,
+        IReadOnlyList<WorkItem>? children = null);
 
     Task RenderWorkItemAsync(
         Func<Task<WorkItem?>> getItem,

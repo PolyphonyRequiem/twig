@@ -66,7 +66,9 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         IReadOnlyList<StatusFieldEntry>? statusFieldEntries = null,
         (int Done, int Total)? childProgress = null,
         (int FieldCount, int NoteCount)? pendingChanges = null,
-        IReadOnlyList<WorkItemLink>? links = null)
+        IReadOnlyList<WorkItemLink>? links = null,
+        WorkItem? parent = null,
+        IReadOnlyList<WorkItem>? children = null)
     {
         var sb = new StringBuilder();
         var stateColor = GetStateColor(item.State);
@@ -133,18 +135,42 @@ public sealed class HumanOutputFormatter : IOutputFormatter
             sb.Append($"  {Dim}{string.Join(", ", parts)}{Reset}");
         }
 
-        // Links section — non-hierarchy links for the work item
-        if (links is { Count: > 0 })
+        // Relationships section — hierarchy + non-hierarchy links
+        var hasRelationships = parent is not null || children is { Count: > 0 } || links is { Count: > 0 };
+        if (hasRelationships)
         {
             sb.AppendLine();
-            sb.AppendLine($"  {Dim}── Links ─────────────────────{Reset}");
-            for (var i = 0; i < links.Count; i++)
+            sb.AppendLine($"  {Dim}── Relationships ─────────────{Reset}");
+
+            if (parent is not null)
             {
-                var link = links[i];
-                sb.Append($"  {Blue}{link.LinkType}{Reset}: #{link.TargetId}");
-                if (i < links.Count - 1)
-                    sb.AppendLine();
+                var parentBadge = GetTypeBadge(parent.Type);
+                var parentTypeColor = GetTypeColor(parent.Type);
+                sb.AppendLine($"  {Dim}Parent:{Reset}  {parentTypeColor}{parentBadge}{Reset} #{parent.Id} {parent.Title}");
             }
+
+            if (children is { Count: > 0 })
+            {
+                foreach (var child in children)
+                {
+                    var childBadge = GetTypeBadge(child.Type);
+                    var childTypeColor = GetTypeColor(child.Type);
+                    var childStateColor = GetStateColor(child.State);
+                    sb.AppendLine($"  {Dim}Child:{Reset}   {childTypeColor}{childBadge}{Reset} #{child.Id} {child.Title} {childStateColor}[{child.State}]{Reset}");
+                }
+            }
+
+            if (links is { Count: > 0 })
+            {
+                foreach (var link in links)
+                    sb.AppendLine($"  {Blue}{link.LinkType}{Reset}: #{link.TargetId}");
+            }
+
+            // Remove trailing newline
+            if (sb.Length > 0 && sb[sb.Length - 1] == '\n')
+                sb.Length -= 1;
+            if (sb.Length > 0 && sb[sb.Length - 1] == '\r')
+                sb.Length -= 1;
         }
 
         return sb.ToString();

@@ -830,10 +830,10 @@ public class HumanOutputFormatterTests
         HumanOutputFormatter.FindExpectedParentTypeName("FEATURE", parentChildMap).ShouldBe("Epic");
     }
 
-    // ── Links in status view ────────────────────────────────────────
+    // ── Relationships in status view ───────────────────────────────
 
     [Fact]
-    public void FormatWorkItem_WithLinks_ShowsLinksSection()
+    public void FormatWorkItem_WithLinks_ShowsRelationshipsSection()
     {
         var item = CreateWorkItem(42, "Linked Item", "Active");
         var links = new List<WorkItemLink>
@@ -844,7 +844,7 @@ public class HumanOutputFormatterTests
 
         var result = _formatter.FormatWorkItem(item, showDirty: false, fieldDefinitions: null, links: links);
 
-        result.ShouldContain("Links");
+        result.ShouldContain("Relationships");
         result.ShouldContain("Related");
         result.ShouldContain("#100");
         result.ShouldContain("Predecessor");
@@ -852,24 +852,53 @@ public class HumanOutputFormatterTests
     }
 
     [Fact]
-    public void FormatWorkItem_WithEmptyLinks_OmitsLinksSection()
+    public void FormatWorkItem_WithNoRelationships_OmitsSection()
     {
         var item = CreateWorkItem(42, "Empty", "Active");
-        var links = new List<WorkItemLink>();
 
-        var result = _formatter.FormatWorkItem(item, showDirty: false, fieldDefinitions: null, links: links);
+        var result = _formatter.FormatWorkItem(item, showDirty: false, fieldDefinitions: null);
 
-        result.ShouldNotContain("Links");
+        result.ShouldNotContain("Relationships");
     }
 
     [Fact]
-    public void FormatWorkItem_WithNullLinks_OmitsLinksSection()
+    public void FormatWorkItem_WithParent_ShowsParentInRelationships()
     {
-        var item = CreateWorkItem(42, "No Refs", "Active");
+        var item = CreateWorkItem(42, "Child Task", "Active");
+        var parentItem = new WorkItem
+        {
+            Id = 10, Title = "Parent Epic", State = "Doing",
+            Type = WorkItemType.Epic,
+            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
+            AreaPath = AreaPath.Parse("Project").Value,
+        };
 
-        var result = _formatter.FormatWorkItem(item, showDirty: false, fieldDefinitions: null, links: null);
+        var result = _formatter.FormatWorkItem(item, showDirty: false, fieldDefinitions: null, parent: parentItem);
 
-        result.ShouldNotContain("Links");
+        result.ShouldContain("Relationships");
+        result.ShouldContain("Parent");
+        result.ShouldContain("#10");
+        result.ShouldContain("Parent Epic");
+    }
+
+    [Fact]
+    public void FormatWorkItem_WithChildren_ShowsChildrenInRelationships()
+    {
+        var item = CreateWorkItem(10, "Parent Issue", "Active");
+        var children = new List<WorkItem>
+        {
+            CreateWorkItem(20, "Task A", "Done"),
+            CreateWorkItem(21, "Task B", "To Do"),
+        };
+
+        var result = _formatter.FormatWorkItem(item, showDirty: false, fieldDefinitions: null, children: children);
+
+        result.ShouldContain("Relationships");
+        result.ShouldContain("Child");
+        result.ShouldContain("#20");
+        result.ShouldContain("Task A");
+        result.ShouldContain("#21");
+        result.ShouldContain("Task B");
     }
 
     // ── Helpers ──────────────────────────────────────────────────────

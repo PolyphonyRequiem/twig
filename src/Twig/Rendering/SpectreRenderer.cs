@@ -443,7 +443,9 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         IReadOnlyList<Domain.ValueObjects.FieldDefinition>? fieldDefinitions = null,
         IReadOnlyList<Domain.ValueObjects.StatusFieldEntry>? statusFieldEntries = null,
         (int Done, int Total)? childProgress = null,
-        IReadOnlyList<Domain.ValueObjects.WorkItemLink>? links = null)
+        IReadOnlyList<Domain.ValueObjects.WorkItemLink>? links = null,
+        WorkItem? parent = null,
+        IReadOnlyList<WorkItem>? children = null)
     {
         var item = await getItem() ?? throw new InvalidOperationException("Work item must not be null when building status view.");
         var pending = await getPendingChanges();
@@ -509,14 +511,29 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                 itemGrid.AddRow("", $"[dim]{string.Join(", ", parts)}[/]");
         }
 
-        // Links section — non-hierarchy links for the work item
-        if (links is { Count: > 0 })
+        // Relationships section — hierarchy + non-hierarchy links
+        var hasRelationships = parent is not null || children is { Count: > 0 } || links is { Count: > 0 };
+        if (hasRelationships)
         {
             itemGrid.AddRow("", ""); // visual spacer
-            itemGrid.AddRow("[dim]⇄ Links:[/]", "");
-            foreach (var link in links)
+            itemGrid.AddRow("[dim]⇄ Relationships:[/]", "");
+
+            if (parent is not null)
+                itemGrid.AddRow("", $"[dim]Parent:[/] {_theme.FormatTypeBadge(parent.Type)} #{parent.Id} {Markup.Escape(parent.Title)}");
+
+            if (children is { Count: > 0 })
             {
-                itemGrid.AddRow("", $"[blue]{Markup.Escape(link.LinkType)}[/]: #{link.TargetId}");
+                foreach (var child in children)
+                {
+                    var childState = _theme.FormatState(child.State);
+                    itemGrid.AddRow("", $"[dim]Child:[/]  {_theme.FormatTypeBadge(child.Type)} #{child.Id} {Markup.Escape(child.Title)} {childState}");
+                }
+            }
+
+            if (links is { Count: > 0 })
+            {
+                foreach (var link in links)
+                    itemGrid.AddRow("", $"[blue]{Markup.Escape(link.LinkType)}[/]: #{link.TargetId}");
             }
         }
 
@@ -535,7 +552,9 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         IReadOnlyList<Domain.ValueObjects.FieldDefinition>? fieldDefinitions = null,
         IReadOnlyList<Domain.ValueObjects.StatusFieldEntry>? statusFieldEntries = null,
         (int Done, int Total)? childProgress = null,
-        IReadOnlyList<Domain.ValueObjects.WorkItemLink>? links = null)
+        IReadOnlyList<Domain.ValueObjects.WorkItemLink>? links = null,
+        WorkItem? parent = null,
+        IReadOnlyList<WorkItem>? children = null)
     {
         var item = await getItem();
         if (item is null)
@@ -543,7 +562,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
         var view = await BuildStatusViewAsync(
             () => Task.FromResult<WorkItem?>(item),
-            getPendingChanges, ct, fieldDefinitions, statusFieldEntries, childProgress, links);
+            getPendingChanges, ct, fieldDefinitions, statusFieldEntries, childProgress, links, parent, children);
         _console.Write(view);
     }
 

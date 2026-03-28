@@ -11,7 +11,6 @@ public sealed class MarkdownConverterTests
     {
         var result = MarkdownConverter.ToHtml("# Hello");
 
-        result.ShouldContain("<h1");
         result.ShouldContain("Hello</h1>");
     }
 

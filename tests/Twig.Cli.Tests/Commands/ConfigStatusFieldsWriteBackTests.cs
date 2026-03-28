@@ -35,7 +35,7 @@ public class ConfigStatusFieldsWriteBackTests : IDisposable
         _config = new TwigConfiguration { Organization = "myorg", ProcessTemplate = "Agile" };
 
         _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
     }
 
     public void Dispose()

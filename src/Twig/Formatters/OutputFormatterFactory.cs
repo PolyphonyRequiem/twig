@@ -8,6 +8,7 @@ namespace Twig.Formatters;
 public sealed class OutputFormatterFactory(
     HumanOutputFormatter human,
     JsonOutputFormatter json,
+    JsonCompactOutputFormatter jsonCompact,
     MinimalOutputFormatter minimal)
 {
     public const string DefaultFormat = "human";
@@ -15,8 +16,10 @@ public sealed class OutputFormatterFactory(
     public IOutputFormatter GetFormatter(string format) =>
         (format ?? DefaultFormat).ToLowerInvariant() switch
         {
-            "json"    => json,
-            "minimal" => minimal,
-            _         => human,
+            "json"         => json,
+            "json-full"    => json,
+            "json-compact" => jsonCompact,
+            "minimal"      => minimal,
+            _              => human,
         };
 }

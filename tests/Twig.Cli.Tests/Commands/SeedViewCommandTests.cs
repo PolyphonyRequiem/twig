@@ -31,7 +31,7 @@ public class SeedViewCommandTests : IDisposable
         _config = new TwigConfiguration();
 
         _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
 
         // Force sync rendering (no live renderer) by using redirected output
         _renderingPipelineFactory = new RenderingPipelineFactory(

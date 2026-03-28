@@ -44,7 +44,7 @@ public class SeedNewCommandTests
             });
 
         var formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
 
         _resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);

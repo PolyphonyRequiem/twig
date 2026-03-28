@@ -43,7 +43,7 @@ public class FlowCloseCommandTests
             activeItemResolver, _adoService, processConfigProvider, protectedCacheWriter);
 
         _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
         _config = new TwigConfiguration
         {
             Git = new GitConfig { DefaultTarget = "main" },

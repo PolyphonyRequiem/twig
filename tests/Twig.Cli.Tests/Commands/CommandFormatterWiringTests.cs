@@ -126,7 +126,7 @@ public class CommandFormatterWiringTests
             .Returns(Array.Empty<WorkItem>());
 
         var factory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = true });
         var resolver = new ActiveItemResolver(contextStore, workItemRepo, adoService);
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
@@ -168,6 +168,7 @@ public class CommandFormatterWiringTests
         services.AddSingleton(new TwigConfiguration());
         services.AddSingleton(new HumanOutputFormatter());
         services.AddSingleton(new JsonOutputFormatter());
+        services.AddSingleton(new JsonCompactOutputFormatter(new JsonOutputFormatter()));
         services.AddSingleton(new MinimalOutputFormatter());
         services.AddSingleton<OutputFormatterFactory>();
         services.AddSingleton(new HintEngine(new DisplayConfig { Hints = false }));
@@ -215,7 +216,7 @@ public class CommandFormatterWiringTests
     {
         var config = new TwigConfiguration { Seed = new SeedConfig { StaleDays = staleDays } };
         var factory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = hintsEnabled });
         var adoService = Substitute.For<IAdoWorkItemService>();
         var activeItemResolver = new ActiveItemResolver(contextStore, workItemRepo, adoService);

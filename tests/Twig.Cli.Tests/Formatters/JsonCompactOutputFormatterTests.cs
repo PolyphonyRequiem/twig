@@ -1,0 +1,173 @@
+using System.Text.Json;
+using Shouldly;
+using Twig.Domain.Aggregates;
+using Twig.Domain.ReadModels;
+using Twig.Domain.ValueObjects;
+using Twig.Formatters;
+using Xunit;
+
+namespace Twig.Cli.Tests.Formatters;
+
+public class JsonCompactOutputFormatterTests
+{
+    private readonly JsonCompactOutputFormatter _formatter = new(new JsonOutputFormatter());
+
+    // ── WorkItem formatting ─────────────────────────────────────────
+
+    [Fact]
+    public void FormatWorkItem_ProducesValidJson()
+    {
+        var item = CreateWorkItem(42, "My Task", "Active");
+
+        var result = _formatter.FormatWorkItem(item, showDirty: false);
+
+        JsonDocument.Parse(result).ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void FormatWorkItem_HasOnlyCompactFields()
+    {
+        var item = CreateWorkItem(42, "My Task", "Active");
+
+        var result = _formatter.FormatWorkItem(item, showDirty: false);
+        var root = JsonDocument.Parse(result).RootElement;
+
+        root.GetProperty("id").GetInt32().ShouldBe(42);
+        root.GetProperty("title").GetString().ShouldBe("My Task");
+        root.GetProperty("type").GetString().ShouldBe("Task");
+        root.GetProperty("state").GetString().ShouldBe("Active");
+
+        // Should NOT contain full-format fields
+        root.TryGetProperty("assignedTo", out _).ShouldBeFalse();
+        root.TryGetProperty("isSeed", out _).ShouldBeFalse();
+        root.TryGetProperty("iterationPath", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void FormatWorkItem_OmitsIsDirty_WhenClean()
+    {
+        var item = CreateWorkItem(42, "My Task", "Active");
+
+        var result = _formatter.FormatWorkItem(item, showDirty: true);
+        var root = JsonDocument.Parse(result).RootElement;
+
+        root.TryGetProperty("isDirty", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void FormatWorkItem_IncludesIsDirty_WhenDirty()
+    {
+        var item = CreateWorkItem(42, "My Task", "Active");
+        item.UpdateField("test", "value");
+        item.ApplyCommands();
+
+        var result = _formatter.FormatWorkItem(item, showDirty: true);
+        var root = JsonDocument.Parse(result).RootElement;
+
+        root.GetProperty("isDirty").GetBoolean().ShouldBeTrue();
+    }
+
+    // ── Tree formatting ──────────────────────────────────────────────
+
+    [Fact]
+    public void FormatTree_ProducesValidJson()
+    {
+        var focus = CreateWorkItem(1, "Focus", "Active");
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), Array.Empty<WorkItem>());
+
+        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+
+        JsonDocument.Parse(result).ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void FormatTree_HasCompactFocusAndChildren()
+    {
+        var parent = CreateWorkItem(1, "Parent", "Active");
+        var focus = CreateWorkItem(2, "Focus", "New");
+        var child = CreateWorkItem(3, "Child", "New");
+        var tree = WorkTree.Build(focus, new[] { parent }, new[] { child });
+
+        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var root = JsonDocument.Parse(result).RootElement;
+
+        root.GetProperty("focus").GetProperty("id").GetInt32().ShouldBe(2);
+        root.GetProperty("parentChain").GetArrayLength().ShouldBe(1);
+        root.GetProperty("children").GetArrayLength().ShouldBe(1);
+        root.GetProperty("totalChildren").GetInt32().ShouldBe(1);
+
+        // Children should have compact schema only
+        var childElem = root.GetProperty("children")[0];
+        childElem.GetProperty("id").GetInt32().ShouldBe(3);
+        childElem.TryGetProperty("assignedTo", out _).ShouldBeFalse();
+    }
+
+    // ── Workspace formatting ─────────────────────────────────────────
+
+    [Fact]
+    public void FormatWorkspace_ProducesValidJson()
+    {
+        var item = CreateWorkItem(1, "Sprint Item", "Active");
+        var ws = Workspace.Build(item, new[] { item }, Array.Empty<WorkItem>());
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 7);
+
+        JsonDocument.Parse(result).ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void FormatWorkspace_HasCompactSchema()
+    {
+        var context = CreateWorkItem(1, "Context", "Active");
+        var sprint = CreateWorkItem(2, "Sprint", "New");
+        var ws = Workspace.Build(context, new[] { sprint }, Array.Empty<WorkItem>());
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 7);
+        var root = JsonDocument.Parse(result).RootElement;
+
+        root.GetProperty("context").GetProperty("id").GetInt32().ShouldBe(1);
+        root.GetProperty("sprintItems").GetArrayLength().ShouldBe(1);
+        root.GetProperty("seeds").GetArrayLength().ShouldBe(0);
+        root.GetProperty("dirtyCount").GetInt32().ShouldBe(0);
+
+        // Sprint items should use compact schema
+        var sprintElem = root.GetProperty("sprintItems")[0];
+        sprintElem.GetProperty("id").GetInt32().ShouldBe(2);
+        sprintElem.TryGetProperty("assignedTo", out _).ShouldBeFalse();
+    }
+
+    // ── Delegated methods ────────────────────────────────────────────
+
+    [Fact]
+    public void FormatError_DelegatesToFullFormatter()
+    {
+        var result = _formatter.FormatError("something failed");
+
+        var root = JsonDocument.Parse(result).RootElement;
+        root.GetProperty("error").GetString().ShouldBe("something failed");
+    }
+
+    [Fact]
+    public void FormatHint_DelegatesToFullFormatter()
+    {
+        var result = _formatter.FormatHint("try this");
+
+        // JSON formatter suppresses hints (returns empty string)
+        result.ShouldBeEmpty();
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────
+
+    private static WorkItem CreateWorkItem(int id, string title, string state)
+    {
+        return new WorkItem
+        {
+            Id = id,
+            Type = WorkItemType.Task,
+            Title = title,
+            State = state,
+            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
+            AreaPath = AreaPath.Parse("Project").Value,
+        };
+    }
+}

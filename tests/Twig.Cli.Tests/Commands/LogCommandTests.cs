@@ -27,7 +27,7 @@ public class LogCommandTests
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _gitService = Substitute.For<IGitService>();
         _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
     }
 

@@ -30,7 +30,7 @@ public class SeedEditCommandTests
             });
 
         var formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
 
         _cmd = new SeedEditCommand(
             _workItemRepo, _fieldDefStore, _editorLauncher, formatterFactory);

@@ -13,6 +13,7 @@ public class RenderingPipelineFactoryTests
     private readonly OutputFormatterFactory _formatterFactory = new(
         new HumanOutputFormatter(),
         new JsonOutputFormatter(),
+        new JsonCompactOutputFormatter(new JsonOutputFormatter()),
         new MinimalOutputFormatter());
 
     private RenderingPipelineFactory CreateFactory() =>

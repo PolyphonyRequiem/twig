@@ -24,6 +24,7 @@ public static class RenderingServiceModule
             return new HumanOutputFormatter(cfg.Display, cfg.TypeAppearances, stateEntries);
         });
         services.AddSingleton<JsonOutputFormatter>();
+        services.AddSingleton<JsonCompactOutputFormatter>();
         services.AddSingleton<MinimalOutputFormatter>();
         services.AddSingleton<OutputFormatterFactory>();
 

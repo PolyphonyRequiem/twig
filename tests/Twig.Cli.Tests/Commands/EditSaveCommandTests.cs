@@ -34,7 +34,7 @@ public class EditSaveCommandTests
         _editorLauncher = Substitute.For<IEditorLauncher>();
         _consoleInput = Substitute.For<IConsoleInput>();
         _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         _resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
     }

@@ -43,7 +43,7 @@ public class ConflictUxTests
             .Returns(ProcessConfigBuilder.Agile());
 
         _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         _resolver = new Domain.Services.ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
     }

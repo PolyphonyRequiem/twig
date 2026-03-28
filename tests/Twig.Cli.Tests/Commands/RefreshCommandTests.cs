@@ -70,7 +70,7 @@ public class RefreshCommandTests : IDisposable
             .Returns(new ProcessConfigurationData());
 
         _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
 
         _cmd = CreateCommand();
     }

@@ -28,7 +28,7 @@ public class NavigationHistoryCommandTests
         _contextStore = Substitute.For<IContextStore>();
         _promptStateWriter = Substitute.For<IPromptStateWriter>();
         _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
 
         // GetByIdsAsync delegates to per-item GetByIdAsync so existing per-ID mock setups work.
         _workItemRepo.GetByIdsAsync(Arg.Any<IEnumerable<int>>(), Arg.Any<CancellationToken>())
@@ -725,7 +725,7 @@ public class NavigationHistoryEndToEndTests : IDisposable
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _contextStore = Substitute.For<IContextStore>();
         _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
         _cmd = new NavigationHistoryCommands(
             _historyStore, _publishIdMapRepo, _workItemRepo, _contextStore,
             _formatterFactory);

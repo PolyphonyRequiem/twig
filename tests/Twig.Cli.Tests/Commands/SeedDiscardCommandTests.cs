@@ -23,7 +23,7 @@ public class SeedDiscardCommandTests
         _consoleInput = Substitute.For<IConsoleInput>();
 
         var formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
 
         _cmd = new SeedDiscardCommand(_workItemRepo, _seedLinkRepo, _consoleInput, formatterFactory);
     }

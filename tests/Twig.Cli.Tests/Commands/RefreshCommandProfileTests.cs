@@ -97,7 +97,7 @@ public class RefreshCommandProfileTests : IDisposable
             .Returns(TestFields);
 
         _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
     }
 
     public void Dispose()

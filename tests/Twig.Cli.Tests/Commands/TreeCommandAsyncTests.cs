@@ -35,7 +35,7 @@ public class TreeCommandAsyncTests
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         _config = new TwigConfiguration();
         _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, pendingChangeStore);
         _syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, protectedCacheWriter, 30);

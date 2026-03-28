@@ -9,12 +9,25 @@ public class OutputFormatterFactoryTests
     private readonly OutputFormatterFactory _factory = new(
         new HumanOutputFormatter(),
         new JsonOutputFormatter(),
+        new JsonCompactOutputFormatter(new JsonOutputFormatter()),
         new MinimalOutputFormatter());
 
     [Fact]
     public void GetFormatter_Json_ReturnsJsonOutputFormatter()
     {
         _factory.GetFormatter("json").ShouldBeOfType<JsonOutputFormatter>();
+    }
+
+    [Fact]
+    public void GetFormatter_JsonFull_ReturnsJsonOutputFormatter()
+    {
+        _factory.GetFormatter("json-full").ShouldBeOfType<JsonOutputFormatter>();
+    }
+
+    [Fact]
+    public void GetFormatter_JsonCompact_ReturnsJsonCompactOutputFormatter()
+    {
+        _factory.GetFormatter("json-compact").ShouldBeOfType<JsonCompactOutputFormatter>();
     }
 
     [Fact]
@@ -42,6 +55,22 @@ public class OutputFormatterFactoryTests
     public void GetFormatter_Json_CaseInsensitive(string format)
     {
         _factory.GetFormatter(format).ShouldBeOfType<JsonOutputFormatter>();
+    }
+
+    [Theory]
+    [InlineData("JSON-FULL")]
+    [InlineData("Json-Full")]
+    public void GetFormatter_JsonFull_CaseInsensitive(string format)
+    {
+        _factory.GetFormatter(format).ShouldBeOfType<JsonOutputFormatter>();
+    }
+
+    [Theory]
+    [InlineData("JSON-COMPACT")]
+    [InlineData("Json-Compact")]
+    public void GetFormatter_JsonCompact_CaseInsensitive(string format)
+    {
+        _factory.GetFormatter(format).ShouldBeOfType<JsonCompactOutputFormatter>();
     }
 
     [Theory]

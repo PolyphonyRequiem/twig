@@ -264,7 +264,7 @@ public sealed class WorkspaceCommand(
 
         var hints = hintEngine.GetHints("workspace",
             workspace: workspace,
-            outputFormat: fmt is JsonOutputFormatter ? "json" : (fmt is MinimalOutputFormatter ? "minimal" : "human"));
+            outputFormat: fmt is JsonOutputFormatter or JsonCompactOutputFormatter ? "json" : (fmt is MinimalOutputFormatter ? "minimal" : "human"));
         foreach (var hint in hints)
         {
             var formatted = fmt.FormatHint(hint);

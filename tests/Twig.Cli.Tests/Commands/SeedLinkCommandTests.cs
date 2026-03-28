@@ -21,7 +21,7 @@ public class SeedLinkCommandTests
         _workItemRepo = Substitute.For<IWorkItemRepository>();
 
         var formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
 
         _cmd = new SeedLinkCommand(_seedLinkRepo, _workItemRepo, formatterFactory);
     }

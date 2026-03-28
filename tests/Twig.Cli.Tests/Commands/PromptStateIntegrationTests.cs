@@ -53,7 +53,7 @@ public class PromptStateIntegrationTests : IDisposable
         _fieldDefinitionStore = Substitute.For<IFieldDefinitionStore>();
         _consoleInput = Substitute.For<IConsoleInput>();
         _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         _config = new TwigConfiguration();
         _paths = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"));

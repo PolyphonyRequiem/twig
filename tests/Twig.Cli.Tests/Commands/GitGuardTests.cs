@@ -18,7 +18,7 @@ public class GitGuardTests
     public GitGuardTests()
     {
         var factory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
         _fmt = factory.GetFormatter("human");
     }
 

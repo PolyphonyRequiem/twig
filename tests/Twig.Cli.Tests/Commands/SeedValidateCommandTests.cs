@@ -29,7 +29,7 @@ public class SeedValidateCommandTests : IDisposable
             .Returns(SeedPublishRules.Default);
 
         _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
 
         _cmd = new SeedValidateCommand(_workItemRepo, _rulesProvider, _formatterFactory);
     }

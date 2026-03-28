@@ -33,7 +33,7 @@ public class SeedReconcileCommandTests : IDisposable
             .Returns(new List<Domain.Aggregates.WorkItem>());
 
         _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
 
         var orchestrator = new SeedReconcileOrchestrator(
             _seedLinkRepo, _workItemRepo, _publishIdMapRepo);

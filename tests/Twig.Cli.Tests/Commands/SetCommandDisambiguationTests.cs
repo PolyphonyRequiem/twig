@@ -47,7 +47,7 @@ public class SetCommandDisambiguationTests
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, pendingChangeStore);
         _syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, protectedCacheWriter, 30);
         _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         _mockRenderer = Substitute.For<IAsyncRenderer>();
     }

@@ -45,7 +45,7 @@ public class FlowDoneCommandTests
             activeItemResolver, _adoService, _processConfigProvider, protectedCacheWriter);
 
         _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
         _config = new TwigConfiguration
         {
             User = new UserConfig { DisplayName = "Test User" },

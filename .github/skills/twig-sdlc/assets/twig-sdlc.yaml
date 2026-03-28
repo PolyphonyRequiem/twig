@@ -139,7 +139,7 @@ agents:
   - name: architect
     description: Researches the codebase and creates a solution design with implementation plan
     model: claude-opus-4.6-1m
-    max_agent_iterations: 100
+    max_agent_iterations: 200
     input:
       - intake.output
       - workflow.input.prompt?
@@ -686,7 +686,7 @@ agents:
   - name: coder
     description: Implements a single task — code changes, tests, incremental commits
     model: claude-opus-4.6-1m
-    max_agent_iterations: 100
+    max_agent_iterations: 150
     input:
       - implementation_manager.output
       - architect.output

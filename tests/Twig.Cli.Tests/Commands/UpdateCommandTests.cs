@@ -132,33 +132,20 @@ public class UpdateCommandTests
         result.ShouldBe(1);
     }
 
-    [Fact]
-    public async Task Format_Markdown_ConvertsValue()
+    [Theory]
+    [InlineData("markdown")]
+    [InlineData("MARKDOWN")]
+    public async Task Format_Markdown_ConvertsValue(string format)
     {
         SetupSuccessfulPatch();
 
-        var result = await _cmd.ExecuteAsync("System.Description", "# Hello", format: "markdown");
+        var result = await _cmd.ExecuteAsync("System.Description", "# Hello", format: format);
 
         result.ShouldBe(0);
         await _adoService.Received().PatchAsync(1,
             Arg.Is<IReadOnlyList<FieldChange>>(c =>
                 c.Count == 1 &&
                 c[0].FieldName == "System.Description" &&
-                c[0].NewValue!.Contains("<h1") &&
-                c[0].NewValue!.Contains("Hello</h1>")),
-            Arg.Any<int>(), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task Format_Markdown_CaseInsensitive()
-    {
-        SetupSuccessfulPatch();
-
-        var result = await _cmd.ExecuteAsync("System.Description", "# Hello", format: "MARKDOWN");
-
-        result.ShouldBe(0);
-        await _adoService.Received().PatchAsync(1,
-            Arg.Is<IReadOnlyList<FieldChange>>(c =>
                 c[0].NewValue!.Contains("<h1") &&
                 c[0].NewValue!.Contains("Hello</h1>")),
             Arg.Any<int>(), Arg.Any<CancellationToken>());

@@ -127,7 +127,7 @@ public sealed class NewCommand(
 
         await workItemRepo.SaveAsync(fetched, ct);
 
-        if (set && newId > 0)
+        if (set)
             await contextStore.SetActiveWorkItemIdAsync(newId, ct);
 
         Console.WriteLine(fmt.FormatSuccess(

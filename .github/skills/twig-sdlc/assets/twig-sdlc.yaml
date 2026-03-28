@@ -307,7 +307,7 @@ agents:
         type: string
         description: Brief summary of what was simplified (or "no changes needed")
     routes:
-      - to: plan_reviewers
+      - to: technical_reviewer
 
   - name: technical_reviewer
     description: Validates technical accuracy, feasibility, and completeness of the plan
@@ -346,7 +346,7 @@ agents:
         type: array
         description: Issues that must be fixed before proceeding
     routes:
-      - to: $end
+      - to: readability_reviewer
 
   - name: readability_reviewer
     description: Ensures the plan is clear, well-structured, and actionable
@@ -379,13 +379,14 @@ agents:
         type: array
         description: Ambiguities or structural problems
     routes:
-      - to: $end
+      - to: review_router
 
   - name: review_router
     description: Checks both reviewer scores and decides whether to loop or proceed
     model: claude-sonnet-4.6
     input:
-      - plan_reviewers.outputs
+      - technical_reviewer.output
+      - readability_reviewer.output
       - workflow.input.skip_plan_review?
       - architect.output
     system_prompt: |
@@ -394,11 +395,11 @@ agents:
     prompt: |
       Check the review results:
 
-      **Technical Review:** Score {{ plan_reviewers.outputs.technical_reviewer.score }}/100
-      {{ plan_reviewers.outputs.technical_reviewer.feedback }}
+      **Technical Review:** Score {{ technical_reviewer.output.score }}/100
+      {{ technical_reviewer.output.feedback }}
 
-      **Readability Review:** Score {{ plan_reviewers.outputs.readability_reviewer.score }}/100
-      {{ plan_reviewers.outputs.readability_reviewer.feedback }}
+      **Readability Review:** Score {{ readability_reviewer.output.score }}/100
+      {{ readability_reviewer.output.feedback }}
 
       **Plan:** {{ architect.output.epic_count }} epics, ~{{ architect.output.total_estimated_loc }} LoC
 
@@ -1240,19 +1241,6 @@ agents:
         description: Whether the Epic was transitioned to Done
     routes:
       - to: $end
-
-# =============================================================================
-# PARALLEL GROUPS
-# =============================================================================
-parallel:
-  - name: plan_reviewers
-    description: Technical and readability reviews run in parallel
-    agents:
-      - technical_reviewer
-      - readability_reviewer
-    failure_mode: continue_on_error
-    routes:
-      - to: review_router
 
 # =============================================================================
 # WORKFLOW OUTPUT

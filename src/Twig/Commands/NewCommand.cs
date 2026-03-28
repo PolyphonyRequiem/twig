@@ -9,10 +9,6 @@ using Twig.Infrastructure.Config;
 
 namespace Twig.Commands;
 
-/// <summary>
-/// Implements <c>twig new --title "X" --type Epic [--area A] [--iteration I] [--description "..."] [--set] [--editor]</c>:
-/// creates an unparented top-level work item and immediately publishes it to ADO.
-/// </summary>
 public sealed class NewCommand(
     IAdoWorkItemService adoService,
     IWorkItemRepository workItemRepo,
@@ -23,7 +19,6 @@ public sealed class NewCommand(
     HintEngine hintEngine,
     TwigConfiguration config)
 {
-    /// <summary>Create a new top-level work item in ADO.</summary>
     public async Task<int> ExecuteAsync(
         string? title,
         string type,

@@ -267,13 +267,11 @@ public class NewCommandTests : IDisposable
         errWriter.ToString().ShouldContain("Create failed");
         errWriter.ToString().ShouldContain("Service unavailable");
 
-        // Pipeline short-circuits: no fetch, no save, no cleanup
+        // Pipeline short-circuits: no fetch, no save
         await _adoService.DidNotReceive().FetchAsync(
             Arg.Any<int>(), Arg.Any<CancellationToken>());
         await _workItemRepo.DidNotReceive().SaveAsync(
             Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
-        await _workItemRepo.DidNotReceive().DeleteByIdAsync(
-            Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

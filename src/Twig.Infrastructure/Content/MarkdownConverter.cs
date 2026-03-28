@@ -2,10 +2,6 @@ using Markdig;
 
 namespace Twig.Infrastructure.Content;
 
-/// <summary>
-/// Converts Markdown text to HTML using the Markdig pipeline
-/// with advanced extensions (tables, task lists, etc.).
-/// </summary>
 internal static class MarkdownConverter
 {
     private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder()

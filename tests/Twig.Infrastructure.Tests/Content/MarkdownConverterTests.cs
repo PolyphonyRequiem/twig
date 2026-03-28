@@ -4,10 +4,6 @@ using Xunit;
 
 namespace Twig.Infrastructure.Tests.Content;
 
-/// <summary>
-/// Tests for <see cref="MarkdownConverter"/>: verifies Markdig pipeline
-/// produces expected HTML for common Markdown constructs and handles edge cases.
-/// </summary>
 public class MarkdownConverterTests
 {
     [Fact]

@@ -14,7 +14,7 @@ namespace Twig.Commands;
 /// creates an unparented top-level work item and immediately publishes it to ADO.
 /// </summary>
 public sealed class NewCommand(
-    SeedPublishOrchestrator orchestrator,
+    IAdoWorkItemService adoService,
     IWorkItemRepository workItemRepo,
     IContextStore contextStore,
     IFieldDefinitionStore fieldDefStore,
@@ -68,12 +68,7 @@ public sealed class NewCommand(
             return 1;
         }
 
-        // ── Initialize seed counter ─────────────────────────────────
-        var minSeedId = await workItemRepo.GetMinSeedIdAsync(ct);
-        if (minSeedId.HasValue)
-            WorkItem.InitializeSeedCounter(minSeedId.Value);
-
-        // ── Create seed ─────────────────────────────────────────────
+        // ── Create in-memory work item ──────────────────────────────
         var seedTitle = string.IsNullOrWhiteSpace(title) ? "(untitled)" : title;
 
         var seedResult = SeedFactory.CreateUnparented(
@@ -114,32 +109,45 @@ public sealed class NewCommand(
             seed = seed.WithSeedFields(newTitle, parsedFields);
         }
 
-        // ── Save seed locally (publish requires it in the DB) ───────
-        await workItemRepo.SaveAsync(seed, ct);
-
-        // ── Publish to ADO ──────────────────────────────────────────
-        var publishResult = await orchestrator.PublishAsync(seed.Id, force: true, ct: ct);
-
-        if (!publishResult.IsSuccess)
+        // ── Create in ADO ───────────────────────────────────────────
+        int newId;
+        try
         {
-            // Clean up the transient seed on failure
-            await workItemRepo.DeleteByIdAsync(seed.Id, ct);
-            Console.Error.WriteLine(fmt.FormatError(
-                $"Publish failed: {publishResult.ErrorMessage}"));
+            newId = await adoService.CreateAsync(seed, ct);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(fmt.FormatError($"Create failed: {ex.Message}"));
             return 1;
         }
 
+        // ── Fetch back the full ADO item ────────────────────────────
+        WorkItem fetched;
+        try
+        {
+            fetched = await adoService.FetchAsync(newId, ct);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(fmt.FormatError(
+                $"Created #{newId} in ADO but fetch-back failed: {ex.Message}. Run 'twig refresh' to recover."));
+            return 1;
+        }
+
+        // ── Save fetched item locally ───────────────────────────────
+        await workItemRepo.SaveAsync(fetched, ct);
+
         // ── Set context ─────────────────────────────────────────────
-        if (set && publishResult.NewId > 0)
-            await contextStore.SetActiveWorkItemIdAsync(publishResult.NewId, ct);
+        if (set && newId > 0)
+            await contextStore.SetActiveWorkItemIdAsync(newId, ct);
 
         // ── Output ──────────────────────────────────────────────────
         Console.WriteLine(fmt.FormatSuccess(
-            $"Created #{publishResult.NewId} {publishResult.Title} ({typeResult.Value})"));
+            $"Created #{newId} {fetched.Title} ({typeResult.Value})"));
 
         var hints = hintEngine.GetHints("new",
             outputFormat: outputFormat,
-            createdId: publishResult.NewId);
+            createdId: newId);
         foreach (var hint in hints)
         {
             var formatted = fmt.FormatHint(hint);

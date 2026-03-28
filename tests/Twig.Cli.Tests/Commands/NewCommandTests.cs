@@ -1,9 +1,9 @@
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
-using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -17,10 +17,6 @@ public class NewCommandTests : IDisposable
 {
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IAdoWorkItemService _adoService;
-    private readonly ISeedLinkRepository _seedLinkRepo;
-    private readonly IPublishIdMapRepository _publishIdMapRepo;
-    private readonly ISeedPublishRulesProvider _rulesProvider;
-    private readonly IUnitOfWork _unitOfWork;
     private readonly IContextStore _contextStore;
     private readonly IFieldDefinitionStore _fieldDefStore;
     private readonly IEditorLauncher _editorLauncher;
@@ -38,19 +34,9 @@ public class NewCommandTests : IDisposable
 
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _adoService = Substitute.For<IAdoWorkItemService>();
-        _seedLinkRepo = Substitute.For<ISeedLinkRepository>();
-        _publishIdMapRepo = Substitute.For<IPublishIdMapRepository>();
-        _rulesProvider = Substitute.For<ISeedPublishRulesProvider>();
-        _unitOfWork = Substitute.For<IUnitOfWork>();
         _contextStore = Substitute.For<IContextStore>();
         _fieldDefStore = Substitute.For<IFieldDefinitionStore>();
         _editorLauncher = Substitute.For<IEditorLauncher>();
-
-        _rulesProvider.GetRulesAsync(Arg.Any<CancellationToken>())
-            .Returns(SeedPublishRules.Default);
-
-        var tx = Substitute.For<ITransaction>();
-        _unitOfWork.BeginAsync(Arg.Any<CancellationToken>()).Returns(tx);
 
         _fieldDefStore.GetAllAsync(Arg.Any<CancellationToken>())
             .Returns(new List<FieldDefinition>
@@ -74,13 +60,8 @@ public class NewCommandTests : IDisposable
             },
         };
 
-        var backlogOrderer = new BacklogOrderer(_adoService, _fieldDefStore);
-        var orchestrator = new SeedPublishOrchestrator(
-            _workItemRepo, _adoService, _seedLinkRepo, _publishIdMapRepo,
-            _rulesProvider, _unitOfWork, backlogOrderer);
-
         _cmd = new NewCommand(
-            orchestrator, _workItemRepo, _contextStore,
+            _adoService, _workItemRepo, _contextStore,
             _fieldDefStore, _editorLauncher, _formatterFactory,
             _hintEngine, _config);
     }
@@ -98,36 +79,39 @@ public class NewCommandTests : IDisposable
     [Fact]
     public async Task New_ValidTitleAndType_CreatesAndPublishes()
     {
-        ArrangePublishSuccess();
+        ArrangeCreateSuccess();
         Console.SetOut(new StringWriter());
 
         var result = await _cmd.ExecuteAsync("My Epic", "Epic");
 
         result.ShouldBe(0);
 
-        // Seed was saved locally (and also during publish transaction)
-        await _workItemRepo.Received().SaveAsync(
+        // ADO create was called with the in-memory work item
+        await _adoService.Received(1).CreateAsync(
             Arg.Is<WorkItem>(w =>
-                w.IsSeed &&
                 w.Title == "My Epic" &&
                 w.Type == WorkItemType.Epic &&
                 w.ParentId == null),
             Arg.Any<CancellationToken>());
 
-        // ADO create was called
-        await _adoService.Received(1).CreateAsync(
-            Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+        // Fetch was called with the returned ID
+        await _adoService.Received(1).FetchAsync(100, Arg.Any<CancellationToken>());
+
+        // Fetched item was saved (positive ID, not a seed)
+        await _workItemRepo.Received(1).SaveAsync(
+            Arg.Is<WorkItem>(w => w.Id > 0 && !w.IsSeed),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task New_SetsAreaAndIterationFromConfig()
     {
-        ArrangePublishSuccess();
+        ArrangeCreateSuccess();
         Console.SetOut(new StringWriter());
 
         await _cmd.ExecuteAsync("My Epic", "Epic");
 
-        await _workItemRepo.Received().SaveAsync(
+        await _adoService.Received(1).CreateAsync(
             Arg.Is<WorkItem>(w =>
                 w.AreaPath.Value == "TestProject\\Area1" &&
                 w.IterationPath.Value == "TestProject\\Sprint 1"),
@@ -137,12 +121,12 @@ public class NewCommandTests : IDisposable
     [Fact]
     public async Task New_ExplicitArea_OverridesConfig()
     {
-        ArrangePublishSuccess();
+        ArrangeCreateSuccess();
         Console.SetOut(new StringWriter());
 
         await _cmd.ExecuteAsync("My Epic", "Epic", area: "Custom\\Path");
 
-        await _workItemRepo.Received().SaveAsync(
+        await _adoService.Received(1).CreateAsync(
             Arg.Is<WorkItem>(w => w.AreaPath.Value == "Custom\\Path"),
             Arg.Any<CancellationToken>());
     }
@@ -150,12 +134,12 @@ public class NewCommandTests : IDisposable
     [Fact]
     public async Task New_ExplicitIteration_OverridesConfig()
     {
-        ArrangePublishSuccess();
+        ArrangeCreateSuccess();
         Console.SetOut(new StringWriter());
 
         await _cmd.ExecuteAsync("My Epic", "Epic", iteration: "Custom\\Sprint 5");
 
-        await _workItemRepo.Received().SaveAsync(
+        await _adoService.Received(1).CreateAsync(
             Arg.Is<WorkItem>(w => w.IterationPath.Value == "Custom\\Sprint 5"),
             Arg.Any<CancellationToken>());
     }
@@ -163,12 +147,12 @@ public class NewCommandTests : IDisposable
     [Fact]
     public async Task New_AutoAssignsToConfiguredUser()
     {
-        ArrangePublishSuccess();
+        ArrangeCreateSuccess();
         Console.SetOut(new StringWriter());
 
         await _cmd.ExecuteAsync("My Epic", "Epic");
 
-        await _workItemRepo.Received().SaveAsync(
+        await _adoService.Received(1).CreateAsync(
             Arg.Is<WorkItem>(w => w.AssignedTo == "Test User"),
             Arg.Any<CancellationToken>());
     }
@@ -176,7 +160,7 @@ public class NewCommandTests : IDisposable
     [Fact]
     public async Task New_OutputsCreatedIdAndTitle()
     {
-        ArrangePublishSuccess(newId: 42, title: "My Epic");
+        ArrangeCreateSuccess(newId: 42, title: "My Epic");
         var writer = new StringWriter();
         Console.SetOut(writer);
 
@@ -193,7 +177,7 @@ public class NewCommandTests : IDisposable
     [Fact]
     public async Task New_WithSetFlag_SetsActiveContext()
     {
-        ArrangePublishSuccess(newId: 42);
+        ArrangeCreateSuccess(newId: 42);
         Console.SetOut(new StringWriter());
 
         await _cmd.ExecuteAsync("My Epic", "Epic", set: true);
@@ -204,7 +188,7 @@ public class NewCommandTests : IDisposable
     [Fact]
     public async Task New_WithoutSetFlag_DoesNotSetContext()
     {
-        ArrangePublishSuccess(newId: 42);
+        ArrangeCreateSuccess(newId: 42);
         Console.SetOut(new StringWriter());
 
         await _cmd.ExecuteAsync("My Epic", "Epic", set: false);
@@ -219,12 +203,12 @@ public class NewCommandTests : IDisposable
     [Fact]
     public async Task New_WithDescription_SetsDescriptionField()
     {
-        ArrangePublishSuccess();
+        ArrangeCreateSuccess();
         Console.SetOut(new StringWriter());
 
         await _cmd.ExecuteAsync("My Epic", "Epic", description: "This is a test description");
 
-        await _workItemRepo.Received().SaveAsync(
+        await _adoService.Received(1).CreateAsync(
             Arg.Is<WorkItem>(w => w.Fields.ContainsKey("System.Description")
                 && w.Fields["System.Description"] == "This is a test description"),
             Arg.Any<CancellationToken>());
@@ -248,13 +232,13 @@ public class NewCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task New_InvalidType_Returns1()
+    public async Task New_EmptyType_Returns1()
     {
         var errWriter = new StringWriter();
         Console.SetError(errWriter);
         Console.SetOut(new StringWriter());
 
-        var result = await _cmd.ExecuteAsync("My Item", "BogusType");
+        var result = await _cmd.ExecuteAsync("My Item", "");
 
         result.ShouldBe(1);
     }
@@ -274,22 +258,17 @@ public class NewCommandTests : IDisposable
             Defaults = new DefaultsConfig(), // no area/iteration defaults
         };
 
-        var backlogOrderer = new BacklogOrderer(_adoService, _fieldDefStore);
-        var orchestrator = new SeedPublishOrchestrator(
-            _workItemRepo, _adoService, _seedLinkRepo, _publishIdMapRepo,
-            _rulesProvider, _unitOfWork, backlogOrderer);
-
         var cmd = new NewCommand(
-            orchestrator, _workItemRepo, _contextStore,
+            _adoService, _workItemRepo, _contextStore,
             _fieldDefStore, _editorLauncher, _formatterFactory,
             _hintEngine, configNoDefaults);
 
-        ArrangePublishSuccess();
+        ArrangeCreateSuccess();
         Console.SetOut(new StringWriter());
 
         await cmd.ExecuteAsync("My Epic", "Epic");
 
-        await _workItemRepo.Received().SaveAsync(
+        await _adoService.Received(1).CreateAsync(
             Arg.Is<WorkItem>(w =>
                 w.AreaPath.Value == "MyProject" &&
                 w.IterationPath.Value == "MyProject"),
@@ -297,15 +276,14 @@ public class NewCommandTests : IDisposable
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  Publish failure — cleanup
+    //  Create failure — no cleanup needed
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task New_PublishFailure_CleansUpSeedAndReturns1()
+    public async Task New_CreateFailure_Returns1()
     {
-        // Seed is saved, but publish fails (seed not found in mock — orchestrator returns error)
-        _workItemRepo.GetByIdAsync(Arg.Is<int>(id => id < 0), Arg.Any<CancellationToken>())
-            .Returns((WorkItem?)null);
+        _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("Service unavailable"));
 
         var errWriter = new StringWriter();
         Console.SetError(errWriter);
@@ -314,39 +292,52 @@ public class NewCommandTests : IDisposable
         var result = await _cmd.ExecuteAsync("Fail Epic", "Epic");
 
         result.ShouldBe(1);
+        errWriter.ToString().ShouldContain("Create failed");
 
-        // Transient seed should be cleaned up
-        await _workItemRepo.Received(1).DeleteByIdAsync(
-            Arg.Is<int>(id => id < 0), Arg.Any<CancellationToken>());
+        // No seed cleanup — nothing was saved
+        await _workItemRepo.DidNotReceive().DeleteByIdAsync(
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
 
-        errWriter.ToString().ShouldContain("Publish failed");
+    [Fact]
+    public async Task New_FetchFailureAfterCreate_ReturnsErrorWithAdoId()
+    {
+        _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>())
+            .Returns(42);
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("Fetch failed"));
+
+        var errWriter = new StringWriter();
+        Console.SetError(errWriter);
+        Console.SetOut(new StringWriter());
+
+        var result = await _cmd.ExecuteAsync("My Epic", "Epic");
+
+        result.ShouldBe(1);
+        errWriter.ToString().ShouldContain("42");
+        errWriter.ToString().ShouldContain("twig refresh");
+    }
+
+    [Fact]
+    public async Task New_DoesNotSaveSeedBeforeCreate_AndFetchedItemSaved()
+    {
+        ArrangeCreateSuccess(newId: 55);
+        Console.SetOut(new StringWriter());
+
+        await _cmd.ExecuteAsync("My Epic", "Epic");
+
+        // SaveAsync called exactly once — with the fetched item (positive ID, not a seed)
+        await _workItemRepo.Received(1).SaveAsync(
+            Arg.Is<WorkItem>(w => w.Id > 0 && !w.IsSeed),
+            Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════
     //  Helpers
     // ═══════════════════════════════════════════════════════════════
 
-    private void ArrangePublishSuccess(int newId = 100, string title = "My Epic")
+    private void ArrangeCreateSuccess(int newId = 100, string title = "My Epic")
     {
-        // When orchestrator.PublishAsync is called, the orchestrator internally:
-        // 1. Loads the seed by ID from the repo
-        // 2. Creates it in ADO → returns newId
-        // 3. Fetches it back
-        // 4. Transactionally replaces the local record
-        // We mock the underlying services accordingly.
-
-        _workItemRepo.GetByIdAsync(Arg.Is<int>(id => id < 0), Arg.Any<CancellationToken>())
-            .Returns(callInfo =>
-            {
-                var seedId = callInfo.ArgAt<int>(0);
-                return new WorkItemBuilder(seedId, title)
-                    .AsEpic()
-                    .AsSeed()
-                    .WithAreaPath("TestProject\\Area1")
-                    .WithIterationPath("TestProject\\Sprint 1")
-                    .Build();
-            });
-
         _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>())
             .Returns(newId);
 
@@ -356,8 +347,5 @@ public class NewCommandTests : IDisposable
                 .WithAreaPath("TestProject\\Area1")
                 .WithIterationPath("TestProject\\Sprint 1")
                 .Build());
-
-        _seedLinkRepo.GetLinksForItemAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(new List<SeedLink>());
     }
 }

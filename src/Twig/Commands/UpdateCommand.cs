@@ -54,20 +54,12 @@ public sealed class UpdateCommand(
         if (conflictOutcome is ConflictOutcome.AcceptedRemote or ConflictOutcome.Aborted)
             return 0;
 
-        string effectiveValue;
-        if (format is null)
-        {
-            effectiveValue = value;
-        }
-        else if (string.Equals(format, "markdown", StringComparison.OrdinalIgnoreCase))
-        {
-            effectiveValue = MarkdownConverter.ToHtml(value);
-        }
-        else
+        if (format is not null && !string.Equals(format, "markdown", StringComparison.OrdinalIgnoreCase))
         {
             _stderr.WriteLine(fmt.FormatError($"Unknown format '{format}'. Supported formats: markdown"));
             return 2;
         }
+        var effectiveValue = format is null ? value : MarkdownConverter.ToHtml(value);
 
         var changes = new[] { new FieldChange(field, null, effectiveValue) };
         var newRevision = await adoService.PatchAsync(local.Id, changes, remote.Revision);

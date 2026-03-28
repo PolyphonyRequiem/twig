@@ -40,17 +40,19 @@ public class UpdateCommandTests
             _consoleInput, formatterFactory, stderr: stderr, stdout: stdout);
     }
 
+    private void SetupSuccessfulPatch()
+    {
+        var local = CreateWorkItem(1, "Test");
+        SetupActiveItem(local);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(1, "Test"));
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>()).Returns(Array.Empty<PendingChangeRecord>());
+    }
+
     [Fact]
     public async Task Update_PullApplyPush()
     {
-        var local = CreateWorkItem(1, "Test");
-        var remote = CreateWorkItem(1, "Test");
-        SetupActiveItem(local);
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
-        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(2);
-        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<PendingChangeRecord>());
+        SetupSuccessfulPatch();
 
         var result = await _cmd.ExecuteAsync("System.Title", "Updated Title");
 
@@ -107,12 +109,7 @@ public class UpdateCommandTests
     [Fact]
     public async Task Update_AutoPushesNotes()
     {
-        var local = CreateWorkItem(1, "Test");
-        var remote = CreateWorkItem(1, "Test");
-        SetupActiveItem(local);
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
-        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(2);
+        SetupSuccessfulPatch();
 
         var pendingNote = new PendingChangeRecord(1, "note", null, null, "My note");
         _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
@@ -137,14 +134,7 @@ public class UpdateCommandTests
     [Fact]
     public async Task Update_FormatMarkdown_ConvertsToHtml()
     {
-        var local = CreateWorkItem(1, "Test");
-        var remote = CreateWorkItem(1, "Test");
-        SetupActiveItem(local);
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
-        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(2);
-        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<PendingChangeRecord>());
+        SetupSuccessfulPatch();
 
         var result = await _cmd.ExecuteAsync("System.Description", "# Heading", format: "markdown");
 
@@ -160,14 +150,7 @@ public class UpdateCommandTests
     [Fact]
     public async Task Update_FormatMarkdown_CaseInsensitive()
     {
-        var local = CreateWorkItem(1, "Test");
-        var remote = CreateWorkItem(1, "Test");
-        SetupActiveItem(local);
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
-        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(2);
-        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<PendingChangeRecord>());
+        SetupSuccessfulPatch();
 
         var result = await _cmd.ExecuteAsync("System.Description", "**bold**", format: "Markdown");
 
@@ -181,14 +164,7 @@ public class UpdateCommandTests
     [Fact]
     public async Task Update_FormatNull_SendsValueAsIs()
     {
-        var local = CreateWorkItem(1, "Test");
-        var remote = CreateWorkItem(1, "Test");
-        SetupActiveItem(local);
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
-        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(2);
-        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<PendingChangeRecord>());
+        SetupSuccessfulPatch();
 
         var result = await _cmd.ExecuteAsync("System.Description", "# Raw markdown");
 
@@ -202,10 +178,7 @@ public class UpdateCommandTests
     [Fact]
     public async Task Update_FormatUnknown_ReturnsExitCode2()
     {
-        var local = CreateWorkItem(1, "Test");
-        var remote = CreateWorkItem(1, "Test");
-        SetupActiveItem(local);
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
+        SetupSuccessfulPatch();
 
         var stderr = new StringWriter();
         var cmd = CreateCommand(stderr: stderr);
@@ -218,44 +191,16 @@ public class UpdateCommandTests
             Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
-    [Fact]
-    public async Task Update_FormatMarkdown_SuccessMessageShowsOriginalValue()
+    [Theory]
+    [InlineData("human")]
+    [InlineData("json")]
+    public async Task Update_FormatMarkdown_SuccessMessageShowsOriginalValue(string outputFormat)
     {
-        var local = CreateWorkItem(1, "Test");
-        var remote = CreateWorkItem(1, "Test");
-        SetupActiveItem(local);
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
-        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(2);
-        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<PendingChangeRecord>());
-
+        SetupSuccessfulPatch();
         var stdout = new StringWriter();
         var cmd = CreateCommand(stdout: stdout);
-        await cmd.ExecuteAsync("System.Description", "# Heading", format: "markdown");
-
-        var output = stdout.ToString();
-        output.ShouldContain("# Heading");
-        output.ShouldNotContain("<h1>");
-    }
-
-    [Fact]
-    public async Task Update_FormatMarkdown_JsonOutput_SuccessMessageShowsOriginalValue()
-    {
-        var local = CreateWorkItem(1, "Test");
-        var remote = CreateWorkItem(1, "Test");
-        SetupActiveItem(local);
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
-        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(2);
-        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<PendingChangeRecord>());
-
-        var stdout = new StringWriter();
-        var cmd = CreateCommand(stdout: stdout);
-        var result = await cmd.ExecuteAsync("System.Description", "# Heading", outputFormat: "json", format: "markdown");
+        var result = await cmd.ExecuteAsync("System.Description", "# Heading", outputFormat: outputFormat, format: "markdown");
         result.ShouldBe(0);
-
         var output = stdout.ToString();
         output.ShouldContain("# Heading");
         output.ShouldNotContain("<h1");

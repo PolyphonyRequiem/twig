@@ -39,10 +39,8 @@ public sealed class UpdateCommand(
             return 1;
         }
 
-        // Pull latest from ADO
         var remote = await adoService.FetchAsync(local.Id);
 
-        // FM-006: Conflict resolution with l/r/a prompt
         var conflictOutcome = await ConflictResolutionFlow.ResolveAsync(
             local, remote, fmt, outputFormat, consoleInput, workItemRepo,
             $"#{local.Id} updated from remote.");
@@ -51,7 +49,6 @@ public sealed class UpdateCommand(
         if (conflictOutcome is ConflictOutcome.AcceptedRemote or ConflictOutcome.Aborted)
             return 0;
 
-        // Validate and convert format
         string effectiveValue;
         if (format is null)
         {
@@ -67,14 +64,11 @@ public sealed class UpdateCommand(
             return 2;
         }
 
-        // Apply the update
         var changes = new[] { new FieldChange(field, null, effectiveValue) };
         var newRevision = await adoService.PatchAsync(local.Id, changes, remote.Revision);
 
-        // Auto-push pending notes (preserve field changes)
         await AutoPushNotesHelper.PushAndClearAsync(local.Id, pendingChangeStore, adoService);
 
-        // Refresh cache with the latest from ADO
         var updated = await adoService.FetchAsync(local.Id);
         await workItemRepo.SaveAsync(updated);
 

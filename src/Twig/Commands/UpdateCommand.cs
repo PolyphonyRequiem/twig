@@ -2,6 +2,7 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
+using Twig.Infrastructure.Content;
 
 namespace Twig.Commands;
 
@@ -19,7 +20,7 @@ public sealed class UpdateCommand(
     IPromptStateWriter? promptStateWriter = null)
 {
     /// <summary>Update a field on the active work item and push to ADO.</summary>
-    public async Task<int> ExecuteAsync(string field, string value, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    public async Task<int> ExecuteAsync(string field, string value, string outputFormat = OutputFormatterFactory.DefaultFormat, string? format = null, CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
@@ -50,8 +51,24 @@ public sealed class UpdateCommand(
         if (conflictOutcome is ConflictOutcome.AcceptedRemote or ConflictOutcome.Aborted)
             return 0;
 
+        // Validate and convert format
+        string effectiveValue;
+        if (format is null)
+        {
+            effectiveValue = value;
+        }
+        else if (string.Equals(format, "markdown", StringComparison.OrdinalIgnoreCase))
+        {
+            effectiveValue = MarkdownConverter.ToHtml(value);
+        }
+        else
+        {
+            Console.Error.WriteLine(fmt.FormatError($"Unknown format '{format}'. Supported formats: markdown"));
+            return 2;
+        }
+
         // Apply the update
-        var changes = new[] { new FieldChange(field, null, value) };
+        var changes = new[] { new FieldChange(field, null, effectiveValue) };
         var newRevision = await adoService.PatchAsync(local.Id, changes, remote.Revision);
 
         // Auto-push pending notes (preserve field changes)

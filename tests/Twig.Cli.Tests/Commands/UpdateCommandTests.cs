@@ -133,6 +133,114 @@ public class UpdateCommandTests
         result.ShouldBe(1);
     }
 
+    [Fact]
+    public async Task Update_FormatMarkdown_ConvertsToHtml()
+    {
+        var local = CreateWorkItem(1, "Test");
+        var remote = CreateWorkItem(1, "Test");
+        SetupActiveItem(local);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+
+        var result = await _cmd.ExecuteAsync("System.Description", "# Heading", format: "markdown");
+
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(1,
+            Arg.Is<IReadOnlyList<FieldChange>>(c =>
+                c.Count == 1 &&
+                c[0].FieldName == "System.Description" &&
+                c[0].NewValue!.Contains("<h1")),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Update_FormatMarkdown_CaseInsensitive()
+    {
+        var local = CreateWorkItem(1, "Test");
+        var remote = CreateWorkItem(1, "Test");
+        SetupActiveItem(local);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+
+        var result = await _cmd.ExecuteAsync("System.Description", "**bold**", format: "Markdown");
+
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(1,
+            Arg.Is<IReadOnlyList<FieldChange>>(c =>
+                c[0].NewValue!.Contains("<strong>bold</strong>")),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Update_FormatNull_SendsValueAsIs()
+    {
+        var local = CreateWorkItem(1, "Test");
+        var remote = CreateWorkItem(1, "Test");
+        SetupActiveItem(local);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+
+        var result = await _cmd.ExecuteAsync("System.Description", "# Raw markdown");
+
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(1,
+            Arg.Is<IReadOnlyList<FieldChange>>(c =>
+                c[0].NewValue == "# Raw markdown"),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Update_FormatUnknown_ReturnsExitCode2()
+    {
+        var local = CreateWorkItem(1, "Test");
+        var remote = CreateWorkItem(1, "Test");
+        SetupActiveItem(local);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
+
+        var result = await _cmd.ExecuteAsync("System.Description", "value", format: "html");
+
+        result.ShouldBe(2);
+        await _adoService.DidNotReceive().PatchAsync(
+            Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Update_FormatMarkdown_SuccessMessageShowsOriginalValue()
+    {
+        var local = CreateWorkItem(1, "Test");
+        var remote = CreateWorkItem(1, "Test");
+        SetupActiveItem(local);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+
+        var stdout = new StringWriter();
+        Console.SetOut(stdout);
+        try
+        {
+            await _cmd.ExecuteAsync("System.Description", "# Heading", format: "markdown");
+        }
+        finally
+        {
+            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+        }
+
+        var output = stdout.ToString();
+        output.ShouldContain("# Heading");
+        output.ShouldNotContain("<h1>");
+    }
+
     private void SetupActiveItem(WorkItem item)
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(item.Id);

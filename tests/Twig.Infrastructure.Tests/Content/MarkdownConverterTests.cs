@@ -81,27 +81,12 @@ public sealed class MarkdownConverterTests
         StringAssert.Contains(result, "checked");
     }
 
-    [TestMethod]
-    public void ToHtml_NullInput_ReturnsEmpty()
+    [DataTestMethod]
+    [DataRow(null)]
+    [DataRow("")]
+    [DataRow("   ")]
+    public void ToHtml_EmptyLikeInput_ReturnsEmpty(string? input)
     {
-        var result = MarkdownConverter.ToHtml(null);
-
-        Assert.AreEqual(string.Empty, result);
-    }
-
-    [TestMethod]
-    public void ToHtml_EmptyInput_ReturnsEmpty()
-    {
-        var result = MarkdownConverter.ToHtml("");
-
-        Assert.AreEqual(string.Empty, result);
-    }
-
-    [TestMethod]
-    public void ToHtml_WhitespaceOnly_ReturnsEmpty()
-    {
-        var result = MarkdownConverter.ToHtml("   ");
-
-        Assert.AreEqual(string.Empty, result);
+        Assert.AreEqual(string.Empty, MarkdownConverter.ToHtml(input));
     }
 }

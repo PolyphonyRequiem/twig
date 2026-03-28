@@ -82,3 +82,47 @@ When committing code that implements plan work:
 - After committing, transition the ADO item: `twig set <id>` then `twig state Done`
 - When all epics complete, also transition the plan-level Epic to Done
 - If no mapping exists for the current work, commit normally without AB# reference
+
+## Work Item Lifecycle Protocol
+
+**This protocol is mandatory for ALL agents when work is tracked in ADO work items.**
+It applies whenever you create, start, or complete tasks, issues, or epics via the twig CLI.
+
+### Starting a task
+
+Before writing any code for a tracked task:
+1. `twig set <id>` — set the active work item
+2. `twig state Doing` — transition to Doing
+3. `twig note --text "Starting: <brief plan of approach>"` — record intent
+
+### During implementation
+
+Add a `twig note` at each meaningful checkpoint — not just at completion:
+- **After research/discovery** — what files are involved, what the approach is
+- **After each significant code change** — what was done, what remains
+- **After tests pass** — test count, coverage, edge cases deferred
+- **On encountering surprises** — blockers, design changes, scope adjustments
+
+### Completing a task
+
+When a task's work is verified (code works, tests pass), execute in this exact order:
+1. `twig note --text "Done: <summary of changes>"` — final note
+2. `twig state Done` — **this is the completion event, not the todo checkbox**
+3. Mark the corresponding todo as completed — this comes AFTER the state transition
+4. Then proceed to the next task
+
+**Never mark a todo completed without first running `twig state Done` on the corresponding work item.**
+
+### After the final commit
+
+After all tasks are complete and committed:
+1. `git push`
+2. Transition the parent issue: `twig set <parent-id>` → `twig state Done`
+3. Then summarize — output should come last, not before operational close-out
+
+### Why this ordering matters
+
+The ADO state transition is the source of truth, not the todo list. If you mark a todo
+"completed" without transitioning the work item, the board becomes stale and the user
+has to clean up. Notes during implementation create an auditable trail. Summaries written
+before `git push` and state transitions create a false sense of completion.

@@ -11,7 +11,7 @@ Use `twig` commands in the terminal to manage Azure DevOps work items. This skil
 
 1. **Always fill descriptions** — When creating work items, write a meaningful description. Use `twig update System.Description "<text>"` after creation since `seed new` only accepts title and type.
 2. **Always assign to the user** — After creating and publishing, assign with `twig update System.AssignedTo "Daniel Green"`. Every work item must have an owner.
-3. **Always use `--output json`** — When Copilot runs twig commands, always append `--output json` for machine-readable output. Human-formatted tables are for the user's terminal, not for programmatic parsing.
+3. **Always use `--output json`** — When Copilot runs twig commands, **always** append `--output json` for machine-readable output. This applies to every command that supports `--output`: `set`, `status`, `tree`, `workspace`, `seed new`, `seed publish`, `refresh`, `new`, etc. Parse the JSON output programmatically rather than string-matching human-formatted text. Human-formatted output is for the user's terminal only.
 4. **Set context before operating** — Most commands operate on the "active" work item. Use `twig set <id>` to set it.
 5. **Publish seeds promptly** — Seeds are local-only until published. Always `twig seed publish --all` after creating seeds.
 6. **Refresh before querying** — If data seems stale, run `twig refresh` to sync from ADO.

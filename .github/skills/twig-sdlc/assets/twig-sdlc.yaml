@@ -426,20 +426,38 @@ agents:
       Create the ADO work tree from the implementation plan.
       **Parent:** #{{ intake.output.epic_id }} — {{ intake.output.epic_title }}
       **Plan:** Read `{{ architect.output.plan_path }}` to get the epic/task structure
-      ## Steps
+      ## Duplicate Guard (MANDATORY first step)
+      Before creating ANY items, inventory what already exists:
+      1. `twig set {{ intake.output.epic_id }} --output json`
+      2. `twig tree --output json` to list existing children (Issues)
+      3. For each existing Issue, drill in: `twig set <id>; twig tree --output json`
+         to discover its child Tasks.
+      4. Now compare each **planned** item against the existing inventory.
+         Use YOUR judgment about **functional similarity** — not just exact title
+         matching. Two items are duplicates if they cover the same deliverable,
+         even when worded differently. Examples:
+         - "Add Markdig NuGet package" ≈ "Add Markdig to central package management"
+         - "Wire format through Program.cs" ≈ "Wire --format flag in CLI entrypoint"
+         - "Unit tests for converter" ≈ "MarkdownConverter test coverage"
+         A title that is a subset, restatement, or synonym of an existing item is
+         a duplicate. When in doubt, **reuse** rather than create.
+      5. For each match: **reuse** the existing item — record its ID, skip creation.
+      6. Only create items that have NO functional match in the existing tree.
+      ## Steps (create only missing items)
       1. Read the plan file to extract all Epics and their Tasks
       2. Set context to the parent: `twig set {{ intake.output.epic_id }} --output json`
-      3. For each plan Epic (PR group):
+      3. For each plan Epic (PR group) that needs a NEW Issue:
          a. Create an Issue: `twig seed new --title "<epic title>" --type Issue --output json`
-      4. Publish all Issues: `twig seed publish --all --output json`
+      4. Publish new Issues: `twig seed publish --all --output json`
       5. Wait and refresh: `Start-Sleep -Seconds 3; twig refresh`
-      6. For each published Issue, set context and add description + assignment
-      7. For each Issue, create its Tasks:
+      6. For each Issue (new or reused), set context and add description + assignment
+      7. For each Issue, create only MISSING Tasks:
          a. `twig set <issue_id> --output json`
          b. Use `twig seed chain` for linked tasks if multiple
          c. `twig seed publish --all --output json`
          d. Wait, refresh, then update each Task with description + assignment
       Record the full work tree structure: PR groups → Issues → Tasks with all IDs.
+      Include both reused and newly-created items in the output.
       **CRITICAL:** Use successor links (twig seed chain) within each Issue's tasks
       to enforce execution order. Tasks within an Issue execute sequentially.
       ## PR Group Mapping
@@ -528,9 +546,18 @@ agents:
       {{ issue_reviewer.output.feedback }}
       Create a fix task for this issue and set action=implement_task.
       {% endif %}
+      ## Task Verification (MANDATORY before every decision)
+      Do NOT rely solely on completed_tasks from your prior output. Before choosing
+      the next action, always verify the ground truth:
+      1. `twig set <current_issue_id> --output json` then `twig tree --output json`
+      2. Check the state of every child Task — any Task not in state "Done" still
+         needs work.
+      3. Update your completed_tasks list from twig's actual state.
+      This prevents skipping tasks whose IDs may have shifted between workflow runs.
       ## Decision Logic
-      1. If there are more tasks in the current issue → start next task, set action=implement_task
-      2. If the current issue's tasks are all done AND issue_reviewer has NOT yet reviewed:
+      1. If the current issue has Tasks NOT in state "Done" → pick the next undone
+         task (by successor order), start it, set action=implement_task
+      2. If ALL tasks in the current issue are Done AND issue_reviewer has NOT yet reviewed:
          → set action=issue_review (sends to reducer_issue then issue_reviewer)
       3. If issue_reviewer approved AND no user_acceptance pending:
          a. Check if this issue has user-facing changes or complex acceptance criteria

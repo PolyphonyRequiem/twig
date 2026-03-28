@@ -1,0 +1,1162 @@
+# twig-sdlc — End-to-End SDLC Conductor Workflow
+#
+# 5-phase workflow for implementing features in the twig codebase:
+#   Phase 1: Intake — read existing work item or create from prompt
+#   Phase 2: Planning — architect → reducer → parallel review → approval gate
+#   Phase 3: Work Tree Seeding — create ADO Issues/Tasks via twig CLI
+#   Phase 4: Implementation — per-task coder/reducer/reviewer loop with PR lifecycle
+#   Phase 5: Close-out — holistic reduction, meta-observations
+#
+# Agents: 18 agents + 3 human gates + 1 parallel group
+# Models: Opus 1M for deep reasoning (architect, coder, pr_reviewer, close_out)
+#         Sonnet for focused tasks (everything else)
+#
+# Usage:
+#   conductor --silent run twig-sdlc.yaml --input work_item_id=1273 --web-bg
+#   conductor --silent run twig-sdlc.yaml --input prompt="Add a twig export command" --web-bg
+#   conductor --silent run twig-sdlc.yaml --input work_item_id=1273 --input skip_plan_review=true --web-bg
+
+workflow:
+  name: twig-sdlc
+  description: End-to-end SDLC workflow — intake through planning, implementation, PR lifecycle, and close-out
+  version: "1.0.0"
+  entry_point: intake
+
+  runtime:
+    provider: copilot
+    mcp_servers:
+      web-search:
+        command: npx
+        args: ["-y", "open-websearch@latest"]
+        env:
+          MODE: stdio
+          DEFAULT_SEARCH_ENGINE: duckduckgo
+          ALLOWED_SEARCH_ENGINES: duckduckgo,brave,exa
+        tools: ["*"]
+      context7:
+        command: npx
+        args: ["-y", "@upstash/context7-mcp@latest"]
+        tools: ["*"]
+      ms-learn:
+        type: http
+        url: https://learn.microsoft.com/api/mcp
+        tools: ["*"]
+
+  input:
+    work_item_id:
+      type: number
+      required: false
+      description: ADO work item ID (Epic or Issue) to implement. Mutually exclusive with prompt.
+    prompt:
+      type: string
+      required: false
+      description: Natural language description of what to build. Creates a new Epic if no work_item_id.
+    skip_plan_review:
+      type: boolean
+      required: false
+      default: false
+      description: Skip the human plan approval gate.
+
+  context:
+    mode: explicit
+
+  limits:
+    max_iterations: 200
+
+# =============================================================================
+# AGENTS
+# =============================================================================
+agents:
+
+  # ---------------------------------------------------------------------------
+  # PHASE 1: INTAKE
+  # ---------------------------------------------------------------------------
+  - name: intake
+    description: Reads an existing ADO work item or creates one from a prompt
+    model: claude-sonnet-4.6
+    input:
+      - workflow.input.work_item_id?
+      - workflow.input.prompt?
+    system_prompt: |
+      You are an Intake agent for the twig SDLC workflow. You gather context about
+      the work to be done by reading ADO work items via the twig CLI.
+
+      twig CLI rules:
+      - Always append --output json to twig commands
+      - Use twig set <id> to set context, twig status to read details
+      - Use twig tree to see child items
+    prompt: |
+      Gather context for the SDLC workflow.
+
+      {% if workflow.input.work_item_id %}
+      **Existing work item:** #{{ workflow.input.work_item_id }}
+
+      1. Run: `twig set {{ workflow.input.work_item_id }} --output json`
+      2. Run: `twig status --output json` to get full details
+      3. Run: `twig tree --output json` to see any existing child items
+      4. Read the work item's description, acceptance criteria, and any linked items
+      5. Check the item's type (Epic or Issue) and current state
+
+      If the item already has child Issues with descriptions, include them in existing_issues.
+      {% endif %}
+
+      {% if workflow.input.prompt %}
+      **New work request:** {{ workflow.input.prompt }}
+
+      1. Create a new Epic via twig:
+         - `twig set 1 --output json` (set to the root Epic)
+         - `twig seed new --title "<derived title>" --type Epic --output json`
+         - `twig seed publish --all --output json`
+      2. Wait 3 seconds, refresh, then set context to the new item
+      3. Assign and describe it:
+         - `twig update System.AssignedTo "Daniel Green"`
+         - `twig update System.Description "<derived description>"`
+      {% endif %}
+
+      Output the work item details for the planning phase.
+    output:
+      epic_id:
+        type: number
+        description: The ADO Epic or Issue ID to implement
+      epic_title:
+        type: string
+        description: Title of the work item
+      epic_description:
+        type: string
+        description: Full description and acceptance criteria
+      existing_issues:
+        type: array
+        description: Any existing child Issues (id, title, description) — empty if none
+      item_type:
+        type: string
+        description: Work item type (Epic or Issue)
+    routes:
+      - to: architect
+
+  # ---------------------------------------------------------------------------
+  # PHASE 2: PLANNING
+  # ---------------------------------------------------------------------------
+  - name: architect
+    description: Researches the codebase and creates a solution design with implementation plan
+    model: claude-opus-4.6-1m
+    max_agent_iterations: 100
+    input:
+      - intake.output
+      - workflow.input.prompt?
+      - architect.output?
+      - review_router.output?
+      - plan_approval.output?
+      - open_questions_gate.output?
+    system_prompt: |
+      You are a Principal Software Architect working on the twig CLI — an AOT-compiled
+      .NET 10 CLI for Azure DevOps work-item triage using Spectre.Console.
+
+      Key constraints: PublishAot=true, TrimMode=full, InvariantGlobalization=true,
+      JsonSerializerIsReflectionEnabledByDefault=false (use TwigJsonContext),
+      ConsoleAppFramework (source-gen), SQLite with WAL, TreatWarningsAsErrors=true.
+
+      You create implementation plans that are grounded in the actual codebase.
+      Your plans identify PR groupings (≤2000 LoC, ≤50 files each), classify them
+      as deep (few files, complex changes) or wide (many files, mechanical changes),
+      and break work into Issues and Tasks.
+    prompt: |
+      Create a solution design and implementation plan.
+
+      **Work Item:** #{{ intake.output.epic_id }} — {{ intake.output.epic_title }}
+      **Type:** {{ intake.output.item_type }}
+      **Description:** {{ intake.output.epic_description }}
+
+      {% if intake.output.existing_issues | length > 0 %}
+      **Existing Issues:**
+      {% for issue in intake.output.existing_issues %}
+      - #{{ issue.id }}: {{ issue.title }} — {{ issue.description }}
+      {% endfor %}
+      {% endif %}
+
+      {% if review_router is defined and review_router.output and not review_router.output.both_pass %}
+      **Review Feedback (tech={{ review_router.output.tech_score }}, read={{ review_router.output.read_score }}):**
+      {{ review_router.output.combined_feedback }}
+
+      Revise the existing plan at `{{ architect.output.plan_path }}` to address this feedback.
+      {% endif %}
+
+      {% if plan_approval is defined and plan_approval.output and plan_approval.output.selected == 'revise' %}
+      **User Revision Request:**
+      {{ plan_approval.output.feedback }}
+
+      Revise the existing plan at `{{ architect.output.plan_path }}` to address user feedback.
+      {% endif %}
+
+      {% if open_questions_gate is defined and open_questions_gate.output and open_questions_gate.output.selected == 'provide_input' %}
+      **User Input on Open Questions:**
+      {{ open_questions_gate.output.feedback }}
+
+      Incorporate user answers into the design. Resolve addressed questions, update
+      affected decisions, and re-evaluate remaining open questions.
+      {% endif %}
+
+      ## Instructions
+
+      1. **Research the codebase** — explore relevant files, understand patterns and conventions
+      2. **Write a .plan.md document** with:
+         - Executive summary
+         - Background and current architecture
+         - Design decisions with trade-offs
+         - Implementation plan with Epics containing Tasks
+         - Each Epic maps to a PR group (≤2000 LoC, ≤50 files)
+         - Classify each Epic as deep or wide
+         - Tasks include file paths, change descriptions, and effort estimates
+         - Acceptance criteria per Epic
+         - Risk assessment
+      3. **Save the plan** to `docs/projects/<slug>.plan.md`
+
+      Use successor links between Epics to define execution order.
+      {% if workflow.input.prompt %}
+      Derive the plan topic from: {{ workflow.input.prompt }}
+      {% endif %}
+
+      ## Open Questions Evaluation
+
+      After writing the document, evaluate the Open Questions section:
+      - If ANY open questions are **Moderate**, **Major**, or **Critical**,
+        set `has_blocking_questions` to true and provide a formatted
+        `open_questions_summary` listing the blocking questions with severity.
+      - If all questions are Low or there are none, set `has_blocking_questions`
+        to false and `open_questions_summary` to "No blocking open questions."
+    output:
+      plan_path:
+        type: string
+        description: Path to the .plan.md file
+      plan_summary:
+        type: string
+        description: Executive summary of the plan
+      epic_count:
+        type: number
+        description: Number of implementation epics in the plan
+      total_estimated_loc:
+        type: number
+        description: Rough total lines of code across all epics
+      has_blocking_questions:
+        type: boolean
+        description: Whether there are moderate+ open questions requiring user input
+      open_questions_summary:
+        type: string
+        description: Formatted summary of blocking open questions
+    routes:
+      - to: open_questions_gate
+        when: "{{ output.has_blocking_questions }}"
+      - to: reducer_plan
+
+  - name: open_questions_gate
+    type: human_gate
+    description: Pauses when the architect identifies blocking open questions that need user input
+    input:
+      - architect.output.plan_path
+      - architect.output.open_questions_summary
+    prompt: |
+      ## Open Questions Requiring Your Input
+
+      The architect has identified open questions that may significantly impact the design.
+
+      **Plan Document:** {{ architect.output.plan_path }}
+
+      {{ architect.output.open_questions_summary }}
+    options:
+      - label: "Provide Input & Revise"
+        value: provide_input
+        route: architect
+        prompt_for: feedback
+      - label: "Proceed Without Answering"
+        value: proceed
+        route: reducer_plan
+      - label: "Abort Planning"
+        value: abort
+        route: $end
+
+  - name: reducer_plan
+    description: Reviews the plan for scope creep, over-engineering, and unnecessary complexity
+    model: claude-sonnet-4.6
+    input:
+      - architect.output
+      - intake.output
+    system_prompt: !file ../../../prompts/reducer.md
+    prompt: |
+      Review the implementation plan for unnecessary complexity.
+
+      **Plan:** Read the file at `{{ architect.output.plan_path }}`
+      **Original request:** #{{ intake.output.epic_id }} — {{ intake.output.epic_title }}
+      **Description:** {{ intake.output.epic_description }}
+
+      Apply **plan-level reduction** principles:
+      1. Flag features not in the original requirements (scope creep)
+      2. Identify abstractions added for hypothetical future needs
+      3. Challenge config options with only one realistic value
+      4. Merge steps that can be combined
+      5. Spot polish work that exceeds the ask
+
+      If you find issues, **edit the plan file directly** to simplify it.
+      If the plan is already lean, say so and move on.
+    output:
+      findings:
+        type: array
+        description: List of reductions applied or recommended
+      plan_modified:
+        type: boolean
+        description: Whether the plan file was modified
+      reduction_summary:
+        type: string
+        description: Brief summary of what was simplified (or "no changes needed")
+    routes:
+      - to: plan_reviewers
+
+  - name: technical_reviewer
+    description: Validates technical accuracy, feasibility, and completeness of the plan
+    model: claude-opus-4.6-1m
+    max_agent_iterations: 80
+    input:
+      - architect.output
+      - intake.output
+    system_prompt: |
+      You are a Senior Technical Reviewer for a .NET 10 AOT CLI project.
+      You validate plans for technical accuracy, feasibility, and completeness.
+      You score plans 0-100 and provide specific, actionable feedback.
+    prompt: |
+      Review the implementation plan at `{{ architect.output.plan_path }}`.
+
+      **Context:** Implementing #{{ intake.output.epic_id }} — {{ intake.output.epic_title }}
+
+      ## Review Criteria
+
+      1. **Technical Accuracy** — Are file paths, API references, and patterns correct?
+      2. **Feasibility** — Can each task be implemented as described? AOT/trim constraints respected?
+      3. **Completeness** — Are all aspects of the requirement addressed? Tests included?
+      4. **Dependencies** — Are prerequisites and ordering correct?
+      5. **Risk** — Are risks identified and mitigated?
+
+      Research the actual codebase to verify claims in the plan.
+      Score the plan 0-100. Be specific about issues.
+    output:
+      score:
+        type: number
+        description: Technical review score 0-100
+      feedback:
+        type: string
+        description: Detailed technical feedback
+      critical_issues:
+        type: array
+        description: Issues that must be fixed before proceeding
+    routes:
+      - to: $end
+
+  - name: readability_reviewer
+    description: Ensures the plan is clear, well-structured, and actionable
+    model: claude-sonnet-4.6
+    input:
+      - architect.output
+    system_prompt: |
+      You are a Readability Reviewer. You evaluate documents for clarity, structure,
+      and actionability. A developer or AI agent should be able to execute the plan
+      without needing to ask questions.
+    prompt: |
+      Review the plan at `{{ architect.output.plan_path }}` for readability.
+
+      ## Review Criteria
+
+      1. **Clarity** — Is each task unambiguous? Could a developer implement it without questions?
+      2. **Structure** — Logical flow? Consistent formatting? Clear hierarchy?
+      3. **Actionability** — Specific file paths? Concrete change descriptions? Measurable criteria?
+      4. **Audience** — Written for engineers and AI agents, not managers?
+
+      Score 0-100. Flag anything ambiguous or unclear.
+    output:
+      score:
+        type: number
+        description: Readability score 0-100
+      feedback:
+        type: string
+        description: Readability feedback
+      critical_issues:
+        type: array
+        description: Ambiguities or structural problems
+    routes:
+      - to: $end
+
+  - name: review_router
+    description: Checks both reviewer scores and decides whether to loop or proceed
+    model: claude-sonnet-4.6
+    input:
+      - plan_reviewers.outputs
+      - workflow.input.skip_plan_review?
+      - architect.output
+    system_prompt: |
+      You are a routing agent. You check review scores and decide the next step.
+      You do NOT review anything yourself — just read the scores and route.
+    prompt: |
+      Check the review results:
+
+      **Technical Review:** Score {{ plan_reviewers.outputs.technical_reviewer.score }}/100
+      {{ plan_reviewers.outputs.technical_reviewer.feedback }}
+
+      **Readability Review:** Score {{ plan_reviewers.outputs.readability_reviewer.score }}/100
+      {{ plan_reviewers.outputs.readability_reviewer.feedback }}
+
+      **Plan:** {{ architect.output.epic_count }} epics, ~{{ architect.output.total_estimated_loc }} LoC
+
+      Rules:
+      - Both scores must be ≥ 90 to pass
+      - A plan is "trivial" if it has ≤2 epics and ≤200 estimated LoC
+      - skip_plan_review input: {{ workflow.input.skip_plan_review | default(false) }}
+
+      Combine both reviewers' feedback into one summary for the architect if looping back.
+    output:
+      tech_score:
+        type: number
+        description: Technical reviewer score
+      read_score:
+        type: number
+        description: Readability reviewer score
+      both_pass:
+        type: boolean
+        description: True if both scores ≥ 90
+      skip_approval:
+        type: boolean
+        description: True if plan is trivial or skip_plan_review is true
+      combined_feedback:
+        type: string
+        description: Combined feedback from both reviewers
+    routes:
+      - to: architect
+        when: "{{ not output.both_pass }}"
+      - to: work_tree_seeder
+        when: "{{ output.both_pass and output.skip_approval }}"
+      - to: plan_approval
+
+  - name: plan_approval
+    type: human_gate
+    description: Human approval gate for the implementation plan
+    input:
+      - architect.output
+      - review_router.output
+    prompt: |
+      The implementation plan is ready for review.
+
+      **Plan:** {{ architect.output.plan_path }}
+      **Summary:** {{ architect.output.plan_summary }}
+      **Epics:** {{ architect.output.epic_count }} | **Est. LoC:** {{ architect.output.total_estimated_loc }}
+      **Tech Score:** {{ review_router.output.tech_score }}/100
+      **Readability Score:** {{ review_router.output.read_score }}/100
+    options:
+      - label: "Approve — proceed to implementation"
+        value: approved
+        route: work_tree_seeder
+      - label: "Revise — send back to architect"
+        value: revise
+        route: architect
+        prompt_for: feedback
+      - label: "Reject — stop workflow"
+        value: rejected
+        route: $end
+
+  # ---------------------------------------------------------------------------
+  # PHASE 3: WORK TREE SEEDING
+  # ---------------------------------------------------------------------------
+  - name: work_tree_seeder
+    description: Creates ADO Issues and Tasks from the plan via twig CLI
+    model: claude-sonnet-4.6
+    max_agent_iterations: 80
+    input:
+      - intake.output
+      - architect.output
+    system_prompt: |
+      You are a Work Tree Seeder. You create ADO work items from implementation plans
+      using the twig CLI. You create Issues (one per plan Epic/PR group) and Tasks
+      (one per plan Task) with successor links for ordering.
+
+      twig CLI rules:
+      - Always append --output json
+      - twig set <id> to set parent context
+      - twig seed new --title "..." --type Issue/Task to create seeds
+      - twig seed chain --titles "T1" "T2" "T3" --type Task for linked task chains
+      - twig seed publish --all to publish
+      - After publish: Start-Sleep 3; twig refresh; then set+update
+      - twig update System.AssignedTo "Daniel Green"
+      - twig update System.Description "..."
+    prompt: |
+      Create the ADO work tree from the implementation plan.
+
+      **Parent:** #{{ intake.output.epic_id }} — {{ intake.output.epic_title }}
+      **Plan:** Read `{{ architect.output.plan_path }}` to get the epic/task structure
+
+      ## Steps
+
+      1. Read the plan file to extract all Epics and their Tasks
+      2. Set context to the parent: `twig set {{ intake.output.epic_id }} --output json`
+      3. For each plan Epic (PR group):
+         a. Create an Issue: `twig seed new --title "<epic title>" --type Issue --output json`
+      4. Publish all Issues: `twig seed publish --all --output json`
+      5. Wait and refresh: `Start-Sleep -Seconds 3; twig refresh`
+      6. For each published Issue, set context and add description + assignment
+      7. For each Issue, create its Tasks:
+         a. `twig set <issue_id> --output json`
+         b. Use `twig seed chain` for linked tasks if multiple
+         c. `twig seed publish --all --output json`
+         d. Wait, refresh, then update each Task with description + assignment
+
+      Record the full work tree structure: PR groups → Issues → Tasks with all IDs.
+
+      **CRITICAL:** Use successor links (twig seed chain) within each Issue's tasks
+      to enforce execution order. Tasks within an Issue execute sequentially.
+
+      ## PR Group Mapping
+
+      Each plan Epic = one PR group = one Issue in ADO. Map them 1:1.
+      Record which Issue IDs belong to which PR group for the implementation phase.
+    output:
+      work_tree:
+        type: string
+        description: JSON structure mapping PR groups to Issues to Tasks with all ADO IDs
+      pr_groups:
+        type: array
+        description: Ordered list of PR groups, each with issue_id, title, task_ids, branch_name_suggestion
+      total_tasks:
+        type: number
+        description: Total number of tasks created
+      total_issues:
+        type: number
+        description: Total number of issues created
+    routes:
+      - to: implementation_manager
+
+  # ---------------------------------------------------------------------------
+  # PHASE 4: IMPLEMENTATION
+  # ---------------------------------------------------------------------------
+  - name: implementation_manager
+    description: Central hub managing task/issue/PR lifecycle and routing
+    model: claude-sonnet-4.6
+    max_agent_iterations: 50
+    input:
+      - work_tree_seeder.output
+      - intake.output
+      - architect.output
+      - implementation_manager.output?
+      - task_reviewer.output?
+      - pr_merge.output?
+      - user_acceptance.output?
+    system_prompt: |
+      You are the Implementation Manager — the state machine that drives the
+      implementation phase. You manage work item lifecycle transitions via twig CLI
+      and route work to the appropriate agent.
+
+      twig CLI rules:
+      - Always append --output json
+      - twig set <id>, twig state Doing, twig state Done
+      - twig note --text "..." for lifecycle notes
+      - git checkout -b <branch> for new PR branches
+
+      You NEVER write code. You ONLY manage lifecycle and routing.
+    prompt: |
+      Manage the implementation lifecycle.
+
+      **Work Tree:**
+      {{ work_tree_seeder.output.work_tree }}
+
+      **PR Groups:**
+      {{ work_tree_seeder.output.pr_groups | json }}
+
+      **Plan:** {{ architect.output.plan_path }}
+
+      {% if implementation_manager is defined and implementation_manager.output %}
+      **Current State:**
+      - PR Group: {{ implementation_manager.output.current_pr_group }}
+      - Issue: {{ implementation_manager.output.current_issue_id }}
+      - Last Task: {{ implementation_manager.output.current_task_id }}
+      - Completed Tasks: {{ implementation_manager.output.completed_tasks | json }}
+      - Completed Issues: {{ implementation_manager.output.completed_issues | json }}
+      - Completed PRs: {{ implementation_manager.output.completed_prs | json }}
+      {% endif %}
+
+      {% if task_reviewer is defined and task_reviewer.output and task_reviewer.output.approved %}
+      **Task just approved by reviewer.**
+      1. Close the current task: `twig set <task_id> --output json` then `twig state Done --output json`
+      2. Add note: `twig note --text "Done: <summary from reviewer>"`
+      3. Determine next step (see below)
+      {% endif %}
+
+      {% if pr_merge is defined and pr_merge.output and pr_merge.output.merged %}
+      **PR just merged: {{ pr_merge.output.pr_url }}**
+      1. Add the PR group to completed_prs
+      2. Determine next step (see below)
+      {% endif %}
+
+      {% if user_acceptance is defined and user_acceptance.output %}
+      **User acceptance result:** {{ user_acceptance.output.selected }}
+      {% if user_acceptance.output.feedback %}
+      **Feedback:** {{ user_acceptance.output.feedback }}
+      {% endif %}
+      If accepted or skipped, close the current issue and proceed.
+      If changes requested, the feedback describes what to fix — start the next task iteration.
+      {% endif %}
+
+      ## Decision Logic
+
+      1. If there are more tasks in the current issue → start next task, set action=implement_task
+      2. If the current issue's tasks are all done AND no user_acceptance pending:
+         a. Check if this issue has user-facing changes or complex acceptance criteria
+         b. If yes and user_acceptance not yet received → set action=needs_acceptance
+         c. If user_acceptance received or not needed:
+            - Close the issue: `twig set <issue_id>` → `twig state Done` → `twig note`
+            - If more issues in current PR group → start next issue and its first task, action=implement_task
+            - If PR group done → set action=submit_pr
+      3. If a PR was just merged and more PR groups remain:
+         a. Create a new branch: `git checkout -b <branch_name>`
+         b. Start first issue and task in the new PR group
+         c. Set action=implement_task
+      4. If all PR groups are done → set action=all_complete
+
+      When starting an issue: `twig set <id>` → `twig state Doing` → `twig note --text "Starting: ..."`
+      When starting a task: `twig set <id>` → `twig state Doing` → `twig note --text "Starting: ..."`
+
+      **On first invocation (no prior state):**
+      - Create branch for first PR group: `git checkout -b <branch_name>`
+      - Start first issue and first task
+      - Set action=implement_task
+    output:
+      action:
+        type: string
+        description: Next action — implement_task, needs_acceptance, submit_pr, or all_complete
+      current_pr_group:
+        type: string
+        description: Current PR group name/index
+      current_issue_id:
+        type: number
+        description: Current issue ADO ID
+      current_issue_title:
+        type: string
+        description: Current issue title
+      current_task_id:
+        type: number
+        description: Current task ADO ID (0 if action is not implement_task)
+      current_task_title:
+        type: string
+        description: Current task title
+      current_task_description:
+        type: string
+        description: Current task full description
+      branch_name:
+        type: string
+        description: Current git branch name
+      completed_tasks:
+        type: array
+        description: List of completed task IDs
+      completed_issues:
+        type: array
+        description: List of completed issue IDs
+      completed_prs:
+        type: array
+        description: List of completed PR group names
+      progress_summary:
+        type: string
+        description: Human-readable progress summary
+    routes:
+      - to: coder
+        when: "{{ output.action == 'implement_task' }}"
+      - to: user_acceptance
+        when: "{{ output.action == 'needs_acceptance' }}"
+      - to: pr_submit
+        when: "{{ output.action == 'submit_pr' }}"
+      - to: reducer_final
+        when: "{{ output.action == 'all_complete' }}"
+
+  - name: coder
+    description: Implements a single task — code changes, tests, incremental commits
+    model: claude-opus-4.6-1m
+    max_agent_iterations: 100
+    input:
+      - implementation_manager.output
+      - architect.output
+      - intake.output
+      - task_reviewer.output?
+      - pr_reviewer.output?
+    system_prompt: |
+      You are a Senior Software Engineer implementing features for the twig CLI —
+      an AOT-compiled .NET 10 CLI for Azure DevOps work-item triage.
+
+      Key constraints:
+      - PublishAot=true, TrimMode=full, InvariantGlobalization=true
+      - All JSON must use source-generated TwigJsonContext
+      - ConsoleAppFramework (source-gen, no reflection)
+      - SQLite with WAL mode
+      - Spectre.Console for rendering
+      - TreatWarningsAsErrors=true, nullable reference types enabled
+      - Prefer sealed classes, primary constructors, record types
+      - Register DI in TwigServiceRegistration.cs or Program.cs
+      - Tests use MSTest v4
+
+      Commit conventions:
+      - Incremental, complete, non-breaking commits
+      - Each commit should compile and pass tests
+      - Use descriptive commit messages
+      - Include twig notes at each checkpoint
+
+      twig CLI rules:
+      - twig note --text "..." for progress notes on the active work item
+    prompt: |
+      Implement the following task.
+
+      **Task:** #{{ implementation_manager.output.current_task_id }} — {{ implementation_manager.output.current_task_title }}
+      **Description:** {{ implementation_manager.output.current_task_description }}
+      **Issue:** #{{ implementation_manager.output.current_issue_id }} — {{ implementation_manager.output.current_issue_title }}
+      **Branch:** {{ implementation_manager.output.branch_name }}
+
+      **Plan:** Read `{{ architect.output.plan_path }}` for full context.
+
+      {% if task_reviewer is defined and task_reviewer.output and not task_reviewer.output.approved %}
+      **Previous review — fix these issues:**
+      {{ task_reviewer.output.feedback }}
+      {% for issue in task_reviewer.output.issues %}
+      - {{ issue }}
+      {% endfor %}
+      {% endif %}
+
+      {% if pr_reviewer is defined and pr_reviewer.output and not pr_reviewer.output.approved %}
+      **PR review feedback — fix these issues:**
+      {{ pr_reviewer.output.feedback }}
+      {% for issue in pr_reviewer.output.issues %}
+      - {{ issue }}
+      {% endfor %}
+      {% endif %}
+
+      ## Steps
+
+      1. Research the codebase to understand affected files and patterns
+      2. Add a twig note: `twig note --text "Research: <findings>"`
+      3. Implement the changes following existing conventions
+      4. Add a twig note: `twig note --text "Impl: <what was done>"`
+      5. Write tests covering the new functionality and edge cases
+      6. Run tests: `dotnet test --settings test.runsettings`
+      7. Add a twig note: `twig note --text "Tests: <count> tests, <coverage>"`
+      8. Commit: `git add -A && git commit -m "<descriptive message>"`
+
+      Do NOT implement anything beyond this single task.
+    output:
+      task_id:
+        type: number
+        description: The task ID that was implemented
+      files_modified:
+        type: array
+        description: Files created or modified
+      changes_summary:
+        type: string
+        description: Summary of changes made
+      tests_added:
+        type: array
+        description: Test files and test names added
+      commit_hash:
+        type: string
+        description: Git commit hash
+    routes:
+      - to: reducer_code
+
+  - name: reducer_code
+    description: Simplifies the implementation — removes dead code, unnecessary abstractions, verbosity
+    model: claude-sonnet-4.6
+    max_agent_iterations: 50
+    input:
+      - coder.output
+      - implementation_manager.output
+    system_prompt: !file ../../../prompts/reducer.md
+    prompt: |
+      Review and simplify the implementation for task #{{ implementation_manager.output.current_task_id }}.
+
+      **Files modified:**
+      {% for file in coder.output.files_modified %}
+      - {{ file }}
+      {% endfor %}
+
+      **Changes:** {{ coder.output.changes_summary }}
+
+      Apply **code-level reduction** principles:
+      1. Remove dead code, unused imports, stale comments
+      2. Inline unnecessary abstractions (single-use interfaces, wrapper classes)
+      3. Remove over-defensive coding (impossible null checks, unreachable catches)
+      4. Simplify verbose patterns (explicit loops → LINQ, multi-step → single expression)
+      5. Eliminate premature optimization
+
+      If you make changes:
+      - Run tests to verify nothing breaks: `dotnet test --settings test.runsettings`
+      - Commit: `git add -A && git commit -m "reduce: simplify <what>"`
+      - Add note: `twig note --text "Reducer: <what was simplified>"`
+
+      If the code is already lean, report no changes and move on.
+    output:
+      findings:
+        type: array
+        description: Reductions applied or recommended
+      changes_applied:
+        type: array
+        description: Specific changes made
+      lines_removed:
+        type: number
+        description: Net lines of code removed (0 if no changes)
+    routes:
+      - to: task_reviewer
+
+  - name: task_reviewer
+    description: Reviews the task implementation for quality, correctness, and completeness
+    model: claude-sonnet-4.6
+    max_agent_iterations: 50
+    input:
+      - coder.output
+      - reducer_code.output
+      - implementation_manager.output
+      - architect.output
+    system_prompt: |
+      You are a Code Reviewer for a .NET 10 AOT CLI project. You review individual
+      task implementations for quality, correctness, test coverage, and adherence
+      to conventions. You are constructive but rigorous.
+    prompt: |
+      Review the implementation of task #{{ implementation_manager.output.current_task_id }} — {{ implementation_manager.output.current_task_title }}.
+
+      **Task description:** {{ implementation_manager.output.current_task_description }}
+      **Plan:** Read `{{ architect.output.plan_path }}` for acceptance criteria.
+
+      **Coder's changes:** {{ coder.output.changes_summary }}
+      **Files:** {{ coder.output.files_modified | join(", ") }}
+      **Tests:** {{ coder.output.tests_added | join(", ") }}
+      **Reducer changes:** {{ reducer_code.output.changes_applied | join(", ") }}
+
+      ## Review Criteria
+
+      1. **Requirements met** — Does the implementation satisfy the task description?
+      2. **Code quality** — Clean, idiomatic C#? Follows project conventions?
+      3. **AOT compliance** — No reflection, JSON uses TwigJsonContext?
+      4. **Test coverage** — Edge cases covered? Tests actually verify behavior?
+      5. **No regressions** — Run `dotnet test --settings test.runsettings` to verify all tests pass
+
+      Provide APPROVE or REQUEST_CHANGES with specific feedback.
+    output:
+      decision:
+        type: string
+        description: APPROVE or REQUEST_CHANGES
+      feedback:
+        type: string
+        description: Detailed review feedback
+      issues:
+        type: array
+        description: Specific issues to fix (empty if approved)
+      approved:
+        type: boolean
+        description: True if the implementation is approved
+    routes:
+      - to: implementation_manager
+        when: "{{ output.approved }}"
+      - to: coder
+        when: "{{ not output.approved }}"
+
+  - name: user_acceptance
+    type: human_gate
+    description: Conditional user acceptance gate — triggered when an issue has user-facing changes
+    input:
+      - implementation_manager.output
+      - architect.output
+    prompt: |
+      ## User Acceptance Check
+
+      All tasks for issue #{{ implementation_manager.output.current_issue_id }} — {{ implementation_manager.output.current_issue_title }} are complete.
+
+      **Plan:** {{ architect.output.plan_path }}
+      **Completed Tasks:** {{ implementation_manager.output.completed_tasks | json }}
+      **Progress:** {{ implementation_manager.output.progress_summary }}
+
+      Please verify the implementation meets your expectations.
+    options:
+      - label: "Accept — looks good"
+        value: accepted
+        route: implementation_manager
+      - label: "Request Changes"
+        value: changes
+        route: implementation_manager
+        prompt_for: feedback
+      - label: "Skip — no acceptance needed"
+        value: skipped
+        route: implementation_manager
+
+  - name: pr_submit
+    description: Creates a GitHub PR for the current PR group
+    model: claude-sonnet-4.6
+    input:
+      - implementation_manager.output
+      - architect.output
+      - work_tree_seeder.output
+    system_prompt: |
+      You create GitHub pull requests using the gh CLI. You write clear PR descriptions
+      that reference the ADO work items and summarize changes.
+    prompt: |
+      Create a PR for the current PR group.
+
+      **Branch:** {{ implementation_manager.output.branch_name }}
+      **PR Group:** {{ implementation_manager.output.current_pr_group }}
+      **Issue:** #{{ implementation_manager.output.current_issue_id }} — {{ implementation_manager.output.current_issue_title }}
+      **Completed Tasks:** {{ implementation_manager.output.completed_tasks | json }}
+
+      ## Steps
+
+      1. Push the branch: `git push -u origin {{ implementation_manager.output.branch_name }}`
+      2. Create the PR:
+         ```
+         gh pr create --base main --head {{ implementation_manager.output.branch_name }} \
+           --title "<PR group title>" \
+           --body "<description with AB# references>"
+         ```
+      3. The PR body should include:
+         - Summary of changes
+         - List of ADO work items (AB#<id> format for linking)
+         - Files changed summary
+         - Test coverage notes
+    output:
+      pr_url:
+        type: string
+        description: URL of the created PR
+      pr_number:
+        type: number
+        description: PR number
+      pr_title:
+        type: string
+        description: PR title
+    routes:
+      - to: pr_reviewer
+
+  - name: pr_reviewer
+    description: Reviews the full PR diff for architecture coherence and cross-cutting concerns
+    model: claude-opus-4.6-1m
+    max_agent_iterations: 80
+    input:
+      - pr_submit.output
+      - architect.output
+      - implementation_manager.output
+    system_prompt: |
+      You are a Senior Architecture Reviewer. You review pull requests holistically,
+      checking for architecture coherence, cross-cutting concerns, and integration issues
+      that per-task reviews might miss.
+    prompt: |
+      Review the PR: {{ pr_submit.output.pr_url }}
+
+      **Plan:** Read `{{ architect.output.plan_path }}` for the design intent.
+
+      ## Steps
+
+      1. Read the PR diff: `gh pr diff {{ pr_submit.output.pr_number }}`
+      2. Review for:
+         - **Architecture** — Do changes fit the overall design?
+         - **Cross-cutting** — Error handling, logging, security consistent?
+         - **Integration** — Components work together correctly?
+         - **Conventions** — Consistent patterns across all changes?
+         - **Tests** — Overall coverage adequate?
+      3. Run full test suite: `dotnet test --settings test.runsettings`
+
+      Provide APPROVE or REQUEST_CHANGES.
+    output:
+      decision:
+        type: string
+        description: APPROVE or REQUEST_CHANGES
+      feedback:
+        type: string
+        description: Review feedback
+      issues:
+        type: array
+        description: Issues to fix
+      approved:
+        type: boolean
+        description: True if PR is approved
+    routes:
+      - to: pr_merge
+        when: "{{ output.approved }}"
+      - to: pr_fixer
+        when: "{{ not output.approved }}"
+
+  - name: pr_fixer
+    description: Fixes PR-level issues identified by the reviewer
+    model: claude-sonnet-4.6
+    max_agent_iterations: 80
+    input:
+      - pr_reviewer.output
+      - pr_submit.output
+      - architect.output
+    system_prompt: |
+      You are a Senior Software Engineer fixing issues identified during PR review.
+      Make targeted, precise fixes without changing unrelated code.
+    prompt: |
+      Fix the issues identified in the PR review.
+
+      **PR:** {{ pr_submit.output.pr_url }}
+      **Feedback:** {{ pr_reviewer.output.feedback }}
+
+      **Issues:**
+      {% for issue in pr_reviewer.output.issues %}
+      - {{ issue }}
+      {% endfor %}
+
+      ## Steps
+
+      1. Address each issue specifically
+      2. Run tests: `dotnet test --settings test.runsettings`
+      3. Commit: `git add -A && git commit -m "fix: address PR review feedback"`
+      4. Push: `git push`
+    output:
+      files_modified:
+        type: array
+        description: Files modified to address feedback
+      changes_summary:
+        type: string
+        description: Summary of fixes applied
+    routes:
+      - to: pr_submit
+
+  - name: pr_merge
+    description: Merges the approved PR and cleans up the branch
+    model: claude-sonnet-4.6
+    input:
+      - pr_submit.output
+      - implementation_manager.output
+    system_prompt: |
+      You merge approved GitHub PRs and clean up branches.
+    prompt: |
+      Merge the approved PR.
+
+      **PR:** {{ pr_submit.output.pr_url }} (#{{ pr_submit.output.pr_number }})
+
+      ## Steps
+
+      1. Merge: `gh pr merge {{ pr_submit.output.pr_number }} --merge --delete-branch`
+      2. Switch to main: `git checkout main && git pull`
+      3. Verify clean state: `git status`
+    output:
+      merged:
+        type: boolean
+        description: Whether the PR was merged successfully
+      pr_url:
+        type: string
+        description: URL of the merged PR
+    routes:
+      - to: implementation_manager
+
+  # ---------------------------------------------------------------------------
+  # PHASE 5: CLOSE-OUT
+  # ---------------------------------------------------------------------------
+  - name: reducer_final
+    description: Holistic reduction pass across all changes before closing out
+    model: claude-sonnet-4.6
+    max_agent_iterations: 50
+    input:
+      - implementation_manager.output
+      - architect.output
+      - intake.output
+    system_prompt: !file ../../../prompts/reducer.md
+    prompt: |
+      Perform a final holistic reduction pass.
+
+      **Epic:** #{{ intake.output.epic_id }} — {{ intake.output.epic_title }}
+      **Plan:** Read `{{ architect.output.plan_path }}`
+
+      Review ALL changes made during this workflow:
+      1. `git log --oneline main..HEAD` to see all commits (if on a branch)
+      2. Or review the plan to identify all files changed
+
+      Apply **code-level reduction** across the entire implementation:
+      - Cross-file dead code (imports, methods referenced by removed code)
+      - Duplicate patterns introduced across different tasks
+      - Abstractions that turned out unnecessary in the final shape
+      - Test helpers that are used only once
+
+      If you make changes, commit them: `git add -A && git commit -m "reduce: final holistic pass"`
+      If nothing to reduce, say so.
+    output:
+      findings:
+        type: array
+        description: Final reduction findings
+      changes_applied:
+        type: array
+        description: Changes made in the final pass
+      total_lines_removed:
+        type: number
+        description: Total lines removed in final pass
+    routes:
+      - to: close_out
+
+  - name: close_out
+    description: Transitions the Epic to Done and produces meta-observations
+    model: claude-opus-4.6-1m
+    max_agent_iterations: 50
+    input:
+      - intake.output
+      - architect.output
+      - implementation_manager.output
+      - reducer_final.output
+    system_prompt: |
+      You are the Close-Out agent. You finalize the SDLC workflow by transitioning
+      work items and producing meta-observations about the process.
+    prompt: |
+      Close out the SDLC workflow.
+
+      **Epic:** #{{ intake.output.epic_id }} — {{ intake.output.epic_title }}
+      **Completed Issues:** {{ implementation_manager.output.completed_issues | json }}
+      **Completed PRs:** {{ implementation_manager.output.completed_prs | json }}
+      **Plan:** {{ architect.output.plan_path }}
+
+      ## Steps
+
+      1. **Transition the Epic to Done:**
+         - `twig set {{ intake.output.epic_id }} --output json`
+         - `twig note --text "All work complete. <progress summary>"`
+         - `twig state Done --output json`
+
+      2. **Update the plan document:**
+         - Mark all Epics and Tasks as DONE in the plan file
+         - Add a completion section with date and summary
+
+      3. **Produce meta-observations:**
+         Reflect on the entire workflow execution:
+         - What went well? Which agents performed effectively?
+         - Where did agents struggle? (hallucinations, wrong tools, missed context)
+         - What workflow improvements would help future runs?
+         - Were the PR groupings effective?
+         - Was the plan accurate, or did implementation diverge significantly?
+         - Time and cost observations
+
+      4. **Final commit:**
+         - `git add -A && git commit -m "close: {{ intake.output.epic_title }}"`
+    output:
+      observations:
+        type: string
+        description: Meta-observations about workflow execution
+      agent_struggles:
+        type: array
+        description: Specific agent struggles or failures observed
+      improvements:
+        type: array
+        description: Suggested workflow improvements for future runs
+      epic_completed:
+        type: boolean
+        description: Whether the Epic was transitioned to Done
+    routes:
+      - to: $end
+
+# =============================================================================
+# PARALLEL GROUPS
+# =============================================================================
+parallel:
+  - name: plan_reviewers
+    description: Technical and readability reviews run in parallel
+    agents:
+      - technical_reviewer
+      - readability_reviewer
+    failure_mode: continue_on_error
+    routes:
+      - to: review_router
+
+# =============================================================================
+# WORKFLOW OUTPUT
+# =============================================================================
+output:
+  observations: "{{ close_out.output.observations }}"
+  improvements: "{{ close_out.output.improvements | json }}"

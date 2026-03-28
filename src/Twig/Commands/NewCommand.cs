@@ -9,12 +9,8 @@ using Twig.Infrastructure.Config;
 
 namespace Twig.Commands;
 
-/// <summary>
-/// Implements <c>twig new --title "X" --type Epic [--area A] [--iteration I] [--description "..."] [--set] [--editor]</c>:
-/// creates an unparented top-level work item and immediately publishes it to ADO.
-/// </summary>
 public sealed class NewCommand(
-    SeedPublishOrchestrator orchestrator,
+    IAdoWorkItemService adoService,
     IWorkItemRepository workItemRepo,
     IContextStore contextStore,
     IFieldDefinitionStore fieldDefStore,
@@ -23,7 +19,6 @@ public sealed class NewCommand(
     HintEngine hintEngine,
     TwigConfiguration config)
 {
-    /// <summary>Create a new top-level work item in ADO.</summary>
     public async Task<int> ExecuteAsync(
         string? title,
         string type,
@@ -37,14 +32,12 @@ public sealed class NewCommand(
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
-        // ── Validate title ──────────────────────────────────────────
         if (!editor && string.IsNullOrWhiteSpace(title))
         {
             Console.Error.WriteLine(fmt.FormatError("Usage: twig new --title \"title\" --type <type>"));
             return 2;
         }
 
-        // ── Parse type ──────────────────────────────────────────────
         var typeResult = WorkItemType.Parse(type);
         if (!typeResult.IsSuccess)
         {
@@ -52,7 +45,6 @@ public sealed class NewCommand(
             return 1;
         }
 
-        // ── Resolve area path: flag → config.Defaults → config.Project ─
         var areaResult = ResolveAreaPath(area);
         if (!areaResult.IsSuccess)
         {
@@ -60,7 +52,6 @@ public sealed class NewCommand(
             return 1;
         }
 
-        // ── Resolve iteration path: flag → config.Defaults → config.Project ─
         var iterResult = ResolveIterationPath(iteration);
         if (!iterResult.IsSuccess)
         {
@@ -68,12 +59,6 @@ public sealed class NewCommand(
             return 1;
         }
 
-        // ── Initialize seed counter ─────────────────────────────────
-        var minSeedId = await workItemRepo.GetMinSeedIdAsync(ct);
-        if (minSeedId.HasValue)
-            WorkItem.InitializeSeedCounter(minSeedId.Value);
-
-        // ── Create seed ─────────────────────────────────────────────
         var seedTitle = string.IsNullOrWhiteSpace(title) ? "(untitled)" : title;
 
         var seedResult = SeedFactory.CreateUnparented(
@@ -91,11 +76,9 @@ public sealed class NewCommand(
 
         var seed = seedResult.Value;
 
-        // ── Apply description ───────────────────────────────────────
         if (!string.IsNullOrWhiteSpace(description))
             seed.SetField("System.Description", description);
 
-        // ── Editor flow ─────────────────────────────────────────────
         if (editor)
         {
             var fieldDefs = await fieldDefStore.GetAllAsync(ct);
@@ -114,32 +97,40 @@ public sealed class NewCommand(
             seed = seed.WithSeedFields(newTitle, parsedFields);
         }
 
-        // ── Save seed locally (publish requires it in the DB) ───────
-        await workItemRepo.SaveAsync(seed, ct);
-
-        // ── Publish to ADO ──────────────────────────────────────────
-        var publishResult = await orchestrator.PublishAsync(seed.Id, force: true, ct: ct);
-
-        if (!publishResult.IsSuccess)
+        int newId;
+        try
         {
-            // Clean up the transient seed on failure
-            await workItemRepo.DeleteByIdAsync(seed.Id, ct);
-            Console.Error.WriteLine(fmt.FormatError(
-                $"Publish failed: {publishResult.ErrorMessage}"));
+            newId = await adoService.CreateAsync(seed, ct);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(fmt.FormatError($"Create failed: {ex.Message}"));
             return 1;
         }
 
-        // ── Set context ─────────────────────────────────────────────
-        if (set && publishResult.NewId > 0)
-            await contextStore.SetActiveWorkItemIdAsync(publishResult.NewId, ct);
+        WorkItem fetched;
+        try
+        {
+            fetched = await adoService.FetchAsync(newId, ct);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(fmt.FormatError(
+                $"Created #{newId} in ADO but fetch-back failed: {ex.Message}. Run 'twig refresh' to recover."));
+            return 1;
+        }
 
-        // ── Output ──────────────────────────────────────────────────
+        await workItemRepo.SaveAsync(fetched, ct);
+
+        if (set)
+            await contextStore.SetActiveWorkItemIdAsync(newId, ct);
+
         Console.WriteLine(fmt.FormatSuccess(
-            $"Created #{publishResult.NewId} {publishResult.Title} ({typeResult.Value})"));
+            $"Created #{newId} {fetched.Title} ({typeResult.Value})"));
 
         var hints = hintEngine.GetHints("new",
             outputFormat: outputFormat,
-            createdId: publishResult.NewId);
+            createdId: newId);
         foreach (var hint in hints)
         {
             var formatted = fmt.FormatHint(hint);

@@ -1,48 +1,48 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Shouldly;
 using Twig.Infrastructure.Content;
+using Xunit;
 
 namespace Twig.Infrastructure.Tests.Content;
 
-[TestClass]
 public sealed class MarkdownConverterTests
 {
-    [TestMethod]
+    [Fact]
     public void ToHtml_Heading_ProducesH1Tag()
     {
         var result = MarkdownConverter.ToHtml("# Hello");
 
-        StringAssert.Contains(result, "<h1");
-        StringAssert.Contains(result, "Hello</h1>");
+        result.ShouldContain("<h1");
+        result.ShouldContain("Hello</h1>");
     }
 
-    [TestMethod]
+    [Fact]
     public void ToHtml_BoldAndItalic_ProducesStrongAndEmTags()
     {
         var result = MarkdownConverter.ToHtml("**bold** _italic_");
 
-        StringAssert.Contains(result, "<strong>bold</strong>");
-        StringAssert.Contains(result, "<em>italic</em>");
+        result.ShouldContain("<strong>bold</strong>");
+        result.ShouldContain("<em>italic</em>");
     }
 
-    [TestMethod]
+    [Fact]
     public void ToHtml_OrderedList_ProducesOlTags()
     {
         var result = MarkdownConverter.ToHtml("1. A\n2. B");
 
-        StringAssert.Contains(result, "<ol>");
-        StringAssert.Contains(result, "<li>A</li>");
+        result.ShouldContain("<ol>");
+        result.ShouldContain("<li>A</li>");
     }
 
-    [TestMethod]
+    [Fact]
     public void ToHtml_UnorderedList_ProducesUlTags()
     {
         var result = MarkdownConverter.ToHtml("- A\n- B");
 
-        StringAssert.Contains(result, "<ul>");
-        StringAssert.Contains(result, "<li>A</li>");
+        result.ShouldContain("<ul>");
+        result.ShouldContain("<li>A</li>");
     }
 
-    [TestMethod]
+    [Fact]
     public void ToHtml_GfmTable_ProducesTableTags()
     {
         const string table = """
@@ -53,12 +53,12 @@ public sealed class MarkdownConverterTests
 
         var result = MarkdownConverter.ToHtml(table);
 
-        StringAssert.Contains(result, "<table>");
-        StringAssert.Contains(result, "<th>");
-        StringAssert.Contains(result, "<td>");
+        result.ShouldContain("<table>");
+        result.ShouldContain("<th>");
+        result.ShouldContain("<td>");
     }
 
-    [TestMethod]
+    [Fact]
     public void ToHtml_FencedCodeBlock_ProducesCodeTag()
     {
         const string code = """
@@ -69,24 +69,24 @@ public sealed class MarkdownConverterTests
 
         var result = MarkdownConverter.ToHtml(code);
 
-        StringAssert.Contains(result, "<code");
+        result.ShouldContain("<code");
     }
 
-    [TestMethod]
+    [Fact]
     public void ToHtml_TaskList_ProducesCheckedInput()
     {
         var result = MarkdownConverter.ToHtml("- [x] Done");
 
-        StringAssert.Contains(result, "<input");
-        StringAssert.Contains(result, "checked");
+        result.ShouldContain("<input");
+        result.ShouldContain("checked");
     }
 
-    [DataTestMethod]
-    [DataRow(null)]
-    [DataRow("")]
-    [DataRow("   ")]
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
     public void ToHtml_EmptyLikeInput_ReturnsEmpty(string? input)
     {
-        Assert.AreEqual(string.Empty, MarkdownConverter.ToHtml(input));
+        MarkdownConverter.ToHtml(input).ShouldBe(string.Empty);
     }
 }

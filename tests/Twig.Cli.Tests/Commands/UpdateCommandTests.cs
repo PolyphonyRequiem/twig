@@ -36,6 +36,15 @@ public class UpdateCommandTests
             _consoleInput, formatterFactory);
     }
 
+    private UpdateCommand CreateCommand(TextWriter? stderr = null, TextWriter? stdout = null)
+    {
+        var formatterFactory = new OutputFormatterFactory(
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
+        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        return new UpdateCommand(resolver, _workItemRepo, _adoService, _pendingChangeStore,
+            _consoleInput, formatterFactory, stderr: stderr, stdout: stdout);
+    }
+
     [Fact]
     public async Task Update_PullApplyPush()
     {
@@ -204,18 +213,11 @@ public class UpdateCommandTests
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
 
         var stderr = new StringWriter();
-        Console.SetError(stderr);
-        try
-        {
-            var result = await _cmd.ExecuteAsync("System.Description", "value", format: "html");
+        var cmd = CreateCommand(stderr: stderr);
+        var result = await cmd.ExecuteAsync("System.Description", "value", format: "html");
 
-            result.ShouldBe(2);
-            stderr.ToString().ShouldContain("Unknown format 'html'. Supported formats: markdown");
-        }
-        finally
-        {
-            Console.SetError(new StreamWriter(Console.OpenStandardError()) { AutoFlush = true });
-        }
+        result.ShouldBe(2);
+        stderr.ToString().ShouldContain("Unknown format 'html'. Supported formats: markdown");
 
         await _adoService.DidNotReceive().PatchAsync(
             Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
@@ -234,15 +236,8 @@ public class UpdateCommandTests
             .Returns(Array.Empty<PendingChangeRecord>());
 
         var stdout = new StringWriter();
-        Console.SetOut(stdout);
-        try
-        {
-            await _cmd.ExecuteAsync("System.Description", "# Heading", format: "markdown");
-        }
-        finally
-        {
-            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
-        }
+        var cmd = CreateCommand(stdout: stdout);
+        await cmd.ExecuteAsync("System.Description", "# Heading", format: "markdown");
 
         var output = stdout.ToString();
         output.ShouldContain("# Heading");
@@ -262,16 +257,9 @@ public class UpdateCommandTests
             .Returns(Array.Empty<PendingChangeRecord>());
 
         var stdout = new StringWriter();
-        Console.SetOut(stdout);
-        try
-        {
-            var result = await _cmd.ExecuteAsync("System.Description", "# Heading", outputFormat: "json", format: "markdown");
-            result.ShouldBe(0);
-        }
-        finally
-        {
-            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
-        }
+        var cmd = CreateCommand(stdout: stdout);
+        var result = await cmd.ExecuteAsync("System.Description", "# Heading", outputFormat: "json", format: "markdown");
+        result.ShouldBe(0);
 
         var output = stdout.ToString();
         output.ShouldContain("# Heading");

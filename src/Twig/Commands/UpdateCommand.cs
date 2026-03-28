@@ -17,8 +17,13 @@ public sealed class UpdateCommand(
     IPendingChangeStore pendingChangeStore,
     IConsoleInput consoleInput,
     OutputFormatterFactory formatterFactory,
-    IPromptStateWriter? promptStateWriter = null)
+    IPromptStateWriter? promptStateWriter = null,
+    TextWriter? stderr = null,
+    TextWriter? stdout = null)
 {
+    private readonly TextWriter _stderr = stderr ?? Console.Error;
+    private readonly TextWriter _stdout = stdout ?? Console.Out;
+
     /// <summary>Update a field on the active work item and push to ADO.</summary>
     public async Task<int> ExecuteAsync(string field, string value, string outputFormat = OutputFormatterFactory.DefaultFormat, string? format = null, CancellationToken ct = default)
     {
@@ -26,14 +31,14 @@ public sealed class UpdateCommand(
 
         if (string.IsNullOrWhiteSpace(field))
         {
-            Console.Error.WriteLine(fmt.FormatError("Usage: twig update <field> <value>"));
+            _stderr.WriteLine(fmt.FormatError("Usage: twig update <field> <value>"));
             return 2;
         }
 
         var resolved = await activeItemResolver.GetActiveItemAsync();
         if (!resolved.TryGetWorkItem(out var local, out var errorId, out var errorReason))
         {
-            Console.Error.WriteLine(fmt.FormatError(errorId is not null
+            _stderr.WriteLine(fmt.FormatError(errorId is not null
                 ? $"Work item #{errorId} not found in cache."
                 : "No active work item. Run 'twig set <id>' first."));
             return 1;
@@ -60,7 +65,7 @@ public sealed class UpdateCommand(
         }
         else
         {
-            Console.Error.WriteLine(fmt.FormatError($"Unknown format '{format}'. Supported formats: markdown"));
+            _stderr.WriteLine(fmt.FormatError($"Unknown format '{format}'. Supported formats: markdown"));
             return 2;
         }
 
@@ -74,7 +79,7 @@ public sealed class UpdateCommand(
 
         if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
-        Console.WriteLine(fmt.FormatSuccess($"#{local.Id} updated: {field} = '{value}'"));
+        _stdout.WriteLine(fmt.FormatSuccess($"#{local.Id} updated: {field} = '{value}'"));
 
         return 0;
     }

@@ -2,12 +2,12 @@
 #
 # 5-phase workflow for implementing features in the twig codebase:
 #   Phase 1: Intake — read existing work item or create from prompt
-#   Phase 2: Planning — architect → reducer → parallel review → approval gate
+#   Phase 2: Planning — architect → reducer → technical review → readability review → approval gate
 #   Phase 3: Work Tree Seeding — create ADO Issues/Tasks via twig CLI
 #   Phase 4: Implementation — per-task coder/reducer/reviewer loop with PR lifecycle
 #   Phase 5: Close-out — holistic reduction, meta-observations
 #
-# Agents: 22 agents + 3 human gates + 1 parallel group
+# Agents: 22 agents + 3 human gates
 # Models: Opus 1M for deep reasoning (architect, coder, pr_reviewer, close_out)
 #         Sonnet for focused tasks (everything else)
 #

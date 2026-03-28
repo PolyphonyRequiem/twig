@@ -450,6 +450,7 @@ public sealed class TwigCommands(IServiceProvider services)
         => await services.GetRequiredService<NoteCommand>().ExecuteAsync(text, output, ct);
 
     /// <summary>Update a field on the active work item.</summary>
+    /// <param name="format">Convert the input value before sending to ADO. Supported: "markdown" (converts Markdown to HTML). Distinct from --output, which controls display format.</param>
     public async Task<int> Update([Argument] string field, [Argument] string value, string output = OutputFormatterFactory.DefaultFormat, string? format = null, CancellationToken ct = default)
         => await services.GetRequiredService<UpdateCommand>().ExecuteAsync(field, value, output, format, ct);
 

@@ -203,9 +203,20 @@ public class UpdateCommandTests
         SetupActiveItem(local);
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
 
-        var result = await _cmd.ExecuteAsync("System.Description", "value", format: "html");
+        var stderr = new StringWriter();
+        Console.SetError(stderr);
+        try
+        {
+            var result = await _cmd.ExecuteAsync("System.Description", "value", format: "html");
 
-        result.ShouldBe(2);
+            result.ShouldBe(2);
+            stderr.ToString().ShouldContain("Unknown format 'html'. Supported formats: markdown");
+        }
+        finally
+        {
+            Console.SetError(new StreamWriter(Console.OpenStandardError()) { AutoFlush = true });
+        }
+
         await _adoService.DidNotReceive().PatchAsync(
             Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
@@ -236,6 +247,35 @@ public class UpdateCommandTests
         var output = stdout.ToString();
         output.ShouldContain("# Heading");
         output.ShouldNotContain("<h1>");
+    }
+
+    [Fact]
+    public async Task Update_FormatMarkdown_JsonOutput_SuccessMessageShowsOriginalValue()
+    {
+        var local = CreateWorkItem(1, "Test");
+        var remote = CreateWorkItem(1, "Test");
+        SetupActiveItem(local);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+
+        var stdout = new StringWriter();
+        Console.SetOut(stdout);
+        try
+        {
+            var result = await _cmd.ExecuteAsync("System.Description", "# Heading", outputFormat: "json", format: "markdown");
+            result.ShouldBe(0);
+        }
+        finally
+        {
+            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+        }
+
+        var output = stdout.ToString();
+        output.ShouldContain("# Heading");
+        output.ShouldNotContain("<h1");
     }
 
     private void SetupActiveItem(WorkItem item)

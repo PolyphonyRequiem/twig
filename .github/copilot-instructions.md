@@ -21,7 +21,8 @@ sprint backlogs as rich terminal trees using Spectre.Console.
 - Register services in `TwigServiceRegistration.cs` (domain/infra) or `Program.cs` (commands)
 - New serializable types must be added to `TwigJsonContext` with `[JsonSerializable]`
 - Test projects mirror source project structure (e.g., `Services/` → `Services/`)
-- Tests use MSTest v4 with `[TestClass]` / `[TestMethod]`
+- Tests use **xUnit** with **Shouldly** assertions and **NSubstitute** for mocking
+- Test classes use `[Fact]` and `[Theory]` attributes (not `[TestClass]`/`[TestMethod]`)
 
 ## Telemetry & Data Privacy
 

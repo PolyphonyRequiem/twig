@@ -797,8 +797,10 @@ agents:
       4. Simplify verbose patterns (explicit loops → LINQ, multi-step → single expression)
       5. Eliminate premature optimization
       If you make changes:
+      - Apply the edits directly to files
       - Run tests to verify nothing breaks: `dotnet test --settings test.runsettings`
-      - Commit: `git add -A && git commit -m "reduce: simplify <what>"`
+      - Fold changes into the coder's last commit: `git add -A && git commit --amend --no-edit`
+        This keeps one commit per task instead of separate "reduce:" commits.
       - Add note: `twig note --text "Reducer: <what was simplified>"`
       If the code is already lean, report no changes and move on.
     output:
@@ -901,10 +903,11 @@ agents:
       2. Abstractions that can be consolidated now that all tasks are done
       3. Dead code left behind by incremental implementation
       4. Test helpers or utilities used only once
-      If you make changes:
+      5. Duplicate or overlapping test cases across tasks
+      Accumulate ALL findings and apply them in a SINGLE pass. Then:
       - Run tests: `dotnet test --settings test.runsettings`
-      - Commit: `git add -A && git commit -m "reduce: post-issue sweep for #{{ implementation_manager.output.current_issue_id }}"`
-      - Add note: `twig note --text "Reducer: <what was simplified>"`
+      - Make ONE commit with all reductions: `git add -A && git commit -m "reduce: post-issue sweep for #{{ implementation_manager.output.current_issue_id }} — <N> simplifications"`
+      - Add ONE note: `twig note --text "Reducer: <summary of all changes>"`
       If nothing to reduce, say so.
     output:
       findings:
@@ -1157,15 +1160,18 @@ agents:
       **Completed PRs:** {{ implementation_manager.output.completed_prs | json }}
       **Plan:** {{ (architect.output.plan_path if architect is defined and architect.output else plan_reader.output.plan_path) }}
       ## Steps
-      1. **Transition the Epic to Done:**
-         - `twig set {{ intake.output.epic_id }} --output json`
+      1. **Check current state (idempotency):**
+         - `twig set {{ intake.output.epic_id }} --output json` — read the current state
+         - `git log --oneline -5` — check if a close commit already exists
+         - If state is already "Done" AND a close commit exists, skip steps 2-3 and go to step 4
+      2. **Transition the Epic to Done** (only if not already Done):
          - `twig note --text "All work complete. <progress summary>"`
          - `twig state Done --output json`
-      2. **Update the plan document** at `{{ (architect.output.plan_path if architect is defined and architect.output else plan_reader.output.plan_path) }}`:
+      3. **Update the plan document** at `{{ (architect.output.plan_path if architect is defined and architect.output else plan_reader.output.plan_path) }}`:
          - Change the Status line from its current value to `> **Status**: ✅ Done`
          - Mark all Epics and Tasks as DONE in the plan file
          - Add a completion section with date and summary
-      3. **Produce meta-observations:**
+      4. **Produce meta-observations:**
          Reflect on the entire workflow execution:
          - What went well? Which agents performed effectively?
          - Where did agents struggle? (hallucinations, wrong tools, missed context)
@@ -1173,8 +1179,10 @@ agents:
          - Were the PR groupings effective?
          - Was the plan accurate, or did implementation diverge significantly?
          - Time and cost observations
-      4. **Final commit:**
-         - `git add -A && git commit -m "close: {{ intake.output.epic_title }}"`
+      5. **Final commit** (only if there are uncommitted changes):
+         - `git diff --stat HEAD` — check for changes
+         - If changes exist: `git add -A && git commit -m "close: {{ intake.output.epic_title }}"`
+         - If no changes: skip commit
     output:
       observations:
         type: string

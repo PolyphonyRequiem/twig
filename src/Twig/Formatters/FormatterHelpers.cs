@@ -277,55 +277,32 @@ internal static class FormatterHelpers
 
     private static List<string> NormalizeLines(string text)
     {
-        var lines = new List<string>();
-        var sb = new StringBuilder();
-        for (var i = 0; i < text.Length; i++)
-        {
-            if (text[i] == '\r')
-            {
-                // \r\n or \r alone → line break
-                lines.Add(sb.ToString().Trim());
-                sb.Clear();
-                if (i + 1 < text.Length && text[i + 1] == '\n')
-                    i++;
-            }
-            else if (text[i] == '\n')
-            {
-                lines.Add(sb.ToString().Trim());
-                sb.Clear();
-            }
-            else
-            {
-                sb.Append(text[i]);
-            }
-        }
-        lines.Add(sb.ToString().Trim());
+        var rawLines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
 
-        // Collapse consecutive blank lines to a single blank line
-        var collapsed = new List<string>();
+        var result = new List<string>(rawLines.Length);
         var lastWasBlank = false;
-        foreach (var line in lines)
+        foreach (var raw in rawLines)
         {
+            var line = raw.Trim();
             if (line.Length == 0)
             {
                 if (!lastWasBlank)
-                    collapsed.Add(line);
+                    result.Add(line);
                 lastWasBlank = true;
             }
             else
             {
-                collapsed.Add(line);
+                result.Add(line);
                 lastWasBlank = false;
             }
         }
 
-        // Trim leading/trailing blank lines
-        while (collapsed.Count > 0 && collapsed[0].Length == 0)
-            collapsed.RemoveAt(0);
-        while (collapsed.Count > 0 && collapsed[^1].Length == 0)
-            collapsed.RemoveAt(collapsed.Count - 1);
+        while (result.Count > 0 && result[0].Length == 0)
+            result.RemoveAt(0);
+        while (result.Count > 0 && result[^1].Length == 0)
+            result.RemoveAt(result.Count - 1);
 
-        return collapsed;
+        return result;
     }
 
     private static string TruncateLines(List<string> lines)

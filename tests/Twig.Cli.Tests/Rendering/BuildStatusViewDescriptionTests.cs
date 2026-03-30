@@ -161,6 +161,48 @@ public class BuildStatusViewDescriptionTests
         output.ShouldContain("Medium");
     }
 
+    // ── Long / multi-paragraph integration tests ──────────────────────
+
+    [Fact]
+    public async Task BuildStatusViewAsync_LongDescription_TruncatedWithIndicator()
+    {
+        var item = CreateWorkItem(17, "Long Desc", "Active");
+        // 20 paragraphs → exceeds MaxDescriptionLines (15), triggers "(+N more lines)" marker
+        var paragraphs = string.Concat(Enumerable.Range(1, 20).Select(i => $"<p>Paragraph {i} content.</p>"));
+        item.SetField("System.Description", $"<div>{paragraphs}</div>");
+
+        var renderable = await _renderer.BuildStatusViewAsync(
+            () => Task.FromResult<WorkItem?>(item),
+            () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>(Array.Empty<PendingChangeRecord>()),
+            CancellationToken.None);
+
+        _testConsole.Write(renderable);
+        var output = _testConsole.Output;
+
+        output.ShouldContain("Description");
+        output.ShouldContain("Paragraph 1 content");
+        output.ShouldContain("(+");
+        output.ShouldContain("more lines)");
+    }
+
+    [Fact]
+    public async Task BuildStatusViewAsync_MultiParagraph_PreservesStructure()
+    {
+        var item = CreateWorkItem(18, "Multi Para", "Active");
+        item.SetField("System.Description", "<p>First paragraph</p><p>Second paragraph</p>");
+
+        var renderable = await _renderer.BuildStatusViewAsync(
+            () => Task.FromResult<WorkItem?>(item),
+            () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>(Array.Empty<PendingChangeRecord>()),
+            CancellationToken.None);
+
+        _testConsole.Write(renderable);
+        var output = _testConsole.Output;
+
+        output.ShouldContain("First paragraph");
+        output.ShouldContain("Second paragraph");
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     private static WorkItem CreateWorkItem(int id, string title, string state)

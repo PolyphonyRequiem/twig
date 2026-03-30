@@ -2,7 +2,7 @@
 
 > **ADO Issue**: #1310
 > **Date**: 2026-03-30
-> **Status**: 🔨 In Progress
+> **Status**: ✅ Done
 > **Classification**: Deep (few files, moderate complexity in HTML conversion logic)
 > **Estimated LoC**: ~280 (145 production + 135 tests)
 
@@ -370,3 +370,23 @@ tech/readability review.
 | `tests/Twig.Cli.Tests/Rendering/RenderWorkItemTests.cs` | Add `BuildStatusViewAsync` integration tests | ~55 |
 | `tests/Twig.Cli.Tests/Formatters/HumanOutputFormatterTests.cs` | Add `FormatWorkItem` integration tests | ~35 |
 | **Total** | | **~280** |
+
+---
+
+## 8. Completion
+
+> **Completed**: 2026-03-30
+> **PR**: Full-Width Description Rendering (merged as PR #6)
+> **ADO Issue**: #1310 — transitioned to Done
+
+### Summary
+
+All tasks in Epic 1 are complete. The `twig status` command now renders
+`System.Description` as a full-width, multi-line section below the key-value Grid,
+using Spectre's `Rows` and `Rule` composition. HTML content from ADO is converted
+to structured plain text via `FormatterHelpers.HtmlToPlainText`, preserving paragraph
+breaks, list bullets, and entity decoding. Both the Spectre async path and
+HumanOutputFormatter sync path were updated, with description excluded from extended
+fields across all 4 code paths. A post-merge holistic simplification pass cleaned up
+`NormalizeLines` in `FormatterHelpers`. All acceptance criteria (AC-1 through AC-10)
+verified, all tests pass, AOT build succeeds.

@@ -25,7 +25,6 @@ internal static class ConflictRetryHelper
         }
         catch (AdoConflictException)
         {
-            // Fall through to retry logic
         }
 
         var freshItem = await adoService.FetchAsync(itemId, ct);

@@ -450,7 +450,6 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         var item = await getItem() ?? throw new InvalidOperationException("Work item must not be null when building status view.");
         var pending = await getPendingChanges();
 
-        // EPIC-002: One-line summary header for quick-glance
         var summaryBadge = _theme.FormatTypeBadge(item.Type);
         var summaryState = _theme.FormatState(item.State);
         var summaryMarkup = new Markup($"#{item.Id} [aqua]●[/] {summaryBadge} {Markup.Escape(item.Type.ToString())} — {Markup.Escape(item.Title)} {summaryState}");
@@ -467,7 +466,6 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         // Extended fields from the Fields dictionary
         AddExtendedFieldRows(itemGrid, item, fieldDefinitions, statusFieldEntries);
 
-        // EPIC-004 ITEM-016: Progress bar for parent items
         if (childProgress is { Total: > 0 } cp)
         {
             // useAnsi: false — Spectre markup handles coloring; raw ANSI codes would be corrupted by Markup.Escape
@@ -483,18 +481,10 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             }
         }
 
-        // EPIC-004 ITEM-017: Consolidated pending changes as dim footer line
         if (pending.Count > 0)
         {
-            var noteCount = 0;
-            var fieldCount = 0;
-            foreach (var change in pending)
-            {
-                if (string.Equals(change.ChangeType, "note", StringComparison.OrdinalIgnoreCase))
-                    noteCount++;
-                else
-                    fieldCount++;
-            }
+            var noteCount = pending.Count(c => string.Equals(c.ChangeType, "note", StringComparison.OrdinalIgnoreCase));
+            var fieldCount = pending.Count - noteCount;
 
             var parts = new List<string>();
             if (fieldCount > 0)
@@ -537,7 +527,17 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             }
         }
 
-        var itemPanel = new Panel(itemGrid)
+        IRenderable panelContent = itemGrid;
+        if (item.Fields.TryGetValue("System.Description", out var rawDescription))
+        {
+            var plainText = Formatters.FormatterHelpers.HtmlToPlainText(rawDescription);
+            if (!string.IsNullOrWhiteSpace(plainText))
+                panelContent = new Rows(itemGrid,
+                    new Rule("[dim]Description[/]").LeftJustified().RuleStyle("dim"),
+                    new Markup(Markup.Escape(plainText)));
+        }
+
+        var itemPanel = new Panel(panelContent)
             .Header($"[bold]#{item.Id} {Markup.Escape(item.Title)}[/]{dirty}")
             .Border(BoxBorder.Rounded)
             .Expand();
@@ -652,18 +652,16 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         if (item.Fields.Count == 0)
             return;
 
-        var defLookup = new Dictionary<string, Domain.ValueObjects.FieldDefinition>(StringComparer.OrdinalIgnoreCase);
-        if (fieldDefinitions is not null)
-        {
-            foreach (var def in fieldDefinitions)
-                defLookup[def.ReferenceName] = def;
-        }
+        var defLookup = fieldDefinitions?.ToDictionary(d => d.ReferenceName, StringComparer.OrdinalIgnoreCase)
+            ?? new Dictionary<string, Domain.ValueObjects.FieldDefinition>(StringComparer.OrdinalIgnoreCase);
 
         if (statusFieldEntries is not null)
         {
             foreach (var entry in statusFieldEntries)
             {
                 if (!entry.IsIncluded)
+                    continue;
+                if (string.Equals(entry.ReferenceName, "System.Description", StringComparison.OrdinalIgnoreCase))
                     continue;
                 if (!item.Fields.TryGetValue(entry.ReferenceName, out var value) || string.IsNullOrWhiteSpace(value))
                     continue;
@@ -686,6 +684,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             if (string.IsNullOrWhiteSpace(kvp.Value))
                 continue;
             if (CoreFields.Contains(kvp.Key))
+                continue;
+            if (string.Equals(kvp.Key, "System.Description", StringComparison.OrdinalIgnoreCase))
                 continue;
             if (count >= 10)
                 break;

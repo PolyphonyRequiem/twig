@@ -1695,6 +1695,183 @@ public class HumanOutputFormatterTests
         result.ShouldNotContain("Priority:");
     }
 
+    // ── Description section rendering (sync path) ────────────────────
+
+    [Fact]
+    public void FormatWorkItem_WithDescription_ShowsDescriptionSection()
+    {
+        var item = CreateWorkItem(1, "Described Item", "Active");
+        item.ImportFields(new Dictionary<string, string?>
+        {
+            ["System.Description"] = "<p>This is a test description.</p>",
+        });
+
+        var result = _formatter.FormatWorkItem(item, showDirty: false);
+
+        result.ShouldContain("── Description ──");
+        result.ShouldContain("This is a test description.");
+    }
+
+    [Fact]
+    public void FormatWorkItem_WithMultiLineDescription_RendersAllLines()
+    {
+        var item = CreateWorkItem(1, "Multi Line", "Active");
+        item.ImportFields(new Dictionary<string, string?>
+        {
+            ["System.Description"] = "<p>Line one</p><p>Line two</p><p>Line three</p>",
+        });
+
+        var result = _formatter.FormatWorkItem(item, showDirty: false);
+
+        result.ShouldContain("── Description ──");
+        result.ShouldContain("Line one");
+        result.ShouldContain("Line two");
+        result.ShouldContain("Line three");
+    }
+
+    [Fact]
+    public void FormatWorkItem_MultilineDescription_IndentedWith2Spaces()
+    {
+        var item = CreateWorkItem(1, "Indent Check", "Active");
+        item.ImportFields(new Dictionary<string, string?>
+        {
+            ["System.Description"] = "<p>First</p><p>Second</p>",
+        });
+
+        var result = _formatter.FormatWorkItem(item, showDirty: false);
+        var stripped = StripAnsi(result);
+
+        stripped.ShouldContain("  First");
+        stripped.ShouldContain("  Second");
+    }
+
+    [Fact]
+    public void FormatWorkItem_WithNullDescription_NoDescriptionSection()
+    {
+        var item = CreateWorkItem(1, "No Desc", "Active");
+
+        var result = _formatter.FormatWorkItem(item, showDirty: false);
+
+        result.ShouldNotContain("── Description ──");
+    }
+
+    [Fact]
+    public void FormatWorkItem_WithWhitespaceDescription_NoDescriptionSection()
+    {
+        var item = CreateWorkItem(1, "Whitespace Desc", "Active");
+        item.ImportFields(new Dictionary<string, string?>
+        {
+            ["System.Description"] = "   ",
+        });
+
+        var result = _formatter.FormatWorkItem(item, showDirty: false);
+
+        result.ShouldNotContain("── Description ──");
+    }
+
+    [Fact]
+    public void FormatWorkItem_WithHtmlOnlyDescription_NoDescriptionSection()
+    {
+        var item = CreateWorkItem(1, "Html Only", "Active");
+        item.ImportFields(new Dictionary<string, string?>
+        {
+            ["System.Description"] = "<p>  </p>",
+        });
+
+        var result = _formatter.FormatWorkItem(item, showDirty: false);
+
+        result.ShouldNotContain("── Description ──");
+    }
+
+    [Fact]
+    public void FormatWorkItem_DescriptionExcludedFromExtendedFields_WhenStarred()
+    {
+        var item = CreateWorkItem(1, "Starred Desc", "Active");
+        item.ImportFields(new Dictionary<string, string?>
+        {
+            ["System.Description"] = "<p>Some description</p>",
+            ["Microsoft.VSTS.Common.Priority"] = "1",
+        });
+
+        var fieldDefs = new FieldDefinition[]
+        {
+            new("System.Description", "Description", "html", false),
+            new("Microsoft.VSTS.Common.Priority", "Priority", "integer", false),
+        };
+
+        var entries = new StatusFieldEntry[]
+        {
+            new("System.Description", true),
+            new("Microsoft.VSTS.Common.Priority", true),
+        };
+
+        var result = _formatter.FormatWorkItem(item, showDirty: false, fieldDefs, entries);
+
+        // Description should appear in dedicated section, not in extended fields grid
+        result.ShouldContain("── Description ──");
+        result.ShouldContain("Some description");
+        result.ShouldContain("Priority:");
+        // Count occurrences of "Some description" — should appear only once (in dedicated section)
+        var occurrences = result.Split("Some description").Length - 1;
+        occurrences.ShouldBe(1);
+    }
+
+    [Fact]
+    public void FormatWorkItem_DescriptionExcludedFromExtendedFields_AutoDetection()
+    {
+        var item = CreateWorkItem(1, "Auto Desc", "Active");
+        item.ImportFields(new Dictionary<string, string?>
+        {
+            ["System.Description"] = "<p>Auto detected desc</p>",
+            ["Custom.Field"] = "custom value",
+        });
+
+        var fieldDefs = new FieldDefinition[]
+        {
+            new("System.Description", "Description", "html", false),
+            new("Custom.Field", "Custom Field", "string", false),
+        };
+
+        var result = _formatter.FormatWorkItem(item, showDirty: false, fieldDefs, statusFieldEntries: null);
+
+        // Description should be in dedicated section
+        result.ShouldContain("── Description ──");
+        result.ShouldContain("Auto detected desc");
+        // Custom field still shows in extended section
+        result.ShouldContain("custom value");
+    }
+
+    [Fact]
+    public void FormatWorkItem_DescriptionAppearsAfterExtendedBeforeProgress()
+    {
+        var item = CreateWorkItem(1, "Order Check", "Active");
+        item.ImportFields(new Dictionary<string, string?>
+        {
+            ["System.Description"] = "<p>Desc content</p>",
+            ["Microsoft.VSTS.Common.Priority"] = "1",
+        });
+
+        var fieldDefs = new FieldDefinition[]
+        {
+            new("Microsoft.VSTS.Common.Priority", "Priority", "integer", false),
+        };
+
+        var result = _formatter.FormatWorkItem(item, showDirty: false, fieldDefs,
+            statusFieldEntries: null, childProgress: (2, 5));
+
+        var extIdx = result.IndexOf("── Extended ──", StringComparison.Ordinal);
+        var descIdx = result.IndexOf("── Description ──", StringComparison.Ordinal);
+        var progIdx = result.IndexOf("Progress:", StringComparison.Ordinal);
+
+        extIdx.ShouldBeGreaterThan(-1);
+        descIdx.ShouldBeGreaterThan(-1);
+        progIdx.ShouldBeGreaterThan(-1);
+
+        // Extended < Description < Progress
+        descIdx.ShouldBeGreaterThan(extIdx);
+        progIdx.ShouldBeGreaterThan(descIdx);
+    }
+
     // ── EPIC-001: Sprint progress footer & category separators ──────
 
     [Fact]

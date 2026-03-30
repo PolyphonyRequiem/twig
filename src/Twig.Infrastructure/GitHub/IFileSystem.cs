@@ -15,7 +15,7 @@ internal interface IFileSystem
     void CreateDirectory(string path);
     void DeleteDirectory(string path, bool recursive);
     IEnumerable<string> EnumerateFiles(string directory, string searchPattern, SearchOption searchOption);
-    void ExtractZipToDirectory(string sourceArchive, string destinationDirectory);
+    void ExtractZipToDirectory(string sourceArchive, string destinationDirectory, bool overwriteFiles = false);
 }
 
 /// <summary>
@@ -35,6 +35,6 @@ internal sealed class DefaultFileSystem : IFileSystem
     public void DeleteDirectory(string path, bool recursive) => Directory.Delete(path, recursive);
     public IEnumerable<string> EnumerateFiles(string directory, string searchPattern, SearchOption searchOption)
         => Directory.EnumerateFiles(directory, searchPattern, searchOption);
-    public void ExtractZipToDirectory(string sourceArchive, string destinationDirectory)
-        => System.IO.Compression.ZipFile.ExtractToDirectory(sourceArchive, destinationDirectory);
+    public void ExtractZipToDirectory(string sourceArchive, string destinationDirectory, bool overwriteFiles = false)
+        => System.IO.Compression.ZipFile.ExtractToDirectory(sourceArchive, destinationDirectory, overwriteFiles);
 }

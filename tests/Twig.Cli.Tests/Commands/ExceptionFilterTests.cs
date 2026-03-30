@@ -45,7 +45,7 @@ public class ExceptionFilterTests
         });
 
     [Fact]
-    public void Handle_AdoConflictException_Returns1WithMessages() =>
+    public void Handle_AdoConflictException_Returns1WithHint() =>
         WithExitCodeRestored(() =>
         {
             var stderr = new StringWriter();

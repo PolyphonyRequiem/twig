@@ -1,3 +1,4 @@
+using System.Text;
 using Twig.Domain.Aggregates;
 
 namespace Twig.Formatters;
@@ -127,6 +128,220 @@ internal static class FormatterHelpers
     /// <summary>Returns <c>true</c> when <paramref name="done"/> ≥ <paramref name="total"/> and total &gt; 0.</summary>
     internal static bool IsProgressComplete(int done, int total)
         => total > 0 && done >= total;
+
+    private const int MaxDescriptionLines = 15;
+
+    /// <summary>
+    /// Converts an HTML string (typically from ADO description fields) to readable plain text.
+    /// Preserves block-level structure (paragraphs, headings, list items), decodes common HTML
+    /// entities, collapses blank lines, and truncates to <see cref="MaxDescriptionLines"/> lines.
+    /// AOT-safe: uses <see cref="StringBuilder"/> only — no regex, no reflection.
+    /// </summary>
+    internal static string HtmlToPlainText(string? html)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+            return string.Empty;
+
+        // Pass 1: Insert structural markers before block-level opening tags
+        var marked = InsertBlockMarkers(html);
+
+        // Pass 2: Strip remaining HTML tags
+        var stripped = StripAllTags(marked);
+
+        // Pass 3: Decode named HTML entities
+        var decoded = DecodeHtmlEntities(stripped);
+
+        // Pass 4: Collapse blank lines, trim each line, trim result
+        var lines = NormalizeLines(decoded);
+
+        // Pass 5: Truncate at MaxDescriptionLines
+        return TruncateLines(lines);
+    }
+
+    private static string InsertBlockMarkers(string html)
+    {
+        var sb = new StringBuilder(html.Length + 64);
+        var i = 0;
+
+        while (i < html.Length)
+        {
+            if (html[i] == '<')
+            {
+                var tagEnd = html.IndexOf('>', i);
+                if (tagEnd < 0)
+                {
+                    sb.Append(html, i, html.Length - i);
+                    break;
+                }
+
+                var tagContent = html.AsSpan(i + 1, tagEnd - i - 1);
+                // Trim leading '/' for closing tags — we only care about opening tags
+                var isClosing = tagContent.Length > 0 && tagContent[0] == '/';
+                var tagName = isClosing ? tagContent[1..] : tagContent;
+
+                // Strip attributes: take up to first space
+                var spaceIdx = tagName.IndexOf(' ');
+                if (spaceIdx >= 0)
+                    tagName = tagName[..spaceIdx];
+
+                if (!isClosing && IsBlockElement(tagName))
+                    sb.Append(IsListItem(tagName) ? "\n• " : "\n");
+                else if (!isClosing && IsBreakElement(tagName))
+                    sb.Append('\n');
+
+                // Append the original tag (will be stripped in pass 2)
+                sb.Append(html, i, tagEnd - i + 1);
+                i = tagEnd + 1;
+            }
+            else
+            {
+                sb.Append(html[i]);
+                i++;
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    private static bool IsBlockElement(ReadOnlySpan<char> tag)
+        => tag.Equals("p", StringComparison.OrdinalIgnoreCase)
+        || tag.Equals("li", StringComparison.OrdinalIgnoreCase)
+        || tag.Equals("div", StringComparison.OrdinalIgnoreCase)
+        || (tag.Length == 2 && (tag[0] is 'h' or 'H') && tag[1] is >= '1' and <= '6');
+
+    private static bool IsListItem(ReadOnlySpan<char> tag)
+        => tag.Equals("li", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsBreakElement(ReadOnlySpan<char> tag)
+    {
+        if (!tag.StartsWith("br", StringComparison.OrdinalIgnoreCase)) return false;
+        for (var j = 2; j < tag.Length; j++)
+            if (tag[j] != '/' && tag[j] != ' ') return false;
+        return true;
+    }
+
+    private static string StripAllTags(string input)
+    {
+        var result = new StringBuilder(input.Length);
+        var i = 0;
+        while (i < input.Length)
+        {
+            if (input[i] != '<') { result.Append(input[i++]); continue; }
+            var end = input.IndexOf('>', i);
+            if (end < 0) { result.Append(input, i, input.Length - i); break; }
+            i = end + 1;
+        }
+        return result.ToString();
+    }
+
+    private static string DecodeHtmlEntities(string input)
+    {
+        var sb = new StringBuilder(input.Length);
+        var i = 0;
+        while (i < input.Length)
+        {
+            if (input[i] == '&')
+            {
+                if (TryDecodeEntity(input, i, out var decoded, out var consumed))
+                {
+                    sb.Append(decoded);
+                    i += consumed;
+                    continue;
+                }
+            }
+            sb.Append(input[i]);
+            i++;
+        }
+        return sb.ToString();
+    }
+
+    private static bool TryDecodeEntity(string input, int start, out char decoded, out int consumed)
+    {
+        decoded = default;
+        consumed = 0;
+
+        var semi = input.IndexOf(';', start + 1);
+        if (semi < 0 || semi - start > 10) return false;
+
+        var entity = input.AsSpan(start, semi - start + 1);
+        if (entity.Equals("&amp;", StringComparison.OrdinalIgnoreCase))
+        { decoded = '&'; consumed = entity.Length; return true; }
+        if (entity.Equals("&lt;", StringComparison.OrdinalIgnoreCase))
+        { decoded = '<'; consumed = entity.Length; return true; }
+        if (entity.Equals("&gt;", StringComparison.OrdinalIgnoreCase))
+        { decoded = '>'; consumed = entity.Length; return true; }
+        if (entity.Equals("&quot;", StringComparison.OrdinalIgnoreCase))
+        { decoded = '"'; consumed = entity.Length; return true; }
+        if (entity.Equals("&nbsp;", StringComparison.OrdinalIgnoreCase))
+        { decoded = ' '; consumed = entity.Length; return true; }
+
+        return false;
+    }
+
+    private static List<string> NormalizeLines(string text)
+    {
+        var lines = new List<string>();
+        var sb = new StringBuilder();
+        for (var i = 0; i < text.Length; i++)
+        {
+            if (text[i] == '\r')
+            {
+                // \r\n or \r alone → line break
+                lines.Add(sb.ToString().Trim());
+                sb.Clear();
+                if (i + 1 < text.Length && text[i + 1] == '\n')
+                    i++;
+            }
+            else if (text[i] == '\n')
+            {
+                lines.Add(sb.ToString().Trim());
+                sb.Clear();
+            }
+            else
+            {
+                sb.Append(text[i]);
+            }
+        }
+        lines.Add(sb.ToString().Trim());
+
+        // Collapse consecutive blank lines to a single blank line
+        var collapsed = new List<string>();
+        var lastWasBlank = false;
+        foreach (var line in lines)
+        {
+            if (line.Length == 0)
+            {
+                if (!lastWasBlank)
+                    collapsed.Add(line);
+                lastWasBlank = true;
+            }
+            else
+            {
+                collapsed.Add(line);
+                lastWasBlank = false;
+            }
+        }
+
+        // Trim leading/trailing blank lines
+        while (collapsed.Count > 0 && collapsed[0].Length == 0)
+            collapsed.RemoveAt(0);
+        while (collapsed.Count > 0 && collapsed[^1].Length == 0)
+            collapsed.RemoveAt(collapsed.Count - 1);
+
+        return collapsed;
+    }
+
+    private static string TruncateLines(List<string> lines)
+    {
+        if (lines.Count <= MaxDescriptionLines)
+            return string.Join('\n', lines);
+
+        var totalLines = lines.Count;
+        var remaining = totalLines - MaxDescriptionLines;
+        var truncated = lines.GetRange(0, MaxDescriptionLines);
+        truncated.Add($"(+{remaining} more lines)");
+        return string.Join('\n', truncated);
+    }
 
     private static string Truncate(string value, int maxLength)
     {

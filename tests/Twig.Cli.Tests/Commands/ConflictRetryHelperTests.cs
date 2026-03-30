@@ -19,8 +19,6 @@ public sealed class ConflictRetryHelperTests
         new FieldChange("System.Title", "Old", "New"),
     ];
 
-    // ── Happy path ──────────────────────────────────────────────
-
     [Fact]
     public async Task FirstAttemptSucceeds_ReturnsNewRevision()
     {
@@ -32,27 +30,23 @@ public sealed class ConflictRetryHelperTests
             _adoService, 42, Changes, 5, CancellationToken.None);
 
         result.ShouldBe(6);
+        await _adoService.Received(1).PatchAsync(42, Changes, 5, Arg.Any<CancellationToken>());
         await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
-
-    // ── Retry succeeds ──────────────────────────────────────────
 
     [Fact]
     public async Task FirstAttemptConflicts_RetrySucceeds_ReturnsNewRevision()
     {
-        // First call → conflict
         _adoService
             .PatchAsync(42, Changes, 5, Arg.Any<CancellationToken>())
             .ThrowsAsync(new AdoConflictException(7));
 
-        // Re-fetch returns fresh item at revision 7
         var freshItem = new WorkItemBuilder(42, "Item").Build();
         freshItem.MarkSynced(7);
         _adoService
             .FetchAsync(42, Arg.Any<CancellationToken>())
             .Returns(freshItem);
 
-        // Retry with fresh revision succeeds
         _adoService
             .PatchAsync(42, Changes, 7, Arg.Any<CancellationToken>())
             .Returns(8);
@@ -61,27 +55,23 @@ public sealed class ConflictRetryHelperTests
             _adoService, 42, Changes, 5, CancellationToken.None);
 
         result.ShouldBe(8);
+        await _adoService.Received(2).PatchAsync(Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
         await _adoService.Received(1).FetchAsync(42, Arg.Any<CancellationToken>());
     }
-
-    // ── Retry also conflicts (genuine concurrent edit) ──────────
 
     [Fact]
     public async Task BothAttemptsConflict_ThrowsAdoConflictException()
     {
-        // First call → conflict
         _adoService
             .PatchAsync(42, Changes, 5, Arg.Any<CancellationToken>())
             .ThrowsAsync(new AdoConflictException(7));
 
-        // Re-fetch
         var freshItem = new WorkItemBuilder(42, "Item").Build();
         freshItem.MarkSynced(7);
         _adoService
             .FetchAsync(42, Arg.Any<CancellationToken>())
             .Returns(freshItem);
 
-        // Retry also conflicts
         _adoService
             .PatchAsync(42, Changes, 7, Arg.Any<CancellationToken>())
             .ThrowsAsync(new AdoConflictException(9));
@@ -91,9 +81,8 @@ public sealed class ConflictRetryHelperTests
                 _adoService, 42, Changes, 5, CancellationToken.None));
 
         ex.ServerRevision.ShouldBe(9);
+        await _adoService.Received(2).PatchAsync(Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
-
-    // ── Non-conflict exception on first attempt → no retry ──────
 
     [Fact]
     public async Task FirstAttemptThrowsNonConflict_RethrowsImmediately()
@@ -106,11 +95,9 @@ public sealed class ConflictRetryHelperTests
             () => ConflictRetryHelper.PatchWithRetryAsync(
                 _adoService, 42, Changes, 5, CancellationToken.None));
 
-        // Should NOT have attempted a re-fetch
+        await _adoService.Received(1).PatchAsync(42, Changes, 5, Arg.Any<CancellationToken>());
         await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
-
-    // ── Cancellation is respected ───────────────────────────────
 
     [Fact]
     public async Task CancellationToken_IsPassedThrough()
@@ -126,5 +113,23 @@ public sealed class ConflictRetryHelperTests
             _adoService, 42, Changes, 5, ct);
 
         await _adoService.Received(1).PatchAsync(42, Changes, 5, ct);
+    }
+
+    [Fact]
+    public async Task FetchAsyncThrowsDuringRetry_PropagatesException()
+    {
+        _adoService
+            .PatchAsync(42, Changes, 5, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoConflictException(7));
+
+        _adoService
+            .FetchAsync(42, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("network error"));
+
+        await Should.ThrowAsync<HttpRequestException>(
+            () => ConflictRetryHelper.PatchWithRetryAsync(
+                _adoService, 42, Changes, 5, CancellationToken.None));
+
+        await _adoService.Received(1).PatchAsync(42, Changes, 5, Arg.Any<CancellationToken>());
     }
 }

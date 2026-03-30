@@ -44,10 +44,8 @@ public sealed class StateCommand(
             return 1;
         }
 
-        // Get process configuration
         var processConfig = processConfigProvider.GetConfiguration();
 
-        // Resolve state name (exact or unambiguous prefix)
         if (!processConfig.TypeConfigs.TryGetValue(item.Type, out var typeConfig))
         {
             Console.Error.WriteLine(fmt.FormatError($"No process configuration found for type '{item.Type}'."));
@@ -68,7 +66,6 @@ public sealed class StateCommand(
             return 0;
         }
 
-        // Validate transition
         var transition = StateTransitionService.Evaluate(processConfig, item.Type, item.State, newState);
 
         if (!transition.IsAllowed)
@@ -77,7 +74,6 @@ public sealed class StateCommand(
             return 1;
         }
 
-        // Prompt for confirmation on backward/cut transitions (Console.Write kept as-is)
         if (transition.RequiresConfirmation)
         {
             var kind = transition.Kind == TransitionKind.Cut ? "REMOVE" : "move backward";
@@ -90,7 +86,6 @@ public sealed class StateCommand(
             }
         }
 
-        // Fetch latest from ADO to check for conflicts
         var remote = await adoService.FetchAsync(item.Id);
 
         // FM-006: Conflict detection before state change
@@ -103,12 +98,12 @@ public sealed class StateCommand(
             return 0;
 
         var changes = new[] { new FieldChange("System.State", item.State, newState) };
-        var newRevision = await adoService.PatchAsync(item.Id, changes, remote.Revision);
+        var newRevision = await ConflictRetryHelper.PatchWithRetryAsync(
+            adoService, item.Id, changes, remote.Revision, ct);
 
         // Auto-push pending notes (preserve field changes)
         await AutoPushNotesHelper.PushAndClearAsync(item.Id, pendingChangeStore, adoService);
 
-        // Update cache
         item.ChangeState(newState);
         item.ApplyCommands();
         item.MarkSynced(newRevision);
@@ -116,7 +111,6 @@ public sealed class StateCommand(
 
         if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
-        // Gather siblings for hint engine
         var siblings = item.ParentId.HasValue
             ? await workItemRepo.GetChildrenAsync(item.ParentId.Value)
             : Array.Empty<Domain.Aggregates.WorkItem>();

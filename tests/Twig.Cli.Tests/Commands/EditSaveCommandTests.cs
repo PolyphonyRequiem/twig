@@ -1,4 +1,5 @@
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
@@ -8,6 +9,7 @@ using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
+using Twig.Infrastructure.Ado.Exceptions;
 using Twig.Infrastructure.Config;
 using Xunit;
 
@@ -134,6 +136,95 @@ public class EditSaveCommandTests
 
         result.ShouldBe(0);
         await _adoService.Received().AddCommentAsync(1, "A note", Arg.Any<CancellationToken>());
+    }
+
+    // ── SaveCommand conflict retry integration tests ──────────────────
+
+    [Fact]
+    public async Task Save_PatchConflictOnFirstAttempt_RetriesAndSucceeds()
+    {
+        var item = CreateWorkItem(1, "Title");
+        SetupActiveItem(item);
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
+            .Returns(new[] { 1 });
+
+        // Pre-patch fetch returns rev 3
+        var remote = CreateWorkItem(1, "Title");
+        remote.MarkSynced(3);
+
+        // After conflict, helper re-fetches → rev 5
+        var freshRemote = CreateWorkItem(1, "Title");
+        freshRemote.MarkSynced(5);
+
+        // Post-save cache refresh
+        var updatedRemote = CreateWorkItem(1, "Title");
+        updatedRemote.MarkSynced(6);
+
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>())
+            .Returns(remote, freshRemote, updatedRemote);
+
+        var fieldChange = new PendingChangeRecord(1, "field", "System.Title", "Old", "New");
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { fieldChange });
+
+        // First PatchAsync with rev 3 → conflict
+        _adoService
+            .PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoConflictException(5));
+
+        // Retry PatchAsync with fresh rev 5 → success
+        _adoService
+            .PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), 5, Arg.Any<CancellationToken>())
+            .Returns(6);
+
+        var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
+            _resolver, _consoleInput, _formatterFactory);
+        var result = await saveCmd.ExecuteAsync(all: true);
+
+        result.ShouldBe(0);
+        // Verify retry path was followed
+        await _adoService.Received(1).PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>());
+        await _adoService.Received(1).PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), 5, Arg.Any<CancellationToken>());
+        await _pendingChangeStore.Received().ClearChangesAsync(1, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Save_PatchConflictOnBothAttempts_ThrowsAdoConflictException()
+    {
+        var item = CreateWorkItem(1, "Title");
+        SetupActiveItem(item);
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
+            .Returns(new[] { 1 });
+
+        var remote = CreateWorkItem(1, "Title");
+        remote.MarkSynced(3);
+
+        var freshRemote = CreateWorkItem(1, "Title");
+        freshRemote.MarkSynced(5);
+
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>())
+            .Returns(remote, freshRemote);
+
+        var fieldChange = new PendingChangeRecord(1, "field", "System.Title", "Old", "New");
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { fieldChange });
+
+        // Both attempts conflict
+        _adoService
+            .PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoConflictException(5));
+        _adoService
+            .PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), 5, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoConflictException(7));
+
+        var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
+            _resolver, _consoleInput, _formatterFactory);
+
+        await Should.ThrowAsync<AdoConflictException>(
+            () => saveCmd.ExecuteAsync(all: true));
+
+        // Pending changes should NOT be cleared on failure
+        await _pendingChangeStore.DidNotReceive().ClearChangesAsync(1, Arg.Any<CancellationToken>());
     }
 
     // ── EditCommand field parser tests ─────────────────────────────

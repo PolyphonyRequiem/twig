@@ -1,5 +1,6 @@
 using System.Text.Json;
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
@@ -8,6 +9,8 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
+using Twig.Infrastructure.Ado.Exceptions;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
@@ -212,6 +215,69 @@ public class UpdateCommandTests
         message.ShouldNotBeNull();
         message.ShouldContain("# Hello");
         message.ShouldNotContain("<h1>");
+    }
+
+    [Fact]
+    public async Task Update_ConflictOnPatch_RetriesSuccessfully()
+    {
+        var local = CreateWorkItem(1, "Test");
+        SetupActiveItem(local);
+
+        var remote = CreateWorkItem(1, "Test");
+        remote.MarkSynced(2);
+
+        var freshItem = new WorkItemBuilder(1, "Test").Build();
+        freshItem.MarkSynced(3);
+
+        // FetchAsync: 1st → remote (pre-patch), 2nd → freshItem (retry re-fetch),
+        //             3rd → freshItem (post-patch refresh)
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>())
+            .Returns(remote, freshItem, freshItem);
+
+        _adoService
+            .PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), 2, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoConflictException(3));
+
+        _adoService
+            .PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
+            .Returns(4);
+
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+
+        var result = await _cmd.ExecuteAsync("System.Title", "Updated");
+
+        result.ShouldBe(0);
+        await _adoService.Received(2).PatchAsync(1,
+            Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Update_ConflictExhausted_Returns1()
+    {
+        var local = CreateWorkItem(1, "Test");
+        SetupActiveItem(local);
+
+        var remote = CreateWorkItem(1, "Test");
+        remote.MarkSynced(2);
+
+        var freshItem = new WorkItemBuilder(1, "Test").Build();
+        freshItem.MarkSynced(3);
+
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>())
+            .Returns(remote, freshItem);
+
+        _adoService
+            .PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), 2, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoConflictException(3));
+
+        _adoService
+            .PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoConflictException(5));
+
+        var result = await _cmd.ExecuteAsync("System.Title", "Updated");
+
+        result.ShouldBe(1);
     }
 
     private void SetupActiveItem(WorkItem item)

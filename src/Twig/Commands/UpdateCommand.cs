@@ -2,6 +2,7 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
+using Twig.Infrastructure.Ado.Exceptions;
 using Twig.Infrastructure.Content;
 
 namespace Twig.Commands;
@@ -24,7 +25,6 @@ public sealed class UpdateCommand(
     private readonly TextWriter _stderr = stderr ?? Console.Error;
     private readonly TextWriter _stdout = stdout ?? Console.Out;
 
-    /// <summary>Update a field on the active work item and push to ADO.</summary>
     public async Task<int> ExecuteAsync(string field, string value, string outputFormat = OutputFormatterFactory.DefaultFormat, string? format = null, CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
@@ -62,7 +62,15 @@ public sealed class UpdateCommand(
         var effectiveValue = format is null ? value : MarkdownConverter.ToHtml(value);
 
         var changes = new[] { new FieldChange(field, null, effectiveValue) };
-        await adoService.PatchAsync(local.Id, changes, remote.Revision);
+        try
+        {
+            await ConflictRetryHelper.PatchWithRetryAsync(adoService, local.Id, changes, remote.Revision, ct);
+        }
+        catch (AdoConflictException)
+        {
+            _stderr.WriteLine(fmt.FormatError("Concurrency conflict after retry. Run 'twig refresh' and retry."));
+            return 1;
+        }
 
         await AutoPushNotesHelper.PushAndClearAsync(local.Id, pendingChangeStore, adoService);
 

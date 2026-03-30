@@ -36,17 +36,14 @@ public sealed class SaveCommand(
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
-        // Determine which items to save based on scoping parameters
         IReadOnlyList<int> itemsToSave;
 
         if (targetId.HasValue)
         {
-            // Single item mode: save only the specified item
             itemsToSave = [targetId.Value];
         }
         else if (all)
         {
-            // All mode: save all dirty items (original behavior)
             itemsToSave = await pendingChangeStore.GetDirtyItemIdsAsync();
         }
         else
@@ -70,22 +67,9 @@ public sealed class SaveCommand(
                 return 0;
             }
 
-            var dirtySet = new HashSet<int>(dirtyIds);
-            var workTreeIds = new List<int>();
-
-            // Include active item if dirty
-            if (dirtySet.Contains(activeId))
-                workTreeIds.Add(activeId);
-
-            // Include dirty children of the active item
             var children = await workItemRepo.GetChildrenAsync(activeId);
-            foreach (var child in children)
-            {
-                if (dirtySet.Contains(child.Id))
-                    workTreeIds.Add(child.Id);
-            }
-
-            itemsToSave = workTreeIds;
+            var childIds = new HashSet<int>(children.Select(c => c.Id));
+            itemsToSave = dirtyIds.Where(id => id == activeId || childIds.Contains(id)).ToList();
         }
 
         if (itemsToSave.Count == 0)
@@ -111,7 +95,6 @@ public sealed class SaveCommand(
             if (pending.Count == 0)
                 continue;
 
-            // Pull latest revision
             var remote = await adoService.FetchAsync(item.Id);
 
             // FM-006: Conflict resolution
@@ -127,7 +110,6 @@ public sealed class SaveCommand(
             if (conflictOutcome is ConflictOutcome.AcceptedRemote or ConflictOutcome.Aborted)
                 continue;
 
-            // Collect field changes and notes
             var fieldChanges = new List<FieldChange>();
             var notes = new List<string>();
 
@@ -144,15 +126,13 @@ public sealed class SaveCommand(
                 }
             }
 
-            // Push field changes
             if (fieldChanges.Count > 0)
             {
                 // Return value (new revision) discarded; cache is refreshed via FetchAsync below
-                await adoService.PatchAsync(item.Id, fieldChanges, remote.Revision);
+                await ConflictRetryHelper.PatchWithRetryAsync(adoService, item.Id, fieldChanges, remote.Revision, ct);
                 Console.WriteLine(fmt.FormatSuccess($"Pushed {fieldChanges.Count} field change(s) for #{item.Id}."));
             }
 
-            // Push notes as comments
             foreach (var note in notes)
             {
                 await adoService.AddCommentAsync(item.Id, note);
@@ -161,7 +141,6 @@ public sealed class SaveCommand(
             if (notes.Count > 0)
                 Console.WriteLine(fmt.FormatSuccess($"Pushed {notes.Count} note(s) for #{item.Id}."));
 
-            // Clear pending and refresh cache
             await pendingChangeStore.ClearChangesAsync(item.Id);
             var updated = await adoService.FetchAsync(item.Id);
             await workItemRepo.SaveAsync(updated);
@@ -170,8 +149,8 @@ public sealed class SaveCommand(
             Console.WriteLine(fmt.FormatSuccess($"#{item.Id} saved and synced."));
         }
 
-        if (anySaved && !skipPromptWrite)
-            if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
+        if (anySaved && !skipPromptWrite && promptStateWriter is not null)
+            await promptStateWriter.WritePromptStateAsync();
 
         return hadErrors ? 1 : 0;
     }

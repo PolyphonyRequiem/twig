@@ -171,6 +171,7 @@ public sealed class SeedPublishOrchestrator
         try
         {
             var refreshed = await _adoService.FetchAsync(newId, ct);
+            refreshed = refreshed.WithIsSeed(true);
             await _workItemRepo.SaveAsync(refreshed, ct);
         }
         catch

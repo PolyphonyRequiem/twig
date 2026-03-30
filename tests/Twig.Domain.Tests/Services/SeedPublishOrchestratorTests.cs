@@ -191,7 +191,7 @@ public class SeedPublishOrchestratorTests
         await _seedLinkRepo.Received(1).RemapIdAsync(-1, 500, Arg.Any<CancellationToken>());
         await _workItemRepo.Received(1).RemapParentIdAsync(-1, 500, Arg.Any<CancellationToken>());
         await _workItemRepo.Received(1).DeleteByIdAsync(-1, Arg.Any<CancellationToken>());
-        await _workItemRepo.Received(1).SaveAsync(Arg.Is<WorkItem>(w => w.Id == 500 && w.IsSeed), Arg.Any<CancellationToken>());
+        await _workItemRepo.Received(2).SaveAsync(Arg.Is<WorkItem>(w => w.Id == 500 && w.IsSeed), Arg.Any<CancellationToken>());
         await _unitOfWork.Received(1).CommitAsync(_transaction, Arg.Any<CancellationToken>());
         await _unitOfWork.DidNotReceive().RollbackAsync(Arg.Any<ITransaction>(), Arg.Any<CancellationToken>());
     }
@@ -210,8 +210,8 @@ public class SeedPublishOrchestratorTests
 
         result.Status.ShouldBe(SeedPublishStatus.Created);
 
-        // Verify saved item has IsSeed = true
-        await _workItemRepo.Received(1).SaveAsync(
+        // Verify saved items have IsSeed = true (transactional save + post-publish refresh)
+        await _workItemRepo.Received(2).SaveAsync(
             Arg.Is<WorkItem>(w => w.IsSeed == true && w.Id == 500),
             Arg.Any<CancellationToken>());
     }
@@ -225,10 +225,7 @@ public class SeedPublishOrchestratorTests
     {
         var seed = new WorkItemBuilder(-1, "Failing seed").AsSeed().Build();
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
-
-        _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>()).Returns(500);
-        _adoService.FetchAsync(500, Arg.Any<CancellationToken>()).Returns(
-            new WorkItemBuilder(500, "Fetched").Build());
+        SetupSuccessfulAdoFlow(-1, 500);
 
         // Simulate failure during transaction
         _publishIdMapRepo.RecordMappingAsync(Arg.Any<int>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
@@ -307,10 +304,7 @@ public class SeedPublishOrchestratorTests
     {
         var seed = new WorkItemBuilder(-1, "Linked seed").AsSeed().WithParent(100).Build();
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
-
-        var fetchedItem = new WorkItemBuilder(500, "Fetched").Build();
-        _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>()).Returns(500);
-        _adoService.FetchAsync(500, Arg.Any<CancellationToken>()).Returns(fetchedItem);
+        SetupSuccessfulAdoFlow(-1, 500);
 
         // After remap, link between 500 and 200 is eligible
         var links = new[]
@@ -331,10 +325,7 @@ public class SeedPublishOrchestratorTests
     {
         var seed = new WorkItemBuilder(-1, "Linked seed").AsSeed().Build();
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
-
-        var fetchedItem = new WorkItemBuilder(500, "Fetched").Build();
-        _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>()).Returns(500);
-        _adoService.FetchAsync(500, Arg.Any<CancellationToken>()).Returns(fetchedItem);
+        SetupSuccessfulAdoFlow(-1, 500);
 
         var links = new[]
         {
@@ -526,9 +517,9 @@ public class SeedPublishOrchestratorTests
         // SaveAsync called twice: once at step 10e (transaction), once at step 12b (refresh)
         await _workItemRepo.Received(2).SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
 
-        // Second SaveAsync receives the higher-revision item from post-publish refresh
+        // Second SaveAsync receives the higher-revision item from post-publish refresh with IsSeed preserved
         await _workItemRepo.Received(1).SaveAsync(
-            Arg.Is<WorkItem>(w => w.Id == 500 && w.Revision == 3),
+            Arg.Is<WorkItem>(w => w.Id == 500 && w.Revision == 3 && w.IsSeed),
             Arg.Any<CancellationToken>());
     }
 

@@ -93,6 +93,7 @@ public class BuildStatusViewDescriptionTests
 
         output.ShouldContain("Should appear in description section only");
         output.ShouldContain("High");
+        output.ShouldNotContain("Description:");
     }
 
     [Fact]
@@ -102,16 +103,13 @@ public class BuildStatusViewDescriptionTests
         item.SetField("System.Description", "Full-width description text here.");
         item.SetField("Custom.Priority", "Medium");
 
-        var statusFieldEntries = new List<StatusFieldEntry>
-        {
-            new("System.Description", true),
-            new("Custom.Priority", true),
-        };
+        List<StatusFieldEntry> statusFieldEntries = [new("System.Description", true), new("Custom.Priority", true)];
 
         var output = await RenderStatusViewAsync(item, statusFieldEntries);
 
         output.ShouldContain("Full-width description text here");
         output.ShouldContain("Medium");
+        output.ShouldNotContain("Description:");
     }
 
     // ── Long / multi-paragraph integration tests ──────────────────────
@@ -163,7 +161,7 @@ public class BuildStatusViewDescriptionTests
     {
         var renderable = await _renderer.BuildStatusViewAsync(
             () => Task.FromResult<WorkItem?>(item),
-            () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>(Array.Empty<PendingChangeRecord>()),
+            () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>([]),
             CancellationToken.None,
             statusFieldEntries: statusFieldEntries);
         _testConsole.Write(renderable);

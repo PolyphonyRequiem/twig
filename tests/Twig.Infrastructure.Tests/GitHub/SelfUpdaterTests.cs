@@ -305,12 +305,13 @@ public class SelfUpdaterTests : IDisposable
         // Allow temp operations to work
         fileSystem.FileCreate(Arg.Any<string>()).Returns(ci => File.Create((string)ci[0]));
         fileSystem.CreateDirectory(Arg.Any<string>());
-        fileSystem.When(x => x.ExtractZipToDirectory(Arg.Any<string>(), Arg.Any<string>()))
+        fileSystem.When(x => x.ExtractZipToDirectory(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<bool>()))
             .Do(ci =>
             {
                 var source = (string)ci[0];
                 var dest = (string)ci[1];
-                ZipFile.ExtractToDirectory(source, dest);
+                var overwrite = (bool)ci[2];
+                ZipFile.ExtractToDirectory(source, dest, overwrite);
             });
         fileSystem.EnumerateFiles(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<SearchOption>())
             .Returns(ci => Directory.EnumerateFiles((string)ci[0], (string)ci[1], (SearchOption)ci[2]));
@@ -357,8 +358,8 @@ public class SelfUpdaterTests : IDisposable
         // All other FS operations work normally
         fileSystem.When(x => x.CreateDirectory(Arg.Any<string>()))
             .Do(ci => Directory.CreateDirectory((string)ci[0]));
-        fileSystem.When(x => x.ExtractZipToDirectory(Arg.Any<string>(), Arg.Any<string>()))
-            .Do(ci => ZipFile.ExtractToDirectory((string)ci[0], (string)ci[1]));
+        fileSystem.When(x => x.ExtractZipToDirectory(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<bool>()))
+            .Do(ci => ZipFile.ExtractToDirectory((string)ci[0], (string)ci[1], (bool)ci[2]));
         fileSystem.EnumerateFiles(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<SearchOption>())
             .Returns(ci => Directory.EnumerateFiles((string)ci[0], (string)ci[1], (SearchOption)ci[2]));
         // FileMove and FileCopy succeed (mocked as no-ops — we're testing the .old file lock behavior)

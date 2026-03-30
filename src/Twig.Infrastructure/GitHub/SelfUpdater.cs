@@ -58,7 +58,7 @@ public sealed class SelfUpdater
 
             if (archiveName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
             {
-                _fileSystem.ExtractZipToDirectory(tempArchive, tempExtractDir);
+                _fileSystem.ExtractZipToDirectory(tempArchive, tempExtractDir, overwriteFiles: true);
             }
             else if (archiveName.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase))
             {

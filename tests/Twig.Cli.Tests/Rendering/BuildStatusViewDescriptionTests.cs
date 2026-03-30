@@ -29,13 +29,7 @@ public class BuildStatusViewDescriptionTests
         var item = CreateWorkItem(10, "With Description", "Active");
         item.SetField("System.Description", "This is a detailed work item description.");
 
-        var renderable = await _renderer.BuildStatusViewAsync(
-            () => Task.FromResult<WorkItem?>(item),
-            () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>(Array.Empty<PendingChangeRecord>()),
-            CancellationToken.None);
-
-        _testConsole.Write(renderable);
-        var output = _testConsole.Output;
+        var output = await RenderStatusViewAsync(item);
 
         output.ShouldContain("Description");
         output.ShouldContain("detailed work item description");
@@ -47,13 +41,7 @@ public class BuildStatusViewDescriptionTests
         var item = CreateWorkItem(11, "HTML Desc", "Active");
         item.SetField("System.Description", "<div><p>Hello <b>world</b></p></div>");
 
-        var renderable = await _renderer.BuildStatusViewAsync(
-            () => Task.FromResult<WorkItem?>(item),
-            () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>(Array.Empty<PendingChangeRecord>()),
-            CancellationToken.None);
-
-        _testConsole.Write(renderable);
-        var output = _testConsole.Output;
+        var output = await RenderStatusViewAsync(item);
 
         output.ShouldContain("Hello world");
         output.ShouldNotContain("<div>");
@@ -65,13 +53,7 @@ public class BuildStatusViewDescriptionTests
     {
         var item = CreateWorkItem(12, "No Desc", "Active");
 
-        var renderable = await _renderer.BuildStatusViewAsync(
-            () => Task.FromResult<WorkItem?>(item),
-            () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>(Array.Empty<PendingChangeRecord>()),
-            CancellationToken.None);
-
-        _testConsole.Write(renderable);
-        var output = _testConsole.Output;
+        var output = await RenderStatusViewAsync(item);
 
         output.ShouldNotContain("Description");
     }
@@ -82,13 +64,7 @@ public class BuildStatusViewDescriptionTests
         var item = CreateWorkItem(13, "Blank Desc", "Active");
         item.SetField("System.Description", "   ");
 
-        var renderable = await _renderer.BuildStatusViewAsync(
-            () => Task.FromResult<WorkItem?>(item),
-            () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>(Array.Empty<PendingChangeRecord>()),
-            CancellationToken.None);
-
-        _testConsole.Write(renderable);
-        var output = _testConsole.Output;
+        var output = await RenderStatusViewAsync(item);
 
         output.ShouldNotContain("Description");
     }
@@ -99,13 +75,7 @@ public class BuildStatusViewDescriptionTests
         var item = CreateWorkItem(14, "Empty HTML", "Active");
         item.SetField("System.Description", "<div>  </div>");
 
-        var renderable = await _renderer.BuildStatusViewAsync(
-            () => Task.FromResult<WorkItem?>(item),
-            () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>(Array.Empty<PendingChangeRecord>()),
-            CancellationToken.None);
-
-        _testConsole.Write(renderable);
-        var output = _testConsole.Output;
+        var output = await RenderStatusViewAsync(item);
 
         output.ShouldNotContain("Description");
     }
@@ -119,17 +89,9 @@ public class BuildStatusViewDescriptionTests
         item.SetField("System.Description", "Should appear in description section only.");
         item.SetField("Custom.Priority", "High");
 
-        var renderable = await _renderer.BuildStatusViewAsync(
-            () => Task.FromResult<WorkItem?>(item),
-            () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>(Array.Empty<PendingChangeRecord>()),
-            CancellationToken.None);
+        var output = await RenderStatusViewAsync(item);
 
-        _testConsole.Write(renderable);
-        var output = _testConsole.Output;
-
-        // Description appears in the full-width section
         output.ShouldContain("Should appear in description section only");
-        // Custom field still shows as extended row
         output.ShouldContain("High");
     }
 
@@ -146,18 +108,9 @@ public class BuildStatusViewDescriptionTests
             new("Custom.Priority", true),
         };
 
-        var renderable = await _renderer.BuildStatusViewAsync(
-            () => Task.FromResult<WorkItem?>(item),
-            () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>(Array.Empty<PendingChangeRecord>()),
-            CancellationToken.None,
-            statusFieldEntries: statusFieldEntries);
+        var output = await RenderStatusViewAsync(item, statusFieldEntries);
 
-        _testConsole.Write(renderable);
-        var output = _testConsole.Output;
-
-        // Description appears in the full-width section
         output.ShouldContain("Full-width description text here");
-        // Custom field still shows as extended row
         output.ShouldContain("Medium");
     }
 
@@ -171,13 +124,7 @@ public class BuildStatusViewDescriptionTests
         var paragraphs = string.Concat(Enumerable.Range(1, 20).Select(i => $"<p>Paragraph {i} content.</p>"));
         item.SetField("System.Description", $"<div>{paragraphs}</div>");
 
-        var renderable = await _renderer.BuildStatusViewAsync(
-            () => Task.FromResult<WorkItem?>(item),
-            () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>(Array.Empty<PendingChangeRecord>()),
-            CancellationToken.None);
-
-        _testConsole.Write(renderable);
-        var output = _testConsole.Output;
+        var output = await RenderStatusViewAsync(item);
 
         output.ShouldContain("Description");
         output.ShouldContain("Paragraph 1 content");
@@ -191,13 +138,7 @@ public class BuildStatusViewDescriptionTests
         var item = CreateWorkItem(18, "Multi Para", "Active");
         item.SetField("System.Description", "<p>First paragraph</p><p>Second paragraph</p>");
 
-        var renderable = await _renderer.BuildStatusViewAsync(
-            () => Task.FromResult<WorkItem?>(item),
-            () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>(Array.Empty<PendingChangeRecord>()),
-            CancellationToken.None);
-
-        _testConsole.Write(renderable);
-        var output = _testConsole.Output;
+        var output = await RenderStatusViewAsync(item);
 
         output.ShouldContain("First paragraph");
         output.ShouldContain("Second paragraph");
@@ -216,5 +157,16 @@ public class BuildStatusViewDescriptionTests
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value,
         };
+    }
+
+    private async Task<string> RenderStatusViewAsync(WorkItem item, List<StatusFieldEntry>? statusFieldEntries = null)
+    {
+        var renderable = await _renderer.BuildStatusViewAsync(
+            () => Task.FromResult<WorkItem?>(item),
+            () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>(Array.Empty<PendingChangeRecord>()),
+            CancellationToken.None,
+            statusFieldEntries: statusFieldEntries);
+        _testConsole.Write(renderable);
+        return _testConsole.Output;
     }
 }

@@ -508,8 +508,11 @@ public class SeedPublishOrchestratorTests
         var seed = new WorkItemBuilder(-1, "My seed").AsSeed().Build();
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
 
+        // First fetch (step 8) returns Rev 1; second fetch (step 12b refresh) returns Rev 3
         var fetchedItem = new WorkItemBuilder(500, "Fetched").Build();
+        fetchedItem.MarkSynced(1);
         var refreshedItem = new WorkItemBuilder(500, "Refreshed").Build();
+        refreshedItem.MarkSynced(3);
         _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>()).Returns(500);
         _adoService.FetchAsync(500, Arg.Any<CancellationToken>()).Returns(fetchedItem, refreshedItem);
 
@@ -522,18 +525,24 @@ public class SeedPublishOrchestratorTests
 
         // SaveAsync called twice: once at step 10e (transaction), once at step 12b (refresh)
         await _workItemRepo.Received(2).SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+
+        // Second SaveAsync receives the higher-revision item from post-publish refresh
+        await _workItemRepo.Received(1).SaveAsync(
+            Arg.Is<WorkItem>(w => w.Id == 500 && w.Revision == 3),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task PublishAsync_CacheRefreshFetchFails_StillReturnsSuccess()
+    public async Task PublishAsync_RefreshFailure_StillReturnsSuccess()
     {
         var seed = new WorkItemBuilder(-1, "My seed").AsSeed().Build();
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
 
         var fetchedItem = new WorkItemBuilder(500, "Fetched").Build();
+        fetchedItem.MarkSynced(1);
         _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>()).Returns(500);
 
-        // First FetchAsync succeeds (step 8), second throws (step 12b refresh)
+        // First FetchAsync succeeds (step 8), second throws (step 12b post-publish refresh)
         _adoService.FetchAsync(500, Arg.Any<CancellationToken>())
             .Returns(
                 _ => fetchedItem,
@@ -541,10 +550,13 @@ public class SeedPublishOrchestratorTests
 
         var result = await _orchestrator.PublishAsync(-1);
 
-        // Publish still succeeds despite refresh failure
+        // Publish still returns Created — refresh failure is non-fatal
         result.Status.ShouldBe(SeedPublishStatus.Created);
         result.NewId.ShouldBe(500);
         result.IsSuccess.ShouldBeTrue();
+
+        // SaveAsync called only once (transactional save); refresh save never reached
+        await _workItemRepo.Received(1).SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

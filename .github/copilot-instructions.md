@@ -72,10 +72,15 @@ task row. The mapping is stored in `tools/plan-ado-map.json`.
 - Use the `twig-cli` skill for full command reference
 - **Always assign to the user** after creating and publishing a seed:
   `twig set <id>` → `twig update System.AssignedTo "Daniel Green"`
-- **Always add a description** after creating and publishing a seed:
-  `twig set <id>` → `twig update System.Description "..."`
+- **Always add a rich description** after creating and publishing a seed:
+  `twig set <id>` → `twig update System.Description "<markdown>" --format markdown`
 - Note: `twig update` pushes immediately to ADO — no `twig save` needed afterward
-- Descriptions should explain what, why, and acceptance criteria (2-5 sentences, plain text)
+- **Description quality standards:**
+  - Always use `--format markdown` for System.Description fields
+  - Write at least 2-3 paragraphs unless the item is truly trivial
+  - Use Markdown headings, bullet lists, bold, and code formatting for readability
+  - Include: what the change is, why it matters, context/background, acceptance criteria
+  - ADO renders the HTML natively — make it look professional
 
 ### Commit conventions
 When committing code that implements plan work:

@@ -1,7 +1,7 @@
 # Plan: ChangedDate Conflict Errors on Publish-then-Update
 
 > **Date**: 2026-03-29
-> **Status**: 🔨 In Progress
+> **Status**: ✅ Done
 > **ADO Issue**: #1279
 
 ---
@@ -291,3 +291,40 @@ to keep the local cache at the correct revision after link promotion and backlog
 3. On retry exhaustion, the error message is actionable (FM-006)
 4. No behavioral change for users who don't hit 412 conflicts
 5. All tests pass, including new retry tests and orchestrator refresh tests
+
+---
+
+## Completion
+
+> **Completed**: 2026-03-30
+> **ADO State**: Done
+
+### Summary
+
+All work for this plan has been delivered across two PRs:
+
+1. **PR: Conflict Retry Helper + Command Integration** (Epic 1) — Introduced `ConflictRetryHelper` with single-retry semantics, integrated into `UpdateCommand`, `StateCommand`, and `SaveCommand`. Added FM-006 handler to `ExceptionHandler` for actionable 412 conflict guidance. Full test coverage including retry success, retry exhaustion, and non-conflict exception propagation.
+
+2. **PR: Post-Publish Cache Refresh** (Epic 2) — Added a final `FetchAsync` → `SaveAsync` at the end of `SeedPublishOrchestrator.PublishAsync` to refresh the local cache after link promotion and backlog ordering. Non-fatal on failure. Tests cover both the refresh path and the failure-tolerance path.
+
+### Epic Status
+
+| Epic | Status |
+|------|--------|
+| Epic 1: Conflict Retry Helper + Command Integration | ✅ DONE |
+| Epic 2: Post-Publish Cache Refresh | ✅ DONE |
+
+### Task Status
+
+| Epic | Task | Status |
+|------|------|--------|
+| Epic 1 | T1: Create `ConflictRetryHelper` | ✅ DONE |
+| Epic 1 | T2: Integrate into `UpdateCommand` | ✅ DONE |
+| Epic 1 | T3: Integrate into `StateCommand` | ✅ DONE |
+| Epic 1 | T4: Integrate into `SaveCommand` | ✅ DONE |
+| Epic 1 | T5: Add FM-006 to `ExceptionHandler` | ✅ DONE |
+| Epic 1 | T6: Unit tests for `ConflictRetryHelper` | ✅ DONE |
+| Epic 1 | T7: Update `UpdateCommandTests` | ✅ DONE |
+| Epic 1 | T8: Update `ExceptionFilterTests` | ✅ DONE |
+| Epic 2 | T1: Add post-publish refresh to `SeedPublishOrchestrator` | ✅ DONE |
+| Epic 2 | T2: Update `SeedPublishOrchestratorTests` | ✅ DONE |

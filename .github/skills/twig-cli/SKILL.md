@@ -9,7 +9,7 @@ Use `twig` commands in the terminal to manage Azure DevOps work items. This skil
 
 ## Core Principles
 
-1. **Always fill descriptions** — When creating work items, write a meaningful description. Use `twig update System.Description "<text>"` after creation since `seed new` only accepts title and type.
+1. **Always fill descriptions** — When creating work items, write a comprehensive, well-formatted description. Use `twig update System.Description "<markdown>" --format markdown` after creation. Descriptions should be rich HTML rendered from Markdown — at least 2-3 paragraphs with headings, bullet lists, bold emphasis, and code formatting. ADO renders HTML natively; make descriptions professional and scannable.
 2. **Always assign to the user** — After creating and publishing, assign with `twig update System.AssignedTo "Daniel Green"`. Every work item must have an owner.
 3. **Always use `--output json`** — When Copilot runs twig commands, **always** append `--output json` for machine-readable output. This applies to every command that supports `--output`: `set`, `status`, `tree`, `workspace`, `seed new`, `seed publish`, `refresh`, `new`, etc. Parse the JSON output programmatically rather than string-matching human-formatted text. Human-formatted output is for the user's terminal only.
 4. **Set context before operating** — Most commands operate on the "active" work item. Use `twig set <id>` to set it.
@@ -56,18 +56,61 @@ twig seed publish --all
 # 4. Set context to the new item, assign, and add description
 twig set <new-id>
 twig update System.AssignedTo "Daniel Green"
-twig update System.Description "Detailed description of the work item..."
+twig update System.Description "# Overview
+
+Description of the work item with **context** and motivation.
+
+## What
+
+Clear statement of the problem or feature.
+
+## Why
+
+Motivation, user-facing impact, or technical debt being addressed.
+
+## Acceptance Criteria
+
+- [ ] Criterion 1
+- [ ] Criterion 2" --format markdown
 # ^^^ twig update pushes immediately to ADO — no twig save needed
 ```
 
 ### Description Guidelines
 
-When creating work items, always add a description that includes:
-- **What**: Clear statement of the problem or feature
-- **Why**: Motivation or user-facing impact
-- **Acceptance criteria**: How to verify the work is done (when applicable)
+When creating work items, always use `--format markdown` for System.Description and write rich, well-formatted content:
 
-Keep descriptions concise (2-5 sentences). Use plain text, not HTML.
+- **Length**: At least 2-3 paragraphs unless the item is truly trivial (single config change, typo fix)
+- **Structure**: Use Markdown headings (`## What`, `## Why`, `## Acceptance Criteria`)
+- **Formatting**: Use bullet lists, bold, code backticks, and numbered lists for scannability
+- **Content**: Include context/background, the specific change, motivation, and how to verify
+- **Tone**: Professional and comprehensive — someone reading the ADO board should fully understand the work without opening the code
+
+Example of a **good** description:
+```markdown
+# Overview
+
+The `twig update` command currently sends plain text to ADO description fields.
+This makes descriptions hard to read in the ADO web UI where **rich HTML** is
+natively supported.
+
+## What
+
+Add a `--format markdown` flag to `twig update` that converts the input value
+from Markdown to HTML via Markdig before patching the ADO work item.
+
+## Why
+
+Well-formatted descriptions with headings, lists, and code blocks make work items
+significantly easier to scan on the board and in sprint reviews. This is especially
+important for descriptions written by automated agents (SDLC workflow) which tend
+to produce longer, structured content.
+
+## Acceptance Criteria
+
+- `twig update System.Description "# Title\n- item" --format markdown` sends HTML
+- Unknown format values return error
+- No behavior change without `--format` flag
+```
 
 ## Common Commands
 

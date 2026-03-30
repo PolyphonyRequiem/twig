@@ -167,6 +167,19 @@ public sealed class SeedPublishOrchestrator
         // Step 12: Best-effort backlog ordering
         await _backlogOrderer.TryOrderAsync(newId, seed.ParentId, ct);
 
+        // Step 12b: Post-publish cache refresh — replace Rev 1 cached item with current server revision
+        try
+        {
+            var refreshed = await _adoService.FetchAsync(newId, ct);
+            refreshed = refreshed.WithIsSeed(true);
+            await _workItemRepo.SaveAsync(refreshed, ct);
+        }
+        catch
+        {
+            // Non-fatal: the item was published successfully.
+            // Stale cache is tolerable — the conflict retry helper covers it on next update.
+        }
+
         // Step 13: Return success result
         return new SeedPublishResult
         {

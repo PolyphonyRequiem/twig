@@ -249,6 +249,15 @@ internal static class ExceptionHandler
             return 1;
         }
 
+        // FM-006: 412 — Concurrency conflict (revision mismatch)
+        if (ex is Twig.Infrastructure.Ado.Exceptions.AdoConflictException)
+        {
+            stderr.WriteLine("error: Concurrency conflict (revision mismatch).");
+            stderr.WriteLine("hint: Another change is being processed. Run 'twig refresh' and retry.");
+            Environment.ExitCode = 1;
+            return 1;
+        }
+
         // FM-009: No editor configured
         if (ex is Twig.Commands.EditorNotFoundException)
         {

@@ -1730,6 +1730,22 @@ public class HumanOutputFormatterTests
     }
 
     [Fact]
+    public void FormatWorkItem_MultilineDescription_IndentedWith2Spaces()
+    {
+        var item = CreateWorkItem(1, "Indent Check", "Active");
+        item.ImportFields(new Dictionary<string, string?>
+        {
+            ["System.Description"] = "<p>First</p><p>Second</p>",
+        });
+
+        var result = _formatter.FormatWorkItem(item, showDirty: false);
+        var stripped = StripAnsi(result);
+
+        stripped.ShouldContain("  First");
+        stripped.ShouldContain("  Second");
+    }
+
+    [Fact]
     public void FormatWorkItem_WithNullDescription_NoDescriptionSection()
     {
         var item = CreateWorkItem(1, "No Desc", "Active");

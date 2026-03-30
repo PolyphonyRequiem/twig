@@ -1,4 +1,5 @@
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
@@ -8,6 +9,7 @@ using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
+using Twig.Infrastructure.Ado.Exceptions;
 using Twig.Infrastructure.Config;
 using Twig.TestKit;
 using Xunit;
@@ -188,6 +190,75 @@ public class StateCommandTests
 
         result.ShouldBe(0);
         await _adoService.Received().PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task State_PatchConflict_RetrySucceeds_ReturnsSuccess()
+    {
+        var item = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
+        SetupActiveItem(item);
+
+        var remote = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
+        remote.MarkSynced(3);
+
+        // First patch attempt → conflict
+        _adoService
+            .PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoConflictException(5));
+
+        // Re-fetch returns fresh item at revision 5
+        var freshItem = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
+        freshItem.MarkSynced(5);
+
+        // FetchAsync: first call returns remote (pre-patch conflict check),
+        // second returns freshItem (retry re-fetch from ConflictRetryHelper)
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>())
+            .Returns(remote, freshItem);
+
+        // Retry with fresh revision succeeds
+        _adoService
+            .PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), 5, Arg.Any<CancellationToken>())
+            .Returns(6);
+
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+
+        var result = await _cmd.ExecuteAsync("Active");
+
+        result.ShouldBe(0);
+        // PatchAsync called twice: once with old revision (conflict), once with fresh revision (success)
+        await _adoService.Received(2).PatchAsync(1,
+            Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task State_PatchConflict_BothAttemptsFail_ThrowsAdoConflictException()
+    {
+        var item = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
+        SetupActiveItem(item);
+
+        var remote = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
+        remote.MarkSynced(3);
+
+        // Re-fetch returns fresh item at revision 5
+        var freshItem = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
+        freshItem.MarkSynced(5);
+
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>())
+            .Returns(remote, freshItem);
+
+        // First patch attempt → conflict
+        _adoService
+            .PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoConflictException(5));
+
+        // Retry also conflicts
+        _adoService
+            .PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), 5, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoConflictException(7));
+
+        await Should.ThrowAsync<AdoConflictException>(
+            () => _cmd.ExecuteAsync("Active"));
     }
 
     private void SetupActiveItem(WorkItem item)

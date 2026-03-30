@@ -62,7 +62,7 @@ public sealed class UpdateCommand(
         var effectiveValue = format is null ? value : MarkdownConverter.ToHtml(value);
 
         var changes = new[] { new FieldChange(field, null, effectiveValue) };
-        await adoService.PatchAsync(local.Id, changes, remote.Revision);
+        await ConflictRetryHelper.PatchWithRetryAsync(adoService, local.Id, changes, remote.Revision, ct);
 
         await AutoPushNotesHelper.PushAndClearAsync(local.Id, pendingChangeStore, adoService);
 

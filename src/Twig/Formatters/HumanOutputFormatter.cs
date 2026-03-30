@@ -106,6 +106,19 @@ public sealed class HumanOutputFormatter : IOutputFormatter
             }
         }
 
+        // Dedicated full-width description section
+        if (item.Fields.TryGetValue("System.Description", out var rawDescription))
+        {
+            var plainText = FormatterHelpers.HtmlToPlainText(rawDescription);
+            if (!string.IsNullOrWhiteSpace(plainText))
+            {
+                sb.AppendLine();
+                sb.AppendLine($"  {Dim}── Description ──────────────────{Reset}");
+                foreach (var line in plainText.Split('\n'))
+                    sb.AppendLine($"  {line}");
+            }
+        }
+
         // EPIC-004 ITEM-018: Progress bar for parent items
         if (childProgress is { Total: > 0 } cp)
         {
@@ -1450,6 +1463,8 @@ public sealed class HumanOutputFormatter : IOutputFormatter
             {
                 if (!entry.IsIncluded)
                     continue;
+                if (string.Equals(entry.ReferenceName, "System.Description", StringComparison.OrdinalIgnoreCase))
+                    continue;
                 if (!item.Fields.TryGetValue(entry.ReferenceName, out var value) || string.IsNullOrWhiteSpace(value))
                     continue;
 
@@ -1470,6 +1485,8 @@ public sealed class HumanOutputFormatter : IOutputFormatter
             if (string.IsNullOrWhiteSpace(kvp.Value))
                 continue;
             if (CoreFieldPrefixes.Contains(kvp.Key))
+                continue;
+            if (string.Equals(kvp.Key, "System.Description", StringComparison.OrdinalIgnoreCase))
                 continue;
 
             var displayName = defLookup.TryGetValue(kvp.Key, out var def2)

@@ -497,4 +497,76 @@ public class SeedPublishOrchestratorTests
         result.Results[0].Status.ShouldBe(SeedPublishStatus.DryRun);
         await _adoService.DidNotReceive().CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Post-publish cache refresh
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task PublishAsync_Success_RefreshesCacheAfterPostPublishSteps()
+    {
+        var seed = new WorkItemBuilder(-1, "My seed").AsSeed().Build();
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
+
+        var fetchedItem = new WorkItemBuilder(500, "Fetched").Build();
+        var refreshedItem = new WorkItemBuilder(500, "Refreshed").Build();
+        _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>()).Returns(500);
+        _adoService.FetchAsync(500, Arg.Any<CancellationToken>()).Returns(fetchedItem, refreshedItem);
+
+        var result = await _orchestrator.PublishAsync(-1);
+
+        result.Status.ShouldBe(SeedPublishStatus.Created);
+
+        // FetchAsync called twice: once at step 8 (initial), once at step 12b (refresh)
+        await _adoService.Received(2).FetchAsync(500, Arg.Any<CancellationToken>());
+
+        // SaveAsync called twice: once at step 10e (transaction), once at step 12b (refresh)
+        await _workItemRepo.Received(2).SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PublishAsync_CacheRefreshFetchFails_StillReturnsSuccess()
+    {
+        var seed = new WorkItemBuilder(-1, "My seed").AsSeed().Build();
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
+
+        var fetchedItem = new WorkItemBuilder(500, "Fetched").Build();
+        _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>()).Returns(500);
+
+        // First FetchAsync succeeds (step 8), second throws (step 12b refresh)
+        _adoService.FetchAsync(500, Arg.Any<CancellationToken>())
+            .Returns(
+                _ => fetchedItem,
+                _ => throw new InvalidOperationException("ADO unavailable"));
+
+        var result = await _orchestrator.PublishAsync(-1);
+
+        // Publish still succeeds despite refresh failure
+        result.Status.ShouldBe(SeedPublishStatus.Created);
+        result.NewId.ShouldBe(500);
+        result.IsSuccess.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task PublishAsync_CacheRefreshSaveFails_StillReturnsSuccess()
+    {
+        var seed = new WorkItemBuilder(-1, "My seed").AsSeed().Build();
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
+
+        var fetchedItem = new WorkItemBuilder(500, "Fetched").Build();
+        var refreshedItem = new WorkItemBuilder(500, "Refreshed").Build();
+        _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>()).Returns(500);
+        _adoService.FetchAsync(500, Arg.Any<CancellationToken>()).Returns(fetchedItem, refreshedItem);
+
+        // First SaveAsync succeeds (step 10e in transaction), second throws (step 12b refresh)
+        _workItemRepo.SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask, Task.FromException(new InvalidOperationException("DB write error")));
+
+        var result = await _orchestrator.PublishAsync(-1);
+
+        // Publish still succeeds despite save failure
+        result.Status.ShouldBe(SeedPublishStatus.Created);
+        result.NewId.ShouldBe(500);
+        result.IsSuccess.ShouldBeTrue();
+    }
 }

@@ -185,7 +185,7 @@ internal static class FormatterHelpers
                     tagName = tagName[..spaceIdx];
 
                 if (!isClosing && IsBlockElement(tagName))
-                    sb.Append(IsListItem(tagName) ? "\n• " : "\n");
+                    sb.Append(tagName.Equals("li", StringComparison.OrdinalIgnoreCase) ? "\n• " : "\n");
                 else if (!isClosing && IsBreakElement(tagName))
                     sb.Append('\n');
 
@@ -208,9 +208,6 @@ internal static class FormatterHelpers
         || tag.Equals("li", StringComparison.OrdinalIgnoreCase)
         || tag.Equals("div", StringComparison.OrdinalIgnoreCase)
         || (tag.Length == 2 && (tag[0] is 'h' or 'H') && tag[1] is >= '1' and <= '6');
-
-    private static bool IsListItem(ReadOnlySpan<char> tag)
-        => tag.Equals("li", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsBreakElement(ReadOnlySpan<char> tag)
     {

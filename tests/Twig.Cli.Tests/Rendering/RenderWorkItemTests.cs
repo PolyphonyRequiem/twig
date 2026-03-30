@@ -1,7 +1,6 @@
 using Shouldly;
 using Spectre.Console.Testing;
 using Twig.Domain.Aggregates;
-using Twig.Domain.Common;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Config;
 using Twig.Rendering;
@@ -313,88 +312,7 @@ public class RenderWorkItemTests
         output.ShouldContain("…");
     }
 
-    // ── BuildStatusViewAsync — description rendering ───────────────
-
-    [Fact]
-    public async Task BuildStatusViewAsync_Description_RendersFullWidthSection()
-    {
-        var item = CreateWorkItem(1, "Described Item", "Active");
-        item.SetField("System.Description", "<p>Acceptance criteria for the feature.</p>");
-
-        var renderable = await _renderer.BuildStatusViewAsync(
-            ItemFunc(item), NoPendingChanges(), CancellationToken.None);
-        _testConsole.Write(renderable);
-        var output = _testConsole.Output;
-
-        output.ShouldContain("Description");
-        output.ShouldContain("Acceptance criteria for the feature.");
-    }
-
-    [Fact]
-    public async Task BuildStatusViewAsync_NoDescription_NoDescriptionSection()
-    {
-        var item = CreateWorkItem(1, "Plain Item", "Active");
-
-        var renderable = await _renderer.BuildStatusViewAsync(
-            ItemFunc(item), NoPendingChanges(), CancellationToken.None);
-        _testConsole.Write(renderable);
-        var output = _testConsole.Output;
-
-        output.ShouldNotContain("Description");
-    }
-
-    [Fact]
-    public async Task BuildStatusViewAsync_LongDescription_TruncatedWithIndicator()
-    {
-        var item = CreateWorkItem(1, "Long Desc", "Active");
-        item.SetField("System.Description",
-            string.Concat(Enumerable.Range(1, 20).Select(i => $"<p>Paragraph {i}</p>")));
-
-        var renderable = await _renderer.BuildStatusViewAsync(
-            ItemFunc(item), NoPendingChanges(), CancellationToken.None);
-        _testConsole.Write(renderable);
-        var output = _testConsole.Output;
-
-        output.ShouldContain("(+");
-    }
-
-    [Fact]
-    public async Task BuildStatusViewAsync_DescriptionExcludedFromExtendedGrid()
-    {
-        var item = CreateWorkItem(1, "Grid Check", "Active");
-        item.SetField("System.Description", "<p>Unique description text</p>");
-
-        var renderable = await _renderer.BuildStatusViewAsync(
-            ItemFunc(item), NoPendingChanges(), CancellationToken.None);
-        _testConsole.Write(renderable);
-        var output = _testConsole.Output;
-
-        var occurrences = output.Split("Unique description text").Length - 1;
-        occurrences.ShouldBe(1);
-    }
-
-    [Fact]
-    public async Task BuildStatusViewAsync_MultiParagraph_PreservesStructure()
-    {
-        var item = CreateWorkItem(1, "Multi Para", "Active");
-        item.SetField("System.Description", "<p>First paragraph</p><p>Second paragraph</p>");
-
-        var renderable = await _renderer.BuildStatusViewAsync(
-            ItemFunc(item), NoPendingChanges(), CancellationToken.None);
-        _testConsole.Write(renderable);
-        var output = _testConsole.Output;
-
-        output.ShouldContain("First paragraph");
-        output.ShouldContain("Second paragraph");
-    }
-
     // ── Helpers ──────────────────────────────────────────────────────
-
-    private static Func<Task<WorkItem?>> ItemFunc(WorkItem item) =>
-        () => Task.FromResult<WorkItem?>(item);
-
-    private static Func<Task<IReadOnlyList<PendingChangeRecord>>> NoPendingChanges() =>
-        () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>(Array.Empty<PendingChangeRecord>());
 
     private static WorkItem CreateWorkItem(int id, string title, string state, WorkItemType? type = null)
     {

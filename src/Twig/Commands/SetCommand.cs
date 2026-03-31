@@ -9,10 +9,10 @@ namespace Twig.Commands;
 
 /// <summary>
 /// Implements <c>twig set &lt;idOrPattern&gt;</c>: resolves a work item by ID or title pattern,
-/// fetches from ADO if not cached, loads parent chain and children, and sets active context.
-/// On cache miss (FetchedFromAdo), computes the working set and evicts non-working-set items.
-/// On cache hit (Found), computes the working set but skips eviction (FR-012).
-/// Both paths sync the full working set via <see cref="SyncCoordinator.SyncWorkingSetAsync"/>.
+/// fetches from ADO if not cached, loads parent chain, and sets active context.
+/// On cache miss (FetchedFromAdo), computes the working set for eviction (FR-012),
+/// then syncs only the target item and parent chain via <see cref="SyncCoordinator.SyncItemSetAsync"/>.
+/// On cache hit (Found), skips working set computation and syncs only the target + parents.
 /// </summary>
 public sealed class SetCommand(
     IWorkItemRepository workItemRepo,
@@ -120,6 +120,8 @@ public sealed class SetCommand(
         }
 
         // Hydrate parent chain via ActiveItemResolver (auto-fetch on miss)
+        // Capture parent chain IDs for targeted sync (DD-1: sync scope = target + parents)
+        var parentChainIds = new List<int>();
         if (item.ParentId.HasValue)
         {
             var parentChain = await workItemRepo.GetParentChainAsync(item.ParentId.Value, ct);
@@ -127,54 +129,36 @@ public sealed class SetCommand(
             {
                 // Parent not in cache — auto-fetch via resolver (best-effort)
                 await activeItemResolver.ResolveByIdAsync(item.ParentId.Value, ct);
+                parentChain = await workItemRepo.GetParentChainAsync(item.ParentId.Value, ct);
             }
+            parentChainIds.AddRange(parentChain.Select(p => p.Id));
         }
 
-        // Set as active context
         await contextStore.SetActiveWorkItemIdAsync(item.Id);
         if (historyStore is not null)
             await historyStore.RecordVisitAsync(item.Id, ct);
         if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
-        // Working set compute + evict + sync — best-effort, never fails the command
+        // Print item immediately (DD-5: unified TTY and non-TTY output)
+        Console.WriteLine(fmt.FormatWorkItem(item, showDirty: false));
+
+        // Targeted sync — best-effort, never fails the command (DD-1, DD-2)
         try
         {
-            // Compute working set (DD-06: pass item.IterationPath to avoid redundant ADO call)
-            var workingSet = await workingSetService.ComputeAsync(item.IterationPath, ct);
-
-            // Evict on cache miss only (FR-012: cache hit skips eviction)
+            // Cache-miss path: compute working set for eviction (FR-012 unchanged)
             if (fetchedFromAdo)
             {
+                var workingSet = await workingSetService.ComputeAsync(item.IterationPath, ct);
                 await workItemRepo.EvictExceptAsync(workingSet.AllIds, ct);
             }
 
-            // Sync working set (DD-07: replaces SyncChildrenAsync — superset of parents, children, sprint items)
-            if (renderer is not null)
-            {
-                // TTY path: render work item inside buildCachedView (DD-10 / FR-015 fix)
-                await renderer.RenderWithSyncAsync(
-                    buildCachedView: () =>
-                        Task.FromResult<Spectre.Console.Rendering.IRenderable>(
-                            new Spectre.Console.Text(fmt.FormatWorkItem(item, showDirty: false))),
-                    performSync: () => syncCoordinator.SyncWorkingSetAsync(workingSet, ct),
-                    buildRevisedView: (syncResult) =>
-                        Task.FromResult<Spectre.Console.Rendering.IRenderable?>(null),
-                    ct);
-            }
-            else
-            {
-                // Non-TTY path: print item then sync silently
-                Console.WriteLine(fmt.FormatWorkItem(item, showDirty: false));
-                await syncCoordinator.SyncWorkingSetAsync(workingSet, ct);
-            }
+            // Sync target item + parent chain only (DD-2: SyncItemSetAsync skips full working set)
+            await syncCoordinator.SyncItemSetAsync([item.Id, ..parentChainIds], ct);
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
-            // Working set sync is best-effort — print the item even if sync fails
-            if (renderer is null)
-                Console.WriteLine(fmt.FormatWorkItem(item, showDirty: false));
-            Console.Error.WriteLine($"warning: working set sync failed: {ex.Message}");
+            Console.Error.WriteLine($"warning: sync failed: {ex.Message}");
         }
 
         var hints = hintEngine.GetHints("set",

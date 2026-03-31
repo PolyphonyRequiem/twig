@@ -795,4 +795,206 @@ public class SyncCoordinatorTests
         result[0].TargetId.ShouldBe(100);
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncItemSetAsync — empty list → UpToDate
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncItemSetAsync_EmptyList_ReturnsUpToDate()
+    {
+        var result = await _sut.SyncItemSetAsync(Array.Empty<int>());
+
+        result.ShouldBeOfType<SyncResult.UpToDate>();
+        await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncItemSetAsync — only negative IDs (seeds) → UpToDate
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncItemSetAsync_OnlyNegativeIds_ReturnsUpToDate()
+    {
+        var result = await _sut.SyncItemSetAsync(new[] { -1, -2, -3 });
+
+        result.ShouldBeOfType<SyncResult.UpToDate>();
+        await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncItemSetAsync — all fresh → UpToDate
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncItemSetAsync_AllFresh_ReturnsUpToDate()
+    {
+        var fresh = DateTimeOffset.UtcNow.AddMinutes(-5);
+        _workItemRepo.GetByIdAsync(10).Returns(new WorkItemBuilder(10, "Item 10").InState("Active").LastSyncedAt(fresh).Build());
+        _workItemRepo.GetByIdAsync(11).Returns(new WorkItemBuilder(11, "Item 11").InState("Active").LastSyncedAt(fresh).Build());
+
+        var result = await _sut.SyncItemSetAsync(new[] { 10, 11 });
+
+        result.ShouldBeOfType<SyncResult.UpToDate>();
+        await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncItemSetAsync — all stale → Updated(count)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncItemSetAsync_AllStale_ReturnsUpdated()
+    {
+        var stale = DateTimeOffset.UtcNow.AddMinutes(-60);
+        _workItemRepo.GetByIdAsync(10).Returns(new WorkItemBuilder(10, "Item 10").InState("Active").LastSyncedAt(stale).Build());
+        _workItemRepo.GetByIdAsync(11).Returns(new WorkItemBuilder(11, "Item 11").InState("Active").LastSyncedAt(stale).Build());
+
+        _adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(10, "Item 10").InState("Active").Build());
+        _adoService.FetchAsync(11, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(11, "Item 11").InState("Active").Build());
+
+        var result = await _sut.SyncItemSetAsync(new[] { 10, 11 });
+
+        result.ShouldBeOfType<SyncResult.Updated>()
+              .ChangedCount.ShouldBe(2);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncItemSetAsync — mixed fresh/stale → only fetches stale
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncItemSetAsync_MixedFreshStale_OnlyFetchesStale()
+    {
+        var fresh = DateTimeOffset.UtcNow.AddMinutes(-5);
+        var stale = DateTimeOffset.UtcNow.AddMinutes(-60);
+        _workItemRepo.GetByIdAsync(10).Returns(new WorkItemBuilder(10, "Item 10").InState("Active").LastSyncedAt(fresh).Build());
+        _workItemRepo.GetByIdAsync(11).Returns(new WorkItemBuilder(11, "Item 11").InState("Active").LastSyncedAt(stale).Build());
+
+        _adoService.FetchAsync(11, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(11, "Item 11").InState("Active").Build());
+
+        var result = await _sut.SyncItemSetAsync(new[] { 10, 11 });
+
+        result.ShouldBeOfType<SyncResult.Updated>()
+              .ChangedCount.ShouldBe(1);
+        await _adoService.DidNotReceive().FetchAsync(10, Arg.Any<CancellationToken>());
+        await _adoService.Received(1).FetchAsync(11, Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncItemSetAsync — negative IDs filtered, positive synced
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncItemSetAsync_NegativeIdsFiltered_PositiveIdsSynced()
+    {
+        var stale = DateTimeOffset.UtcNow.AddMinutes(-60);
+        _workItemRepo.GetByIdAsync(10).Returns(new WorkItemBuilder(10, "Item 10").InState("Active").LastSyncedAt(stale).Build());
+
+        _adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(10, "Item 10").InState("Active").Build());
+
+        var result = await _sut.SyncItemSetAsync(new[] { -1, 10, -2 });
+
+        result.ShouldBeOfType<SyncResult.Updated>()
+              .ChangedCount.ShouldBe(1);
+        await _adoService.DidNotReceive().FetchAsync(-1, Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().FetchAsync(-2, Arg.Any<CancellationToken>());
+        await _adoService.Received(1).FetchAsync(10, Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncItemSetAsync — partial fetch failure → PartiallyUpdated
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncItemSetAsync_PartialFetchFailure_ReturnsPartiallyUpdated()
+    {
+        var stale = DateTimeOffset.UtcNow.AddMinutes(-60);
+        _workItemRepo.GetByIdAsync(10).Returns(new WorkItemBuilder(10, "Item 10").InState("Active").LastSyncedAt(stale).Build());
+        _workItemRepo.GetByIdAsync(11).Returns(new WorkItemBuilder(11, "Item 11").InState("Active").LastSyncedAt(stale).Build());
+
+        _adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(10, "Item 10").InState("Active").Build());
+        _adoService.FetchAsync(11, Arg.Any<CancellationToken>()).ThrowsAsync(new HttpRequestException("Timeout"));
+
+        var result = await _sut.SyncItemSetAsync(new[] { 10, 11 });
+
+        var partial = result.ShouldBeOfType<SyncResult.PartiallyUpdated>();
+        partial.SavedCount.ShouldBe(1);
+        partial.Failures.Count.ShouldBe(1);
+        partial.Failures[0].Id.ShouldBe(11);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncItemSetAsync — all fetches fail → Failed
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncItemSetAsync_AllFetchesFail_ReturnsFailed()
+    {
+        var stale = DateTimeOffset.UtcNow.AddMinutes(-60);
+        _workItemRepo.GetByIdAsync(10).Returns(new WorkItemBuilder(10, "Item 10").InState("Active").LastSyncedAt(stale).Build());
+
+        _adoService.FetchAsync(10, Arg.Any<CancellationToken>()).ThrowsAsync(new HttpRequestException("Connection refused"));
+
+        var result = await _sut.SyncItemSetAsync(new[] { 10 });
+
+        result.ShouldBeOfType<SyncResult.Failed>()
+              .Reason.ShouldContain("Connection refused");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncItemSetAsync — items not in cache → treated as stale
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncItemSetAsync_ItemNotInCache_TreatedAsStale()
+    {
+        _workItemRepo.GetByIdAsync(10).Returns((WorkItem?)null);
+
+        _adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(10, "Item 10").InState("Active").Build());
+
+        var result = await _sut.SyncItemSetAsync(new[] { 10 });
+
+        result.ShouldBeOfType<SyncResult.Updated>()
+              .ChangedCount.ShouldBe(1);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncItemSetAsync — dirty protection at write time via ProtectedCacheWriter
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncItemSetAsync_DirtyItemsSkippedByProtectedWriter_ReturnsUpdatedWithSavedCount()
+    {
+        var stale = DateTimeOffset.UtcNow.AddMinutes(-60);
+        _workItemRepo.GetByIdAsync(10).Returns(new WorkItemBuilder(10, "Item 10").InState("Active").LastSyncedAt(stale).Build());
+        _workItemRepo.GetByIdAsync(11).Returns(new WorkItemBuilder(11, "Item 11").InState("Active").LastSyncedAt(stale).Build());
+
+        // Item 11 is dirty — ProtectedCacheWriter will skip it at save time
+        _pendingStore.GetDirtyItemIdsAsync().Returns(new[] { 11 });
+
+        _adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(10, "Item 10").InState("Active").Build());
+        _adoService.FetchAsync(11, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(11, "Item 11").InState("Active").Build());
+
+        var result = await _sut.SyncItemSetAsync(new[] { 10, 11 });
+
+        result.ShouldBeOfType<SyncResult.Updated>()
+              .ChangedCount.ShouldBe(1); // 2 fetched - 1 skipped = 1 saved
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncItemSetAsync — cancellation propagates
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncItemSetAsync_Cancellation_PropagatesException()
+    {
+        var stale = DateTimeOffset.UtcNow.AddMinutes(-60);
+        _workItemRepo.GetByIdAsync(10).Returns(new WorkItemBuilder(10, "Item 10").InState("Active").LastSyncedAt(stale).Build());
+        _adoService.FetchAsync(10, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new OperationCanceledException());
+
+        await Should.ThrowAsync<OperationCanceledException>(
+            () => _sut.SyncItemSetAsync(new[] { 10 }));
+    }
+
 }

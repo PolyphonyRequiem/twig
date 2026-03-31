@@ -13,6 +13,9 @@ sprint backlogs as rich terminal trees using Spectre.Console.
 - Rendering: **Spectre.Console** (Live regions, async rendering)
 - Warnings as errors: `TreatWarningsAsErrors=true`
 - Nullable reference types enabled globally
+- **Process-agnostic**: No hardcoded state names, type names, or process template assumptions.
+  All process-specific mapping comes from `IProcessConfigurationProvider` at runtime.
+  See `.github/instructions/process-agnostic.instructions.md` for the full principle.
 
 ## Coding Conventions
 

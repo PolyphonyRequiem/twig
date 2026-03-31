@@ -227,8 +227,8 @@ public class CacheFirstReadCommandTests
         var result = await cmd.ExecuteAsync("42");
 
         result.ShouldBe(0);
-        await _adoService.Received(1).FetchAsync(42, Arg.Any<CancellationToken>());
-        await _workItemRepo.Received(1).SaveAsync(item, Arg.Any<CancellationToken>());
+        await _adoService.Received().FetchAsync(42, Arg.Any<CancellationToken>());
+        await _workItemRepo.Received().SaveAsync(item, Arg.Any<CancellationToken>());
         await _contextStore.Received().SetActiveWorkItemIdAsync(42, Arg.Any<CancellationToken>());
     }
 

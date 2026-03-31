@@ -1,8 +1,6 @@
 using NSubstitute;
 using Shouldly;
-using Spectre.Console;
 using Spectre.Console.Rendering;
-using Spectre.Console.Testing;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
@@ -148,8 +146,10 @@ public class WorkingSetCommandTests
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
 
-        // Parent chain
+        // Parent chain — mock both hydration path (ID 10) and ComputeAsync path (ID 42)
         var parent = CreateWorkItem(10, "Parent");
+        _workItemRepo.GetParentChainAsync(10, Arg.Any<CancellationToken>())
+            .Returns(new[] { parent });
         _workItemRepo.GetParentChainAsync(42, Arg.Any<CancellationToken>())
             .Returns(new[] { parent });
 
@@ -216,24 +216,41 @@ public class WorkingSetCommandTests
     // ── (f) ComputeAsync receives item.IterationPath ───────────────
 
     [Fact]
-    public async Task ComputeAsync_ReceivesItemIterationPath_NotNull()
+    public async Task CacheHit_SkipsComputeAsync_GetCurrentIterationNotCalled()
     {
+        // Cache hit → fetchedFromAdo = false → ComputeAsync never called
         var item = CreateWorkItem(42, "Item", iterationPath: "Project\\Sprint 2");
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
-
-        // Set up sprint items for the specific iteration
-        _workItemRepo.GetByIterationAsync(
-            Arg.Is<IterationPath>(ip => ip.ToString() == "Project\\Sprint 2"),
-            Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>());
 
         var cmd = CreateCommand();
         var result = await cmd.ExecuteAsync("42");
 
         result.ShouldBe(0);
-        // GetCurrentIterationAsync should NOT be called (DD-06: item.IterationPath passed directly)
+        // ComputeAsync skipped on cache hit — no iteration queries at all
         await _iterationService.DidNotReceive().GetCurrentIterationAsync(Arg.Any<CancellationToken>());
+        await _workItemRepo.DidNotReceive().GetByIterationAsync(
+            Arg.Any<IterationPath>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CacheMiss_ComputeAsync_ReceivesItemIterationPath()
+    {
+        // Cache miss → fetchedFromAdo = true → ComputeAsync called with item.IterationPath
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        var item = CreateWorkItem(42, "Item", iterationPath: "Project\\Sprint 2");
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync("42");
+
+        result.ShouldBe(0);
+        // DD-06: ComputeAsync uses item.IterationPath directly, not GetCurrentIterationAsync
+        await _iterationService.DidNotReceive().GetCurrentIterationAsync(Arg.Any<CancellationToken>());
+        // GetByIterationAsync called with item's iteration path (Sprint 2, not the default Sprint 1)
+        await _workItemRepo.Received().GetByIterationAsync(
+            Arg.Is<IterationPath>(ip => ip.ToString() == "Project\\Sprint 2"),
+            Arg.Any<CancellationToken>());
     }
 
     // ── (g) TTY path no longer wraps sync in RenderWithSyncAsync (DD-5) ───

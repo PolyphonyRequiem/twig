@@ -254,6 +254,37 @@ public class SetCommandTests
         await _adoService.Received().FetchAsync(100, Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task Set_CacheMiss_WithParentChain_SyncsParentIds()
+    {
+        // Cache miss with parent chain — verify SyncItemSetAsync receives parent IDs
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        var parent = CreateWorkItem(100, "Parent");
+        var item = CreateWorkItem(42, "Child Item").WithParentId(100);
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+
+        // Hydration path: GetParentChainAsync(100) returns the parent
+        _workItemRepo.GetParentChainAsync(100, Arg.Any<CancellationToken>())
+            .Returns(new[] { parent });
+
+        // ComputeAsync path: GetParentChainAsync(42) for working set computation
+        _workItemRepo.GetParentChainAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new[] { parent });
+
+        _adoService.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
+
+        var result = await _cmd.ExecuteAsync("42");
+
+        result.ShouldBe(0);
+        // Eviction fires on cache miss (FR-012)
+        await _workItemRepo.Received(1).EvictExceptAsync(
+            Arg.Any<IReadOnlySet<int>>(), Arg.Any<CancellationToken>());
+        // SyncItemSetAsync syncs both target and parent (both stale — null LastSyncedAt)
+        await _adoService.Received().FetchAsync(42, Arg.Any<CancellationToken>());
+        await _adoService.Received().FetchAsync(100, Arg.Any<CancellationToken>());
+    }
+
     // ── Navigation History (Epic 2) ───────────────────────────────
 
     [Fact]

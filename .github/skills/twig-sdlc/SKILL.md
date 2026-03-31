@@ -92,29 +92,29 @@ implementation_manager → coder → reducer_code → task_reviewer
      │                        ├── accepted/skipped → close issue
      │                        └── changes → implementation_manager
      │
-     ├── PR group done → pr_submit → pr_reviewer
-     │                       ▲            │
-     │                       │            ├── APPROVE → pr_merge → implementation_manager
-     │                       │            └── REQUEST_CHANGES → pr_fixer → pr_submit
+     ├── PR group done → reducer_pr → pr_submit → pr_reviewer
+     │                                    ▲            │
+     │                                    │            ├── APPROVE → pr_merge → implementation_manager
+     │                                    │            └── REQUEST_CHANGES → pr_fixer → pr_submit
      │
-     └── all done → reducer_final → close_out
+     └── all done → close_out
 ```
 
 - **implementation_manager** (Sonnet) — central hub: manages task/issue lifecycle via twig, creates branches, routes work
-- **coder** (Opus 1M) — implements one task at a time with incremental commits and twig notes
+- **coder** (Opus 1M) — implements one task at a time with incremental commits and twig notes; has pre-review checklist to avoid round-trips
 - **reducer_code** (Sonnet) — simplifies each task's implementation
 - **task_reviewer** (Sonnet) — per-task quality gate
 - **reducer_issue** (Sonnet) — post-issue code sweep across all tasks in completed issue
 - **issue_reviewer** (Opus 1M) — per-issue acceptance criteria, cross-cutting concerns, integration
 - **user_acceptance** — human gate, conditional per-issue when user-facing changes are flagged
-- **pr_submit** (Sonnet) — creates GitHub PR via `gh pr create`
+- **reducer_pr** (Sonnet) — pre-PR reduction sweep (stale references, dead code, cross-task duplication)
+- **pr_submit** (Sonnet) — validates build + tests, then creates GitHub PR via `gh pr create`
 - **pr_reviewer** (Opus 1M) — holistic PR review
 - **pr_fixer** (Sonnet) — addresses PR-level review feedback
 - **pr_merge** (Sonnet) — merges and cleans up branch
 
-### Phase 5: Close-out (2 agents)
+### Phase 5: Close-out (1 agent)
 
-- **reducer_final** (Sonnet) — holistic reduction pass across all changes
 - **close_out** (Opus 1M) — transitions Epic to Done, produces meta-observations on agent performance and workflow improvements
 
 ## Agent Summary
@@ -138,11 +138,11 @@ implementation_manager → coder → reducer_code → task_reviewer
 | reducer_issue | Sonnet | Post-issue cross-task code sweep |
 | issue_reviewer | Opus 1M | Per-issue acceptance criteria check |
 | user_acceptance | Human Gate | Conditional per-issue acceptance |
-| pr_submit | Sonnet | GitHub PR creation |
+| reducer_pr | Sonnet | Pre-PR reduction sweep |
+| pr_submit | Sonnet | Build validation + GitHub PR creation |
 | pr_reviewer | Opus 1M | Holistic PR review |
 | pr_fixer | Sonnet | PR fix cycle |
 | pr_merge | Sonnet | Merge + cleanup |
-| reducer_final | Sonnet | Final holistic reduction |
 | close_out | Opus 1M | Epic completion + observations |
 
 ## When to Use

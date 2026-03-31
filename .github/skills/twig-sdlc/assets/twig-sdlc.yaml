@@ -6,9 +6,9 @@
 #            (BYPASS: if plan already approved or --input plan_path provided, skips to Phase 3 via plan_reader)
 #   Phase 3: Work Tree Seeding — create ADO Issues/Tasks via twig CLI (dupe guard reuses existing items)
 #   Phase 4: Implementation — per-task coder/reducer/reviewer loop with PR lifecycle
-#   Phase 5: Close-out — holistic reduction, meta-observations
+#   Phase 5: Close-out — meta-observations (reduction now integrated into PR stage)
 #
-# Agents: 23 agents + 3 human gates (includes plan_reader for bypass)
+# Agents: 22 agents + 3 human gates (includes plan_reader for bypass; reducer integrated into PR stage)
 # Models: Opus 1M for deep reasoning (architect, coder, pr_reviewer, close_out)
 #         Sonnet for focused tasks (everything else)
 #
@@ -704,9 +704,9 @@ agents:
         when: "{{ output.action == 'issue_review' }}"
       - to: user_acceptance
         when: "{{ output.action == 'needs_acceptance' }}"
-      - to: pr_submit
+      - to: reducer_pr
         when: "{{ output.action == 'submit_pr' }}"
-      - to: reducer_final
+      - to: close_out
         when: "{{ output.action == 'all_complete' }}"
   - name: coder
     description: Implements a single task — code changes, tests, incremental commits
@@ -769,6 +769,16 @@ agents:
       7. Add a twig note: `twig note --text "Tests: <count> tests, <coverage>"`
       8. Commit: `git add -A && git commit -m "<descriptive message>"`
       Do NOT implement anything beyond this single task.
+
+      ## Pre-Review Checklist (avoid review round-trips)
+      Before committing, self-check against these criteria that the reviewer will enforce:
+      - [ ] Requirements met — implementation satisfies the task description
+      - [ ] Code quality — clean, idiomatic C#, follows project conventions (sealed classes, primary constructors)
+      - [ ] AOT compliance — no reflection, all JSON uses TwigJsonContext, no dynamic loading
+      - [ ] Test coverage — edge cases covered, tests verify behavior not implementation
+      - [ ] No stale references — renamed/removed methods updated at ALL call sites
+      - [ ] Builds clean — `dotnet build` produces zero warnings (TreatWarningsAsErrors)
+      - [ ] All tests pass — `dotnet test --settings test.runsettings` green
     output:
       task_id:
         type: number
@@ -990,14 +1000,19 @@ agents:
       **Issue:** #{{ implementation_manager.output.current_issue_id }} — {{ implementation_manager.output.current_issue_title }}
       **Completed Tasks:** {{ implementation_manager.output.completed_tasks | json }}
       ## Steps
-      1. Push the branch: `git push -u origin {{ implementation_manager.output.branch_name }}`
-      2. Create the PR:
+      1. **Pre-submit validation** — check for stale references and build errors:
+         - `dotnet build --no-restore 2>&1` — must produce zero errors
+         - If build fails, fix the issues (stale references to renamed/removed methods,
+           missing usings, broken call sites) and commit the fixes before proceeding
+         - `dotnet test --settings test.runsettings` — all tests must pass
+      2. Push the branch: `git push -u origin {{ implementation_manager.output.branch_name }}`
+      3. Create the PR:
          ```
          gh pr create --base main --head {{ implementation_manager.output.branch_name }} \
            --title "<PR group title>" \
            --body "<description with AB# references>"
          ```
-      3. The PR body should include:
+      4. The PR body should include:
          - Summary of changes
          - List of ADO work items (AB#<id> format for linking)
          - Files changed summary
@@ -1122,10 +1137,10 @@ agents:
     routes:
       - to: implementation_manager
   # ---------------------------------------------------------------------------
-  # PHASE 5: CLOSE-OUT
+  # PR-STAGE REDUCTION (runs before PR submission, not post-merge)
   # ---------------------------------------------------------------------------
-  - name: reducer_final
-    description: Holistic reduction pass across all changes before closing out
+  - name: reducer_pr
+    description: Pre-PR reduction sweep — simplifies all changes in the PR group before submission
     model: claude-sonnet-4.6
     input:
       - implementation_manager.output
@@ -1134,31 +1149,38 @@ agents:
       - intake.output
     system_prompt: !file ../../../prompts/reducer.md
     prompt: |
-      Perform a final holistic reduction pass.
+      Perform a pre-PR reduction sweep for PR group {{ implementation_manager.output.current_pr_group }}.
       **Epic:** #{{ intake.output.epic_id }} — {{ intake.output.epic_title }}
+      **Branch:** {{ implementation_manager.output.branch_name }}
       **Plan:** Read `{{ (architect.output.plan_path if architect is defined and architect.output else plan_reader.output.plan_path) }}`
-      Review ALL changes made during this workflow:
-      1. `git log --oneline main..HEAD` to see all commits (if on a branch)
-      2. Or review the plan to identify all files changed
-      Apply **code-level reduction** across the entire implementation:
+      Review ALL changes in this PR group (all commits on this branch vs main):
+      1. `git diff main...HEAD --stat` to see all files changed
+      2. `git diff main...HEAD` to review the full diff
+      Apply **code-level reduction** across the PR group:
       - Cross-file dead code (imports, methods referenced by removed code)
+      - Stale references to renamed/removed methods (grep for old names)
       - Duplicate patterns introduced across different tasks
       - Abstractions that turned out unnecessary in the final shape
       - Test helpers that are used only once
-      If you make changes, commit them: `git add -A && git commit -m "reduce: final holistic pass"`
+      If you make changes:
+      - Run tests: `dotnet test --settings test.runsettings`
+      - Commit: `git add -A && git commit -m "reduce: pre-PR sweep for {{ implementation_manager.output.current_pr_group }}"`
       If nothing to reduce, say so.
     output:
       findings:
         type: array
-        description: Final reduction findings
+        description: Reduction findings for this PR group
       changes_applied:
         type: array
-        description: Changes made in the final pass
+        description: Changes made in the reduction pass
       total_lines_removed:
         type: number
-        description: Total lines removed in final pass
+        description: Total lines removed
     routes:
-      - to: close_out
+      - to: pr_submit
+  # ---------------------------------------------------------------------------
+  # PHASE 5: CLOSE-OUT
+  # ---------------------------------------------------------------------------
   - name: close_out
     description: Transitions the Epic to Done and produces meta-observations
     model: claude-opus-4.6-1m
@@ -1167,7 +1189,6 @@ agents:
       - architect.output?
       - plan_reader.output?
       - implementation_manager.output
-      - reducer_final.output
     system_prompt: |
       You are the Close-Out agent. You finalize the SDLC workflow by transitioning
       work items and producing meta-observations about the process.
@@ -1214,6 +1235,14 @@ agents:
          - `git diff --stat HEAD` — check for changes
          - If changes exist: `git add -A && git commit -m "close: {{ intake.output.epic_title }}" && git push`
          - If no changes: skip commit
+      9. **Tag the release** (after all pushes are complete):
+         - Get the latest tag: `git tag -l "v*" --sort=-version:refname | head -1`
+         - Parse the version components (major.minor.patch)
+         - Determine increment based on item type ({{ intake.output.item_type }}):
+           - **Issue** → increment patch (e.g., v0.25.2 → v0.25.3)
+           - **Epic** → increment minor, reset patch (e.g., v0.25.2 → v0.26.0)
+         - Create the tag: `git tag v<new_version>`
+         - Push the tag: `git push origin v<new_version>`
     output:
       observations:
         type: string

@@ -13,12 +13,7 @@ internal static class FormatterHelpers
     /// Uses the full state name — no shorthand encoding.
     /// </summary>
     internal static string GetStateLabel(string state)
-    {
-        if (string.IsNullOrEmpty(state))
-            return "?";
-
-        return state;
-    }
+        => string.IsNullOrEmpty(state) ? "?" : state;
 
     /// <summary>
     /// Formats a dynamic field value for human-readable output based on its data type.
@@ -112,8 +107,6 @@ internal static class FormatterHelpers
         if (done > total) done = total;
 
         var filled = (int)Math.Round((double)done / total * width);
-        // Ensure filled doesn't exceed width
-        filled = Math.Min(filled, width);
         var empty = width - filled;
 
         var bar = $"[{new string('█', filled)}{new string('░', empty)}] {done}/{total}";
@@ -129,7 +122,7 @@ internal static class FormatterHelpers
     internal static bool IsProgressComplete(int done, int total)
         => total > 0 && done >= total;
 
-    private const int MaxDescriptionLines = 15;
+    private const int MaxDescriptionLines = 30;
 
     /// <summary>
     /// Converts an HTML string (typically from ADO description fields) to readable plain text.

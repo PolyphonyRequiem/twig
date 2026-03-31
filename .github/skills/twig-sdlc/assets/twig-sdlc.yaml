@@ -238,7 +238,12 @@ agents:
       {% endif %}
       ## Instructions
       1. **Research the codebase** — explore relevant files, understand patterns and conventions
-      2. **Write a .plan.md document** with:
+      2. **Call-site audit** — if the change modifies cross-cutting behavior (shared services,
+         base classes, extension methods, serialization, or interfaces used by multiple callers),
+         inventory ALL existing call sites in a table: file, method, current usage, impact.
+         Include this table in the Background section of the plan. This prevents missed call
+         sites from causing bugs during implementation.
+      3. **Write a .plan.md document** with:
          - Executive summary
          - Background and current architecture
          - Design decisions with trade-offs
@@ -1091,15 +1096,22 @@ agents:
     input:
       - pr_submit.output
       - implementation_manager.output
+      - architect.output?
+      - plan_reader.output?
     system_prompt: |
       You merge approved GitHub PRs and clean up branches.
     prompt: |
       Merge the approved PR.
       **PR:** {{ pr_submit.output.pr_url }} (#{{ pr_submit.output.pr_number }})
+      **Plan:** {{ (architect.output.plan_path if architect is defined and architect.output else plan_reader.output.plan_path) }}
       ## Steps
       1. Merge: `gh pr merge {{ pr_submit.output.pr_number }} --merge --delete-branch`
       2. Switch to main: `git checkout main && git pull`
       3. Verify clean state: `git status`
+      4. **Update plan status** — read the plan file and change its `> **Status**:` line
+         to `> **Status**: ✅ Done` (if this was the final PR group) or
+         `> **Status**: 🔨 In Progress — <N>/<M> PR groups merged` (if more remain).
+         Commit the change: `git add -A && git commit -m "docs: update plan status after PR merge"`
     output:
       merged:
         type: boolean
@@ -1165,10 +1177,14 @@ agents:
       **Completed Issues:** {{ implementation_manager.output.completed_issues | json }}
       **Completed PRs:** {{ implementation_manager.output.completed_prs | json }}
       **Plan:** {{ (architect.output.plan_path if architect is defined and architect.output else plan_reader.output.plan_path) }}
+      ## Ownership Convention
+      Implementing agents (coder, implementation_manager) own Task and Issue state
+      transitions. The close_out agent owns the **Epic-level** transition to Done.
+      Do NOT assume implementing agents have already transitioned the Epic.
       ## Steps
       1. **Check current state (idempotency):**
          - `twig set {{ intake.output.epic_id }} --output json` — read the current state
-         - `git log --oneline -5` — check if a close commit already exists
+         - `git log --oneline -10` — check if a close commit already exists
          - If state is already "Done" AND a close commit exists, skip steps 2-3 and go to step 4
       2. **Transition the Epic to Done** (only if not already Done):
          - `twig note --text "All work complete. <progress summary>"`
@@ -1177,17 +1193,26 @@ agents:
          - Change the Status line from its current value to `> **Status**: ✅ Done`
          - Mark all Epics and Tasks as DONE in the plan file
          - Add a completion section with date and summary
-      4. **Produce meta-observations:**
+      4. **Full workflow git log** — for richer observations, capture the entire commit history:
+         - `git log --oneline --all` (or scope to the workflow's branches/main)
+         - Note commit cadence, rework patterns, time-to-completion indicators
+      5. **Produce meta-observations:**
          Reflect on the entire workflow execution:
          - What went well? Which agents performed effectively?
          - Where did agents struggle? (hallucinations, wrong tools, missed context)
          - What workflow improvements would help future runs?
          - Were the PR groupings effective?
          - Was the plan accurate, or did implementation diverge significantly?
-         - Time and cost observations
-      5. **Final commit** (only if there are uncommitted changes):
+         - Commit cadence and rework analysis from the git log
+      6. **Record observations in ADO** — add a twig note summarizing key meta-observations:
+         - `twig set {{ intake.output.epic_id }} --output json`
+         - `twig note --text "Workflow observations: <2-3 sentence summary of what went well, what struggled, and top improvement>"`
+      7. **Ensure all work is upstream:**
+         - `git push` — push any pending commits (e.g., reduction sweeps, plan status updates)
+         - If push fails (nothing to push), that's fine — continue
+      8. **Final commit** (only if there are uncommitted changes):
          - `git diff --stat HEAD` — check for changes
-         - If changes exist: `git add -A && git commit -m "close: {{ intake.output.epic_title }}"`
+         - If changes exist: `git add -A && git commit -m "close: {{ intake.output.epic_title }}" && git push`
          - If no changes: skip commit
     output:
       observations:

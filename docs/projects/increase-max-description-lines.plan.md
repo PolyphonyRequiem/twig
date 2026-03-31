@@ -2,7 +2,7 @@
 
 **Work Item:** AB#1327
 **Type:** Issue
-**Status:** 🔨 In Progress
+**Status:** ✅ Done
 **Author:** Copilot
 **Date:** 2026-03-31
 
@@ -45,11 +45,20 @@ truncates output at `MaxDescriptionLines` (currently 15) and appends a
 
 ### Acceptance Criteria
 
-- [ ] `MaxDescriptionLines` is 30 in `FormatterHelpers.cs`
-- [ ] `HtmlToPlainText` with ≤30 lines returns all lines (no truncation marker)
-- [ ] `HtmlToPlainText` with >30 lines returns first 30 + `(+N more lines)`
-- [ ] All existing tests pass with updated thresholds
-- [ ] `dotnet test` passes with zero failures
-- [ ] No other behavior changes
+- [x] `MaxDescriptionLines` is 30 in `FormatterHelpers.cs`
+- [x] `HtmlToPlainText` with ≤30 lines returns all lines (no truncation marker)
+- [x] `HtmlToPlainText` with >30 lines returns first 30 + `(+N more lines)`
+- [x] All existing tests pass with updated thresholds
+- [x] `dotnet test` passes with zero failures
+- [x] No other behavior changes
 
 ---
+
+## Completion
+
+**Completed:** 2026-03-31
+
+All tasks (T1–T4) implemented in a single PR (`feat/increase-max-description-lines`).
+The constant was updated from 15 → 30, unit tests and integration tests were adjusted
+to match the new threshold, and a post-issue reduction sweep simplified 3 items.
+PR #7 merged to main. ADO Issue #1327 transitioned to Done.

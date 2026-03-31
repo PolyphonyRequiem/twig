@@ -118,8 +118,8 @@ public class BuildStatusViewDescriptionTests
     public async Task BuildStatusViewAsync_LongDescription_TruncatedWithIndicator()
     {
         var item = CreateWorkItem(17, "Long Desc", "Active");
-        // 20 paragraphs → exceeds MaxDescriptionLines (15), triggers "(+N more lines)" marker
-        var paragraphs = string.Concat(Enumerable.Range(1, 20).Select(i => $"<p>Paragraph {i} content.</p>"));
+        // 35 paragraphs → exceeds MaxDescriptionLines (30), triggers "(+N more lines)" marker
+        var paragraphs = string.Concat(Enumerable.Range(1, 35).Select(i => $"<p>Paragraph {i} content.</p>"));
         item.SetField("System.Description", $"<div>{paragraphs}</div>");
 
         var output = await RenderStatusViewAsync(item);

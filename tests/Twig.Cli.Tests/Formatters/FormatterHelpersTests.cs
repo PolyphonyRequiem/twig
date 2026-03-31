@@ -130,7 +130,6 @@ public class FormatterHelpersTests
         var result = FormatterHelpers.HtmlToPlainText(html);
         result.ShouldContain("First paragraph");
         result.ShouldContain("Second paragraph");
-        // Paragraphs should be on separate lines
         result.Split('\n').Length.ShouldBeGreaterThan(1);
     }
 
@@ -141,8 +140,7 @@ public class FormatterHelpersTests
         var result = FormatterHelpers.HtmlToPlainText(html);
         result.ShouldContain("Block one");
         result.ShouldContain("Block two");
-        var lines = result.Split('\n').Where(l => l.Length > 0).ToArray();
-        lines.Length.ShouldBeGreaterThanOrEqualTo(2);
+        result.Split('\n').Count(l => l.Length > 0).ShouldBeGreaterThanOrEqualTo(2);
     }
 
     [Fact]
@@ -190,7 +188,6 @@ public class FormatterHelpersTests
     {
         var html = "<p>First</p><p></p><p></p><p></p><p>Second</p>";
         var result = FormatterHelpers.HtmlToPlainText(html);
-        // Should not have multiple consecutive blank lines
         result.ShouldNotContain("\n\n\n");
     }
 
@@ -207,26 +204,19 @@ public class FormatterHelpersTests
     [Fact]
     public void HtmlToPlainText_TruncatesAtMaxLines()
     {
-        // Build HTML with 20 paragraphs
-        var sb = new System.Text.StringBuilder();
-        for (var i = 1; i <= 20; i++)
-            sb.Append($"<p>Line {i}</p>");
-        var result = FormatterHelpers.HtmlToPlainText(sb.ToString());
+        var result = FormatterHelpers.HtmlToPlainText(string.Concat(Enumerable.Range(1, 35).Select(i => $"<p>Line {i}</p>")));
         result.ShouldContain("(+5 more lines)");
         result.ShouldContain("Line 1");
-        result.ShouldContain("Line 15");
-        result.ShouldNotContain("Line 16");
+        result.ShouldContain("Line 30");
+        result.ShouldNotContain("Line 31");
     }
 
     [Fact]
     public void HtmlToPlainText_ExactlyMaxLines_NoTruncation()
     {
-        var sb = new System.Text.StringBuilder();
-        for (var i = 1; i <= 15; i++)
-            sb.Append($"<p>Line {i}</p>");
-        var result = FormatterHelpers.HtmlToPlainText(sb.ToString());
+        var result = FormatterHelpers.HtmlToPlainText(string.Concat(Enumerable.Range(1, 30).Select(i => $"<p>Line {i}</p>")));
         result.ShouldNotContain("more lines");
-        result.ShouldContain("Line 15");
+        result.ShouldContain("Line 30");
     }
 
     [Fact]

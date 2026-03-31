@@ -83,68 +83,81 @@ public sealed class SyncCoordinator
     {
         try
         {
-            // 1. Filter AllIds to exclude seeds (negative IDs) and dirty items (avoid wasteful ADO fetch)
             var candidateIds = workingSet.AllIds
                 .Where(id => id > 0 && !workingSet.DirtyItemIds.Contains(id))
                 .ToList();
-
-            if (candidateIds.Count == 0)
-                return new SyncResult.UpToDate();
-
-            // 2. Check per-item LastSyncedAt against cacheStaleMinutes
-            var staleIds = new List<int>();
-            var threshold = TimeSpan.FromMinutes(_cacheStaleMinutes);
-
-            foreach (var id in candidateIds)
-            {
-                var existing = await _workItemRepo.GetByIdAsync(id, ct);
-
-                if (existing?.LastSyncedAt is null ||
-                    DateTimeOffset.UtcNow - existing.LastSyncedAt.Value >= threshold)
-                {
-                    staleIds.Add(id);
-                }
-            }
-
-            if (staleIds.Count == 0)
-                return new SyncResult.UpToDate();
-
-            // 3. Fetch all stale items concurrently, handling individual failures
-            var fetchTasks = staleIds.Select(async id =>
-            {
-                try
-                {
-                    var item = await _adoService.FetchAsync(id, ct);
-                    return (Id: id, Item: item, Error: (Exception?)null);
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    return (Id: id, Item: (WorkItem?)null, Error: ex);
-                }
-            });
-            var fetchResults = await Task.WhenAll(fetchTasks);
-
-            var fetchedItems = fetchResults.Where(r => r.Item is not null).Select(r => r.Item!).ToArray();
-            var fetchFailures = fetchResults.Where(r => r.Error is not null)
-                .Select(r => new SyncItemFailure(r.Id, r.Error!.Message))
-                .ToList();
-
-            // 4. Save the batch through SaveBatchProtectedAsync (computes protected IDs once)
-            var skippedIds = await _protectedCacheWriter.SaveBatchProtectedAsync(fetchedItems, ct);
-            var savedCount = fetchedItems.Length - skippedIds.Count;
-
-            if (fetchFailures.Count > 0 && fetchedItems.Length > 0)
-                return new SyncResult.PartiallyUpdated(savedCount, fetchFailures);
-
-            if (fetchFailures.Count > 0)
-                return new SyncResult.Failed(string.Join("; ", fetchFailures.Select(f => $"#{f.Id}: {f.Error}")));
-
-            return new SyncResult.Updated(savedCount);
+            if (candidateIds.Count == 0) return new SyncResult.UpToDate();
+            return await FetchStaleAndSaveAsync(candidateIds, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             return new SyncResult.Failed(ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Syncs a specific set of item IDs. Filters out negative IDs (seeds), checks per-item
+    /// staleness, fetches stale items concurrently, and saves through the protected cache writer.
+    /// Unlike <see cref="SyncWorkingSetAsync"/>, accepts explicit IDs without requiring a
+    /// <see cref="WorkingSet"/> — dirty protection is enforced at write time by
+    /// <see cref="ProtectedCacheWriter.SaveBatchProtectedAsync(IEnumerable{WorkItem}, CancellationToken)"/>.
+    /// </summary>
+    public async Task<SyncResult> SyncItemSetAsync(
+        IReadOnlyList<int> ids, CancellationToken ct = default)
+    {
+        try
+        {
+            var candidateIds = ids.Where(id => id > 0).ToList();
+            if (candidateIds.Count == 0) return new SyncResult.UpToDate();
+            return await FetchStaleAndSaveAsync(candidateIds, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return new SyncResult.Failed(ex.Message);
+        }
+    }
+
+    private async Task<SyncResult> FetchStaleAndSaveAsync(List<int> candidateIds, CancellationToken ct)
+    {
+        var threshold = TimeSpan.FromMinutes(_cacheStaleMinutes);
+        var staleIds = new List<int>();
+        foreach (var id in candidateIds)
+        {
+            var existing = await _workItemRepo.GetByIdAsync(id, ct);
+            if (existing?.LastSyncedAt is null || DateTimeOffset.UtcNow - existing.LastSyncedAt.Value >= threshold)
+                staleIds.Add(id);
+        }
+
+        if (staleIds.Count == 0) return new SyncResult.UpToDate();
+
+        var fetchResults = await Task.WhenAll(staleIds.Select(async id =>
+        {
+            try
+            {
+                var item = await _adoService.FetchAsync(id, ct);
+                return (Id: id, Item: item, Error: (Exception?)null);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                return (Id: id, Item: (WorkItem?)null, Error: ex);
+            }
+        }));
+
+        var fetchedItems = fetchResults.Where(r => r.Item is not null).Select(r => r.Item!).ToArray();
+        var fetchFailures = fetchResults.Where(r => r.Error is not null)
+            .Select(r => new SyncItemFailure(r.Id, r.Error!.Message))
+            .ToList();
+
+        var skippedIds = await _protectedCacheWriter.SaveBatchProtectedAsync(fetchedItems, ct);
+        var savedCount = fetchedItems.Length - skippedIds.Count;
+
+        if (fetchFailures.Count > 0 && fetchedItems.Length > 0)
+            return new SyncResult.PartiallyUpdated(savedCount, fetchFailures);
+
+        if (fetchFailures.Count > 0)
+            return new SyncResult.Failed(string.Join("; ", fetchFailures.Select(f => $"#{f.Id}: {f.Error}")));
+
+        return new SyncResult.Updated(savedCount);
     }
 
     /// <summary>

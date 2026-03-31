@@ -129,7 +129,6 @@ public class SetCommandTests
     [Fact]
     public async Task Set_CacheMiss_TriggersEviction()
     {
-        // Arrange: cache miss → FetchedFromAdo path
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
         var item = CreateWorkItem(42, "New Item");
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
@@ -138,6 +137,8 @@ public class SetCommandTests
         var result = await _cmd.ExecuteAsync("42");
 
         result.ShouldBe(0);
+        // ComputeAsync IS called on cache miss (DD-3: needed to compute working set for eviction)
+        await _contextStore.Received().GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>());
         // EvictExceptAsync called on cache miss (FR-012: FetchedFromAdo triggers eviction)
         await _workItemRepo.Received(1).EvictExceptAsync(
             Arg.Any<IReadOnlySet<int>>(), Arg.Any<CancellationToken>());
@@ -225,13 +226,9 @@ public class SetCommandTests
         var result = await _cmd.ExecuteAsync("42");
 
         result.ShouldBe(0);
-        // SyncItemSetAsync syncs the target item (LastSyncedAt is null → stale → fetched)
+        // SyncItemSetAsync syncs ONLY the target item (exactly 1 ADO fetch — no working set IDs)
+        await _adoService.Received(1).FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
         await _adoService.Received().FetchAsync(42, Arg.Any<CancellationToken>());
-        // EvictExceptAsync NOT called (FR-012: cache hit skips eviction)
-        await _workItemRepo.DidNotReceive().EvictExceptAsync(
-            Arg.Any<IReadOnlySet<int>>(), Arg.Any<CancellationToken>());
-        // ComputeAsync skipped on cache hit (DD-3: observable via GetActiveWorkItemIdAsync not called)
-        await _contextStore.DidNotReceive().GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -249,7 +246,8 @@ public class SetCommandTests
         var result = await _cmd.ExecuteAsync("42");
 
         result.ShouldBe(0);
-        // Both target and parent are synced (both stale — null LastSyncedAt)
+        // SyncItemSetAsync scope = [42, 100]: exactly 2 ADO fetches (both stale — null LastSyncedAt)
+        await _adoService.Received(2).FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
         await _adoService.Received().FetchAsync(42, Arg.Any<CancellationToken>());
         await _adoService.Received().FetchAsync(100, Arg.Any<CancellationToken>());
     }

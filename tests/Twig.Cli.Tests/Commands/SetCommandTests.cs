@@ -29,8 +29,6 @@ public class SetCommandTests
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _adoService = Substitute.For<IAdoWorkItemService>();
         _contextStore = Substitute.For<IContextStore>();
-        _adoService.FetchChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>());
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, pendingChangeStore);

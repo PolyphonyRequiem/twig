@@ -46,8 +46,6 @@ public class CacheFirstReadCommandTests
             .Returns(Array.Empty<SeedLink>());
         _workItemLinkRepo.GetLinksAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItemLink>());
-        _adoService.FetchChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>());
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
         _syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, protectedCacheWriter, 30);
@@ -128,18 +126,18 @@ public class CacheFirstReadCommandTests
         var result = await cmd.ExecuteAsync("42");
 
         result.ShouldBe(0);
-        // SyncWorkingSetAsync fetches stale items individually (DD-07)
+        // SyncItemSetAsync fetches stale items individually via FetchAsync (not FetchChildrenAsync)
         await _adoService.Received().FetchAsync(42, Arg.Any<CancellationToken>());
     }
 
     // ── (c) Stale data + failed sync ───────────────────────────────
 
     [Fact]
-    public async Task SetCommand_ChildrenSyncFailure_StillSucceeds()
+    public async Task SetCommand_SyncFailure_StillSucceeds()
     {
         var item = CreateWorkItem(42, "Item");
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
-        _adoService.FetchChildrenAsync(42, Arg.Any<CancellationToken>())
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
             .Throws(new HttpRequestException("Network unavailable"));
 
         var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
@@ -166,7 +164,7 @@ public class CacheFirstReadCommandTests
         _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
             .Returns(new List<int> { 100 });
 
-        // SyncWorkingSetAsync skips dirty items (doesn't fetch them from ADO)
+        // SyncItemSetAsync skips dirty items — dirty protection is enforced at write time
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
         var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
@@ -174,7 +172,7 @@ public class CacheFirstReadCommandTests
         var result = await cmd.ExecuteAsync("42");
 
         result.ShouldBe(0);
-        // Verify dirty child (ID 100) was NOT fetched — SyncWorkingSetAsync skips dirty items
+        // Verify dirty child (ID 100) was NOT fetched — SyncItemSetAsync only syncs target + parent chain
         await _adoService.DidNotReceive().FetchAsync(100, Arg.Any<CancellationToken>());
     }
 

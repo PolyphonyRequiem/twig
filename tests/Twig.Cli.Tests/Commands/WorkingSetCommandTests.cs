@@ -103,7 +103,7 @@ public class WorkingSetCommandTests
         // No eviction on cache hit (FR-012)
         await _workItemRepo.DidNotReceive().EvictExceptAsync(
             Arg.Any<IReadOnlySet<int>>(), Arg.Any<CancellationToken>());
-        // But SyncWorkingSetAsync still fires (fetches stale active item)
+        // But SyncItemSetAsync still fires (fetches stale active item)
         await _adoService.Received().FetchAsync(42, Arg.Any<CancellationToken>());
     }
 
@@ -179,10 +179,10 @@ public class WorkingSetCommandTests
         capturedKeepIds.ShouldContain(-1);   // seed
     }
 
-    // ── (e) SyncWorkingSetAsync called instead of SyncChildrenAsync ─
+    // ── (e) Targeted sync uses FetchAsync per-item, never FetchChildrenAsync ─
 
     [Fact]
-    public async Task SyncWorkingSetAsync_CalledInsteadOfSyncChildrenAsync_OnCacheMiss()
+    public async Task TargetedSync_DoesNotCallFetchChildren_OnCacheMiss()
     {
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
         var item = CreateWorkItem(42, "New Item");
@@ -192,13 +192,13 @@ public class WorkingSetCommandTests
         var cmd = CreateCommand();
         await cmd.ExecuteAsync("42");
 
-        // SyncWorkingSetAsync uses FetchAsync per-item (not FetchChildrenAsync)
+        // SyncItemSetAsync uses FetchAsync per-item (not FetchChildrenAsync)
         await _adoService.DidNotReceive().FetchChildrenAsync(
             Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task SyncWorkingSetAsync_CalledInsteadOfSyncChildrenAsync_OnCacheHit()
+    public async Task TargetedSync_DoesNotCallFetchChildren_OnCacheHit()
     {
         var item = CreateWorkItem(42, "Cached Item");
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
@@ -208,7 +208,7 @@ public class WorkingSetCommandTests
         var cmd = CreateCommand();
         await cmd.ExecuteAsync("42");
 
-        // SyncChildrenAsync NOT called — replaced by SyncWorkingSetAsync
+        // FetchChildrenAsync NOT called — SetCommand uses SyncItemSetAsync, not SyncChildrenAsync
         await _adoService.DidNotReceive().FetchChildrenAsync(
             Arg.Any<int>(), Arg.Any<CancellationToken>());
     }

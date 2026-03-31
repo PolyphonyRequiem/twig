@@ -1,7 +1,7 @@
 # Plan: `twig set` Syncs Entire Working Set Instead of Just Target Item
 
 > **Date**: 2026-03-31
-> **Status**: 🔨 In Progress
+> **Status**: ✅ Done
 > **ADO Issue**: #1352
 
 ---

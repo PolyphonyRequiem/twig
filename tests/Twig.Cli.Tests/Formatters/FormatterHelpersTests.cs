@@ -1,4 +1,3 @@
-using System.Text;
 using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.ValueObjects;
@@ -205,11 +204,7 @@ public class FormatterHelpersTests
     [Fact]
     public void HtmlToPlainText_TruncatesAtMaxLines()
     {
-        // Build HTML with 35 paragraphs
-        var sb = new StringBuilder();
-        for (var i = 1; i <= 35; i++)
-            sb.Append($"<p>Line {i}</p>");
-        var result = FormatterHelpers.HtmlToPlainText(sb.ToString());
+        var result = FormatterHelpers.HtmlToPlainText(string.Concat(Enumerable.Range(1, 35).Select(i => $"<p>Line {i}</p>")));
         result.ShouldContain("(+5 more lines)");
         result.ShouldContain("Line 1");
         result.ShouldContain("Line 30");
@@ -219,10 +214,7 @@ public class FormatterHelpersTests
     [Fact]
     public void HtmlToPlainText_ExactlyMaxLines_NoTruncation()
     {
-        var sb = new StringBuilder();
-        for (var i = 1; i <= 30; i++)
-            sb.Append($"<p>Line {i}</p>");
-        var result = FormatterHelpers.HtmlToPlainText(sb.ToString());
+        var result = FormatterHelpers.HtmlToPlainText(string.Concat(Enumerable.Range(1, 30).Select(i => $"<p>Line {i}</p>")));
         result.ShouldNotContain("more lines");
         result.ShouldContain("Line 30");
     }

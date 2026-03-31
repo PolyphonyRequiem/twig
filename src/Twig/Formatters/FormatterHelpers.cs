@@ -303,8 +303,7 @@ internal static class FormatterHelpers
         if (lines.Count <= MaxDescriptionLines)
             return string.Join('\n', lines);
 
-        var totalLines = lines.Count;
-        var remaining = totalLines - MaxDescriptionLines;
+        var remaining = lines.Count - MaxDescriptionLines;
         var truncated = lines.GetRange(0, MaxDescriptionLines);
         truncated.Add($"(+{remaining} more lines)");
         return string.Join('\n', truncated);

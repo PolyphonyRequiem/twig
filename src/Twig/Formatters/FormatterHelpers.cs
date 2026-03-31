@@ -1,4 +1,5 @@
 using System.Text;
+using Spectre.Console;
 using Twig.Domain.Aggregates;
 
 namespace Twig.Formatters;
@@ -149,6 +150,122 @@ internal static class FormatterHelpers
 
         // Pass 5: Truncate at MaxDescriptionLines
         return TruncateLines(lines);
+    }
+
+    /// <summary>
+    /// Converts an HTML string (typically from ADO description fields) to Spectre.Console markup.
+    /// The returned string already contains Spectre markup tags (e.g. <c>[bold]</c>, <c>[italic]</c>)
+    /// and user text has been escaped via <see cref="Markup.Escape"/>.
+    /// Callers should wrap the result in <c>new Markup(result)</c> and must <b>not</b> call
+    /// <see cref="Markup.Escape"/> on the returned value.
+    /// AOT-safe: single-pass state machine using <see cref="StringBuilder"/> — no regex, no reflection.
+    /// </summary>
+    internal static string HtmlToSpectreMarkup(string? html)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+            return string.Empty;
+
+        var result = new StringBuilder(html.Length);
+        var textBuffer = new StringBuilder();
+        var i = 0;
+
+        while (i < html.Length)
+        {
+            if (html[i] == '<')
+            {
+                var tagEnd = html.IndexOf('>', i);
+                if (tagEnd < 0)
+                {
+                    // Unclosed '<' — treat remaining as literal text
+                    textBuffer.Append(html, i, html.Length - i);
+                    break;
+                }
+
+                // Flush accumulated text through Markup.Escape
+                FlushTextBuffer(textBuffer, result);
+
+                var tagContent = html.AsSpan(i + 1, tagEnd - i - 1);
+                var isClosing = tagContent.Length > 0 && tagContent[0] == '/';
+                var tagName = isClosing ? tagContent[1..] : tagContent;
+
+                // Strip attributes at first space
+                var spaceIdx = tagName.IndexOf(' ');
+                if (spaceIdx >= 0)
+                    tagName = tagName[..spaceIdx];
+
+                EmitSpectreTag(result, tagName, isClosing);
+                i = tagEnd + 1;
+            }
+            else if (html[i] == '&')
+            {
+                if (TryDecodeEntity(html, i, out var decoded, out var consumed))
+                {
+                    textBuffer.Append(decoded);
+                    i += consumed;
+                }
+                else
+                {
+                    textBuffer.Append('&');
+                    i++;
+                }
+            }
+            else
+            {
+                textBuffer.Append(html[i]);
+                i++;
+            }
+        }
+
+        // Flush remaining text
+        FlushTextBuffer(textBuffer, result);
+
+        var lines = NormalizeLines(result.ToString());
+        return TruncateLines(lines);
+    }
+
+    private static void FlushTextBuffer(StringBuilder textBuffer, StringBuilder result)
+    {
+        if (textBuffer.Length > 0)
+        {
+            result.Append(Markup.Escape(textBuffer.ToString()));
+            textBuffer.Clear();
+        }
+    }
+
+    private static void EmitSpectreTag(StringBuilder result, ReadOnlySpan<char> tagName, bool isClosing)
+    {
+        if (tagName.Equals("b", StringComparison.OrdinalIgnoreCase)
+            || tagName.Equals("strong", StringComparison.OrdinalIgnoreCase))
+        {
+            result.Append(isClosing ? "[/]" : "[bold]");
+        }
+        else if (tagName.Equals("em", StringComparison.OrdinalIgnoreCase)
+                 || tagName.Equals("i", StringComparison.OrdinalIgnoreCase))
+        {
+            result.Append(isClosing ? "[/]" : "[italic]");
+        }
+        else if (tagName.Equals("code", StringComparison.OrdinalIgnoreCase))
+        {
+            result.Append(isClosing ? "[/]" : "[dim]");
+        }
+        else if (tagName.Length == 2 && (tagName[0] is 'h' or 'H') && tagName[1] is >= '1' and <= '6')
+        {
+            result.Append(isClosing ? "[/]" : "\n[bold]");
+        }
+        else if (tagName.Equals("li", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!isClosing)
+                result.Append("\n• ");
+        }
+        else if (IsBreakElement(tagName)
+                 || tagName.Equals("p", StringComparison.OrdinalIgnoreCase)
+                 || tagName.Equals("div", StringComparison.OrdinalIgnoreCase)
+                 || tagName.Equals("pre", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!isClosing)
+                result.Append('\n');
+        }
+        // else: unknown tag — strip silently
     }
 
     private static string InsertBlockMarkers(string html)

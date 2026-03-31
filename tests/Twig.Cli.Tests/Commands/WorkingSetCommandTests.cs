@@ -19,8 +19,8 @@ namespace Twig.Cli.Tests.Commands;
 /// <summary>
 /// WS-013: Working set eviction + sync tests for <see cref="SetCommand"/>.
 /// Verifies eviction on cache miss, no eviction on cache hit, dirty item survival,
-/// SyncWorkingSetAsync replaces SyncChildrenAsync, ComputeAsync receives IterationPath,
-/// and TTY path renders work item inside buildCachedView.
+/// targeted sync via SyncItemSetAsync, ComputeAsync receives IterationPath,
+/// and TTY path uses unified output (no RenderWithSyncAsync wrapper).
 /// </summary>
 public class WorkingSetCommandTests
 {
@@ -236,26 +236,15 @@ public class WorkingSetCommandTests
         await _iterationService.DidNotReceive().GetCurrentIterationAsync(Arg.Any<CancellationToken>());
     }
 
-    // ── (g) TTY path renders item in buildCachedView ───────────────
+    // ── (g) TTY path no longer wraps sync in RenderWithSyncAsync (DD-5) ───
 
     [Fact]
-    public async Task TtyPath_RendersWorkItemInsideBuildCachedView()
+    public async Task TtyPath_DoesNotUseRenderWithSyncAsync()
     {
         var item = CreateWorkItem(42, "TTY Item");
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
         var mockRenderer = Substitute.For<IAsyncRenderer>();
-        IRenderable? capturedCachedView = null;
-        mockRenderer.RenderWithSyncAsync(
-            Arg.Any<Func<Task<IRenderable>>>(),
-            Arg.Any<Func<Task<SyncResult>>>(),
-            Arg.Any<Func<SyncResult, Task<IRenderable?>>>(),
-            Arg.Any<CancellationToken>())
-            .Returns(async callInfo =>
-            {
-                var buildCachedView = callInfo.ArgAt<Func<Task<IRenderable>>>(0);
-                capturedCachedView = await buildCachedView();
-            });
 
         var pipelineFactory = new RenderingPipelineFactory(
             _formatterFactory, mockRenderer, isOutputRedirected: () => false);
@@ -263,14 +252,12 @@ public class WorkingSetCommandTests
         var result = await cmd.ExecuteAsync("42");
 
         result.ShouldBe(0);
-        capturedCachedView.ShouldNotBeNull();
-        // FR-015: cached view should contain the work item text, not be empty
-        // Render through TestConsole for a reliable string representation
-        var testConsole = new TestConsole();
-        testConsole.Write(capturedCachedView);
-        var renderedOutput = testConsole.Output;
-        renderedOutput.ShouldNotBeNullOrWhiteSpace();
-        renderedOutput.ShouldContain("TTY Item");
+        // DD-5: targeted sync is fast enough — no spinner wrapper needed
+        await mockRenderer.DidNotReceive().RenderWithSyncAsync(
+            Arg.Any<Func<Task<IRenderable>>>(),
+            Arg.Any<Func<Task<SyncResult>>>(),
+            Arg.Any<Func<SyncResult, Task<IRenderable?>>>(),
+            Arg.Any<CancellationToken>());
     }
 
     private static WorkItem CreateWorkItem(int id, string title, int? parentId = null, string iterationPath = "Project\\Sprint 1")

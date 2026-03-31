@@ -37,16 +37,6 @@
         "monitor"
       ]
     },
-    "code-search": {
-      "url": "https://mcp.engcopilot.net/",
-      "type": "http",
-      "headers": {
-        "x-mcp-ec-organization": "${input:ado_organization}",
-        "x-mcp-ec-project": "${input:ado_project}",
-        "x-mcp-ec-repository": "${input:ado_repository}",
-        "x-mcp-ec-branch": "${input:ado_branch}"
-      }
-    },
     "enghub": {
       "type": "stdio",
       "command": "node",

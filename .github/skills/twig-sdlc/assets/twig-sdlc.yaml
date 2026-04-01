@@ -13,7 +13,6 @@
 #         Sonnet for focused tasks (everything else)
 #
 # Prompts are externalized to prompts/ directory via !file includes.
-# Shared reducer system prompt lives at .github/prompts/reducer.md.
 #
 # Usage (always use --web, NOT --web-bg which doesn't work correctly):
 #   conductor --silent run twig-sdlc.yaml --input work_item_id=1273 --web
@@ -205,7 +204,7 @@ agents:
     input:
       - architect.output
       - intake.output
-    system_prompt: !file ../../../prompts/reducer.md
+    system_prompt: !file prompts/reducer.system.md
     prompt: !file prompts/reducer-plan.prompt.md
     output:
       findings:
@@ -443,7 +442,7 @@ agents:
     input:
       - coder.output
       - implementation_manager.output
-    system_prompt: !file ../../../prompts/reducer.md
+    system_prompt: !file prompts/reducer.system.md
     prompt: !file prompts/reducer-code.prompt.md
     output:
       findings:
@@ -518,7 +517,7 @@ agents:
       - implementation_manager.output
       - architect.output?
       - plan_reader.output?
-    system_prompt: !file ../../../prompts/reducer.md
+    system_prompt: !file prompts/reducer.system.md
     prompt: !file prompts/reducer-issue.prompt.md
     output:
       findings:
@@ -656,7 +655,7 @@ agents:
       - architect.output?
       - plan_reader.output?
       - intake.output
-    system_prompt: !file ../../../prompts/reducer.md
+    system_prompt: !file prompts/reducer.system.md
     prompt: !file prompts/reducer-pr.prompt.md
     output:
       findings:

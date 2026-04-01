@@ -1,7 +1,7 @@
 # Plan: Rich Terminal Description Rendering
 
 > **Date**: 2026-03-31
-> **Status**: 🔨 In Progress
+> **Status**: ✅ Done
 > **ADO Epic**: #1326
 
 ---

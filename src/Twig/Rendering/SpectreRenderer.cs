@@ -530,11 +530,11 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         IRenderable panelContent = itemGrid;
         if (item.Fields.TryGetValue("System.Description", out var rawDescription))
         {
-            var plainText = Formatters.FormatterHelpers.HtmlToPlainText(rawDescription);
-            if (!string.IsNullOrWhiteSpace(plainText))
+            var descriptionMarkup = Formatters.FormatterHelpers.HtmlToSpectreMarkup(rawDescription);
+            if (!string.IsNullOrWhiteSpace(descriptionMarkup))
                 panelContent = new Rows(itemGrid,
                     new Rule("[dim]Description[/]").LeftJustified().RuleStyle("dim"),
-                    new Markup(Markup.Escape(plainText)));
+                    new Markup(descriptionMarkup));
         }
 
         var itemPanel = new Panel(panelContent)

@@ -382,4 +382,215 @@ public class FormatterHelpersTests
     {
         FormatterHelpers.IsProgressComplete(0, 0).ShouldBeFalse();
     }
+
+    // ── HtmlToSpectreMarkup ─────────────────────────────────────────
+
+    [Fact]
+    public void HtmlToSpectreMarkup_NullInput_ReturnsEmpty()
+    {
+        FormatterHelpers.HtmlToSpectreMarkup(null).ShouldBe(string.Empty);
+    }
+
+    [Fact]
+    public void HtmlToSpectreMarkup_EmptyString_ReturnsEmpty()
+    {
+        FormatterHelpers.HtmlToSpectreMarkup("").ShouldBe(string.Empty);
+    }
+
+    [Fact]
+    public void HtmlToSpectreMarkup_WhitespaceOnly_ReturnsEmpty()
+    {
+        FormatterHelpers.HtmlToSpectreMarkup("   ").ShouldBe(string.Empty);
+    }
+
+    [Theory]
+    [InlineData("<b>text</b>")]
+    [InlineData("<strong>text</strong>")]
+    public void HtmlToSpectreMarkup_BoldVariant_EmitsBoldMarkup(string html)
+    {
+        FormatterHelpers.HtmlToSpectreMarkup(html).ShouldContain("[bold]text[/]");
+    }
+
+    [Theory]
+    [InlineData("<em>text</em>")]
+    [InlineData("<i>text</i>")]
+    public void HtmlToSpectreMarkup_ItalicVariant_EmitsItalicMarkup(string html)
+    {
+        FormatterHelpers.HtmlToSpectreMarkup(html).ShouldContain("[italic]text[/]");
+    }
+
+    [Fact]
+    public void HtmlToSpectreMarkup_CodeTag_EmitsDimMarkup()
+    {
+        var result = FormatterHelpers.HtmlToSpectreMarkup("<code>x</code>");
+        result.ShouldContain("[dim]x[/]");
+    }
+
+    [Fact]
+    public void HtmlToSpectreMarkup_HeadingTag_EmitsBoldMarkup()
+    {
+        var result = FormatterHelpers.HtmlToSpectreMarkup("<h2>Title</h2>");
+        result.ShouldContain("[bold]Title[/]");
+    }
+
+    [Fact]
+    public void HtmlToSpectreMarkup_ListItem_EmitsBullet()
+    {
+        var result = FormatterHelpers.HtmlToSpectreMarkup("<li>Item</li>");
+        result.ShouldContain("• Item");
+    }
+
+    [Fact]
+    public void HtmlToSpectreMarkup_UnknownTag_StrippedSilently()
+    {
+        FormatterHelpers.HtmlToSpectreMarkup("<span>text</span>").ShouldBe("text");
+    }
+
+    [Fact]
+    public void HtmlToSpectreMarkup_EscapesBrackets()
+    {
+        var result = FormatterHelpers.HtmlToSpectreMarkup("<p>array[0]</p>");
+        result.ShouldContain("array[[0]]");
+    }
+
+    [Fact]
+    public void HtmlToSpectreMarkup_UnclosedAngleBracket_TreatedAsLiteral()
+    {
+        var result = FormatterHelpers.HtmlToSpectreMarkup("Price < 100");
+        result.ShouldContain("Price < 100");
+    }
+
+    [Theory]
+    [InlineData("<br>")]
+    [InlineData("<br/>")]
+    public void HtmlToSpectreMarkup_BrVariant_InsertsNewline(string br)
+    {
+        FormatterHelpers.HtmlToSpectreMarkup($"Line1{br}Line2").ShouldContain("Line1\nLine2");
+    }
+
+    [Fact]
+    public void HtmlToSpectreMarkup_ParagraphTag_InsertsNewline()
+    {
+        var result = FormatterHelpers.HtmlToSpectreMarkup("<p>First</p><p>Second</p>");
+        result.ShouldContain("First");
+        result.ShouldContain("Second");
+        result.Split('\n').Length.ShouldBeGreaterThan(1);
+    }
+
+    [Theory]
+    [InlineData("<div>content</div>", "content")]
+    [InlineData("<pre>content</pre>", "content")]
+    public void HtmlToSpectreMarkup_BlockContainer_PassesThroughContent(string html, string expected)
+    {
+        FormatterHelpers.HtmlToSpectreMarkup(html).ShouldContain(expected);
+    }
+
+    [Fact]
+    public void HtmlToSpectreMarkup_MixedContent_RealWorldAdoHtml()
+    {
+        var html = "<div><p>As a developer, I want <b>rich</b> descriptions.</p>" +
+                   "<h2>Acceptance Criteria</h2>" +
+                   "<ul><li>Multi-line rendering</li><li>HTML converted</li></ul>" +
+                   "<p>See &lt;design doc&gt; for details &amp; notes.</p></div>";
+        var result = FormatterHelpers.HtmlToSpectreMarkup(html);
+        result.ShouldContain("[bold]rich[/]");
+        result.ShouldContain("[bold]Acceptance Criteria[/]");
+        result.ShouldContain("• Multi-line rendering");
+        result.ShouldContain("• HTML converted");
+        result.ShouldContain("See <design doc> for details & notes.");
+    }
+
+    [Fact]
+    public void HtmlToSpectreMarkup_TagWithAttributes_StripsAttributes()
+    {
+        var result = FormatterHelpers.HtmlToSpectreMarkup("<b class=\"highlight\">text</b>");
+        result.ShouldContain("[bold]text[/]");
+    }
+
+    [Fact]
+    public void HtmlToSpectreMarkup_PlainText_PassesThrough()
+    {
+        FormatterHelpers.HtmlToSpectreMarkup("Hello world").ShouldBe("Hello world");
+    }
+
+    [Fact]
+    public void HtmlToSpectreMarkup_TruncatesAtMaxLines()
+    {
+        var result = FormatterHelpers.HtmlToSpectreMarkup(
+            string.Concat(Enumerable.Range(1, 35).Select(i => $"<p>Line {i}</p>")));
+        result.ShouldContain("(+5 more lines)");
+        result.ShouldContain("Line 1");
+        result.ShouldContain("Line 30");
+        result.ShouldNotContain("Line 31");
+    }
+
+    [Fact]
+    public void HtmlToSpectreMarkup_AllHeadingLevels_EmitBold()
+    {
+        foreach (var level in new[] { 1, 2, 3, 4, 5, 6 })
+        {
+            var result = FormatterHelpers.HtmlToSpectreMarkup($"<h{level}>H{level}</h{level}>");
+            result.ShouldContain($"[bold]H{level}[/]", customMessage: $"h{level} should emit [bold]");
+        }
+    }
+
+    [Fact]
+    public void HtmlToSpectreMarkup_NestedInlineTags()
+    {
+        var result = FormatterHelpers.HtmlToSpectreMarkup("<b><em>bold italic</em></b>");
+        result.ShouldContain("[bold][italic]bold italic[/][/]");
+    }
+
+    [Fact]
+    public void HtmlToSpectreMarkup_UnmatchedClosingTag_EmitsClose()
+    {
+        var result = FormatterHelpers.HtmlToSpectreMarkup("text</b>");
+        result.ShouldContain("[/]");
+    }
+
+    [Fact]
+    public void HtmlToSpectreMarkup_AnchorTag_PassesThroughTextContent()
+    {
+        var result = FormatterHelpers.HtmlToSpectreMarkup("<a href=\"https://example.com\">Click here</a>");
+        result.ShouldContain("Click here");
+        result.ShouldNotContain("href");
+        result.ShouldNotContain("https://example.com");
+    }
+
+    [Theory]
+    [InlineData("ul")]
+    [InlineData("ol")]
+    public void HtmlToSpectreMarkup_ListTag_RendersBulletItems(string tag)
+    {
+        var result = FormatterHelpers.HtmlToSpectreMarkup($"<{tag}><li>A</li><li>B</li></{tag}>");
+        result.ShouldContain("• A");
+        result.ShouldContain("• B");
+    }
+
+    [Theory]
+    [InlineData("<ul><li><b>Important</b> item</li></ul>", "• [bold]Important[/] item")]
+    [InlineData("<ul><li><em>note</em> text</li></ul>", "• [italic]note[/] text")]
+    public void HtmlToSpectreMarkup_InlineMarkupInsideListItem_EmitsBothMarkup(string html, string expected)
+    {
+        FormatterHelpers.HtmlToSpectreMarkup(html).ShouldContain(expected);
+    }
+
+    [Theory]
+    [InlineData("&amp;", "&")]
+    [InlineData("&lt;", "<")]
+    [InlineData("&gt;", ">")]
+    [InlineData("&quot;", "\"")]
+    [InlineData("&nbsp;", " ")]
+    public void HtmlToSpectreMarkup_DecodesIndividualEntities(string entity, string expected)
+    {
+        var result = FormatterHelpers.HtmlToSpectreMarkup($"A{entity}B");
+        result.ShouldContain($"A{expected}B");
+    }
+
+    [Fact]
+    public void HtmlToSpectreMarkup_MultipleEntitiesInSequence_AllDecoded()
+    {
+        var result = FormatterHelpers.HtmlToSpectreMarkup("x &lt; y &amp;&amp; y &gt; z");
+        result.ShouldContain("x < y && y > z");
+    }
 }

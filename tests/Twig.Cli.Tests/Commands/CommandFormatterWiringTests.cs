@@ -131,7 +131,7 @@ public class CommandFormatterWiringTests
         var resolver = new ActiveItemResolver(contextStore, workItemRepo, adoService);
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
         var protectedWriter = new ProtectedCacheWriter(workItemRepo, pendingChangeStore);
-        var syncCoord = new SyncCoordinator(workItemRepo, adoService, protectedWriter, 30);
+        var syncCoord = new SyncCoordinator(workItemRepo, adoService, protectedWriter, pendingChangeStore, 30);
         var iterService = Substitute.For<IIterationService>();
         iterService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
@@ -176,7 +176,7 @@ public class CommandFormatterWiringTests
         var activeItemResolver = new ActiveItemResolver(contextStore, workItemRepo, adoService);
         services.AddSingleton(activeItemResolver);
         var pcw = new ProtectedCacheWriter(workItemRepo, pendingChangeStore);
-        var sc = new SyncCoordinator(workItemRepo, adoService, pcw, 30);
+        var sc = new SyncCoordinator(workItemRepo, adoService, pcw, pendingChangeStore, 30);
         services.AddSingleton(sc);
         var iterSvc = Substitute.For<IIterationService>();
         iterSvc.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
@@ -222,8 +222,8 @@ public class CommandFormatterWiringTests
         var activeItemResolver = new ActiveItemResolver(contextStore, workItemRepo, adoService);
         var pcs = Substitute.For<IPendingChangeStore>();
         var pcw = new ProtectedCacheWriter(workItemRepo, pcs);
-        var sc = new SyncCoordinator(workItemRepo, adoService, pcw, 30);
-        var iterSvc = Substitute.For<IIterationService>();
+        var sc = new SyncCoordinator(workItemRepo, adoService, pcw, pcs, 30);
+        var iterSvc= Substitute.For<IIterationService>();
         iterSvc.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
         var wss = new WorkingSetService(contextStore, workItemRepo, pcs, iterSvc, null);

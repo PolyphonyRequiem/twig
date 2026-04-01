@@ -79,7 +79,7 @@ public class RefreshDirtyGuardTests : IDisposable
 
     private RefreshCommand CreateCommand(TextWriter? stderr = null)
     {
-        var syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, _protectedCacheWriter, 30);
+        var syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, _protectedCacheWriter, _pendingChangeStore, 30);
         var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, _iterationService, null);
         return new RefreshCommand(_contextStore, _workItemRepo, _adoService, _iterationService,
             _pendingChangeStore, _protectedCacheWriter, _config, _paths, _processTypeStore, _fieldDefinitionStore,

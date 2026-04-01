@@ -109,7 +109,7 @@ public class PromptStateIntegrationTests : IDisposable
         var writer = CreateWriter();
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var protectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        var syncCoord = new SyncCoordinator(_workItemRepo, _adoService, protectedWriter, 30);
+        var syncCoord = new SyncCoordinator(_workItemRepo, _adoService, protectedWriter, _pendingChangeStore, 30);
         var iterService = Substitute.For<IIterationService>();
         iterService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
@@ -308,7 +308,7 @@ public class PromptStateIntegrationTests : IDisposable
 
         var resolver2 = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var protectedWriter2 = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        var syncCoord2 = new SyncCoordinator(_workItemRepo, _adoService, protectedWriter2, 30);
+        var syncCoord2 = new SyncCoordinator(_workItemRepo, _adoService, protectedWriter2, _pendingChangeStore, 30);
         var iterService2 = Substitute.For<IIterationService>();
         iterService2.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
@@ -499,7 +499,7 @@ public class PromptStateIntegrationTests : IDisposable
 
         var writer = CreateWriter();
         var refreshProtectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        var refreshSyncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, refreshProtectedWriter, 30);
+        var refreshSyncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, refreshProtectedWriter, _pendingChangeStore, 30);
         var refreshWorkingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, iterationService, null);
         var refreshOrchestrator = new RefreshOrchestrator(_contextStore, _workItemRepo, _adoService, iterationService,
             _pendingChangeStore, refreshProtectedWriter, refreshWorkingSetService, refreshSyncCoordinator, _processTypeStore, _fieldDefinitionStore);

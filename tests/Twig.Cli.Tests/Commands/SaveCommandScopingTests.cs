@@ -7,8 +7,6 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
-using Twig.Hints;
-using Twig.Infrastructure.Config;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
@@ -24,7 +22,6 @@ public class SaveCommandScopingTests
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IConsoleInput _consoleInput;
     private readonly OutputFormatterFactory _formatterFactory;
-    private readonly HintEngine _hintEngine;
     private readonly ActiveItemResolver _resolver;
 
     public SaveCommandScopingTests()
@@ -36,7 +33,6 @@ public class SaveCommandScopingTests
         _consoleInput = Substitute.For<IConsoleInput>();
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
-        _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         _resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
     }
 
@@ -130,10 +126,12 @@ public class SaveCommandScopingTests
         _pendingChangeStore.GetChangesAsync(2, Arg.Any<CancellationToken>())
             .Returns(new[] { new PendingChangeRecord(2, "field", "System.State", "New", "Active") });
 
-        var cmd = CreateCommand();
+        var stderr = new StringWriter();
+        var cmd = CreateCommand(stderr);
         var result = await cmd.ExecuteAsync(all: true);
 
         result.ShouldBe(0);
+        stderr.ToString().ShouldBeEmpty();
         await _adoService.Received().PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
         await _adoService.Received().PatchAsync(2, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
     }

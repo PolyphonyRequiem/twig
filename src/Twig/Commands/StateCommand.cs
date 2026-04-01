@@ -22,8 +22,11 @@ public sealed class StateCommand(
     IConsoleInput consoleInput,
     OutputFormatterFactory formatterFactory,
     HintEngine hintEngine,
-    IPromptStateWriter? promptStateWriter = null)
+    IPromptStateWriter? promptStateWriter = null,
+    TextWriter? stderr = null)
 {
+    private readonly TextWriter _stderr = stderr ?? Console.Error;
+
     /// <summary>Change the state of the active work item by full or partial state name.</summary>
     public async Task<int> ExecuteAsync(string stateName, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
@@ -31,14 +34,14 @@ public sealed class StateCommand(
 
         if (string.IsNullOrWhiteSpace(stateName))
         {
-            Console.Error.WriteLine(fmt.FormatError("Usage: twig state <name> (e.g. Active, Closed, Res…)"));
+            _stderr.WriteLine(fmt.FormatError("Usage: twig state <name> (e.g. Active, Closed, Res…)"));
             return 2;
         }
 
         var resolved = await activeItemResolver.GetActiveItemAsync();
         if (!resolved.TryGetWorkItem(out var item, out var errorId, out var errorReason))
         {
-            Console.Error.WriteLine(fmt.FormatError(errorId is not null
+            _stderr.WriteLine(fmt.FormatError(errorId is not null
                 ? $"Work item #{errorId} not found in cache."
                 : "No active work item. Run 'twig set <id>' first."));
             return 1;
@@ -48,14 +51,14 @@ public sealed class StateCommand(
 
         if (!processConfig.TypeConfigs.TryGetValue(item.Type, out var typeConfig))
         {
-            Console.Error.WriteLine(fmt.FormatError($"No process configuration found for type '{item.Type}'."));
+            _stderr.WriteLine(fmt.FormatError($"No process configuration found for type '{item.Type}'."));
             return 1;
         }
 
         var resolveResult = StateResolver.ResolveByName(stateName, typeConfig.StateEntries);
         if (!resolveResult.IsSuccess)
         {
-            Console.Error.WriteLine(fmt.FormatError(resolveResult.Error));
+            _stderr.WriteLine(fmt.FormatError(resolveResult.Error));
             return 1;
         }
 
@@ -70,7 +73,7 @@ public sealed class StateCommand(
 
         if (!transition.IsAllowed)
         {
-            Console.Error.WriteLine(fmt.FormatError($"Transition from '{item.State}' to '{newState}' is not allowed."));
+            _stderr.WriteLine(fmt.FormatError($"Transition from '{item.State}' to '{newState}' is not allowed."));
             return 1;
         }
 
@@ -98,16 +101,23 @@ public sealed class StateCommand(
             return 0;
 
         var changes = new[] { new FieldChange("System.State", item.State, newState) };
-        var newRevision = await ConflictRetryHelper.PatchWithRetryAsync(
+        await ConflictRetryHelper.PatchWithRetryAsync(
             adoService, item.Id, changes, remote.Revision, ct);
 
         // Auto-push pending notes (preserve field changes)
         await AutoPushNotesHelper.PushAndClearAsync(item.Id, pendingChangeStore, adoService);
 
-        item.ChangeState(newState);
-        item.ApplyCommands();
-        item.MarkSynced(newRevision);
-        await workItemRepo.SaveAsync(item);
+        // Resync: re-fetch server-computed fields and update cache.
+        // Failure is non-fatal — the ADO transition already succeeded.
+        try
+        {
+            var updated = await adoService.FetchAsync(item.Id, ct);
+            await workItemRepo.SaveAsync(updated, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _stderr.WriteLine($"warning: State changed to '{newState}' but cache may be stale — run 'twig sync' to resync ({ex.Message})");
+        }
 
         if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 

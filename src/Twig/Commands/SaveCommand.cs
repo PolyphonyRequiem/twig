@@ -95,58 +95,71 @@ public sealed class SaveCommand(
             if (pending.Count == 0)
                 continue;
 
-            var remote = await adoService.FetchAsync(item.Id);
-
-            // FM-006: Conflict resolution
-            var conflictOutcome = await ConflictResolutionFlow.ResolveAsync(
-                item, remote, fmt, outputFormat, consoleInput, workItemRepo,
-                $"#{item.Id} synced from remote. Pending changes discarded.",
-                onAcceptRemote: () => pendingChangeStore.ClearChangesAsync(item.Id));
-            if (conflictOutcome == ConflictOutcome.ConflictJsonEmitted)
+            try
             {
+                // Categorize pending changes before conflict resolution to detect notes-only items.
+                var fieldChanges = new List<FieldChange>();
+                var notes = new List<string>();
+
+                foreach (var change in pending)
+                {
+                    if (string.Equals(change.ChangeType, "note", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (change.NewValue is not null)
+                            notes.Add(change.NewValue);
+                    }
+                    else if (change.FieldName is not null)
+                    {
+                        fieldChanges.Add(new FieldChange(change.FieldName, change.OldValue, change.NewValue));
+                    }
+                }
+
+                // FR-9: When only notes are pending, bypass conflict resolution.
+                // Notes are additive (ADO comments) and cannot conflict with field-level
+                // metadata drift. This prevents spurious conflict failures when the remote
+                // has unrelated metadata changes (e.g., iteration path updated by a teammate).
+                if (fieldChanges.Count > 0)
+                {
+                    var remote = await adoService.FetchAsync(item.Id);
+
+                    // FM-006: Conflict resolution
+                    var conflictOutcome = await ConflictResolutionFlow.ResolveAsync(
+                        item, remote, fmt, outputFormat, consoleInput, workItemRepo,
+                        $"#{item.Id} synced from remote. Pending changes discarded.",
+                        onAcceptRemote: () => pendingChangeStore.ClearChangesAsync(item.Id));
+                    if (conflictOutcome == ConflictOutcome.ConflictJsonEmitted)
+                    {
+                        hadErrors = true;
+                        continue;
+                    }
+                    if (conflictOutcome is ConflictOutcome.AcceptedRemote or ConflictOutcome.Aborted)
+                        continue;
+
+                    // Return value (new revision) discarded; cache is refreshed via FetchAsync below
+                    await ConflictRetryHelper.PatchWithRetryAsync(adoService, item.Id, fieldChanges, remote.Revision, ct);
+                    Console.WriteLine(fmt.FormatSuccess($"Pushed {fieldChanges.Count} field change(s) for #{item.Id}."));
+                }
+
+                foreach (var note in notes)
+                {
+                    await adoService.AddCommentAsync(item.Id, note);
+                }
+
+                if (notes.Count > 0)
+                    Console.WriteLine(fmt.FormatSuccess($"Pushed {notes.Count} note(s) for #{item.Id}."));
+
+                await pendingChangeStore.ClearChangesAsync(item.Id);
+                var updated = await adoService.FetchAsync(item.Id);
+                await workItemRepo.SaveAsync(updated);
+                anySaved = true;
+
+                Console.WriteLine(fmt.FormatSuccess($"#{item.Id} saved and synced."));
+            }
+            catch (Exception ex)
+            {
+                _stderr.WriteLine(fmt.FormatError($"Failed to save #{item.Id}: {ex.Message}"));
                 hadErrors = true;
-                continue;
             }
-            if (conflictOutcome is ConflictOutcome.AcceptedRemote or ConflictOutcome.Aborted)
-                continue;
-
-            var fieldChanges = new List<FieldChange>();
-            var notes = new List<string>();
-
-            foreach (var change in pending)
-            {
-                if (string.Equals(change.ChangeType, "note", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (change.NewValue is not null)
-                        notes.Add(change.NewValue);
-                }
-                else if (change.FieldName is not null)
-                {
-                    fieldChanges.Add(new FieldChange(change.FieldName, change.OldValue, change.NewValue));
-                }
-            }
-
-            if (fieldChanges.Count > 0)
-            {
-                // Return value (new revision) discarded; cache is refreshed via FetchAsync below
-                await ConflictRetryHelper.PatchWithRetryAsync(adoService, item.Id, fieldChanges, remote.Revision, ct);
-                Console.WriteLine(fmt.FormatSuccess($"Pushed {fieldChanges.Count} field change(s) for #{item.Id}."));
-            }
-
-            foreach (var note in notes)
-            {
-                await adoService.AddCommentAsync(item.Id, note);
-            }
-
-            if (notes.Count > 0)
-                Console.WriteLine(fmt.FormatSuccess($"Pushed {notes.Count} note(s) for #{item.Id}."));
-
-            await pendingChangeStore.ClearChangesAsync(item.Id);
-            var updated = await adoService.FetchAsync(item.Id);
-            await workItemRepo.SaveAsync(updated);
-            anySaved = true;
-
-            Console.WriteLine(fmt.FormatSuccess($"#{item.Id} saved and synced."));
         }
 
         if (anySaved && !skipPromptWrite && promptStateWriter is not null)

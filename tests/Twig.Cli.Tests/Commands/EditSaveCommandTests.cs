@@ -189,7 +189,7 @@ public class EditSaveCommandTests
     }
 
     [Fact]
-    public async Task Save_PatchConflictOnBothAttempts_ThrowsAdoConflictException()
+    public async Task Save_PatchConflictOnBothAttempts_LogsErrorAndReturnsFailure()
     {
         var item = CreateWorkItem(1, "Title");
         SetupActiveItem(item);
@@ -217,11 +217,15 @@ public class EditSaveCommandTests
             .PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), 5, Arg.Any<CancellationToken>())
             .ThrowsAsync(new AdoConflictException(7));
 
+        var stderr = new StringWriter();
         var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory);
+            _resolver, _consoleInput, _formatterFactory, stderr: stderr);
 
-        await Should.ThrowAsync<AdoConflictException>(
-            () => saveCmd.ExecuteAsync(all: true));
+        var result = await saveCmd.ExecuteAsync(all: true);
+
+        // FR-7: Exception is caught, logged, and loop continues (returns error code)
+        result.ShouldBe(1);
+        stderr.ToString().ShouldContain("#1");
 
         // Pending changes should NOT be cleared on failure
         await _pendingChangeStore.DidNotReceive().ClearChangesAsync(1, Arg.Any<CancellationToken>());

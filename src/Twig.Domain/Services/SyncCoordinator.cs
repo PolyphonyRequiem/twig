@@ -14,6 +14,7 @@ public sealed class SyncCoordinator
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IAdoWorkItemService _adoService;
     private readonly ProtectedCacheWriter _protectedCacheWriter;
+    private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IWorkItemLinkRepository? _linkRepo;
     private readonly int _cacheStaleMinutes;
 
@@ -21,12 +22,14 @@ public sealed class SyncCoordinator
         IWorkItemRepository workItemRepo,
         IAdoWorkItemService adoService,
         ProtectedCacheWriter protectedCacheWriter,
-        IWorkItemLinkRepository linkRepo,
+        IPendingChangeStore pendingChangeStore,
+        IWorkItemLinkRepository? linkRepo,
         int cacheStaleMinutes)
     {
         _workItemRepo = workItemRepo;
         _adoService = adoService;
         _protectedCacheWriter = protectedCacheWriter;
+        _pendingChangeStore = pendingChangeStore;
         _linkRepo = linkRepo;
         _cacheStaleMinutes = cacheStaleMinutes;
     }
@@ -35,13 +38,9 @@ public sealed class SyncCoordinator
         IWorkItemRepository workItemRepo,
         IAdoWorkItemService adoService,
         ProtectedCacheWriter protectedCacheWriter,
+        IPendingChangeStore pendingChangeStore,
         int cacheStaleMinutes)
-    {
-        _workItemRepo = workItemRepo;
-        _adoService = adoService;
-        _protectedCacheWriter = protectedCacheWriter;
-        _cacheStaleMinutes = cacheStaleMinutes;
-    }
+        : this(workItemRepo, adoService, protectedCacheWriter, pendingChangeStore, null, cacheStaleMinutes) { }
 
     /// <summary>
     /// Syncs a single item by ID. Returns <see cref="SyncResult.UpToDate"/> if the item
@@ -69,7 +68,10 @@ public sealed class SyncCoordinator
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             if (ex.Message.Contains("not found", StringComparison.OrdinalIgnoreCase))
+            {
+                await _pendingChangeStore.ClearChangesAsync(id, ct);
                 await _workItemRepo.DeleteByIdAsync(id, ct);
+            }
             return new SyncResult.Failed(ex.Message);
         }
     }
@@ -151,7 +153,10 @@ public sealed class SyncCoordinator
         // Evict items confirmed deleted in ADO — prevents stale cache ghosts
         var notFoundIds = fetchResults.Where(r => r.NotFound).Select(r => r.Id).ToList();
         foreach (var id in notFoundIds)
+        {
+            await _pendingChangeStore.ClearChangesAsync(id, ct);
             await _workItemRepo.DeleteByIdAsync(id, ct);
+        }
 
         var fetchedItems = fetchResults.Where(r => r.Item is not null).Select(r => r.Item!).ToArray();
         var fetchFailures = fetchResults.Where(r => r.Error is not null && !r.NotFound)

@@ -24,6 +24,7 @@ public class StateCommandTests
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IProcessConfigurationProvider _processConfigProvider;
     private readonly IConsoleInput _consoleInput;
+    private readonly StringWriter _stderr;
     private readonly StateCommand _cmd;
 
     public StateCommandTests()
@@ -34,6 +35,7 @@ public class StateCommandTests
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
         _processConfigProvider = Substitute.For<IProcessConfigurationProvider>();
         _consoleInput = Substitute.For<IConsoleInput>();
+        _stderr = new StringWriter();
 
         _processConfigProvider.GetConfiguration()
             .Returns(ProcessConfigBuilder.Agile());
@@ -46,7 +48,7 @@ public class StateCommandTests
         _cmd = new StateCommand(
             resolver, _workItemRepo, _adoService,
             _pendingChangeStore, _processConfigProvider, _consoleInput,
-            formatterFactory, hintEngine);
+            formatterFactory, hintEngine, stderr: _stderr);
     }
 
     [Fact]
@@ -193,6 +195,34 @@ public class StateCommandTests
     }
 
     [Fact]
+    public async Task State_ForwardTransition_ReFetchesAndSavesServerItem()
+    {
+        var local = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
+        SetupActiveItem(local);
+
+        // Distinct "server" item representing post-transition state
+        var serverItem = CreateWorkItem(1, "Test", "Active", WorkItemType.UserStory);
+        serverItem.MarkSynced(5);
+
+        // First FetchAsync (conflict check) returns local; second (resync) returns serverItem
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>())
+            .Returns(local, serverItem);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+
+        var result = await _cmd.ExecuteAsync("Active");
+
+        result.ShouldBe(0);
+        // FetchAsync called twice: conflict check + resync
+        await _adoService.Received(2).FetchAsync(1, Arg.Any<CancellationToken>());
+        // SaveAsync receives the re-fetched server item, not the local one
+        await _workItemRepo.Received(1).SaveAsync(serverItem, Arg.Any<CancellationToken>());
+        _stderr.ToString().ShouldNotContain("resync failed");
+    }
+
+    [Fact]
     public async Task State_PatchConflict_RetrySucceeds_ReturnsSuccess()
     {
         var item = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
@@ -211,7 +241,8 @@ public class StateCommandTests
         freshItem.MarkSynced(5);
 
         // FetchAsync: first call returns remote (pre-patch conflict check),
-        // second returns freshItem (retry re-fetch from ConflictRetryHelper)
+        // second returns freshItem (retry re-fetch from ConflictRetryHelper),
+        // third returns freshItem again (resync after successful patch)
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>())
             .Returns(remote, freshItem);
 
@@ -259,6 +290,73 @@ public class StateCommandTests
 
         await Should.ThrowAsync<AdoConflictException>(
             () => _cmd.ExecuteAsync("Active"));
+    }
+
+    [Fact]
+    public async Task State_Resync_NotAttempted_WhenTransitionFails()
+    {
+        var item = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
+        SetupActiveItem(item);
+
+        // First FetchAsync (conflict check) succeeds
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+
+        // PatchAsync throws a non-conflict failure
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("ADO unavailable"));
+
+        await Should.ThrowAsync<HttpRequestException>(() => _cmd.ExecuteAsync("Active"));
+
+        // FetchAsync called only once (conflict check), never for resync
+        await _adoService.Received(1).FetchAsync(1, Arg.Any<CancellationToken>());
+        // SaveAsync never called — transition failed before resync
+        await _workItemRepo.DidNotReceive().SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task State_Resync_FetchThrows_ReturnsSuccessWithWarning()
+    {
+        var item = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
+        SetupActiveItem(item);
+
+        // First FetchAsync (conflict check) returns item; second (resync) throws
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>())
+            .Returns(_ => item, _ => throw new HttpRequestException("network timeout"));
+
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+
+        var result = await _cmd.ExecuteAsync("Active");
+
+        // Command still succeeds — the ADO state transition completed
+        result.ShouldBe(0);
+        // Warning emitted to stderr about resync failure with recovery hint
+        var stderrOutput = _stderr.ToString();
+        stderrOutput.ShouldContain("twig sync");
+        stderrOutput.ShouldContain("network timeout");
+        // SaveAsync never called — FetchAsync for resync threw before save
+        await _workItemRepo.DidNotReceive().SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task State_Resync_OperationCanceled_IsNotSwallowed()
+    {
+        var item = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
+        SetupActiveItem(item);
+
+        // First FetchAsync (conflict check) returns item; second (resync) throws OperationCanceledException
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>())
+            .Returns(_ => item, _ => throw new OperationCanceledException());
+
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+
+        // OperationCanceledException should propagate — not be caught by the resync catch block
+        await Should.ThrowAsync<OperationCanceledException>(() => _cmd.ExecuteAsync("Active"));
     }
 
     private void SetupActiveItem(WorkItem item)

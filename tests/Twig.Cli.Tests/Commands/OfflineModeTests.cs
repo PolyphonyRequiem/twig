@@ -41,7 +41,7 @@ public class OfflineModeTests
         _consoleInput = Substitute.For<IConsoleInput>();
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        _syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, protectedCacheWriter, 30);
+        _syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, protectedCacheWriter, _pendingChangeStore, 30);
         var iterationService = Substitute.For<IIterationService>();
         iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
@@ -97,7 +97,7 @@ public class OfflineModeTests
     }
 
     [Fact]
-    public async Task Save_OfflineAdoThrows_ExceptionPropagates()
+    public async Task Save_OfflineAdoThrows_LogsErrorAndReturnsFailure()
     {
         var item = CreateWorkItem(1, "Item");
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
@@ -111,10 +111,16 @@ public class OfflineModeTests
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>())
             .ThrowsAsync(new AdoOfflineException(new HttpRequestException("Connection refused")));
 
+        var stderr = new StringWriter();
         var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            new ActiveItemResolver(_contextStore, _workItemRepo, _adoService), _consoleInput, _formatterFactory);
+            new ActiveItemResolver(_contextStore, _workItemRepo, _adoService), _consoleInput, _formatterFactory, stderr: stderr);
 
-        await Should.ThrowAsync<AdoOfflineException>(() => saveCmd.ExecuteAsync(all: true));
+        // FR-7: Exception is caught and logged, returns error code instead of propagating
+        var result = await saveCmd.ExecuteAsync(all: true);
+
+        result.ShouldBe(1);
+        stderr.ToString().ShouldContain("#1");
+        stderr.ToString().ShouldContain("ADO unreachable");
     }
 
     private static WorkItem CreateWorkItem(int id, string title) => new()

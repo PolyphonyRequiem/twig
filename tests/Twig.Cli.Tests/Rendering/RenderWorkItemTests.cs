@@ -135,7 +135,6 @@ public class RenderWorkItemTests
 
         await _renderer.RenderWorkItemAsync(() => Task.FromResult<WorkItem?>(item), false, CancellationToken.None);
 
-        // The output should contain the title but not the dirty marker in the header
         var output = _testConsole.Output;
         output.ShouldContain("Dirty Item");
         output.ShouldNotContain("✎");
@@ -213,6 +212,41 @@ public class RenderWorkItemTests
         output.ShouldContain("Tags:");
         output.ShouldContain("tag1; tag2");
         output.ShouldContain("Full description here");
+    }
+
+    [Fact]
+    public async Task RenderWorkItemAsync_Description_RenderedFullWidth()
+    {
+        var item = CreateWorkItem(1, "Full Width", "Active");
+        // Multi-line description that exceeds 200 chars total but stays under 30 lines.
+        // Words at the end prove the description is NOT truncated at the 200-char grid field limit.
+        var lines = Enumerable.Range(1, 10).Select(i => $"<p>Line {i} of the description content</p>");
+        item.SetField("System.Description", string.Concat(lines));
+
+        await _renderer.RenderWorkItemAsync(() => Task.FromResult<WorkItem?>(item), false, CancellationToken.None);
+
+        var output = _testConsole.Output;
+        output.ShouldContain("Description");
+        output.ShouldContain("Line 1");
+        // Line 10 would be past 200 chars if flattened — proves no grid-style truncation
+        output.ShouldContain("Line 10");
+        output.ShouldNotContain("more lines)");
+    }
+
+    [Fact]
+    public async Task RenderWorkItemAsync_LongDescription_TruncatedWithIndicator()
+    {
+        var item = CreateWorkItem(1, "Long Desc", "Active");
+        // 35 paragraphs exceeds MaxDescriptionLines (30)
+        var paragraphs = string.Concat(Enumerable.Range(1, 35).Select(i => $"<p>Paragraph {i} content</p>"));
+        item.SetField("System.Description", paragraphs);
+
+        await _renderer.RenderWorkItemAsync(() => Task.FromResult<WorkItem?>(item), false, CancellationToken.None);
+
+        var output = _testConsole.Output;
+        output.ShouldContain("Description");
+        output.ShouldContain("(+");
+        output.ShouldContain("more lines)");
     }
 
     // ── Truncation ──────────────────────────────────────────────────

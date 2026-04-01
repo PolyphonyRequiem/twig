@@ -439,7 +439,7 @@ public class PromptStateIntegrationTests : IDisposable
 
         var writer = CreateWriter();
         var noteResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        var cmd = new NoteCommand(noteResolver, _workItemRepo, _pendingChangeStore,
+        var cmd = new NoteCommand(noteResolver, _workItemRepo, _pendingChangeStore, _adoService,
             editorLauncher, _formatterFactory, _hintEngine, writer);
 
         var result = await cmd.ExecuteAsync("A test note");

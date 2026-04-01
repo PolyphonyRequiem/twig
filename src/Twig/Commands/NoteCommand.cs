@@ -14,11 +14,15 @@ public sealed class NoteCommand(
     ActiveItemResolver activeItemResolver,
     IWorkItemRepository workItemRepo,
     IPendingChangeStore pendingChangeStore,
+    IAdoWorkItemService adoService,
     IEditorLauncher editorLauncher,
     OutputFormatterFactory formatterFactory,
     HintEngine hintEngine,
     IPromptStateWriter? promptStateWriter = null)
 {
+    // Wired for push-on-write (#1376); field suppresses CS9113.
+    private readonly IAdoWorkItemService _adoService = adoService;
+
     /// <summary>Add a note/comment to the active work item.</summary>
     public async Task<int> ExecuteAsync(string? text = null, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {

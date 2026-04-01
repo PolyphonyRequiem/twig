@@ -17,6 +17,7 @@ public class NoteCommandTests
     private readonly IContextStore _contextStore;
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IPendingChangeStore _pendingChangeStore;
+    private readonly IAdoWorkItemService _adoService;
     private readonly IEditorLauncher _editorLauncher;
     private readonly NoteCommand _cmd;
 
@@ -25,16 +26,16 @@ public class NoteCommandTests
         _contextStore = Substitute.For<IContextStore>();
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
+        _adoService = Substitute.For<IAdoWorkItemService>();
         _editorLauncher = Substitute.For<IEditorLauncher>();
 
-        var adoService = Substitute.For<IAdoWorkItemService>();
         var formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
 
-        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, adoService);
-        _cmd = new NoteCommand(resolver, _workItemRepo, _pendingChangeStore, _editorLauncher,
-            formatterFactory, hintEngine);
+        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        _cmd = new NoteCommand(resolver, _workItemRepo, _pendingChangeStore, _adoService,
+            _editorLauncher, formatterFactory, hintEngine);
     }
 
     [Fact]

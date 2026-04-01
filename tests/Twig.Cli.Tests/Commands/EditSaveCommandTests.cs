@@ -138,6 +138,134 @@ public class EditSaveCommandTests
         await _adoService.Received().AddCommentAsync(1, "A note", Arg.Any<CancellationToken>());
     }
 
+    // ── SaveCommand notes-only bypass tests (FR-9) ──────────────────
+
+    [Fact]
+    public async Task Save_NotesOnly_SkipsConflictResolution_WhenMetadataDrifted()
+    {
+        // Local item at default revision; remote has drifted metadata (different iteration path)
+        var item = CreateWorkItem(1, "Title");
+        var remote = CreateDriftedRemote(1);
+        SetupActiveItem(item);
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
+            .Returns(new[] { 1 });
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
+
+        // Only notes pending — no field edits
+        var note = new PendingChangeRecord(1, "note", null, null, "A note");
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { note });
+
+        var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
+            _resolver, _consoleInput, _formatterFactory);
+        var result = await saveCmd.ExecuteAsync(all: true);
+
+        result.ShouldBe(0);
+        // Notes should be pushed directly
+        await _adoService.Received().AddCommentAsync(1, "A note", Arg.Any<CancellationToken>());
+        // No field patch should occur
+        await _adoService.DidNotReceive().PatchAsync(
+            Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        // No conflict prompt should be shown
+        _consoleInput.DidNotReceive().ReadLine();
+        // Pending changes should be cleared and cache resynced
+        await _pendingChangeStore.Received().ClearChangesAsync(1, Arg.Any<CancellationToken>());
+        await _workItemRepo.Received().SaveAsync(Arg.Is<WorkItem>(w => w.Id == 1), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Save_NotesOnly_MultipleNotes_AllPushedWithoutConflictCheck()
+    {
+        var item = CreateWorkItem(1, "Title");
+        var remote = CreateDriftedRemote(1);
+        SetupActiveItem(item);
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
+            .Returns(new[] { 1 });
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
+
+        var notes = new[]
+        {
+            new PendingChangeRecord(1, "note", null, null, "First note"),
+            new PendingChangeRecord(1, "note", null, null, "Second note"),
+            new PendingChangeRecord(1, "note", null, null, "Third note"),
+        };
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>()).Returns(notes);
+
+        var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
+            _resolver, _consoleInput, _formatterFactory);
+        var result = await saveCmd.ExecuteAsync(all: true);
+
+        result.ShouldBe(0);
+        await _adoService.Received().AddCommentAsync(1, "First note", Arg.Any<CancellationToken>());
+        await _adoService.Received().AddCommentAsync(1, "Second note", Arg.Any<CancellationToken>());
+        await _adoService.Received().AddCommentAsync(1, "Third note", Arg.Any<CancellationToken>());
+        _consoleInput.DidNotReceive().ReadLine();
+    }
+
+    [Fact]
+    public async Task Save_MixedChanges_WithMetadataDrift_StillTriggersConflictResolution()
+    {
+        // Local item at default revision; remote has drifted metadata
+        var item = CreateWorkItem(1, "Title");
+        var remote = CreateDriftedRemote(1);
+        SetupActiveItem(item);
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
+            .Returns(new[] { 1 });
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
+
+        // Mixed: notes AND field changes — should trigger conflict resolution
+        var changes = new[]
+        {
+            new PendingChangeRecord(1, "note", null, null, "A note"),
+            new PendingChangeRecord(1, "field", "System.Title", "Title", "New Title"),
+        };
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>()).Returns(changes);
+
+        // User aborts at conflict prompt
+        _consoleInput.ReadLine().Returns("a");
+
+        var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
+            _resolver, _consoleInput, _formatterFactory);
+        var result = await saveCmd.ExecuteAsync(all: true);
+
+        result.ShouldBe(0); // Abort is not an error
+        // Conflict prompt WAS shown (conflict resolution ran)
+        _consoleInput.Received().ReadLine();
+        // Notes should NOT be pushed (user aborted before push phase)
+        await _adoService.DidNotReceive().AddCommentAsync(
+            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Save_FieldChangesOnly_WithMetadataDrift_StillTriggersConflictResolution()
+    {
+        var item = CreateWorkItem(1, "Title");
+        var remote = CreateDriftedRemote(1);
+        SetupActiveItem(item);
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
+            .Returns(new[] { 1 });
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
+
+        // Only field changes — conflict resolution must run
+        var changes = new[]
+        {
+            new PendingChangeRecord(1, "field", "System.Title", "Title", "New Title"),
+        };
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>()).Returns(changes);
+
+        // User aborts at conflict prompt
+        _consoleInput.ReadLine().Returns("a");
+
+        var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
+            _resolver, _consoleInput, _formatterFactory);
+        var result = await saveCmd.ExecuteAsync(all: true);
+
+        result.ShouldBe(0);
+        _consoleInput.Received().ReadLine();
+        await _adoService.DidNotReceive().PatchAsync(
+            Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
     // ── SaveCommand conflict retry integration tests ──────────────────
 
     [Fact]
@@ -487,6 +615,21 @@ public class EditSaveCommandTests
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(item.Id);
         _workItemRepo.GetByIdAsync(item.Id, Arg.Any<CancellationToken>()).Returns(item);
+    }
+
+    private static WorkItem CreateDriftedRemote(int id)
+    {
+        var remote = new WorkItem
+        {
+            Id = id,
+            Type = WorkItemType.Task,
+            Title = "Title",
+            State = "New",
+            IterationPath = IterationPath.Parse("Project\\Sprint 2").Value,
+            AreaPath = AreaPath.Parse("Project").Value,
+        };
+        remote.MarkSynced(5);
+        return remote;
     }
 
     private static WorkItem CreateWorkItem(int id, string title)

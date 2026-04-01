@@ -37,7 +37,7 @@ public class RefreshOrchestratorTests
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
         _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, _iterationService, null);
-        _syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, _protectedCacheWriter, 30);
+        _syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, _protectedCacheWriter, _pendingChangeStore, 30);
 
         _orchestrator = new RefreshOrchestrator(
             _contextStore, _workItemRepo, _adoService, _iterationService,

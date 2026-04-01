@@ -45,6 +45,7 @@ public static class CommandServiceModule
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IAdoWorkItemService>(),
             sp.GetRequiredService<ProtectedCacheWriter>(),
+            sp.GetRequiredService<IPendingChangeStore>(),
             sp.GetRequiredService<IWorkItemLinkRepository>(),
             sp.GetRequiredService<TwigConfiguration>().Display.CacheStaleMinutes));
 

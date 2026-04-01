@@ -68,7 +68,7 @@ public class RefreshCommandProfileTests : IDisposable
         _iterationService = Substitute.For<IIterationService>();
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
         _protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        _syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, _protectedCacheWriter, 30);
+        _syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, _protectedCacheWriter, _pendingChangeStore, 30);
         _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, _iterationService, null);
 
         // Standard stubs so refresh runs without errors

@@ -25,7 +25,7 @@ public class SyncCoordinatorTests
         _pendingStore.GetDirtyItemIdsAsync().Returns(Array.Empty<int>());
 
         var protectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingStore);
-        _sut = new SyncCoordinator(_workItemRepo, _adoService, protectedWriter, CacheStaleMinutes);
+        _sut = new SyncCoordinator(_workItemRepo, _adoService, protectedWriter, _pendingStore, CacheStaleMinutes);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -736,7 +736,7 @@ public class SyncCoordinatorTests
     {
         var linkRepo = Substitute.For<IWorkItemLinkRepository>();
         var protectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingStore);
-        var sut = new SyncCoordinator(_workItemRepo, _adoService, protectedWriter, linkRepo, CacheStaleMinutes);
+        var sut = new SyncCoordinator(_workItemRepo, _adoService, protectedWriter, _pendingStore, linkRepo, CacheStaleMinutes);
 
         var fetchedItem = new WorkItemBuilder(42, "Item 42").InState("Active").Build();
         var links = new List<Domain.ValueObjects.WorkItemLink>
@@ -765,7 +765,7 @@ public class SyncCoordinatorTests
     {
         var linkRepo = Substitute.For<IWorkItemLinkRepository>();
         var protectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingStore);
-        var sut = new SyncCoordinator(_workItemRepo, _adoService, protectedWriter, linkRepo, CacheStaleMinutes);
+        var sut = new SyncCoordinator(_workItemRepo, _adoService, protectedWriter, _pendingStore, linkRepo, CacheStaleMinutes);
 
         var fetchedItem = new WorkItemBuilder(42, "Item 42").InState("Active").Build();
         _adoService.FetchWithLinksAsync(42, Arg.Any<CancellationToken>())
@@ -1055,6 +1055,70 @@ public class SyncCoordinatorTests
 
         result.ShouldBeOfType<SyncResult.Failed>();
         await _workItemRepo.DidNotReceive().DeleteByIdAsync(42, Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncItemAsync — not found eviction clears pending changes
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncItemAsync_NotFound_ClearsPendingChangesBeforeEviction()
+    {
+        var stale = new WorkItemBuilder(99, "Deleted").InState("Active").LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-60)).Build();
+        _workItemRepo.GetByIdAsync(99).Returns(stale);
+        _adoService.FetchAsync(99, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("Work item 99 not found."));
+
+        await _sut.SyncItemAsync(99);
+
+        // ClearChangesAsync must be called before DeleteByIdAsync
+        Received.InOrder(() =>
+        {
+            _pendingStore.ClearChangesAsync(99, Arg.Any<CancellationToken>());
+            _workItemRepo.DeleteByIdAsync(99, Arg.Any<CancellationToken>());
+        });
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncItemAsync — transient error does NOT clear pending changes
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncItemAsync_TransientError_DoesNotClearPendingChanges()
+    {
+        var stale = new WorkItemBuilder(42, "Item").InState("Active").LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-60)).Build();
+        _workItemRepo.GetByIdAsync(42).Returns(stale);
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("Network timeout"));
+
+        await _sut.SyncItemAsync(42);
+
+        await _pendingStore.DidNotReceive().ClearChangesAsync(42, Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncItemSetAsync — not found eviction clears pending changes (batch)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncItemSetAsync_NotFoundItems_ClearsPendingChangesBeforeEviction()
+    {
+        var stale = DateTimeOffset.UtcNow.AddMinutes(-60);
+        _workItemRepo.GetByIdAsync(10).Returns(new WorkItemBuilder(10, "Ok").InState("Active").LastSyncedAt(stale).Build());
+        _workItemRepo.GetByIdAsync(20).Returns(new WorkItemBuilder(20, "Deleted").InState("Active").LastSyncedAt(stale).Build());
+
+        var fetched10 = new WorkItemBuilder(10, "Ok").InState("Active").Build();
+        _adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(fetched10);
+        _adoService.FetchAsync(20, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("Work item 20 not found."));
+
+        await _sut.SyncItemSetAsync(new[] { 10, 20 });
+
+        Received.InOrder(() =>
+        {
+            _pendingStore.ClearChangesAsync(20, Arg.Any<CancellationToken>());
+            _workItemRepo.DeleteByIdAsync(20, Arg.Any<CancellationToken>());
+        });
     }
 
 }

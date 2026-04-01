@@ -154,5 +154,3 @@ implementation_manager → coder → reducer_code → task_reviewer
 ## When NOT to Use
 
 - **Quick fixes** — single-file changes don't need a 5-phase pipeline
-- **Plan only** — use `octane-workflow-plan` for just the planning phase
-- **Implement from existing plan** — use `octane-workflow-implement` if you already have a `.plan.md`

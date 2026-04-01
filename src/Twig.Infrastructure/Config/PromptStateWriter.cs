@@ -14,7 +14,7 @@ namespace Twig.Infrastructure.Config;
 /// </summary>
 internal sealed class PromptStateWriter : IPromptStateWriter
 {
-    private const int DefaultMaxWidth = 40;
+    private const int DefaultMaxWidth = 120;
 
     private readonly IContextStore _contextStore;
     private readonly IWorkItemRepository _workItemRepo;

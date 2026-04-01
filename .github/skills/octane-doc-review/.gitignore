@@ -1,7 +1,0 @@
-# Runtime output from doc-review workflow
-# These directories are created by MCP filesystem tools during execution
-doc/
-tmp/
-
-# Test artifacts from SDK debugging
-assets/*.txt

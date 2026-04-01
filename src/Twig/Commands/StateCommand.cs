@@ -98,16 +98,14 @@ public sealed class StateCommand(
             return 0;
 
         var changes = new[] { new FieldChange("System.State", item.State, newState) };
-        var newRevision = await ConflictRetryHelper.PatchWithRetryAsync(
+        await ConflictRetryHelper.PatchWithRetryAsync(
             adoService, item.Id, changes, remote.Revision, ct);
 
         // Auto-push pending notes (preserve field changes)
         await AutoPushNotesHelper.PushAndClearAsync(item.Id, pendingChangeStore, adoService);
 
-        item.ChangeState(newState);
-        item.ApplyCommands();
-        item.MarkSynced(newRevision);
-        await workItemRepo.SaveAsync(item);
+        var updated = await adoService.FetchAsync(item.Id);
+        await workItemRepo.SaveAsync(updated);
 
         if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 

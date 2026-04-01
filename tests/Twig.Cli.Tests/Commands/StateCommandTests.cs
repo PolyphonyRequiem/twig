@@ -193,6 +193,33 @@ public class StateCommandTests
     }
 
     [Fact]
+    public async Task State_ForwardTransition_ReFetchesAndSavesServerItem()
+    {
+        var local = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
+        SetupActiveItem(local);
+
+        // Distinct "server" item representing post-transition state
+        var serverItem = CreateWorkItem(1, "Test", "Active", WorkItemType.UserStory);
+        serverItem.MarkSynced(5);
+
+        // First FetchAsync (conflict check) returns local; second (resync) returns serverItem
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>())
+            .Returns(local, serverItem);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+
+        var result = await _cmd.ExecuteAsync("Active");
+
+        result.ShouldBe(0);
+        // FetchAsync called twice: conflict check + resync
+        await _adoService.Received(2).FetchAsync(1, Arg.Any<CancellationToken>());
+        // SaveAsync receives the re-fetched server item, not the local one
+        await _workItemRepo.Received(1).SaveAsync(serverItem, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task State_PatchConflict_RetrySucceeds_ReturnsSuccess()
     {
         var item = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
@@ -211,7 +238,8 @@ public class StateCommandTests
         freshItem.MarkSynced(5);
 
         // FetchAsync: first call returns remote (pre-patch conflict check),
-        // second returns freshItem (retry re-fetch from ConflictRetryHelper)
+        // second returns freshItem (retry re-fetch from ConflictRetryHelper),
+        // third returns freshItem again (resync after successful patch)
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>())
             .Returns(remote, freshItem);
 

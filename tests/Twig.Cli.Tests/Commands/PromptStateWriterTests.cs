@@ -461,12 +461,12 @@ public class PromptStateWriterTests : IDisposable
         PromptStateWriter.TruncateTitle(null!, 40).ShouldBe(string.Empty);
     }
 
-    // ── Integration: title truncated at 40 chars in written JSON ──────
+    // ── Integration: title truncated at 120 chars in written JSON ──────
 
     [Fact]
     public async Task WritePromptStateAsync_TruncatesLongTitle()
     {
-        var longTitle = new string('A', 50);
+        var longTitle = new string('A', 150);
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>())
             .Returns(CreateWorkItem(1, "Bug", longTitle, "Active"));
@@ -476,8 +476,8 @@ public class PromptStateWriterTests : IDisposable
 
         var doc = JsonDocument.Parse(File.ReadAllText(PromptJsonPath));
         var title = doc.RootElement.GetProperty("title").GetString()!;
-        title.Length.ShouldBe(40);
+        title.Length.ShouldBe(120);
         title.ShouldEndWith("…");
-        title.ShouldBe(new string('A', 39) + "…");
+        title.ShouldBe(new string('A', 119) + "…");
     }
 }

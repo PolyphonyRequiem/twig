@@ -1121,4 +1121,96 @@ public class SyncCoordinatorTests
         });
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    //  Batch eviction — multiple not-found IDs each get pending
+    //  changes cleared before deletion (T-1365.2 / #1372)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncItemSetAsync_MultipleNotFoundItems_ClearsPendingChangesBeforeEvictionForEach()
+    {
+        var stale = DateTimeOffset.UtcNow.AddMinutes(-60);
+        _workItemRepo.GetByIdAsync(30).Returns(new WorkItemBuilder(30, "Gone A").InState("Active").LastSyncedAt(stale).Build());
+        _workItemRepo.GetByIdAsync(40).Returns(new WorkItemBuilder(40, "Gone B").InState("Active").LastSyncedAt(stale).Build());
+        _workItemRepo.GetByIdAsync(50).Returns(new WorkItemBuilder(50, "Gone C").InState("Active").LastSyncedAt(stale).Build());
+
+        _adoService.FetchAsync(30, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("Work item 30 not found."));
+        _adoService.FetchAsync(40, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("Work item 40 not found."));
+        _adoService.FetchAsync(50, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("Work item 50 not found."));
+
+        await _sut.SyncItemSetAsync(new[] { 30, 40, 50 });
+
+        await _pendingStore.Received(1).ClearChangesAsync(30, Arg.Any<CancellationToken>());
+        await _pendingStore.Received(1).ClearChangesAsync(40, Arg.Any<CancellationToken>());
+        await _pendingStore.Received(1).ClearChangesAsync(50, Arg.Any<CancellationToken>());
+        await _workItemRepo.Received(1).DeleteByIdAsync(30, Arg.Any<CancellationToken>());
+        await _workItemRepo.Received(1).DeleteByIdAsync(40, Arg.Any<CancellationToken>());
+        await _workItemRepo.Received(1).DeleteByIdAsync(50, Arg.Any<CancellationToken>());
+
+        Received.InOrder(() =>
+        {
+            _pendingStore.ClearChangesAsync(30, Arg.Any<CancellationToken>());
+            _workItemRepo.DeleteByIdAsync(30, Arg.Any<CancellationToken>());
+        });
+        Received.InOrder(() =>
+        {
+            _pendingStore.ClearChangesAsync(40, Arg.Any<CancellationToken>());
+            _workItemRepo.DeleteByIdAsync(40, Arg.Any<CancellationToken>());
+        });
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Batch negative — transient errors in batch do NOT clear
+    //  pending changes; only not-found errors trigger cleanup
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncItemSetAsync_TransientError_DoesNotClearPendingChanges()
+    {
+        var stale = DateTimeOffset.UtcNow.AddMinutes(-60);
+        _workItemRepo.GetByIdAsync(80).Returns(new WorkItemBuilder(80, "Timeout").InState("Active").LastSyncedAt(stale).Build());
+
+        _adoService.FetchAsync(80, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("Request timed out"));
+
+        var result = await _sut.SyncItemSetAsync(new[] { 80 });
+
+        result.ShouldBeOfType<SyncResult.Failed>();
+        await _pendingStore.DidNotReceive().ClearChangesAsync(80, Arg.Any<CancellationToken>());
+        await _workItemRepo.DidNotReceive().DeleteByIdAsync(80, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SyncItemSetAsync_MixedNotFoundAndTransient_OnlyClearsPendingChangesForNotFound()
+    {
+        var stale = DateTimeOffset.UtcNow.AddMinutes(-60);
+        _workItemRepo.GetByIdAsync(10).Returns(new WorkItemBuilder(10, "Ok").InState("Active").LastSyncedAt(stale).Build());
+        _workItemRepo.GetByIdAsync(20).Returns(new WorkItemBuilder(20, "Deleted").InState("Active").LastSyncedAt(stale).Build());
+        _workItemRepo.GetByIdAsync(30).Returns(new WorkItemBuilder(30, "Timeout").InState("Active").LastSyncedAt(stale).Build());
+
+        var fetched10 = new WorkItemBuilder(10, "Ok").InState("Active").Build();
+        _adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(fetched10);
+        _adoService.FetchAsync(20, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("Work item 20 not found."));
+        _adoService.FetchAsync(30, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("Service unavailable"));
+
+        await _sut.SyncItemSetAsync(new[] { 10, 20, 30 });
+
+        // Not-found item 20: pending changes cleared, then evicted
+        await _pendingStore.Received(1).ClearChangesAsync(20, Arg.Any<CancellationToken>());
+        await _workItemRepo.Received(1).DeleteByIdAsync(20, Arg.Any<CancellationToken>());
+
+        // Transient-error item 30: no pending change cleanup, no eviction
+        await _pendingStore.DidNotReceive().ClearChangesAsync(30, Arg.Any<CancellationToken>());
+        await _workItemRepo.DidNotReceive().DeleteByIdAsync(30, Arg.Any<CancellationToken>());
+
+        // Healthy item 10: no pending change cleanup, no eviction
+        await _pendingStore.DidNotReceive().ClearChangesAsync(10, Arg.Any<CancellationToken>());
+        await _workItemRepo.DidNotReceive().DeleteByIdAsync(10, Arg.Any<CancellationToken>());
+    }
+
 }

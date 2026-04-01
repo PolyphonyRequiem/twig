@@ -68,7 +68,7 @@ architect → open_questions_gate (human gate, conditional) → reducer_plan
 
 ### Phase 3: Work Tree Seeding (1 agent)
 
-Creates ADO Issues and Tasks from the plan via `twig seed new`, `twig seed chain`, and `twig seed publish`. Maps plan Epics → ADO Issues, plan Tasks → ADO Tasks. Uses successor links for execution ordering.
+Creates ADO Issues and Tasks from the plan via `twig seed new`, `twig seed chain`, and `twig seed publish`. Seeds Issues and Tasks matching the plan's ADO hierarchy under the input work item. Uses successor links for execution ordering.
 
 ### Phase 4: Implementation (9 agents + 1 human gate)
 
@@ -115,7 +115,7 @@ implementation_manager → coder → reducer_code → task_reviewer
 
 ### Phase 5: Close-out (1 agent)
 
-- **close_out** (Opus 1M) — transitions Epic to Done, produces meta-observations on agent performance and workflow improvements
+- **close_out** (Opus 1M) — transitions the work item to Done, produces meta-observations on agent performance and workflow improvements
 
 ## Agent Summary
 

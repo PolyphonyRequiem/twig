@@ -473,13 +473,6 @@ public class FormatterHelpersTests
     }
 
     [Fact]
-    public void HtmlToSpectreMarkup_DecodesHtmlEntities()
-    {
-        var result = FormatterHelpers.HtmlToSpectreMarkup("A &amp; B &lt; C");
-        result.ShouldContain("A & B < C");
-    }
-
-    [Fact]
     public void HtmlToSpectreMarkup_BrTag_InsertsNewline()
     {
         var result = FormatterHelpers.HtmlToSpectreMarkup("Line1<br>Line2");
@@ -577,5 +570,57 @@ public class FormatterHelpersTests
     {
         var result = FormatterHelpers.HtmlToSpectreMarkup("text</b>");
         result.ShouldContain("[/]");
+    }
+
+    [Fact]
+    public void HtmlToSpectreMarkup_AnchorTag_PassesThroughTextContent()
+    {
+        var result = FormatterHelpers.HtmlToSpectreMarkup("<a href=\"https://example.com\">Click here</a>");
+        result.ShouldContain("Click here");
+        result.ShouldNotContain("href");
+        result.ShouldNotContain("https://example.com");
+    }
+
+    [Fact]
+    public void HtmlToSpectreMarkup_UnorderedList_RendersBulletItems()
+    {
+        var result = FormatterHelpers.HtmlToSpectreMarkup("<ul><li>First</li><li>Second</li></ul>");
+        result.ShouldContain("• First");
+        result.ShouldContain("• Second");
+    }
+
+    [Fact]
+    public void HtmlToSpectreMarkup_OrderedList_RendersBulletItems()
+    {
+        var result = FormatterHelpers.HtmlToSpectreMarkup("<ol><li>Step 1</li><li>Step 2</li></ol>");
+        result.ShouldContain("• Step 1");
+        result.ShouldContain("• Step 2");
+    }
+
+    [Theory]
+    [InlineData("<ul><li><b>Important</b> item</li></ul>", "• [bold]Important[/] item")]
+    [InlineData("<ul><li><em>note</em> text</li></ul>", "• [italic]note[/] text")]
+    public void HtmlToSpectreMarkup_InlineMarkupInsideListItem_EmitsBothMarkup(string html, string expected)
+    {
+        FormatterHelpers.HtmlToSpectreMarkup(html).ShouldContain(expected);
+    }
+
+    [Theory]
+    [InlineData("&amp;", "&")]
+    [InlineData("&lt;", "<")]
+    [InlineData("&gt;", ">")]
+    [InlineData("&quot;", "\"")]
+    [InlineData("&nbsp;", " ")]
+    public void HtmlToSpectreMarkup_DecodesIndividualEntities(string entity, string expected)
+    {
+        var result = FormatterHelpers.HtmlToSpectreMarkup($"A{entity}B");
+        result.ShouldContain($"A{expected}B");
+    }
+
+    [Fact]
+    public void HtmlToSpectreMarkup_MultipleEntitiesInSequence_AllDecoded()
+    {
+        var result = FormatterHelpers.HtmlToSpectreMarkup("x &lt; y &amp;&amp; y &gt; z");
+        result.ShouldContain("x < y && y > z");
     }
 }

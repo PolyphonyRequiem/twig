@@ -403,32 +403,20 @@ public class FormatterHelpersTests
         FormatterHelpers.HtmlToSpectreMarkup("   ").ShouldBe(string.Empty);
     }
 
-    [Fact]
-    public void HtmlToSpectreMarkup_BoldTag_EmitsBoldMarkup()
+    [Theory]
+    [InlineData("<b>text</b>")]
+    [InlineData("<strong>text</strong>")]
+    public void HtmlToSpectreMarkup_BoldVariant_EmitsBoldMarkup(string html)
     {
-        var result = FormatterHelpers.HtmlToSpectreMarkup("<b>text</b>");
-        result.ShouldContain("[bold]text[/]");
+        FormatterHelpers.HtmlToSpectreMarkup(html).ShouldContain("[bold]text[/]");
     }
 
-    [Fact]
-    public void HtmlToSpectreMarkup_StrongTag_EmitsBoldMarkup()
+    [Theory]
+    [InlineData("<em>text</em>")]
+    [InlineData("<i>text</i>")]
+    public void HtmlToSpectreMarkup_ItalicVariant_EmitsItalicMarkup(string html)
     {
-        var result = FormatterHelpers.HtmlToSpectreMarkup("<strong>text</strong>");
-        result.ShouldContain("[bold]text[/]");
-    }
-
-    [Fact]
-    public void HtmlToSpectreMarkup_EmTag_EmitsItalicMarkup()
-    {
-        var result = FormatterHelpers.HtmlToSpectreMarkup("<em>text</em>");
-        result.ShouldContain("[italic]text[/]");
-    }
-
-    [Fact]
-    public void HtmlToSpectreMarkup_ITag_EmitsItalicMarkup()
-    {
-        var result = FormatterHelpers.HtmlToSpectreMarkup("<i>text</i>");
-        result.ShouldContain("[italic]text[/]");
+        FormatterHelpers.HtmlToSpectreMarkup(html).ShouldContain("[italic]text[/]");
     }
 
     [Fact]
@@ -472,18 +460,12 @@ public class FormatterHelpersTests
         result.ShouldContain("Price < 100");
     }
 
-    [Fact]
-    public void HtmlToSpectreMarkup_BrTag_InsertsNewline()
+    [Theory]
+    [InlineData("<br>")]
+    [InlineData("<br/>")]
+    public void HtmlToSpectreMarkup_BrVariant_InsertsNewline(string br)
     {
-        var result = FormatterHelpers.HtmlToSpectreMarkup("Line1<br>Line2");
-        result.ShouldContain("Line1\nLine2");
-    }
-
-    [Fact]
-    public void HtmlToSpectreMarkup_SelfClosingBr_InsertsNewline()
-    {
-        var result = FormatterHelpers.HtmlToSpectreMarkup("Line1<br/>Line2");
-        result.ShouldContain("Line1\nLine2");
+        FormatterHelpers.HtmlToSpectreMarkup($"Line1{br}Line2").ShouldContain("Line1\nLine2");
     }
 
     [Fact]
@@ -495,18 +477,12 @@ public class FormatterHelpersTests
         result.Split('\n').Length.ShouldBeGreaterThan(1);
     }
 
-    [Fact]
-    public void HtmlToSpectreMarkup_DivTag_InsertsNewline()
+    [Theory]
+    [InlineData("<div>content</div>", "content")]
+    [InlineData("<pre>content</pre>", "content")]
+    public void HtmlToSpectreMarkup_BlockContainer_PassesThroughContent(string html, string expected)
     {
-        var result = FormatterHelpers.HtmlToSpectreMarkup("<div>Block</div>");
-        result.ShouldContain("Block");
-    }
-
-    [Fact]
-    public void HtmlToSpectreMarkup_PreTag_InsertsNewline()
-    {
-        var result = FormatterHelpers.HtmlToSpectreMarkup("<pre>code block</pre>");
-        result.ShouldContain("code block");
+        FormatterHelpers.HtmlToSpectreMarkup(html).ShouldContain(expected);
     }
 
     [Fact]
@@ -581,20 +557,14 @@ public class FormatterHelpersTests
         result.ShouldNotContain("https://example.com");
     }
 
-    [Fact]
-    public void HtmlToSpectreMarkup_UnorderedList_RendersBulletItems()
+    [Theory]
+    [InlineData("ul")]
+    [InlineData("ol")]
+    public void HtmlToSpectreMarkup_ListTag_RendersBulletItems(string tag)
     {
-        var result = FormatterHelpers.HtmlToSpectreMarkup("<ul><li>First</li><li>Second</li></ul>");
-        result.ShouldContain("• First");
-        result.ShouldContain("• Second");
-    }
-
-    [Fact]
-    public void HtmlToSpectreMarkup_OrderedList_RendersBulletItems()
-    {
-        var result = FormatterHelpers.HtmlToSpectreMarkup("<ol><li>Step 1</li><li>Step 2</li></ol>");
-        result.ShouldContain("• Step 1");
-        result.ShouldContain("• Step 2");
+        var result = FormatterHelpers.HtmlToSpectreMarkup($"<{tag}><li>A</li><li>B</li></{tag}>");
+        result.ShouldContain("• A");
+        result.ShouldContain("• B");
     }
 
     [Theory]

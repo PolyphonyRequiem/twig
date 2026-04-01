@@ -172,6 +172,9 @@ agents:
       open_questions_summary:
         type: string
         description: Formatted summary of blocking open questions
+      revision_notes:
+        type: string
+        description: Summary of changes made in this revision ("Initial draft." on first pass)
     routes:
       - to: open_questions_gate
         when: "{{ output.has_blocking_questions }}"
@@ -434,6 +437,9 @@ agents:
       commit_hash:
         type: string
         description: Git commit hash
+      edge_cases_handled:
+        type: array
+        description: Edge cases explicitly handled (for reviewer visibility)
     routes:
       - to: reducer_code
   - name: reducer_code
@@ -454,6 +460,12 @@ agents:
       lines_removed:
         type: number
         description: Net lines of code removed (0 if no changes)
+      balance_assessment:
+        type: string
+        description: Which vector was more out of balance (complexity or volume) and why
+      skipped_opportunities:
+        type: array
+        description: Reductions identified but skipped, with reasons
     routes:
       - to: task_reviewer
   - name: task_reviewer
@@ -480,6 +492,9 @@ agents:
       approved:
         type: boolean
         description: True if the implementation is approved
+      strengths:
+        type: array
+        description: Things done well in the implementation (reinforces good patterns)
     routes:
       - to: implementation_manager
         when: "{{ output.approved }}"
@@ -554,6 +569,9 @@ agents:
       approved:
         type: boolean
         description: Whether the issue implementation is approved
+      strengths:
+        type: array
+        description: Things done well across the issue implementation
     routes:
       - to: implementation_manager
   - name: pr_submit
@@ -601,6 +619,18 @@ agents:
       approved:
         type: boolean
         description: True if PR is approved
+      strengths:
+        type: array
+        description: Things done well across the PR
+      architecture_issues:
+        type: array
+        description: Architecture or design issues found
+      code_issues:
+        type: array
+        description: Code quality or consistency issues found
+      test_gaps:
+        type: array
+        description: Test coverage gaps identified
     routes:
       - to: pr_merge
         when: "{{ output.approved }}"

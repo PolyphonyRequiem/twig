@@ -19,14 +19,20 @@ Implement the following task.
 {% endfor %}
 {% endif %}
 ## Steps
-1. Research the codebase to understand affected files and patterns
-2. Add a twig note: `twig note --text "Research: <findings>"`
-3. Implement the changes following existing conventions
-4. Add a twig note: `twig note --text "Impl: <what was done>"`
-5. Write tests covering the new functionality and edge cases
-6. Run tests: `dotnet test --settings test.runsettings`
-7. Add a twig note: `twig note --text "Tests: <count> tests, <coverage>"`
-8. Commit: `git add -A && git commit -m "<descriptive message>"`
+1. **Deep Codebase Research**
+   - Analyze the codebase to understand existing patterns and conventions
+   - Identify all files that will be created, modified, or deleted for THIS task
+   - Review related modules and their interfaces
+   - Identify integration points and potential conflicts
+   - Document the coding style, naming conventions, and patterns used
+   - Add a twig note: `twig note --text "Research: <findings>"`
+2. **Implement the changes** following existing conventions
+   - Add a twig note: `twig note --text "Impl: <what was done>"`
+3. **Write tests** covering the new functionality and edge cases
+   - Track edge cases you explicitly handled (for reviewer visibility)
+4. **Run tests:** `dotnet test --settings test.runsettings`
+   - Add a twig note: `twig note --text "Tests: <count> tests, <coverage>"`
+5. **Commit:** `git add -A && git commit -m "<descriptive message>"`
 Do NOT implement anything beyond this single task.
 
 ## Pre-Review Checklist (avoid review round-trips)

@@ -26,38 +26,152 @@ Revise the existing plan at `{{ architect.output.plan_path }}` to address user f
 Incorporate user answers into the design. Resolve addressed questions, update
 affected decisions, and re-evaluate remaining open questions.
 {% endif %}
-## Instructions
-1. **Research the codebase** — explore relevant files, understand patterns and conventions
-2. **Call-site audit** — if the change modifies cross-cutting behavior (shared services,
-   base classes, extension methods, serialization, or interfaces used by multiple callers),
-   inventory ALL existing call sites in a table: file, method, current usage, impact.
-   Include this table in the Background section of the plan. This prevents missed call
-   sites from causing bugs during implementation.
-3. **Write a .plan.md document** with:
-   - Executive summary
-   - Background and current architecture
-   - Design decisions with trade-offs
-   - **ADO Work Item Structure:**
-     - If input is an Epic: define Issues under it, and Tasks under each Issue
-     - If input is an Issue: define Tasks under it directly
-     - **Every Issue MUST have Tasks** — break each Issue into 2-6 concrete,
-       independently committable Tasks. Each Task specifies file paths,
-       change descriptions, and effort estimates. No Issue should be a single
-       monolithic work item.
-     - Acceptance criteria per Issue
-   - **PR Groups (separate section):**
-     PR groups cluster Tasks/Issues for reviewable PRs. A PR group may contain:
-     - Tasks from a single Issue
-     - Tasks spanning multiple Issues
-     - An entire Issue's Tasks
-     Size each PR group for reviewability (≤2000 LoC, ≤50 files).
-     Classify each as **deep** (few files, complex) or **wide** (many files, mechanical).
-     Define execution order between PR groups using successor links.
-   - Risk assessment
-4. **Save the plan** to `docs/projects/<slug>.plan.md`
+
+---
+
+## Phase 1: Research
+
+Before drafting, perform thorough research:
+
+### Codebase Analysis
+- Explore relevant portions of the codebase deeply
+- Identify existing components, patterns, abstractions, and conventions
+- Understand the current architecture and how data flows
+- Map out dependencies between components
+- Note any technical debt or constraints that affect the design
+
+### Call-Site Audit
+If the change modifies cross-cutting behavior (shared services, base classes,
+extension methods, serialization, or interfaces used by multiple callers),
+inventory ALL existing call sites in a table: file, method, current usage, impact.
+Include this table in the Background section. This prevents missed call sites
+from causing bugs during implementation.
+
+---
+
+## Phase 2: Design & Plan Document
+
+Write a `.plan.md` document with the following sections:
+
+### Executive Summary
+One paragraph describing the proposal, its motivation, and expected outcome.
+
+### Background
+- Current state of the system and relevant architecture
+- Context that motivates this design (why now, what changed)
+- Prior art or related work in the codebase
+- Call-site audit table (if applicable from Phase 1)
+
+### Problem Statement
+Clearly define the problem(s) this design addresses. Be specific about
+pain points, limitations, or gaps in the current system.
+
+### Goals and Non-Goals
+**Goals** — specific, measurable outcomes this design aims to achieve.
+**Non-Goals** — explicit exclusions to keep scope focused.
+
+### Requirements
+Functional and non-functional requirements.
+
+### Proposed Design
+- **Architecture Overview** — high-level component diagram and how pieces fit together
+- **Key Components** — each major component with its responsibilities and interfaces
+- **Data Flow** — how data moves through the system for key operations
+- **Design Decisions** — key decisions made and the rationale behind each
+
+### Alternatives Considered *(optional)*
+For each significant design decision, describe alternatives evaluated with
+pros/cons and why the chosen approach was selected. Include when the design
+involves non-obvious choices between viable approaches. Skip if straightforward.
+
+### Dependencies
+- External dependencies (libraries, services, infrastructure)
+- Internal dependencies (other components, teams, systems)
+- Sequencing constraints (what must happen before this design can proceed)
+
+### Impact Analysis *(optional)*
+Components and areas of the codebase affected, backward compatibility,
+performance implications, operational impact. Include when the design touches
+multiple components or has compatibility/performance implications. Skip for
+isolated changes.
+
+### Security Considerations *(optional)*
+Authentication, authorization, access control, data protection implications.
+Include when the design affects security boundaries, handles sensitive data,
+or changes the attack surface. Skip if not applicable.
+
+### Risks and Mitigations *(optional)*
+Table with: Risk, Likelihood (Low/Medium/High), Impact (Low/Medium/High), Mitigation.
+Include when the design carries meaningful technical, operational, or schedule risks.
+Skip for low-risk changes.
+
+### Open Questions
+Items requiring further discussion, investigation, or decision from stakeholders.
+
+### Files Affected
+
+#### New Files
+| File Path | Purpose |
+|-----------|---------|
+
+#### Modified Files
+| File Path | Changes |
+|-----------|---------|
+
+#### Deleted Files *(optional)*
+| File Path | Reason |
+|-----------|--------|
+
+### ADO Work Item Structure
+- If input is an Epic: define Issues under it, and Tasks under each Issue
+- If input is an Issue: define Tasks under it directly
+- **Every Issue MUST have Tasks** — break each Issue into 2-6 concrete,
+  independently committable Tasks. Each Task specifies file paths,
+  change descriptions, and effort estimates. No Issue should be a single
+  monolithic work item.
+- Acceptance criteria per Issue
+- For each Issue, provide:
+  - **Goal**: What this Issue achieves
+  - **Prerequisites**: Dependencies on other Issues
+  - **Tasks**: Table with Task ID, Description, Files, Effort Estimate, and Status (TO DO)
+  - **Acceptance Criteria**: Checkboxes for completion
+
+### PR Groups (separate section)
+PR groups cluster Tasks/Issues for reviewable PRs — NOT a 1:1 mapping to the ADO
+hierarchy. A PR group may contain:
+- Tasks from a single Issue
+- Tasks spanning multiple Issues
+- An entire Issue's Tasks
+Size each PR group for reviewability (≤2000 LoC, ≤50 files).
+Classify each as **deep** (few files, complex) or **wide** (many files, mechanical).
+Define execution order between PR groups using successor links.
+
+### References *(optional)*
+Links to relevant documentation, prior art, RFCs, or external resources.
+
+---
+
+Be thorough and specific. Ground every claim in evidence from the codebase or research.
+Avoid vague or aspirational language — if something is uncertain, call it out as an open question.
+
+## Saving the Document
+Save the plan to `docs/projects/<slug>.plan.md`
 {% if workflow.input.prompt %}
 Derive the plan topic from: {{ workflow.input.prompt }}
 {% endif %}
+
+## Revision Notes
+{% if review_router is defined or plan_approval is defined or open_questions_gate is defined %}
+After revising the document, provide a concise summary of what you changed and why
+in your `revision_notes` output. Structure as a bullet list, e.g.:
+- Corrected API surface per technical reviewer feedback
+- Rewrote Executive Summary for clarity per readability feedback
+- Added missing risk mitigation for database migration
+This helps reviewers understand what changed.
+{% else %}
+This is the first draft. Set `revision_notes` to "Initial draft."
+{% endif %}
+
 ## Open Questions Evaluation
 After writing the document, evaluate the Open Questions section:
 - If ANY open questions are **Moderate**, **Major**, or **Critical**,

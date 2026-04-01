@@ -586,13 +586,24 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         grid.AddRow("[dim]Iteration:[/]", Markup.Escape(item.IterationPath.ToString()));
 
         // Stage 2: Progressively add extended fields from the Fields dictionary
+        IRenderable? descriptionSection = null;
+
         await _console.Live(new Markup("[dim]Loading...[/]"))
             .StartAsync(async ctx =>
             {
-                Panel BuildPanel() => new Panel(grid)
-                    .Header($"[bold]#{item.Id} {Markup.Escape(item.Title)}[/]{dirty}")
-                    .Border(BoxBorder.Rounded)
-                    .Expand();
+                Panel BuildPanel()
+                {
+                    IRenderable panelContent = descriptionSection is not null
+                        ? new Rows(grid,
+                            new Rule("[dim]Description[/]").LeftJustified().RuleStyle("dim"),
+                            descriptionSection)
+                        : grid;
+
+                    return new Panel(panelContent)
+                        .Header($"[bold]#{item.Id} {Markup.Escape(item.Title)}[/]{dirty}")
+                        .Border(BoxBorder.Rounded)
+                        .Expand();
+                }
 
                 ctx.UpdateTarget(BuildPanel());
                 ctx.Refresh();
@@ -600,15 +611,6 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                 // Yield to allow the core panel to render before loading extended fields
                 await Task.Yield();
                 ct.ThrowIfCancellationRequested();
-
-                // Extended field: Description
-                if (item.Fields.TryGetValue("System.Description", out var description)
-                    && !string.IsNullOrWhiteSpace(description))
-                {
-                    grid.AddRow("[dim]Description:[/]", Markup.Escape(TruncateField(description, 200)));
-                    ctx.UpdateTarget(BuildPanel());
-                    ctx.Refresh();
-                }
 
                 // Extended field: History (latest comment)
                 if (item.Fields.TryGetValue("System.History", out var history)
@@ -626,6 +628,18 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                     grid.AddRow("[dim]Tags:[/]", Markup.Escape(TruncateField(tags, 200)));
                     ctx.UpdateTarget(BuildPanel());
                     ctx.Refresh();
+                }
+
+                // Extended field: Description (full-width section below grid)
+                if (item.Fields.TryGetValue("System.Description", out var description))
+                {
+                    var markup = Formatters.FormatterHelpers.HtmlToSpectreMarkup(description);
+                    if (!string.IsNullOrWhiteSpace(markup))
+                    {
+                        descriptionSection = new Markup(markup);
+                        ctx.UpdateTarget(BuildPanel());
+                        ctx.Refresh();
+                    }
                 }
             });
 

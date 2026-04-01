@@ -116,7 +116,7 @@ public sealed class StateCommand(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _stderr.WriteLine($"warning: State changed to '{newState}' but cache resync failed: {ex.Message}");
+            _stderr.WriteLine($"warning: State changed to '{newState}' but cache may be stale — run 'twig sync' to resync ({ex.Message})");
         }
 
         if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();

@@ -338,12 +338,37 @@ public class StateCommandTests
 
         // Command still succeeds — the ADO state transition completed
         result.ShouldBe(0);
-        // Warning emitted to stderr about resync failure
+        // Warning emitted to stderr about resync failure with recovery hint
         var stderrOutput = _stderr.ToString();
-        stderrOutput.ShouldContain("resync failed");
+        stderrOutput.ShouldContain("twig sync");
         stderrOutput.ShouldContain("network timeout");
         // SaveAsync never called — FetchAsync for resync threw before save
         await _workItemRepo.DidNotReceive().SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task State_Resync_OperationCanceled_IsNotSwallowed()
+    {
+        var item = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
+        SetupActiveItem(item);
+
+        // First FetchAsync (conflict check) returns item; second (resync) throws OperationCanceledException
+        var fetchCallCount = 0;
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                fetchCallCount++;
+                if (fetchCallCount == 1) return item;
+                throw new OperationCanceledException();
+            });
+
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+
+        // OperationCanceledException should propagate — not be caught by the resync catch block
+        await Should.ThrowAsync<OperationCanceledException>(() => _cmd.ExecuteAsync("Active"));
     }
 
     private void SetupActiveItem(WorkItem item)

@@ -1,8 +1,12 @@
 using System.Diagnostics;
+using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
+using Twig.Domain.ReadModels;
 using Twig.Domain.Services;
+using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
+using Twig.Infrastructure.Config;
 using Twig.Rendering;
 
 namespace Twig.Commands;
@@ -26,7 +30,10 @@ public sealed class SetCommand(
     RenderingPipelineFactory? pipelineFactory = null,
     IPromptStateWriter? promptStateWriter = null,
     INavigationHistoryStore? historyStore = null,
-    ITelemetryClient? telemetryClient = null)
+    ITelemetryClient? telemetryClient = null,
+    IPendingChangeStore? pendingChangeStore = null,
+    TwigPaths? paths = null,
+    IFieldDefinitionStore? fieldDefinitionStore = null)
 {
     public async Task<int> ExecuteAsync(string idOrPattern, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
@@ -139,8 +146,80 @@ public sealed class SetCommand(
             await historyStore.RecordVisitAsync(item.Id, ct);
         if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
-        // Print item immediately (DD-5: unified TTY and non-TTY output)
-        Console.WriteLine(fmt.FormatWorkItem(item, showDirty: false));
+        // Print item with rich rendering — same output as twig status (converged display)
+        var children = await workItemRepo.GetChildrenAsync(item.Id, ct);
+        Domain.Aggregates.WorkItem? parent = item.ParentId.HasValue
+            ? await workItemRepo.GetByIdAsync(item.ParentId.Value, ct)
+            : null;
+
+        IReadOnlyList<WorkItemLink> links = [];
+        try { links = await syncCoordinator.SyncLinksAsync(item.Id, ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
+
+        var fieldDefs = fieldDefinitionStore is not null
+            ? await fieldDefinitionStore.GetAllAsync(ct)
+            : null;
+
+        IReadOnlyList<StatusFieldEntry>? statusFieldEntries = null;
+        if (paths is not null && File.Exists(paths.StatusFieldsPath))
+        {
+            try
+            {
+                var configContent = await File.ReadAllTextAsync(paths.StatusFieldsPath, ct);
+                statusFieldEntries = StatusFieldsConfig.Parse(configContent);
+            }
+            catch { /* best-effort */ }
+        }
+
+        var childProgress = ComputeChildProgress(children);
+
+        if (renderer is not null)
+        {
+            Func<Task<IReadOnlyList<PendingChangeRecord>>> pendingChanges = pendingChangeStore is not null
+                ? () => pendingChangeStore.GetChangesAsync(item.Id)
+                : () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>([]);
+
+            await renderer.RenderStatusAsync(
+                getItem: () => Task.FromResult<Domain.Aggregates.WorkItem?>(item),
+                getPendingChanges: pendingChanges,
+                ct: ct,
+                fieldDefinitions: fieldDefs,
+                statusFieldEntries: statusFieldEntries,
+                childProgress: childProgress,
+                links: links,
+                parent: parent,
+                children: children);
+        }
+        else if (fmt is HumanOutputFormatter humanFmt)
+        {
+            (int FieldCount, int NoteCount)? pendingCounts = null;
+            if (pendingChangeStore is not null)
+            {
+                var pending = await pendingChangeStore.GetChangesAsync(item.Id);
+                if (pending.Count > 0)
+                {
+                    var noteCount = 0;
+                    var fieldCount = 0;
+                    foreach (var change in pending)
+                    {
+                        if (string.Equals(change.ChangeType, "note", StringComparison.OrdinalIgnoreCase))
+                            noteCount++;
+                        else
+                            fieldCount++;
+                    }
+                    pendingCounts = (fieldCount, noteCount);
+                }
+            }
+            Console.WriteLine(humanFmt.FormatWorkItem(item, showDirty: false, fieldDefs, statusFieldEntries, childProgress, pendingCounts, links, parent, children));
+        }
+        else if (fmt is JsonOutputFormatter jsonFmt)
+        {
+            Console.WriteLine(jsonFmt.FormatWorkItem(item, showDirty: false, links, parent, children));
+        }
+        else
+        {
+            Console.WriteLine(fmt.FormatWorkItem(item, showDirty: false));
+        }
 
         // Targeted sync — best-effort, never fails the command (DD-1, DD-2)
         try
@@ -172,5 +251,20 @@ public sealed class SetCommand(
         }
 
         return 0;
+    }
+
+    private static (int Done, int Total)? ComputeChildProgress(IReadOnlyList<Domain.Aggregates.WorkItem> children)
+    {
+        if (children.Count == 0)
+            return null;
+
+        var done = 0;
+        foreach (var child in children)
+        {
+            var cat = Domain.Services.StateCategoryResolver.Resolve(child.State, null);
+            if (cat == Domain.Enums.StateCategory.Resolved || cat == Domain.Enums.StateCategory.Completed)
+                done++;
+        }
+        return (done, children.Count);
     }
 }

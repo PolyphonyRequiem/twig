@@ -997,4 +997,64 @@ public class SyncCoordinatorTests
             () => _sut.SyncItemSetAsync(new[] { 10 }));
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncItemAsync — deleted item (not found) → evicted from cache
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncItemAsync_NotFound_EvictsFromCache()
+    {
+        var stale = new WorkItemBuilder(99, "Deleted").InState("Active").LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-60)).Build();
+        _workItemRepo.GetByIdAsync(99).Returns(stale);
+        _adoService.FetchAsync(99, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("Work item 99 not found."));
+
+        var result = await _sut.SyncItemAsync(99);
+
+        result.ShouldBeOfType<SyncResult.Failed>();
+        await _workItemRepo.Received(1).DeleteByIdAsync(99, Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncItemSetAsync — deleted items evicted, others still saved
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncItemSetAsync_NotFoundItems_EvictedFromCache()
+    {
+        var stale = DateTimeOffset.UtcNow.AddMinutes(-60);
+        _workItemRepo.GetByIdAsync(10).Returns(new WorkItemBuilder(10, "Ok").InState("Active").LastSyncedAt(stale).Build());
+        _workItemRepo.GetByIdAsync(20).Returns(new WorkItemBuilder(20, "Deleted").InState("Active").LastSyncedAt(stale).Build());
+
+        var fetched10 = new WorkItemBuilder(10, "Ok").InState("Active").Build();
+        _adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(fetched10);
+        _adoService.FetchAsync(20, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("Work item 20 not found."));
+
+        var result = await _sut.SyncItemSetAsync(new[] { 10, 20 });
+
+        // Item 20 should be evicted
+        await _workItemRepo.Received(1).DeleteByIdAsync(20, Arg.Any<CancellationToken>());
+        // Item 10 should be saved via batch (ProtectedCacheWriter uses SaveBatchAsync)
+        await _workItemRepo.Received(1).SaveBatchAsync(
+            Arg.Is<IEnumerable<WorkItem>>(items => items.Any(i => i.Id == 10)),
+            Arg.Any<CancellationToken>());
+        // Not-found failures should not appear in the failure list
+        result.ShouldBeOfType<SyncResult.Updated>();
+    }
+
+    [Fact]
+    public async Task SyncItemAsync_TransientError_DoesNotEvict()
+    {
+        var stale = new WorkItemBuilder(42, "Item").InState("Active").LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-60)).Build();
+        _workItemRepo.GetByIdAsync(42).Returns(stale);
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("Network timeout"));
+
+        var result = await _sut.SyncItemAsync(42);
+
+        result.ShouldBeOfType<SyncResult.Failed>();
+        await _workItemRepo.DidNotReceive().DeleteByIdAsync(42, Arg.Any<CancellationToken>());
+    }
+
 }

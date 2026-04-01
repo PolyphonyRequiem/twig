@@ -68,6 +68,8 @@ public sealed class SyncCoordinator
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            if (ex.Message.Contains("not found", StringComparison.OrdinalIgnoreCase))
+                await _workItemRepo.DeleteByIdAsync(id, ct);
             return new SyncResult.Failed(ex.Message);
         }
     }
@@ -135,16 +137,24 @@ public sealed class SyncCoordinator
             try
             {
                 var item = await _adoService.FetchAsync(id, ct);
-                return (Id: id, Item: item, Error: (Exception?)null);
+                return (Id: id, Item: item, Error: (Exception?)null, NotFound: false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                return (Id: id, Item: (WorkItem?)null, Error: ex);
+                // Detect "not found" errors (deleted/destroyed items) by convention:
+                // Infrastructure throws AdoNotFoundException with message "Work item {id} not found."
+                var notFound = ex.Message.Contains("not found", StringComparison.OrdinalIgnoreCase);
+                return (Id: id, Item: (WorkItem?)null, Error: ex, NotFound: notFound);
             }
         }));
 
+        // Evict items confirmed deleted in ADO — prevents stale cache ghosts
+        var notFoundIds = fetchResults.Where(r => r.NotFound).Select(r => r.Id).ToList();
+        foreach (var id in notFoundIds)
+            await _workItemRepo.DeleteByIdAsync(id, ct);
+
         var fetchedItems = fetchResults.Where(r => r.Item is not null).Select(r => r.Item!).ToArray();
-        var fetchFailures = fetchResults.Where(r => r.Error is not null)
+        var fetchFailures = fetchResults.Where(r => r.Error is not null && !r.NotFound)
             .Select(r => new SyncItemFailure(r.Id, r.Error!.Message))
             .ToList();
 

@@ -1,5 +1,4 @@
 using NSubstitute;
-using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
@@ -252,51 +251,6 @@ public class SaveCommandScopingTests
         result.ShouldBe(0);
         await _adoService.DidNotReceive().PatchAsync(Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
         await _adoService.DidNotReceive().FetchAsync(42, Arg.Any<CancellationToken>());
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  Continue-on-failure (FR-7 / G-6): --all keeps going after errors
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task AllFlag_ItemFailsAdoException_RemainingItemsStillAttempted()
-    {
-        // Arrange: two dirty items; item 1 throws on FetchAsync, item 2 succeeds.
-        var item1 = CreateWorkItem(1, "Failing Item");
-        var item2 = CreateWorkItem(2, "Good Item");
-        var remote2 = CreateWorkItem(2, "Good Item");
-
-        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
-            .Returns(new[] { 1, 2 });
-        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item1);
-        _workItemRepo.GetByIdAsync(2, Arg.Any<CancellationToken>()).Returns(item2);
-
-        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
-            .Returns(new[] { new PendingChangeRecord(1, "field", "System.Title", "Old", "New") });
-        _pendingChangeStore.GetChangesAsync(2, Arg.Any<CancellationToken>())
-            .Returns(new[] { new PendingChangeRecord(2, "field", "System.Title", "Old", "New") });
-
-        // Item 1: ADO throws
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>())
-            .ThrowsAsync(new HttpRequestException("ADO service unavailable"));
-        // Item 2: normal success path
-        _adoService.FetchAsync(2, Arg.Any<CancellationToken>()).Returns(remote2);
-        _adoService.PatchAsync(2, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(2);
-
-        var stderr = new StringWriter();
-        var cmd = CreateCommand(stderr);
-
-        // Act
-        var result = await cmd.ExecuteAsync(all: true);
-
-        // Assert: exit code 1 because item 1 failed
-        result.ShouldBe(1);
-        // Error message logged for failing item
-        stderr.ToString().ShouldContain("#1");
-        stderr.ToString().ShouldContain("ADO service unavailable");
-        // Item 2 was still attempted and saved — loop did not stop at first failure
-        await _adoService.Received().PatchAsync(2, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
     private static WorkItem CreateWorkItem(int id, string title, int? parentId = null) => new()

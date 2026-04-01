@@ -20,7 +20,6 @@ public sealed class NoteCommand(
     HintEngine hintEngine,
     IPromptStateWriter? promptStateWriter = null)
 {
-    // Wired for push-on-write (#1376); field suppresses CS9113.
     private readonly IAdoWorkItemService _adoService = adoService;
 
     /// <summary>Add a note/comment to the active work item.</summary>
@@ -41,7 +40,6 @@ public sealed class NoteCommand(
 
         if (string.IsNullOrWhiteSpace(noteText))
         {
-            // Launch editor
             noteText = await editorLauncher.LaunchAsync(
                 $"# Note for #{item.Id} {item.Title}\n# Lines starting with # are comments and will be removed.\n\n");
 
@@ -51,7 +49,6 @@ public sealed class NoteCommand(
                 return 0;
             }
 
-            // Strip comment lines
             var lines = noteText.Split('\n')
                 .Where(l => !l.TrimStart().StartsWith('#'))
                 .ToArray();
@@ -64,20 +61,41 @@ public sealed class NoteCommand(
             }
         }
 
-        // Store as pending change
-        await pendingChangeStore.AddChangeAsync(
-            item.Id,
-            "note",
-            fieldName: null,
-            oldValue: null,
-            newValue: noteText);
+        string successMessage;
 
-        // Mark dirty in cache
-        item.AddNote(new PendingNote(noteText, DateTimeOffset.UtcNow, IsHtml: false));
-        item.ApplyCommands();
-        await workItemRepo.SaveAsync(item);
+        if (item.IsSeed)
+        {
+            await StageLocallyAsync(item, noteText, ct);
+            successMessage = fmt.FormatSuccess($"Note added to #{item.Id} (pending).");
+        }
+        else
+        {
+            try
+            {
+                await _adoService.AddCommentAsync(item.Id, noteText, ct);
+                await pendingChangeStore.ClearChangesByTypeAsync(item.Id, "note", ct);
 
-        Console.WriteLine(fmt.FormatSuccess($"Note added to #{item.Id} (pending)."));
+                try
+                {
+                    var updated = await _adoService.FetchAsync(item.Id, ct);
+                    await workItemRepo.SaveAsync(updated, ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    Console.Error.WriteLine($"Note pushed but cache may be stale — run 'twig sync' to resync ({ex.Message})");
+                }
+
+                successMessage = fmt.FormatSuccess($"Note added to #{item.Id}.");
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Console.Error.WriteLine($"Note staged locally (ADO unreachable): {ex.Message}");
+                await StageLocallyAsync(item, noteText, ct);
+                successMessage = fmt.FormatSuccess($"Note added to #{item.Id} (pending).");
+            }
+        }
+
+        Console.WriteLine(successMessage);
 
         if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
@@ -90,5 +108,19 @@ public sealed class NoteCommand(
         }
 
         return 0;
+    }
+
+    private async Task StageLocallyAsync(Twig.Domain.Aggregates.WorkItem item, string noteText, CancellationToken ct)
+    {
+        await pendingChangeStore.AddChangeAsync(
+            item.Id,
+            "note",
+            fieldName: null,
+            oldValue: null,
+            newValue: noteText);
+
+        item.AddNote(new PendingNote(noteText, DateTimeOffset.UtcNow, IsHtml: false));
+        item.ApplyCommands();
+        await workItemRepo.SaveAsync(item, ct);
     }
 }

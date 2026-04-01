@@ -1,7 +1,7 @@
 # Push-on-Write and Sync Convergence
 
 **Epic:** #1338  
-> **Status**: 🔨 In Progress  
+> **Status**: 🔨 In Progress — 1/3 PR groups merged  
 **Revision:** 7 — See [Revision History](#revision-history) for change log.
 
 ---

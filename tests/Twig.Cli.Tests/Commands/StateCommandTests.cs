@@ -320,14 +320,8 @@ public class StateCommandTests
         SetupActiveItem(item);
 
         // First FetchAsync (conflict check) returns item; second (resync) throws
-        var fetchCallCount = 0;
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>())
-            .Returns(_ =>
-            {
-                fetchCallCount++;
-                if (fetchCallCount == 1) return item;
-                throw new HttpRequestException("network timeout");
-            });
+            .Returns(_ => item, _ => throw new HttpRequestException("network timeout"));
 
         _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(2);
@@ -353,14 +347,8 @@ public class StateCommandTests
         SetupActiveItem(item);
 
         // First FetchAsync (conflict check) returns item; second (resync) throws OperationCanceledException
-        var fetchCallCount = 0;
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>())
-            .Returns(_ =>
-            {
-                fetchCallCount++;
-                if (fetchCallCount == 1) return item;
-                throw new OperationCanceledException();
-            });
+            .Returns(_ => item, _ => throw new OperationCanceledException());
 
         _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(2);

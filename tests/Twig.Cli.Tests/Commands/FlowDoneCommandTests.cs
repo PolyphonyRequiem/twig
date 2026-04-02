@@ -1,4 +1,5 @@
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
@@ -333,6 +334,32 @@ public class FlowDoneCommandTests
         var result = await cmd.ExecuteAsync(outputFormat: "json");
 
         result.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task FlushFails_ReturnsExitCode1_AndSkipsStateTransition()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        var item = CreateWorkItem(1, "Feature", "Active");
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
+        // Item 1 is dirty and has a pending field change
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(new[] { 1 });
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { new PendingChangeRecord(1, "field", "System.Title", "old", "new") });
+        // FetchAsync returns the item (no conflict), but PatchAsync throws → flusher records failure
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("Server error"));
+
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync();
+
+        result.ShouldBe(1);
+        // State-transition PatchAsync should never have been called
+        await _adoService.DidNotReceive().PatchAsync(1,
+            Arg.Is<IReadOnlyList<FieldChange>>(c => c.Any(f => f.FieldName == "System.State")),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

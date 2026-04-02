@@ -150,6 +150,10 @@ public sealed class PendingChangeFlusherTests
         await _adoService.DidNotReceive().PatchAsync(
             Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
         _consoleInput.DidNotReceive().ReadLine();
+        // Post-push resync: exactly one FetchAsync (not two), plus ClearChangesAsync and SaveAsync
+        await _adoService.Received(1).FetchAsync(1, Arg.Any<CancellationToken>());
+        await _pendingChangeStore.Received().ClearChangesAsync(1, Arg.Any<CancellationToken>());
+        await _workItemRepo.Received().SaveAsync(Arg.Is<WorkItem>(w => w.Id == 1), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -195,24 +199,6 @@ public sealed class PendingChangeFlusherTests
 
         result.NotesPushed.ShouldBe(1);
         await _adoService.Received(1).AddCommentAsync(Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task FlushAsync_NotesOnly_OnlyFetchesOnceForResync()
-    {
-        var item = CreateWorkItem(1, "Title");
-        var remote = CreateWorkItem(1, "Title");
-        SetupItem(item);
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
-
-        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
-            .Returns(new[] { new PendingChangeRecord(1, "note", null, null, "Note") });
-
-        var flusher = CreateFlusher();
-        await flusher.FlushAsync([1]);
-
-        // FetchAsync called exactly once: post-push cache resync only (no conflict fetch)
-        await _adoService.Received(1).FetchAsync(1, Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -343,6 +329,8 @@ public sealed class PendingChangeFlusherTests
         result.Failures.Count.ShouldBe(1);
         result.Failures[0].ItemId.ShouldBe(1);
         result.Failures[0].Error.ShouldContain("conflict");
+        // JSON mode: conflict emitted to stdout, no interactive prompt
+        _consoleInput.DidNotReceive().ReadLine();
     }
 
     [Fact]
@@ -503,26 +491,6 @@ public sealed class PendingChangeFlusherTests
         // Item 2 still flushed despite item 1 failure
         result.ItemsFlushed.ShouldBe(1);
         await _adoService.Received().PatchAsync(2, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task FlushAsync_OutputFormatPassedToConflictResolution()
-    {
-        // When outputFormat is "json", conflict should emit JSON and record failure
-        var item = CreateWorkItem(1, "Title");
-        var driftedRemote = CreateDriftedRemote(1);
-        SetupItem(item);
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(driftedRemote);
-
-        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
-            .Returns(new[] { new PendingChangeRecord(1, "field", "System.Title", "Title", "New Title") });
-
-        var flusher = CreateFlusher();
-        var result = await flusher.FlushAsync([1], "json");
-
-        result.Failures.Count.ShouldBe(1);
-        // No user prompt in JSON mode
-        _consoleInput.DidNotReceive().ReadLine();
     }
 
     [Fact]

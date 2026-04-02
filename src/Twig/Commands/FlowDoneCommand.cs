@@ -49,7 +49,7 @@ public sealed class FlowDoneCommand(
         bool workTreeSaved = false;
         if (!noSave)
         {
-            var dirtyIds = await pendingChangeStore.GetDirtyItemIdsAsync();
+            var dirtyIds = await pendingChangeStore.GetDirtyItemIdsAsync(ct);
             IReadOnlyList<int> itemsToFlush;
 
             if (isExplicitId)
@@ -60,7 +60,7 @@ public sealed class FlowDoneCommand(
             else
             {
                 // No explicit ID: flush active work tree — scope to active item + children
-                var children = await workItemRepo.GetChildrenAsync(targetId);
+                var children = await workItemRepo.GetChildrenAsync(targetId, ct);
                 var childIds = new HashSet<int>(children.Select(c => c.Id));
                 itemsToFlush = dirtyIds.Where(d => d == targetId || childIds.Contains(d)).ToList();
             }

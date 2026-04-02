@@ -467,9 +467,13 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> Edit(string? field = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<EditCommand>().ExecuteAsync(field, output, ct);
 
-    /// <summary>Push pending changes to Azure DevOps.</summary>
+    /// <summary>Push pending changes to Azure DevOps. Deprecated — use 'twig sync' instead.</summary>
+    [Hidden]
     public async Task<int> Save([Argument] int? id = null, bool all = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SaveCommand>().ExecuteAsync(id, all, output, ct: ct);
+    {
+        await Console.Error.WriteLineAsync("hint: 'twig save' is deprecated. Use 'twig sync' instead.");
+        return await services.GetRequiredService<SaveCommand>().ExecuteAsync(id, all, output, ct: ct);
+    }
 
     /// <summary>Flush pending changes then refresh the local cache.</summary>
     public async Task<int> Sync(string output = OutputFormatterFactory.DefaultFormat, bool force = false, CancellationToken ct = default)

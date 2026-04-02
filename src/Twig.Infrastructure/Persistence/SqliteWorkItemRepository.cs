@@ -323,6 +323,21 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         return Task.CompletedTask;
     }
 
+    public Task<int> ClearPhantomDirtyFlagsAsync(CancellationToken ct = default)
+    {
+        var conn = _store.GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = _store.ActiveTransaction;
+        cmd.CommandText = """
+            UPDATE work_items SET is_dirty = 0
+            WHERE is_dirty = 1
+              AND is_seed = 0
+              AND id NOT IN (SELECT work_item_id FROM pending_changes);
+            """;
+        var count = cmd.ExecuteNonQuery();
+        return Task.FromResult(count);
+    }
+
     private static void SaveWorkItem(SqliteConnection conn, WorkItem item, SqliteTransaction? tx = null)
     {
         using var cmd = conn.CreateCommand();

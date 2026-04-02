@@ -46,4 +46,10 @@ public interface IWorkItemRepository
     /// Used to initialize <see cref="WorkItem.InitializeSeedCounter"/> on startup.
     /// </summary>
     Task<int?> GetMinSeedIdAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Clears <c>is_dirty</c> on published (non-seed) items that have no corresponding
+    /// <c>pending_changes</c> rows. Returns the number of items cleansed.
+    /// </summary>
+    Task<int> ClearPhantomDirtyFlagsAsync(CancellationToken ct = default);
 }

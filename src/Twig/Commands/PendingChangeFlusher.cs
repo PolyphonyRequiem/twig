@@ -4,9 +4,18 @@ using Twig.Formatters;
 
 namespace Twig.Commands;
 
+/// <summary>Structured result of a flush operation.</summary>
+public sealed record FlushResult(
+    int ItemsFlushed,
+    int FieldChangesPushed,
+    int NotesPushed,
+    IReadOnlyList<FlushItemFailure> Failures);
+
+/// <summary>Per-item failure detail for callers to render.</summary>
+public sealed record FlushItemFailure(int ItemId, string Error);
+
 /// <summary>
 /// Pushes pending field changes and notes for a set of work items to Azure DevOps.
-/// Extracted from SaveCommand to be reusable by SaveCommand, SyncCommand, and FlowDoneCommand.
 /// </summary>
 /// <remarks>
 /// Key behaviors:
@@ -22,7 +31,7 @@ public sealed class PendingChangeFlusher(
     IPendingChangeStore pendingChangeStore,
     IConsoleInput consoleInput,
     OutputFormatterFactory formatterFactory,
-    TextWriter? stderr = null) : IPendingChangeFlusher
+    TextWriter? stderr = null)
 {
     private readonly TextWriter _stderr = stderr ?? Console.Error;
 

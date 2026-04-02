@@ -18,31 +18,9 @@ namespace Twig.Cli.Tests.Commands;
 /// of notes (no field edits), conflict resolution is bypassed and notes are appended directly
 /// to ADO via AddCommentAsync. Mirrors SaveCommandScopingTests structure.
 /// </summary>
-public sealed class SaveCommandNotesOnlyBypassTests
+public sealed class SaveCommandNotesOnlyBypassTests : SaveCommandTestBase
 {
-    private readonly IContextStore _contextStore;
-    private readonly IWorkItemRepository _workItemRepo;
-    private readonly IAdoWorkItemService _adoService;
-    private readonly IPendingChangeStore _pendingChangeStore;
-    private readonly IConsoleInput _consoleInput;
-    private readonly OutputFormatterFactory _formatterFactory;
-    private readonly ActiveItemResolver _resolver;
-
-    public SaveCommandNotesOnlyBypassTests()
-    {
-        _contextStore = Substitute.For<IContextStore>();
-        _workItemRepo = Substitute.For<IWorkItemRepository>();
-        _adoService = Substitute.For<IAdoWorkItemService>();
-        _pendingChangeStore = Substitute.For<IPendingChangeStore>();
-        _consoleInput = Substitute.For<IConsoleInput>();
-        _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
-        _resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-    }
-
-    private SaveCommand CreateCommand(TextWriter? stderr = null) =>
-        new(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory, stderr: stderr);
+    public SaveCommandNotesOnlyBypassTests() { }
 
     // ═══════════════════════════════════════════════════════════════
     //  Notes-only bypass path

@@ -17,30 +17,9 @@ namespace Twig.Cli.Tests.Commands;
 /// instead of terminating the loop. Verifies that unhandled exceptions from ADO calls
 /// are caught, logged to stderr, and remaining dirty items are still attempted.
 /// </summary>
-public sealed class SaveCommandContinueOnFailureTests
+public sealed class SaveCommandContinueOnFailureTests : SaveCommandTestBase
 {
-    private readonly IWorkItemRepository _workItemRepo;
-    private readonly IAdoWorkItemService _adoService;
-    private readonly IPendingChangeStore _pendingChangeStore;
-    private readonly IConsoleInput _consoleInput;
-    private readonly OutputFormatterFactory _formatterFactory;
-    private readonly ActiveItemResolver _resolver;
-
-    public SaveCommandContinueOnFailureTests()
-    {
-        var contextStore = Substitute.For<IContextStore>();
-        _workItemRepo = Substitute.For<IWorkItemRepository>();
-        _adoService = Substitute.For<IAdoWorkItemService>();
-        _pendingChangeStore = Substitute.For<IPendingChangeStore>();
-        _consoleInput = Substitute.For<IConsoleInput>();
-        _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
-        _resolver = new ActiveItemResolver(contextStore, _workItemRepo, _adoService);
-    }
-
-    private SaveCommand CreateCommand(TextWriter? stderr = null) =>
-        new(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory, stderr: stderr);
+    public SaveCommandContinueOnFailureTests() { }
 
     // ═══════════════════════════════════════════════════════════════
     //  Core: exception during save does not terminate the loop

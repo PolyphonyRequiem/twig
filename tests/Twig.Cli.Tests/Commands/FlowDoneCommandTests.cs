@@ -58,8 +58,9 @@ public class FlowDoneCommandTests
         // Default: no pending changes, no dirty items
         _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());
 
-        _saveCommand = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            activeItemResolver, _consoleInput, _formatterFactory);
+        _saveCommand = new SaveCommand(_workItemRepo, _pendingChangeStore,
+            new PendingChangeFlusher(_workItemRepo, _adoService, _pendingChangeStore, _consoleInput, _formatterFactory),
+            activeItemResolver, _formatterFactory);
     }
 
     private FlowDoneCommand CreateCommand(IGitService? gitService = null, IAdoGitService? adoGitService = null) =>

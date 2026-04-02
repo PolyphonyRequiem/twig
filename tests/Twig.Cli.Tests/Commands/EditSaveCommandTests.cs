@@ -43,6 +43,12 @@ public class EditSaveCommandTests
         _resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
     }
 
+    private SaveCommand CreateSaveCommand(TextWriter? stderr = null)
+    {
+        var flusher = new PendingChangeFlusher(_workItemRepo, _adoService, _pendingChangeStore, _consoleInput, _formatterFactory, stderr);
+        return new(_workItemRepo, _pendingChangeStore, flusher, _resolver, _formatterFactory, stderr: stderr);
+    }
+
     [Fact]
     public async Task Edit_OpensEditor_StagesChanges()
     {
@@ -93,8 +99,7 @@ public class EditSaveCommandTests
         _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
             .Returns(new[] { fieldChange });
 
-        var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory);
+        var saveCmd = CreateSaveCommand();
         var result = await saveCmd.ExecuteAsync(all: true);
 
         result.ShouldBe(0);
@@ -110,8 +115,7 @@ public class EditSaveCommandTests
         _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<int>());
 
-        var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory);
+        var saveCmd = CreateSaveCommand();
         var result = await saveCmd.ExecuteAsync(all: true);
 
         result.ShouldBe(0);
@@ -132,8 +136,7 @@ public class EditSaveCommandTests
         _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
             .Returns(new[] { note });
 
-        var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory);
+        var saveCmd = CreateSaveCommand();
         var result = await saveCmd.ExecuteAsync(all: true);
 
         result.ShouldBe(0);
@@ -179,8 +182,7 @@ public class EditSaveCommandTests
             .PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), 5, Arg.Any<CancellationToken>())
             .Returns(6);
 
-        var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory);
+        var saveCmd = CreateSaveCommand();
         var result = await saveCmd.ExecuteAsync(all: true);
 
         result.ShouldBe(0);
@@ -220,8 +222,7 @@ public class EditSaveCommandTests
             .ThrowsAsync(new AdoConflictException(7));
 
         var stderr = new StringWriter();
-        var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory, stderr: stderr);
+        var saveCmd = CreateSaveCommand(stderr);
 
         var result = await saveCmd.ExecuteAsync(all: true);
 
@@ -390,8 +391,7 @@ public class EditSaveCommandTests
         _pendingChangeStore.GetChangesAsync(2, Arg.Any<CancellationToken>())
             .Returns(new[] { fieldChange });
 
-        var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory);
+        var saveCmd = CreateSaveCommand();
         var result = await saveCmd.ExecuteAsync(all: true);
 
         result.ShouldBe(0);
@@ -427,8 +427,7 @@ public class EditSaveCommandTests
         _pendingChangeStore.GetChangesAsync(2, Arg.Any<CancellationToken>())
             .Returns(new[] { change2 });
 
-        var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory);
+        var saveCmd = CreateSaveCommand();
         var result = await saveCmd.ExecuteAsync(all: true);
 
         result.ShouldBe(0);
@@ -448,8 +447,7 @@ public class EditSaveCommandTests
         _workItemRepo.GetByIdAsync(99, Arg.Any<CancellationToken>())
             .Returns((WorkItem?)null);
 
-        var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory);
+        var saveCmd = CreateSaveCommand();
         var result = await saveCmd.ExecuteAsync(all: true);
 
         result.ShouldBe(1);
@@ -476,8 +474,7 @@ public class EditSaveCommandTests
         _pendingChangeStore.GetChangesAsync(2, Arg.Any<CancellationToken>())
             .Returns(new[] { change2 });
 
-        var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory);
+        var saveCmd = CreateSaveCommand();
         var result = await saveCmd.ExecuteAsync(all: true);
 
         // Overall result should be 1 (hadErrors) because item 1 failed

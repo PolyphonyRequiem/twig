@@ -246,8 +246,9 @@ public class PromptStateIntegrationTests : IDisposable
 
         var writer = CreateWriter();
         var saveResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        var cmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            saveResolver, _consoleInput, _formatterFactory, writer);
+        var flusher = new PendingChangeFlusher(_workItemRepo, _adoService, _pendingChangeStore, _consoleInput, _formatterFactory);
+        var cmd = new SaveCommand(_workItemRepo, _pendingChangeStore, flusher,
+            saveResolver, _formatterFactory, writer);
 
         var result = await cmd.ExecuteAsync();
 
@@ -341,8 +342,9 @@ public class PromptStateIntegrationTests : IDisposable
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
         var flowTransitionService = new FlowTransitionService(
             flowSaveResolver, _adoService, _processConfigProvider, protectedCacheWriter);
-        var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            flowSaveResolver, _consoleInput, _formatterFactory);
+        var saveCmd = new SaveCommand(_workItemRepo, _pendingChangeStore,
+            new PendingChangeFlusher(_workItemRepo, _adoService, _pendingChangeStore, _consoleInput, _formatterFactory),
+            flowSaveResolver, _formatterFactory);
         var cmd = new FlowDoneCommand(_workItemRepo,
             _pendingChangeStore, saveCmd, _consoleInput,
             _formatterFactory, _config,
@@ -385,8 +387,9 @@ public class PromptStateIntegrationTests : IDisposable
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
         var flowTransitionService2 = new FlowTransitionService(
             flowDoneResolver, _adoService, _processConfigProvider, protectedCacheWriter);
-        var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            flowDoneResolver, _consoleInput, _formatterFactory, mockWriter);
+        var saveCmd = new SaveCommand(_workItemRepo, _pendingChangeStore,
+            new PendingChangeFlusher(_workItemRepo, _adoService, _pendingChangeStore, _consoleInput, _formatterFactory),
+            flowDoneResolver, _formatterFactory, mockWriter);
         var cmd = new FlowDoneCommand(_workItemRepo,
             _pendingChangeStore, saveCmd, _consoleInput,
             _formatterFactory, _config,

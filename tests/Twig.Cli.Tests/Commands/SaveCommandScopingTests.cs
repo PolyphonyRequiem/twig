@@ -14,31 +14,9 @@ namespace Twig.Cli.Tests.Commands;
 /// <summary>
 /// Tests for save scoping (ITEM-007): active work tree, single item, all dirty, and error cases.
 /// </summary>
-public class SaveCommandScopingTests
+public class SaveCommandScopingTests : SaveCommandTestBase
 {
-    private readonly IContextStore _contextStore;
-    private readonly IWorkItemRepository _workItemRepo;
-    private readonly IAdoWorkItemService _adoService;
-    private readonly IPendingChangeStore _pendingChangeStore;
-    private readonly IConsoleInput _consoleInput;
-    private readonly OutputFormatterFactory _formatterFactory;
-    private readonly ActiveItemResolver _resolver;
-
-    public SaveCommandScopingTests()
-    {
-        _contextStore = Substitute.For<IContextStore>();
-        _workItemRepo = Substitute.For<IWorkItemRepository>();
-        _adoService = Substitute.For<IAdoWorkItemService>();
-        _pendingChangeStore = Substitute.For<IPendingChangeStore>();
-        _consoleInput = Substitute.For<IConsoleInput>();
-        _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
-        _resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-    }
-
-    private SaveCommand CreateCommand(TextWriter? stderr = null) =>
-        new(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory, stderr: stderr);
+    public SaveCommandScopingTests() { }
 
     [Fact]
     public async Task ActiveWorkTree_SavesActiveItemAndDirtyChildrenOnly()

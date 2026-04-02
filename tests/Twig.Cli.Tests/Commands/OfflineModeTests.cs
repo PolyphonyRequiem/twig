@@ -112,8 +112,10 @@ public class OfflineModeTests
             .ThrowsAsync(new AdoOfflineException(new HttpRequestException("Connection refused")));
 
         var stderr = new StringWriter();
-        var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            new ActiveItemResolver(_contextStore, _workItemRepo, _adoService), _consoleInput, _formatterFactory, stderr: stderr);
+        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var flusher = new PendingChangeFlusher(_workItemRepo, _adoService, _pendingChangeStore, _consoleInput, _formatterFactory, stderr);
+        var saveCmd = new SaveCommand(_workItemRepo, _pendingChangeStore, flusher,
+            resolver, _formatterFactory, stderr: stderr);
 
         // FR-7: Exception is caught and logged, returns error code instead of propagating
         var result = await saveCmd.ExecuteAsync(all: true);

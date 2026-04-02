@@ -112,7 +112,16 @@ public sealed class EditCommand(
                 await ConflictRetryHelper.PatchWithRetryAsync(
                     adoService, item.Id, parsedChanges, remote.Revision, ct);
 
-                await AutoPushNotesHelper.PushAndClearAsync(item.Id, pendingChangeStore, adoService);
+                // Auto-push notes in its own scope — failures must not trigger staging-fallback
+                // since field changes are already in ADO (NFR-2)
+                try
+                {
+                    await AutoPushNotesHelper.PushAndClearAsync(item.Id, pendingChangeStore, adoService);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    Console.Error.WriteLine($"Note push failed (fields already pushed): {ex.Message}");
+                }
 
                 // DD-8: Resync failure after successful push — warn, do NOT stage locally
                 try

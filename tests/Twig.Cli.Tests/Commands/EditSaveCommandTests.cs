@@ -44,7 +44,7 @@ public class EditSaveCommandTests
     [Fact]
     public async Task Edit_OpensEditor_StagesChanges()
     {
-        var item = CreateWorkItem(1, "Original Title");
+        var item = CreateSeedItem(1, "Original Title");
         SetupActiveItem(item);
 
         _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -256,7 +256,7 @@ public class EditSaveCommandTests
     [Fact]
     public async Task Edit_StateChange_StagesChange()
     {
-        var item = CreateWorkItem(1, "Title");
+        var item = CreateSeedItem(1, "Title");
         item.ChangeState("New");
         item.ApplyCommands();
         SetupActiveItem(item);
@@ -311,7 +311,7 @@ public class EditSaveCommandTests
     [Fact]
     public async Task Edit_ValueContainingColon_ParsedCorrectly()
     {
-        var item = CreateWorkItem(1, "Title");
+        var item = CreateSeedItem(1, "Title");
         SetupActiveItem(item);
 
         // Value contains a colon — only the first colon is used as separator
@@ -329,7 +329,7 @@ public class EditSaveCommandTests
     [Fact]
     public async Task Edit_SingleFieldMode_OpensEditorWithFieldContent()
     {
-        var item = CreateWorkItem(1, "My Title");
+        var item = CreateSeedItem(1, "My Title");
         item.SetField("System.Description", "Old description");
         SetupActiveItem(item);
 
@@ -651,6 +651,66 @@ public class EditSaveCommandTests
         result.ShouldBe(0);
         await _adoService.DidNotReceive().PatchAsync(
             Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Edit_NonSeed_ConflictJson_ReturnsOne()
+    {
+        var item = CreateWorkItem(1, "Local Title");
+        item.MarkSynced(5);
+        item.SetField("System.Description", "Local desc");
+
+        var remote = CreateWorkItem(1, "Remote Title");
+        remote.MarkSynced(6);
+        remote.SetField("System.Description", "Remote desc");
+
+        SetupActiveItem(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
+
+        _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns("Title: Changed Title\nState: New\nAssignedTo: \n");
+
+        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _adoService, _consoleInput, _editorLauncher, _formatterFactory, _hintEngine);
+        var result = await editCmd.ExecuteAsync(outputFormat: "json");
+
+        result.ShouldBe(1);
+        await _adoService.DidNotReceive().PatchAsync(
+            Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Edit_NonSeed_AutoPushNotesFails_DoesNotStageFields()
+    {
+        var item = CreateWorkItem(1, "Original Title");
+        var remote = CreateWorkItem(1, "Original Title");
+        var updated = CreateWorkItem(1, "Updated Title");
+        SetupActiveItem(item);
+
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote, updated);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+
+        // Set up a pending note that will fail to push
+        var pendingNote = new PendingChangeRecord(1, "note", null, null, "Test note");
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { pendingNote });
+        _adoService.AddCommentAsync(1, "Test note", Arg.Any<CancellationToken>())
+            .ThrowsAsync(new Exception("comment API failed"));
+
+        _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns("Title: Updated Title\nState: New\nAssignedTo: \n");
+
+        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _adoService, _consoleInput, _editorLauncher, _formatterFactory, _hintEngine);
+        var result = await editCmd.ExecuteAsync();
+
+        result.ShouldBe(0);
+        // Fields were already pushed — must NOT stage locally (NFR-2)
+        await _pendingChangeStore.DidNotReceive().AddChangeAsync(
+            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string?>(),
+            Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+        // PatchAsync was called (fields pushed successfully)
+        await _adoService.Received().PatchAsync(1,
+            Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
     private void SetupActiveItem(WorkItem item)

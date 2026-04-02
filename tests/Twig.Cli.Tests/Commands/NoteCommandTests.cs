@@ -8,6 +8,7 @@ using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
+using NSubstitute.ExceptionExtensions;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
@@ -106,13 +107,90 @@ public class NoteCommandTests
             Arg.Is<WorkItem>(w => w.IsDirty), Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task Note_NonSeed_PushesImmediately()
+    {
+        var item = CreateWorkItem(42, "Published Item", isSeed: false);
+        SetupActiveItem(item);
+
+        var serverItem = CreateWorkItem(42, "Published Item", isSeed: false);
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(serverItem);
+
+        var result = await _cmd.ExecuteAsync("Fix applied");
+
+        result.ShouldBe(0);
+        await _adoService.Received(1).AddCommentAsync(42, "Fix applied", Arg.Any<CancellationToken>());
+        await _adoService.Received(1).FetchAsync(42, Arg.Any<CancellationToken>());
+        await _workItemRepo.Received(1).SaveAsync(serverItem, Arg.Any<CancellationToken>());
+        await _pendingChangeStore.DidNotReceive().AddChangeAsync(
+            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string?>(),
+            Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Note_Seed_StagesLocally()
+    {
+        var item = CreateWorkItem(7, "Seed Item", isSeed: true);
+        SetupActiveItem(item);
+
+        var result = await _cmd.ExecuteAsync("Draft note");
+
+        result.ShouldBe(0);
+        await _adoService.DidNotReceive().AddCommentAsync(
+            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _pendingChangeStore.Received(1).AddChangeAsync(
+            7, "note", null, null, "Draft note", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Note_PushFailure_FallsBackToStagingWithWarning()
+    {
+        var item = CreateWorkItem(10, "Remote Item", isSeed: false);
+        SetupActiveItem(item);
+        _adoService.AddCommentAsync(10, "Offline note", Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new HttpRequestException("Network error")));
+
+        var (result, stderr) = await RunCapturingStderrAsync(() => _cmd.ExecuteAsync("Offline note"));
+
+        result.ShouldBe(0);
+        await _pendingChangeStore.Received(1).AddChangeAsync(
+            10, "note", null, null, "Offline note", Arg.Any<CancellationToken>());
+        stderr.ShouldContain("Network error");
+    }
+
+    [Fact]
+    public async Task Note_ResyncFailure_WarnsButDoesNotStage()
+    {
+        var item = CreateWorkItem(20, "Pushed Item", isSeed: false);
+        SetupActiveItem(item);
+        _adoService.FetchAsync(20, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("Timeout"));
+
+        var (result, stderr) = await RunCapturingStderrAsync(() => _cmd.ExecuteAsync("Resync fail note"));
+
+        result.ShouldBe(0);
+        await _adoService.Received(1).AddCommentAsync(20, "Resync fail note", Arg.Any<CancellationToken>());
+        await _pendingChangeStore.DidNotReceive().AddChangeAsync(
+            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string?>(),
+            Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+        stderr.ShouldContain("cache may be stale");
+    }
+
     private void SetupActiveItem(WorkItem item)
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(item.Id);
         _workItemRepo.GetByIdAsync(item.Id, Arg.Any<CancellationToken>()).Returns(item);
     }
 
-    private static WorkItem CreateWorkItem(int id, string title)
+    private static async Task<(int result, string stderr)> RunCapturingStderrAsync(Func<Task<int>> action)
+    {
+        var sw = new StringWriter();
+        Console.SetError(sw);
+        try { return (await action(), sw.ToString()); }
+        finally { Console.SetError(new StreamWriter(Console.OpenStandardError()) { AutoFlush = true }); }
+    }
+
+    private static WorkItem CreateWorkItem(int id, string title, bool isSeed = true)
     {
         return new WorkItem
         {
@@ -120,7 +198,7 @@ public class NoteCommandTests
             Type = WorkItemType.Task,
             Title = title,
             State = "New",
-            IsSeed = true,
+            IsSeed = isSeed,
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value,
         };

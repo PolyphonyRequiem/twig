@@ -54,7 +54,7 @@ public class ExceptionFilterTests
             Environment.ExitCode.ShouldBe(1);
             var output = stderr.ToString();
             output.ShouldContain("error: Concurrency conflict (revision mismatch).");
-            output.ShouldContain("hint: Another change is being processed. Run 'twig refresh' and retry.");
+            output.ShouldContain("hint: Another change is being processed. Run 'twig sync' and retry.");
         });
 
     [Fact]

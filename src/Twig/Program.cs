@@ -243,7 +243,7 @@ internal static class ExceptionHandler
             if (badReqEx.Message.Contains("transition", StringComparison.OrdinalIgnoreCase)
                 || badReqEx.Message.Contains("state", StringComparison.OrdinalIgnoreCase))
             {
-                stderr.WriteLine("Transition not allowed. Run 'twig refresh' to update process configuration.");
+                stderr.WriteLine("Transition not allowed. Run 'twig sync' to update process configuration.");
             }
             Environment.ExitCode = 1;
             return 1;
@@ -253,7 +253,7 @@ internal static class ExceptionHandler
         if (ex is Twig.Infrastructure.Ado.Exceptions.AdoConflictException)
         {
             stderr.WriteLine("error: Concurrency conflict (revision mismatch).");
-            stderr.WriteLine("hint: Another change is being processed. Run 'twig refresh' and retry.");
+            stderr.WriteLine("hint: Another change is being processed. Run 'twig sync' and retry.");
             Environment.ExitCode = 1;
             return 1;
         }

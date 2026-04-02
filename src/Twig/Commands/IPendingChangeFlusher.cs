@@ -1,3 +1,5 @@
+using Twig.Formatters;
+
 namespace Twig.Commands;
 
 /// <summary>
@@ -10,14 +12,14 @@ public interface IPendingChangeFlusher
     /// </summary>
     Task<FlushResult> FlushAsync(
         IReadOnlyList<int> itemIds,
-        string outputFormat = "human",
+        string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default);
 
     /// <summary>
     /// Flushes pending changes for all dirty items.
     /// </summary>
     Task<FlushResult> FlushAllAsync(
-        string outputFormat = "human",
+        string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default);
 }
 

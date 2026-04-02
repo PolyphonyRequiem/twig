@@ -120,6 +120,7 @@ public class NoteCommandTests
             Type = WorkItemType.Task,
             Title = title,
             State = "New",
+            IsSeed = true,
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value,
         };

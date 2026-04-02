@@ -13,11 +13,17 @@ public sealed class EditCommand(
     ActiveItemResolver activeItemResolver,
     IWorkItemRepository workItemRepo,
     IPendingChangeStore pendingChangeStore,
+    IAdoWorkItemService adoService,
+    IConsoleInput consoleInput,
     IEditorLauncher editorLauncher,
     OutputFormatterFactory formatterFactory,
     HintEngine hintEngine,
     IPromptStateWriter? promptStateWriter = null)
 {
+#pragma warning disable CS9113 // Parameter is unread — wired for task #1378 (push-on-write)
+    private readonly IAdoWorkItemService _adoService = adoService;
+    private readonly IConsoleInput _consoleInput = consoleInput;
+#pragma warning restore CS9113
     /// <summary>Edit work item fields in an external editor.</summary>
     public async Task<int> ExecuteAsync(string? field = null, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {

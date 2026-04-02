@@ -50,7 +50,7 @@ public class EditSaveCommandTests
         _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns("# Editing #1 Original Title\nTitle: Updated Title\nState: New\nAssignedTo: \n");
 
-        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _editorLauncher, _formatterFactory, _hintEngine);
+        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _adoService, _consoleInput, _editorLauncher, _formatterFactory, _hintEngine);
         var result = await editCmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -66,7 +66,7 @@ public class EditSaveCommandTests
         _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns((string?)null);
 
-        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _editorLauncher, _formatterFactory, _hintEngine);
+        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _adoService, _consoleInput, _editorLauncher, _formatterFactory, _hintEngine);
         var result = await editCmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -243,7 +243,7 @@ public class EditSaveCommandTests
         _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns("# This is a comment\n# Another comment\nTitle: Original Title\nState: New\nAssignedTo: \n");
 
-        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _editorLauncher, _formatterFactory, _hintEngine);
+        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _adoService, _consoleInput, _editorLauncher, _formatterFactory, _hintEngine);
         var result = await editCmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -264,7 +264,7 @@ public class EditSaveCommandTests
         _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns("# Editing #1 Title\nTitle: Title\nState: Active\nAssignedTo: \n");
 
-        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _editorLauncher, _formatterFactory, _hintEngine);
+        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _adoService, _consoleInput, _editorLauncher, _formatterFactory, _hintEngine);
         var result = await editCmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -282,7 +282,7 @@ public class EditSaveCommandTests
         _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns("Title: Title\nThisLineHasNoColon\nState: New\nAssignedTo: \n");
 
-        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _editorLauncher, _formatterFactory, _hintEngine);
+        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _adoService, _consoleInput, _editorLauncher, _formatterFactory, _hintEngine);
         var result = await editCmd.ExecuteAsync();
 
         // No changes detected (no actual value modifications)
@@ -299,7 +299,7 @@ public class EditSaveCommandTests
         _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns("Title: My Title\nState: New\nAssignedTo: \n");
 
-        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _editorLauncher, _formatterFactory, _hintEngine);
+        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _adoService, _consoleInput, _editorLauncher, _formatterFactory, _hintEngine);
         var result = await editCmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -318,7 +318,7 @@ public class EditSaveCommandTests
         _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns("Title: Prefix: Suffix\nState: New\nAssignedTo: \n");
 
-        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _editorLauncher, _formatterFactory, _hintEngine);
+        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _adoService, _consoleInput, _editorLauncher, _formatterFactory, _hintEngine);
         await editCmd.ExecuteAsync();
 
         // Title changed from "Title" to "Prefix: Suffix"
@@ -336,7 +336,7 @@ public class EditSaveCommandTests
         _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns("# Editing System.Description for #1 My Title\nSystem.Description: New description\n");
 
-        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _editorLauncher, _formatterFactory, _hintEngine);
+        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _adoService, _consoleInput, _editorLauncher, _formatterFactory, _hintEngine);
         var result = await editCmd.ExecuteAsync("System.Description");
 
         result.ShouldBe(0);
@@ -357,7 +357,7 @@ public class EditSaveCommandTests
         _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns("# Editing System.Description for #1 My Title\nSystem.Description: Same description\n");
 
-        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _editorLauncher, _formatterFactory, _hintEngine);
+        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _adoService, _consoleInput, _editorLauncher, _formatterFactory, _hintEngine);
         var result = await editCmd.ExecuteAsync("System.Description");
 
         result.ShouldBe(0);

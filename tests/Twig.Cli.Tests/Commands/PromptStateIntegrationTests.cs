@@ -416,7 +416,7 @@ public class PromptStateIntegrationTests : IDisposable
         var writer = CreateWriter();
         var editResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var cmd = new EditCommand(editResolver, _workItemRepo, _pendingChangeStore,
-            editorLauncher, _formatterFactory, _hintEngine, writer);
+            _adoService, _consoleInput, editorLauncher, _formatterFactory, _hintEngine, writer);
 
         var result = await cmd.ExecuteAsync();
 

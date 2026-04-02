@@ -13,7 +13,7 @@ namespace Twig.Commands;
 public sealed class SaveCommand(
     IWorkItemRepository workItemRepo,
     IPendingChangeStore pendingChangeStore,
-    PendingChangeFlusher pendingChangeFlusher,
+    IPendingChangeFlusher pendingChangeFlusher,
     ActiveItemResolver activeItemResolver,
     OutputFormatterFactory formatterFactory,
     IPromptStateWriter? promptStateWriter = null,

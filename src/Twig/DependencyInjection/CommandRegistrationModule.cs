@@ -155,7 +155,7 @@ public static class CommandRegistrationModule
         services.AddSingleton<FlowDoneCommand>(sp => new FlowDoneCommand(
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IPendingChangeStore>(),
-            sp.GetRequiredService<PendingChangeFlusher>(),
+            sp.GetRequiredService<IPendingChangeFlusher>(),
             sp.GetRequiredService<IConsoleInput>(),
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<TwigConfiguration>(),

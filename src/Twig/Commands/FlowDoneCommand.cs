@@ -14,7 +14,7 @@ namespace Twig.Commands;
 public sealed class FlowDoneCommand(
     IWorkItemRepository workItemRepo,
     IPendingChangeStore pendingChangeStore,
-    PendingChangeFlusher pendingChangeFlusher,
+    IPendingChangeFlusher pendingChangeFlusher,
     IConsoleInput consoleInput,
     OutputFormatterFactory formatterFactory,
     TwigConfiguration config,

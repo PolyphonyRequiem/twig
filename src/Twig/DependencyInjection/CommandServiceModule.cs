@@ -103,7 +103,7 @@ public static class CommandServiceModule
             sp.GetRequiredService<SyncCoordinator>()));
 
         // PendingChangeFlusher — flush loop shared by SaveCommand, SyncCommand, FlowDoneCommand
-        services.AddSingleton<PendingChangeFlusher>(sp => new PendingChangeFlusher(
+        services.AddSingleton<IPendingChangeFlusher>(sp => new PendingChangeFlusher(
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IAdoWorkItemService>(),
             sp.GetRequiredService<IPendingChangeStore>(),

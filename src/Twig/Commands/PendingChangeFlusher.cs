@@ -31,7 +31,7 @@ public sealed class PendingChangeFlusher(
     IPendingChangeStore pendingChangeStore,
     IConsoleInput consoleInput,
     OutputFormatterFactory formatterFactory,
-    TextWriter? stderr = null)
+    TextWriter? stderr = null) : IPendingChangeFlusher
 {
     private readonly TextWriter _stderr = stderr ?? Console.Error;
 

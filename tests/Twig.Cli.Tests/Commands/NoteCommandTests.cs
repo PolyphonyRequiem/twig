@@ -120,6 +120,7 @@ public class NoteCommandTests
 
         result.ShouldBe(0);
         await _adoService.Received(1).AddCommentAsync(42, "Fix applied", Arg.Any<CancellationToken>());
+        await _pendingChangeStore.Received(1).ClearChangesByTypeAsync(42, "note", Arg.Any<CancellationToken>());
         await _adoService.Received(1).FetchAsync(42, Arg.Any<CancellationToken>());
         await _workItemRepo.Received(1).SaveAsync(serverItem, Arg.Any<CancellationToken>());
         await _pendingChangeStore.DidNotReceive().AddChangeAsync(
@@ -155,7 +156,7 @@ public class NoteCommandTests
         result.ShouldBe(0);
         await _pendingChangeStore.Received(1).AddChangeAsync(
             10, "note", null, null, "Offline note", Arg.Any<CancellationToken>());
-        stderr.ShouldContain("Network error");
+        stderr.ShouldContain("staged locally");
     }
 
     [Fact]

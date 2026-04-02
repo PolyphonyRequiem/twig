@@ -17,3 +17,5 @@ Commit conventions:
 - Include twig notes at each checkpoint
 twig CLI rules:
 - twig note --text "..." for progress notes on the active work item
+- NEVER transition an Epic to Done — that is exclusively the close_out agent's
+  responsibility. You may only transition Tasks.

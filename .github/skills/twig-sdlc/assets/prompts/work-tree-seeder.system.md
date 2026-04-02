@@ -18,7 +18,7 @@ twig CLI rules:
 - twig seed new --title "..." --type Issue/Task to create seeds
 - twig seed chain --titles "T1" "T2" "T3" --type Task for linked task chains
 - twig seed publish --all to publish
-- After publish: Start-Sleep 3; twig refresh; then set+update
+- After publish: Start-Sleep 3; twig sync --output json; then set+update
 - twig update System.AssignedTo "Daniel Green"
 - twig update System.Description "<rich markdown>" --format markdown
 - Descriptions MUST be rich and well-formatted: 2+ paragraphs with headings,

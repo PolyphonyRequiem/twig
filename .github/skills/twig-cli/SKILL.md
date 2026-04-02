@@ -14,8 +14,8 @@ Use `twig` commands in the terminal to manage Azure DevOps work items. This skil
 3. **Always use `--output json`** — When Copilot runs twig commands, **always** append `--output json` for machine-readable output. This applies to every command that supports `--output`: `set`, `status`, `tree`, `workspace`, `seed new`, `seed publish`, `refresh`, `new`, etc. Parse the JSON output programmatically rather than string-matching human-formatted text. Human-formatted output is for the user's terminal only.
 4. **Set context before operating** — Most commands operate on the "active" work item. Use `twig set <id>` to set it.
 5. **Publish seeds promptly** — Seeds are local-only until published. Always `twig seed publish --all` after creating seeds.
-6. **Refresh before querying** — If data seems stale, run `twig refresh` to sync from ADO.
-7. **Use `twig note --text "..."` during implementation** — Add notes to the active work item throughout implementation, not just at the end. Notes use the `--text` flag (positional args are not supported). Push staged notes with `twig save <id>`.
+6. **Sync before querying** — If data seems stale, run `twig sync` to flush pending changes and pull from ADO. (`twig refresh` and `twig save` still work as hidden aliases but are deprecated.)
+7. **Use `twig note --text "..."` during implementation** — Notes are pushed immediately to ADO (push-on-write). No need to run `twig save` afterward. Notes use the `--text` flag (positional args are not supported).
 8. **Decompose large issues into task chains** — If an issue is estimated to take more than 30 minutes of implementation effort, decompose it into a sequence of Tasks before coding. Use `twig seed chain` to create them as successor-linked seeds under the parent Issue, then publish and execute them one at a time. Each task should be independently committable and testable. Complete each task (commit, tests pass, `twig state Done`) before starting the next.
 
 ### Note cadence
@@ -123,8 +123,9 @@ to produce longer, structured content.
 | `twig seed publish --all` | Publish all seeds to ADO |
 | `twig update <field> "<value>"` | Update a field on the active item |
 | `twig state <name>` | Transition active item state (To Do, Doing, Done) |
-| `twig save` | Push pending local changes to ADO |
-| `twig refresh` | Sync local cache from ADO |
+| `twig sync` | Flush pending changes and pull remote state |
+| `twig save` | *(deprecated alias for `twig sync`)* |
+| `twig refresh` | *(deprecated alias for `twig sync`)* |
 | `twig flow-start <id>` | Start work: set context, transition, assign, branch |
 | `twig nav` | Launch interactive tree navigator |
 

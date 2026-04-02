@@ -9,13 +9,24 @@ transitions. The close_out agent owns the **Epic-level** transition to Done.
 Do NOT assume implementing agents have already transitioned the Epic.
 ## Steps
 0. **Sync local cache** (prevents stale-state conflicts from multi-agent workflows):
-   - `twig refresh --output json` — pull all remote state into local DB
+   - `twig sync --output json` — flush pending changes and pull all remote state into local DB
    - This ensures issues/tasks transitioned by other agents are reflected locally
+   - If sync fails with a transient ADO error, retry up to 3 times with 5-second delays
 1. **Verify all PRs are merged** (guard against premature close-out):
    - For each PR in the completed list, verify it's actually merged:
      `gh pr view <pr_number> --json state --jq '.state'` — must be "MERGED"
    - If any PR is not merged, STOP and report the issue — do not proceed
    - Also verify main has the commits: `git checkout main && git pull`
+1b. **Verify no unmerged feature branches** (guard against orphaned work):
+   - Run: `git branch --no-merged main`
+   - Cross-reference against the plan's PR groups / branch name suggestions
+   - If ANY branch matches a planned PR group that should be complete, STOP and
+     report — code exists on a branch that was never PR'd or merged
+1c. **Verify all child items are Done** (guard against premature Epic closure):
+   - `twig set {{ intake.output.epic_id }} --output json`
+   - `twig tree --output json` — inspect all children
+   - If ANY child Issue or Task is NOT in state "Done", STOP and report which
+     items are still open — do NOT transition the Epic
 2. **Check current state (idempotency):**
    - `twig set {{ intake.output.epic_id }} --output json` — read the current state
    - `git log --oneline -10` — check if a close commit already exists

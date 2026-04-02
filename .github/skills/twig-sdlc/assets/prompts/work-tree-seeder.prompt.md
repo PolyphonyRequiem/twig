@@ -30,7 +30,7 @@ Before creating ANY items, inventory what already exists:
 3. **Create missing Issues** (if input is an Epic):
    a. Create: `twig seed new --title "<issue title>" --type Issue --output json`
    b. Publish: `twig seed publish --all --output json`
-   c. Wait and refresh: `Start-Sleep -Seconds 3; twig refresh`
+   c. Wait and sync: `Start-Sleep -Seconds 3; twig sync --output json`
    d. For each Issue (new or reused), set context and add description + assignment:
       - `twig update System.Description "<markdown>" --format markdown`
       - Write rich descriptions with `## Scope`, `## Tasks`, `## Acceptance Criteria`

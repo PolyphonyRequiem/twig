@@ -127,7 +127,7 @@ public sealed class PrCommand(
         else
         {
             var draftLabel = draft ? " (draft)" : "";
-            Console.WriteLine(fmt.FormatSuccess($"PR #{createdPr.PullRequestId} created{draftLabel} for #{item.Id}"));
+            Console.WriteLine(fmt.FormatSuccess($"PR #{createdPr.PullRequestId} created{draftLabel} for #{item.Id} {item.Title}"));
             Console.WriteLine(fmt.FormatInfo($"  {prTitle}"));
             Console.WriteLine(fmt.FormatInfo($"  {sourceBranch} → {targetBranch}"));
 

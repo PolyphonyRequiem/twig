@@ -79,7 +79,7 @@ public sealed class UpdateCommand(
 
         if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
-        _stdout.WriteLine(fmt.FormatSuccess($"#{local.Id} updated: {field} = '{value}'"));
+        _stdout.WriteLine(fmt.FormatSuccess($"#{local.Id} {local.Title} updated: {field} = '{value}'"));
 
         return 0;
     }

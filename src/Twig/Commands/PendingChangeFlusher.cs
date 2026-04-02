@@ -119,7 +119,7 @@ public sealed class PendingChangeFlusher(
             }
             catch (Exception ex)
             {
-                _stderr.WriteLine(fmt.FormatError($"Failed to save #{item.Id}: {ex.Message}"));
+                _stderr.WriteLine(fmt.FormatError($"Failed to save #{item.Id} {item.Title}: {ex.Message}"));
                 failures.Add(new FlushItemFailure(item.Id, ex.Message));
             }
         }

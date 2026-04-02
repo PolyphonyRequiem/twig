@@ -146,7 +146,11 @@ public sealed class StashCommand(
         {
             Console.WriteLine(fmt.FormatSuccess("Stash popped."));
             if (detectedId.HasValue)
-                Console.WriteLine(fmt.FormatInfo($"  Context restored to #{detectedId.Value}"));
+            {
+                var restoredItem = await workItemRepo.GetByIdAsync(detectedId.Value, ct);
+                var restoredLabel = restoredItem is not null ? $"#{detectedId.Value} {restoredItem.Title}" : $"#{detectedId.Value}";
+                Console.WriteLine(fmt.FormatInfo($"  Context restored to {restoredLabel}"));
+            }
 
             var hints = hintEngine.GetHints("stash", outputFormat: outputFormat);
             foreach (var hint in hints)

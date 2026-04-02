@@ -40,7 +40,7 @@ public class GitContextCommandTests
     private GitContextCommand CreateCommand(
         IGitService? gitService = null, IAdoGitService? adoGitService = null) =>
         new(new ActiveItemResolver(_contextStore, _workItemRepo, _adoService),
-            _formatterFactory, _hintEngine, _config,
+            _workItemRepo, _formatterFactory, _hintEngine, _config,
             gitService: gitService, adoGitService: adoGitService);
 
     private static WorkItem CreateWorkItem(int id, string title, string type = "Bug") => new()

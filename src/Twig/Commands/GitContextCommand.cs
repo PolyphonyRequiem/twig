@@ -12,6 +12,7 @@ namespace Twig.Commands;
 /// </summary>
 public sealed class GitContextCommand(
     ActiveItemResolver activeItemResolver,
+    IWorkItemRepository workItemRepo,
     OutputFormatterFactory formatterFactory,
     HintEngine hintEngine,
     TwigConfiguration config,
@@ -110,7 +111,9 @@ public sealed class GitContextCommand(
 
             if (detectedId.HasValue && detectedId != activeId)
             {
-                Console.WriteLine(fmt.FormatInfo($"Detected from branch: #{detectedId.Value}"));
+                var detectedItem = await workItemRepo.GetByIdAsync(detectedId.Value, ct);
+                var detectedLabel = detectedItem is not null ? $"#{detectedId.Value} {detectedItem.Title}" : $"#{detectedId.Value}";
+                Console.WriteLine(fmt.FormatInfo($"Detected from branch: {detectedLabel}"));
             }
 
             if (prs.Count > 0)

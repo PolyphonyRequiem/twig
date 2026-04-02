@@ -10,6 +10,7 @@ namespace Twig.Commands;
 /// </summary>
 public sealed class WebCommand(
     IContextStore contextStore,
+    IWorkItemRepository workItemRepo,
     TwigConfiguration config,
     OutputFormatterFactory formatterFactory)
 {
@@ -53,7 +54,9 @@ public sealed class WebCommand(
         var url = $"https://dev.azure.com/{Uri.EscapeDataString(config.Organization)}/{Uri.EscapeDataString(config.Project)}/_workitems/edit/{targetId}";
 
         Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
-        Console.WriteLine(fmt.FormatInfo($"Opened #{targetId} in browser."));
+        var item = await workItemRepo.GetByIdAsync(targetId, ct);
+        var label = item is not null ? $"#{targetId} {item.Title}" : $"#{targetId}";
+        Console.WriteLine(fmt.FormatInfo($"Opened {label} in browser."));
         return 0;
     }
 }

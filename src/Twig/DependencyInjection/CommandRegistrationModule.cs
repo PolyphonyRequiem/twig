@@ -122,6 +122,7 @@ public static class CommandRegistrationModule
             sp.GetService<IGitService>()));
         services.AddSingleton<GitContextCommand>(sp => new GitContextCommand(
             sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<HintEngine>(),
             sp.GetRequiredService<TwigConfiguration>(),

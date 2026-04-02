@@ -153,7 +153,7 @@ public sealed class BranchCommand(
         else
         {
             var verb = branchCreated ? "Created" : "Switched to";
-            Console.WriteLine(fmt.FormatSuccess($"{verb} branch '{branchName}' for #{item.Id}"));
+            Console.WriteLine(fmt.FormatSuccess($"{verb} branch '{branchName}' for #{item.Id} {item.Title}"));
 
             if (linked)
                 Console.WriteLine(fmt.FormatInfo("  Branch linked to work item"));

@@ -125,7 +125,7 @@ public sealed class StateCommand(
             ? await workItemRepo.GetChildrenAsync(item.ParentId.Value)
             : Array.Empty<Domain.Aggregates.WorkItem>();
 
-        Console.WriteLine(fmt.FormatSuccess($"#{item.Id} → {newState}"));
+        Console.WriteLine(fmt.FormatSuccess($"#{item.Id} {item.Title} → {newState}"));
 
         var hints = hintEngine.GetHints("state",
             item: item,

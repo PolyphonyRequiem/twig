@@ -48,7 +48,7 @@ public sealed class SeedDiscardCommand(
 
         await seedLinkRepo.DeleteLinksForItemAsync(id, ct);
         await workItemRepo.DeleteByIdAsync(id, ct);
-        Console.WriteLine(fmt.FormatSuccess($"Discarded seed #{id}"));
+        Console.WriteLine(fmt.FormatSuccess($"Discarded seed #{id} {seed.Title}"));
         return 0;
     }
 }

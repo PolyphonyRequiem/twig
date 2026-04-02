@@ -74,7 +74,7 @@ public sealed class SeedEditCommand(
         var updated = seed.WithSeedFields(newTitle, parsedFields);
         await workItemRepo.SaveAsync(updated, ct);
 
-        Console.WriteLine(fmt.FormatSuccess($"Updated seed #{id} ({changedCount} field(s) changed)"));
+        Console.WriteLine(fmt.FormatSuccess($"Updated seed #{id} {updated.Title} ({changedCount} field(s) changed)"));
         return 0;
     }
 }

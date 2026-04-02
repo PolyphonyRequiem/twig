@@ -479,9 +479,13 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> Sync(string output = OutputFormatterFactory.DefaultFormat, bool force = false, CancellationToken ct = default)
         => await services.GetRequiredService<SyncCommand>().ExecuteAsync(output, force, ct);
 
-    /// <summary>Refresh the local cache from Azure DevOps.</summary>
+    /// <summary>Refresh the local cache from Azure DevOps. Deprecated — use 'twig sync' instead.</summary>
+    [Hidden]
     public async Task<int> Refresh(string output = OutputFormatterFactory.DefaultFormat, bool force = false, CancellationToken ct = default)
-        => await services.GetRequiredService<RefreshCommand>().ExecuteAsync(output, force, ct);
+    {
+        await Console.Error.WriteLineAsync("hint: 'twig refresh' is deprecated. Use 'twig sync' instead.");
+        return await services.GetRequiredService<RefreshCommand>().ExecuteAsync(output, force, ct);
+    }
 
     /// <summary>Show the current workspace.</summary>
     public async Task<int> Workspace(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, CancellationToken ct = default)
@@ -644,7 +648,7 @@ Usage: twig [command] [-h|--help] [--version]
 
 Getting Started:
   init                 Initialize a new Twig workspace.
-  refresh              Refresh the local cache from Azure DevOps.
+  sync                 Flush pending changes then refresh from ADO.
 
 Views:
   status               Active item detail and pending changes.

@@ -301,7 +301,7 @@ public class NewCommandTests : IDisposable
         stderr.ShouldContain("#42");
         stderr.ShouldContain("fetch-back failed");
         stderr.ShouldContain("Fetch failed");
-        stderr.ShouldContain("twig refresh");
+        stderr.ShouldContain("twig sync");
 
         // Save never called — pipeline stops after fetch failure
         await _workItemRepo.DidNotReceive().SaveAsync(

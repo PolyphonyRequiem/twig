@@ -68,7 +68,7 @@ public sealed class UpdateCommand(
         }
         catch (AdoConflictException)
         {
-            _stderr.WriteLine(fmt.FormatError("Concurrency conflict after retry. Run 'twig refresh' and retry."));
+            _stderr.WriteLine(fmt.FormatError("Concurrency conflict after retry. Run 'twig sync' and retry."));
             return 1;
         }
 

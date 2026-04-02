@@ -54,7 +54,7 @@ public class SeedEditorFormatTests
         var result = SeedEditorFormat.Generate(seed, StandardFields);
 
         result.ShouldContain("## Seed editor");
-        result.ShouldContain("## Run 'twig refresh'");
+        result.ShouldContain("## Run 'twig sync'");
     }
 
     [Fact]
@@ -200,7 +200,7 @@ public class SeedEditorFormatTests
     {
         var content = """
             ## Seed editor — edit fields below. Lines starting with ## are ignored.
-            ## Run 'twig refresh' to sync field definitions from ADO.
+            ## Run 'twig sync' to sync field definitions from ADO.
 
             # Title
             Test

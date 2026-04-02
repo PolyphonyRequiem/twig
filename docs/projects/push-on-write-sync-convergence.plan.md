@@ -1,7 +1,7 @@
 # Push-on-Write and Sync Convergence
 
 **Epic:** #1338  
-> **Status**: 🔨 In Progress — 1/3 PR groups merged  
+> **Status**: ✅ Done  
 **Revision:** 7 — See [Revision History](#revision-history) for change log.
 
 ---
@@ -775,3 +775,19 @@ Push-on-write has two failure points that require different recovery strategies:
 | 3 | Added eviction cleanup design (#1365). Added save --all continue-on-failure (#1364). |
 | 2 | Added push-on-write design for NoteCommand and EditCommand (#1340). |
 | 1 | Initial draft — resync after writes, PendingChangeFlusher extraction, SyncCommand convergence. |
+
+---
+
+## Completion
+
+**Completed:** 2026-04-02
+
+**Summary:** All 7 issues (#1339, #1362, #1365, #1364, #1340, #1341, #1342) were implemented across 3 PR groups. PR Group 1 (Cache resync and independent fixes) was merged via GitHub PR #10. PR Groups 2 and 3 were implemented on local feature branches (`feature/push-on-write`, `feature/sync-command`) with 9 and 24 commits respectively, totaling 2,774 lines of changes across 39 files. The epic transitioned to Done in ADO on 2026-04-01.
+
+**Artifacts:**
+- GitHub PR #10 (merged 2026-04-01T22:42:53Z): Cache resync and independent fixes
+- Local branch `feature/push-on-write`: Push-on-write for NoteCommand and EditCommand (9 commits, 487 insertions)
+- Local branch `feature/sync-command`: PendingChangeFlusher extraction and SyncCommand convergence (24 commits, 2,287 insertions)
+- Tag: v0.26.0
+
+**Note:** Feature branches `feature/push-on-write` and `feature/sync-command` contain completed implementation code that was not pushed to origin or merged to main via GitHub PRs. These branches need to be pushed, PR'd, and merged to fully land the feature code on main.

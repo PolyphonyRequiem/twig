@@ -12,15 +12,17 @@ using Xunit;
 namespace Twig.Cli.Tests.Commands;
 
 /// <summary>
-/// Tests for save scoping (ITEM-007): active work tree, single item, all dirty, and error cases.
+/// Tests for save scoping (ITEM-007): verifies that SaveCommand delegates to
+/// <see cref="IPendingChangeFlusher"/> with the correctly scoped ID list.
+/// Direct ADO call patterns are tested in <see cref="PendingChangeFlusherTests"/>.
 /// </summary>
-public class SaveCommandScopingTests
+public sealed class SaveCommandScopingTests
 {
     private readonly IContextStore _contextStore;
     private readonly IWorkItemRepository _workItemRepo;
-    private readonly IAdoWorkItemService _adoService;
+    private readonly IAdoWorkItemService _adoService; // ActiveItemResolver dependency only
     private readonly IPendingChangeStore _pendingChangeStore;
-    private readonly IConsoleInput _consoleInput;
+    private readonly IPendingChangeFlusher _flusher;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly ActiveItemResolver _resolver;
 
@@ -30,111 +32,148 @@ public class SaveCommandScopingTests
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _adoService = Substitute.For<IAdoWorkItemService>();
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
-        _consoleInput = Substitute.For<IConsoleInput>();
+        _flusher = Substitute.For<IPendingChangeFlusher>();
         _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(),
+            new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
         _resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+
+        // Default: flusher returns empty success (no items flushed, no failures)
+        _flusher.FlushAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new FlushResult(0, 0, 0, Array.Empty<FlushItemFailure>()));
+        _flusher.FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new FlushResult(0, 0, 0, Array.Empty<FlushItemFailure>()));
     }
 
     private SaveCommand CreateCommand(TextWriter? stderr = null) =>
-        new(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory, stderr: stderr);
+        new(_workItemRepo, _pendingChangeStore, _flusher, _resolver, _formatterFactory, stderr: stderr);
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Work-tree scoping
+    // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task ActiveWorkTree_SavesActiveItemAndDirtyChildrenOnly()
+    public async Task ActiveWorkTree_FlushesActiveItemAndDirtyChildren()
     {
-        // Active item 10 with children 11 (dirty) and 12 (clean)
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(10);
-
+        _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(10, "Active"));
         _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
             .Returns(new[] { 10, 11 });
-
-        var child11 = CreateWorkItem(11, "Dirty Child", parentId: 10);
-        var child12 = CreateWorkItem(12, "Clean Child", parentId: 10);
         _workItemRepo.GetChildrenAsync(10, Arg.Any<CancellationToken>())
-            .Returns(new[] { child11, child12 });
+            .Returns(new[] { CreateWorkItem(11, "Dirty Child", 10), CreateWorkItem(12, "Clean Child", 10) });
 
-        var item10 = CreateWorkItem(10, "Active Item");
-        var remote10 = CreateWorkItem(10, "Active Item");
-        var item11 = CreateWorkItem(11, "Dirty Child", parentId: 10);
-        var remote11 = CreateWorkItem(11, "Dirty Child", parentId: 10);
-
-        _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(item10);
-        _workItemRepo.GetByIdAsync(11, Arg.Any<CancellationToken>()).Returns(item11);
-        _adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(remote10);
-        _adoService.FetchAsync(11, Arg.Any<CancellationToken>()).Returns(remote11);
-
-        _pendingChangeStore.GetChangesAsync(10, Arg.Any<CancellationToken>())
-            .Returns(new[] { new PendingChangeRecord(10, "field", "System.Title", "Old", "New") });
-        _pendingChangeStore.GetChangesAsync(11, Arg.Any<CancellationToken>())
-            .Returns(new[] { new PendingChangeRecord(11, "field", "System.State", "New", "Active") });
-
-        _adoService.PatchAsync(10, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
-        _adoService.PatchAsync(11, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+        _flusher.FlushAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new FlushResult(2, 2, 0, Array.Empty<FlushItemFailure>()));
 
         var cmd = CreateCommand();
-        var result = await cmd.ExecuteAsync(); // default = active work tree
+        var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
-        // Active item and dirty child should be saved
-        await _adoService.Received().PatchAsync(10, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
-        await _adoService.Received().PatchAsync(11, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
-        // Clean child (12) should NOT be saved
-        await _adoService.DidNotReceive().PatchAsync(12, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _flusher.Received(1).FlushAsync(
+            Arg.Is<IReadOnlyList<int>>(ids => ids.SequenceEqual(new[] { 10, 11 })),
+            Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _flusher.DidNotReceive().FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task ExplicitId_SavesSingleItem()
+    public async Task ActiveWorkTree_ActiveItemClean_OnlyFlushesDirtyChildren()
     {
-        var item = CreateWorkItem(42, "Targeted Item");
-        var remote = CreateWorkItem(42, "Targeted Item");
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(10);
+        _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(10, "Active"));
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
+            .Returns(new[] { 11 });
+        _workItemRepo.GetChildrenAsync(10, Arg.Any<CancellationToken>())
+            .Returns(new[] { CreateWorkItem(11, "Dirty Child", 10) });
 
-        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
-        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(remote);
-        _pendingChangeStore.GetChangesAsync(42, Arg.Any<CancellationToken>())
-            .Returns(new[] { new PendingChangeRecord(42, "field", "System.Title", "Old", "New") });
-        _adoService.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+        _flusher.FlushAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new FlushResult(1, 1, 0, Array.Empty<FlushItemFailure>()));
+
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync();
+
+        result.ShouldBe(0);
+        await _flusher.Received(1).FlushAsync(
+            Arg.Is<IReadOnlyList<int>>(ids => ids.SequenceEqual(new[] { 11 })),
+            Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ActiveWorkTree_DirtyItemsOutsideTree_SkipsFlush()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(10);
+        _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(10, "Active"));
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
+            .Returns(new[] { 99 });
+        _workItemRepo.GetChildrenAsync(10, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync();
+
+        result.ShouldBe(0);
+        await _flusher.DidNotReceive().FlushAsync(
+            Arg.Any<IReadOnlyList<int>>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ActiveWorkTree_NoDirtyItems_SkipsFlush()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(10);
+        _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(10, "Active"));
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
+
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync();
+
+        result.ShouldBe(0);
+        await _flusher.DidNotReceive().FlushAsync(
+            Arg.Any<IReadOnlyList<int>>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Single-item scoping
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ExplicitId_FlushesTargetItem()
+    {
+        _flusher.FlushAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new FlushResult(1, 1, 0, Array.Empty<FlushItemFailure>()));
 
         var cmd = CreateCommand();
         var result = await cmd.ExecuteAsync(targetId: 42);
 
         result.ShouldBe(0);
-        await _adoService.Received().PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
-        // Should not query dirty IDs — single item mode bypasses that
+        await _flusher.Received(1).FlushAsync(
+            Arg.Is<IReadOnlyList<int>>(ids => ids.SequenceEqual(new[] { 42 })),
+            Arg.Any<string>(), Arg.Any<CancellationToken>());
+        // Single item mode bypasses dirty-ID lookup
         await _pendingChangeStore.DidNotReceive().GetDirtyItemIdsAsync(Arg.Any<CancellationToken>());
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    //  --all flag
+    // ═══════════════════════════════════════════════════════════════
+
     [Fact]
-    public async Task AllFlag_SavesAllDirtyItems()
+    public async Task AllFlag_DelegatesFlushAll()
     {
-        var item1 = CreateWorkItem(1, "Item One");
-        var item2 = CreateWorkItem(2, "Item Two");
-        var remote1 = CreateWorkItem(1, "Item One");
-        var remote2 = CreateWorkItem(2, "Item Two");
+        _flusher.FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new FlushResult(2, 3, 0, Array.Empty<FlushItemFailure>()));
 
-        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
-            .Returns(new[] { 1, 2 });
-        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item1);
-        _workItemRepo.GetByIdAsync(2, Arg.Any<CancellationToken>()).Returns(item2);
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote1);
-        _adoService.FetchAsync(2, Arg.Any<CancellationToken>()).Returns(remote2);
-        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
-        _adoService.PatchAsync(2, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
-
-        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
-            .Returns(new[] { new PendingChangeRecord(1, "field", "System.Title", "Old1", "New1") });
-        _pendingChangeStore.GetChangesAsync(2, Arg.Any<CancellationToken>())
-            .Returns(new[] { new PendingChangeRecord(2, "field", "System.State", "New", "Active") });
-
-        var stderr = new StringWriter();
-        var cmd = CreateCommand(stderr);
+        var cmd = CreateCommand();
         var result = await cmd.ExecuteAsync(all: true);
 
         result.ShouldBe(0);
-        stderr.ToString().ShouldBeEmpty();
-        await _adoService.Received().PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
-        await _adoService.Received().PatchAsync(2, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _flusher.Received(1).FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _flusher.DidNotReceive().FlushAsync(
+            Arg.Any<IReadOnlyList<int>>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Error paths (before flusher is reached)
+    // ═══════════════════════════════════════════════════════════════
 
     [Fact]
     public async Task NoActiveContext_NoArgs_ReturnsError()
@@ -143,17 +182,17 @@ public class SaveCommandScopingTests
 
         var stderr = new StringWriter();
         var cmd = CreateCommand(stderr);
-
-        var result = await cmd.ExecuteAsync(); // no targetId, no --all
+        var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(1);
         stderr.ToString().ShouldContain("No active work item");
+        await _flusher.DidNotReceive().FlushAsync(
+            Arg.Any<IReadOnlyList<int>>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task ActiveWorkTree_UnreachableActiveItem_ReturnsCacheMissError()
     {
-        // Active item exists in context but is unreachable (not in cache, auto-fetch fails)
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
@@ -161,97 +200,64 @@ public class SaveCommandScopingTests
 
         var stderr = new StringWriter();
         var cmd = CreateCommand(stderr);
-
-        var result = await cmd.ExecuteAsync(); // no targetId, no --all
+        var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(1);
         var output = stderr.ToString();
         output.ShouldContain("#42");
         output.ShouldContain("not found in cache");
         output.ShouldNotContain("No active work item");
+        await _flusher.DidNotReceive().FlushAsync(
+            Arg.Any<IReadOnlyList<int>>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    //  FlushResult handling
+    // ═══════════════════════════════════════════════════════════════
+
     [Fact]
-    public async Task ActiveWorkTree_NoDirtyItems_ReturnsZero()
+    public async Task FlushResult_WithFailures_ReturnsOne()
     {
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(10);
-        _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(10, "Active Item"));
-        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<int>());
+        var failures = new[] { new FlushItemFailure(42, "Auth expired") };
+        _flusher.FlushAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new FlushResult(0, 0, 0, failures));
 
         var cmd = CreateCommand();
-        var result = await cmd.ExecuteAsync();
+        var result = await cmd.ExecuteAsync(targetId: 42);
 
-        result.ShouldBe(0);
-        await _adoService.DidNotReceive().PatchAsync(Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        result.ShouldBe(1);
     }
 
     [Fact]
-    public async Task ActiveWorkTree_ActiveItemClean_OnlySavesDirtyChildren()
+    public async Task FlushResult_Empty_ReturnsZero()
     {
-        // Active item 10 is clean, but child 11 is dirty
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(10);
-        _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(10, "Active Item"));
-        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
-            .Returns(new[] { 11 }); // only child is dirty
-
-        var child11 = CreateWorkItem(11, "Dirty Child", parentId: 10);
-        _workItemRepo.GetChildrenAsync(10, Arg.Any<CancellationToken>())
-            .Returns(new[] { child11 });
-
-        var item11 = CreateWorkItem(11, "Dirty Child", parentId: 10);
-        var remote11 = CreateWorkItem(11, "Dirty Child", parentId: 10);
-        _workItemRepo.GetByIdAsync(11, Arg.Any<CancellationToken>()).Returns(item11);
-        _adoService.FetchAsync(11, Arg.Any<CancellationToken>()).Returns(remote11);
-        _pendingChangeStore.GetChangesAsync(11, Arg.Any<CancellationToken>())
-            .Returns(new[] { new PendingChangeRecord(11, "field", "System.State", "New", "Active") });
-        _adoService.PatchAsync(11, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
-
-        var cmd = CreateCommand();
-        var result = await cmd.ExecuteAsync();
-
-        result.ShouldBe(0);
-        await _adoService.Received().PatchAsync(11, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
-        // Active item (10) is not dirty, should not be patched
-        await _adoService.DidNotReceive().PatchAsync(10, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task ActiveWorkTree_DirtyItemsOutsideTree_NotSaved()
-    {
-        // Active item 10, dirty item 99 is not a child of 10
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(10);
-        _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(10, "Active Item"));
-        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
-            .Returns(new[] { 99 });
-
-        _workItemRepo.GetChildrenAsync(10, Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>());
-
-        var cmd = CreateCommand();
-        var result = await cmd.ExecuteAsync();
-
-        // No items in the work tree are dirty → nothing to save
-        result.ShouldBe(0);
-        await _adoService.DidNotReceive().PatchAsync(Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task ExplicitId_NoPendingChanges_NoOp()
-    {
-        var item = CreateWorkItem(42, "Item");
-        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
-        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
-        _pendingChangeStore.GetChangesAsync(42, Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<PendingChangeRecord>());
+        // 0 items flushed, 0 failures → "Nothing to save"
+        _flusher.FlushAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new FlushResult(0, 0, 0, Array.Empty<FlushItemFailure>()));
 
         var cmd = CreateCommand();
         var result = await cmd.ExecuteAsync(targetId: 42);
 
         result.ShouldBe(0);
-        await _adoService.DidNotReceive().PatchAsync(Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
-        await _adoService.DidNotReceive().FetchAsync(42, Arg.Any<CancellationToken>());
     }
+
+    [Fact]
+    public async Task FlushResult_PartialSuccess_ReturnsOne()
+    {
+        // Some items flushed but also some failures → exit code 1
+        var failures = new[] { new FlushItemFailure(2, "conflict") };
+        _flusher.FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new FlushResult(1, 1, 0, failures));
+
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync(all: true);
+
+        result.ShouldBe(1);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Helpers
+    // ═══════════════════════════════════════════════════════════════
 
     private static WorkItem CreateWorkItem(int id, string title, int? parentId = null) => new()
     {

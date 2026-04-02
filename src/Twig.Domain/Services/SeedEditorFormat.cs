@@ -37,7 +37,7 @@ public static class SeedEditorFormat
         var sb = new StringBuilder();
 
         sb.AppendLine("## Seed editor — edit fields below. Lines starting with ## are ignored.");
-        sb.AppendLine("## Run 'twig refresh' to sync field definitions from ADO.");
+        sb.AppendLine("## Run 'twig sync' to sync field definitions from ADO.");
         sb.AppendLine();
 
         var writableFields = GetOrderedWritableFields(fieldDefinitions);
@@ -45,7 +45,7 @@ public static class SeedEditorFormat
         // Graceful degradation: if no field definitions, show Title and Description with hint
         if (writableFields.Count == 0)
         {
-            sb.AppendLine("## No field definitions found. Run 'twig refresh' to sync from ADO.");
+            sb.AppendLine("## No field definitions found. Run 'twig sync' to sync from ADO.");
             sb.AppendLine();
 
             sb.AppendLine("# Title");

@@ -377,7 +377,7 @@ public sealed class InitCommand
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 Console.WriteLine(fmt.FormatInfo($"  \u26a0 Could not refresh sprint items: {ex.Message}"));
-                Console.WriteLine(fmt.FormatHint("Run 'twig refresh' to populate your workspace."));
+                Console.WriteLine(fmt.FormatHint("Run 'twig sync' to populate your workspace."));
             }
         }
 

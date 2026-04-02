@@ -48,7 +48,7 @@ public sealed class ConfigStatusFieldsCommand(
         var definitions = await fieldDefinitionStore.GetAllAsync(ct);
         if (definitions.Count == 0)
         {
-            Console.Error.WriteLine(fmt.FormatError("No field definitions cached. Run 'twig refresh' first."));
+            Console.Error.WriteLine(fmt.FormatError("No field definitions cached. Run 'twig sync' first."));
             return 1;
         }
 

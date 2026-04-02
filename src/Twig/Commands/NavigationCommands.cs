@@ -52,7 +52,7 @@ public sealed class NavigationCommands(
         var initialItem = await workItemRepo.GetByIdAsync(activeId.Value, ct);
         if (initialItem is null)
         {
-            Console.Error.WriteLine($"Work item #{activeId.Value} not found in cache. Run 'twig refresh' to fetch.");
+            Console.Error.WriteLine($"Work item #{activeId.Value} not found in cache. Run 'twig sync' to fetch.");
             return 1;
         }
 

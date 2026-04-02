@@ -99,7 +99,7 @@ public class AuthErrorTests
 
             code.ShouldBe(1);
             stderr.ToString().ShouldContain("transition");
-            stderr.ToString().ShouldContain("twig refresh");
+            stderr.ToString().ShouldContain("twig sync");
         }
         finally
         {

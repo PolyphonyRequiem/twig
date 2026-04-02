@@ -184,7 +184,7 @@ public sealed class StatusCommand(
             // Check cache freshness (EPIC-006) and include stale hint if needed
             var lastRefreshedRaw = await contextStore.GetValueAsync("last_refreshed_at");
             var staleHint = WorkspaceCommand.IsCacheStale(lastRefreshedRaw, config.Display.CacheStaleMinutes)
-                ? "Data may be stale. Run 'twig refresh' to update."
+                ? "Data may be stale. Run 'twig sync' to update."
                 : null;
 
             var hints = hintEngine.GetHints("status",
@@ -258,7 +258,7 @@ public sealed class StatusCommand(
         // Check cache freshness (EPIC-006) and include stale hint if needed
         var syncLastRefreshedRaw = await contextStore.GetValueAsync("last_refreshed_at");
         var syncStaleHint = WorkspaceCommand.IsCacheStale(syncLastRefreshedRaw, config.Display.CacheStaleMinutes)
-            ? "Data may be stale. Run 'twig refresh' to update."
+            ? "Data may be stale. Run 'twig sync' to update."
             : null;
 
         var syncHints = hintEngine.GetHints("status",

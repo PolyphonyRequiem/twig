@@ -143,7 +143,7 @@ public sealed class RefreshCommand(
                 _stderr.WriteLine(fmt.FormatError("Warning: the following protected items have newer remote revisions (skipped):"));
                 foreach (var (id, localRev, remoteRev) in conflicts)
                     _stderr.WriteLine(fmt.FormatError($"  #{id}: local rev {localRev} → remote rev {remoteRev}"));
-                _stderr.WriteLine(fmt.FormatError("Run 'twig save' first, or use 'twig refresh --force' to overwrite."));
+                _stderr.WriteLine(fmt.FormatError("Run 'twig sync' first, or use 'twig sync --force' to overwrite."));
             }
 
             // Fetch all scopes first, then save through appropriate path.

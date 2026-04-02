@@ -186,8 +186,9 @@ public class ConflictUxTests
 
         _consoleInput.ReadLine().Returns("r"); // keep remote
 
-        var cmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory);
+        var cmd = new SaveCommand(_workItemRepo, _pendingChangeStore,
+            new PendingChangeFlusher(_workItemRepo, _adoService, _pendingChangeStore, _consoleInput, _formatterFactory),
+            _resolver, _formatterFactory);
         var result = await cmd.ExecuteAsync(all: true);
 
         result.ShouldBe(0);
@@ -209,8 +210,9 @@ public class ConflictUxTests
         _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
             .Returns(new[] { new PendingChangeRecord(1, "field", "System.Title", "Old", "New") });
 
-        var cmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory);
+        var cmd = new SaveCommand(_workItemRepo, _pendingChangeStore,
+            new PendingChangeFlusher(_workItemRepo, _adoService, _pendingChangeStore, _consoleInput, _formatterFactory),
+            _resolver, _formatterFactory);
         var result = await cmd.ExecuteAsync(all: true, outputFormat: "json");
 
         result.ShouldBe(1);

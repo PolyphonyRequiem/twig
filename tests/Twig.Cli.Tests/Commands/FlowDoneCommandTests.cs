@@ -1,4 +1,5 @@
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
@@ -20,7 +21,7 @@ public class FlowDoneCommandTests
     private readonly IContextStore _contextStore;
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IProcessConfigurationProvider _processConfigProvider;
-    private readonly SaveCommand _saveCommand;
+    private readonly PendingChangeFlusher _pendingChangeFlusher;
     private readonly IConsoleInput _consoleInput;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly TwigConfiguration _config;
@@ -58,12 +59,11 @@ public class FlowDoneCommandTests
         // Default: no pending changes, no dirty items
         _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());
 
-        _saveCommand = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            activeItemResolver, _consoleInput, _formatterFactory);
+        _pendingChangeFlusher = new PendingChangeFlusher(_workItemRepo, _adoService, _pendingChangeStore, _consoleInput, _formatterFactory);
     }
 
     private FlowDoneCommand CreateCommand(IGitService? gitService = null, IAdoGitService? adoGitService = null) =>
-        new(_workItemRepo, _pendingChangeStore, _saveCommand, _consoleInput, _formatterFactory, _config,
+        new(_workItemRepo, _pendingChangeStore, _pendingChangeFlusher, _consoleInput, _formatterFactory, _config,
             _flowTransitionService, gitService, adoGitService);
 
     private static WorkItem CreateWorkItem(int id, string title, string state) => new()
@@ -116,7 +116,7 @@ public class FlowDoneCommandTests
         var result = await cmd.ExecuteAsync(noSave: true);
 
         result.ShouldBe(0);
-        // SaveCommand should not have been invoked — GetChangesAsync is SaveCommand-specific
+        // --no-save: flusher should never query for individual item changes
         await _pendingChangeStore.DidNotReceive().GetChangesAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
@@ -337,6 +337,32 @@ public class FlowDoneCommandTests
     }
 
     [Fact]
+    public async Task FlushFails_ReturnsExitCode1_AndSkipsStateTransition()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        var item = CreateWorkItem(1, "Feature", "Active");
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
+        // Item 1 is dirty and has a pending field change
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(new[] { 1 });
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { new PendingChangeRecord(1, "field", "System.Title", "old", "new") });
+        // FetchAsync returns the item (no conflict), but PatchAsync throws → flusher records failure
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("Server error"));
+
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync();
+
+        result.ShouldBe(1);
+        // State-transition PatchAsync should never have been called
+        await _adoService.DidNotReceive().PatchAsync(1,
+            Arg.Is<IReadOnlyList<FieldChange>>(c => c.Any(f => f.FieldName == "System.State")),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task PrDescription_ContainsABHashLinkingFormat()
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(12345);
@@ -417,7 +443,7 @@ public class FlowDoneCommandTests
 
         var cmd = new FlowDoneCommand(
             _workItemRepo, _pendingChangeStore,
-            _saveCommand, _consoleInput, _formatterFactory, configNoPr,
+            _pendingChangeFlusher, _consoleInput, _formatterFactory, configNoPr,
             _flowTransitionService,
             _gitService, _adoGitService);
         var result = await cmd.ExecuteAsync(noSave: true);

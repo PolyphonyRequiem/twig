@@ -1284,7 +1284,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                                 var jumpState = await loadNodeState(targetId);
                                 if (jumpState.CursorItem is null)
                                 {
-                                    linkError = $"[yellow]Item #{targetId} not in cache. Run 'twig refresh' to fetch.[/]";
+                                    linkError = $"[yellow]Item #{targetId} not in cache. Run 'twig sync' to fetch.[/]";
                                 }
                                 else
                                 {

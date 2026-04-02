@@ -116,7 +116,7 @@ public sealed class NewCommand(
         catch (Exception ex)
         {
             Console.Error.WriteLine(fmt.FormatError(
-                $"Created #{newId} in ADO but fetch-back failed: {ex.Message}. Run 'twig refresh' to recover."));
+                $"Created #{newId} in ADO but fetch-back failed: {ex.Message}. Run 'twig sync' to recover."));
             return 1;
         }
 

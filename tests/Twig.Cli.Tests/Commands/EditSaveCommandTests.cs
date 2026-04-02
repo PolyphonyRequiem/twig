@@ -33,6 +33,8 @@ public class EditSaveCommandTests
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _adoService = Substitute.For<IAdoWorkItemService>();
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
+        _pendingChangeStore.GetChangesAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
         _editorLauncher = Substitute.For<IEditorLauncher>();
         _consoleInput = Substitute.For<IConsoleInput>();
         _formatterFactory = new OutputFormatterFactory(
@@ -41,16 +43,22 @@ public class EditSaveCommandTests
         _resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
     }
 
+    private SaveCommand CreateSaveCommand(TextWriter? stderr = null)
+    {
+        var flusher = new PendingChangeFlusher(_workItemRepo, _adoService, _pendingChangeStore, _consoleInput, _formatterFactory, stderr);
+        return new(_workItemRepo, _pendingChangeStore, flusher, _resolver, _formatterFactory, stderr: stderr);
+    }
+
     [Fact]
     public async Task Edit_OpensEditor_StagesChanges()
     {
-        var item = CreateWorkItem(1, "Original Title");
+        var item = CreateSeedItem(1, "Original Title");
         SetupActiveItem(item);
 
         _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns("# Editing #1 Original Title\nTitle: Updated Title\nState: New\nAssignedTo: \n");
 
-        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _editorLauncher, _formatterFactory, _hintEngine);
+        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _adoService, _consoleInput, _editorLauncher, _formatterFactory, _hintEngine);
         var result = await editCmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -66,7 +74,7 @@ public class EditSaveCommandTests
         _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns((string?)null);
 
-        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _editorLauncher, _formatterFactory, _hintEngine);
+        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _adoService, _consoleInput, _editorLauncher, _formatterFactory, _hintEngine);
         var result = await editCmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -91,8 +99,7 @@ public class EditSaveCommandTests
         _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
             .Returns(new[] { fieldChange });
 
-        var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory);
+        var saveCmd = CreateSaveCommand();
         var result = await saveCmd.ExecuteAsync(all: true);
 
         result.ShouldBe(0);
@@ -108,8 +115,7 @@ public class EditSaveCommandTests
         _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<int>());
 
-        var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory);
+        var saveCmd = CreateSaveCommand();
         var result = await saveCmd.ExecuteAsync(all: true);
 
         result.ShouldBe(0);
@@ -130,8 +136,7 @@ public class EditSaveCommandTests
         _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
             .Returns(new[] { note });
 
-        var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory);
+        var saveCmd = CreateSaveCommand();
         var result = await saveCmd.ExecuteAsync(all: true);
 
         result.ShouldBe(0);
@@ -177,8 +182,7 @@ public class EditSaveCommandTests
             .PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), 5, Arg.Any<CancellationToken>())
             .Returns(6);
 
-        var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory);
+        var saveCmd = CreateSaveCommand();
         var result = await saveCmd.ExecuteAsync(all: true);
 
         result.ShouldBe(0);
@@ -218,8 +222,7 @@ public class EditSaveCommandTests
             .ThrowsAsync(new AdoConflictException(7));
 
         var stderr = new StringWriter();
-        var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory, stderr: stderr);
+        var saveCmd = CreateSaveCommand(stderr);
 
         var result = await saveCmd.ExecuteAsync(all: true);
 
@@ -243,7 +246,7 @@ public class EditSaveCommandTests
         _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns("# This is a comment\n# Another comment\nTitle: Original Title\nState: New\nAssignedTo: \n");
 
-        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _editorLauncher, _formatterFactory, _hintEngine);
+        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _adoService, _consoleInput, _editorLauncher, _formatterFactory, _hintEngine);
         var result = await editCmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -256,7 +259,7 @@ public class EditSaveCommandTests
     [Fact]
     public async Task Edit_StateChange_StagesChange()
     {
-        var item = CreateWorkItem(1, "Title");
+        var item = CreateSeedItem(1, "Title");
         item.ChangeState("New");
         item.ApplyCommands();
         SetupActiveItem(item);
@@ -264,7 +267,7 @@ public class EditSaveCommandTests
         _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns("# Editing #1 Title\nTitle: Title\nState: Active\nAssignedTo: \n");
 
-        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _editorLauncher, _formatterFactory, _hintEngine);
+        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _adoService, _consoleInput, _editorLauncher, _formatterFactory, _hintEngine);
         var result = await editCmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -282,7 +285,7 @@ public class EditSaveCommandTests
         _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns("Title: Title\nThisLineHasNoColon\nState: New\nAssignedTo: \n");
 
-        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _editorLauncher, _formatterFactory, _hintEngine);
+        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _adoService, _consoleInput, _editorLauncher, _formatterFactory, _hintEngine);
         var result = await editCmd.ExecuteAsync();
 
         // No changes detected (no actual value modifications)
@@ -299,7 +302,7 @@ public class EditSaveCommandTests
         _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns("Title: My Title\nState: New\nAssignedTo: \n");
 
-        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _editorLauncher, _formatterFactory, _hintEngine);
+        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _adoService, _consoleInput, _editorLauncher, _formatterFactory, _hintEngine);
         var result = await editCmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -311,14 +314,14 @@ public class EditSaveCommandTests
     [Fact]
     public async Task Edit_ValueContainingColon_ParsedCorrectly()
     {
-        var item = CreateWorkItem(1, "Title");
+        var item = CreateSeedItem(1, "Title");
         SetupActiveItem(item);
 
         // Value contains a colon — only the first colon is used as separator
         _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns("Title: Prefix: Suffix\nState: New\nAssignedTo: \n");
 
-        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _editorLauncher, _formatterFactory, _hintEngine);
+        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _adoService, _consoleInput, _editorLauncher, _formatterFactory, _hintEngine);
         await editCmd.ExecuteAsync();
 
         // Title changed from "Title" to "Prefix: Suffix"
@@ -329,14 +332,14 @@ public class EditSaveCommandTests
     [Fact]
     public async Task Edit_SingleFieldMode_OpensEditorWithFieldContent()
     {
-        var item = CreateWorkItem(1, "My Title");
+        var item = CreateSeedItem(1, "My Title");
         item.SetField("System.Description", "Old description");
         SetupActiveItem(item);
 
         _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns("# Editing System.Description for #1 My Title\nSystem.Description: New description\n");
 
-        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _editorLauncher, _formatterFactory, _hintEngine);
+        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _adoService, _consoleInput, _editorLauncher, _formatterFactory, _hintEngine);
         var result = await editCmd.ExecuteAsync("System.Description");
 
         result.ShouldBe(0);
@@ -357,7 +360,7 @@ public class EditSaveCommandTests
         _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns("# Editing System.Description for #1 My Title\nSystem.Description: Same description\n");
 
-        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _editorLauncher, _formatterFactory, _hintEngine);
+        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _adoService, _consoleInput, _editorLauncher, _formatterFactory, _hintEngine);
         var result = await editCmd.ExecuteAsync("System.Description");
 
         result.ShouldBe(0);
@@ -388,8 +391,7 @@ public class EditSaveCommandTests
         _pendingChangeStore.GetChangesAsync(2, Arg.Any<CancellationToken>())
             .Returns(new[] { fieldChange });
 
-        var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory);
+        var saveCmd = CreateSaveCommand();
         var result = await saveCmd.ExecuteAsync(all: true);
 
         result.ShouldBe(0);
@@ -425,8 +427,7 @@ public class EditSaveCommandTests
         _pendingChangeStore.GetChangesAsync(2, Arg.Any<CancellationToken>())
             .Returns(new[] { change2 });
 
-        var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory);
+        var saveCmd = CreateSaveCommand();
         var result = await saveCmd.ExecuteAsync(all: true);
 
         result.ShouldBe(0);
@@ -446,8 +447,7 @@ public class EditSaveCommandTests
         _workItemRepo.GetByIdAsync(99, Arg.Any<CancellationToken>())
             .Returns((WorkItem?)null);
 
-        var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory);
+        var saveCmd = CreateSaveCommand();
         var result = await saveCmd.ExecuteAsync(all: true);
 
         result.ShouldBe(1);
@@ -474,8 +474,7 @@ public class EditSaveCommandTests
         _pendingChangeStore.GetChangesAsync(2, Arg.Any<CancellationToken>())
             .Returns(new[] { change2 });
 
-        var saveCmd = new SaveCommand(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory);
+        var saveCmd = CreateSaveCommand();
         var result = await saveCmd.ExecuteAsync(all: true);
 
         // Overall result should be 1 (hadErrors) because item 1 failed
@@ -485,6 +484,235 @@ public class EditSaveCommandTests
         await _pendingChangeStore.Received().ClearChangesAsync(2, Arg.Any<CancellationToken>());
         // Item 1 should not have been patched
         await _adoService.DidNotReceive().PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    // ── EditCommand push-on-write tests ──────────────────────────
+
+    [Fact]
+    public async Task Edit_NonSeed_PushesDirectly()
+    {
+        var item = CreateWorkItem(1, "Original Title");
+        var remote = CreateWorkItem(1, "Original Title");
+        var updated = CreateWorkItem(1, "Updated Title");
+        SetupActiveItem(item);
+
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote, updated);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+
+        _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns("Title: Updated Title\nState: New\nAssignedTo: \n");
+
+        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _adoService, _consoleInput, _editorLauncher, _formatterFactory, _hintEngine);
+        var result = await editCmd.ExecuteAsync();
+
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(1,
+            Arg.Is<IReadOnlyList<FieldChange>>(c => c.Any(f => f.FieldName == "System.Title" && f.NewValue == "Updated Title")),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _workItemRepo.Received().SaveAsync(updated, Arg.Any<CancellationToken>());
+        // Should NOT stage locally
+        await _pendingChangeStore.DidNotReceive().AddChangeAsync(
+            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string?>(),
+            Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Edit_Seed_StagesLocally()
+    {
+        var seed = CreateSeedItem(-1, "Seed Title");
+        SetupActiveItem(seed);
+
+        _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns("Title: New Seed Title\nState: New\nAssignedTo: \n");
+
+        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _adoService, _consoleInput, _editorLauncher, _formatterFactory, _hintEngine);
+        var result = await editCmd.ExecuteAsync();
+
+        result.ShouldBe(0);
+        await _pendingChangeStore.Received().AddChangeAsync(
+            -1, "field", "System.Title", "Seed Title", "New Seed Title", Arg.Any<CancellationToken>());
+        // Should NOT call ADO
+        await _adoService.DidNotReceive().PatchAsync(
+            Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Edit_NonSeed_PushFails_FallsBackToStagingWithWarning()
+    {
+        var item = CreateWorkItem(1, "Title");
+        SetupActiveItem(item);
+
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("network error"));
+
+        _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns("Title: Changed Title\nState: New\nAssignedTo: \n");
+
+        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _adoService, _consoleInput, _editorLauncher, _formatterFactory, _hintEngine);
+        var (result, stderr) = await StderrCapture.RunAsync(() => editCmd.ExecuteAsync());
+
+        result.ShouldBe(0);
+        // Should fall back to staging
+        await _pendingChangeStore.Received().AddChangeAsync(
+            1, "field", "System.Title", "Title", "Changed Title", Arg.Any<CancellationToken>());
+        await _workItemRepo.Received().SaveAsync(
+            Arg.Is<WorkItem>(w => w.Id == 1), Arg.Any<CancellationToken>());
+        stderr.ShouldContain("staged locally");
+    }
+
+    [Fact]
+    public async Task Edit_NonSeed_ResyncFails_WarnsDoesNotStage()
+    {
+        var item = CreateWorkItem(1, "Original");
+        var remote = CreateWorkItem(1, "Original");
+        SetupActiveItem(item);
+
+        var fetchCallCount = 0;
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                fetchCallCount++;
+                if (fetchCallCount == 1)
+                    return remote;
+                throw new Exception("resync failed");
+            });
+
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+
+        _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns("Title: New Title\nState: New\nAssignedTo: \n");
+
+        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _adoService, _consoleInput, _editorLauncher, _formatterFactory, _hintEngine);
+        var (result, stderr) = await StderrCapture.RunAsync(() => editCmd.ExecuteAsync());
+
+        // DD-8: Push succeeded, resync failed — return success
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(1,
+            Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        // Should NOT fall back to staging
+        await _pendingChangeStore.DidNotReceive().AddChangeAsync(
+            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string?>(),
+            Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+        stderr.ShouldContain("cache may be stale");
+    }
+
+    [Fact]
+    public async Task Edit_NonSeed_ConflictAcceptRemote_ReturnsZeroNoPatch()
+    {
+        var item = CreateWorkItem(1, "Local Title");
+        item.MarkSynced(5);
+        item.SetField("System.Description", "Local desc");
+
+        var remote = CreateWorkItem(1, "Remote Title");
+        remote.MarkSynced(6);
+        remote.SetField("System.Description", "Remote desc");
+
+        SetupActiveItem(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
+        _consoleInput.ReadLine().Returns("r");
+
+        _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns("Title: Changed Title\nState: New\nAssignedTo: \n");
+
+        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _adoService, _consoleInput, _editorLauncher, _formatterFactory, _hintEngine);
+        var result = await editCmd.ExecuteAsync();
+
+        result.ShouldBe(0);
+        // Should NOT patch — user accepted remote
+        await _adoService.DidNotReceive().PatchAsync(
+            Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        // Remote should be saved
+        await _workItemRepo.Received().SaveAsync(remote, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Edit_NonSeed_ConflictAbort_ReturnsZeroNoPatch()
+    {
+        var item = CreateWorkItem(1, "Local Title");
+        item.MarkSynced(5);
+        item.SetField("System.Description", "Local desc");
+
+        var remote = CreateWorkItem(1, "Remote Title");
+        remote.MarkSynced(6);
+        remote.SetField("System.Description", "Remote desc");
+
+        SetupActiveItem(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
+        _consoleInput.ReadLine().Returns("a");
+
+        _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns("Title: Changed Title\nState: New\nAssignedTo: \n");
+
+        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _adoService, _consoleInput, _editorLauncher, _formatterFactory, _hintEngine);
+        var result = await editCmd.ExecuteAsync();
+
+        result.ShouldBe(0);
+        await _adoService.DidNotReceive().PatchAsync(
+            Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Edit_NonSeed_ConflictJson_ReturnsOne()
+    {
+        var item = CreateWorkItem(1, "Local Title");
+        item.MarkSynced(5);
+        item.SetField("System.Description", "Local desc");
+
+        var remote = CreateWorkItem(1, "Remote Title");
+        remote.MarkSynced(6);
+        remote.SetField("System.Description", "Remote desc");
+
+        SetupActiveItem(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
+
+        _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns("Title: Changed Title\nState: New\nAssignedTo: \n");
+
+        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _adoService, _consoleInput, _editorLauncher, _formatterFactory, _hintEngine);
+        var result = await editCmd.ExecuteAsync(outputFormat: "json");
+
+        result.ShouldBe(1);
+        await _adoService.DidNotReceive().PatchAsync(
+            Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Edit_NonSeed_AutoPushNotesFails_DoesNotStageFields()
+    {
+        var item = CreateWorkItem(1, "Original Title");
+        var remote = CreateWorkItem(1, "Original Title");
+        var updated = CreateWorkItem(1, "Updated Title");
+        SetupActiveItem(item);
+
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote, updated);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+
+        // Set up a pending note that will fail to push
+        var pendingNote = new PendingChangeRecord(1, "note", null, null, "Test note");
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { pendingNote });
+        _adoService.AddCommentAsync(1, "Test note", Arg.Any<CancellationToken>())
+            .ThrowsAsync(new Exception("comment API failed"));
+
+        _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns("Title: Updated Title\nState: New\nAssignedTo: \n");
+
+        var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _adoService, _consoleInput, _editorLauncher, _formatterFactory, _hintEngine);
+        var (result, stderr) = await StderrCapture.RunAsync(() => editCmd.ExecuteAsync());
+
+        result.ShouldBe(0);
+        // Fields were already pushed — must NOT stage locally (NFR-2)
+        await _pendingChangeStore.DidNotReceive().AddChangeAsync(
+            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string?>(),
+            Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+        // PatchAsync was called (fields pushed successfully)
+        await _adoService.Received().PatchAsync(1,
+            Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        stderr.ShouldContain("Note push failed");
     }
 
     private void SetupActiveItem(WorkItem item)
@@ -501,6 +729,21 @@ public class EditSaveCommandTests
             Type = WorkItemType.Task,
             Title = title,
             State = "New",
+            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
+            AreaPath = AreaPath.Parse("Project").Value,
+        };
+    }
+
+    private static WorkItem CreateSeedItem(int id, string title)
+    {
+        return new WorkItem
+        {
+            Id = id,
+            Type = WorkItemType.Task,
+            Title = title,
+            State = "New",
+            IsSeed = true,
+            SeedCreatedAt = DateTimeOffset.UtcNow,
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value,
         };

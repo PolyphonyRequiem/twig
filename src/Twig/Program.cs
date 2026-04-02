@@ -243,7 +243,7 @@ internal static class ExceptionHandler
             if (badReqEx.Message.Contains("transition", StringComparison.OrdinalIgnoreCase)
                 || badReqEx.Message.Contains("state", StringComparison.OrdinalIgnoreCase))
             {
-                stderr.WriteLine("Transition not allowed. Run 'twig refresh' to update process configuration.");
+                stderr.WriteLine("Transition not allowed. Run 'twig sync' to update process configuration.");
             }
             Environment.ExitCode = 1;
             return 1;
@@ -253,7 +253,7 @@ internal static class ExceptionHandler
         if (ex is Twig.Infrastructure.Ado.Exceptions.AdoConflictException)
         {
             stderr.WriteLine("error: Concurrency conflict (revision mismatch).");
-            stderr.WriteLine("hint: Another change is being processed. Run 'twig refresh' and retry.");
+            stderr.WriteLine("hint: Another change is being processed. Run 'twig sync' and retry.");
             Environment.ExitCode = 1;
             return 1;
         }
@@ -467,13 +467,25 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> Edit(string? field = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<EditCommand>().ExecuteAsync(field, output, ct);
 
-    /// <summary>Push pending changes to Azure DevOps.</summary>
+    /// <summary>Push pending changes to Azure DevOps. Deprecated — use 'twig sync' instead.</summary>
+    [Hidden]
     public async Task<int> Save([Argument] int? id = null, bool all = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SaveCommand>().ExecuteAsync(id, all, output, ct: ct);
+    {
+        await Console.Error.WriteLineAsync("hint: 'twig save' is deprecated. Use 'twig sync' instead.");
+        return await services.GetRequiredService<SaveCommand>().ExecuteAsync(id, all, output, ct: ct);
+    }
 
-    /// <summary>Refresh the local cache from Azure DevOps.</summary>
+    /// <summary>Flush pending changes then refresh the local cache.</summary>
+    public async Task<int> Sync(string output = OutputFormatterFactory.DefaultFormat, bool force = false, CancellationToken ct = default)
+        => await services.GetRequiredService<SyncCommand>().ExecuteAsync(output, force, ct);
+
+    /// <summary>Refresh the local cache from Azure DevOps. Deprecated — use 'twig sync' instead.</summary>
+    [Hidden]
     public async Task<int> Refresh(string output = OutputFormatterFactory.DefaultFormat, bool force = false, CancellationToken ct = default)
-        => await services.GetRequiredService<RefreshCommand>().ExecuteAsync(output, force, ct);
+    {
+        await Console.Error.WriteLineAsync("hint: 'twig refresh' is deprecated. Use 'twig sync' instead.");
+        return await services.GetRequiredService<RefreshCommand>().ExecuteAsync(output, force, ct);
+    }
 
     /// <summary>Show the current workspace.</summary>
     public async Task<int> Workspace(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, CancellationToken ct = default)
@@ -636,7 +648,7 @@ Usage: twig [command] [-h|--help] [--version]
 
 Getting Started:
   init                 Initialize a new Twig workspace.
-  refresh              Refresh the local cache from Azure DevOps.
+  sync                 Flush pending changes then refresh from ADO.
 
 Views:
   status               Active item detail and pending changes.
@@ -677,6 +689,7 @@ Work Items:
   seed publish --all   Publish all seeds in dependency order.
   seed reconcile       Repair stale links after partial publishes.
   save                 Push pending changes to Azure DevOps.
+  sync                 Flush pending changes then refresh from ADO.
 
 Git:
   branch               Create/checkout a branch and link it.

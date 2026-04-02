@@ -63,6 +63,7 @@ public static class CommandRegistrationModule
         services.AddSingleton<EditCommand>();
         services.AddSingleton<SaveCommand>();
         services.AddSingleton<RefreshCommand>();
+        services.AddSingleton<SyncCommand>();
         services.AddSingleton<WorkspaceCommand>();
         services.AddSingleton<ConfigCommand>();
         services.AddSingleton<ConfigStatusFieldsCommand>();
@@ -155,7 +156,7 @@ public static class CommandRegistrationModule
         services.AddSingleton<FlowDoneCommand>(sp => new FlowDoneCommand(
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IPendingChangeStore>(),
-            sp.GetRequiredService<SaveCommand>(),
+            sp.GetRequiredService<IPendingChangeFlusher>(),
             sp.GetRequiredService<IConsoleInput>(),
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<TwigConfiguration>(),

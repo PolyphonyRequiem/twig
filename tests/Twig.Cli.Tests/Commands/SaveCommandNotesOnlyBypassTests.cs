@@ -4,11 +4,8 @@ using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
-using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
-using Twig.Hints;
-using Twig.Infrastructure.Config;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
@@ -18,152 +15,13 @@ namespace Twig.Cli.Tests.Commands;
 /// of notes (no field edits), conflict resolution is bypassed and notes are appended directly
 /// to ADO via AddCommentAsync. Mirrors SaveCommandScopingTests structure.
 /// </summary>
-public sealed class SaveCommandNotesOnlyBypassTests
+public sealed class SaveCommandNotesOnlyBypassTests : SaveCommandTestBase
 {
-    private readonly IContextStore _contextStore;
-    private readonly IWorkItemRepository _workItemRepo;
-    private readonly IAdoWorkItemService _adoService;
-    private readonly IPendingChangeStore _pendingChangeStore;
-    private readonly IConsoleInput _consoleInput;
-    private readonly OutputFormatterFactory _formatterFactory;
-    private readonly ActiveItemResolver _resolver;
-
-    public SaveCommandNotesOnlyBypassTests()
-    {
-        _contextStore = Substitute.For<IContextStore>();
-        _workItemRepo = Substitute.For<IWorkItemRepository>();
-        _adoService = Substitute.For<IAdoWorkItemService>();
-        _pendingChangeStore = Substitute.For<IPendingChangeStore>();
-        _consoleInput = Substitute.For<IConsoleInput>();
-        _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
-        _resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-    }
-
-    private SaveCommand CreateCommand(TextWriter? stderr = null) =>
-        new(_workItemRepo, _adoService, _pendingChangeStore,
-            _resolver, _consoleInput, _formatterFactory, stderr: stderr);
+    public SaveCommandNotesOnlyBypassTests() { }
 
     // ═══════════════════════════════════════════════════════════════
-    //  Notes-only bypass path
+    //  Notes-only bypass path (scoping-specific variants)
     // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task NotesOnly_BypassesConflictDetection_AppendsNotesWithoutError()
-    {
-        // Arrange: item with only a note pending, remote has drifted metadata
-        var item = CreateWorkItem(1, "Title");
-        var driftedRemote = CreateDriftedRemote(1);
-        SetupDirtyItem(item);
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(driftedRemote);
-
-        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
-            .Returns(new[] { new PendingChangeRecord(1, "note", null, null, "A note") });
-
-        // Act
-        var cmd = CreateCommand();
-        var result = await cmd.ExecuteAsync(all: true);
-
-        // Assert: bypass succeeded — no conflict prompt, no patch, note pushed
-        result.ShouldBe(0);
-        await _adoService.Received().AddCommentAsync(1, "A note", Arg.Any<CancellationToken>());
-        await _adoService.DidNotReceive().PatchAsync(
-            Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
-        _consoleInput.DidNotReceive().ReadLine();
-    }
-
-    [Fact]
-    public async Task NotesOnly_MultipleNotes_EachWrittenToAdo()
-    {
-        var item = CreateWorkItem(1, "Title");
-        var remote = CreateDriftedRemote(1);
-        SetupDirtyItem(item);
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
-
-        var notes = new[]
-        {
-            new PendingChangeRecord(1, "note", null, null, "First note"),
-            new PendingChangeRecord(1, "note", null, null, "Second note"),
-            new PendingChangeRecord(1, "note", null, null, "Third note"),
-        };
-        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>()).Returns(notes);
-
-        var cmd = CreateCommand();
-        var result = await cmd.ExecuteAsync(all: true);
-
-        result.ShouldBe(0);
-        await _adoService.Received().AddCommentAsync(1, "First note", Arg.Any<CancellationToken>());
-        await _adoService.Received().AddCommentAsync(1, "Second note", Arg.Any<CancellationToken>());
-        await _adoService.Received().AddCommentAsync(1, "Third note", Arg.Any<CancellationToken>());
-        _consoleInput.DidNotReceive().ReadLine();
-    }
-
-    [Fact]
-    public async Task NotesOnly_ClearsChangesAndResyncsCacheAfterPush()
-    {
-        var item = CreateWorkItem(1, "Title");
-        var resyncedRemote = CreateWorkItem(1, "Title");
-        resyncedRemote.MarkSynced(7);
-        SetupDirtyItem(item);
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(resyncedRemote);
-
-        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
-            .Returns(new[] { new PendingChangeRecord(1, "note", null, null, "Done") });
-
-        var cmd = CreateCommand();
-        var result = await cmd.ExecuteAsync(all: true);
-
-        result.ShouldBe(0);
-        await _pendingChangeStore.Received().ClearChangesAsync(1, Arg.Any<CancellationToken>());
-        await _workItemRepo.Received().SaveAsync(
-            Arg.Is<WorkItem>(w => w.Id == 1), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task NotesOnly_NoRemoteFetchForConflictComparison()
-    {
-        // Notes-only items skip FetchAsync for conflict resolution;
-        // FetchAsync is called exactly once for post-push cache resync.
-        var item = CreateWorkItem(1, "Title");
-        var resyncRemote = CreateDriftedRemote(1);
-        SetupDirtyItem(item);
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(resyncRemote);
-
-        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
-            .Returns(new[] { new PendingChangeRecord(1, "note", null, null, "Note text") });
-
-        var cmd = CreateCommand();
-        await cmd.ExecuteAsync(all: true);
-
-        // FetchAsync called exactly once (post-push cache resync), not for conflict check
-        await _adoService.Received(1).FetchAsync(1, Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task NotesOnly_NullNewValue_NoteSkipped()
-    {
-        var item = CreateWorkItem(1, "Title");
-        var remote = CreateWorkItem(1, "Title");
-        SetupDirtyItem(item);
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
-
-        // One valid note and one with null NewValue — only the valid one should be pushed
-        var changes = new[]
-        {
-            new PendingChangeRecord(1, "note", null, null, "Valid note"),
-            new PendingChangeRecord(1, "note", null, null, null),
-        };
-        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>()).Returns(changes);
-
-        var cmd = CreateCommand();
-        var result = await cmd.ExecuteAsync(all: true);
-
-        result.ShouldBe(0);
-        await _adoService.Received(1).AddCommentAsync(1, "Valid note", Arg.Any<CancellationToken>());
-        // Null note should not generate an AddCommentAsync call
-        await _adoService.Received(1).AddCommentAsync(
-            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
-    }
 
     [Fact]
     public async Task NotesOnly_ViaExplicitTargetId_BypassesConflictDetection()

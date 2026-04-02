@@ -94,6 +94,16 @@ public sealed class SyncCommandTests : IDisposable
     private SyncCommand CreateSyncCommand(TextWriter? stderr = null) =>
         new(_flusher, CreateRefreshCommand(stderr), _formatterFactory, stderr);
 
+    private static async Task<string> CaptureStdoutAsync(Func<Task> action)
+    {
+        var stdout = new StringWriter();
+        var originalOut = Console.Out;
+        Console.SetOut(stdout);
+        try { await action(); }
+        finally { Console.SetOut(originalOut); }
+        return stdout.ToString();
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //  Happy path
     // ═══════════════════════════════════════════════════════════════
@@ -246,18 +256,8 @@ public sealed class SyncCommandTests : IDisposable
 
         var cmd = CreateSyncCommand();
 
-        var stdout = new StringWriter();
-        Console.SetOut(stdout);
-        try
-        {
-            await cmd.ExecuteAsync(outputFormat: "json");
-        }
-        finally
-        {
-            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
-        }
+        var output = await CaptureStdoutAsync(() => cmd.ExecuteAsync(outputFormat: "json"));
 
-        var output = stdout.ToString();
         output.ShouldContain("\"flush\"");
         output.ShouldContain("\"flushed\": 3");
         output.ShouldContain("\"fieldChangesPushed\": 5");
@@ -276,18 +276,8 @@ public sealed class SyncCommandTests : IDisposable
 
         var cmd = CreateSyncCommand();
 
-        var stdout = new StringWriter();
-        Console.SetOut(stdout);
-        try
-        {
-            await cmd.ExecuteAsync(outputFormat: "json");
-        }
-        finally
-        {
-            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
-        }
+        var output = await CaptureStdoutAsync(() => cmd.ExecuteAsync(outputFormat: "json"));
 
-        var output = stdout.ToString();
         output.ShouldContain("\"flush\"");
         output.ShouldNotContain("\"failures\"");
     }

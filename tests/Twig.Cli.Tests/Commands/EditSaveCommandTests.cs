@@ -33,6 +33,8 @@ public class EditSaveCommandTests
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _adoService = Substitute.For<IAdoWorkItemService>();
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
+        _pendingChangeStore.GetChangesAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
         _editorLauncher = Substitute.For<IEditorLauncher>();
         _consoleInput = Substitute.For<IConsoleInput>();
         _formatterFactory = new OutputFormatterFactory(

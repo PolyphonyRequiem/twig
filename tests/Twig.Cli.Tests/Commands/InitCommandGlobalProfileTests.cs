@@ -148,7 +148,6 @@ public class InitCommandGlobalProfileTests : IDisposable
         // Profile exists with matching hash
         var metadata = new ProfileMetadata(
             Organization: org,
-            ProcessTemplate: "Agile",
             CreatedAt: DateTimeOffset.UtcNow.AddDays(-1),
             LastSyncedAt: DateTimeOffset.UtcNow.AddDays(-1),
             FieldDefinitionHash: SampleFieldHash,
@@ -187,7 +186,6 @@ public class InitCommandGlobalProfileTests : IDisposable
         // Profile exists with a different (stale) hash
         var metadata = new ProfileMetadata(
             Organization: org,
-            ProcessTemplate: "Agile",
             CreatedAt: DateTimeOffset.UtcNow.AddDays(-7),
             LastSyncedAt: DateTimeOffset.UtcNow.AddDays(-7),
             FieldDefinitionHash: staleHash,
@@ -259,7 +257,6 @@ public class InitCommandGlobalProfileTests : IDisposable
         // Metadata exists but status-fields content is null
         var metadata = new ProfileMetadata(
             Organization: org,
-            ProcessTemplate: "Agile",
             CreatedAt: DateTimeOffset.UtcNow,
             LastSyncedAt: DateTimeOffset.UtcNow,
             FieldDefinitionHash: SampleFieldHash,
@@ -291,7 +288,7 @@ public class InitCommandGlobalProfileTests : IDisposable
         // (without this, NSubstitute returns null and the test exits at the
         // "if (metadata is not null)" check — never exercising the count guard)
         var metadata = new ProfileMetadata(
-            Organization: org, ProcessTemplate: "Agile",
+            Organization: org,
             CreatedAt: DateTimeOffset.UtcNow, LastSyncedAt: DateTimeOffset.UtcNow,
             FieldDefinitionHash: SampleFieldHash, FieldCount: SampleFieldDefs.Count);
         _globalProfileStore.LoadMetadataAsync(org, "Agile", Arg.Any<CancellationToken>())
@@ -328,7 +325,6 @@ public class InitCommandGlobalProfileTests : IDisposable
         await realProfileStore.SaveStatusFieldsAsync(org, template, SampleStatusFieldsContent);
         var metadata = new ProfileMetadata(
             Organization: org,
-            ProcessTemplate: template,
             CreatedAt: DateTimeOffset.UtcNow.AddDays(-1),
             LastSyncedAt: DateTimeOffset.UtcNow.AddDays(-1),
             FieldDefinitionHash: SampleFieldHash,

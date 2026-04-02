@@ -288,7 +288,6 @@ public sealed class RefreshCommand(
                             telemetryHashChanged = true;
                             var updated = new ProfileMetadata(
                                 existing.Organization,
-                                existing.ProcessTemplate,
                                 existing.CreatedAt,
                                 now,
                                 currentHash,

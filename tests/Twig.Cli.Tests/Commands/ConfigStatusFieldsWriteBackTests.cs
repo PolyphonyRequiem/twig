@@ -95,7 +95,6 @@ public class ConfigStatusFieldsWriteBackTests : IDisposable
 
         savedMetadata.ShouldNotBeNull();
         savedMetadata.Organization.ShouldBe("myorg");
-        savedMetadata.ProcessTemplate.ShouldBe("Agile");
         savedMetadata.FieldDefinitionHash.ShouldBe(FieldDefinitionHasher.ComputeFieldHash(definitions));
         savedMetadata.FieldCount.ShouldBe(definitions.Count);
     }
@@ -111,7 +110,7 @@ public class ConfigStatusFieldsWriteBackTests : IDisposable
             .Returns(editedContent);
 
         var originalCreatedAt = new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero);
-        var existingMeta = new ProfileMetadata("myorg", "Agile", originalCreatedAt,
+        var existingMeta = new ProfileMetadata("myorg", originalCreatedAt,
             DateTimeOffset.UtcNow.AddDays(-1), "sha256:old", 5);
         _globalProfileStore.LoadMetadataAsync("myorg", "Agile", Arg.Any<CancellationToken>())
             .Returns(existingMeta);

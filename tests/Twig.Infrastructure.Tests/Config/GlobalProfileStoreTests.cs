@@ -65,14 +65,13 @@ public class GlobalProfileStoreTests : IDisposable
     {
         var now = DateTimeOffset.UtcNow;
         var metadata = new ProfileMetadata(
-            "myorg", "Agile", now, now, "sha256:abc123", 47);
+            "myorg", now, now, "sha256:abc123", 47);
 
         await _store.SaveMetadataAsync("myorg", "Agile", metadata);
         var loaded = await _store.LoadMetadataAsync("myorg", "Agile");
 
         loaded.ShouldNotBeNull();
         loaded.Organization.ShouldBe("myorg");
-        loaded.ProcessTemplate.ShouldBe("Agile");
         loaded.CreatedAt.ShouldBe(now);
         loaded.LastSyncedAt.ShouldBe(now);
         loaded.FieldDefinitionHash.ShouldBe("sha256:abc123");
@@ -83,7 +82,7 @@ public class GlobalProfileStoreTests : IDisposable
     public async Task Metadata_SaveAndLoad_ProducesValidJson()
     {
         var metadata = new ProfileMetadata(
-            "myorg", "Scrum",
+            "myorg",
             DateTimeOffset.UtcNow, DateTimeOffset.UtcNow,
             "sha256:deadbeef", 10);
 
@@ -95,7 +94,6 @@ public class GlobalProfileStoreTests : IDisposable
         var json = await File.ReadAllTextAsync(path);
         var doc = JsonDocument.Parse(json);
         doc.RootElement.GetProperty("organization").GetString().ShouldBe("myorg");
-        doc.RootElement.GetProperty("processTemplate").GetString().ShouldBe("Scrum");
         doc.RootElement.GetProperty("fieldCount").GetInt32().ShouldBe(10);
     }
 
@@ -119,7 +117,7 @@ public class GlobalProfileStoreTests : IDisposable
         Directory.Exists(profileDir).ShouldBeFalse();
 
         var metadata = new ProfileMetadata(
-            "neworg", "CMMI",
+            "neworg",
             DateTimeOffset.UtcNow, DateTimeOffset.UtcNow,
             "sha256:000", 1);
 
@@ -204,7 +202,7 @@ public class GlobalProfileStoreTests : IDisposable
     public async Task LoadMetadataAsync_PropagatesCancellation()
     {
         var metadata = new ProfileMetadata(
-            "myorg", "Agile", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "sha256:abc", 1);
+            "myorg", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "sha256:abc", 1);
         await _store.SaveMetadataAsync("myorg", "Agile", metadata);
 
         using var cts = new CancellationTokenSource();
@@ -218,7 +216,7 @@ public class GlobalProfileStoreTests : IDisposable
     public async Task SaveMetadataAsync_PropagatesCancellation()
     {
         var metadata = new ProfileMetadata(
-            "myorg", "Agile", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "sha256:abc", 1);
+            "myorg", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "sha256:abc", 1);
 
         using var cts = new CancellationTokenSource();
         cts.Cancel();

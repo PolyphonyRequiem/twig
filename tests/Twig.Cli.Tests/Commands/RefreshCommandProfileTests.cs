@@ -122,7 +122,7 @@ public class RefreshCommandProfileTests : IDisposable
         var originalCreatedAt = DateTimeOffset.UtcNow.AddDays(-7);
         var originalSyncedAt = DateTimeOffset.UtcNow.AddHours(-1);
         var existingMetadata = new ProfileMetadata(
-            "https://dev.azure.com/org", "Agile", originalCreatedAt, originalSyncedAt,
+            "https://dev.azure.com/org", originalCreatedAt, originalSyncedAt,
             TestFieldHash, TestFields.Count);
 
         _globalProfileStore.LoadMetadataAsync(
@@ -149,7 +149,7 @@ public class RefreshCommandProfileTests : IDisposable
         var originalCreatedAt = DateTimeOffset.UtcNow.AddDays(-7);
         var oldHash = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
         var existingMetadata = new ProfileMetadata(
-            "https://dev.azure.com/org", "Agile", originalCreatedAt,
+            "https://dev.azure.com/org", originalCreatedAt,
             DateTimeOffset.UtcNow.AddHours(-1), oldHash, 2);
 
         _globalProfileStore.LoadMetadataAsync(

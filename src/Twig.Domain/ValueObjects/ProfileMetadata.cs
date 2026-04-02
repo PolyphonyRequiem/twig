@@ -6,7 +6,6 @@ namespace Twig.Domain.ValueObjects;
 /// </summary>
 public sealed record ProfileMetadata(
     string Organization,
-    string ProcessTemplate,
     DateTimeOffset CreatedAt,
     DateTimeOffset LastSyncedAt,
     string FieldDefinitionHash,

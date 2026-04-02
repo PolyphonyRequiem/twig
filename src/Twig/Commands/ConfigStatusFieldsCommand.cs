@@ -88,7 +88,6 @@ public sealed class ConfigStatusFieldsCommand(
                 var existingMeta = await globalProfileStore.LoadMetadataAsync(org, process, ct);
                 var metadata = new ProfileMetadata(
                     Organization: org,
-                    ProcessTemplate: process,
                     CreatedAt: existingMeta?.CreatedAt ?? now,
                     LastSyncedAt: now,
                     FieldDefinitionHash: hash,

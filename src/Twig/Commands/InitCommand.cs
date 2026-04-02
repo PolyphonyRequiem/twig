@@ -159,10 +159,8 @@ public sealed class InitCommand
         var iterationService = _iterationService
             ?? new AdoIterationService(_httpClient!, _authProvider!, org, project, effectiveTeam);
 
-        Console.WriteLine(fmt.FormatInfo("Detecting process template..."));
         var template = await iterationService.DetectTemplateNameAsync();
         config.ProcessTemplate = template ?? string.Empty;
-        Console.WriteLine(fmt.FormatInfo($"  Process template: {template}"));
 
         Console.WriteLine(fmt.FormatInfo("Fetching type appearances..."));
         var appearances = await iterationService.GetWorkItemTypeAppearancesAsync();

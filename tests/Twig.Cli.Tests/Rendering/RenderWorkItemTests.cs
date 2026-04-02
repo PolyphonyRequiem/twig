@@ -61,7 +61,7 @@ public class RenderWorkItemTests
     // ── Extended fields populate progressively ──────────────────────
 
     [Fact]
-    public async Task RenderWorkItemAsync_Description_RenderedWhenPresent()
+    public async Task RenderWorkItemAsync_Description_RenderedAsFullWidthSection()
     {
         var item = CreateWorkItem(1, "With Desc", "Active");
         item.SetField("System.Description", "This is a detailed description of the work item.");
@@ -69,7 +69,7 @@ public class RenderWorkItemTests
         await _renderer.RenderWorkItemAsync(() => Task.FromResult<WorkItem?>(item), false, CancellationToken.None);
 
         var output = _testConsole.Output;
-        output.ShouldContain("Description:");
+        output.ShouldContain("Description");
         output.ShouldContain("detailed description");
     }
 
@@ -108,7 +108,7 @@ public class RenderWorkItemTests
 
         var output = _testConsole.Output;
         output.ShouldContain("Plain Item");
-        output.ShouldNotContain("Description:");
+        output.ShouldNotContain("Description");
         output.ShouldNotContain("History:");
         output.ShouldNotContain("Tags:");
     }
@@ -135,7 +135,6 @@ public class RenderWorkItemTests
 
         await _renderer.RenderWorkItemAsync(() => Task.FromResult<WorkItem?>(item), false, CancellationToken.None);
 
-        // The output should contain the title but not the dirty marker in the header
         var output = _testConsole.Output;
         output.ShouldContain("Dirty Item");
         output.ShouldNotContain("✎");
@@ -155,7 +154,7 @@ public class RenderWorkItemTests
     // ── HTML stripping ──────────────────────────────────────────────
 
     [Fact]
-    public async Task RenderWorkItemAsync_HtmlDescription_StrippedCleanly()
+    public async Task RenderWorkItemAsync_HtmlDescription_RenderedWithRichMarkup()
     {
         var item = CreateWorkItem(1, "HTML Desc", "Active");
         item.SetField("System.Description", "<div>Hello <b>world</b></div>");
@@ -163,9 +162,91 @@ public class RenderWorkItemTests
         await _renderer.RenderWorkItemAsync(() => Task.FromResult<WorkItem?>(item), false, CancellationToken.None);
 
         var output = _testConsole.Output;
-        output.ShouldContain("Hello world");
+        output.ShouldContain("Hello");
+        output.ShouldContain("world");
         output.ShouldNotContain("<div>");
-        output.ShouldNotContain("<b>");
+    }
+
+    // ── Full-width description section ──────────────────────────────
+
+    [Fact]
+    public async Task RenderWorkItemAsync_DescriptionNotInGrid_NoDescriptionLabel()
+    {
+        var item = CreateWorkItem(1, "Grid Check", "Active");
+        item.SetField("System.Description", "Some description text");
+
+        await _renderer.RenderWorkItemAsync(() => Task.FromResult<WorkItem?>(item), false, CancellationToken.None);
+
+        var output = _testConsole.Output;
+        // Description should appear in a Rule section, not as a "Description:" grid label
+        output.ShouldNotContain("Description:");
+        output.ShouldContain("Description");
+        output.ShouldContain("Some description text");
+    }
+
+    [Fact]
+    public async Task RenderWorkItemAsync_EmptyDescription_NoDescriptionSection()
+    {
+        var item = CreateWorkItem(1, "Empty Desc", "Active");
+        item.SetField("System.Description", "");
+
+        await _renderer.RenderWorkItemAsync(() => Task.FromResult<WorkItem?>(item), false, CancellationToken.None);
+
+        var output = _testConsole.Output;
+        output.ShouldNotContain("Description");
+    }
+
+    [Fact]
+    public async Task RenderWorkItemAsync_HistoryAndTagsStillInGrid()
+    {
+        var item = CreateWorkItem(1, "Grid Fields", "Active");
+        item.SetField("System.History", "Latest comment");
+        item.SetField("System.Tags", "tag1; tag2");
+        item.SetField("System.Description", "Full description here");
+
+        await _renderer.RenderWorkItemAsync(() => Task.FromResult<WorkItem?>(item), false, CancellationToken.None);
+
+        var output = _testConsole.Output;
+        output.ShouldContain("History:");
+        output.ShouldContain("Latest comment");
+        output.ShouldContain("Tags:");
+        output.ShouldContain("tag1; tag2");
+        output.ShouldContain("Full description here");
+    }
+
+    [Fact]
+    public async Task RenderWorkItemAsync_Description_RenderedFullWidth()
+    {
+        var item = CreateWorkItem(1, "Full Width", "Active");
+        // Multi-line description that exceeds 200 chars total but stays under 30 lines.
+        // Words at the end prove the description is NOT truncated at the 200-char grid field limit.
+        var lines = Enumerable.Range(1, 10).Select(i => $"<p>Line {i} of the description content</p>");
+        item.SetField("System.Description", string.Concat(lines));
+
+        await _renderer.RenderWorkItemAsync(() => Task.FromResult<WorkItem?>(item), false, CancellationToken.None);
+
+        var output = _testConsole.Output;
+        output.ShouldContain("Description");
+        output.ShouldContain("Line 1");
+        // Line 10 would be past 200 chars if flattened — proves no grid-style truncation
+        output.ShouldContain("Line 10");
+        output.ShouldNotContain("more lines)");
+    }
+
+    [Fact]
+    public async Task RenderWorkItemAsync_LongDescription_TruncatedWithIndicator()
+    {
+        var item = CreateWorkItem(1, "Long Desc", "Active");
+        // 35 paragraphs exceeds MaxDescriptionLines (30)
+        var paragraphs = string.Concat(Enumerable.Range(1, 35).Select(i => $"<p>Paragraph {i} content</p>"));
+        item.SetField("System.Description", paragraphs);
+
+        await _renderer.RenderWorkItemAsync(() => Task.FromResult<WorkItem?>(item), false, CancellationToken.None);
+
+        var output = _testConsole.Output;
+        output.ShouldContain("Description");
+        output.ShouldContain("(+");
+        output.ShouldContain("more lines)");
     }
 
     // ── Truncation ──────────────────────────────────────────────────
@@ -255,7 +336,8 @@ public class RenderWorkItemTests
         await _renderer.RenderWorkItemAsync(() => Task.FromResult<WorkItem?>(item), false, CancellationToken.None);
 
         var output = _testConsole.Output;
-        output.ShouldNotContain("Description:");
+        // The Rule header "Description" should not appear for whitespace-only content
+        output.ShouldNotContain("Description");
     }
 
     // ── Assigned user shown ─────────────────────────────────────────

@@ -342,11 +342,9 @@ public class PromptStateIntegrationTests : IDisposable
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
         var flowTransitionService = new FlowTransitionService(
             flowSaveResolver, _adoService, _processConfigProvider, protectedCacheWriter);
-        var saveCmd = new SaveCommand(_workItemRepo, _pendingChangeStore,
-            new PendingChangeFlusher(_workItemRepo, _adoService, _pendingChangeStore, _consoleInput, _formatterFactory),
-            flowSaveResolver, _formatterFactory);
+        var flusher = new PendingChangeFlusher(_workItemRepo, _adoService, _pendingChangeStore, _consoleInput, _formatterFactory);
         var cmd = new FlowDoneCommand(_workItemRepo,
-            _pendingChangeStore, saveCmd, _consoleInput,
+            _pendingChangeStore, flusher, _consoleInput,
             _formatterFactory, _config,
             flowTransitionService,
             promptStateWriter: writer);
@@ -379,19 +377,16 @@ public class PromptStateIntegrationTests : IDisposable
         _adoService.PatchAsync(77, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(2);
 
-        // Use a mock writer to count calls — SaveCommand should NOT call it (skipPromptWrite: true),
-        // only FlowDoneCommand should call it once at the end.
+        // Use a mock writer to count calls — FlowDoneCommand should call it exactly once at the end.
         var mockWriter = Substitute.For<IPromptStateWriter>();
 
         var flowDoneResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
         var flowTransitionService2 = new FlowTransitionService(
             flowDoneResolver, _adoService, _processConfigProvider, protectedCacheWriter);
-        var saveCmd = new SaveCommand(_workItemRepo, _pendingChangeStore,
-            new PendingChangeFlusher(_workItemRepo, _adoService, _pendingChangeStore, _consoleInput, _formatterFactory),
-            flowDoneResolver, _formatterFactory, mockWriter);
+        var flusher2 = new PendingChangeFlusher(_workItemRepo, _adoService, _pendingChangeStore, _consoleInput, _formatterFactory);
         var cmd = new FlowDoneCommand(_workItemRepo,
-            _pendingChangeStore, saveCmd, _consoleInput,
+            _pendingChangeStore, flusher2, _consoleInput,
             _formatterFactory, _config,
             flowTransitionService2,
             promptStateWriter: mockWriter);
@@ -399,7 +394,7 @@ public class PromptStateIntegrationTests : IDisposable
         var result = await cmd.ExecuteAsync(noSave: false);
 
         result.ShouldBe(0);
-        // Exactly one call: from FlowDoneCommand. SaveCommand's call is suppressed by skipPromptWrite.
+        // Exactly one call: from FlowDoneCommand after flush + state transition.
         await mockWriter.Received(1).WritePromptStateAsync();
     }
 

@@ -25,8 +25,8 @@ public sealed class SaveCommand(
     /// <param name="targetId">When set, save only this single item.</param>
     /// <param name="all">When true, save all dirty items (legacy behavior).</param>
     /// <param name="outputFormat">Output format: human, json, or minimal.</param>
-    /// <param name="skipPromptWrite">When true, suppresses the prompt state write. Used by
-    /// <see cref="FlowDoneCommand"/> which performs its own write after state transition.</param>
+    /// <param name="skipPromptWrite">When true, suppresses the prompt state write. Useful for callers
+    /// that perform their own prompt state write after additional operations.</param>
     public async Task<int> ExecuteAsync(
         int? targetId = null,
         bool all = false,

@@ -8,13 +8,13 @@ using Twig.Infrastructure.Config;
 namespace Twig.Commands;
 
 /// <summary>
-/// Implements <c>twig flow-done</c>: saves active work tree, transitions to Resolved,
+/// Implements <c>twig flow-done</c>: flushes active work tree, transitions to Resolved,
 /// and offers PR creation if the branch is ahead of the default target.
 /// </summary>
 public sealed class FlowDoneCommand(
     IWorkItemRepository workItemRepo,
     IPendingChangeStore pendingChangeStore,
-    SaveCommand saveCommand,
+    PendingChangeFlusher pendingChangeFlusher,
     IConsoleInput consoleInput,
     OutputFormatterFactory formatterFactory,
     TwigConfiguration config,
@@ -23,7 +23,7 @@ public sealed class FlowDoneCommand(
     IAdoGitService? adoGitService = null,
     IPromptStateWriter? promptStateWriter = null)
 {
-    /// <summary>Mark a work item as done: save work tree, transition to Resolved, offer PR.</summary>
+    /// <summary>Mark a work item as done: flush work tree, transition to Resolved, offer PR.</summary>
     public async Task<int> ExecuteAsync(
         int? id = null,
         bool noSave = false,
@@ -45,34 +45,33 @@ public sealed class FlowDoneCommand(
         int targetId = item.Id;
         bool isExplicitId = resolveResult.IsExplicitId;
 
-        // 2. Save work tree (if not --no-save)
+        // 2. Flush work tree (if not --no-save)
         bool workTreeSaved = false;
         if (!noSave)
         {
-            // Check if there are dirty items to save before calling SaveCommand
             var dirtyIds = await pendingChangeStore.GetDirtyItemIdsAsync();
-            bool hasDirtyItems;
+            IReadOnlyList<int> itemsToFlush;
 
-            int saveResult;
             if (isExplicitId)
             {
-                // Explicit ID: save single item only, do NOT change active context
-                hasDirtyItems = dirtyIds.Any(d => d == targetId);
-                saveResult = await saveCommand.ExecuteAsync(targetId: targetId, all: false, outputFormat: outputFormat, skipPromptWrite: true, ct: ct);
+                // Explicit ID: flush single item only if dirty
+                itemsToFlush = dirtyIds.Contains(targetId) ? [targetId] : [];
             }
             else
             {
-                // No explicit ID: save active work tree — scope dirty check to active item + children
-                var dirtySet = new HashSet<int>(dirtyIds);
+                // No explicit ID: flush active work tree — scope to active item + children
                 var children = await workItemRepo.GetChildrenAsync(targetId);
-                hasDirtyItems = dirtySet.Contains(targetId) || children.Any(c => dirtySet.Contains(c.Id));
-                saveResult = await saveCommand.ExecuteAsync(targetId: null, all: false, outputFormat: outputFormat, skipPromptWrite: true, ct: ct);
+                var childIds = new HashSet<int>(children.Select(c => c.Id));
+                itemsToFlush = dirtyIds.Where(d => d == targetId || childIds.Contains(d)).ToList();
             }
 
-            if (saveResult != 0)
-                return saveResult;
-
-            workTreeSaved = hasDirtyItems;
+            if (itemsToFlush.Count > 0)
+            {
+                var flushResult = await pendingChangeFlusher.FlushAsync(itemsToFlush, outputFormat, ct);
+                if (flushResult.Failures.Count > 0)
+                    return 1;
+                workTreeSaved = true;
+            }
         }
 
         // 3. Transition state via FlowTransitionService: InProgress → Resolved (or Completed fallback)

@@ -20,7 +20,7 @@ public class FlowDoneCommandTests
     private readonly IContextStore _contextStore;
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IProcessConfigurationProvider _processConfigProvider;
-    private readonly SaveCommand _saveCommand;
+    private readonly PendingChangeFlusher _pendingChangeFlusher;
     private readonly IConsoleInput _consoleInput;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly TwigConfiguration _config;
@@ -58,13 +58,11 @@ public class FlowDoneCommandTests
         // Default: no pending changes, no dirty items
         _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());
 
-        _saveCommand = new SaveCommand(_workItemRepo, _pendingChangeStore,
-            new PendingChangeFlusher(_workItemRepo, _adoService, _pendingChangeStore, _consoleInput, _formatterFactory),
-            activeItemResolver, _formatterFactory);
+        _pendingChangeFlusher = new PendingChangeFlusher(_workItemRepo, _adoService, _pendingChangeStore, _consoleInput, _formatterFactory);
     }
 
     private FlowDoneCommand CreateCommand(IGitService? gitService = null, IAdoGitService? adoGitService = null) =>
-        new(_workItemRepo, _pendingChangeStore, _saveCommand, _consoleInput, _formatterFactory, _config,
+        new(_workItemRepo, _pendingChangeStore, _pendingChangeFlusher, _consoleInput, _formatterFactory, _config,
             _flowTransitionService, gitService, adoGitService);
 
     private static WorkItem CreateWorkItem(int id, string title, string state) => new()
@@ -117,7 +115,7 @@ public class FlowDoneCommandTests
         var result = await cmd.ExecuteAsync(noSave: true);
 
         result.ShouldBe(0);
-        // SaveCommand should not have been invoked — GetChangesAsync is SaveCommand-specific
+        // --no-save: flusher should never query for individual item changes
         await _pendingChangeStore.DidNotReceive().GetChangesAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
@@ -418,7 +416,7 @@ public class FlowDoneCommandTests
 
         var cmd = new FlowDoneCommand(
             _workItemRepo, _pendingChangeStore,
-            _saveCommand, _consoleInput, _formatterFactory, configNoPr,
+            _pendingChangeFlusher, _consoleInput, _formatterFactory, configNoPr,
             _flowTransitionService,
             _gitService, _adoGitService);
         var result = await cmd.ExecuteAsync(noSave: true);

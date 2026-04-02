@@ -420,7 +420,7 @@ public class RefreshDirtyGuardTests : IDisposable
         output.ShouldContain("#1");
         output.ShouldContain("local rev 3");
         output.ShouldContain("remote rev 7");
-        output.ShouldContain("twig save");
+        output.ShouldContain("twig sync");
 
         // Protected item not saved
         await _workItemRepo.DidNotReceive().SaveBatchAsync(

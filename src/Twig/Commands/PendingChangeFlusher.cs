@@ -22,19 +22,9 @@ public sealed class PendingChangeFlusher(
     IPendingChangeStore pendingChangeStore,
     IConsoleInput consoleInput,
     OutputFormatterFactory formatterFactory,
-    TextWriter? stderr = null)
+    TextWriter? stderr = null) : IPendingChangeFlusher
 {
     private readonly TextWriter _stderr = stderr ?? Console.Error;
-
-    /// <summary>Structured result of a flush operation.</summary>
-    public sealed record FlushResult(
-        int ItemsFlushed,
-        int FieldChangesPushed,
-        int NotesPushed,
-        IReadOnlyList<FlushItemFailure> Failures);
-
-    /// <summary>Per-item failure detail for callers to render.</summary>
-    public sealed record FlushItemFailure(int ItemId, string Error);
 
     /// <summary>
     /// Flushes pending changes for the specified item IDs.

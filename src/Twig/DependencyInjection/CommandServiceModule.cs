@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Twig.Commands;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
+using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
 
@@ -100,6 +101,14 @@ public static class CommandServiceModule
             sp.GetRequiredService<ActiveItemResolver>(),
             sp.GetRequiredService<WorkingSetService>(),
             sp.GetRequiredService<SyncCoordinator>()));
+
+        // PendingChangeFlusher — extracted flush loop for SaveCommand, SyncCommand, FlowDoneCommand
+        services.AddSingleton<IPendingChangeFlusher>(sp => new PendingChangeFlusher(
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IPendingChangeStore>(),
+            sp.GetRequiredService<IConsoleInput>(),
+            sp.GetRequiredService<OutputFormatterFactory>()));
 
         return services;
     }

@@ -471,6 +471,10 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> Save([Argument] int? id = null, bool all = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SaveCommand>().ExecuteAsync(id, all, output, ct: ct);
 
+    /// <summary>Flush pending changes then refresh the local cache.</summary>
+    public async Task<int> Sync(string output = OutputFormatterFactory.DefaultFormat, bool force = false, CancellationToken ct = default)
+        => await services.GetRequiredService<SyncCommand>().ExecuteAsync(output, force, ct);
+
     /// <summary>Refresh the local cache from Azure DevOps.</summary>
     public async Task<int> Refresh(string output = OutputFormatterFactory.DefaultFormat, bool force = false, CancellationToken ct = default)
         => await services.GetRequiredService<RefreshCommand>().ExecuteAsync(output, force, ct);
@@ -677,6 +681,7 @@ Work Items:
   seed publish --all   Publish all seeds in dependency order.
   seed reconcile       Repair stale links after partial publishes.
   save                 Push pending changes to Azure DevOps.
+  sync                 Flush pending changes then refresh from ADO.
 
 Git:
   branch               Create/checkout a branch and link it.

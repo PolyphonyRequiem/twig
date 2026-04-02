@@ -318,7 +318,7 @@ public class SelfUpdaterTests : IDisposable
         fileSystem.FileExists(Arg.Is<string>(s => s.EndsWith(".old"))).Returns(false);
 
         // Throw UnauthorizedAccessException on FileMove (the critical operation)
-        fileSystem.When(x => x.FileMove(Arg.Any<string>(), Arg.Any<string>()))
+        fileSystem.When(x => x.FileMove(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<bool>()))
             .Do(_ => throw new UnauthorizedAccessException("Access to the path is denied."));
 
         var downloader = new FakeDownloader(zipBytes);
@@ -350,11 +350,6 @@ public class SelfUpdaterTests : IDisposable
 
         var fileSystem = Substitute.For<IFileSystem>();
 
-        // .old file exists and is locked
-        fileSystem.FileExists(Arg.Is<string>(s => s.EndsWith(".old"))).Returns(true);
-        fileSystem.When(x => x.FileDelete(Arg.Is<string>(s => s.EndsWith(".old"))))
-            .Do(_ => throw new IOException("The process cannot access the file because it is being used by another process."));
-
         // All other FS operations work normally
         fileSystem.When(x => x.CreateDirectory(Arg.Any<string>()))
             .Do(ci => Directory.CreateDirectory((string)ci[0]));
@@ -362,20 +357,19 @@ public class SelfUpdaterTests : IDisposable
             .Do(ci => ZipFile.ExtractToDirectory((string)ci[0], (string)ci[1], (bool)ci[2]));
         fileSystem.EnumerateFiles(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<SearchOption>())
             .Returns(ci => Directory.EnumerateFiles((string)ci[0], (string)ci[1], (SearchOption)ci[2]));
-        // FileMove and FileCopy succeed (mocked as no-ops — we're testing the .old file lock behavior)
-        fileSystem.When(x => x.FileDelete(Arg.Is<string>(s => !s.EndsWith(".old"))))
+        fileSystem.When(x => x.FileDelete(Arg.Any<string>()))
             .Do(_ => { });
 
         var downloader = new FakeDownloader(zipBytes);
         var sut = new SelfUpdater(downloader, fileSystem, currentExe);
 
-        // Act — should succeed despite the locked .old file
+        // Act — should succeed using FileMove with overwrite: true
         var result = await sut.UpdateBinaryAsync("https://example.com/dl.zip", "twig-win-x64.zip");
 
         // Assert
         result.ShouldBe(currentExe);
-        // Verify the move and copy were still called (update proceeded past the locked .old file)
-        fileSystem.Received().FileMove(currentExe, currentExe + ".old");
+        // Verify the move was called with overwrite: true
+        fileSystem.Received().FileMove(currentExe, currentExe + ".old", true);
         fileSystem.Received().FileCopy(Arg.Any<string>(), currentExe, true);
     }
 

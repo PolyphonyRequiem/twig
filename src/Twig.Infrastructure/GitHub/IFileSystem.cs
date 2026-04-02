@@ -7,7 +7,7 @@ internal interface IFileSystem
 {
     bool FileExists(string path);
     void FileDelete(string path);
-    void FileMove(string source, string destination);
+    void FileMove(string source, string destination, bool overwrite = false);
     void FileCopy(string source, string destination, bool overwrite);
     Stream FileCreate(string path);
     Stream FileOpenRead(string path);
@@ -25,7 +25,7 @@ internal sealed class DefaultFileSystem : IFileSystem
 {
     public bool FileExists(string path) => File.Exists(path);
     public void FileDelete(string path) => File.Delete(path);
-    public void FileMove(string source, string destination) => File.Move(source, destination);
+    public void FileMove(string source, string destination, bool overwrite = false) => File.Move(source, destination, overwrite);
     public void FileCopy(string source, string destination, bool overwrite) => File.Copy(source, destination, overwrite);
     public Stream FileCreate(string path) => File.Create(path);
     public Stream FileOpenRead(string path) => File.OpenRead(path);

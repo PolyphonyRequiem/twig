@@ -77,15 +77,7 @@ public sealed class SelfUpdater
             {
                 // Windows file-lock strategy: rename running exe → .old, copy new exe
                 var oldPath = currentExe + ".old";
-                try
-                {
-                    if (_fileSystem.FileExists(oldPath)) _fileSystem.FileDelete(oldPath);
-                }
-                catch
-                {
-                    // Best-effort: .old file may be locked from a previous update — proceed anyway.
-                }
-                _fileSystem.FileMove(currentExe, oldPath);
+                _fileSystem.FileMove(currentExe, oldPath, overwrite: true);
                 _fileSystem.FileCopy(extractedBinary, currentExe, overwrite: true);
             }
             else

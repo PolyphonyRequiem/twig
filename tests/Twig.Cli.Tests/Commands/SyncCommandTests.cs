@@ -1,4 +1,6 @@
+using System.Net.Http;
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
@@ -283,31 +285,6 @@ public sealed class SyncCommandTests : IDisposable
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  Edge case: all failures, zero flushed
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task Sync_AllFlushFailed_ReturnsNonZero_StillRefreshes()
-    {
-        var failures = new List<FlushItemFailure>
-        {
-            new(1, "Error 1"),
-            new(2, "Error 2"),
-            new(3, "Error 3")
-        };
-        _flusher.FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(new FlushResult(0, 0, 0, failures));
-
-        var stderr = new StringWriter();
-        var cmd = CreateSyncCommand(stderr);
-        var result = await cmd.ExecuteAsync();
-
-        result.ShouldBe(1);
-        // Refresh was still attempted
-        await _adoService.Received(1).QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
-    }
-
-    // ═══════════════════════════════════════════════════════════════
     //  Output format passthrough
     // ═══════════════════════════════════════════════════════════════
 
@@ -321,5 +298,138 @@ public sealed class SyncCommandTests : IDisposable
         await cmd.ExecuteAsync(outputFormat: "json");
 
         await _flusher.Received(1).FlushAllAsync("json", Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Flush-all verification (FlushAllAsync, not FlushAsync)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Sync_AlwaysCallsFlushAllAsync_NotFlushAsync()
+    {
+        _flusher.FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new FlushResult(0, 0, 0, []));
+
+        var cmd = CreateSyncCommand();
+        await cmd.ExecuteAsync();
+
+        await _flusher.Received(1).FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _flusher.DidNotReceive().FlushAsync(
+            Arg.Any<IReadOnlyList<int>>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Flush throws exception
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Sync_FlushThrows_RefreshNotCalled()
+    {
+        _flusher.FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("Push failed"));
+
+        var cmd = CreateSyncCommand();
+
+        await Should.ThrowAsync<InvalidOperationException>(() => cmd.ExecuteAsync());
+
+        // Refresh was never reached because flush threw
+        await _adoService.DidNotReceive().QueryByWiqlAsync(
+            Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Fetch failure after flush
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Sync_RefreshThrows_ExceptionPropagatesAfterSuccessfulFlush()
+    {
+        _flusher.FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new FlushResult(1, 2, 0, []));
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("ADO query failed"));
+
+        var cmd = CreateSyncCommand();
+
+        await Should.ThrowAsync<InvalidOperationException>(() => cmd.ExecuteAsync());
+
+        // Flush was called before the exception
+        await _flusher.Received(1).FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Both flush and fetch fail
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Sync_FlushFailuresAndRefreshThrows_FlushErrorsWrittenBeforeRefreshException()
+    {
+        var failures = new List<FlushItemFailure> { new(42, "Auth expired") };
+        _flusher.FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new FlushResult(0, 0, 0, failures));
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("ADO query failed"));
+
+        var stderr = new StringWriter();
+        var cmd = CreateSyncCommand(stderr);
+
+        await Should.ThrowAsync<InvalidOperationException>(() => cmd.ExecuteAsync());
+
+        // Flush errors were still written to stderr before the refresh exception
+        var output = stderr.ToString();
+        output.ShouldContain("#42");
+        output.ShouldContain("Auth expired");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Offline fallback (HttpRequestException)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Sync_OfflineDuringFlush_HttpRequestExceptionPropagates()
+    {
+        _flusher.FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("Network unreachable"));
+
+        var cmd = CreateSyncCommand();
+
+        var ex = await Should.ThrowAsync<HttpRequestException>(() => cmd.ExecuteAsync());
+        ex.Message.ShouldContain("Network unreachable");
+    }
+
+    [Fact]
+    public async Task Sync_OfflineDuringRefresh_HttpRequestExceptionPropagatesAfterFlush()
+    {
+        _flusher.FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new FlushResult(0, 0, 0, []));
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("Connection refused"));
+
+        var cmd = CreateSyncCommand();
+
+        var ex = await Should.ThrowAsync<HttpRequestException>(() => cmd.ExecuteAsync());
+        ex.Message.ShouldContain("Connection refused");
+
+        // Flush was still called successfully before the offline error
+        await _flusher.Received(1).FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Sync_OfflineDuringRefresh_FlushErrorsStillVisible()
+    {
+        var failures = new List<FlushItemFailure> { new(10, "Partial push failed") };
+        _flusher.FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new FlushResult(1, 1, 0, failures));
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("Service unavailable"));
+
+        var stderr = new StringWriter();
+        var cmd = CreateSyncCommand(stderr);
+
+        await Should.ThrowAsync<HttpRequestException>(() => cmd.ExecuteAsync());
+
+        // Flush errors were logged to stderr even though refresh also failed
+        stderr.ToString().ShouldContain("#10");
+        stderr.ToString().ShouldContain("Partial push failed");
     }
 }

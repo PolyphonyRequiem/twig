@@ -542,19 +542,19 @@ public class EditSaveCommandTests
     }
 
     [Fact]
-    public async Task Edit_NonSeed_PushFails_FallsBackToStaging()
+    public async Task Edit_NonSeed_PushFails_FallsBackToStagingWithWarning()
     {
         var item = CreateWorkItem(1, "Title");
         SetupActiveItem(item);
 
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>())
-            .ThrowsAsync(new Exception("network error"));
+            .ThrowsAsync(new HttpRequestException("network error"));
 
         _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns("Title: Changed Title\nState: New\nAssignedTo: \n");
 
         var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _adoService, _consoleInput, _editorLauncher, _formatterFactory, _hintEngine);
-        var result = await editCmd.ExecuteAsync();
+        var (result, stderr) = await StderrCapture.RunAsync(() => editCmd.ExecuteAsync());
 
         result.ShouldBe(0);
         // Should fall back to staging
@@ -562,6 +562,7 @@ public class EditSaveCommandTests
             1, "field", "System.Title", "Title", "Changed Title", Arg.Any<CancellationToken>());
         await _workItemRepo.Received().SaveAsync(
             Arg.Is<WorkItem>(w => w.Id == 1), Arg.Any<CancellationToken>());
+        stderr.ShouldContain("staged locally");
     }
 
     [Fact]
@@ -588,7 +589,7 @@ public class EditSaveCommandTests
             .Returns("Title: New Title\nState: New\nAssignedTo: \n");
 
         var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _adoService, _consoleInput, _editorLauncher, _formatterFactory, _hintEngine);
-        var result = await editCmd.ExecuteAsync();
+        var (result, stderr) = await StderrCapture.RunAsync(() => editCmd.ExecuteAsync());
 
         // DD-8: Push succeeded, resync failed — return success
         result.ShouldBe(0);
@@ -598,6 +599,7 @@ public class EditSaveCommandTests
         await _pendingChangeStore.DidNotReceive().AddChangeAsync(
             Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string?>(),
             Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+        stderr.ShouldContain("cache may be stale");
     }
 
     [Fact]
@@ -703,7 +705,7 @@ public class EditSaveCommandTests
             .Returns("Title: Updated Title\nState: New\nAssignedTo: \n");
 
         var editCmd = new EditCommand(_resolver, _workItemRepo, _pendingChangeStore, _adoService, _consoleInput, _editorLauncher, _formatterFactory, _hintEngine);
-        var result = await editCmd.ExecuteAsync();
+        var (result, stderr) = await StderrCapture.RunAsync(() => editCmd.ExecuteAsync());
 
         result.ShouldBe(0);
         // Fields were already pushed — must NOT stage locally (NFR-2)
@@ -713,6 +715,7 @@ public class EditSaveCommandTests
         // PatchAsync was called (fields pushed successfully)
         await _adoService.Received().PatchAsync(1,
             Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        stderr.ShouldContain("Note push failed");
     }
 
     private void SetupActiveItem(WorkItem item)

@@ -151,7 +151,7 @@ public class NoteCommandTests
         _adoService.AddCommentAsync(10, "Offline note", Arg.Any<CancellationToken>())
             .Returns(Task.FromException(new HttpRequestException("Network error")));
 
-        var (result, stderr) = await RunCapturingStderrAsync(() => _cmd.ExecuteAsync("Offline note"));
+        var (result, stderr) = await StderrCapture.RunAsync(() => _cmd.ExecuteAsync("Offline note"));
 
         result.ShouldBe(0);
         await _pendingChangeStore.Received(1).AddChangeAsync(
@@ -167,7 +167,7 @@ public class NoteCommandTests
         _adoService.FetchAsync(20, Arg.Any<CancellationToken>())
             .ThrowsAsync(new HttpRequestException("Timeout"));
 
-        var (result, stderr) = await RunCapturingStderrAsync(() => _cmd.ExecuteAsync("Resync fail note"));
+        var (result, stderr) = await StderrCapture.RunAsync(() => _cmd.ExecuteAsync("Resync fail note"));
 
         result.ShouldBe(0);
         await _adoService.Received(1).AddCommentAsync(20, "Resync fail note", Arg.Any<CancellationToken>());
@@ -181,14 +181,6 @@ public class NoteCommandTests
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(item.Id);
         _workItemRepo.GetByIdAsync(item.Id, Arg.Any<CancellationToken>()).Returns(item);
-    }
-
-    private static async Task<(int result, string stderr)> RunCapturingStderrAsync(Func<Task<int>> action)
-    {
-        var sw = new StringWriter();
-        Console.SetError(sw);
-        try { return (await action(), sw.ToString()); }
-        finally { Console.SetError(new StreamWriter(Console.OpenStandardError()) { AutoFlush = true }); }
     }
 
     private static WorkItem CreateWorkItem(int id, string title, bool isSeed = true)

@@ -145,16 +145,17 @@ public class DiscardCommandTests
     //  Single-item flow: confirmation accepted
     // ═══════════════════════════════════════════════════════════════
 
-    [Fact]
-    public async Task Execute_Single_ConfirmAccepted_DiscardsChanges()
+    [Theory]
+    [InlineData("y")]
+    [InlineData("Y")]
+    public async Task Execute_Single_ConfirmAccepted_DiscardsChanges(string response)
     {
         var item = new WorkItemBuilder(42, "Dirty Item").Dirty().Build();
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
-        _pendingChangeStore.GetChangeSummaryAsync(42, Arg.Any<CancellationToken>()).Returns((2, 3));
-        _consoleInput.ReadLine().Returns("y");
+        _pendingChangeStore.GetChangeSummaryAsync(42, Arg.Any<CancellationToken>()).Returns((1, 0));
+        _consoleInput.ReadLine().Returns(response);
 
-        var writer = new StringWriter();
-        Console.SetOut(writer);
+        Console.SetOut(new StringWriter());
 
         var result = await _cmd.ExecuteAsync(id: 42);
 
@@ -164,31 +165,20 @@ public class DiscardCommandTests
         await _promptStateWriter.Received().WritePromptStateAsync();
     }
 
-    [Fact]
-    public async Task Execute_Single_ConfirmAccepted_CaseInsensitiveY()
-    {
-        var item = new WorkItemBuilder(42, "Dirty Item").Dirty().Build();
-        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
-        _pendingChangeStore.GetChangeSummaryAsync(42, Arg.Any<CancellationToken>()).Returns((1, 0));
-        _consoleInput.ReadLine().Returns("Y");
-
-        var result = await _cmd.ExecuteAsync(id: 42);
-
-        result.ShouldBe(0);
-        await _pendingChangeStore.Received().ClearChangesAsync(42, Arg.Any<CancellationToken>());
-    }
-
     // ═══════════════════════════════════════════════════════════════
     //  Single-item flow: confirmation rejected
     // ═══════════════════════════════════════════════════════════════
 
-    [Fact]
-    public async Task Execute_Single_ConfirmRejected_DoesNotDiscard()
+    [Theory]
+    [InlineData("n")]
+    [InlineData("")]
+    [InlineData(null)]
+    public async Task Execute_Single_ConfirmRejected_DoesNotDiscard(string? response)
     {
         var item = new WorkItemBuilder(42, "Keep Me").Dirty().Build();
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
-        _pendingChangeStore.GetChangeSummaryAsync(42, Arg.Any<CancellationToken>()).Returns((1, 1));
-        _consoleInput.ReadLine().Returns("n");
+        _pendingChangeStore.GetChangeSummaryAsync(42, Arg.Any<CancellationToken>()).Returns((1, 0));
+        _consoleInput.ReadLine().Returns(response);
 
         var writer = new StringWriter();
         Console.SetOut(writer);
@@ -199,34 +189,7 @@ public class DiscardCommandTests
         writer.ToString().ShouldContain("cancelled");
         await _pendingChangeStore.DidNotReceive().ClearChangesAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
         await _workItemRepo.DidNotReceive().ClearDirtyFlagAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task Execute_Single_EmptyResponse_DoesNotDiscard()
-    {
-        var item = new WorkItemBuilder(42, "Keep Me").Dirty().Build();
-        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
-        _pendingChangeStore.GetChangeSummaryAsync(42, Arg.Any<CancellationToken>()).Returns((1, 0));
-        _consoleInput.ReadLine().Returns("");
-
-        var result = await _cmd.ExecuteAsync(id: 42);
-
-        result.ShouldBe(0);
-        await _pendingChangeStore.DidNotReceive().ClearChangesAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task Execute_Single_NullResponse_DoesNotDiscard()
-    {
-        var item = new WorkItemBuilder(42, "Keep Me").Dirty().Build();
-        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
-        _pendingChangeStore.GetChangeSummaryAsync(42, Arg.Any<CancellationToken>()).Returns((0, 1));
-        _consoleInput.ReadLine().Returns((string?)null);
-
-        var result = await _cmd.ExecuteAsync(id: 42);
-
-        result.ShouldBe(0);
-        await _pendingChangeStore.DidNotReceive().ClearChangesAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _promptStateWriter.DidNotReceive().WritePromptStateAsync();
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -488,23 +451,8 @@ public class DiscardCommandTests
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  DD-9: Prompt state writer NOT called on cancel/error
+    //  DD-9: Prompt state writer NOT called on error
     // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task Execute_Single_ConfirmRejected_NoPromptStateWrite()
-    {
-        var item = new WorkItemBuilder(42, "Keep Me").Dirty().Build();
-        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
-        _pendingChangeStore.GetChangeSummaryAsync(42, Arg.Any<CancellationToken>()).Returns((1, 0));
-        _consoleInput.ReadLine().Returns("n");
-
-        // Suppress stdout
-        Console.SetOut(new StringWriter());
-        await _cmd.ExecuteAsync(id: 42);
-
-        await _promptStateWriter.DidNotReceive().WritePromptStateAsync();
-    }
 
     [Fact]
     public async Task Execute_Error_NoPromptStateWrite()

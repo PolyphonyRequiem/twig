@@ -27,7 +27,8 @@ public class TelemetryClientTests
         "merge_needed",
         "field_count",
         "item_count",
-        "hash_changed"
+        "hash_changed",
+        "used_all"
     };
 
     /// <summary>
@@ -37,6 +38,8 @@ public class TelemetryClientTests
     [
         "org", "project", "user", "type", "name", "path", "template", "field"
     ];
+
+    private static readonly Regex KeyPattern = new(@"\[""(\w+)""\]\s*=", RegexOptions.Compiled);
 
     [Fact]
     public void TrackEvent_WhenNoEnvVars_IsNoOp()
@@ -242,6 +245,7 @@ public class TelemetryClientTests
     [InlineData("field_count")]
     [InlineData("item_count")]
     [InlineData("hash_changed")]
+    [InlineData("used_all")]
     public void AllowlistTest_SafeKeys_AreAccepted(string key)
     {
         SafePropertyKeys.Contains(key).ShouldBeTrue($"Key '{key}' should be in the safe allowlist");
@@ -277,92 +281,61 @@ public class TelemetryClientTests
     }
 
     [Fact]
-    public void AllowlistTest_AllSafeKeys_AreExplicitlyApproved()
-    {
-        // Verify the allowlist is non-empty and contains all expected keys
-        SafePropertyKeys.Count.ShouldBeGreaterThan(0);
-        SafePropertyKeys.ShouldContain("command");
-        SafePropertyKeys.ShouldContain("duration_ms");
-        SafePropertyKeys.ShouldContain("exit_code");
-        SafePropertyKeys.ShouldContain("output_format");
-        SafePropertyKeys.ShouldContain("twig_version");
-        SafePropertyKeys.ShouldContain("os_platform");
-    }
-
-    [Fact]
-    public void AllowlistTest_UnknownKeys_WithForbiddenSubstrings_AreRejected()
-    {
-        // Keys NOT in the allowlist that contain forbidden substrings should be rejected.
-        // The allowlist is the definitive authority — keys like "field_count" are pre-approved
-        // even though they contain "field". This test catches NEW keys that leak identifiers.
-        var unknownKeys = new[]
-        {
-            "organization", "org_name", "project_name", "project",
-            "user_name", "username", "work_item_type", "type_name",
-            "display_name", "area_path", "iteration_path",
-            "template_name", "process_template", "field_name", "field_reference"
-        };
-
-        foreach (var key in unknownKeys)
-        {
-            SafePropertyKeys.Contains(key).ShouldBeFalse(
-                $"Unsafe key '{key}' must NOT be in the safe allowlist");
-
-            var containsForbidden = ForbiddenKeySubstrings.Any(s =>
-                key.Contains(s, StringComparison.OrdinalIgnoreCase));
-            containsForbidden.ShouldBeTrue(
-                $"Key '{key}' should contain a forbidden substring");
-        }
-    }
-
-    [Fact]
     public void AllowlistTest_AllCommandCallSites_UseOnlySafeKeys()
     {
         // Source-scanning test: reads command source files and extracts all dictionary keys
         // from TrackEvent calls to verify they are in the safe allowlist. This closes the gap
         // between "the allowlist is correct" and "all call sites respect the allowlist".
-        var dir = AppContext.BaseDirectory;
-        while (dir is not null && !File.Exists(Path.Combine(dir, "Twig.slnx")))
-            dir = Path.GetDirectoryName(dir);
-
-        if (dir is null) return; // Solution root not found — skip gracefully (e.g., packaged test run)
+        var dir = FindSolutionRoot();
+        if (dir is null) return;
 
         var commandsDir = Path.Combine(dir, "src", "Twig", "Commands");
-        if (!Directory.Exists(commandsDir)) return; // Commands directory not found — skip gracefully
+        if (!Directory.Exists(commandsDir)) return;
 
-        var keyPattern = new Regex(@"\[""(\w+)""\]\s*=", RegexOptions.Compiled);
         var violations = new List<string>();
-
         foreach (var file in Directory.GetFiles(commandsDir, "*Command.cs"))
         {
             var content = File.ReadAllText(file);
             var trackIdx = content.IndexOf(".TrackEvent(", StringComparison.Ordinal);
             if (trackIdx < 0) continue;
 
-            // Find the matching closing paren for the TrackEvent call
-            var depth = 0;
-            var end = trackIdx;
-            for (var i = trackIdx; i < content.Length; i++)
-            {
-                if (content[i] == '(') depth++;
-                if (content[i] == ')') depth--;
-                if (depth == 0 && i > trackIdx) { end = i; break; }
-            }
-
-            var callBlock = content[trackIdx..Math.Min(end + 1, content.Length)];
-            foreach (Match match in keyPattern.Matches(callBlock))
+            var callBlock = content[trackIdx..(FindCallEnd(content, trackIdx) + 1)];
+            foreach (Match match in KeyPattern.Matches(callBlock))
             {
                 var key = match.Groups[1].Value;
                 if (!SafePropertyKeys.Contains(key))
-                {
                     violations.Add($"{Path.GetFileName(file)}: key '{key}' is not in the telemetry allowlist");
-                }
             }
         }
 
         violations.ShouldBeEmpty(
             "Found telemetry keys not present in the safe allowlist:\n" +
             string.Join("\n", violations));
+    }
+
+    [Fact]
+    public void AllowlistTest_Scanner_ExtractsAtLeastOneKey()
+    {
+        // Regression test: verifies the paren-matching scanner actually extracts keys
+        // from a known command file. Prevents the scanner from silently becoming a no-op.
+        var dir = FindSolutionRoot();
+        if (dir is null) return;
+
+        var discardFile = Path.Combine(dir, "src", "Twig", "Commands", "DiscardCommand.cs");
+        if (!File.Exists(discardFile)) return;
+
+        var content = File.ReadAllText(discardFile);
+        var trackIdx = content.IndexOf(".TrackEvent(", StringComparison.Ordinal);
+        trackIdx.ShouldBeGreaterThan(-1, "DiscardCommand.cs should contain a .TrackEvent( call");
+
+        var end = FindCallEnd(content, trackIdx);
+        var callBlock = content[trackIdx..(end + 1)];
+        callBlock.Length.ShouldBeGreaterThan(20, "callBlock should span the full TrackEvent call, not just '.T'");
+
+        var keys = KeyPattern.Matches(callBlock).Select(m => m.Groups[1].Value).ToList();
+        keys.Count.ShouldBeGreaterThan(0, "Scanner should extract at least one key from DiscardCommand.cs");
+        keys.ShouldContain("command");
+        keys.ShouldContain("used_all");
     }
 
     [Fact]
@@ -387,6 +360,27 @@ public class TelemetryClientTests
         // Assert — the injected HttpClient should still be usable (not disposed)
         // If it were disposed, this would throw ObjectDisposedException
         httpClient.Timeout.ShouldBe(TimeSpan.FromSeconds(5));
+    }
+
+    private static string? FindSolutionRoot()
+    {
+        var dir = AppContext.BaseDirectory;
+        while (dir is not null && !File.Exists(Path.Combine(dir, "Twig.slnx")))
+            dir = Path.GetDirectoryName(dir);
+        return dir;
+    }
+
+    private static int FindCallEnd(string content, int startIdx)
+    {
+        var depth = 0;
+        var entered = false;
+        for (var i = startIdx; i < content.Length; i++)
+        {
+            if (content[i] == '(') { depth++; entered = true; }
+            if (content[i] == ')') depth--;
+            if (entered && depth == 0) return i;
+        }
+        return startIdx;
     }
 
     /// <summary>

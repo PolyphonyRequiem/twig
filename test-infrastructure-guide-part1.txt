@@ -1,0 +1,93 @@
+# TWIG2 TEST PATTERNS AND INFRASTRUCTURE - COMPREHENSIVE REFERENCE
+
+## 1. TEST PROJECT STRUCTURE
+
+### 1.1 Project Files (.csproj)
+
+**Twig.Cli.Tests.csproj** (Main CLI Tests)
+- Uses: xunit, NSubstitute, Shouldly, Spectre.Console.Testing
+- References: Twig.csproj, Twig.TestKit.csproj
+
+**Twig.Infrastructure.Tests.csproj** (Database/Persistence Tests)
+- Uses: xunit, NSubstitute, Shouldly, Microsoft.Data.Sqlite, SQLitePCLRaw.bundle_e_sqlite3
+- References: Twig.Infrastructure.csproj, Twig.TestKit.csproj
+
+**Twig.Domain.Tests.csproj** (Domain Logic Tests)
+- Uses: xunit, NSubstitute, Shouldly
+- References: Twig.Domain.csproj, Twig.TestKit.csproj
+
+**Twig.Tui.Tests.csproj** (Terminal UI Tests)
+- Uses: xunit, NSubstitute, Shouldly
+- References: Twig.Tui.csproj, Twig.TestKit.csproj
+
+**Twig.TestKit.csproj** (Shared Test Utilities)
+- No test references (used as dependency)
+- References: Twig.Domain.csproj
+
+---
+
+## 2. FLUENT BUILDERS (Twig.TestKit)
+
+### 2.1 WorkItemBuilder
+Fluent builder for creating WorkItem test fixtures with sensible defaults.
+
+Key methods:
+- AsType()/AsTask/AsUserStory/AsFeature/AsEpic/AsBug/AsProductBacklogItem/AsRequirement/AsIssue
+- InState(string state)
+- WithParent(int parentId)
+- AssignedTo(string? assignee)
+- WithIterationPath(string path)
+- WithAreaPath(string path)
+- AsSeed(int daysOld = 0) - creates seed item
+- LastSyncedAt(DateTimeOffset? value)
+- Dirty() - marks item as dirty
+- WithField(string key, string? value)
+- WithFields(IEnumerable<KeyValuePair<string, string?>>)
+- Build() - returns WorkItem
+
+Factory: WorkItemBuilder.Simple(int id, string title)
+
+### 2.2 ProcessConfigBuilder
+Fluent builder for process templates with state categories.
+
+Factory methods for standard templates:
+- Agile() - Full Agile (Epic→Feature→UserStory/Bug→Task)
+- AgileUserStoryOnly() - Minimal Agile (UserStory→Task)
+- Scrum() - Full Scrum (Epic→Feature→ProductBacklogItem/Bug→Task)
+- Basic() - Basic (Epic→Issue→Task)
+- Cmmi() - CMMI (Epic→Feature→Requirement→Task, Bug→Task)
+
+Custom methods:
+- AddType(string typeName, StateEntry[] states, params string[] childTypes)
+- AddType(string typeName, string[] states, params string[] childTypes)
+- Build() - returns ProcessConfiguration
+
+Helper: S(params (string Name, StateCategory Category)[] entries)
+
+### 2.3 WorkspaceBuilder
+Fluent builder for workspace read models.
+
+Methods:
+- WithContext(WorkItem? context)
+- WithSprintItems(params WorkItem[] items)
+- WithSeeds(params WorkItem[] seeds)
+- WithHierarchy(SprintHierarchy? hierarchy)
+- Build() - returns Workspace
+
+### 2.4 SprintHierarchyBuilder
+Fluent builder for sprint hierarchy with parent lookups.
+
+Methods:
+- WithSprintItems(params WorkItem[] items)
+- WithParents(params WorkItem[] parents)
+- WithCeilingTypes(params string[] typeNames)
+- WithTypeLevelMap(IReadOnlyDictionary<string, int> map)
+- Build() - returns SprintHierarchy
+
+---
+
+## 3. MOCKING PATTERNS WITH NSUBSTITUTE
+
+### 3.1 Basic Substitution Pattern (All Command Tests)
+
+Example from CommitCommandTests:

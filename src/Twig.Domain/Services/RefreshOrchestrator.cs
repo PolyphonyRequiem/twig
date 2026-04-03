@@ -58,6 +58,10 @@ public sealed class RefreshOrchestrator
             return new RefreshFetchResult { ItemCount = 0 };
 
         var realIds = ids.Where(id => id > 0).ToList();
+
+        // Cleanse phantom dirty flags before SyncGuard evaluation (#1335)
+        var phantomsCleansed = await _workItemRepo.ClearPhantomDirtyFlagsAsync(ct);
+
         var protectedIds = !force
             ? await SyncGuard.GetProtectedItemIdsAsync(_workItemRepo, _pendingChangeStore, ct)
             : (IReadOnlySet<int>)new HashSet<int>();
@@ -103,6 +107,7 @@ public sealed class RefreshOrchestrator
         {
             ItemCount = realIds.Count,
             Conflicts = conflicts,
+            PhantomsCleansed = phantomsCleansed,
         };
     }
 
@@ -180,6 +185,7 @@ public sealed class RefreshOrchestrator
 public sealed class RefreshFetchResult
 {
     public int ItemCount { get; init; }
+    public int PhantomsCleansed { get; init; }
     public IReadOnlyList<RefreshConflict> Conflicts { get; init; } = [];
 }
 

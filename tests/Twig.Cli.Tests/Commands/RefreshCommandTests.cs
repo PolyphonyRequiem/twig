@@ -569,6 +569,61 @@ public class RefreshCommandTests : IDisposable
             Arg.Any<IReadOnlyList<WorkItem>>(), Arg.Any<CancellationToken>());
     }
 
+    // ── Phantom dirty cleansing tests (#1335 / #1396) ─────────────
+
+    [Fact]
+    public async Task Refresh_CallsClearPhantomDirtyFlags_BeforeSyncGuard()
+    {
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { 1 });
+        var item = CreateWorkItem(1, "Item");
+        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { item });
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        await _cmd.ExecuteAsync();
+
+        await _workItemRepo.Received(1).ClearPhantomDirtyFlagsAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Refresh_PhantomsCleansed_LogsToStderr()
+    {
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { 1 });
+        var item = CreateWorkItem(1, "Item");
+        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { item });
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.ClearPhantomDirtyFlagsAsync(Arg.Any<CancellationToken>()).Returns(3);
+
+        var sw = new StringWriter();
+        var cmd = CreateCommand(sw);
+        await cmd.ExecuteAsync("json");
+
+        var stderrOutput = sw.ToString();
+        stderrOutput.ShouldContain("Cleansed 3 phantom dirty flag(s)");
+    }
+
+    [Fact]
+    public async Task Refresh_ZeroPhantomsCleansed_NoStderrOutput()
+    {
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { 1 });
+        var item = CreateWorkItem(1, "Item");
+        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { item });
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.ClearPhantomDirtyFlagsAsync(Arg.Any<CancellationToken>()).Returns(0);
+
+        var sw = new StringWriter();
+        var cmd = CreateCommand(sw);
+        await cmd.ExecuteAsync("json");
+
+        var stderrOutput = sw.ToString();
+        stderrOutput.ShouldNotContain("phantom dirty");
+        stderrOutput.ShouldNotContain("Cleansed");
+    }
+
     private static WorkItem CreateWorkItem(int id, string title)
     {
         return new WorkItem

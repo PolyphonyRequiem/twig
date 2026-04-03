@@ -116,6 +116,11 @@ public sealed class RefreshCommand(
             // Fetch items in batch (skip seeds which have negative IDs)
             var realIds = ids.Where(id => id > 0).ToList();
 
+            // Cleanse phantom dirty flags before SyncGuard evaluation (#1335)
+            var phantomsCleansed = await workItemRepo.ClearPhantomDirtyFlagsAsync(ct);
+            if (phantomsCleansed > 0)
+                _stderr.WriteLine(fmt.FormatInfo($"ℹ Cleansed {phantomsCleansed} phantom dirty flag(s)"));
+
             // Compute protected IDs for informational conflict detection
             var protectedIds = !force
                 ? await SyncGuard.GetProtectedItemIdsAsync(workItemRepo, pendingChangeStore)

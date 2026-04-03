@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using Twig.Domain.Extensions;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
 using Twig.Domain.Services;
@@ -31,7 +32,8 @@ public sealed class StatusCommand(
     IAdoGitService? adoGitService = null,
     IFieldDefinitionStore? fieldDefinitionStore = null,
     ITelemetryClient? telemetryClient = null,
-    TextWriter? stderr = null)
+    TextWriter? stderr = null,
+    IProcessConfigurationProvider? processConfigProvider = null)
 {
     private readonly TextWriter _stderr = stderr ?? Console.Error;
 
@@ -322,7 +324,7 @@ public sealed class StatusCommand(
         }
     }
 
-    private static (int Done, int Total)? ComputeChildProgress(IReadOnlyList<Domain.Aggregates.WorkItem> children)
+    private (int Done, int Total)? ComputeChildProgress(IReadOnlyList<Domain.Aggregates.WorkItem> children)
     {
         if (children.Count == 0)
             return null;
@@ -330,7 +332,8 @@ public sealed class StatusCommand(
         var done = 0;
         foreach (var child in children)
         {
-            var cat = Domain.Services.StateCategoryResolver.Resolve(child.State, null);
+            var typeConfig = processConfigProvider.SafeGetConfiguration(child.Type.Value);
+            var cat = Domain.Services.StateCategoryResolver.Resolve(child.State, typeConfig?.StateEntries);
             if (cat == Domain.Enums.StateCategory.Resolved || cat == Domain.Enums.StateCategory.Completed)
                 done++;
         }

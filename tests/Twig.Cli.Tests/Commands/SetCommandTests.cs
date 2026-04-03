@@ -273,7 +273,7 @@ public class SetCommandTests
     }
 
     [Fact]
-    public async Task Set_WithProcessConfig_ScrumDoneState_ResolvedAsCompleted()
+    public async Task Set_WithProcessConfig_ScrumDoneState_QueriesProcessConfig()
     {
         // Arrange: Scrum process template where PBI "Done" → Completed via state entries
         var parent = CreateWorkItem(200, "Sprint backlog", "Feature");

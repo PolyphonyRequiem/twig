@@ -11,7 +11,7 @@ using Xunit;
 
 namespace Twig.Domain.Tests.Extensions;
 
-public class ProcessConfigExtensionsTests
+public sealed class ProcessConfigExtensionsTests
 {
     [Fact]
     public void SafeGetConfiguration_NullProvider_ReturnsNull()

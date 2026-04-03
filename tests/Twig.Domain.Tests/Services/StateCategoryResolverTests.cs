@@ -7,7 +7,7 @@ using Xunit;
 
 namespace Twig.Domain.Tests.Services;
 
-public class StateCategoryResolverTests
+public sealed class StateCategoryResolverTests
 {
     // ═══════════════════════════════════════════════════════════════
     //  Resolve — with entries
@@ -217,13 +217,6 @@ public class StateCategoryResolverTests
     {
         // Empty entries list → falls back to FallbackCategory
         StateCategoryResolver.Resolve("CustomPhase", Array.Empty<StateEntry>()).ShouldBe(StateCategory.Unknown);
-    }
-
-    [Fact]
-    public void FallbackCategory_CustomPhase_ReturnsUnknown()
-    {
-        // Directly verify the fallback map behavior for custom states
-        StateCategoryResolver.FallbackCategory("CustomPhase").ShouldBe(StateCategory.Unknown);
     }
 
     [Fact]

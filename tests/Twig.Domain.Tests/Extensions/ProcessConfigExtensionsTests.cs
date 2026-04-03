@@ -180,6 +180,27 @@ public class ProcessConfigExtensionsTests
     }
 
     [Fact]
+    public void ComputeChildProgress_AgileConfig_FourClosedOneActive_Returns4Of5()
+    {
+        var provider = Substitute.For<IProcessConfigurationProvider>();
+        provider.GetConfiguration().Returns(ProcessConfigBuilder.Agile());
+        var children = new[]
+        {
+            CreateWorkItem(1, "Task", "Closed"),
+            CreateWorkItem(2, "Task", "Closed"),
+            CreateWorkItem(3, "Task", "Closed"),
+            CreateWorkItem(4, "Task", "Closed"),
+            CreateWorkItem(5, "Task", "Active"),
+        };
+
+        var result = provider.ComputeChildProgress(children);
+
+        result.ShouldNotBeNull();
+        result.Value.Done.ShouldBe(4);
+        result.Value.Total.ShouldBe(5);
+    }
+
+    [Fact]
     public void ComputeChildProgress_ProviderThrows_FallsBackToHeuristic()
     {
         var provider = Substitute.For<IProcessConfigurationProvider>();

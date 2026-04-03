@@ -228,75 +228,158 @@ public class SetCommandTests
     // ── Process Configuration (T1403) ───────────────────────────────
 
     [Fact]
-    public async Task Set_WithProcessConfig_UsesStateEntriesToComputeChildProgress()
+    public async Task Set_WithProcessConfig_CallsProcessConfigProvider()
     {
-        // Arrange: parent with children in "Done" state — Basic process maps "Done" → Completed
         var parent = CreateWorkItem(100, "Parent Epic", "Epic");
-        var child1 = CreateWorkItem(101, "Child 1", "Issue", "Done");
-        var child2 = CreateWorkItem(102, "Child 2", "Issue", "Done");
-        var child3 = CreateWorkItem(103, "Child 3", "Issue", "Doing");
+        ArrangeParentWithChildren(parent, new[]
+        {
+            CreateWorkItem(101, "Child 1", "Issue", "Done"),
+            CreateWorkItem(102, "Child 2", "Issue", "Doing"),
+        });
+        var provider = CreateProvider(ProcessConfigBuilder.Basic());
 
-        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
-        _workItemRepo.GetChildrenAsync(100, Arg.Any<CancellationToken>())
-            .Returns(new[] { child1, child2, child3 });
+        var result = await CreateCommand(provider).ExecuteAsync("100");
 
-        var processConfigProvider = Substitute.For<IProcessConfigurationProvider>();
-        processConfigProvider.GetConfiguration().Returns(ProcessConfigBuilder.Basic());
-
-        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
-            _workingSetService, _formatterFactory, _hintEngine,
-            processConfigProvider: processConfigProvider);
-
-        // Act
-        var result = await cmd.ExecuteAsync("100");
-
-        // Assert: command succeeds, process config was queried
         result.ShouldBe(0);
-        processConfigProvider.Received().GetConfiguration();
+        provider.Received().GetConfiguration();
     }
 
     [Fact]
     public async Task Set_NullProcessConfigProvider_FallsBackGracefully()
     {
-        // Arrange: no process config — should fall back to hardcoded heuristics without crashing
         var parent = CreateWorkItem(100, "Parent Epic", "Epic");
-        var child = CreateWorkItem(101, "Child", "Task", "Closed");
+        ArrangeParentWithChildren(parent, new[] { CreateWorkItem(101, "Child", "Task", "Closed") });
 
-        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
-        _workItemRepo.GetChildrenAsync(100, Arg.Any<CancellationToken>())
-            .Returns(new[] { child });
-
-        // _cmd is created without processConfigProvider (null) — should not throw
         var result = await _cmd.ExecuteAsync("100");
 
         result.ShouldBe(0);
     }
 
+    // ── Progress Output (T1403) ──────────────────────────────────────
+
     [Fact]
-    public async Task Set_WithProcessConfig_ScrumDoneState_QueriesProcessConfig()
+    public async Task BasicConfig_TwoDoneOneDoing_OutputContains2Of3()
     {
-        // Arrange: Scrum process template where PBI "Done" → Completed via state entries
-        var parent = CreateWorkItem(200, "Sprint backlog", "Feature");
-        var pbi1 = CreateWorkItem(201, "PBI 1", "Product Backlog Item", "Done");
-        var pbi2 = CreateWorkItem(202, "PBI 2", "Product Backlog Item", "New");
+        var parent = CreateWorkItem(100, "Parent Epic", "Epic");
+        ArrangeParentWithChildren(parent, new[]
+        {
+            CreateWorkItem(101, "Child 1", "Issue", "Done"),
+            CreateWorkItem(102, "Child 2", "Issue", "Done"),
+            CreateWorkItem(103, "Child 3", "Issue", "Doing"),
+        });
 
-        _workItemRepo.GetByIdAsync(200, Arg.Any<CancellationToken>()).Returns(parent);
-        _workItemRepo.GetChildrenAsync(200, Arg.Any<CancellationToken>())
-            .Returns(new[] { pbi1, pbi2 });
+        var output = await ExecuteCapturingOutput(CreateCommand(CreateProvider(ProcessConfigBuilder.Basic())), "100");
 
-        var processConfigProvider = Substitute.For<IProcessConfigurationProvider>();
-        processConfigProvider.GetConfiguration().Returns(ProcessConfigBuilder.Scrum());
+        output.ShouldContain("2/3");
+    }
 
-        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
+    [Fact]
+    public async Task AgileConfig_FourClosedOneActive_OutputContains4Of5()
+    {
+        // H1 bug scenario: Agile "Closed" was previously unrecognized by the heuristic
+        var parent = CreateWorkItem(200, "User Story", "User Story");
+        ArrangeParentWithChildren(parent, new[]
+        {
+            CreateWorkItem(201, "Task 1", "Task", "Closed"),
+            CreateWorkItem(202, "Task 2", "Task", "Closed"),
+            CreateWorkItem(203, "Task 3", "Task", "Closed"),
+            CreateWorkItem(204, "Task 4", "Task", "Closed"),
+            CreateWorkItem(205, "Task 5", "Task", "Active"),
+        });
+
+        var output = await ExecuteCapturingOutput(CreateCommand(CreateProvider(ProcessConfigBuilder.Agile())), "200");
+
+        output.ShouldContain("4/5");
+    }
+
+    [Fact]
+    public async Task ScrumConfig_OneDoneOneNew_OutputContains1Of2()
+    {
+        var parent = CreateWorkItem(300, "Sprint backlog", "Feature");
+        ArrangeParentWithChildren(parent, new[]
+        {
+            CreateWorkItem(301, "PBI 1", "Product Backlog Item", "Done"),
+            CreateWorkItem(302, "PBI 2", "Product Backlog Item", "New"),
+        });
+
+        var output = await ExecuteCapturingOutput(CreateCommand(CreateProvider(ProcessConfigBuilder.Scrum())), "300");
+
+        output.ShouldContain("1/2");
+    }
+
+    [Fact]
+    public async Task NullProvider_ClosedTask_FallsBackToHeuristic()
+    {
+        var parent = CreateWorkItem(400, "Parent", "Epic");
+        ArrangeParentWithChildren(parent, new[]
+        {
+            CreateWorkItem(401, "Task 1", "Task", "Closed"),
+            CreateWorkItem(402, "Task 2", "Task", "Active"),
+        });
+
+        var output = await ExecuteCapturingOutput(CreateCommand(processConfigProvider: null), "400");
+
+        output.ShouldContain("1/2");
+    }
+
+    [Fact]
+    public async Task CustomState_OnlyRecognizedViaProcessConfig()
+    {
+        var config = new ProcessConfigBuilder()
+            .AddType("Task", ProcessConfigBuilder.S(
+                ("Backlog", StateCategory.Proposed),
+                ("Working", StateCategory.InProgress),
+                ("Shipped", StateCategory.Completed)))
+            .Build();
+        var parent = CreateWorkItem(500, "Parent", "Epic");
+        ArrangeParentWithChildren(parent, new[]
+        {
+            CreateWorkItem(501, "Task 1", "Task", "Shipped"),
+            CreateWorkItem(502, "Task 2", "Task", "Working"),
+        });
+
+        var output = await ExecuteCapturingOutput(CreateCommand(CreateProvider(config)), "500");
+
+        output.ShouldContain("1/2");
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────
+
+    private void ArrangeParentWithChildren(WorkItem parent, WorkItem[] children)
+    {
+        _workItemRepo.GetByIdAsync(parent.Id, Arg.Any<CancellationToken>()).Returns(parent);
+        _workItemRepo.GetChildrenAsync(parent.Id, Arg.Any<CancellationToken>()).Returns(children);
+    }
+
+    private static IProcessConfigurationProvider CreateProvider(ProcessConfiguration config)
+    {
+        var provider = Substitute.For<IProcessConfigurationProvider>();
+        provider.GetConfiguration().Returns(config);
+        return provider;
+    }
+
+    private SetCommand CreateCommand(IProcessConfigurationProvider? processConfigProvider)
+    {
+        return new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
             _workingSetService, _formatterFactory, _hintEngine,
             processConfigProvider: processConfigProvider);
+    }
 
-        // Act
-        var result = await cmd.ExecuteAsync("200");
-
-        // Assert: command succeeds — Scrum "Done" recognized via state entries
-        result.ShouldBe(0);
-        processConfigProvider.Received().GetConfiguration();
+    private static async Task<string> ExecuteCapturingOutput(SetCommand cmd, string idOrPattern)
+    {
+        var originalOut = Console.Out;
+        using var sw = new StringWriter();
+        Console.SetOut(sw);
+        try
+        {
+            var result = await cmd.ExecuteAsync(idOrPattern);
+            result.ShouldBe(0);
+            return sw.ToString();
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+        }
     }
 
     private static WorkItem CreateWorkItem(int id, string title)

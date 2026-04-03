@@ -613,7 +613,6 @@ public class RefreshCommandTests : IDisposable
         _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
             .Returns(new[] { item });
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
-        _workItemRepo.ClearPhantomDirtyFlagsAsync(Arg.Any<CancellationToken>()).Returns(0);
 
         var sw = new StringWriter();
         var cmd = CreateCommand(sw);

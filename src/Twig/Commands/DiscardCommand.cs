@@ -167,10 +167,8 @@ public sealed class DiscardCommand(
         if (!Confirm($"Discard all pending changes for {aggregateSummary}", yes, fmt))
             return (0, 0);
 
-        // Bulk clear: pending changes for non-seed items + dirty flags + phantom-dirty flags
+        // Bulk clear: pending changes then atomic dirty-flag cleanup
         await pendingChangeStore.ClearAllChangesAsync(ct);
-        foreach (var (id, _, _) in nonSeedDirty)
-            await workItemRepo.ClearDirtyFlagAsync(id, ct);
         await workItemRepo.ClearPhantomDirtyFlagsAsync(ct);
 
         // Report
@@ -196,7 +194,13 @@ public sealed class DiscardCommand(
         writer.WritePropertyName("items");
         writer.WriteStartArray();
         foreach (var (id, notes, fieldEdits) in items)
-            WriteItemEntry(writer, id, notes, fieldEdits);
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("id", id);
+            writer.WriteNumber("notes", notes);
+            writer.WriteNumber("fieldEdits", fieldEdits);
+            writer.WriteEndObject();
+        }
         writer.WriteEndArray();
         writer.WriteNumber("totalNotes", totalNotes);
         writer.WriteNumber("totalFieldEdits", totalFieldEdits);
@@ -206,16 +210,7 @@ public sealed class DiscardCommand(
         Console.WriteLine(System.Text.Encoding.UTF8.GetString(stream.ToArray()));
     }
 
-    private static void WriteItemEntry(Utf8JsonWriter writer, int id, int notes, int fieldEdits)
-    {
-        writer.WriteStartObject();
-        writer.WriteNumber("id", id);
-        writer.WriteNumber("notes", notes);
-        writer.WriteNumber("fieldEdits", fieldEdits);
-        writer.WriteEndObject();
-    }
-
-    // ── Helpers ──────────────────────────────────────────────────────
+    // ── Helpers──────────────────────────────────────────────────────
 
     private bool Confirm(string prompt, bool yes, IOutputFormatter fmt)
     {

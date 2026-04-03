@@ -337,10 +337,8 @@ public class DiscardCommandTests
 
         result.ShouldBe(0);
         await _pendingChangeStore.Received().ClearAllChangesAsync(Arg.Any<CancellationToken>());
-        await _workItemRepo.Received().ClearDirtyFlagAsync(10, Arg.Any<CancellationToken>());
-        await _workItemRepo.Received().ClearDirtyFlagAsync(20, Arg.Any<CancellationToken>());
-        // Seed should NOT have its dirty flag cleared
-        await _workItemRepo.DidNotReceive().ClearDirtyFlagAsync(-1, Arg.Any<CancellationToken>());
+        // No per-item ClearDirtyFlagAsync — ClearPhantomDirtyFlagsAsync handles all non-seed dirty flags atomically
+        await _workItemRepo.DidNotReceive().ClearDirtyFlagAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
         await _workItemRepo.Received().ClearPhantomDirtyFlagsAsync(Arg.Any<CancellationToken>());
         await _promptStateWriter.Received().WritePromptStateAsync();
     }
@@ -451,6 +449,28 @@ public class DiscardCommandTests
             Arg.Is<Dictionary<string, string>>(d =>
                 d["command"] == "discard" &&
                 d["item_count"] == "0" &&
+                d["used_all"] == "True"),
+            Arg.Any<Dictionary<string, double>>());
+    }
+
+    [Fact]
+    public async Task Execute_EmitsTelemetry_AllItems_NonZeroCount()
+    {
+        var item1 = new WorkItemBuilder(10, "A").Dirty().Build();
+        var item2 = new WorkItemBuilder(20, "B").Dirty().Build();
+        _workItemRepo.GetDirtyItemsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<WorkItem> { item1, item2 });
+        _pendingChangeStore.GetChangeSummaryAsync(10, Arg.Any<CancellationToken>()).Returns((1, 0));
+        _pendingChangeStore.GetChangeSummaryAsync(20, Arg.Any<CancellationToken>()).Returns((0, 2));
+
+        await _cmd.ExecuteAsync(all: true, yes: true);
+
+        _telemetryClient.Received().TrackEvent(
+            "CommandExecuted",
+            Arg.Is<Dictionary<string, string>>(d =>
+                d["command"] == "discard" &&
+                d["exit_code"] == "0" &&
+                d["item_count"] == "2" &&
                 d["used_all"] == "True"),
             Arg.Any<Dictionary<string, double>>());
     }

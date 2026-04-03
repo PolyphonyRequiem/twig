@@ -467,6 +467,10 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> Edit(string? field = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<EditCommand>().ExecuteAsync(field, output, ct);
 
+    /// <summary>Discard pending changes for a single item or all dirty items.</summary>
+    public async Task<int> Discard([Argument] int? id = null, bool all = false, bool yes = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<DiscardCommand>().ExecuteAsync(id, all, yes, output, ct);
+
     /// <summary>Push pending changes to Azure DevOps. Deprecated — use 'twig sync' instead.</summary>
     [Hidden]
     public async Task<int> Save([Argument] int? id = null, bool all = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
@@ -688,6 +692,8 @@ Work Items:
   seed publish <id>    Publish a seed to Azure DevOps.
   seed publish --all   Publish all seeds in dependency order.
   seed reconcile       Repair stale links after partial publishes.
+  discard <id>         Drop pending changes for a work item.
+  discard --all        Drop all pending changes (excludes seeds).
   save                 Push pending changes to Azure DevOps.
   sync                 Flush pending changes then refresh from ADO.
 

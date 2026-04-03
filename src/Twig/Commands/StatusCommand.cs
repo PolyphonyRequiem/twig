@@ -113,7 +113,7 @@ public sealed class StatusCommand(
         {
             // EPIC-004 ITEM-019: Compute child progress for parent items
             var children = await workItemRepo.GetChildrenAsync(item.Id, ct);
-            var childProgress = ComputeChildProgress(children);
+            var childProgress = processConfigProvider.ComputeChildProgress(children);
 
             // Fetch parent item for hierarchy display (best-effort)
             Domain.Aggregates.WorkItem? parent = item.ParentId.HasValue
@@ -224,7 +224,7 @@ public sealed class StatusCommand(
         if (fmt is HumanOutputFormatter humanFmt)
         {
             // EPIC-004 ITEM-019: Compute child progress for sync path
-            var syncChildProgress = ComputeChildProgress(syncChildren);
+            var syncChildProgress = processConfigProvider.ComputeChildProgress(syncChildren);
 
             // EPIC-004 ITEM-019: Compute pending changes for consolidated footer
             var syncPending = await pendingChangeStore.GetChangesAsync(item.Id);
@@ -323,20 +323,5 @@ public sealed class StatusCommand(
             }
         }
     }
-
-    private (int Done, int Total)? ComputeChildProgress(IReadOnlyList<Domain.Aggregates.WorkItem> children)
-    {
-        if (children.Count == 0)
-            return null;
-
-        var done = 0;
-        foreach (var child in children)
-        {
-            var typeConfig = processConfigProvider.SafeGetConfiguration(child.Type.Value);
-            var cat = Domain.Services.StateCategoryResolver.Resolve(child.State, typeConfig?.StateEntries);
-            if (cat == Domain.Enums.StateCategory.Resolved || cat == Domain.Enums.StateCategory.Completed)
-                done++;
-        }
-        return (done, children.Count);
-    }
 }
+

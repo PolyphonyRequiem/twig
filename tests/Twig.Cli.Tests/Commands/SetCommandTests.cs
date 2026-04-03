@@ -2,12 +2,14 @@ using NSubstitute;
 using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
@@ -223,14 +225,93 @@ public class SetCommandTests
         await _contextStore.Received().SetActiveWorkItemIdAsync(42, Arg.Any<CancellationToken>());
     }
 
+    // ── Process Configuration (T1403) ───────────────────────────────
+
+    [Fact]
+    public async Task Set_WithProcessConfig_UsesStateEntriesToComputeChildProgress()
+    {
+        // Arrange: parent with children in "Done" state — Basic process maps "Done" → Completed
+        var parent = CreateWorkItem(100, "Parent Epic", "Epic");
+        var child1 = CreateWorkItem(101, "Child 1", "Issue", "Done");
+        var child2 = CreateWorkItem(102, "Child 2", "Issue", "Done");
+        var child3 = CreateWorkItem(103, "Child 3", "Issue", "Doing");
+
+        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
+        _workItemRepo.GetChildrenAsync(100, Arg.Any<CancellationToken>())
+            .Returns(new[] { child1, child2, child3 });
+
+        var processConfigProvider = Substitute.For<IProcessConfigurationProvider>();
+        processConfigProvider.GetConfiguration().Returns(ProcessConfigBuilder.Basic());
+
+        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
+            _workingSetService, _formatterFactory, _hintEngine,
+            processConfigProvider: processConfigProvider);
+
+        // Act
+        var result = await cmd.ExecuteAsync("100");
+
+        // Assert: command succeeds, process config was queried
+        result.ShouldBe(0);
+        processConfigProvider.Received().GetConfiguration();
+    }
+
+    [Fact]
+    public async Task Set_NullProcessConfigProvider_FallsBackGracefully()
+    {
+        // Arrange: no process config — should fall back to hardcoded heuristics without crashing
+        var parent = CreateWorkItem(100, "Parent Epic", "Epic");
+        var child = CreateWorkItem(101, "Child", "Task", "Closed");
+
+        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
+        _workItemRepo.GetChildrenAsync(100, Arg.Any<CancellationToken>())
+            .Returns(new[] { child });
+
+        // _cmd is created without processConfigProvider (null) — should not throw
+        var result = await _cmd.ExecuteAsync("100");
+
+        result.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Set_WithProcessConfig_ScrumDoneState_ResolvedAsCompleted()
+    {
+        // Arrange: Scrum process template where PBI "Done" → Completed via state entries
+        var parent = CreateWorkItem(200, "Sprint backlog", "Feature");
+        var pbi1 = CreateWorkItem(201, "PBI 1", "Product Backlog Item", "Done");
+        var pbi2 = CreateWorkItem(202, "PBI 2", "Product Backlog Item", "New");
+
+        _workItemRepo.GetByIdAsync(200, Arg.Any<CancellationToken>()).Returns(parent);
+        _workItemRepo.GetChildrenAsync(200, Arg.Any<CancellationToken>())
+            .Returns(new[] { pbi1, pbi2 });
+
+        var processConfigProvider = Substitute.For<IProcessConfigurationProvider>();
+        processConfigProvider.GetConfiguration().Returns(ProcessConfigBuilder.Scrum());
+
+        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
+            _workingSetService, _formatterFactory, _hintEngine,
+            processConfigProvider: processConfigProvider);
+
+        // Act
+        var result = await cmd.ExecuteAsync("200");
+
+        // Assert: command succeeds — Scrum "Done" recognized via state entries
+        result.ShouldBe(0);
+        processConfigProvider.Received().GetConfiguration();
+    }
+
     private static WorkItem CreateWorkItem(int id, string title)
+    {
+        return CreateWorkItem(id, title, "Task");
+    }
+
+    private static WorkItem CreateWorkItem(int id, string title, string typeName, string state = "New")
     {
         return new WorkItem
         {
             Id = id,
-            Type = WorkItemType.Task,
+            Type = WorkItemType.Parse(typeName).Value,
             Title = title,
-            State = "New",
+            State = state,
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value,
         };

@@ -1,5 +1,7 @@
 using Twig.Domain.Aggregates;
+using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 
 namespace Twig.Domain.Extensions;
@@ -28,5 +30,22 @@ internal static class ProcessConfigExtensions
         {
             return null;
         }
+    }
+
+    internal static (int Done, int Total)? ComputeChildProgress(
+        this IProcessConfigurationProvider? provider, IReadOnlyList<WorkItem> children)
+    {
+        if (children.Count == 0)
+            return null;
+
+        var done = 0;
+        foreach (var child in children)
+        {
+            var typeConfig = provider.SafeGetConfiguration(child.Type.Value);
+            var cat = StateCategoryResolver.Resolve(child.State, typeConfig?.StateEntries);
+            if (cat == StateCategory.Resolved || cat == StateCategory.Completed)
+                done++;
+        }
+        return (done, children.Count);
     }
 }

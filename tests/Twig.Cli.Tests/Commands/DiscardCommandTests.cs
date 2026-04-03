@@ -311,6 +311,7 @@ public class DiscardCommandTests
 
         result.ShouldBe(0);
         writer.ToString().ShouldContain("No pending changes");
+        await _workItemRepo.Received().ClearPhantomDirtyFlagsAsync(Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -433,6 +434,7 @@ public class DiscardCommandTests
             Arg.Is<Dictionary<string, string>>(d =>
                 d["command"] == "discard" &&
                 d["exit_code"] == "0" &&
+                d["item_count"] == "1" &&
                 d["used_all"] == "False"),
             Arg.Any<Dictionary<string, double>>());
     }
@@ -448,6 +450,7 @@ public class DiscardCommandTests
             "CommandExecuted",
             Arg.Is<Dictionary<string, string>>(d =>
                 d["command"] == "discard" &&
+                d["item_count"] == "0" &&
                 d["used_all"] == "True"),
             Arg.Any<Dictionary<string, double>>());
     }

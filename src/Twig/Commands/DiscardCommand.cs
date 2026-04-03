@@ -36,6 +36,7 @@ public sealed class DiscardCommand(
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
         int exitCode;
+        int itemCount = 0;
         if (id.HasValue && all)
         {
             Console.Error.WriteLine(fmt.FormatError("Specify either <id> or --all, not both."));
@@ -48,7 +49,7 @@ public sealed class DiscardCommand(
         }
         else
         {
-            exitCode = all
+            (exitCode, itemCount) = all
                 ? await ExecuteAllAsync(fmt, yes, outputFormat, ct)
                 : await ExecuteSingleAsync(id!.Value, fmt, yes, outputFormat, ct);
         }
@@ -58,6 +59,7 @@ public sealed class DiscardCommand(
             ["command"] = "discard",
             ["exit_code"] = exitCode.ToString(),
             ["output_format"] = outputFormat,
+            ["item_count"] = itemCount.ToString(),
             ["used_all"] = all.ToString(),
         }, new Dictionary<string, double>
         {
@@ -68,7 +70,7 @@ public sealed class DiscardCommand(
 
     // ── Single-item flow ────────────────────────────────────────────
 
-    private async Task<int> ExecuteSingleAsync(
+    private async Task<(int ExitCode, int ItemCount)> ExecuteSingleAsync(
         int itemId,
         IOutputFormatter fmt,
         bool yes,
@@ -79,14 +81,14 @@ public sealed class DiscardCommand(
         if (item is null)
         {
             Console.Error.WriteLine(fmt.FormatError($"Work item #{itemId} not found."));
-            return 1;
+            return (1, 0);
         }
 
         // Seed guard — seeds use 'twig seed discard'
         if (item.IsSeed)
         {
             Console.Error.WriteLine(fmt.FormatError($"#{itemId} is a seed. Use 'twig seed discard {itemId}' instead."));
-            return 1;
+            return (1, 0);
         }
 
         var (notes, fieldEdits) = await pendingChangeStore.GetChangeSummaryAsync(itemId, ct);
@@ -96,7 +98,7 @@ public sealed class DiscardCommand(
         {
             // Phantom-dirty impossible here (not dirty, no changes) — true no-op
             Console.WriteLine(fmt.FormatInfo($"#{itemId} '{item.Title}' has no pending changes."));
-            return 0;
+            return (0, 0);
         }
 
         if (item.IsDirty && notes == 0 && fieldEdits == 0)
@@ -106,12 +108,12 @@ public sealed class DiscardCommand(
             Console.WriteLine(fmt.FormatInfo($"#{itemId} '{item.Title}' had a stale dirty flag (cleared)."));
             if (promptStateWriter is not null)
                 await promptStateWriter.WritePromptStateAsync();
-            return 0;
+            return (0, 0);
         }
 
         var summary = FormatChangeSummary(notes, fieldEdits);
         if (!Confirm($"Discard {summary} for #{itemId} '{item.Title}'", yes, fmt))
-            return 0;
+            return (0, 0);
 
         // Clear pending changes and dirty flag
         await pendingChangeStore.ClearChangesAsync(itemId, ct);
@@ -127,12 +129,12 @@ public sealed class DiscardCommand(
         if (promptStateWriter is not null)
             await promptStateWriter.WritePromptStateAsync();
 
-        return 0;
+        return (0, 1);
     }
 
     // ── All-items flow ──────────────────────────────────────────────
 
-    private async Task<int> ExecuteAllAsync(
+    private async Task<(int ExitCode, int ItemCount)> ExecuteAllAsync(
         IOutputFormatter fmt,
         bool yes,
         string outputFormat,
@@ -141,12 +143,12 @@ public sealed class DiscardCommand(
         var dirtyItems = await workItemRepo.GetDirtyItemsAsync(ct);
 
         // Exclude seeds — they are managed by 'twig seed discard'
-        var nonSeedDirty = new List<(int Id, string Title, int Notes, int FieldEdits)>();
+        var nonSeedDirty = new List<(int Id, int Notes, int FieldEdits)>();
         foreach (var item in dirtyItems)
         {
             if (item.IsSeed) continue;
             var (notes, fieldEdits) = await pendingChangeStore.GetChangeSummaryAsync(item.Id, ct);
-            nonSeedDirty.Add((item.Id, item.Title, notes, fieldEdits));
+            nonSeedDirty.Add((item.Id, notes, fieldEdits));
         }
 
         if (nonSeedDirty.Count == 0)
@@ -154,7 +156,7 @@ public sealed class DiscardCommand(
             // Also clean up phantom-dirty flags while we're here
             await workItemRepo.ClearPhantomDirtyFlagsAsync(ct);
             Console.WriteLine(fmt.FormatInfo("No pending changes to discard."));
-            return 0;
+            return (0, 0);
         }
 
         var totalNotes = nonSeedDirty.Sum(x => x.Notes);
@@ -163,17 +165,17 @@ public sealed class DiscardCommand(
         var aggregateSummary = $"{totalItems} item{(totalItems != 1 ? "s" : "")} ({FormatChangeSummary(totalNotes, totalFieldEdits)})";
 
         if (!Confirm($"Discard all pending changes for {aggregateSummary}", yes, fmt))
-            return 0;
+            return (0, 0);
 
         // Bulk clear: pending changes for non-seed items + dirty flags + phantom-dirty flags
         await pendingChangeStore.ClearAllChangesAsync(ct);
-        foreach (var (id, _, _, _) in nonSeedDirty)
+        foreach (var (id, _, _) in nonSeedDirty)
             await workItemRepo.ClearDirtyFlagAsync(id, ct);
         await workItemRepo.ClearPhantomDirtyFlagsAsync(ct);
 
         // Report
         if (outputFormat.StartsWith("json", StringComparison.OrdinalIgnoreCase))
-            WriteJson(nonSeedDirty.Select(x => (x.Id, x.Notes, x.FieldEdits)).ToList(), totalNotes, totalFieldEdits);
+            WriteJson(nonSeedDirty, totalNotes, totalFieldEdits);
         else
             Console.WriteLine(fmt.FormatSuccess($"Discarded all pending changes for {aggregateSummary}."));
 
@@ -181,7 +183,7 @@ public sealed class DiscardCommand(
         if (promptStateWriter is not null)
             await promptStateWriter.WritePromptStateAsync();
 
-        return 0;
+        return (0, nonSeedDirty.Count);
     }
 
     // ── JSON output ─────────────────────────────────────────────────

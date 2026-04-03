@@ -2,6 +2,7 @@ using Shouldly;
 using Twig.Domain.Enums;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Domain.Tests.Services;
@@ -236,4 +237,30 @@ public class StateCategoryResolverTests
 
         StateCategoryResolver.Resolve("CustomPhase", entries).ShouldBe(StateCategory.InProgress);
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  NFR-03: Process template smoke rows with authoritative entries
+    // ═══════════════════════════════════════════════════════════════
+
+    [Theory]
+    [InlineData("Basic", "Done", StateCategory.Completed)]
+    [InlineData("Agile", "Closed", StateCategory.Completed)]
+    [InlineData("Scrum", "Done", StateCategory.Completed)]
+    [InlineData("CMMI", "Resolved", StateCategory.Resolved)]
+    public void Resolve_ProcessTemplateCompletionState_WithEntries(
+        string template, string stateName, StateCategory expected)
+    {
+        var config = template switch
+        {
+            "Basic" => ProcessConfigBuilder.Basic(),
+            "Agile" => ProcessConfigBuilder.Agile(),
+            "Scrum" => ProcessConfigBuilder.Scrum(),
+            "CMMI" => ProcessConfigBuilder.Cmmi(),
+            _ => throw new ArgumentOutOfRangeException(nameof(template)),
+        };
+        var entries = config.TypeConfigs[WorkItemType.Task].StateEntries;
+
+        StateCategoryResolver.Resolve(stateName, entries).ShouldBe(expected);
+    }
+
 }

@@ -14,7 +14,7 @@ using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
 
-public class SetCommandTests
+public sealed class SetCommandTests
 {
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IAdoWorkItemService _adoService;

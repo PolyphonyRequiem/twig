@@ -240,4 +240,51 @@ public class RefreshOrchestratorTests
 
         await _iterationService.Received().GetFieldDefinitionsAsync(Arg.Any<CancellationToken>());
     }
+
+    // ── Phantom dirty cleansing tests (#1335 / #1396) ───────────────
+
+    [Fact]
+    public async Task FetchItems_CallsClearPhantomDirtyFlags_BeforeSyncGuard()
+    {
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { 1 });
+        var item = new WorkItemBuilder(1, "Item").Build();
+        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { item });
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+
+        await _orchestrator.FetchItemsAsync("SELECT ...", force: false);
+
+        await _workItemRepo.Received(1).ClearPhantomDirtyFlagsAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(5)]
+    public async Task FetchItems_ReturnsPhantomsCleansedCount(int count)
+    {
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { 1 });
+        var item = new WorkItemBuilder(1, "Item").Build();
+        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { item });
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.ClearPhantomDirtyFlagsAsync(Arg.Any<CancellationToken>()).Returns(count);
+
+        var result = await _orchestrator.FetchItemsAsync("SELECT ...", force: false);
+
+        result.PhantomsCleansed.ShouldBe(count);
+    }
+
+    [Fact]
+    public async Task FetchItems_NoResults_DoesNotCallClearPhantomDirty()
+    {
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
+
+        var result = await _orchestrator.FetchItemsAsync("SELECT ...", force: false);
+
+        result.PhantomsCleansed.ShouldBe(0);
+        await _workItemRepo.DidNotReceive().ClearPhantomDirtyFlagsAsync(Arg.Any<CancellationToken>());
+    }
 }

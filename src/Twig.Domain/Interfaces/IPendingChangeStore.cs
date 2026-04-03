@@ -20,4 +20,16 @@ public interface IPendingChangeStore
     Task ClearChangesAsync(int workItemId, CancellationToken ct = default);
     Task ClearChangesByTypeAsync(int workItemId, string changeType, CancellationToken ct = default);
     Task<IReadOnlyList<int>> GetDirtyItemIdsAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Deletes all pending changes for non-seed work items, including orphaned rows
+    /// whose work_item_id no longer exists. Returns the number of rows deleted.
+    /// </summary>
+    Task<int> ClearAllChangesAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns counts of pending changes for the given work item, split by type:
+    /// Notes (<c>add_note</c>) and FieldEdits (<c>set_field</c>).
+    /// </summary>
+    Task<(int Notes, int FieldEdits)> GetChangeSummaryAsync(int workItemId, CancellationToken ct = default);
 }

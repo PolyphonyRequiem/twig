@@ -338,6 +338,17 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         return Task.FromResult(count);
     }
 
+    public Task ClearDirtyFlagAsync(int id, CancellationToken ct = default)
+    {
+        var conn = _store.GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = _store.ActiveTransaction;
+        cmd.CommandText = "UPDATE work_items SET is_dirty = 0 WHERE id = @id;";
+        cmd.Parameters.AddWithValue("@id", id);
+        cmd.ExecuteNonQuery();
+        return Task.CompletedTask;
+    }
+
     private static void SaveWorkItem(SqliteConnection conn, WorkItem item, SqliteTransaction? tx = null)
     {
         using var cmd = conn.CreateCommand();

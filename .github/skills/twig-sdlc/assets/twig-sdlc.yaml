@@ -5,10 +5,11 @@
 #   Phase 2: Planning — architect → reducer → technical review → readability review → approval gate
 #            (BYPASS: if plan already approved or --input plan_path provided, skips to Phase 3 via plan_reader)
 #   Phase 3: Work Tree Seeding — create ADO Issues/Tasks via twig CLI (dupe guard reuses existing items)
-#   Phase 4: Implementation — per-task coder/reducer/reviewer loop with PR lifecycle
+#   Phase 4: Implementation — pr_group_manager (outer) → task_manager (inner) → coder/reducer/reviewer loops with PR lifecycle
+#            Issue closure is gated on PR merge (structural enforcement via orchestrator split)
 #   Phase 5: Close-out — meta-observations (reduction now integrated into PR stage)
 #
-# Agents: 22 agents + 3 human gates (includes plan_reader for bypass; reducer integrated into PR stage)
+# Agents: 23 agents + 3 human gates (pr_group_manager + task_manager replace implementation_manager)
 # Models: Opus 1M for deep reasoning (architect, coder, pr_reviewer, close_out)
 #         Sonnet for focused tasks (everything else)
 #
@@ -22,7 +23,7 @@
 workflow:
   name: twig-sdlc
   description: End-to-end SDLC workflow — intake through planning, implementation, PR lifecycle, and close-out
-  version: "1.0.0"
+  version: "2.0.0"
   entry_point: intake
   runtime:
     provider: copilot
@@ -342,32 +343,82 @@ agents:
         type: number
         description: Total number of Issues (created + reused)
     routes:
-      - to: implementation_manager
+      - to: pr_group_manager
   # ---------------------------------------------------------------------------
   # PHASE 4: IMPLEMENTATION
   # ---------------------------------------------------------------------------
-  - name: implementation_manager
-    description: Central hub managing task/issue/PR lifecycle and routing
+  # ── Outer orchestrator: PR group lifecycle ──────────────────────────
+  - name: pr_group_manager
+    description: Outer orchestrator — owns PR groups, branch lifecycle, and issue closure (only after PR merge)
     model: claude-sonnet-4.6
     input:
       - work_tree_seeder.output
       - intake.output
       - architect.output?
       - plan_reader.output?
-      - implementation_manager.output?
-      - task_reviewer.output?
-      - issue_reviewer.output?
+      - pr_group_manager.output?
+      - task_manager.output?
       - pr_merge.output?
-      - user_acceptance.output?
-    system_prompt: !file prompts/implementation-manager.system.md
-    prompt: !file prompts/implementation-manager.prompt.md
+    system_prompt: !file prompts/pr-group-manager.system.md
+    prompt: !file prompts/pr-group-manager.prompt.md
     output:
       action:
         type: string
-        description: Next action — implement_task, issue_review, needs_acceptance, submit_pr, or all_complete
+        description: Next action — start_tasks, submit_pr, or all_complete
       current_pr_group:
         type: string
         description: Current PR group name/index
+      branch_name:
+        type: string
+        description: Current git branch name
+      pr_group_issue_ids:
+        type: array
+        description: Issue IDs in the current PR group
+      pr_group_task_ids:
+        type: array
+        description: Task IDs in the current PR group
+      completed_issues:
+        type: array
+        description: Issues closed after PR merge
+      completed_prs:
+        type: array
+        description: Completed PR group names
+      progress_summary:
+        type: string
+        description: Human-readable progress summary
+    routes:
+      - to: task_manager
+        when: "{{ output.action == 'start_tasks' }}"
+      - to: reducer_pr
+        when: "{{ output.action == 'submit_pr' }}"
+      - to: close_out
+        when: "{{ output.action == 'all_complete' }}"
+  # ── Inner orchestrator: task lifecycle within a PR group ────────────
+  - name: task_manager
+    description: Inner orchestrator — owns task lifecycle within a PR group. CANNOT close issues or submit PRs.
+    model: claude-sonnet-4.6
+    input:
+      - pr_group_manager.output
+      - work_tree_seeder.output
+      - intake.output
+      - architect.output?
+      - plan_reader.output?
+      - task_manager.output?
+      - task_reviewer.output?
+      - issue_reviewer.output?
+      - user_acceptance.output?
+    system_prompt: !file prompts/task-manager.system.md
+    prompt: !file prompts/task-manager.prompt.md
+    output:
+      action:
+        type: string
+        description: Next action — implement_task, issue_review, needs_acceptance, or pr_group_ready
+      current_pr_group:
+        type: string
+        description: Current PR group name (echoed from pr_group_manager)
+      branch_name:
+        type: string
+        description: Current branch name (echoed from pr_group_manager)
       current_issue_id:
         type: number
         description: Current issue ADO ID
@@ -383,18 +434,12 @@ agents:
       current_task_description:
         type: string
         description: Current task full description
-      branch_name:
-        type: string
-        description: Current git branch name
       completed_tasks:
         type: array
         description: List of completed task IDs
-      completed_issues:
+      reviewed_issues:
         type: array
-        description: List of completed issue IDs
-      completed_prs:
-        type: array
-        description: List of completed PR group names
+        description: Issues that have passed review (but NOT yet closed — pr_group_manager closes them after PR merge)
       progress_summary:
         type: string
         description: Human-readable progress summary
@@ -405,15 +450,14 @@ agents:
         when: "{{ output.action == 'issue_review' }}"
       - to: user_acceptance
         when: "{{ output.action == 'needs_acceptance' }}"
-      - to: reducer_pr
-        when: "{{ output.action == 'submit_pr' }}"
-      - to: close_out
-        when: "{{ output.action == 'all_complete' }}"
+      - to: pr_group_manager
+        when: "{{ output.action == 'pr_group_ready' }}"
   - name: coder
     description: Implements a single task — code changes, tests, incremental commits
     model: claude-opus-4.6-1m
     input:
-      - implementation_manager.output
+      - task_manager.output
+      - pr_group_manager.output
       - architect.output?
       - plan_reader.output?
       - intake.output
@@ -447,7 +491,7 @@ agents:
     model: claude-sonnet-4.6
     input:
       - coder.output
-      - implementation_manager.output
+      - task_manager.output
     system_prompt: !file prompts/reducer.system.md
     prompt: !file prompts/reducer-code.prompt.md
     output:
@@ -474,7 +518,7 @@ agents:
     input:
       - coder.output
       - reducer_code.output
-      - implementation_manager.output
+      - task_manager.output
       - architect.output?
       - plan_reader.output?
     system_prompt: !file prompts/task-reviewer.system.md
@@ -496,7 +540,7 @@ agents:
         type: array
         description: Things done well in the implementation (reinforces good patterns)
     routes:
-      - to: implementation_manager
+      - to: task_manager
         when: "{{ output.approved }}"
       - to: coder
         when: "{{ not output.approved }}"
@@ -504,32 +548,32 @@ agents:
     type: human_gate
     description: Conditional user acceptance gate — triggered when an issue has user-facing changes
     input:
-      - implementation_manager.output
+      - task_manager.output
       - architect.output?
       - plan_reader.output?
     prompt: |
       ## User Acceptance Check
-      All tasks for issue #{{ implementation_manager.output.current_issue_id }} — {{ implementation_manager.output.current_issue_title }} are complete.
+      All tasks for issue #{{ task_manager.output.current_issue_id }} — {{ task_manager.output.current_issue_title }} are complete.
       **Plan:** {{ (architect.output.plan_path if architect is defined and architect.output else plan_reader.output.plan_path) }}
-      **Completed Tasks:** {{ implementation_manager.output.completed_tasks | json }}
-      **Progress:** {{ implementation_manager.output.progress_summary }}
+      **Completed Tasks:** {{ task_manager.output.completed_tasks | json }}
+      **Progress:** {{ task_manager.output.progress_summary }}
       Please verify the implementation meets your expectations.
     options:
       - label: "Accept — looks good"
         value: accepted
-        route: implementation_manager
+        route: task_manager
       - label: "Request Changes"
         value: changes
-        route: implementation_manager
+        route: task_manager
         prompt_for: feedback
       - label: "Skip — no acceptance needed"
         value: skipped
-        route: implementation_manager
+        route: task_manager
   - name: reducer_issue
     description: Post-issue code sweep — simplifies across all tasks in the completed issue
     model: claude-sonnet-4.6
     input:
-      - implementation_manager.output
+      - task_manager.output
       - architect.output?
       - plan_reader.output?
     system_prompt: !file prompts/reducer.system.md
@@ -550,7 +594,7 @@ agents:
     description: Reviews the complete issue implementation against acceptance criteria
     model: claude-opus-4.6-1m
     input:
-      - implementation_manager.output
+      - task_manager.output
       - architect.output?
       - plan_reader.output?
       - reducer_issue.output
@@ -573,12 +617,13 @@ agents:
         type: array
         description: Things done well across the issue implementation
     routes:
-      - to: implementation_manager
+      - to: task_manager
   - name: pr_submit
     description: Creates a GitHub PR for the current PR group
     model: claude-sonnet-4.6
     input:
-      - implementation_manager.output
+      - pr_group_manager.output
+      - task_manager.output
       - architect.output?
       - plan_reader.output?
       - work_tree_seeder.output
@@ -603,7 +648,7 @@ agents:
       - pr_submit.output
       - architect.output?
       - plan_reader.output?
-      - implementation_manager.output
+      - pr_group_manager.output
     system_prompt: !file prompts/pr-reviewer.system.md
     prompt: !file prompts/pr-reviewer.prompt.md
     output:
@@ -660,7 +705,7 @@ agents:
     model: claude-sonnet-4.6
     input:
       - pr_submit.output
-      - implementation_manager.output
+      - pr_group_manager.output
       - architect.output?
       - plan_reader.output?
     system_prompt: !file prompts/pr-merge.system.md
@@ -673,7 +718,7 @@ agents:
         type: string
         description: URL of the merged PR
     routes:
-      - to: implementation_manager
+      - to: pr_group_manager
   # ---------------------------------------------------------------------------
   # PR-STAGE REDUCTION (runs before PR submission, not post-merge)
   # ---------------------------------------------------------------------------
@@ -681,7 +726,8 @@ agents:
     description: Pre-PR reduction sweep — simplifies all changes in the PR group before submission
     model: claude-sonnet-4.6
     input:
-      - implementation_manager.output
+      - pr_group_manager.output
+      - task_manager.output
       - architect.output?
       - plan_reader.output?
       - intake.output
@@ -709,7 +755,7 @@ agents:
       - intake.output
       - architect.output?
       - plan_reader.output?
-      - implementation_manager.output
+      - pr_group_manager.output
     system_prompt: !file prompts/close-out.system.md
     prompt: !file prompts/close-out.prompt.md
     output:

@@ -1,18 +1,17 @@
 Create a PR for the current PR group.
-**Branch:** {{ implementation_manager.output.branch_name }}
-**PR Group:** {{ implementation_manager.output.current_pr_group }}
-**Issue:** #{{ implementation_manager.output.current_issue_id }} — {{ implementation_manager.output.current_issue_title }}
-**Completed Tasks:** {{ implementation_manager.output.completed_tasks | json }}
+**Branch:** {{ pr_group_manager.output.branch_name }}
+**PR Group:** {{ pr_group_manager.output.current_pr_group }}
+**Completed Issues:** {{ pr_group_manager.output.pr_group_issue_ids | json }}
 ## Steps
 1. **Pre-submit validation** — check for stale references and build errors:
    - `dotnet build --no-restore 2>&1` — must produce zero errors
    - If build fails, fix the issues (stale references to renamed/removed methods,
      missing usings, broken call sites) and commit the fixes before proceeding
    - `dotnet test --settings test.runsettings` — all tests must pass
-2. Push the branch: `git push -u origin {{ implementation_manager.output.branch_name }}`
+2. Push the branch: `git push -u origin {{ pr_group_manager.output.branch_name }}`
 3. Create the PR:
    ```
-   gh pr create --base main --head {{ implementation_manager.output.branch_name }} \
+   gh pr create --base main --head {{ pr_group_manager.output.branch_name }} \
      --title "<PR group title>" \
      --body "<description with AB# references>"
    ```

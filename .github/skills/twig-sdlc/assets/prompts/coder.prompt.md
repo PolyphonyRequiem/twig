@@ -1,8 +1,8 @@
 Implement the following task.
-**Task:** #{{ implementation_manager.output.current_task_id }} — {{ implementation_manager.output.current_task_title }}
-**Description:** {{ implementation_manager.output.current_task_description }}
-**Issue:** #{{ implementation_manager.output.current_issue_id }} — {{ implementation_manager.output.current_issue_title }}
-**Branch:** {{ implementation_manager.output.branch_name }}
+**Task:** #{{ task_manager.output.current_task_id }} — {{ task_manager.output.current_task_title }}
+**Description:** {{ task_manager.output.current_task_description }}
+**Issue:** #{{ task_manager.output.current_issue_id }} — {{ task_manager.output.current_issue_title }}
+**Branch:** {{ pr_group_manager.output.branch_name }}
 **Plan:** Read `{{ (architect.output.plan_path if architect is defined and architect.output else plan_reader.output.plan_path) }}` for full context.
 {% if task_reviewer is defined and task_reviewer.output and not task_reviewer.output.approved %}
 **Previous review — fix these issues:**

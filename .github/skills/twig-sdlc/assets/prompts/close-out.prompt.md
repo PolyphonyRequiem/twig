@@ -1,11 +1,12 @@
 Close out the SDLC workflow.
 **Epic:** #{{ intake.output.epic_id }} — {{ intake.output.epic_title }}
-**Completed Issues:** {{ implementation_manager.output.completed_issues | json }}
-**Completed PRs:** {{ implementation_manager.output.completed_prs | json }}
+**Completed Issues:** {{ pr_group_manager.output.completed_issues | json }}
+**Completed PRs:** {{ pr_group_manager.output.completed_prs | json }}
 **Plan:** {{ (architect.output.plan_path if architect is defined and architect.output else plan_reader.output.plan_path) }}
 ## Ownership Convention
-Implementing agents (coder, implementation_manager) own Task and Issue state
-transitions. The close_out agent owns the **Epic-level** transition to Done.
+Implementing agents (coder, task_manager) own Task state transitions.
+pr_group_manager owns Issue closure (only after PR merge).
+The close_out agent owns the **Epic-level** transition to Done.
 Do NOT assume implementing agents have already transitioned the Epic.
 ## Steps
 0. **Sync local cache** (prevents stale-state conflicts from multi-agent workflows):

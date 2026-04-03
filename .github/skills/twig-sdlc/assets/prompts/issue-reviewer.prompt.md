@@ -1,6 +1,6 @@
-Review issue #{{ implementation_manager.output.current_issue_id }} — {{ implementation_manager.output.current_issue_title }}.
+Review issue #{{ task_manager.output.current_issue_id }} — {{ task_manager.output.current_issue_title }}.
 **Plan:** Read `{{ (architect.output.plan_path if architect is defined and architect.output else plan_reader.output.plan_path) }}` for this issue's acceptance criteria.
-**Completed Tasks:** {{ implementation_manager.output.completed_tasks | json }}
+**Completed Tasks:** {{ task_manager.output.completed_tasks | json }}
 **Reducer findings:** {{ reducer_issue.output.findings | join(", ") }}
 
 ## Review Tasks

@@ -70,37 +70,46 @@ architect → open_questions_gate (human gate, conditional) → reducer_plan
 
 Creates ADO Issues and Tasks from the plan via `twig seed new`, `twig seed chain`, and `twig seed publish`. Seeds Issues and Tasks matching the plan's ADO hierarchy under the input work item. Uses successor links for execution ordering.
 
-### Phase 4: Implementation (9 agents + 1 human gate)
+### Phase 4: Implementation (10 agents + 1 human gate)
+
+Two-tier orchestrator split: `pr_group_manager` (outer) owns branch lifecycle and issue
+closure; `task_manager` (inner) owns task execution within a PR group. Issues are ONLY
+closed after their PR is merged — structurally preventing "code complete ≠ code merged".
 
 ```
-implementation_manager → coder → reducer_code → task_reviewer
-     ▲                                              │
-     │              ┌── REQUEST_CHANGES ─────────────┘
-     │              ↓
-     │            coder (fix)
-     │              │
-     ├── task approved, more tasks ──────────────────┘
-     │
-     ├── all tasks done → reducer_issue → issue_reviewer
-     │                                       │
-     │                   ┌── REQUEST_CHANGES ┘
-     │                   ↓
-     │     implementation_manager (fix task)
-     │                   │
-     ├── issue approved → user_acceptance (human gate, conditional)
-     │                        │
-     │                        ├── accepted/skipped → close issue
-     │                        └── changes → implementation_manager
-     │
-     ├── PR group done → reducer_pr → pr_submit → pr_reviewer
-     │                                    ▲            │
-     │                                    │            ├── APPROVE → pr_merge → implementation_manager
-     │                                    │            └── REQUEST_CHANGES → pr_fixer → pr_submit
-     │
-     └── all done → close_out
+pr_group_manager ──→ task_manager ──→ coder → reducer_code → task_reviewer
+      ▲                   ▲                                       │
+      │                   │         ┌── REQUEST_CHANGES ──────────┘
+      │                   │         ↓
+      │                   │       coder (fix)
+      │                   │         │
+      │                   ├── task approved, more tasks ──────────┘
+      │                   │
+      │                   ├── all tasks done → reducer_issue → issue_reviewer
+      │                   │                                       │
+      │                   │                  ┌── REQUEST_CHANGES ─┘
+      │                   │                  ↓
+      │                   │         task_manager (fix task)
+      │                   │                  │
+      │                   ├── issue approved → user_acceptance (human gate)
+      │                   │                       │
+      │                   │                       ├── accepted/skipped ──┘
+      │                   │                       └── changes → task_manager
+      │                   │
+      │                   └── all issues reviewed → pr_group_ready
+      │
+      ├── pr_group_ready → reducer_pr → pr_submit → pr_reviewer
+      │                                    ▲            │
+      │                                    │            ├── APPROVE → pr_merge ──┐
+      │                                    │            └── REQUEST_CHANGES ─→ pr_fixer
+      │                                    └────────────────────────────────────┘
+      ├── pr_merge returns → close issues in this PR group → next PR group
+      │
+      └── all PR groups done → close_out
 ```
 
-- **implementation_manager** (Sonnet) — central hub: manages task/issue lifecycle via twig, creates branches, routes work
+- **pr_group_manager** (Sonnet) — outer orchestrator: creates branches, closes Issues (only after PR merge), routes PR groups
+- **task_manager** (Sonnet) — inner orchestrator: manages task lifecycle within a PR group, routes to coder/reviewers, returns `pr_group_ready` when done (CANNOT close Issues)
 - **coder** (Opus 1M) — implements one task at a time with incremental commits and twig notes; has pre-review checklist to avoid round-trips
 - **reducer_code** (Sonnet) — simplifies each task's implementation
 - **task_reviewer** (Sonnet) — per-task quality gate
@@ -131,7 +140,8 @@ implementation_manager → coder → reducer_code → task_reviewer
 | review_router | Sonnet | Score checking + routing |
 | plan_approval | Human Gate | Approve / revise / reject plan |
 | work_tree_seeder | Sonnet | Create ADO Issues + Tasks |
-| implementation_manager | Sonnet | Lifecycle hub + routing |
+| pr_group_manager | Sonnet | Outer orchestrator: branch + issue closure (after PR merge) |
+| task_manager | Sonnet | Inner orchestrator: task lifecycle + routing |
 | coder | Opus 1M | Task implementation |
 | reducer_code | Sonnet | Per-task code simplification |
 | task_reviewer | Sonnet | Per-task quality gate |

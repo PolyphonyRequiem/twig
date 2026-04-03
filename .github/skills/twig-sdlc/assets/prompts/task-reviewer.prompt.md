@@ -1,5 +1,5 @@
-Review the implementation of task #{{ implementation_manager.output.current_task_id }} — {{ implementation_manager.output.current_task_title }}.
-**Task description:** {{ implementation_manager.output.current_task_description }}
+Review the implementation of task #{{ task_manager.output.current_task_id }} — {{ task_manager.output.current_task_title }}.
+**Task description:** {{ task_manager.output.current_task_description }}
 **Plan:** Read `{{ (architect.output.plan_path if architect is defined and architect.output else plan_reader.output.plan_path) }}` for acceptance criteria.
 **Coder's changes:** {{ coder.output.changes_summary }}
 **Files:** {{ coder.output.files_modified | join(", ") }}

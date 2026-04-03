@@ -1,4 +1,4 @@
-Review and simplify the implementation for task #{{ implementation_manager.output.current_task_id }}.
+Review and simplify the implementation for task #{{ task_manager.output.current_task_id }}.
 **Files modified:**
 {% for file in coder.output.files_modified %}
 - {{ file }}

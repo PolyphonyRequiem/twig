@@ -52,4 +52,9 @@ public interface IWorkItemRepository
     /// <c>pending_changes</c> rows. Returns the number of items cleansed.
     /// </summary>
     Task<int> ClearPhantomDirtyFlagsAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Clears <c>is_dirty</c> for a single work item by ID.
+    /// </summary>
+    Task ClearDirtyFlagAsync(int id, CancellationToken ct = default);
 }

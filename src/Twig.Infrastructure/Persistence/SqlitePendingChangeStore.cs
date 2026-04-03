@@ -122,6 +122,36 @@ public sealed class SqlitePendingChangeStore : IPendingChangeStore
         return Task.FromResult<IReadOnlyList<int>>(ids);
     }
 
+    public Task<int> ClearAllChangesAsync(CancellationToken ct = default)
+    {
+        var conn = _store.GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            DELETE FROM pending_changes
+            WHERE work_item_id NOT IN (SELECT id FROM work_items WHERE is_seed = 1);
+            """;
+        var count = cmd.ExecuteNonQuery();
+        return Task.FromResult(count);
+    }
+
+    public Task<(int Notes, int FieldEdits)> GetChangeSummaryAsync(int workItemId, CancellationToken ct = default)
+    {
+        var conn = _store.GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT
+                COALESCE(SUM(CASE WHEN change_type = 'add_note'  THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN change_type = 'set_field' THEN 1 ELSE 0 END), 0)
+            FROM pending_changes
+            WHERE work_item_id = @workItemId;
+            """;
+        cmd.Parameters.AddWithValue("@workItemId", workItemId);
+
+        using var reader = cmd.ExecuteReader();
+        reader.Read();
+        return Task.FromResult((reader.GetInt32(0), reader.GetInt32(1)));
+    }
+
     private static PendingChangeRecord MapRow(SqliteDataReader reader)
     {
         return new PendingChangeRecord(

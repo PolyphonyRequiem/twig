@@ -1,7 +1,7 @@
 # Push-on-Write and Sync Convergence — Landing
 
 **Epic:** #1394  
-**Status**: 🔨 In Progress  
+**Status**: 🔨 In Progress — 1/2 PR groups merged  
 **Revision:** 6 — Merged T-1363.2a/2b back to T-1363.2 (artificial task split); removed speculative `--quiet` note from DD-11.
 
 ---

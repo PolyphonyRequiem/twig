@@ -22,9 +22,11 @@ public static class CommandServiceModule
 {
     public static IServiceCollection AddTwigCommandServices(this IServiceCollection services)
     {
-        // Hint engine — reads display config at startup
+        // Hint engine — reads display config at startup, uses process config for dynamic state resolution
         services.AddSingleton<HintEngine>(sp =>
-            new HintEngine(sp.GetRequiredService<TwigConfiguration>().Display));
+            new HintEngine(
+                sp.GetRequiredService<TwigConfiguration>().Display,
+                sp.GetRequiredService<IProcessConfigurationProvider>()));
 
         // Editor launcher and console input
         services.AddSingleton<IEditorLauncher, EditorLauncher>();

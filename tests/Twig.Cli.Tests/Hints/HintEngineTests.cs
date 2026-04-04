@@ -1,9 +1,14 @@
+using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Enums;
+using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
 using Twig.Domain.ValueObjects;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Cli.Tests.Hints;
@@ -115,6 +120,168 @@ public class HintEngineTests
         hints.Count.ShouldBe(1);
         hints[0].ShouldContain("Item cut");
         hints[0].ShouldContain("twig up");
+    }
+
+    // ── state command — process config integration ──────────────────
+
+    [Fact]
+    public void GetHints_StateD_WithAgileConfig_UsesClosedInHint()
+    {
+        var engine = CreateEngineWithConfig(ProcessConfigBuilder.Agile());
+        var item = CreateWorkItem(1, "Task 1", "Active");
+        var siblings = new[]
+        {
+            CreateWorkItem(2, "Sibling 1", "Closed"),
+            CreateWorkItem(3, "Sibling 2", "Closed"),
+        };
+
+        var hints = engine.GetHints("state", item: item, newStateName: "Closed", siblings: siblings);
+
+        hints.ShouldContain(h => h.Contains("twig state Closed"));
+    }
+
+    [Fact]
+    public void GetHints_StateD_WithBasicConfig_UsesDoneInHint()
+    {
+        var engine = CreateEngineWithConfig(ProcessConfigBuilder.Basic());
+        var item = CreateWorkItem(1, "Task 1", "Doing");
+        var siblings = new[]
+        {
+            CreateWorkItem(2, "Sibling 1", "Done"),
+            CreateWorkItem(3, "Sibling 2", "Done"),
+        };
+
+        var hints = engine.GetHints("state", item: item, newStateName: "Done", siblings: siblings);
+
+        hints.ShouldContain(h => h.Contains("twig state Done"));
+    }
+
+    [Fact]
+    public void GetHints_StateD_WithScrumConfig_UsesDoneInHint()
+    {
+        var engine = CreateEngineWithConfig(ProcessConfigBuilder.Scrum());
+        var item = CreateWorkItem(1, "Task 1", "In Progress");
+        var siblings = new[]
+        {
+            CreateWorkItem(2, "Sibling 1", "Done"),
+            CreateWorkItem(3, "Sibling 2", "Done"),
+        };
+
+        var hints = engine.GetHints("state", item: item, newStateName: "Done", siblings: siblings);
+
+        hints.ShouldContain(h => h.Contains("twig state Done"));
+    }
+
+    [Fact]
+    public void GetHints_StateD_WithProcessConfig_ResolvesSiblingStatesFromEntries()
+    {
+        var engine = CreateEngineWithConfig(ProcessConfigBuilder.Basic());
+        var item = CreateWorkItem(1, "Task 1", "Doing");
+        var siblings = new[]
+        {
+            CreateWorkItem(2, "Sibling 1", "Done"),
+            CreateWorkItem(3, "Sibling 2", "Doing"),
+        };
+
+        var hints = engine.GetHints("state", item: item, newStateName: "Done", siblings: siblings);
+
+        hints.ShouldNotContain(h => h.Contains("All sibling tasks complete"));
+    }
+
+    [Fact]
+    public void GetHints_StateD_NullProcessConfig_FallsBackToHeuristics()
+    {
+        var engine = CreateEngine();
+        var siblings = new[]
+        {
+            CreateWorkItem(2, "Sibling 1", "Closed"),
+            CreateWorkItem(3, "Sibling 2", "Done"),
+        };
+
+        var hints = engine.GetHints("state", newStateName: "Closed", siblings: siblings);
+
+        hints.ShouldContain(h => h.Contains("All sibling tasks complete"));
+        // Without config, defaults to "Done"
+        hints.ShouldContain(h => h.Contains("twig state Done"));
+    }
+
+    [Fact]
+    public void GetHints_StateD_NullItem_FallsBackToHeuristics()
+    {
+        var engine = CreateEngineWithConfig(ProcessConfigBuilder.Agile());
+        var siblings = new[]
+        {
+            CreateWorkItem(2, "Sibling 1", "Closed"),
+            CreateWorkItem(3, "Sibling 2", "Closed"),
+        };
+
+        // No item provided — cannot look up type config, falls back to heuristic resolve + default "Done"
+        var hints = engine.GetHints("state", newStateName: "Closed", siblings: siblings);
+
+        hints.ShouldContain(h => h.Contains("All sibling tasks complete"));
+        hints.ShouldContain(h => h.Contains("twig state Done"));
+    }
+
+    [Fact]
+    public void GetHints_StateD_ProviderThrows_FallsBackToHeuristics()
+    {
+        var provider = Substitute.For<IProcessConfigurationProvider>();
+        provider.GetConfiguration().Throws(new InvalidOperationException("No config"));
+        var engine = new HintEngine(new DisplayConfig { Hints = true }, provider);
+        var item = CreateWorkItem(1, "Task 1", "Active");
+        var siblings = new[]
+        {
+            CreateWorkItem(2, "Sibling 1", "Closed"),
+            CreateWorkItem(3, "Sibling 2", "Done"),
+        };
+
+        var hints = engine.GetHints("state", item: item, newStateName: "Closed", siblings: siblings);
+
+        hints.ShouldContain(h => h.Contains("All sibling tasks complete"));
+        // Provider throws → SafeGetConfiguration returns null → no entries → default "Done"
+        hints.ShouldContain(h => h.Contains("twig state Done"));
+    }
+
+    [Fact]
+    public void GetHints_StateD_UnknownItemType_FallsBackToHeuristics()
+    {
+        // Build a config that only knows about User Story, not Task
+        var config = ProcessConfigBuilder.AgileUserStoryOnly();
+        var engine = CreateEngineWithConfig(config);
+        var item = CreateWorkItem(1, "Task 1", "Active");
+        var siblings = new[]
+        {
+            CreateWorkItem(2, "Sibling 1", "Closed"),
+            CreateWorkItem(3, "Sibling 2", "Done"),
+        };
+
+        var hints = engine.GetHints("state", item: item, newStateName: "Closed", siblings: siblings);
+
+        // Task type not in config → falls back to heuristics
+        hints.ShouldContain(h => h.Contains("All sibling tasks complete"));
+        hints.ShouldContain(h => h.Contains("twig state Done"));
+    }
+
+    [Fact]
+    public void GetHints_StateD_CustomNonStandardCompletedState_UsesConfiguredName()
+    {
+        var config = new ProcessConfigBuilder()
+            .AddType("Task", ProcessConfigBuilder.S(
+                ("Backlog", StateCategory.Proposed),
+                ("Working", StateCategory.InProgress),
+                ("Finished", StateCategory.Completed)))
+            .Build();
+        var engine = CreateEngineWithConfig(config);
+        var item = CreateWorkItem(1, "Task 1", "Working");
+        var siblings = new[]
+        {
+            CreateWorkItem(10, "Sibling 1", "Finished"),
+            CreateWorkItem(11, "Sibling 2", "Finished"),
+        };
+
+        var hints = engine.GetHints("state", item: item, newStateName: "Finished", siblings: siblings);
+
+        hints.ShouldContain(h => h.Contains("twig state Finished"));
     }
 
     // ── seed command ────────────────────────────────────────────────
@@ -261,6 +428,13 @@ public class HintEngineTests
     private static HintEngine CreateEngine()
     {
         return new HintEngine(new DisplayConfig { Hints = true });
+    }
+
+    private static HintEngine CreateEngineWithConfig(ProcessConfiguration config)
+    {
+        var provider = Substitute.For<IProcessConfigurationProvider>();
+        provider.GetConfiguration().Returns(config);
+        return new HintEngine(new DisplayConfig { Hints = true }, provider);
     }
 
     private static WorkItem CreateWorkItem(int id, string title, string state)

@@ -1,10 +1,12 @@
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using Shouldly;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Ado.Exceptions;
+using Twig.Infrastructure.Serialization;
 using Xunit;
 
 namespace Twig.Infrastructure.Tests.Ado;
@@ -117,6 +119,120 @@ public class AdoIterationServiceTests
         var result = await service.DetectTemplateNameAsync();
 
         result.ShouldBe("Agile");
+    }
+
+    // ── DetectTemplateNameAsync (API-first + heuristic fallback) ───
+
+    [Fact]
+    public async Task DetectTemplateNameAsync_ApiReturnsTemplateName_ReturnsApiResult()
+    {
+        var handler = new FakeHandler();
+        handler.SetProjectCapabilitiesResponse("Agile");
+        handler.SetWorkItemTypesResponse("Epic", "Issue", "Task"); // heuristic would return Basic
+        var service = CreateService(handler);
+
+        var result = await service.DetectTemplateNameAsync();
+
+        result.ShouldBe("Agile");
+    }
+
+    [Fact]
+    public async Task DetectTemplateNameAsync_ApiReturnsCustomTemplate_ReturnsCustomName()
+    {
+        var handler = new FakeHandler();
+        handler.SetProjectCapabilitiesResponse("MyCustomProcess");
+        handler.SetWorkItemTypesResponse("Epic", "Feature", "User Story", "Task");
+        var service = CreateService(handler);
+
+        var result = await service.DetectTemplateNameAsync();
+
+        result.ShouldBe("MyCustomProcess");
+    }
+
+    [Fact]
+    public async Task DetectTemplateNameAsync_ApiFails_FallsBackToHeuristic()
+    {
+        var handler = new FakeHandler();
+        // No project capabilities response configured — 404 triggers heuristic fallback
+        handler.SetWorkItemTypesResponse("Epic", "Feature", "User Story", "Task", "Bug");
+        var service = CreateService(handler);
+
+        var result = await service.DetectTemplateNameAsync();
+
+        result.ShouldBe("Agile");
+    }
+
+    [Fact]
+    public async Task DetectTemplateNameAsync_ApiReturnsEmptyTemplateName_FallsBackToHeuristic()
+    {
+        var handler = new FakeHandler();
+        handler.SetProjectCapabilitiesResponse("");
+        handler.SetWorkItemTypesResponse("Epic", "Feature", "Product Backlog Item", "Task");
+        var service = CreateService(handler);
+
+        var result = await service.DetectTemplateNameAsync();
+
+        result.ShouldBe("Scrum");
+    }
+
+    [Fact]
+    public async Task DetectTemplateNameAsync_ApiReturnsNullCapabilities_FallsBackToHeuristic()
+    {
+        var handler = new FakeHandler();
+        handler.SetRawResponse("/_apis/projects/", """{"capabilities":null}""");
+        handler.SetWorkItemTypesResponse("Epic", "Feature", "Requirement", "Task");
+        var service = CreateService(handler);
+
+        var result = await service.DetectTemplateNameAsync();
+
+        result.ShouldBe("CMMI");
+    }
+
+    [Fact]
+    public async Task DetectTemplateNameAsync_ApiReturnsNullProcessTemplate_FallsBackToHeuristic()
+    {
+        var handler = new FakeHandler();
+        handler.SetRawResponse("/_apis/projects/", """{"capabilities":{"processTemplate":null}}""");
+        handler.SetWorkItemTypesResponse("Epic", "Issue", "Task");
+        var service = CreateService(handler);
+
+        var result = await service.DetectTemplateNameAsync();
+
+        result.ShouldBe("Basic");
+    }
+
+    [Fact]
+    public async Task DetectTemplateNameAsync_CancellationRequested_ThrowsOperationCanceledException()
+    {
+        var handler = new CancelingHandler();
+        var service = CreateService(handler);
+
+        await Should.ThrowAsync<OperationCanceledException>(
+            () => service.DetectTemplateNameAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task DetectTemplateNameAsync_ApiThrowsHttpRequestException_FallsBackToHeuristic()
+    {
+        var handler = new NetworkErrorHandler("/_apis/projects/");
+        handler.SetWorkItemTypesResponse("Epic", "Feature", "Product Backlog Item", "Task");
+        var service = CreateService(handler);
+
+        var result = await service.DetectTemplateNameAsync();
+
+        result.ShouldBe("Scrum");
+    }
+
+    [Fact]
+    public void AdoProjectWithCapabilitiesResponse_DeserializesFromCamelCaseJson()
+    {
+        var json = """{"capabilities":{"processTemplate":{"templateName":"MyCustomProcess"}}}"""u8;
+        var dto = JsonSerializer.Deserialize(json, TwigJsonContext.Default.AdoProjectWithCapabilitiesResponse);
+
+        dto.ShouldNotBeNull();
+        dto.Capabilities.ShouldNotBeNull();
+        dto.Capabilities!.ProcessTemplate.ShouldNotBeNull();
+        dto.Capabilities.ProcessTemplate!.TemplateName.ShouldBe("MyCustomProcess");
     }
 
     // ── GetCurrentIterationAsync ────────────────────────────────────
@@ -588,14 +704,7 @@ public class AdoIterationServiceTests
 
     // ── Helpers ──────────────────────────────────────────────────────
 
-    private static AdoIterationService CreateService(FakeHandler handler)
-    {
-        var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
-        var auth = new FakeAuthProvider();
-        return new AdoIterationService(http, auth, OrgUrl, Project, Team);
-    }
-
-    private static AdoIterationService CreateService(CancelingHandler handler)
+    private static AdoIterationService CreateService(HttpMessageHandler handler)
     {
         var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
         var auth = new FakeAuthProvider();
@@ -611,7 +720,7 @@ public class AdoIterationServiceTests
     /// <summary>
     /// Fake HttpMessageHandler that returns canned JSON responses for iteration and work item type endpoints.
     /// </summary>
-    private sealed class FakeHandler : HttpMessageHandler
+    private class FakeHandler : HttpMessageHandler
     {
         private readonly Dictionary<string, string> _responses = new(StringComparer.OrdinalIgnoreCase);
 
@@ -692,6 +801,13 @@ public class AdoIterationServiceTests
         {
             _responses["/_apis/work/processconfiguration"] = json;
         }
+
+        public void SetProjectCapabilitiesResponse(string templateName)
+        {
+            var json = $"{{\"capabilities\":{{\"processTemplate\":{{\"templateName\":\"{templateName}\"}}}}}}";
+            _responses["/_apis/projects/"] = json;
+        }
+
     }
 
     /// <summary>
@@ -705,6 +821,24 @@ public class AdoIterationServiceTests
             CancellationToken cancellationToken)
         {
             throw new OperationCanceledException("Simulated cancellation");
+        }
+    }
+
+    /// <summary>
+    /// HttpMessageHandler that throws <see cref="HttpRequestException"/> for a specific URL
+    /// and delegates all other requests to <see cref="FakeHandler"/>. Simulates network-level
+    /// failures on a targeted endpoint while keeping remaining endpoints functional.
+    /// </summary>
+    private sealed class NetworkErrorHandler(string errorUrlFragment) : FakeHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            if (request.RequestUri!.ToString().Contains(errorUrlFragment, StringComparison.OrdinalIgnoreCase))
+                throw new HttpRequestException("Simulated network failure");
+
+            return base.SendAsync(request, cancellationToken);
         }
     }
 }

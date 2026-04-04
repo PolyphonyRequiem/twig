@@ -64,6 +64,32 @@ internal sealed class AdoIterationService : IIterationService
 
     public async Task<string?> DetectTemplateNameAsync(CancellationToken ct = default)
     {
+        try
+        {
+            var apiResult = await DetectTemplateNameByApiAsync(ct);
+            if (!string.IsNullOrEmpty(apiResult))
+                return apiResult;
+        }
+        catch (OperationCanceledException) { throw; }
+        catch
+        {
+            // API call failed — fall back to heuristic
+        }
+
+        return await DetectTemplateNameByHeuristicAsync(ct);
+    }
+
+    private async Task<string?> DetectTemplateNameByApiAsync(CancellationToken ct)
+    {
+        var url = $"{_orgUrl}/_apis/projects/{Uri.EscapeDataString(_project)}?includeCapabilities=true&api-version={ApiVersion}";
+        using var response = await SendAsync(url, ct);
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        var adoResponse = await JsonSerializer.DeserializeAsync(stream, TwigJsonContext.Default.AdoProjectWithCapabilitiesResponse, ct);
+        return adoResponse?.Capabilities?.ProcessTemplate?.TemplateName;
+    }
+
+    private async Task<string?> DetectTemplateNameByHeuristicAsync(CancellationToken ct)
+    {
         var result = await GetWorkItemTypesResponseAsync(ct);
 
         if (result?.Value is null || result.Value.Count == 0)

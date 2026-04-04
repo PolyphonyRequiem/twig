@@ -24,8 +24,6 @@ public sealed class ShowCommandTests : IDisposable
     private readonly IProcessConfigurationProvider _processConfigProvider;
     private readonly string _tempDir;
     private readonly TwigPaths _paths;
-    private readonly TestConsole _testConsole;
-    private readonly SpectreRenderer _spectreRenderer;
     private readonly ShowCommand _cmd;
 
     public ShowCommandTests()
@@ -43,9 +41,6 @@ public sealed class ShowCommandTests : IDisposable
         _tempDir = Path.Combine(Path.GetTempPath(), "twig-show-test-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_tempDir);
         _paths = new TwigPaths(_tempDir, Path.Combine(_tempDir, "config"), Path.Combine(_tempDir, "twig.db"));
-
-        _testConsole = new TestConsole();
-        _spectreRenderer = new SpectreRenderer(_testConsole, new SpectreTheme(new DisplayConfig()));
 
         _cmd = new ShowCommand(
             _workItemRepo,
@@ -72,30 +67,12 @@ public sealed class ShowCommandTests : IDisposable
             telemetryClient: _telemetryClient,
             stderr: stderr);
 
-    private RenderingPipelineFactory CreateRedirectedPipelineFactory() =>
-        new(_formatterFactory, _spectreRenderer, isOutputRedirected: () => true);
-
-    // ═══════════════════════════════════════════════════════════════
-    //  Happy path: item found in cache
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task Show_ItemInCache_ReturnsSuccess()
-    {
-        var item = new WorkItemBuilder(42, "Fix login bug").Build();
-        SetupCachedItem(item);
-
-        var result = await _cmd.ExecuteAsync(42);
-
-        result.ShouldBe(0);
-    }
-
     // ═══════════════════════════════════════════════════════════════
     //  Cache miss: item not found
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task Show_ItemNotInCache_ReturnsErrorWithHelpfulMessage()
+    public async Task Show_ItemNotInCache_ReturnsExitCode1WithMessageAndTelemetry()
     {
         _workItemRepo.GetByIdAsync(999, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
         var stderrWriter = new StringWriter();
@@ -108,6 +85,12 @@ public sealed class ShowCommandTests : IDisposable
         var stderr = stderrWriter.ToString();
         stderr.ShouldContain("Work item #999 not found in local cache");
         stderr.ShouldContain("twig set 999");
+        _telemetryClient.Received().TrackEvent(
+            "CommandExecuted",
+            Arg.Is<Dictionary<string, string>>(d =>
+                d["command"] == "show" &&
+                d["exit_code"] == "1"),
+            Arg.Any<Dictionary<string, double>>());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -232,7 +215,8 @@ public sealed class ShowCommandTests : IDisposable
     {
         var item = new WorkItemBuilder(42, "Human Item").Build();
         SetupCachedItem(item);
-        var cmd = CreateCommandWithPipeline(CreateRedirectedPipelineFactory());
+        var spectreRenderer = new SpectreRenderer(new TestConsole(), new SpectreTheme(new DisplayConfig()));
+        var cmd = CreateCommandWithPipeline(new RenderingPipelineFactory(_formatterFactory, spectreRenderer, isOutputRedirected: () => true));
 
         var output = await CaptureStdout(() => cmd.ExecuteAsync(42, "human"));
 
@@ -313,24 +297,6 @@ public sealed class ShowCommandTests : IDisposable
                 d["output_format"] == "json"),
             Arg.Is<Dictionary<string, double>>(m =>
                 m.ContainsKey("duration_ms") && m["duration_ms"] >= 0));
-    }
-
-    [Fact]
-    public async Task Show_CacheMiss_EmitsTelemetryWithExitCode1()
-    {
-        _workItemRepo.GetByIdAsync(999, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
-        var stderrWriter = new StringWriter();
-        var cmd = new ShowCommand(_workItemRepo, _linkRepo, _formatterFactory,
-            telemetryClient: _telemetryClient, stderr: stderrWriter);
-
-        await cmd.ExecuteAsync(999);
-
-        _telemetryClient.Received().TrackEvent(
-            "CommandExecuted",
-            Arg.Is<Dictionary<string, string>>(d =>
-                d["command"] == "show" &&
-                d["exit_code"] == "1"),
-            Arg.Any<Dictionary<string, double>>());
     }
 
     [Fact]

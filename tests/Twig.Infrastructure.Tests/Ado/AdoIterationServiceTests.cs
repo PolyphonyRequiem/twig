@@ -1,10 +1,12 @@
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using Shouldly;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Ado.Exceptions;
+using Twig.Infrastructure.Serialization;
 using Xunit;
 
 namespace Twig.Infrastructure.Tests.Ado;
@@ -207,6 +209,30 @@ public class AdoIterationServiceTests
 
         await Should.ThrowAsync<OperationCanceledException>(
             () => service.DetectTemplateNameAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task DetectTemplateNameAsync_ApiThrowsHttpRequestException_FallsBackToHeuristic()
+    {
+        var handler = new NetworkErrorHandler("/_apis/projects/");
+        handler.SetWorkItemTypesResponse("Epic", "Feature", "Product Backlog Item", "Task");
+        var service = CreateService(handler);
+
+        var result = await service.DetectTemplateNameAsync();
+
+        result.ShouldBe("Scrum");
+    }
+
+    [Fact]
+    public void AdoProjectWithCapabilitiesResponse_DeserializesFromCamelCaseJson()
+    {
+        var json = """{"capabilities":{"processTemplate":{"templateName":"MyCustomProcess"}}}"""u8;
+        var dto = JsonSerializer.Deserialize(json, TwigJsonContext.Default.AdoProjectWithCapabilitiesResponse);
+
+        dto.ShouldNotBeNull();
+        dto.Capabilities.ShouldNotBeNull();
+        dto.Capabilities!.ProcessTemplate.ShouldNotBeNull();
+        dto.Capabilities.ProcessTemplate!.TemplateName.ShouldBe("MyCustomProcess");
     }
 
     // ── GetCurrentIterationAsync ────────────────────────────────────
@@ -678,14 +704,7 @@ public class AdoIterationServiceTests
 
     // ── Helpers ──────────────────────────────────────────────────────
 
-    private static AdoIterationService CreateService(FakeHandler handler)
-    {
-        var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
-        var auth = new FakeAuthProvider();
-        return new AdoIterationService(http, auth, OrgUrl, Project, Team);
-    }
-
-    private static AdoIterationService CreateService(CancelingHandler handler)
+    private static AdoIterationService CreateService(HttpMessageHandler handler)
     {
         var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
         var auth = new FakeAuthProvider();
@@ -788,6 +807,7 @@ public class AdoIterationServiceTests
             var json = $"{{\"capabilities\":{{\"processTemplate\":{{\"templateName\":\"{templateName}\"}}}}}}";
             _responses["/_apis/projects/"] = json;
         }
+
     }
 
     /// <summary>
@@ -801,6 +821,24 @@ public class AdoIterationServiceTests
             CancellationToken cancellationToken)
         {
             throw new OperationCanceledException("Simulated cancellation");
+        }
+    }
+
+    /// <summary>
+    /// HttpMessageHandler that throws <see cref="HttpRequestException"/> for a specific URL
+    /// and delegates all other requests to <see cref="FakeHandler"/>. Simulates network-level
+    /// failures on a targeted endpoint while keeping remaining endpoints functional.
+    /// </summary>
+    private sealed class NetworkErrorHandler(string errorUrlFragment) : FakeHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            if (request.RequestUri!.ToString().Contains(errorUrlFragment, StringComparison.OrdinalIgnoreCase))
+                throw new HttpRequestException("Simulated network failure");
+
+            return base.SendAsync(request, cancellationToken);
         }
     }
 }

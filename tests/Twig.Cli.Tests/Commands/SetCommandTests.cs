@@ -382,12 +382,7 @@ public sealed class SetCommandTests
         }
     }
 
-    private static WorkItem CreateWorkItem(int id, string title)
-    {
-        return CreateWorkItem(id, title, "Task");
-    }
-
-    private static WorkItem CreateWorkItem(int id, string title, string typeName, string state = "New")
+    private static WorkItem CreateWorkItem(int id, string title, string typeName = "Task", string state = "New")
     {
         return new WorkItem
         {

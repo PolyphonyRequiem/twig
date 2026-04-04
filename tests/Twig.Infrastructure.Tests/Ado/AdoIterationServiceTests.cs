@@ -720,7 +720,7 @@ public class AdoIterationServiceTests
     /// <summary>
     /// Fake HttpMessageHandler that returns canned JSON responses for iteration and work item type endpoints.
     /// </summary>
-    private sealed class FakeHandler : HttpMessageHandler
+    private class FakeHandler : HttpMessageHandler
     {
         private readonly Dictionary<string, string> _responses = new(StringComparer.OrdinalIgnoreCase);
 

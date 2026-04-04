@@ -86,3 +86,13 @@ When starting a task: `twig set <id> --output json` → `twig state Doing --outp
   delivery status.
 - You MUST NOT create branches or submit PRs.
 - When all issues pass review, return pr_group_ready — do not try to proceed further.
+
+## Pre-Handoff Verification (MANDATORY before returning pr_group_ready)
+
+Before setting action=pr_group_ready, run a final state audit:
+1. For EACH issue in the PR group:
+   - `twig set <issue_id> --output json` — verify the Issue is still in "Doing"
+     (NOT "Done"). If any Issue is "Done", you have a bug — report it.
+   - `twig tree --output json` — verify all child Tasks are in state "Done"
+2. Only after confirming: all Issues still "Doing", all Tasks "Done", and all
+   issues in reviewed_issues — set action=pr_group_ready.

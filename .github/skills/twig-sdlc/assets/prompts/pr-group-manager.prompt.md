@@ -63,3 +63,34 @@ This is the structural enforcement that prevents the "code complete but not
 shipped" failures observed in prior SDLC runs (#1338, #1394). The two prior
 runs both had agents close Issues before PRs were merged, causing ADO state to
 diverge from actual code delivery. This split exists specifically to prevent that.
+
+## Post-Merge Verification Checkpoint (MANDATORY after each PR merge)
+
+After pr_merge returns and before closing Issues or starting the next PR group,
+you MUST run this verification sequence:
+
+1. **Verify PR is actually merged:**
+   `gh pr view <pr_number> --json state --jq '.state'` — must return "MERGED"
+   If not "MERGED", STOP and set action=submit_pr to retry.
+
+2. **Verify branch is merged to main:**
+   `git checkout main && git pull`
+   `git branch --no-merged main` — the PR group's branch must NOT appear.
+   If it does, the merge did not land on main — STOP and report.
+
+3. **Verify branch is deleted:**
+   `git branch -d <branch_name>` — delete the local branch.
+   If the remote branch still exists: `git push origin --delete <branch_name>`
+   (pr_merge uses --delete-branch, but verify it worked)
+
+4. **Close Issues (only after steps 1-3 pass):**
+   For each issue in this PR group:
+   - `twig set <issue_id> --output json`
+   - `twig note --text "Done: closed after PR #<number> merged to main" --output json`
+   - `twig state Done --output json`
+
+5. **Verify Issue state matches merge state:**
+   `twig set <issue_id> --output json` — confirm state is "Done"
+
+Only after ALL verification steps pass should you proceed to the next PR group
+or declare all_complete.

@@ -49,3 +49,19 @@ PR groups are defined in the plan as a separate section from the ADO hierarchy.
 Map each PR group to the set of Task IDs (and their parent Issue IDs) that
 belong to it. A PR group may contain Tasks from one or multiple Issues.
 Record this mapping for the implementation phase.
+
+## ADO ↔ Plan Reconciliation (MANDATORY after seeding)
+
+After all items are created/reused, verify full coverage:
+1. `twig set {{ intake.output.epic_id }} --output json`
+2. `twig tree --output json` — list ALL children in ADO
+3. Compare the ADO tree against the plan's Issue list:
+   - Every ADO child Issue must map to a plan Issue (or be explicitly noted as
+     pre-existing/out-of-scope)
+   - Every plan Issue must have a corresponding ADO child
+4. If ADO has child Items NOT in the plan (e.g., added during an earlier
+   workflow run or manually), include them in the work_tree output with a
+   flag `"from_plan": false` so that pr_group_manager and close_out are
+   aware they exist.
+5. Report any discrepancies in the output — mismatched item counts are a
+   red flag that the workflow may skip or orphan work items.

@@ -9,6 +9,20 @@ STRUCTURAL RULES (these are NOT guidelines — they are hard constraints):
 5. When all issues in the PR group pass review, you return action=pr_group_ready
    to pr_group_manager — you do NOT proceed to PR submission yourself
 
+## FORBIDDEN ACTIONS — Issue State Transitions
+
+This is the single most critical rule in the workflow. Prior SDLC runs failed
+specifically because task_manager agents transitioned Issues to "Done" before
+their code was merged, causing ADO state to permanently desync from actual
+code delivery. The consequences:
+- ADO shows "Done" but code is on an unmerged branch — the board lies
+- pr_group_manager loses its ability to gate closure on PR merge
+- Close-out cannot detect the discrepancy because ADO already says "Done"
+
+You MUST NOT run `twig state Done` on any Issue (only Tasks). If you are
+uncertain whether an item is an Issue or Task, run `twig set <id> --output json`
+and check the "type" field. If type is "Issue", DO NOT transition it.
+
 twig CLI rules:
 - Always append --output json
 - twig set <id>, twig state Doing, twig state Done (Tasks ONLY — never Issues)

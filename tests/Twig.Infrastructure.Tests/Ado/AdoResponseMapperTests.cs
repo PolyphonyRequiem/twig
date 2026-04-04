@@ -144,8 +144,28 @@ public class AdoResponseMapperTests
         var result = AdoResponseMapper.MapWorkItem(dto);
 
         result.Id.ShouldBe(1);
+        result.Type.ShouldBe(WorkItemType.Task);
         result.Title.ShouldBeEmpty();
         result.State.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void MapWorkItem_MissingTypeField_FallsBackToTask()
+    {
+        var dto = new AdoWorkItemResponse
+        {
+            Id = 99,
+            Rev = 1,
+            Fields = new Dictionary<string, object?>
+            {
+                ["System.Title"] = JsonElement("Some title"),
+                ["System.State"] = JsonElement("Active"),
+            },
+        };
+
+        var result = AdoResponseMapper.MapWorkItem(dto);
+
+        result.Type.ShouldBe(WorkItemType.Task);
     }
 
     [Theory]

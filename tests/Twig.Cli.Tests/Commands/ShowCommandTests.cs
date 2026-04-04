@@ -212,6 +212,22 @@ public sealed class ShowCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task Show_JsonCompactFormat_ReturnsCompactOutput()
+    {
+        var item = new WorkItemBuilder(42, "Compact Item").Build();
+        SetupCachedItem(item);
+
+        var output = await CaptureStdout(() => _cmd.ExecuteAsync(42, "json-compact"));
+
+        output.ShouldContain("\"id\": 42");
+        output.ShouldContain("\"title\": \"Compact Item\"");
+        output.ShouldContain("\"type\":");
+        output.ShouldContain("\"state\":");
+        // Compact format should NOT include verbose fields like iterationPath
+        output.ShouldNotContain("\"iterationPath\"");
+    }
+
+    [Fact]
     public async Task Show_HumanFormat_Redirected_FormatsWithoutRenderer()
     {
         var item = new WorkItemBuilder(42, "Human Item").Build();
@@ -249,6 +265,34 @@ public sealed class ShowCommandTests : IDisposable
             Arg.Any<IReadOnlyList<WorkItem>?>());
     }
 
+    [Fact]
+    public async Task Show_TtyPath_PassesEmptyPendingChangesFactory()
+    {
+        var item = new WorkItemBuilder(42, "TTY Empty Pending").Build();
+        SetupCachedItem(item);
+        Func<Task<IReadOnlyList<PendingChangeRecord>>>? capturedFactory = null;
+        var mockRenderer = Substitute.For<IAsyncRenderer>();
+        mockRenderer.RenderStatusAsync(
+            Arg.Any<Func<Task<WorkItem?>>>(),
+            Arg.Do<Func<Task<IReadOnlyList<PendingChangeRecord>>>>(f => capturedFactory = f),
+            Arg.Any<CancellationToken>(),
+            Arg.Any<IReadOnlyList<FieldDefinition>?>(),
+            Arg.Any<IReadOnlyList<StatusFieldEntry>?>(),
+            Arg.Any<(int Done, int Total)?>(),
+            Arg.Any<IReadOnlyList<WorkItemLink>?>(),
+            Arg.Any<WorkItem?>(),
+            Arg.Any<IReadOnlyList<WorkItem>?>()).Returns(Task.CompletedTask);
+        var ttyPipeline = new RenderingPipelineFactory(
+            _formatterFactory, mockRenderer, isOutputRedirected: () => false);
+        var cmd = CreateCommandWithPipeline(ttyPipeline);
+
+        await cmd.ExecuteAsync(42, "human");
+
+        capturedFactory.ShouldNotBeNull();
+        var pendingChanges = await capturedFactory!();
+        pendingChanges.ShouldBeEmpty();
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //  Telemetry
     // ═══════════════════════════════════════════════════════════════
@@ -267,7 +311,8 @@ public sealed class ShowCommandTests : IDisposable
                 d["command"] == "show" &&
                 d["exit_code"] == "0" &&
                 d["output_format"] == "json"),
-            Arg.Any<Dictionary<string, double>>());
+            Arg.Is<Dictionary<string, double>>(m =>
+                m.ContainsKey("duration_ms") && m["duration_ms"] >= 0));
     }
 
     [Fact]
@@ -292,7 +337,7 @@ public sealed class ShowCommandTests : IDisposable
     public async Task Show_NullTelemetryClient_DoesNotThrow()
     {
         var item = new WorkItemBuilder(42, "No Telemetry").Build();
-        SetupMinimalItem(item);
+        SetupCachedItem(item);
         var cmd = new ShowCommand(_workItemRepo, _linkRepo, _formatterFactory);
 
         var result = await cmd.ExecuteAsync(42);
@@ -325,7 +370,7 @@ public sealed class ShowCommandTests : IDisposable
     public async Task Show_MinimalDependencies_StillWorks()
     {
         var item = new WorkItemBuilder(42, "Minimal Deps").Build();
-        SetupMinimalItem(item);
+        SetupCachedItem(item);
         var cmd = new ShowCommand(_workItemRepo, _linkRepo, _formatterFactory);
 
         var output = await CaptureStdout(() => cmd.ExecuteAsync(42, "json"));
@@ -344,15 +389,6 @@ public sealed class ShowCommandTests : IDisposable
             .Returns(Array.Empty<WorkItemLink>());
         _fieldDefinitionStore.GetAllAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<FieldDefinition>());
-    }
-
-    private void SetupMinimalItem(WorkItem item)
-    {
-        _workItemRepo.GetByIdAsync(item.Id, Arg.Any<CancellationToken>()).Returns(item);
-        _workItemRepo.GetChildrenAsync(item.Id, Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>());
-        _linkRepo.GetLinksAsync(item.Id, Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItemLink>());
     }
 
     private static async Task<string> CaptureStdout(Func<Task<int>> action)

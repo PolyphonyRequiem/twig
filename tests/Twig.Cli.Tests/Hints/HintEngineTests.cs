@@ -262,6 +262,28 @@ public class HintEngineTests
         hints.ShouldContain(h => h.Contains("twig state Done"));
     }
 
+    [Fact]
+    public void GetHints_StateD_CustomNonStandardCompletedState_UsesConfiguredName()
+    {
+        var config = new ProcessConfigBuilder()
+            .AddType("Task", ProcessConfigBuilder.S(
+                ("Backlog", StateCategory.Proposed),
+                ("Working", StateCategory.InProgress),
+                ("Finished", StateCategory.Completed)))
+            .Build();
+        var engine = CreateEngineWithConfig(config);
+        var item = CreateWorkItem(1, "Task 1", "Working");
+        var siblings = new[]
+        {
+            CreateWorkItem(10, "Sibling 1", "Finished"),
+            CreateWorkItem(11, "Sibling 2", "Finished"),
+        };
+
+        var hints = engine.GetHints("state", item: item, newStateName: "Finished", siblings: siblings);
+
+        hints.ShouldContain(h => h.Contains("twig state Finished"));
+    }
+
     // ── seed command ────────────────────────────────────────────────
 
     [Fact]

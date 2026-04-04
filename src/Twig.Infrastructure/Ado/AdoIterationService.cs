@@ -64,6 +64,36 @@ internal sealed class AdoIterationService : IIterationService
 
     public async Task<string?> DetectTemplateNameAsync(CancellationToken ct = default)
     {
+        try
+        {
+            var apiResult = await DetectTemplateNameByApiAsync(ct);
+            if (!string.IsNullOrEmpty(apiResult))
+                return apiResult;
+        }
+        catch (OperationCanceledException) { throw; }
+        catch
+        {
+            // API call failed — fall back to heuristic
+        }
+
+        return await DetectTemplateNameByHeuristicAsync(ct);
+    }
+
+    private async Task<string?> DetectTemplateNameByApiAsync(CancellationToken ct)
+    {
+        var url = $"{_orgUrl}/_apis/projects/{Uri.EscapeDataString(_project)}?includeCapabilities=true&api-version={ApiVersion}";
+        using var response = await SendAsync(url, ct);
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+        if (doc.RootElement.TryGetProperty("capabilities", out var caps) &&
+            caps.TryGetProperty("processTemplate", out var pt) &&
+            pt.TryGetProperty("templateName", out var tn))
+            return tn.GetString();
+        return null;
+    }
+
+    private async Task<string?> DetectTemplateNameByHeuristicAsync(CancellationToken ct)
+    {
         var result = await GetWorkItemTypesResponseAsync(ct);
 
         if (result?.Value is null || result.Value.Count == 0)

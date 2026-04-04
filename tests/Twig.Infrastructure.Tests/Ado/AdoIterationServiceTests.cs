@@ -119,6 +119,96 @@ public class AdoIterationServiceTests
         result.ShouldBe("Agile");
     }
 
+    // ── DetectTemplateNameAsync (API-first + heuristic fallback) ───
+
+    [Fact]
+    public async Task DetectTemplateNameAsync_ApiReturnsTemplateName_ReturnsApiResult()
+    {
+        var handler = new FakeHandler();
+        handler.SetProjectCapabilitiesResponse("Agile");
+        handler.SetWorkItemTypesResponse("Epic", "Issue", "Task"); // heuristic would return Basic
+        var service = CreateService(handler);
+
+        var result = await service.DetectTemplateNameAsync();
+
+        result.ShouldBe("Agile");
+    }
+
+    [Fact]
+    public async Task DetectTemplateNameAsync_ApiReturnsCustomTemplate_ReturnsCustomName()
+    {
+        var handler = new FakeHandler();
+        handler.SetProjectCapabilitiesResponse("MyCustomProcess");
+        handler.SetWorkItemTypesResponse("Epic", "Feature", "User Story", "Task");
+        var service = CreateService(handler);
+
+        var result = await service.DetectTemplateNameAsync();
+
+        result.ShouldBe("MyCustomProcess");
+    }
+
+    [Fact]
+    public async Task DetectTemplateNameAsync_ApiFails_FallsBackToHeuristic()
+    {
+        var handler = new FakeHandler();
+        // No project capabilities response configured — 404 triggers heuristic fallback
+        handler.SetWorkItemTypesResponse("Epic", "Feature", "User Story", "Task", "Bug");
+        var service = CreateService(handler);
+
+        var result = await service.DetectTemplateNameAsync();
+
+        result.ShouldBe("Agile");
+    }
+
+    [Fact]
+    public async Task DetectTemplateNameAsync_ApiReturnsEmptyTemplateName_FallsBackToHeuristic()
+    {
+        var handler = new FakeHandler();
+        handler.SetProjectCapabilitiesResponse("");
+        handler.SetWorkItemTypesResponse("Epic", "Feature", "Product Backlog Item", "Task");
+        var service = CreateService(handler);
+
+        var result = await service.DetectTemplateNameAsync();
+
+        result.ShouldBe("Scrum");
+    }
+
+    [Fact]
+    public async Task DetectTemplateNameAsync_ApiReturnsNullCapabilities_FallsBackToHeuristic()
+    {
+        var handler = new FakeHandler();
+        handler.SetRawResponse("/_apis/projects/", """{"capabilities":null}""");
+        handler.SetWorkItemTypesResponse("Epic", "Feature", "Requirement", "Task");
+        var service = CreateService(handler);
+
+        var result = await service.DetectTemplateNameAsync();
+
+        result.ShouldBe("CMMI");
+    }
+
+    [Fact]
+    public async Task DetectTemplateNameAsync_ApiReturnsNullProcessTemplate_FallsBackToHeuristic()
+    {
+        var handler = new FakeHandler();
+        handler.SetRawResponse("/_apis/projects/", """{"capabilities":{"processTemplate":null}}""");
+        handler.SetWorkItemTypesResponse("Epic", "Issue", "Task");
+        var service = CreateService(handler);
+
+        var result = await service.DetectTemplateNameAsync();
+
+        result.ShouldBe("Basic");
+    }
+
+    [Fact]
+    public async Task DetectTemplateNameAsync_CancellationRequested_ThrowsOperationCanceledException()
+    {
+        var handler = new CancelingHandler();
+        var service = CreateService(handler);
+
+        await Should.ThrowAsync<OperationCanceledException>(
+            () => service.DetectTemplateNameAsync(CancellationToken.None));
+    }
+
     // ── GetCurrentIterationAsync ────────────────────────────────────
 
     [Fact]
@@ -691,6 +781,12 @@ public class AdoIterationServiceTests
         public void SetProcessConfigurationResponse(string json)
         {
             _responses["/_apis/work/processconfiguration"] = json;
+        }
+
+        public void SetProjectCapabilitiesResponse(string templateName)
+        {
+            var json = $"{{\"capabilities\":{{\"processTemplate\":{{\"templateName\":\"{templateName}\"}}}}}}";
+            _responses["/_apis/projects/"] = json;
         }
     }
 

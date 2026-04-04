@@ -218,6 +218,46 @@ public sealed class ProcessConfigExtensionsTests
         result.Value.Total.ShouldBe(2);
     }
 
+    [Fact]
+    public void ComputeChildProgress_AgileUserStory_ResolvedStateCountsAsDone()
+    {
+        // StateCategory.Resolved (not Completed) must also increment the done count
+        var provider = Substitute.For<IProcessConfigurationProvider>();
+        provider.GetConfiguration().Returns(ProcessConfigBuilder.Agile());
+        var children = new[]
+        {
+            CreateWorkItem(1, "User Story", "New"),
+            CreateWorkItem(2, "User Story", "Active"),
+            CreateWorkItem(3, "User Story", "Resolved"),
+            CreateWorkItem(4, "User Story", "Closed"),
+        };
+
+        var result = provider.ComputeChildProgress(children);
+
+        result.ShouldNotBeNull();
+        result.Value.Done.ShouldBe(2); // Resolved + Closed
+        result.Value.Total.ShouldBe(4);
+    }
+
+    [Fact]
+    public void ComputeChildProgress_CustomState_UAT_NotInConfigOrFallback_NotCounted()
+    {
+        // A custom state unknown to both process config and the fallback map must not count as done
+        var provider = Substitute.For<IProcessConfigurationProvider>();
+        provider.GetConfiguration().Returns(ProcessConfigBuilder.Agile());
+        var children = new[]
+        {
+            CreateWorkItem(1, "Task", "UAT"),
+            CreateWorkItem(2, "Task", "Closed"),
+        };
+
+        var result = provider.ComputeChildProgress(children);
+
+        result.ShouldNotBeNull();
+        result.Value.Done.ShouldBe(1); // Only "Closed" counted; "UAT" is Unknown
+        result.Value.Total.ShouldBe(2);
+    }
+
     private static WorkItem CreateWorkItem(int id, string typeName, string state)
     {
         return new WorkItem

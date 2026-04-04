@@ -113,24 +113,17 @@ public class TreeNavigatorViewTests
         node.ToString().ShouldContain("M "); // first char of "MyCustomType", uppercase
     }
 
-    [Fact]
-    public void WorkItemTreeBuilder_CanExpand_TrueForNonTask()
+    [Theory]
+    [InlineData("Epic")]
+    [InlineData("Task")]
+    public void WorkItemTreeBuilder_CanExpand_ReturnsTrue_WhenNoConfig(string typeName)
     {
         var repo = Substitute.For<IWorkItemRepository>();
         var builder = new WorkItemTreeBuilder(repo);
 
-        var epic = CreateWorkItem(1, "An Epic", "Epic");
-        builder.CanExpand(new WorkItemNode(epic)).ShouldBeTrue();
-    }
-
-    [Fact]
-    public void WorkItemTreeBuilder_CanExpand_FalseForTask()
-    {
-        var repo = Substitute.For<IWorkItemRepository>();
-        var builder = new WorkItemTreeBuilder(repo);
-
-        var task = CreateWorkItem(1, "A Task", "Task");
-        builder.CanExpand(new WorkItemNode(task)).ShouldBeFalse();
+        // Without process config, all types are assumed expandable
+        var item = CreateWorkItem(1, "An Item", typeName);
+        builder.CanExpand(new WorkItemNode(item)).ShouldBeTrue();
     }
 
     [Fact]
@@ -161,11 +154,10 @@ public class TreeNavigatorViewTests
 
         var builder = new WorkItemTreeBuilder(repo, processConfig);
 
-        // Falls back to hardcoded check: Task = false
+        // Falls back to true for all types when config is unavailable
         var task = CreateWorkItem(1, "A Task", "Task");
-        builder.CanExpand(new WorkItemNode(task)).ShouldBeFalse();
+        builder.CanExpand(new WorkItemNode(task)).ShouldBeTrue();
 
-        // Falls back to hardcoded check: Epic = true
         var epic = CreateWorkItem(2, "An Epic", "Epic");
         builder.CanExpand(new WorkItemNode(epic)).ShouldBeTrue();
     }

@@ -144,18 +144,55 @@ public class AdoResponseMapperTests
         var result = AdoResponseMapper.MapWorkItem(dto);
 
         result.Id.ShouldBe(1);
+        result.Type.ShouldBe(WorkItemType.Task);
         result.Title.ShouldBeEmpty();
         result.State.ShouldBeEmpty();
     }
 
     [Fact]
-    public void MapWorkItem_CustomWorkItemType_PreservesTypeName()
+    public void MapWorkItem_MissingTypeField_FallsBackToTask()
     {
-        var dto = CreateWorkItemDto(id: 1, rev: 1, type: "CustomType", title: "Custom", state: "New");
+        var dto = new AdoWorkItemResponse
+        {
+            Id = 99,
+            Rev = 1,
+            Fields = new Dictionary<string, object?>
+            {
+                ["System.Title"] = JsonElement("Some title"),
+                ["System.State"] = JsonElement("Active"),
+            },
+        };
 
         var result = AdoResponseMapper.MapWorkItem(dto);
 
-        result.Type.Value.ShouldBe("CustomType");
+        result.Type.ShouldBe(WorkItemType.Task);
+    }
+
+    [Theory]
+    [InlineData("CustomType")]
+    [InlineData("Deliverable")]
+    [InlineData("Initiative")]
+    [InlineData("Scenario")]
+    public void MapWorkItem_CustomWorkItemType_PreservesTypeName(string typeName)
+    {
+        var dto = CreateWorkItemDto(id: 1, rev: 1, type: typeName, title: "Custom", state: "New");
+
+        var result = AdoResponseMapper.MapWorkItem(dto);
+
+        result.Type.Value.ShouldBe(typeName);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("  ")]
+    [InlineData("\t")]
+    public void MapWorkItem_EmptyOrWhitespaceType_FallsBackToTask(string typeName)
+    {
+        var dto = CreateWorkItemDto(id: 42, rev: 1, type: typeName, title: "Test", state: "Active");
+
+        var result = AdoResponseMapper.MapWorkItem(dto);
+
+        result.Type.ShouldBe(WorkItemType.Task);
     }
 
     // ── ExtractParentId ──────────────────────────────────────────────

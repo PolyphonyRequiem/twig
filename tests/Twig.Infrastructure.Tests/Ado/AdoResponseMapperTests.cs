@@ -148,14 +148,31 @@ public class AdoResponseMapperTests
         result.State.ShouldBeEmpty();
     }
 
-    [Fact]
-    public void MapWorkItem_CustomWorkItemType_PreservesTypeName()
+    [Theory]
+    [InlineData("CustomType")]
+    [InlineData("Deliverable")]
+    [InlineData("Initiative")]
+    [InlineData("Scenario")]
+    public void MapWorkItem_CustomWorkItemType_PreservesTypeName(string typeName)
     {
-        var dto = CreateWorkItemDto(id: 1, rev: 1, type: "CustomType", title: "Custom", state: "New");
+        var dto = CreateWorkItemDto(id: 1, rev: 1, type: typeName, title: "Custom", state: "New");
 
         var result = AdoResponseMapper.MapWorkItem(dto);
 
-        result.Type.Value.ShouldBe("CustomType");
+        result.Type.Value.ShouldBe(typeName);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("  ")]
+    [InlineData("\t")]
+    public void MapWorkItem_EmptyOrWhitespaceType_FallsBackToTask(string typeName)
+    {
+        var dto = CreateWorkItemDto(id: 42, rev: 1, type: typeName, title: "Test", state: "Active");
+
+        var result = AdoResponseMapper.MapWorkItem(dto);
+
+        result.Type.ShouldBe(WorkItemType.Task);
     }
 
     // ── ExtractParentId ──────────────────────────────────────────────

@@ -262,8 +262,8 @@ internal sealed class WorkItemTreeBuilder : ITreeBuilder<WorkItemNode>
             }
         }
 
-        // Fallback: Task is typically a leaf node in Agile processes
-        return model.WorkItem.Type.Value is not "Task";
+        // Fallback: data preservation over cosmetics — unknown types are assumed expandable
+        return true;
     }
 
     public IEnumerable<WorkItemNode> GetChildren(WorkItemNode model)

@@ -336,11 +336,10 @@ internal static class AdoResponseMapper
 
     private static WorkItemType ParseWorkItemType(string? typeName)
     {
-        if (string.IsNullOrEmpty(typeName))
+        if (string.IsNullOrWhiteSpace(typeName))
             return WorkItemType.Task; // fallback
 
-        var result = WorkItemType.Parse(typeName);
-        return result.IsSuccess ? result.Value : WorkItemType.Task;
+        return WorkItemType.Parse(typeName).Value;
     }
 
     private static IterationPath ParseIterationPath(string? raw)

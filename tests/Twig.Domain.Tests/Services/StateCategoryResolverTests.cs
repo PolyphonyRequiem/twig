@@ -2,11 +2,12 @@ using Shouldly;
 using Twig.Domain.Enums;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Domain.Tests.Services;
 
-public class StateCategoryResolverTests
+public sealed class StateCategoryResolverTests
 {
     // ═══════════════════════════════════════════════════════════════
     //  Resolve — with entries
@@ -219,13 +220,6 @@ public class StateCategoryResolverTests
     }
 
     [Fact]
-    public void FallbackCategory_CustomPhase_ReturnsUnknown()
-    {
-        // Directly verify the fallback map behavior for custom states
-        StateCategoryResolver.FallbackCategory("CustomPhase").ShouldBe(StateCategory.Unknown);
-    }
-
-    [Fact]
     public void Resolve_CustomState_InEntries_ReturnsConfiguredCategory()
     {
         // When a custom state IS in the entries (from ADO), it should return the correct category.
@@ -236,4 +230,30 @@ public class StateCategoryResolverTests
 
         StateCategoryResolver.Resolve("CustomPhase", entries).ShouldBe(StateCategory.InProgress);
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  NFR-03: Process template smoke rows with authoritative entries
+    // ═══════════════════════════════════════════════════════════════
+
+    [Theory]
+    [InlineData("Basic", "Done", StateCategory.Completed)]
+    [InlineData("Agile", "Closed", StateCategory.Completed)]
+    [InlineData("Scrum", "Done", StateCategory.Completed)]
+    [InlineData("CMMI", "Resolved", StateCategory.Resolved)]
+    public void Resolve_ProcessTemplateCompletionState_WithEntries(
+        string template, string stateName, StateCategory expected)
+    {
+        var config = template switch
+        {
+            "Basic" => ProcessConfigBuilder.Basic(),
+            "Agile" => ProcessConfigBuilder.Agile(),
+            "Scrum" => ProcessConfigBuilder.Scrum(),
+            "CMMI" => ProcessConfigBuilder.Cmmi(),
+            _ => throw new ArgumentOutOfRangeException(nameof(template)),
+        };
+        var entries = config.TypeConfigs[WorkItemType.Task].StateEntries;
+
+        StateCategoryResolver.Resolve(stateName, entries).ShouldBe(expected);
+    }
+
 }

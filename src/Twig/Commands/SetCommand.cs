@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Twig.Domain.Common;
+using Twig.Domain.Extensions;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
 using Twig.Domain.Services;
@@ -33,7 +34,8 @@ public sealed class SetCommand(
     ITelemetryClient? telemetryClient = null,
     IPendingChangeStore? pendingChangeStore = null,
     TwigPaths? paths = null,
-    IFieldDefinitionStore? fieldDefinitionStore = null)
+    IFieldDefinitionStore? fieldDefinitionStore = null,
+    IProcessConfigurationProvider? processConfigProvider = null)
 {
     public async Task<int> ExecuteAsync(string idOrPattern, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
@@ -171,7 +173,7 @@ public sealed class SetCommand(
             catch { /* best-effort */ }
         }
 
-        var childProgress = ComputeChildProgress(children);
+        var childProgress = processConfigProvider.ComputeChildProgress(children);
 
         if (renderer is not null)
         {
@@ -252,19 +254,5 @@ public sealed class SetCommand(
 
         return 0;
     }
-
-    private static (int Done, int Total)? ComputeChildProgress(IReadOnlyList<Domain.Aggregates.WorkItem> children)
-    {
-        if (children.Count == 0)
-            return null;
-
-        var done = 0;
-        foreach (var child in children)
-        {
-            var cat = Domain.Services.StateCategoryResolver.Resolve(child.State, null);
-            if (cat == Domain.Enums.StateCategory.Resolved || cat == Domain.Enums.StateCategory.Completed)
-                done++;
-        }
-        return (done, children.Count);
-    }
 }
+

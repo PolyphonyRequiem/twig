@@ -1,5 +1,6 @@
 using Twig.Domain.Aggregates;
 using Twig.Domain.Enums;
+using Twig.Domain.Extensions;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
 using Twig.Domain.Services;
@@ -16,10 +17,12 @@ namespace Twig.Hints;
 public sealed class HintEngine
 {
     private readonly bool _hintsEnabled;
+    private readonly IProcessConfigurationProvider? _processConfigProvider;
 
-    public HintEngine(DisplayConfig displayConfig)
+    public HintEngine(DisplayConfig displayConfig, IProcessConfigurationProvider? processConfigProvider = null)
     {
         _hintsEnabled = displayConfig.Hints;
+        _processConfigProvider = processConfigProvider;
     }
 
     /// <summary>
@@ -63,7 +66,10 @@ public sealed class HintEngine
 
             case "state":
             {
-                var category = StateCategoryResolver.Resolve(newStateName, null);
+                var stateEntries = item is not null
+                    ? _processConfigProvider.SafeGetConfiguration(item.Type.Value)?.StateEntries
+                    : null;
+                var category = StateCategoryResolver.Resolve(newStateName, stateEntries);
                 if (category == StateCategory.Completed)
                 {
                     // Check if all siblings are done
@@ -72,7 +78,8 @@ public sealed class HintEngine
                         var allSiblingsDone = true;
                         foreach (var sibling in siblings)
                         {
-                            var siblingCategory = StateCategoryResolver.Resolve(sibling.State, null);
+                            var siblingEntries = _processConfigProvider.SafeGetConfiguration(sibling.Type.Value)?.StateEntries;
+                            var siblingCategory = StateCategoryResolver.Resolve(sibling.State, siblingEntries);
                             if (siblingCategory is not (StateCategory.Completed or StateCategory.Resolved or StateCategory.Removed))
                             {
                                 allSiblingsDone = false;
@@ -82,7 +89,8 @@ public sealed class HintEngine
 
                         if (allSiblingsDone)
                         {
-                            hints.Add("All sibling tasks complete. Consider: twig up then twig state Closed");
+                            var completedStateName = stateEntries?.FirstOrDefault(e => e.Category == StateCategory.Completed).Name ?? "Done";
+                            hints.Add($"All sibling tasks complete. Consider: twig up then twig state {completedStateName}");
                         }
                     }
 
@@ -225,4 +233,5 @@ public sealed class HintEngine
             return null;
         }
     }
+
 }

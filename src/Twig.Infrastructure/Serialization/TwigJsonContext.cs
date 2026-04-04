@@ -23,6 +23,7 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(Dictionary<string, string?>))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
 // ADO REST DTOs (EPIC-006)
+[JsonSerializable(typeof(AdoProjectWithCapabilitiesResponse))]
 [JsonSerializable(typeof(AdoWorkItemResponse))]
 [JsonSerializable(typeof(AdoBatchWorkItemResponse))]
 [JsonSerializable(typeof(AdoWiqlResponse))]

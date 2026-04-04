@@ -84,12 +84,8 @@ internal sealed class AdoIterationService : IIterationService
         var url = $"{_orgUrl}/_apis/projects/{Uri.EscapeDataString(_project)}?includeCapabilities=true&api-version={ApiVersion}";
         using var response = await SendAsync(url, ct);
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
-        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
-        if (doc.RootElement.TryGetProperty("capabilities", out var caps) &&
-            caps.TryGetProperty("processTemplate", out var pt) &&
-            pt.TryGetProperty("templateName", out var tn))
-            return tn.GetString();
-        return null;
+        var adoResponse = await JsonSerializer.DeserializeAsync(stream, TwigJsonContext.Default.AdoProjectWithCapabilitiesResponse, ct);
+        return adoResponse?.Capabilities?.ProcessTemplate?.TemplateName;
     }
 
     private async Task<string?> DetectTemplateNameByHeuristicAsync(CancellationToken ct)

@@ -38,7 +38,7 @@ Create a fix task for this issue and set action=implement_task.
 
 {% if user_acceptance is defined and user_acceptance.output %}
 **User acceptance result:** {{ user_acceptance.output.selected }}
-{% if user_acceptance.output.feedback | default('') %}
+{% if user_acceptance.output.selected == 'changes' %}
 **Feedback:** {{ user_acceptance.output.feedback }}
 {% endif %}
 If accepted or skipped: add this issue to reviewed_issues and proceed.

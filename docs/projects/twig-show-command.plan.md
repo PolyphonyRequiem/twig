@@ -1,6 +1,6 @@
 ﻿# twig show: Read-Only Work Item Lookup Without Context Change
 
-> **Status**: 🔨 In Progress
+> **Status**: ✅ Done
 
 ## Executive Summary
 

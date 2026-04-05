@@ -7,7 +7,7 @@ namespace Twig.Domain.Tests.Services;
 /// <summary>
 /// Unit tests for <see cref="LinkTypeMapper"/>.
 /// </summary>
-public class LinkTypeMapperTests
+public sealed class LinkTypeMapperTests
 {
     [Theory]
     [InlineData("parent", "System.LinkTypes.Hierarchy-Reverse")]
@@ -96,7 +96,10 @@ public class LinkTypeMapperTests
 
     [Theory]
     [InlineData("system.linktypes.hierarchy-reverse", "parent")]
+    [InlineData("SYSTEM.LINKTYPES.HIERARCHY-FORWARD", "child")]
     [InlineData("SYSTEM.LINKTYPES.RELATED", "related")]
+    [InlineData("system.linktypes.dependency-reverse", "predecessor")]
+    [InlineData("System.LINKTYPES.Dependency-Forward", "successor")]
     public void ToFriendlyName_CaseInsensitive_ReturnsFriendlyName(string adoType, string expectedFriendly)
     {
         LinkTypeMapper.ToFriendlyName(adoType).ShouldBe(expectedFriendly);
@@ -121,6 +124,22 @@ public class LinkTypeMapperTests
     }
 
     [Fact]
+    public void TryToFriendlyName_EmptyString_ReturnsFalse()
+    {
+        LinkTypeMapper.TryToFriendlyName(string.Empty, out _).ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData("system.linktypes.hierarchy-reverse", "parent")]
+    [InlineData("SYSTEM.LINKTYPES.HIERARCHY-FORWARD", "child")]
+    [InlineData("system.linktypes.dependency-forward", "successor")]
+    public void TryToFriendlyName_CaseInsensitive_ReturnsTrueAndFriendlyName(string adoType, string expectedFriendly)
+    {
+        LinkTypeMapper.TryToFriendlyName(adoType, out var result).ShouldBeTrue();
+        result.ShouldBe(expectedFriendly);
+    }
+
+    [Fact]
     public void SupportedTypes_ContainsAllFiveFriendlyNames()
     {
         LinkTypeMapper.SupportedTypes.Count.ShouldBe(5);
@@ -132,14 +151,15 @@ public class LinkTypeMapperTests
     }
 
     [Fact]
-    public void RoundTrip_FriendlyToAdoAndBack_IsConsistent()
+    public void Bidirectionality_AllSupportedTypesHaveReverseMapping()
     {
         foreach (var friendly in LinkTypeMapper.SupportedTypes)
         {
             LinkTypeMapper.TryResolve(friendly, out var adoType).ShouldBeTrue(
-                $"Failed to resolve friendly name '{friendly}' to ADO type.");
-            LinkTypeMapper.ToFriendlyName(adoType).ShouldBe(friendly,
-                $"Round-trip failed for '{friendly}' → '{adoType}' → back.");
+                $"Forward mapping missing for '{friendly}'.");
+            LinkTypeMapper.TryToFriendlyName(adoType, out var reversed).ShouldBeTrue(
+                $"Reverse mapping missing for ADO type '{adoType}' (from friendly '{friendly}').");
+            reversed.ShouldBe(friendly);
         }
     }
 }

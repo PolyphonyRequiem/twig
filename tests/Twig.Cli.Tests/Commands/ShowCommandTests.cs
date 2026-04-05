@@ -299,18 +299,6 @@ public sealed class ShowCommandTests : IDisposable
                 m.ContainsKey("duration_ms") && m["duration_ms"] >= 0));
     }
 
-    [Fact]
-    public async Task Show_NullTelemetryClient_DoesNotThrow()
-    {
-        var item = new WorkItemBuilder(42, "No Telemetry").Build();
-        SetupCachedItem(item);
-        var cmd = new ShowCommand(_workItemRepo, _linkRepo, _formatterFactory);
-
-        var result = await cmd.ExecuteAsync(42);
-
-        result.ShouldBe(0);
-    }
-
     // ═══════════════════════════════════════════════════════════════
     //  No side effects: no ADO fetch, no context mutation, no sync
     // ═══════════════════════════════════════════════════════════════

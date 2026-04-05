@@ -87,10 +87,9 @@ public sealed class ShowCommand(
 
         var childProgress = processConfigProvider.ComputeChildProgress(children);
 
-        // Four-path rendering — mirrors SetCommand lines 178-224
         if (renderer is not null)
         {
-            // TTY + human: async renderer with empty pending changes (read-only view)
+            // async renderer with empty pending changes (read-only view)
             await renderer.RenderStatusAsync(
                 getItem: () => Task.FromResult<Domain.Aggregates.WorkItem?>(item),
                 getPendingChanges: () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>([]),
@@ -104,7 +103,6 @@ public sealed class ShowCommand(
         }
         else if (fmt is HumanOutputFormatter humanFmt)
         {
-            // Non-TTY human: no pending changes in read-only view
             Console.WriteLine(humanFmt.FormatWorkItem(item, showDirty: false, fieldDefs, statusFieldEntries, childProgress, pendingChanges: null, links, parent, children));
         }
         else if (fmt is JsonOutputFormatter jsonFmt)

@@ -1,6 +1,5 @@
 using NSubstitute;
 using Shouldly;
-using Spectre.Console.Testing;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
@@ -100,10 +99,8 @@ public sealed class ShowCommandTests : IDisposable
     [Fact]
     public async Task Show_ItemWithParent_LoadsParentFromCache()
     {
-        var parent = new WorkItemBuilder(10, "Parent Epic").AsEpic().Build();
         var item = new WorkItemBuilder(42, "Child Task").WithParent(10).Build();
         SetupCachedItem(item);
-        _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(parent);
 
         var result = await _cmd.ExecuteAsync(42);
 
@@ -144,9 +141,6 @@ public sealed class ShowCommandTests : IDisposable
     {
         var item = new WorkItemBuilder(42, "Linked Item").Build();
         SetupCachedItem(item);
-        var link = new WorkItemLink(42, 99, "Related");
-        _linkRepo.GetLinksAsync(42, Arg.Any<CancellationToken>())
-            .Returns(new[] { link });
 
         var result = await _cmd.ExecuteAsync(42);
 
@@ -215,7 +209,7 @@ public sealed class ShowCommandTests : IDisposable
     {
         var item = new WorkItemBuilder(42, "Human Item").Build();
         SetupCachedItem(item);
-        var spectreRenderer = new SpectreRenderer(new TestConsole(), new SpectreTheme(new DisplayConfig()));
+        var spectreRenderer = Substitute.For<IAsyncRenderer>();
         var cmd = CreateCommandWithPipeline(new RenderingPipelineFactory(_formatterFactory, spectreRenderer, isOutputRedirected: () => true));
 
         var output = await CaptureStdout(() => cmd.ExecuteAsync(42, "human"));

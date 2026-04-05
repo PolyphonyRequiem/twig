@@ -10,9 +10,10 @@ namespace Twig.Infrastructure.Tests.Ado;
 
 /// <summary>
 /// Unit tests for <see cref="AdoRestClient.AddLinkAsync"/>.
-/// Uses a fake HttpMessageHandler to verify the outbound PATCH request.
+/// Uses fake HttpMessageHandlers to verify the outbound HTTP requests.
+/// RemoveLinkAsync tests are in <see cref="AdoRestClientRemoveLinkTests"/>.
 /// </summary>
-public class AdoRestClientLinkTests
+public sealed class AdoRestClientLinkTests
 {
     private const string OrgUrl = "https://dev.azure.com/testorg";
     private const string Project = "testproject";
@@ -91,7 +92,7 @@ public class AdoRestClientLinkTests
 
     // ── Helpers ──────────────────────────────────────────────────────
 
-    private static AdoRestClient CreateClient(LinkTrackingHandler handler)
+    private static AdoRestClient CreateClient(HttpMessageHandler handler)
     {
         var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
         var auth = new FakeAuthProvider();

@@ -167,6 +167,42 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         using var _ = await SendAsync(HttpMethod.Patch, url, content, ifMatch: null, ct);
     }
 
+    /// <inheritdoc />
+    public async Task RemoveLinkAsync(int sourceId, int targetId, string adoLinkType, CancellationToken ct = default)
+    {
+        // 1. GET current work item with relations to obtain the Rev (ETag) and relations array.
+        var getUrl = $"{_orgUrl}/{_project}/_apis/wit/workitems/{sourceId}?$expand=relations&api-version={ApiVersion}";
+        using var getResponse = await SendAsync(HttpMethod.Get, getUrl, content: null, ifMatch: null, ct);
+        var dto = await DeserializeWorkItemAsync(getResponse, ct);
+
+        // 2. Find the index of the relation matching the link type and target work item ID.
+        //    Use EndsWith to handle URL variants (with/without project segment),
+        //    consistent with AdoResponseMapper.ExtractParentId / ExtractNonHierarchyLinks.
+        var relationIndex = dto.Relations?.FindIndex(r =>
+            string.Equals(r.Rel, adoLinkType, StringComparison.OrdinalIgnoreCase) &&
+            r.Url is not null &&
+            r.Url.EndsWith($"/{targetId}", StringComparison.OrdinalIgnoreCase)) ?? -1;
+
+        // Idempotent: if the relation doesn't exist, return silently.
+        if (relationIndex < 0)
+            return;
+
+        // 3. PATCH with a JSON Patch "remove" operation and If-Match for optimistic concurrency.
+        var patchUrl = $"{_orgUrl}/{_project}/_apis/wit/workitems/{sourceId}?api-version={ApiVersion}";
+        var patchDoc = new List<AdoPatchOperation>
+        {
+            new()
+            {
+                Op = "remove",
+                Path = $"/relations/{relationIndex}",
+            },
+        };
+        var json = JsonSerializer.Serialize(patchDoc, TwigJsonContext.Default.ListAdoPatchOperation);
+        var content = new StringContent(json, Encoding.UTF8, JsonPatchMediaType);
+
+        using var _ = await SendAsync(HttpMethod.Patch, patchUrl, content, ifMatch: dto.Rev.ToString(), ct);
+    }
+
     // ── Batch fetch ─────────────────────────────────────────────────
 
     /// <summary>

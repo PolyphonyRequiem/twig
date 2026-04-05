@@ -624,7 +624,7 @@ agents:
     model: claude-sonnet-4.6
     input:
       - pr_group_manager.output
-      - task_manager.output
+      - task_manager.output?
       - architect.output?
       - plan_reader.output?
       - work_tree_seeder.output
@@ -728,7 +728,7 @@ agents:
     model: claude-sonnet-4.6
     input:
       - pr_group_manager.output
-      - task_manager.output
+      - task_manager.output?
       - architect.output?
       - plan_reader.output?
       - intake.output

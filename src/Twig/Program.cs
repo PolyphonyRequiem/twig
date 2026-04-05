@@ -298,6 +298,10 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> Set([Argument] string idOrPattern, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SetCommand>().ExecuteAsync(idOrPattern, output, ct);
 
+    /// <summary>Display a work item from cache without changing context.</summary>
+    public async Task<int> Show([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, ct);
+
     /// <summary>Show status of the active work item.</summary>
     public async Task<int> Status(string output = OutputFormatterFactory.DefaultFormat, bool noLive = false, CancellationToken ct = default)
         => await services.GetRequiredService<StatusCommand>().ExecuteAsync(output, noLive, ct);
@@ -662,6 +666,7 @@ Views:
 
 Context:
   set <id|pattern>     Set the active work item.
+  show <id>            Display a work item from cache (read-only).
   web [id]             Open the active work item in the browser.
 
 Navigation:

@@ -176,10 +176,12 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         var dto = await DeserializeWorkItemAsync(getResponse, ct);
 
         // 2. Find the index of the relation matching the link type and target work item ID.
-        var targetUrl = $"{_orgUrl}/_apis/wit/workitems/{targetId}";
+        //    Use EndsWith to handle URL variants (with/without project segment),
+        //    consistent with AdoResponseMapper.ExtractParentId / ExtractNonHierarchyLinks.
         var relationIndex = dto.Relations?.FindIndex(r =>
             string.Equals(r.Rel, adoLinkType, StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(r.Url, targetUrl, StringComparison.OrdinalIgnoreCase)) ?? -1;
+            r.Url is not null &&
+            r.Url.EndsWith($"/{targetId}", StringComparison.OrdinalIgnoreCase)) ?? -1;
 
         // Idempotent: if the relation doesn't exist, return silently.
         if (relationIndex < 0)

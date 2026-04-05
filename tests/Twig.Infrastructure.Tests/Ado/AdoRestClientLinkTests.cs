@@ -232,6 +232,23 @@ public class AdoRestClientLinkTests
         handler.LastPatchContentType.ShouldContain("application/json-patch+json");
     }
 
+    [Fact]
+    public async Task RemoveLinkAsync_MatchesUrlWithProjectSegment()
+    {
+        // ADO can return URLs with a project segment: /{org}/{project}/_apis/wit/workItems/{id}
+        var handler = new RemoveLinkTrackingHandler(
+            [("System.LinkTypes.Related", 200)], rev: 5,
+            urlPrefix: $"{OrgUrl}/{Project}/_apis/wit/workItems");
+        var client = CreateClient(handler);
+
+        await client.RemoveLinkAsync(sourceId: 100, targetId: 200, adoLinkType: "System.LinkTypes.Related");
+
+        handler.PatchRequestCount.ShouldBe(1);
+        var body = handler.LastPatchBody!;
+        using var doc = JsonDocument.Parse(body);
+        doc.RootElement[0].GetProperty("path").GetString().ShouldBe("/relations/0");
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     private static AdoRestClient CreateClient(HttpMessageHandler handler)
@@ -297,9 +314,10 @@ public class AdoRestClientLinkTests
         public string? LastPatchIfMatch { get; private set; }
         public string? LastPatchContentType { get; private set; }
 
-        public RemoveLinkTrackingHandler((string RelType, int TargetId)[] relations, int rev)
+        public RemoveLinkTrackingHandler((string RelType, int TargetId)[] relations, int rev, string? urlPrefix = null)
         {
             _rev = rev;
+            var prefix = urlPrefix ?? $"{OrgUrl}/_apis/wit/workitems";
             if (relations.Length == 0)
             {
                 _relationsJson = "null";
@@ -307,7 +325,7 @@ public class AdoRestClientLinkTests
             else
             {
                 var items = relations.Select(r =>
-                    $"{{\"rel\":\"{r.RelType}\",\"url\":\"{OrgUrl}/_apis/wit/workitems/{r.TargetId}\",\"attributes\":{{\"name\":\"Related\"}}}}");
+                    $"{{\"rel\":\"{r.RelType}\",\"url\":\"{prefix}/{r.TargetId}\",\"attributes\":{{\"name\":\"Related\"}}}}");
                 _relationsJson = $"[{string.Join(',', items)}]";
             }
         }

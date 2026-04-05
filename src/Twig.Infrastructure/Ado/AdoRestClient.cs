@@ -167,6 +167,10 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         using var _ = await SendAsync(HttpMethod.Patch, url, content, ifMatch: null, ct);
     }
 
+    /// <inheritdoc />
+    public Task RemoveLinkAsync(int sourceId, int targetId, string adoLinkType, CancellationToken ct = default)
+        => throw new NotImplementedException();
+
     // ── Batch fetch ─────────────────────────────────────────────────
 
     /// <summary>

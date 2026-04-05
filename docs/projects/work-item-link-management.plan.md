@@ -1,7 +1,7 @@
 # Work Item Link Management via twig CLI
 
 **Epic:** #1343  
-> **Status**: 🔨 In Progress  
+> **Status**: 🔨 In Progress — 1/4 PR groups merged  
 **Revision:** 4 — See [Revision History](#revision-history) for change log.
 
 ---

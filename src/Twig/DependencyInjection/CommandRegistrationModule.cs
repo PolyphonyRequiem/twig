@@ -54,6 +54,7 @@ public static class CommandRegistrationModule
         services.AddSingleton<SeedDiscardCommand>();
         services.AddSingleton<SeedViewCommand>();
         services.AddSingleton<SeedLinkCommand>();
+        services.AddSingleton<LinkCommand>();
         services.AddSingleton<SeedChainCommand>();
         services.AddSingleton<SeedValidateCommand>();
         services.AddSingleton<SeedPublishCommand>();

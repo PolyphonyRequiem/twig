@@ -483,6 +483,29 @@ public sealed class JsonOutputFormatter : IOutputFormatter
         return Encoding.UTF8.GetString(stream.ToArray());
     }
 
+    public string FormatWorkItemLinks(IReadOnlyList<WorkItemLink> links)
+    {
+        using var stream = new MemoryStream();
+        using var writer = new Utf8JsonWriter(stream, WriterOptions);
+
+        writer.WriteStartObject();
+        writer.WriteStartArray("links");
+        foreach (var link in links)
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("sourceId", link.SourceId);
+            writer.WriteNumber("targetId", link.TargetId);
+            writer.WriteString("linkType", link.LinkType);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+        writer.WriteNumber("count", links.Count);
+        writer.WriteEndObject();
+
+        writer.Flush();
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
     public string FormatSeedValidation(IReadOnlyList<SeedValidationResult> results)
     {
         using var stream = new MemoryStream();

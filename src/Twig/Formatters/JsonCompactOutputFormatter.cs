@@ -110,6 +110,7 @@ public sealed class JsonCompactOutputFormatter(JsonOutputFormatter full) : IOutp
     public string FormatSeedView(IReadOnlyList<SeedViewGroup> groups, int totalWritableFields, int staleDays, IReadOnlyDictionary<int, IReadOnlyList<SeedLink>>? links = null)
         => full.FormatSeedView(groups, totalWritableFields, staleDays, links);
     public string FormatSeedLinks(IReadOnlyList<SeedLink> links) => full.FormatSeedLinks(links);
+    public string FormatWorkItemLinks(IReadOnlyList<WorkItemLink> links) => full.FormatWorkItemLinks(links);
     public string FormatSeedValidation(IReadOnlyList<SeedValidationResult> results) => full.FormatSeedValidation(results);
     public string FormatSeedReconcileResult(SeedReconcileResult result) => full.FormatSeedReconcileResult(result);
     public string FormatSeedPublishResult(SeedPublishResult result) => full.FormatSeedPublishResult(result);

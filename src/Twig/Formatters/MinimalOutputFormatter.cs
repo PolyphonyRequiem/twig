@@ -279,6 +279,26 @@ public sealed class MinimalOutputFormatter : IOutputFormatter
         return sb.ToString();
     }
 
+    public string FormatWorkItemLinks(IReadOnlyList<WorkItemLink> links)
+    {
+        if (links.Count == 0)
+            return "No links";
+
+        var sb = new StringBuilder();
+        foreach (var link in links)
+        {
+            sb.AppendLine($"LINK #{link.SourceId} {link.LinkType} #{link.TargetId}");
+        }
+
+        // Remove trailing newline
+        if (sb.Length > 0 && sb[sb.Length - 1] == '\n')
+            sb.Length -= 1;
+        if (sb.Length > 0 && sb[sb.Length - 1] == '\r')
+            sb.Length -= 1;
+
+        return sb.ToString();
+    }
+
     public string FormatSeedValidation(IReadOnlyList<SeedValidationResult> results)
     {
         if (results.Count == 0)

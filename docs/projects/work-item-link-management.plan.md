@@ -1,8 +1,8 @@
 # Work Item Link Management via twig CLI
 
 **Epic:** #1343  
-> **Status**: 🔨 In Progress — 1/4 PR groups merged  
-**Revision:** 4 — See [Revision History](#revision-history) for change log.
+> **Status**: 🔨 In Progress  
+**Revision:** 5 — See [Revision History](#revision-history) for change log.
 
 ---
 
@@ -374,7 +374,7 @@ Links for #1339:
 
 ### Sequencing
 - Issue 1 (Infrastructure) must complete before Issues 2-4 (commands rely on the service layer)
-- Issue 2 (Parent commands) and Issue 3 (Generic link commands) can proceed in parallel after Issue 1
+- Issues 2 and 3 (link commands) are implemented together after Issue 1 (same files, same PR)
 - Issue 4 (`twig new --parent`) is independent and can proceed in parallel
 - Issue 5 (Tests) partially overlaps with each Issue
 
@@ -455,7 +455,9 @@ Links for #1339:
 
 ---
 
-### Issue 1: Link Infrastructure — `RemoveLinkAsync` and `LinkTypeMapper`
+### Issue 1: Link Infrastructure — `RemoveLinkAsync` and `LinkTypeMapper` (#1414)
+
+> **Status:** ✅ **Done** — PR Group 1 merged. All code verified in codebase.
 
 **Goal:** Establish the service-layer primitives needed by all link commands: a generalized link type mapper and the ability to remove links from ADO.
 
@@ -463,29 +465,31 @@ Links for #1339:
 
 **Tasks:**
 
-| Task | Description | Files | Effort |
-|------|-------------|-------|--------|
-| T1.1 | Create `LinkTypeMapper` static class with bidirectional mapping (friendly ↔ ADO relation types), `OrdinalIgnoreCase` lookup, and `SupportedTypes` list. *(FR-9, NFR-2)* | `src/Twig.Domain/Services/LinkTypeMapper.cs` | S |
-| T1.2 | Add `RemoveLinkAsync(int sourceId, int targetId, string adoLinkType, CancellationToken)` to `IAdoWorkItemService` interface. *(FR-2, FR-3, FR-5)* | `src/Twig.Domain/Interfaces/IAdoWorkItemService.cs` | S |
-| T1.3 | Implement `RemoveLinkAsync` on `AdoRestClient`: GET with `$expand=relations` to fetch current relations, find relation index by `(rel, targetUrl)`, PATCH (clean URL, no `$expand`) with `op: "remove"`, `path: "/relations/{index}"`, and `If-Match: dto.Rev.ToString()` for concurrency safety. Use `DeserializeWorkItemAsync` (private helper, not generic `DeserializeAsync<T>`). Idempotent if not found. *(FR-2, FR-3, FR-5, NFR-1, NFR-3)* | `src/Twig.Infrastructure/Ado/AdoRestClient.cs` | M |
-| T1.4 | Unit tests for `LinkTypeMapper`: all mappings, case insensitivity, unknown type handling, bidirectionality. *(FR-9)* | `tests/Twig.Domain.Tests/Services/LinkTypeMapperTests.cs` | S |
-| T1.5 | Unit tests for `RemoveLinkAsync`: mock HTTP responses, verify index calculation, idempotent not-found, `If-Match` header sent, error handling. *(FR-2, FR-5, NFR-3)* | `tests/Twig.Infrastructure.Tests/Ado/AdoRestClientRemoveLinkTests.cs` | M |
+| Task | Description | Files | Effort | Status |
+|------|-------------|-------|--------|--------|
+| T1.1 | Create `LinkTypeMapper` static class with bidirectional mapping (friendly ↔ ADO relation types), `OrdinalIgnoreCase` lookup, and `SupportedTypes` list. *(FR-9, NFR-2)* | `src/Twig.Domain/Services/LinkTypeMapper.cs` | S | ✅ Done |
+| T1.2 | Add `RemoveLinkAsync(int sourceId, int targetId, string adoLinkType, CancellationToken)` to `IAdoWorkItemService` interface. *(FR-2, FR-3, FR-5)* | `src/Twig.Domain/Interfaces/IAdoWorkItemService.cs` | S | ✅ Done |
+| T1.3 | Implement `RemoveLinkAsync` on `AdoRestClient`: GET with `$expand=relations` to fetch current relations, find relation index by `(rel, targetUrl)`, PATCH (clean URL, no `$expand`) with `op: "remove"`, `path: "/relations/{index}"`, and `If-Match: dto.Rev.ToString()` for concurrency safety. Use `DeserializeWorkItemAsync` (private helper, not generic `DeserializeAsync<T>`). Idempotent if not found. *(FR-2, FR-3, FR-5, NFR-1, NFR-3)* | `src/Twig.Infrastructure/Ado/AdoRestClient.cs` | M | ✅ Done |
+| T1.4 | Unit tests for `LinkTypeMapper`: all mappings, case insensitivity, unknown type handling, bidirectionality. *(FR-9)* | `tests/Twig.Domain.Tests/Services/LinkTypeMapperTests.cs` | S | ✅ Done |
+| T1.5 | Unit tests for `RemoveLinkAsync`: mock HTTP responses, verify index calculation, idempotent not-found, `If-Match` header sent, error handling. *(FR-2, FR-5, NFR-3)* | `tests/Twig.Infrastructure.Tests/Ado/AdoRestClientRemoveLinkTests.cs` | M | ✅ Done |
 
 **Acceptance Criteria:**
-- [ ] `LinkTypeMapper.TryResolve("parent")` returns `System.LinkTypes.Hierarchy-Reverse`
-- [ ] `LinkTypeMapper.TryResolve("RELATED")` returns `System.LinkTypes.Related` (case-insensitive)
-- [ ] `RemoveLinkAsync` correctly identifies and removes a relation by index
-- [ ] `RemoveLinkAsync` is idempotent when the relation doesn't exist
-- [ ] All unit tests pass
-- [ ] `dotnet build` with `TreatWarningsAsErrors` succeeds
+- [x] `LinkTypeMapper.TryResolve("parent")` returns `System.LinkTypes.Hierarchy-Reverse`
+- [x] `LinkTypeMapper.TryResolve("RELATED")` returns `System.LinkTypes.Related` (case-insensitive)
+- [x] `RemoveLinkAsync` correctly identifies and removes a relation by index
+- [x] `RemoveLinkAsync` is idempotent when the relation doesn't exist
+- [x] All unit tests pass
+- [x] `dotnet build` with `TreatWarningsAsErrors` succeeds
 
 ---
 
-### Issue 2: Parent Link Commands — `link parent`, `link unparent`, `link reparent`
+### Issue 2: Parent Link Commands — `link parent`, `link unparent`, `link reparent` (#1415)
+
+> **Status:** ⬜ **To Do** — No implementation code exists. ADO child Tasks are marked Done (state discrepancy — Tasks were planning/design tasks, not implementation). Prerequisite Issue 1 is satisfied.
 
 **Goal:** Enable users to set, remove, and change the parent of any published work item from the CLI.
 
-**Prerequisites:** Issue 1 (needs `RemoveLinkAsync` for unparent/reparent)
+**Prerequisites:** Issue 1 ✅ (needs `RemoveLinkAsync` for unparent/reparent)
 
 **Tasks:**
 
@@ -510,11 +514,13 @@ Links for #1339:
 
 ---
 
-### Issue 3: Generic Link Commands — `link add`, `link remove`, `link list`
+### Issue 3: Generic Link Commands — `link add`, `link remove`, `link list` (#1416)
+
+> **Status:** ⬜ **To Do** — No implementation code exists. No `FormatWorkItemLinks` method in any formatter. ADO child Tasks are marked Done (state discrepancy). Prerequisite Issue 1 is satisfied.
 
 **Goal:** Enable users to add, remove, and view non-hierarchy links (related, predecessor, successor) on published work items.
 
-**Prerequisites:** Issue 1 (needs `RemoveLinkAsync` and `LinkTypeMapper`)
+**Prerequisites:** Issue 1 ✅ (needs `RemoveLinkAsync` and `LinkTypeMapper`)
 
 **Tasks:**
 
@@ -537,7 +543,9 @@ Links for #1339:
 
 ---
 
-### Issue 4: `twig new --parent` Enhancement
+### Issue 4: `twig new --parent` Enhancement (#1417)
+
+> **Status:** ⬜ **To Do** — No implementation code exists. `NewCommand.ExecuteAsync` has no `parent` parameter. ADO child Tasks are marked Done (state discrepancy).
 
 **Goal:** Allow `twig new` to create work items with a parent in a single ADO API call, eliminating the need to manually reparent after creation.
 
@@ -564,6 +572,8 @@ Links for #1339:
 
 ### PR Group 1: Link Infrastructure
 
+> **Status:** ✅ **Merged**
+
 **Tasks:** T1.1, T1.2, T1.3, T1.4, T1.5  
 **Classification:** Deep (few files, complex logic in `RemoveLinkAsync`)  
 **Estimated LoC:** ~350  
@@ -572,33 +582,32 @@ Links for #1339:
 
 **Rationale:** Foundational layer. `RemoveLinkAsync` has the most complex logic (fetch → find index → patch). Must merge before command PRs.
 
----
-
-### PR Group 2: Parent Link Commands
-
-**Tasks:** T2.1, T2.2, T2.3, T2.4, T2.5  
-**Classification:** Deep (few files, core command logic)  
-**Estimated LoC:** ~600  
-**Files:** ~5  
-**Predecessor:** PR Group 1
-
-**Rationale:** Parent management is the highest-value use case. Groups all three parent-related commands (`parent`, `unparent`, `reparent`) together since they share the same `LinkCommand` class and test infrastructure.
+**Verified artifacts:**
+- `src/Twig.Domain/Services/LinkTypeMapper.cs` — bidirectional mapper with `TryResolve`, `Resolve`, `ToFriendlyName`, `TryToFriendlyName`
+- `src/Twig.Domain/Interfaces/IAdoWorkItemService.cs:21` — `RemoveLinkAsync` on interface
+- `src/Twig.Infrastructure/Ado/AdoRestClient.cs:171` — `RemoveLinkAsync` implementation with GET→find-index→PATCH pattern, `If-Match` concurrency, idempotent not-found
+- `tests/Twig.Domain.Tests/Services/LinkTypeMapperTests.cs` — mapping tests
+- `tests/Twig.Infrastructure.Tests/Ado/AdoRestClientRemoveLinkTests.cs` — HTTP-level tests
 
 ---
 
-### PR Group 3: Generic Link Commands + Formatters
+### PR Group 2: All Link Commands + Formatters
 
-**Tasks:** T3.1, T3.2, T3.3, T3.4, T3.5, T3.6  
-**Classification:** Wide (many formatter files, mechanical changes)  
-**Estimated LoC:** ~550  
-**Files:** ~8  
-**Predecessor:** PR Group 1
+> **Status:** ⬜ **Ready** — prerequisite (PR Group 1) is satisfied
 
-**Rationale:** `link add/remove/list` plus the `FormatWorkItemLinks` additions across all four formatter implementations. Can proceed in parallel with PR Group 2 after Group 1 merges.
+**Tasks:** T2.1, T2.2, T2.3, T2.4, T2.5, T3.1, T3.2, T3.3, T3.4, T3.5, T3.6  
+**Classification:** Deep+Wide (core command logic + formatter changes across multiple files)  
+**Estimated LoC:** ~1150  
+**Files:** ~10  
+**Predecessor:** PR Group 1 ✅
+
+**Rationale:** All six `twig link` subcommands and their formatters in one PR. Issues 2 and 3 both write to `LinkCommand.cs` and `Program.cs` — splitting them into "parallel" PRs for a solo project only creates merge coordination overhead. The parent commands (`parent`, `unparent`, `reparent`) and the generic commands (`add`, `remove`, `list`) share the same class and test infrastructure; delivering them together is simpler.
 
 ---
 
-### PR Group 4: `twig new --parent`
+### PR Group 3: `twig new --parent`
+
+> **Status:** ⬜ **Ready** — no prerequisites
 
 **Tasks:** T4.1, T4.2, T4.3  
 **Classification:** Wide (touches multiple files, mostly simple changes)  
@@ -606,19 +615,26 @@ Links for #1339:
 **Files:** ~3  
 **Predecessor:** None (independent; uses existing `MapSeedToCreatePayload` infrastructure)
 
-**Rationale:** The `--parent` flag on `twig new` is fully independent — it uses existing infrastructure and has no runtime dependency on the link commands. Can proceed in parallel with PR Groups 1-3.
+**Rationale:** The `--parent` flag on `twig new` is fully independent — it uses existing infrastructure and has no runtime dependency on the link commands. Can proceed in parallel with PR Group 2.
 
 ---
 
 ### PR Group Execution Order
 
 ```
-PR Group 1 (Infrastructure)
-    ├──▶ PR Group 2 (Parent Commands)
-    └──▶ PR Group 3 (Generic + Format)
+PR Group 1 (Infrastructure) ✅ MERGED
+    └──▶ PR Group 2 (All Link Commands + Formatters)  ⬜ READY
 
-PR Group 4 (new --parent) ──▶ independent, can merge any time
+PR Group 3 (new --parent)                             ⬜ READY (independent)
 ```
+
+> **Note:** Both remaining PR groups are unblocked and can proceed immediately. PR Group 3 is fully independent.
+
+---
+
+## Open Questions
+
+None. All open questions from prior revisions have been resolved as design decisions (see Revision 3).
 
 ---
 
@@ -630,3 +646,5 @@ PR Group 4 (new --parent) ──▶ independent, can merge any time
 | 2 | 2026-04-05 | Removed Issue 5 (hints + integration as separate issue): T5.1 (hints) not in requirements, T5.2 folded into T2.5, T5.3 is ceremony. PR Group 4 made independent (no dependency on PRs 2+3). |
 | 3 | 2026-04-05 | **Review feedback (tech=88, read=88).** Fixed: (1) SeedLinkPromoter call-site line 44→54. (2) `RemoveLinkAsync` pseudo-code: use `DeserializeWorkItemAsync` helper, separate GET/PATCH URLs, add `If-Match: dto.Rev.ToString()` for concurrency. (3) T4.1/T4.3 updated to use `WithParentId()` (init-only `ParentId` setter); old T4.3 fork removed and T4.4 renumbered. (4) Explicit note that no new `TwigJsonContext` types needed. (5) `FormatWorkItemLinks` parentItem fetch responsibility specified (cache-first in `ListAsync`). (6) OQ#1 resolved as design decision: `link parent` aborts with warning+hint when parent exists. (7) OQ#3 wording clarified to "two JSON Patch operations in a single PATCH request body"; resolved as two HTTP calls with recovery. (8) Added reparent data flow trace with error recovery path. (9) All task rows annotated with FR/NFR IDs. (10) `LinkTypeMapper` rationale expanded: `SeedLinkTypeMapper` uses `Ordinal` comparison + seed-specific constants vs. new mapper's `OrdinalIgnoreCase` + user-facing names. |
 | 4 | 2026-04-05 | **Plan-level reduction review.** (1) Removed reparent error-recovery path: not in requirements, user can recover with `twig link parent <old-id>` — removed from reparent note, T2.3 description, T2.5 test list, and Issue 2 acceptance criteria. (2) Removed Open Questions section: both questions were already resolved as design decisions in Revision 3. |
+| 5 | 2026-04-06 | **Codebase verification audit.** (1) Verified PR Group 1 is fully merged — `LinkTypeMapper`, `RemoveLinkAsync`, and all tests confirmed in codebase. (2) Verified PR Groups 2–4 have NO implementation code — `LinkCommand.cs` does not exist, `FormatWorkItemLinks` is absent from all formatters, `NewCommand` has no `parent` parameter. (3) Flagged ADO state discrepancy: Issues #1415–#1417 have child Tasks marked Done in ADO, but no corresponding code exists — these were planning/design tasks, not implementation. (4) Updated all Issue and PR Group sections with verified status badges. (5) Added verified artifacts list to PR Group 1. (6) All three remaining PR Groups are unblocked and ready for implementation. |
+| 6 | 2026-04-06 | **Plan-level reduction review.** Merged PR Groups 2 and 3 into a single PR Group 2 ("All Link Commands + Formatters"): both wrote to the same files (`LinkCommand.cs`, `Program.cs`) and splitting them only adds merge coordination overhead for a solo project. Renumbered PR Group 4 → PR Group 3. Updated status header (1/4 → 1/3), sequencing note, and execution order diagram. |

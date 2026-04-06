@@ -489,6 +489,7 @@ public sealed class JsonOutputFormatter : IOutputFormatter
         using var writer = new Utf8JsonWriter(stream, WriterOptions);
 
         writer.WriteStartObject();
+        writer.WriteNumber("count", links.Count);
         writer.WriteStartArray("links");
         foreach (var link in links)
         {
@@ -499,7 +500,6 @@ public sealed class JsonOutputFormatter : IOutputFormatter
             writer.WriteEndObject();
         }
         writer.WriteEndArray();
-        writer.WriteNumber("count", links.Count);
         writer.WriteEndObject();
 
         writer.Flush();

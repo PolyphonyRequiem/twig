@@ -111,6 +111,8 @@ public class LinkCommandTests : IDisposable
         var child = new WorkItemBuilder(42, "Child Item").InState("Active").WithParent(100).Build();
 
         SetActiveItem(child);
+        // ResolveByIdAsync must still succeed for the target
+        SetResolvable(new WorkItemBuilder(100, "Same Parent").InState("Active").Build());
 
         var cmd = CreateCommand();
         var result = await cmd.ParentAsync(100);
@@ -188,6 +190,7 @@ public class LinkCommandTests : IDisposable
 
     [Theory]
     [InlineData("json")]
+    [InlineData("json-compact")]
     [InlineData("minimal")]
     [InlineData("human")]
     public async Task ParentAsync_AllFormats_Succeed(string format)
@@ -279,6 +282,7 @@ public class LinkCommandTests : IDisposable
 
     [Theory]
     [InlineData("json")]
+    [InlineData("json-compact")]
     [InlineData("minimal")]
     [InlineData("human")]
     public async Task UnparentAsync_AllFormats_Succeed(string format)
@@ -422,6 +426,7 @@ public class LinkCommandTests : IDisposable
 
     [Theory]
     [InlineData("json")]
+    [InlineData("json-compact")]
     [InlineData("minimal")]
     [InlineData("human")]
     public async Task ReparentAsync_AllFormats_Succeed(string format)

@@ -19,15 +19,24 @@ Manage PR group lifecycle.
 {% if pr_merge is defined and pr_merge.output and pr_merge.output.merged %}
 **PR just merged: {{ pr_merge.output.pr_url }}**
 
-The code is now on main. You MUST now close all issues in this PR group:
+The code is now on main. You MUST now close ONLY the Issues in the CURRENT
+PR group ({{ pr_group_manager.output.current_pr_group }}). Do NOT close Issues
+from other PR groups — they have not been implemented yet.
+
+**Current PR group's Issues (close ONLY these):**
+{{ pr_group_manager.output.pr_group_issue_ids | json }}
+
 {% if task_manager is defined and task_manager.output %}
-**Reviewed Issues to close:** {{ task_manager.output.reviewed_issues | json }}
+**Reviewed Issues:** {{ task_manager.output.reviewed_issues | json }}
+Cross-reference: only close Issues that appear in BOTH pr_group_issue_ids AND reviewed_issues.
 {% endif %}
 
-For each issue:
+For each issue IN THIS PR GROUP ONLY:
 1. `twig set <issue_id> --output json`
 2. `twig note --text "Done: closed after PR #<number> merged to main" --output json`
 3. `twig state Done --output json`
+
+⚠️ If an Issue ID is NOT in pr_group_issue_ids above, DO NOT close it.
 
 Then determine next step (see Decision Logic below).
 {% endif %}

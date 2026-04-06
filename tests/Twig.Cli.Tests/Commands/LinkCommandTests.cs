@@ -106,6 +106,22 @@ public class LinkCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task ParentAsync_SelfParent_ReturnsError()
+    {
+        var item = new WorkItemBuilder(42, "Self Item").InState("Active").Build();
+
+        SetActiveItem(item);
+
+        var cmd = CreateCommand();
+        var result = await cmd.ParentAsync(42);
+
+        result.ShouldBe(1);
+        _stderr.ToString().ShouldContain("Cannot parent work item #42 to itself");
+        await _adoService.DidNotReceive().AddLinkAsync(
+            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task ParentAsync_AlreadyParentedToSameTarget_NoOp()
     {
         var child = new WorkItemBuilder(42, "Child Item").InState("Active").WithParent(100).Build();
@@ -347,6 +363,24 @@ public class LinkCommandTests : IDisposable
         await _adoService.Received(1).AddLinkAsync(42, 200, "System.LinkTypes.Hierarchy-Reverse", Arg.Any<CancellationToken>());
         _stdout.ToString().ShouldContain("#42");
         _stdout.ToString().ShouldContain("#200");
+    }
+
+    [Fact]
+    public async Task ReparentAsync_SelfParent_ReturnsError()
+    {
+        var item = new WorkItemBuilder(42, "Self Item").InState("Active").Build();
+
+        SetActiveItem(item);
+
+        var cmd = CreateCommand();
+        var result = await cmd.ReparentAsync(42);
+
+        result.ShouldBe(1);
+        _stderr.ToString().ShouldContain("Cannot parent work item #42 to itself");
+        await _adoService.DidNotReceive().AddLinkAsync(
+            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().RemoveLinkAsync(
+            Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

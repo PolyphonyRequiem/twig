@@ -1,3 +1,4 @@
+using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
@@ -32,26 +33,20 @@ public sealed class LinkCommand(
         if (!resolved.TryGetWorkItem(out var item, out var errorId, out _))
             return WriteActiveItemNotFoundError(fmt, errorId);
 
+        if (CheckParentingGuards(fmt, item, targetId) is int earlyExit) return earlyExit;
+
+        if (item.ParentId.HasValue)
+        {
+            _stderr.WriteLine(fmt.FormatError(
+                $"#{item.Id} already has parent #{item.ParentId.Value}. Use 'twig link reparent {targetId}' to change."));
+            return 1;
+        }
+
         // Validate target exists in ADO
         var targetResult = await activeItemResolver.ResolveByIdAsync(targetId, ct);
         if (!targetResult.TryGetWorkItem(out _, out _, out _))
         {
             _stderr.WriteLine(fmt.FormatError($"Target work item #{targetId} not found."));
-            return 1;
-        }
-
-        // No-op if already parented to the same target
-        if (item.ParentId == targetId)
-        {
-            Console.WriteLine(fmt.FormatInfo($"#{item.Id} is already a child of #{targetId}. No changes made."));
-            return 0;
-        }
-
-        // Abort if already parented to a different item
-        if (item.ParentId.HasValue)
-        {
-            _stderr.WriteLine(fmt.FormatError(
-                $"#{item.Id} already has parent #{item.ParentId.Value}. Use 'twig link reparent {targetId}' to change."));
             return 1;
         }
 
@@ -109,19 +104,14 @@ public sealed class LinkCommand(
         if (!resolved.TryGetWorkItem(out var item, out var errorId, out _))
             return WriteActiveItemNotFoundError(fmt, errorId);
 
+        if (CheckParentingGuards(fmt, item, targetId) is int earlyExit) return earlyExit;
+
         // Validate target exists in ADO
         var targetResult = await activeItemResolver.ResolveByIdAsync(targetId, ct);
         if (!targetResult.TryGetWorkItem(out _, out _, out _))
         {
             _stderr.WriteLine(fmt.FormatError($"Target work item #{targetId} not found."));
             return 1;
-        }
-
-        // No-op if already parented to the same target
-        if (item.ParentId == targetId)
-        {
-            Console.WriteLine(fmt.FormatInfo($"#{item.Id} is already a child of #{targetId}. No changes made."));
-            return 0;
         }
 
         var oldParentId = item.ParentId;
@@ -166,6 +156,21 @@ public sealed class LinkCommand(
         {
             _stderr.WriteLine($"warning: Link changed but cache may be stale for #{id} — run 'twig sync' to resync ({ex.Message})");
         }
+    }
+
+    private int? CheckParentingGuards(IOutputFormatter fmt, WorkItem item, int targetId)
+    {
+        if (item.Id == targetId)
+        {
+            _stderr.WriteLine(fmt.FormatError($"Cannot parent work item #{item.Id} to itself."));
+            return 1;
+        }
+        if (item.ParentId == targetId)
+        {
+            Console.WriteLine(fmt.FormatInfo($"#{item.Id} is already a child of #{targetId}. No changes made."));
+            return 0;
+        }
+        return null;
     }
 
     private int WriteActiveItemNotFoundError(IOutputFormatter fmt, int? errorId)

@@ -230,29 +230,19 @@ public sealed class MinimalOutputFormatter : IOutputFormatter
     }
 
     public string FormatSeedLinks(IReadOnlyList<SeedLink> links)
-    {
-        if (links.Count == 0)
-            return "No links";
-
-        var sb = new StringBuilder();
-        foreach (var link in links)
-        {
-            sb.AppendLine($"LINK #{link.SourceId} {link.LinkType} #{link.TargetId}");
-        }
-
-        return TrimEnd(sb);
-    }
+        => FormatLinksCore(links.Count, links.Select(l => (l.SourceId, l.LinkType, l.TargetId)));
 
     public string FormatWorkItemLinks(IReadOnlyList<WorkItemLink> links)
+        => FormatLinksCore(links.Count, links.Select(l => (l.SourceId, l.LinkType, l.TargetId)));
+
+    private static string FormatLinksCore(int count, IEnumerable<(int SourceId, string LinkType, int TargetId)> items)
     {
-        if (links.Count == 0)
+        if (count == 0)
             return "No links";
 
         var sb = new StringBuilder();
-        foreach (var link in links)
-        {
-            sb.AppendLine($"LINK #{link.SourceId} {link.LinkType} #{link.TargetId}");
-        }
+        foreach (var (sourceId, linkType, targetId) in items)
+            sb.AppendLine($"LINK #{sourceId} {linkType} #{targetId}");
 
         return TrimEnd(sb);
     }

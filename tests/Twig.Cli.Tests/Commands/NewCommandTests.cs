@@ -308,16 +308,69 @@ public class NewCommandTests : IDisposable
             Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
     }
 
-    private void ArrangeCreateSuccess(int newId = 100, string title = "My Epic")
+    private void ArrangeCreateSuccess(int newId = 100, string title = "My Epic", int? parentId = null)
     {
         _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>())
             .Returns(newId);
-
+        var builder = new WorkItemBuilder(newId, title)
+            .AsEpic()
+            .WithAreaPath("TestProject\\Area1")
+            .WithIterationPath("TestProject\\Sprint 1");
+        if (parentId.HasValue)
+            builder = builder.WithParent(parentId.Value);
         _adoService.FetchAsync(newId, Arg.Any<CancellationToken>())
-            .Returns(new WorkItemBuilder(newId, title)
-                .AsEpic()
-                .WithAreaPath("TestProject\\Area1")
-                .WithIterationPath("TestProject\\Sprint 1")
-                .Build());
+            .Returns(builder.Build());
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task New_InvalidParentId_Returns1(int invalidParent)
+    {
+        var errWriter = new StringWriter();
+        Console.SetError(errWriter);
+
+        var result = await _cmd.ExecuteAsync("My Item", "Task", parent: invalidParent);
+
+        result.ShouldBe(1);
+        errWriter.ToString().ShouldContain("--parent must be a positive work-item ID");
+
+        await _adoService.DidNotReceive().CreateAsync(
+            Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task New_WithParent_SetsParentIdInPayload()
+    {
+        ArrangeCreateSuccess(200, "Child Task", parentId: 42);
+
+        var result = await _cmd.ExecuteAsync("Child Task", "Task", parent: 42);
+
+        result.ShouldBe(0);
+        await _adoService.Received(1).CreateAsync(
+            Arg.Is<WorkItem>(w => w.ParentId == 42),
+            Arg.Any<CancellationToken>());
+        await _workItemRepo.Received(1).SaveAsync(
+            Arg.Is<WorkItem>(w => w.ParentId == 42 && w.Id == 200),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task New_WithParent_AndEditor_ParentIdPreservedInPayload()
+    {
+        // WithSeedFields must preserve ParentId set before the editor flow.
+        ArrangeCreateSuccess(300, "Edited Child", parentId: 55);
+        _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns("# Title\nEdited Child\n\n# Description\nFrom editor\n");
+
+        var result = await _cmd.ExecuteAsync("Edited Child", "Task", parent: 55, editor: true);
+
+        result.ShouldBe(0);
+        await _adoService.Received(1).CreateAsync(
+            Arg.Is<WorkItem>(w => w.ParentId == 55),
+            Arg.Any<CancellationToken>());
+        await _workItemRepo.Received(1).SaveAsync(
+            Arg.Is<WorkItem>(w => w.ParentId == 55 && w.Id == 300),
+            Arg.Any<CancellationToken>());
     }
 }

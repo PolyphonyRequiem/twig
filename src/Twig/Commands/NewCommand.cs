@@ -25,6 +25,7 @@ public sealed class NewCommand(
         string? area = null,
         string? iteration = null,
         string? description = null,
+        int? parent = null,
         bool set = false,
         bool editor = false,
         string outputFormat = OutputFormatterFactory.DefaultFormat,
@@ -42,6 +43,12 @@ public sealed class NewCommand(
         if (!typeResult.IsSuccess)
         {
             Console.Error.WriteLine(fmt.FormatError(typeResult.Error));
+            return 1;
+        }
+
+        if (parent is <= 0)
+        {
+            Console.Error.WriteLine(fmt.FormatError($"--parent must be a positive work-item ID (got {parent.Value})."));
             return 1;
         }
 
@@ -66,7 +73,8 @@ public sealed class NewCommand(
             typeResult.Value,
             areaResult.Value,
             iterResult.Value,
-            config.User.DisplayName);
+            config.User.DisplayName,
+            parent);
 
         if (!seedResult.IsSuccess)
         {
@@ -141,27 +149,22 @@ public sealed class NewCommand(
         return 0;
     }
 
-    private Result<AreaPath> ResolveAreaPath(string? explicitFlag)
+    private string? ResolveRaw(string? flag, string? configDefault)
+        => flag ?? configDefault ?? (string.IsNullOrWhiteSpace(config.Project) ? null : config.Project);
+
+    private Result<AreaPath> ResolveAreaPath(string? flag)
     {
-        var raw = explicitFlag
-            ?? config.Defaults.AreaPath
-            ?? (string.IsNullOrWhiteSpace(config.Project) ? null : config.Project);
-
-        if (raw is null)
-            return Result.Fail<AreaPath>("No area path: use --area, set defaults.areaPath in config, or ensure project is configured.");
-
-        return AreaPath.Parse(raw);
+        var raw = ResolveRaw(flag, config.Defaults.AreaPath);
+        return raw is null
+            ? Result.Fail<AreaPath>("No area path: use --area, set defaults.areaPath in config, or ensure project is configured.")
+            : AreaPath.Parse(raw);
     }
 
-    private Result<IterationPath> ResolveIterationPath(string? explicitFlag)
+    private Result<IterationPath> ResolveIterationPath(string? flag)
     {
-        var raw = explicitFlag
-            ?? config.Defaults.IterationPath
-            ?? (string.IsNullOrWhiteSpace(config.Project) ? null : config.Project);
-
-        if (raw is null)
-            return Result.Fail<IterationPath>("No iteration path: use --iteration, set defaults.iterationPath in config, or ensure project is configured.");
-
-        return IterationPath.Parse(raw);
+        var raw = ResolveRaw(flag, config.Defaults.IterationPath);
+        return raw is null
+            ? Result.Fail<IterationPath>("No iteration path: use --iteration, set defaults.iterationPath in config, or ensure project is configured.")
+            : IterationPath.Parse(raw);
     }
 }

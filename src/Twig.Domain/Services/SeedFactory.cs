@@ -46,7 +46,7 @@ public static class SeedFactory
             if (typeOverride is not null)
             {
                 // Validate explicit override is allowed
-                if (!ContainsType(allowedChildren, typeOverride.Value))
+                if (!allowedChildren.Contains(typeOverride.Value))
                     return Result.Fail<WorkItem>(
                         $"Type '{typeOverride.Value}' is not an allowed child of '{parentContext.Type}'.");
 
@@ -76,15 +76,16 @@ public static class SeedFactory
     }
 
     /// <summary>
-    /// Creates an unparented seed with explicit area/iteration paths.
-    /// Used by <c>twig new</c> for top-level work items (e.g., Epics).
+    /// Creates a seed with explicit area/iteration paths.
+    /// Used by <c>twig new</c>. Pass <paramref name="parentId"/> to create a child item.
     /// </summary>
     public static Result<WorkItem> CreateUnparented(
         string title,
         WorkItemType type,
         AreaPath areaPath,
         IterationPath iterationPath,
-        string? assignedTo = null)
+        string? assignedTo = null,
+        int? parentId = null)
     {
         if (string.IsNullOrWhiteSpace(title))
             return Result.Fail<WorkItem>("Title cannot be empty.");
@@ -92,22 +93,11 @@ public static class SeedFactory
         var seed = WorkItem.CreateSeed(
             type,
             title,
-            parentId: null,
+            parentId,
             areaPath,
             iterationPath,
             assignedTo);
 
         return Result.Ok(seed);
-    }
-
-    private static bool ContainsType(IReadOnlyList<WorkItemType> types, WorkItemType target)
-    {
-        foreach (var t in types)
-        {
-            if (t == target)
-                return true;
-        }
-
-        return false;
     }
 }

@@ -322,6 +322,18 @@ public class SeedFactoryTests
     }
 
     [Fact]
+    public void CreateUnparented_WithParentId_SetsParentId()
+    {
+        var area = AreaPath.Parse("Proj\\Area").Value;
+        var iter = IterationPath.Parse("Proj\\Sprint1").Value;
+
+        var result = SeedFactory.CreateUnparented("Child Task", WorkItemType.Task, area, iter, parentId: 42);
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ParentId.ShouldBe(42);
+    }
+
+    [Fact]
     public void CreateUnparented_EmptyTitle_Fails()
     {
         var area = AreaPath.Parse("Proj").Value;

@@ -1,7 +1,7 @@
 # Work Item Link Management via twig CLI
 
 **Epic:** #1343  
-> **Status**: 🔨 In Progress  
+> **Status**: 🔨 In Progress — 2/3 PR groups merged  
 **Revision:** 5 — See [Revision History](#revision-history) for change log.
 
 ---
@@ -593,7 +593,7 @@ Links for #1339:
 
 ### PR Group 2: All Link Commands + Formatters
 
-> **Status:** ⬜ **Ready** — prerequisite (PR Group 1) is satisfied
+> **Status:** ✅ **Done** — Merged via PR #18
 
 **Tasks:** T2.1, T2.2, T2.3, T2.4, T2.5, T3.1, T3.2, T3.3, T3.4, T3.5, T3.6  
 **Classification:** Deep+Wide (core command logic + formatter changes across multiple files)  
@@ -623,7 +623,7 @@ Links for #1339:
 
 ```
 PR Group 1 (Infrastructure) ✅ MERGED
-    └──▶ PR Group 2 (All Link Commands + Formatters)  ⬜ READY
+    └──▶ PR Group 2 (All Link Commands + Formatters)  ✅ MERGED (#18)
 
 PR Group 3 (new --parent)                             ⬜ READY (independent)
 ```

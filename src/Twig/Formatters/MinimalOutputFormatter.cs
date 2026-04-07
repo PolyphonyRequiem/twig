@@ -57,13 +57,7 @@ public sealed class MinimalOutputFormatter : IOutputFormatter
         if (hasMore)
             sb.AppendLine($"{childIndent}... +{tree.Children.Count - maxChildren} more");
 
-        // Remove trailing newline
-        if (sb.Length > 0 && sb[sb.Length - 1] == '\n')
-            sb.Length -= 1;
-        if (sb.Length > 0 && sb[sb.Length - 1] == '\r')
-            sb.Length -= 1;
-
-        return sb.ToString();
+        return TrimEnd(sb);
     }
 
     public string FormatWorkspace(Workspace ws, int staleDays)
@@ -100,13 +94,7 @@ public sealed class MinimalOutputFormatter : IOutputFormatter
             sb.AppendLine($"SEED #{seed.Id} {seed.Title} ({seed.Type}){staleWarning}");
         }
 
-        // Remove trailing newline
-        if (sb.Length > 0 && sb[sb.Length - 1] == '\n')
-            sb.Length -= 1;
-        if (sb.Length > 0 && sb[sb.Length - 1] == '\r')
-            sb.Length -= 1;
-
-        return sb.ToString();
+        return TrimEnd(sb);
     }
 
     public string FormatSprintView(Workspace ws, int staleDays)
@@ -144,13 +132,7 @@ public sealed class MinimalOutputFormatter : IOutputFormatter
             sb.AppendLine($"SEED #{seed.Id} {seed.Title} ({seed.Type}){staleWarning}");
         }
 
-        // Remove trailing newline
-        if (sb.Length > 0 && sb[sb.Length - 1] == '\n')
-            sb.Length -= 1;
-        if (sb.Length > 0 && sb[sb.Length - 1] == '\r')
-            sb.Length -= 1;
-
-        return sb.ToString();
+        return TrimEnd(sb);
     }
 
     public string FormatFieldChange(FieldChange change)
@@ -186,13 +168,7 @@ public sealed class MinimalOutputFormatter : IOutputFormatter
             sb.AppendLine($"#{id} \"{title}\"");
         }
 
-        // Remove trailing newline
-        if (sb.Length > 0 && sb[sb.Length - 1] == '\n')
-            sb.Length -= 1;
-        if (sb.Length > 0 && sb[sb.Length - 1] == '\r')
-            sb.Length -= 1;
-
-        return sb.ToString();
+        return TrimEnd(sb);
     }
 
     public string FormatBranchInfo(string branchName)
@@ -250,33 +226,25 @@ public sealed class MinimalOutputFormatter : IOutputFormatter
             }
         }
 
-        // Remove trailing newline
-        if (sb.Length > 0 && sb[sb.Length - 1] == '\n')
-            sb.Length -= 1;
-        if (sb.Length > 0 && sb[sb.Length - 1] == '\r')
-            sb.Length -= 1;
-
-        return sb.ToString();
+        return TrimEnd(sb);
     }
 
     public string FormatSeedLinks(IReadOnlyList<SeedLink> links)
+        => FormatLinksCore(links.Count, links.Select(l => (l.SourceId, l.LinkType, l.TargetId)));
+
+    public string FormatWorkItemLinks(IReadOnlyList<WorkItemLink> links)
+        => FormatLinksCore(links.Count, links.Select(l => (l.SourceId, l.LinkType, l.TargetId)));
+
+    private static string FormatLinksCore(int count, IEnumerable<(int SourceId, string LinkType, int TargetId)> items)
     {
-        if (links.Count == 0)
+        if (count == 0)
             return "No links";
 
         var sb = new StringBuilder();
-        foreach (var link in links)
-        {
-            sb.AppendLine($"LINK #{link.SourceId} {link.LinkType} #{link.TargetId}");
-        }
+        foreach (var (sourceId, linkType, targetId) in items)
+            sb.AppendLine($"LINK #{sourceId} {linkType} #{targetId}");
 
-        // Remove trailing newline
-        if (sb.Length > 0 && sb[sb.Length - 1] == '\n')
-            sb.Length -= 1;
-        if (sb.Length > 0 && sb[sb.Length - 1] == '\r')
-            sb.Length -= 1;
-
-        return sb.ToString();
+        return TrimEnd(sb);
     }
 
     public string FormatSeedValidation(IReadOnlyList<SeedValidationResult> results)
@@ -295,13 +263,7 @@ public sealed class MinimalOutputFormatter : IOutputFormatter
             }
         }
 
-        // Remove trailing newline
-        if (sb.Length > 0 && sb[sb.Length - 1] == '\n')
-            sb.Length -= 1;
-        if (sb.Length > 0 && sb[sb.Length - 1] == '\r')
-            sb.Length -= 1;
-
-        return sb.ToString();
+        return TrimEnd(sb);
     }
 
     public string FormatSeedReconcileResult(SeedReconcileResult result)
@@ -319,13 +281,7 @@ public sealed class MinimalOutputFormatter : IOutputFormatter
         foreach (var warning in result.Warnings)
             sb.AppendLine($"RECONCILE WARN {warning}");
 
-        // Remove trailing newline
-        if (sb.Length > 0 && sb[sb.Length - 1] == '\n')
-            sb.Length -= 1;
-        if (sb.Length > 0 && sb[sb.Length - 1] == '\r')
-            sb.Length -= 1;
-
-        return sb.ToString();
+        return TrimEnd(sb);
     }
 
     public string FormatSeedPublishResult(SeedPublishResult result)
@@ -352,12 +308,13 @@ public sealed class MinimalOutputFormatter : IOutputFormatter
         foreach (var err in result.CycleErrors)
             sb.AppendLine($"PUBLISH CYCLE {err}");
 
-        // Remove trailing newline
-        if (sb.Length > 0 && sb[sb.Length - 1] == '\n')
-            sb.Length -= 1;
-        if (sb.Length > 0 && sb[sb.Length - 1] == '\r')
-            sb.Length -= 1;
+        return TrimEnd(sb);
+    }
 
+    private static string TrimEnd(StringBuilder sb)
+    {
+        if (sb.Length > 0 && sb[sb.Length - 1] == '\n') sb.Length -= 1;
+        if (sb.Length > 0 && sb[sb.Length - 1] == '\r') sb.Length -= 1;
         return sb.ToString();
     }
 }

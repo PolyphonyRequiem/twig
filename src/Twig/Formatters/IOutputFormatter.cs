@@ -53,6 +53,11 @@ public interface IOutputFormatter
     /// <summary>Formats a list of virtual seed links for display.</summary>
     string FormatSeedLinks(IReadOnlyList<SeedLink> links);
 
+    // ── Work item link formatting ───────────────────────────────────
+
+    /// <summary>Formats a list of published work item links for display.</summary>
+    string FormatWorkItemLinks(IReadOnlyList<WorkItemLink> links);
+
     // ── Seed validation formatting ──────────────────────────────────
 
     /// <summary>Formats seed validation results for display.</summary>

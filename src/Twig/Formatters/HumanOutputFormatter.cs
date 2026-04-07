@@ -1015,6 +1015,29 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         return sb.ToString();
     }
 
+    public string FormatWorkItemLinks(IReadOnlyList<WorkItemLink> links)
+    {
+        if (links.Count == 0)
+            return $"{Dim}No links.{Reset}";
+
+        var sb = new StringBuilder();
+        sb.AppendLine($"{Bold}Links ({links.Count}){Reset}");
+        sb.AppendLine(new string('─', 50));
+
+        foreach (var link in links)
+        {
+            sb.AppendLine($"  #{link.SourceId} {Cyan}──{link.LinkType}──▶{Reset} #{link.TargetId}");
+        }
+
+        // Remove trailing newline
+        if (sb.Length > 0 && sb[sb.Length - 1] == '\n')
+            sb.Length -= 1;
+        if (sb.Length > 0 && sb[sb.Length - 1] == '\r')
+            sb.Length -= 1;
+
+        return sb.ToString();
+    }
+
     public string FormatSeedValidation(IReadOnlyList<SeedValidationResult> results)
     {
         if (results.Count == 0)

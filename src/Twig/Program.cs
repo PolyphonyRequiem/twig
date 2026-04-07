@@ -458,6 +458,23 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> SeedReconcile(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SeedReconcileCommand>().ExecuteAsync(output, ct);
 
+    // ── Link commands (published work items) ────────────────────────
+
+    /// <summary>Set the parent of the active work item.</summary>
+    [Command("link parent")]
+    public async Task<int> LinkParent([Argument] int targetId, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<LinkCommand>().ParentAsync(targetId, output, ct);
+
+    /// <summary>Remove the parent link from the active work item.</summary>
+    [Command("link unparent")]
+    public async Task<int> LinkUnparent(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<LinkCommand>().UnparentAsync(output, ct);
+
+    /// <summary>Remove the current parent and set a new one.</summary>
+    [Command("link reparent")]
+    public async Task<int> LinkReparent([Argument] int targetId, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<LinkCommand>().ReparentAsync(targetId, output, ct);
+
     /// <summary>Add a note to the active work item.</summary>
     public async Task<int> Note(string? text = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<NoteCommand>().ExecuteAsync(text, output, ct);
@@ -684,6 +701,9 @@ Work Items:
   note                 Add a note to the active work item.
   update <field> <v>   Update a field on the active work item.
   edit                 Edit work item fields in an external editor.
+  link parent <id>     Set the parent of the active work item.
+  link unparent        Remove the parent link from the active item.
+  link reparent <id>   Remove current parent and set a new one.
   seed new <title>     Create a new local seed (child work item).
   seed new --editor    Create a seed via editor with field template.
   seed edit <id>       Edit a local seed in an external editor.

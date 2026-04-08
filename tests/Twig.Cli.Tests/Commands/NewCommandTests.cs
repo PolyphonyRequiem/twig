@@ -325,6 +325,7 @@ public class NewCommandTests : IDisposable
     [Theory]
     [InlineData(0)]
     [InlineData(-1)]
+    [InlineData(int.MinValue)]
     public async Task New_InvalidParentId_Returns1(int invalidParent)
     {
         var errWriter = new StringWriter();

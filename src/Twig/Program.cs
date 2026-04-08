@@ -310,7 +310,7 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> State([Argument] string name, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<StateCommand>().ExecuteAsync(name, output, ct);
 
-    /// <summary>Create a new work item in ADO.</summary>
+    /// <summary>Create a new work item in ADO. Use --parent to place it under an existing item.</summary>
     public async Task<int> New(string title, string type, string? area = null, string? iteration = null, string? description = null, int? parent = null, bool set = false, bool editor = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<NewCommand>().ExecuteAsync(title, type, area, iteration, description, parent, set, editor, output, ct);
 

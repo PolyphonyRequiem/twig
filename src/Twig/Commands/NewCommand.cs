@@ -73,8 +73,7 @@ public sealed class NewCommand(
             typeResult.Value,
             areaResult.Value,
             iterResult.Value,
-            config.User.DisplayName,
-            parent);
+            config.User.DisplayName);
 
         if (!seedResult.IsSuccess)
         {
@@ -83,6 +82,9 @@ public sealed class NewCommand(
         }
 
         var seed = seedResult.Value;
+
+        if (parent.HasValue)
+            seed = seed.WithParentId(parent.Value);
 
         if (!string.IsNullOrWhiteSpace(description))
             seed.SetField("System.Description", description);

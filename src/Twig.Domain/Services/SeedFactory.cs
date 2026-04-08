@@ -77,15 +77,14 @@ public static class SeedFactory
 
     /// <summary>
     /// Creates a seed with explicit area/iteration paths.
-    /// Used by <c>twig new</c>. Pass <paramref name="parentId"/> to create a child item.
+    /// Used by <c>twig new</c>. Call <see cref="WorkItem.WithParentId"/> on the result to set a parent.
     /// </summary>
     public static Result<WorkItem> CreateUnparented(
         string title,
         WorkItemType type,
         AreaPath areaPath,
         IterationPath iterationPath,
-        string? assignedTo = null,
-        int? parentId = null)
+        string? assignedTo = null)
     {
         if (string.IsNullOrWhiteSpace(title))
             return Result.Fail<WorkItem>("Title cannot be empty.");
@@ -93,7 +92,7 @@ public static class SeedFactory
         var seed = WorkItem.CreateSeed(
             type,
             title,
-            parentId,
+            null,
             areaPath,
             iterationPath,
             assignedTo);

@@ -487,6 +487,23 @@ public class SeedChainCommandTests
         }
     }
 
+    // ── T-1267-2: Rest-arg parsing — --type not captured as title ──
+
+    [Fact]
+    public async Task Batch_TypeFlagWithTitles_TypeNotCapturedAsTitle()
+    {
+        // twig seed chain --type Task "A" "B" → type="Task", titles=["A","B"] (not ["Task","A","B"])
+        SetupParent(1, "Parent Story", WorkItemType.UserStory);
+
+        var result = await _cmd.ExecuteAsync(null, "Task", "human", CancellationToken.None,
+            titles: new[] { "A", "B" });
+
+        result.ShouldBe(0);
+        await _workItemRepo.Received(2).SaveAsync(Arg.Is<WorkItem>(w => w.IsSeed), Arg.Any<CancellationToken>());
+        await _workItemRepo.Received(1).SaveAsync(Arg.Is<WorkItem>(w => w.Title == "A" && w.Type == WorkItemType.Task), Arg.Any<CancellationToken>());
+        await _workItemRepo.Received(1).SaveAsync(Arg.Is<WorkItem>(w => w.Title == "B" && w.Type == WorkItemType.Task), Arg.Any<CancellationToken>());
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     private void SetupParent(int id, string title, WorkItemType type)

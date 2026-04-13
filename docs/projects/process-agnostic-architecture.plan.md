@@ -1,7 +1,7 @@
 # Process-Agnostic Architecture: Eliminate All Hardcoded Process Assumptions
 
 **Epic:** #1345  
-**Status:** 🔨 In Progress — 1/4 PR groups merged  
+> **Status**: ✅ Done  
 **Author:** Copilot (Principal Software Architect)  
 **Revision:** 15  
 **Child Issues:** #1346, #1348, #1349, #1350  
@@ -507,11 +507,11 @@ All design questions resolved. See §Alternatives Considered and §Design Decisi
 - **Validates:** NFR-03
 
 **Acceptance Criteria:**
-- [ ] `ComputeChildProgress` passes `StateEntries` from process config to `Resolve()`
-- [ ] Agile workspace with 4/5 children in "Closed" state shows `4/5` progress (not `0/5`)
-- [ ] Basic workspace with 3/3 children in "Done" state shows `3/3` progress
-- [ ] Null provider gracefully falls back to heuristic (no crash, no exception)
-- [ ] All existing StatusCommand and SetCommand tests pass without modification
+- [x] `ComputeChildProgress` passes `StateEntries` from process config to `Resolve()`
+- [x] Agile workspace with 4/5 children in "Closed" state shows `4/5` progress (not `0/5`)
+- [x] Basic workspace with 3/3 children in "Done" state shows `3/3` progress
+- [x] Null provider gracefully falls back to heuristic (no crash, no exception)
+- [x] All existing StatusCommand and SetCommand tests pass without modification
 
 ---
 
@@ -540,13 +540,13 @@ All design questions resolved. See §Alternatives Considered and §Design Decisi
 - **Validates:** NFR-03
 
 **Acceptance Criteria:**
-- [ ] HintEngine passes `StateEntries` to `StateCategoryResolver.Resolve()` (no null in normal path)
-- [ ] Basic-process users see `"twig state Done"` in sibling-completion hint
-- [ ] Agile-process users see `"twig state Closed"` in sibling-completion hint
-- [ ] Null provider uses "Done" as safe default (not "Closed")
-- [ ] Existing HintEngine tests pass with updated constructor (backward compat via default param)
-- [ ] Null-entry verification: `rg "Resolve\(" src/ --glob "*.cs"` piped through manual review confirms all `Resolve()` calls pass actual `StateEntry[]` or use `SafeGetConfiguration()`. Note: literal-null grep (`rg "Resolve\(.*null\)"`) is run as a quick check but may miss null passed via a variable — the manual review of all `Resolve()` call sites (17 total, per §Background audit) is the authoritative verification.
-- [ ] `dotnet build --no-restore` produces zero warnings
+- [x] HintEngine passes `StateEntries` to `StateCategoryResolver.Resolve()` (no null in normal path)
+- [x] Basic-process users see `"twig state Done"` in sibling-completion hint
+- [x] Agile-process users see `"twig state Closed"` in sibling-completion hint
+- [x] Null provider uses "Done" as safe default (not "Closed")
+- [x] Existing HintEngine tests pass with updated constructor (backward compat via default param)
+- [x] Null-entry verification: `rg "Resolve\(" src/ --glob "*.cs"` piped through manual review confirms all `Resolve()` calls pass actual `StateEntry[]` or use `SafeGetConfiguration()`. Note: literal-null grep (`rg "Resolve\(.*null\)"`) is run as a quick check but may miss null passed via a variable — the manual review of all `Resolve()` call sites (17 total, per §Background audit) is the authoritative verification.
+- [x] `dotnet build --no-restore` produces zero warnings
 
 ---
 
@@ -572,10 +572,10 @@ All design questions resolved. See §Alternatives Considered and §Design Decisi
 - **Validates:** NFR-03 (covers whitespace edge case from tech review)
 
 **Acceptance Criteria:**
-- [ ] Custom type "Deliverable" parsed from ADO response retains name "Deliverable" (not "Task")
-- [ ] Whitespace-only type name (`"  "`) returns `WorkItemType.Task` (guard catches it before `Parse()`)
-- [ ] TreeNavigatorView shows expand arrow for unknown types (data preservation over cosmetics)
-- [ ] `ParseWorkItemType` tests verify custom type names ("Deliverable", "Initiative", "Scenario") are preserved
+- [x] Custom type "Deliverable" parsed from ADO response retains name "Deliverable" (not "Task")
+- [x] Whitespace-only type name (`"  "`) returns `WorkItemType.Task` (guard catches it before `Parse()`)
+- [x] TreeNavigatorView shows expand arrow for unknown types (data preservation over cosmetics)
+- [x] `ParseWorkItemType` tests verify custom type names ("Deliverable", "Initiative", "Scenario") are preserved
 
 ---
 
@@ -603,11 +603,11 @@ All design questions resolved. See §Alternatives Considered and §Design Decisi
 - **Validates:** NFR-03
 
 **Acceptance Criteria:**
-- [ ] `DetectTemplateNameAsync` calls projects API first
-- [ ] Custom process template "MyCustomProcess" is correctly detected (not "Basic")
-- [ ] API failure gracefully falls back to existing heuristic (no crash)
-- [ ] All new DTOs registered in `TwigJsonContext` with `[JsonSerializable]`
-- [ ] AOT-compatible (source-gen JSON, no reflection)
+- [x] `DetectTemplateNameAsync` calls projects API first
+- [x] Custom process template "MyCustomProcess" is correctly detected (not "Basic")
+- [x] API failure gracefully falls back to existing heuristic (no crash)
+- [x] All new DTOs registered in `TwigJsonContext` with `[JsonSerializable]`
+- [x] AOT-compatible (source-gen JSON, no reflection)
 
 ---
 
@@ -662,6 +662,18 @@ All design questions resolved. See §Alternatives Considered and §Design Decisi
 - [StateCategory enum](../../src/Twig.Domain/Enums/StateCategory.cs)
 - [ProcessConfiguration aggregate](../../src/Twig.Domain/Aggregates/ProcessConfiguration.cs)
 - [ProcessConfigBuilder test utility](../../tests/Twig.TestKit/ProcessConfigBuilder.cs)
+
+---
+
+## Completion
+
+**Completed:** 2026-04-13  
+**Final Tag:** v0.31.0  
+**PRs Merged:** #12 (progress indicators), #13 (dynamic hints), #14 (type assumptions), #15 (template detection)  
+**Issues Closed:** #1346, #1348, #1349, #1350  
+**Epic:** #1345 — Done  
+
+All 14 hardcoded process assumptions identified in the audit have been eliminated. The twig CLI now works correctly with any ADO process template (Agile, Scrum, CMMI, Basic, or custom) without modification. Progress indicators use process config state entries, hints display process-appropriate state names, unknown work item types are preserved rather than silently mapped, and template detection uses the ADO projects API with heuristic fallback.
 
 ---
 

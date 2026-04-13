@@ -19,9 +19,11 @@ public sealed class UpdateCommand(
     IConsoleInput consoleInput,
     OutputFormatterFactory formatterFactory,
     IPromptStateWriter? promptStateWriter = null,
+    TextReader? stdinReader = null,
     TextWriter? stderr = null,
     TextWriter? stdout = null)
 {
+    private readonly TextReader _stdin = stdinReader ?? Console.In;
     private readonly TextWriter _stderr = stderr ?? Console.Error;
     private readonly TextWriter _stdout = stdout ?? Console.Out;
 
@@ -48,6 +50,35 @@ public sealed class UpdateCommand(
             return 2;
         }
 
+        if (format is not null && !string.Equals(format, "markdown", StringComparison.OrdinalIgnoreCase))
+        {
+            _stderr.WriteLine(fmt.FormatError($"Unknown format '{format}'. Supported formats: markdown"));
+            return 2;
+        }
+
+        // Resolve the effective value from the selected source.
+        string resolvedValue;
+        if (filePath is not null)
+        {
+            if (!File.Exists(filePath))
+            {
+                _stderr.WriteLine(fmt.FormatError($"File not found: {filePath}"));
+                return 2;
+            }
+            resolvedValue = await File.ReadAllTextAsync(filePath, ct);
+        }
+        else if (readStdin)
+        {
+            resolvedValue = await _stdin.ReadToEndAsync(ct);
+        }
+        else
+        {
+            resolvedValue = value!;
+        }
+        if (format is null && (filePath is not null || readStdin))
+            resolvedValue = resolvedValue.TrimEnd('\r', '\n');
+        var effectiveValue = format is null ? resolvedValue : MarkdownConverter.ToHtml(resolvedValue);
+
         var resolved = await activeItemResolver.GetActiveItemAsync();
         if (!resolved.TryGetWorkItem(out var local, out var errorId, out var errorReason))
         {
@@ -67,17 +98,6 @@ public sealed class UpdateCommand(
         if (conflictOutcome is ConflictOutcome.AcceptedRemote or ConflictOutcome.Aborted)
             return 0;
 
-        // Resolve the effective value from the selected source.
-        // File and stdin reading will be added in a subsequent task.
-        var resolvedValue = value!;
-
-        if (format is not null && !string.Equals(format, "markdown", StringComparison.OrdinalIgnoreCase))
-        {
-            _stderr.WriteLine(fmt.FormatError($"Unknown format '{format}'. Supported formats: markdown"));
-            return 2;
-        }
-        var effectiveValue = format is null ? resolvedValue : MarkdownConverter.ToHtml(resolvedValue);
-
         var changes = new[] { new FieldChange(field, null, effectiveValue) };
         try
         {
@@ -96,7 +116,10 @@ public sealed class UpdateCommand(
 
         if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
-        _stdout.WriteLine(fmt.FormatSuccess($"#{local.Id} {local.Title} updated: {field} = '{resolvedValue}'"));
+        var displayValue = filePath is not null ? $"[from file: {filePath}]"
+                         : readStdin ? "[from stdin]"
+                         : resolvedValue;
+        _stdout.WriteLine(fmt.FormatSuccess($"#{local.Id} {local.Title} updated: {field} = '{displayValue}'"));
 
         return 0;
     }

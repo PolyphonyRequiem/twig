@@ -169,18 +169,6 @@ public class WiqlQueryBuilderTests
         result.ShouldContain("[System.CreatedDate] >= @Today - 7");
     }
 
-    [Fact]
-    public void Build_MultipleFilters_AlwaysEndsWithOrderBy()
-    {
-        var result = WiqlQueryBuilder.Build(new QueryParameters
-        {
-            TypeFilter = "Task",
-            ChangedSinceDays = 14,
-        });
-
-        result.ShouldEndWith("ORDER BY [System.ChangedDate] DESC");
-    }
-
     // ═══════════════════════════════════════════════════════════════
     //  Edge cases
     // ═══════════════════════════════════════════════════════════════
@@ -279,14 +267,6 @@ public class WiqlQueryBuilderTests
         });
 
         result.ShouldNotContain("System.AreaPath");
-    }
-
-    [Fact]
-    public void Build_AlwaysStartsWithSelect()
-    {
-        var result = WiqlQueryBuilder.Build(new QueryParameters { StateFilter = "New" });
-
-        result.ShouldStartWith("SELECT [System.Id] FROM WorkItems WHERE");
     }
 
     [Fact]

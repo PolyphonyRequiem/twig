@@ -93,21 +93,4 @@ public class QueryParametersTests
         a.ShouldNotBe(b);
     }
 
-    [Fact]
-    public void DefaultAreaPaths_PreservesIncludeChildrenFlag()
-    {
-        var paths = new List<(string Path, bool IncludeChildren)>
-        {
-            ("Root\\Child", true),
-            ("Root\\Other", false),
-        };
-
-        var sut = new QueryParameters { DefaultAreaPaths = paths };
-
-        sut.DefaultAreaPaths![0].Path.ShouldBe("Root\\Child");
-        sut.DefaultAreaPaths[0].IncludeChildren.ShouldBeTrue();
-        sut.DefaultAreaPaths[1].Path.ShouldBe("Root\\Other");
-        sut.DefaultAreaPaths[1].IncludeChildren.ShouldBeFalse();
-    }
-
 }

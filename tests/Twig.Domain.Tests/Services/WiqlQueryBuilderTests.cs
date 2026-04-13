@@ -83,11 +83,11 @@ public class WiqlQueryBuilderTests
     }
 
     [Fact]
-    public void Build_ChangedSinceDays_DateClause()
+    public void Build_ChangedSinceDays_SevenDays_ProducesTodayMinus7()
     {
-        var result = WiqlQueryBuilder.Build(new QueryParameters { ChangedSinceDays = 30 });
+        var result = WiqlQueryBuilder.Build(new QueryParameters { ChangedSinceDays = 7 });
 
-        result.ShouldContain("[System.ChangedDate] >= @Today - 30");
+        result.ShouldContain("[System.ChangedDate] >= @Today - 7");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -210,6 +210,22 @@ public class WiqlQueryBuilderTests
         var result = WiqlQueryBuilder.Build(new QueryParameters { TypeFilter = "User's Story" });
 
         result.ShouldContain("[System.WorkItemType] = 'User''s Story'");
+    }
+
+    [Fact]
+    public void Build_AssignedToFilter_OBrien_QuotesDoubled()
+    {
+        var result = WiqlQueryBuilder.Build(new QueryParameters { AssignedToFilter = "O'Brien" });
+
+        result.ShouldContain("[System.AssignedTo] = 'O''Brien'");
+    }
+
+    [Fact]
+    public void Build_StateFilter_WontFix_QuotesDoubled()
+    {
+        var result = WiqlQueryBuilder.Build(new QueryParameters { StateFilter = "Won't Fix" });
+
+        result.ShouldContain("[System.State] = 'Won''t Fix'");
     }
 
     [Theory]

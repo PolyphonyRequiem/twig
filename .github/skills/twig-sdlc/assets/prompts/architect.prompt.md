@@ -160,6 +160,18 @@ Save the plan to `docs/projects/<slug>.plan.md`
 Derive the plan topic from: {{ workflow.input.prompt }}
 {% endif %}
 
+### Incremental Writing (critical for large plans)
+Do NOT attempt to write the entire plan in a single tool call. Large writes risk
+context exhaustion and session timeouts. Instead, write incrementally:
+1. **Create** the file with the header, Executive Summary, and Background sections
+2. **Edit/append** the Problem Statement, Goals, and Proposed Design
+3. **Edit/append** the ADO Work Item Structure and PR Groups
+4. **Edit/append** the remaining sections (Files Affected, Open Questions, References)
+
+Each write should be ≤8KB of content. If a section (e.g., Proposed Design) is very
+large, split it across multiple appends. Verify the file exists after the first
+create before continuing with edits.
+
 ## Revision Notes
 {% if review_router is defined or plan_approval is defined or open_questions_gate is defined %}
 After revising the document, provide a concise summary of what you changed and why

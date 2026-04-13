@@ -441,7 +441,7 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <summary>Create a chain of linked seeds — interactively or from explicit titles.</summary>
     [Command("seed chain")]
     public async Task<int> SeedChain(int? parent = null, string? type = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, params string[] titles)
-        => await services.GetRequiredService<SeedChainCommand>().ExecuteAsync(parent, type, output, ct, titles: titles.Length > 0 ? titles : null);
+        => await services.GetRequiredService<SeedChainCommand>().ExecuteAsync(parent, type, output, ct, titles);
 
     /// <summary>Validate seeds against publish rules.</summary>
     [Command("seed validate")]

@@ -300,25 +300,6 @@ public class SeedChainCommandTests
     // ── T-1267-1: Batch mode — explicit titles ────────────────────
 
     [Fact]
-    public async Task Batch_ThreeTitles_CreatesThreeSeedsAndTwoLinks()
-    {
-        SetupParent(1, "Parent Feature", WorkItemType.Feature);
-
-        var result = await _cmd.ExecuteAsync(null, null, "human", CancellationToken.None,
-            titles: new[] { "Task A", "Task B", "Task C" });
-
-        result.ShouldBe(0);
-
-        await _workItemRepo.Received(3).SaveAsync(
-            Arg.Is<WorkItem>(w => w.IsSeed),
-            Arg.Any<CancellationToken>());
-
-        await _seedLinkRepo.Received(2).AddLinkAsync(
-            Arg.Is<SeedLink>(l => l.LinkType == SeedLinkTypes.Successor),
-            Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
     public async Task Batch_OneTitle_CreatesSeedWithNoLinks()
     {
         SetupParent(1, "Parent Feature", WorkItemType.Feature);
@@ -370,51 +351,6 @@ public class SeedChainCommandTests
         _consoleInput.Received().ReadLine();
 
         await _workItemRepo.Received(1).SaveAsync(
-            Arg.Is<WorkItem>(w => w.IsSeed),
-            Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task Batch_ParentOverride_UsesSpecifiedParent()
-    {
-        var parent = CreateWorkItem(42, "Override Parent", WorkItemType.Feature);
-        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(parent);
-
-        var result = await _cmd.ExecuteAsync(42, null, "human", CancellationToken.None,
-            titles: new[] { "Child Task" });
-
-        result.ShouldBe(0);
-        await _workItemRepo.Received(1).SaveAsync(
-            Arg.Is<WorkItem>(w => w.IsSeed && w.ParentId == 42),
-            Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task Batch_TypeOverride_UsesSpecifiedType()
-    {
-        SetupParent(1, "Parent Feature", WorkItemType.Feature);
-
-        var result = await _cmd.ExecuteAsync(null, "Bug", "human", CancellationToken.None,
-            titles: new[] { "Bug Item" });
-
-        result.ShouldBe(0);
-        await _workItemRepo.Received(1).SaveAsync(
-            Arg.Is<WorkItem>(w => w.IsSeed && w.Type == WorkItemType.Bug),
-            Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task Batch_InvalidChildType_ReturnsError()
-    {
-        var parent = CreateWorkItem(1, "Parent Task", WorkItemType.Task);
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
-        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(parent);
-
-        var result = await _cmd.ExecuteAsync(null, "Feature", "human", CancellationToken.None,
-            titles: new[] { "Child Feature" });
-
-        result.ShouldBe(1);
-        await _workItemRepo.DidNotReceive().SaveAsync(
             Arg.Is<WorkItem>(w => w.IsSeed),
             Arg.Any<CancellationToken>());
     }

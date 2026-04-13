@@ -1,8 +1,8 @@
 # Push-on-Write and Sync Convergence — Landing
 
 **Epic:** #1394  
-**Status**: 🔨 In Progress — 1/2 PR groups merged  
-**Revision:** 6 — Merged T-1363.2a/2b back to T-1363.2 (artificial task split); removed speculative `--quiet` note from DD-11.
+> **Status**: ✅ Done  
+**Revision:** 7 — All issues delivered. Epic closed out.
 
 ---
 
@@ -565,3 +565,17 @@ All design decisions for this epic are resolved. The one deferred area is **stal
 
 - [Push-on-Write and Sync Convergence (Epic #1338)](push-on-write-sync-convergence.plan.md) — Original plan document (Revision 7, Done)
 - ADO Work Items: [#1394](https://dev.azure.com/dangreen-msft/Twig/_workitems/edit/1394) (Epic), [#1335](https://dev.azure.com/dangreen-msft/Twig/_workitems/edit/1335), [#1363](https://dev.azure.com/dangreen-msft/Twig/_workitems/edit/1363)
+
+---
+
+## Completion
+
+**Completed**: 2026-04-13  
+**Final Version**: v0.31.0+
+
+**Summary**: Both deferred issues from Epic #1338 have been delivered:
+
+- **#1335** (Phantom dirty fast-forward) — PR #11 merged. Items with `is_dirty = 1` but zero `pending_changes` rows are now automatically cleansed during sync/refresh, unblocking them from receiving remote updates.
+- **#1363** (twig discard command) — Merged to main. `twig discard <id>` and `twig discard --all` provide a CLI-native escape hatch for dropping pending changes without pushing.
+
+All 5 child issues under Epic #1394 are in Done state. The PR Group 1 → PR Group 2 sequencing held as planned, with PR Group 2 correctly depending on `ClearPhantomDirtyFlagsAsync` introduced by PR Group 1.

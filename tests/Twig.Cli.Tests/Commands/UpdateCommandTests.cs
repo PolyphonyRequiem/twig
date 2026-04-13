@@ -280,6 +280,48 @@ public class UpdateCommandTests
         result.ShouldBe(1);
     }
 
+    [Fact]
+    public async Task Update_NoValueSource_ReturnsExitCode2()
+    {
+        var stderr = new StringWriter();
+        var cmd = CreateCommand(stderr: stderr);
+
+        var result = await cmd.ExecuteAsync("System.Title");
+
+        result.ShouldBe(2);
+        stderr.ToString().ShouldContain("No value specified");
+        stderr.ToString().ShouldContain("--file");
+        stderr.ToString().ShouldContain("--stdin");
+    }
+
+    [Theory]
+    [InlineData("inline", "file.txt", false)]
+    [InlineData("inline", null, true)]
+    [InlineData(null, "file.txt", true)]
+    [InlineData("inline", "file.txt", true)]
+    public async Task Update_MultipleValueSources_ReturnsExitCode2(string? value, string? filePath, bool readStdin)
+    {
+        var stderr = new StringWriter();
+        var cmd = CreateCommand(stderr: stderr);
+
+        var result = await cmd.ExecuteAsync("System.Title", value: value, filePath: filePath, readStdin: readStdin);
+
+        result.ShouldBe(2);
+        stderr.ToString().ShouldContain("Multiple value sources");
+    }
+
+    [Fact]
+    public async Task Update_NoValueSource_JsonOutput_ReturnsExitCode2()
+    {
+        var stderr = new StringWriter();
+        var cmd = CreateCommand(stderr: stderr);
+
+        var result = await cmd.ExecuteAsync("System.Title", outputFormat: "json");
+
+        result.ShouldBe(2);
+        stderr.ToString().ShouldContain("No value specified");
+    }
+
     private void SetupActiveItem(WorkItem item)
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(item.Id);

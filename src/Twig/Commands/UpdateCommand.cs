@@ -25,13 +25,26 @@ public sealed class UpdateCommand(
     private readonly TextWriter _stderr = stderr ?? Console.Error;
     private readonly TextWriter _stdout = stdout ?? Console.Out;
 
-    public async Task<int> ExecuteAsync(string field, string value, string outputFormat = OutputFormatterFactory.DefaultFormat, string? format = null, CancellationToken ct = default)
+    public async Task<int> ExecuteAsync(string field, string? value = null, string outputFormat = OutputFormatterFactory.DefaultFormat, string? format = null, string? filePath = null, bool readStdin = false, CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
         if (string.IsNullOrWhiteSpace(field))
         {
             _stderr.WriteLine(fmt.FormatError("Usage: twig update <field> <value>"));
+            return 2;
+        }
+
+        // Value source validation: exactly one of inline value, --file, or --stdin must be specified.
+        var sourceCount = (value is not null ? 1 : 0) + (filePath is not null ? 1 : 0) + (readStdin ? 1 : 0);
+        if (sourceCount == 0)
+        {
+            _stderr.WriteLine(fmt.FormatError("No value specified. Provide inline value, --file <path>, or --stdin."));
+            return 2;
+        }
+        if (sourceCount > 1)
+        {
+            _stderr.WriteLine(fmt.FormatError("Multiple value sources. Use exactly one of: inline value, --file, or --stdin."));
             return 2;
         }
 
@@ -54,12 +67,16 @@ public sealed class UpdateCommand(
         if (conflictOutcome is ConflictOutcome.AcceptedRemote or ConflictOutcome.Aborted)
             return 0;
 
+        // Resolve the effective value from the selected source.
+        // File and stdin reading will be added in a subsequent task.
+        var resolvedValue = value!;
+
         if (format is not null && !string.Equals(format, "markdown", StringComparison.OrdinalIgnoreCase))
         {
             _stderr.WriteLine(fmt.FormatError($"Unknown format '{format}'. Supported formats: markdown"));
             return 2;
         }
-        var effectiveValue = format is null ? value : MarkdownConverter.ToHtml(value);
+        var effectiveValue = format is null ? resolvedValue : MarkdownConverter.ToHtml(resolvedValue);
 
         var changes = new[] { new FieldChange(field, null, effectiveValue) };
         try
@@ -79,7 +96,7 @@ public sealed class UpdateCommand(
 
         if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
-        _stdout.WriteLine(fmt.FormatSuccess($"#{local.Id} {local.Title} updated: {field} = '{value}'"));
+        _stdout.WriteLine(fmt.FormatSuccess($"#{local.Id} {local.Title} updated: {field} = '{resolvedValue}'"));
 
         return 0;
     }

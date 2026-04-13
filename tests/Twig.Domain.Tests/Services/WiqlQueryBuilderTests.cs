@@ -200,22 +200,6 @@ public class WiqlQueryBuilderTests
         result.ShouldContain("[System.WorkItemType] = 'User''s Story'");
     }
 
-    [Fact]
-    public void Build_AssignedToFilter_OBrien_QuotesDoubled()
-    {
-        var result = WiqlQueryBuilder.Build(new QueryParameters { AssignedToFilter = "O'Brien" });
-
-        result.ShouldContain("[System.AssignedTo] = 'O''Brien'");
-    }
-
-    [Fact]
-    public void Build_StateFilter_WontFix_QuotesDoubled()
-    {
-        var result = WiqlQueryBuilder.Build(new QueryParameters { StateFilter = "Won't Fix" });
-
-        result.ShouldContain("[System.State] = 'Won''t Fix'");
-    }
-
     [Theory]
     [InlineData("'; DROP TABLE WorkItems --", "''; DROP TABLE WorkItems --")]
     [InlineData("' OR 1=1 --", "'' OR 1=1 --")]

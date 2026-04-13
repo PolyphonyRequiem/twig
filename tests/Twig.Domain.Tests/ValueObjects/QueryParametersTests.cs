@@ -7,7 +7,7 @@ namespace Twig.Domain.Tests.ValueObjects;
 public class QueryParametersTests
 {
     [Fact]
-    public void Default_AllNullableProperties_AreNull()
+    public void Default_PropertiesHaveExpectedDefaults()
     {
         var sut = new QueryParameters();
 
@@ -20,12 +20,6 @@ public class QueryParametersTests
         sut.CreatedSinceDays.ShouldBeNull();
         sut.ChangedSinceDays.ShouldBeNull();
         sut.DefaultAreaPaths.ShouldBeNull();
-    }
-
-    [Fact]
-    public void Default_Top_Is25()
-    {
-        var sut = new QueryParameters();
         sut.Top.ShouldBe(25);
     }
 

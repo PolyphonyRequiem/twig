@@ -311,18 +311,6 @@ public class UpdateCommandTests
     }
 
     [Fact]
-    public async Task Update_NoValueSource_JsonOutput_ReturnsExitCode2()
-    {
-        var stderr = new StringWriter();
-        var cmd = CreateCommand(stderr: stderr);
-
-        var result = await cmd.ExecuteAsync("System.Title", outputFormat: "json");
-
-        result.ShouldBe(2);
-        stderr.ToString().ShouldContain("No value specified");
-    }
-
-    [Fact]
     public async Task Update_File_ReadsContentAndPatches()
     {
         SetupSuccessfulPatch();

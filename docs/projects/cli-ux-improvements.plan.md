@@ -1,6 +1,6 @@
 # CLI UX Improvements: --file/--stdin for Update, Non-Interactive Seed Chain
 
-> **Status**: 🔨 In Progress | **Epic**: #1366 | **Revision**: R3 — review feedback (tech=88, read=89)
+> **Status**: 🔨 In Progress — 1/2 PR groups merged | **Epic**: #1366 | **Revision**: R3 — review feedback (tech=88, read=89)
 
 ## Executive Summary
 

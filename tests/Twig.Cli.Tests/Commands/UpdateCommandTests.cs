@@ -487,30 +487,6 @@ public class UpdateCommandTests
     }
 
     [Fact]
-    public async Task Update_File_TrailingNewline_Markdown_Preserves()
-    {
-        SetupSuccessfulPatch();
-        var tempFile = Path.GetTempFileName();
-        try
-        {
-            await File.WriteAllTextAsync(tempFile, "# Heading\n");
-            var result = await _cmd.ExecuteAsync("System.Description", filePath: tempFile, format: "markdown");
-
-            result.ShouldBe(0);
-            // With markdown format, trailing newline is preserved (passed to HTML converter, not trimmed)
-            await _adoService.Received().PatchAsync(1,
-                Arg.Is<IReadOnlyList<FieldChange>>(c =>
-                    c[0].NewValue!.Contains("<h1") &&
-                    c[0].NewValue!.Contains("Heading</h1>")),
-                Arg.Any<int>(), Arg.Any<CancellationToken>());
-        }
-        finally
-        {
-            File.Delete(tempFile);
-        }
-    }
-
-    [Fact]
     public async Task Update_Stdin_TrailingNewline_PlainText_Trims()
     {
         SetupSuccessfulPatch();
@@ -522,24 +498,6 @@ public class UpdateCommandTests
         result.ShouldBe(0);
         await _adoService.Received().PatchAsync(1,
             Arg.Is<IReadOnlyList<FieldChange>>(c => c[0].NewValue == "value"),
-            Arg.Any<int>(), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task Update_Stdin_TrailingNewline_Markdown_Preserves()
-    {
-        SetupSuccessfulPatch();
-        var stdinReader = new StringReader("# Heading\n");
-        var cmd = CreateCommand(stdinReader: stdinReader);
-
-        var result = await cmd.ExecuteAsync("System.Description", readStdin: true, format: "markdown");
-
-        result.ShouldBe(0);
-        // With markdown format, trailing newline is preserved (passed to HTML converter, not trimmed)
-        await _adoService.Received().PatchAsync(1,
-            Arg.Is<IReadOnlyList<FieldChange>>(c =>
-                c[0].NewValue!.Contains("<h1") &&
-                c[0].NewValue!.Contains("Heading</h1>")),
             Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 

@@ -5,6 +5,12 @@ description: Use the twig CLI to manage Azure DevOps work items from the termina
 
 # Twig CLI Skill
 
+> **Future direction:** A Twig MCP server is planned (Epic #1484) that will expose
+> twig operations as native MCP tools. When the `twig-mcp` server is available and
+> configured in `.vscode/mcp.json`, prefer using MCP tool calls over CLI commands —
+> they provide typed schemas, structured responses, and eliminate the need for
+> `--output json` parsing. Until then, use the CLI approach documented below.
+
 Use `twig` commands in the terminal to manage Azure DevOps work items. This skill defines how Copilot should interact with the twig CLI on behalf of the user.
 
 ## Core Principles

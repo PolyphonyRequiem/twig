@@ -1,6 +1,7 @@
 {
   "servers": {
     "ado": {
+      "disabled": true,
       "type": "stdio",
       "command": "npx",
       "args": [

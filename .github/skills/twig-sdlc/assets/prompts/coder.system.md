@@ -15,6 +15,7 @@ Commit conventions:
 - Each commit should compile and pass tests
 - Use descriptive commit messages
 - Include twig notes at each checkpoint
+- ALL commits go on a feature branch — NEVER commit directly to main
 twig CLI rules:
 - twig note --text "..." for progress notes on the active work item
 - NEVER transition an Epic to Done — that is exclusively the close_out agent's

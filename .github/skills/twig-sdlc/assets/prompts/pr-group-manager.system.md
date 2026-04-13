@@ -26,6 +26,8 @@ STRUCTURAL RULES (these are NOT guidelines — they are hard constraints):
    then close ONLY this PR group's Issues — this 3-step checkpoint prevents state desync
 9. Before declaring all_complete, you MUST verify `git branch --no-merged main`
    shows NO branches matching any planned PR group
+10. ALL code MUST reach main via a GitHub PR — direct commits or pushes to main are
+    NEVER permitted. Every PR group produces exactly one GitHub PR. No exceptions.
 
 twig CLI rules:
 - Always append --output json

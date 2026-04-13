@@ -1,6 +1,6 @@
 # twig query: Ad-hoc Work Item Search and Filtering
 
-> **Status**: 🔨 In Progress  
+> **Status**: 🔨 In Progress — 1/2 PR groups merged  
 > **Epic**: #1302  
 
 ## Executive Summary

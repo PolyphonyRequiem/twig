@@ -297,6 +297,196 @@ public class SeedChainCommandTests
         links[1].LinkType.ShouldBe(SeedLinkTypes.Successor);
     }
 
+    // ── T-1267-1: Batch mode — explicit titles ────────────────────
+
+    [Fact]
+    public async Task Batch_ThreeTitles_CreatesThreeSeedsAndTwoLinks()
+    {
+        SetupParent(1, "Parent Feature", WorkItemType.Feature);
+
+        var result = await _cmd.ExecuteAsync(null, null, "human", CancellationToken.None,
+            titles: new[] { "Task A", "Task B", "Task C" });
+
+        result.ShouldBe(0);
+
+        await _workItemRepo.Received(3).SaveAsync(
+            Arg.Is<WorkItem>(w => w.IsSeed),
+            Arg.Any<CancellationToken>());
+
+        await _seedLinkRepo.Received(2).AddLinkAsync(
+            Arg.Is<SeedLink>(l => l.LinkType == SeedLinkTypes.Successor),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Batch_OneTitle_CreatesSeedWithNoLinks()
+    {
+        SetupParent(1, "Parent Feature", WorkItemType.Feature);
+
+        var result = await _cmd.ExecuteAsync(null, null, "human", CancellationToken.None,
+            titles: new[] { "Solo Task" });
+
+        result.ShouldBe(0);
+
+        await _workItemRepo.Received(1).SaveAsync(
+            Arg.Is<WorkItem>(w => w.IsSeed),
+            Arg.Any<CancellationToken>());
+
+        await _seedLinkRepo.DidNotReceive().AddLinkAsync(
+            Arg.Any<SeedLink>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Batch_EmptyArray_FallsBackToInteractive()
+    {
+        SetupParent(1, "Parent Feature", WorkItemType.Feature);
+        SetupConsoleInputSequence("Interactive Task", "");
+
+        var result = await _cmd.ExecuteAsync(null, null, "human", CancellationToken.None,
+            titles: Array.Empty<string>());
+
+        result.ShouldBe(0);
+
+        // Verifies interactive mode was used (ReadLine was called)
+        _consoleInput.Received().ReadLine();
+
+        await _workItemRepo.Received(1).SaveAsync(
+            Arg.Is<WorkItem>(w => w.IsSeed),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Batch_NullTitles_FallsBackToInteractive()
+    {
+        SetupParent(1, "Parent Feature", WorkItemType.Feature);
+        SetupConsoleInputSequence("Interactive Task", "");
+
+        var result = await _cmd.ExecuteAsync(null, null, "human", CancellationToken.None,
+            titles: null);
+
+        result.ShouldBe(0);
+
+        _consoleInput.Received().ReadLine();
+
+        await _workItemRepo.Received(1).SaveAsync(
+            Arg.Is<WorkItem>(w => w.IsSeed),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Batch_ParentOverride_UsesSpecifiedParent()
+    {
+        var parent = CreateWorkItem(42, "Override Parent", WorkItemType.Feature);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(parent);
+
+        var result = await _cmd.ExecuteAsync(42, null, "human", CancellationToken.None,
+            titles: new[] { "Child Task" });
+
+        result.ShouldBe(0);
+        await _workItemRepo.Received(1).SaveAsync(
+            Arg.Is<WorkItem>(w => w.IsSeed && w.ParentId == 42),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Batch_TypeOverride_UsesSpecifiedType()
+    {
+        SetupParent(1, "Parent Feature", WorkItemType.Feature);
+
+        var result = await _cmd.ExecuteAsync(null, "Bug", "human", CancellationToken.None,
+            titles: new[] { "Bug Item" });
+
+        result.ShouldBe(0);
+        await _workItemRepo.Received(1).SaveAsync(
+            Arg.Is<WorkItem>(w => w.IsSeed && w.Type == WorkItemType.Bug),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Batch_InvalidChildType_ReturnsError()
+    {
+        var parent = CreateWorkItem(1, "Parent Task", WorkItemType.Task);
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(parent);
+
+        var result = await _cmd.ExecuteAsync(null, "Feature", "human", CancellationToken.None,
+            titles: new[] { "Child Feature" });
+
+        result.ShouldBe(1);
+        await _workItemRepo.DidNotReceive().SaveAsync(
+            Arg.Is<WorkItem>(w => w.IsSeed),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Batch_DoesNotCallReadLine()
+    {
+        SetupParent(1, "Parent Feature", WorkItemType.Feature);
+
+        var result = await _cmd.ExecuteAsync(null, null, "human", CancellationToken.None,
+            titles: new[] { "Task A", "Task B" });
+
+        result.ShouldBe(0);
+
+        // Batch mode should never call ReadLine
+        _consoleInput.DidNotReceive().ReadLine();
+    }
+
+    [Fact]
+    public async Task Batch_LinksBetweenConsecutiveSeeds()
+    {
+        SetupParent(1, "Parent Feature", WorkItemType.Feature);
+
+        var savedIds = new List<int>();
+        _workItemRepo.SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask)
+            .AndDoes(ci => savedIds.Add(ci.Arg<WorkItem>().Id));
+
+        var links = new List<SeedLink>();
+        _seedLinkRepo.AddLinkAsync(Arg.Any<SeedLink>(), Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask)
+            .AndDoes(ci => links.Add(ci.Arg<SeedLink>()));
+
+        var result = await _cmd.ExecuteAsync(null, null, "human", CancellationToken.None,
+            titles: new[] { "A", "B", "C" });
+
+        result.ShouldBe(0);
+        savedIds.Count.ShouldBe(3);
+        links.Count.ShouldBe(2);
+
+        links[0].SourceId.ShouldBe(savedIds[0]);
+        links[0].TargetId.ShouldBe(savedIds[1]);
+        links[0].LinkType.ShouldBe(SeedLinkTypes.Successor);
+
+        links[1].SourceId.ShouldBe(savedIds[1]);
+        links[1].TargetId.ShouldBe(savedIds[2]);
+        links[1].LinkType.ShouldBe(SeedLinkTypes.Successor);
+    }
+
+    [Fact]
+    public async Task Batch_SummaryContainsArrowChain()
+    {
+        SetupParent(1, "Parent Feature", WorkItemType.Feature);
+
+        var stdout = new StringWriter();
+        Console.SetOut(stdout);
+        try
+        {
+            var result = await _cmd.ExecuteAsync(null, null, "human", CancellationToken.None,
+                titles: new[] { "First", "Second" });
+            result.ShouldBe(0);
+
+            var output = stdout.ToString();
+            output.ShouldContain("Created 2 seeds:");
+            output.ShouldContain("\u2192"); // → arrow
+        }
+        finally
+        {
+            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+        }
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     private void SetupParent(int id, string title, WorkItemType type)

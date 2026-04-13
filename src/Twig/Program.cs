@@ -438,10 +438,10 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> SeedLinks([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SeedLinkCommand>().ListLinksAsync(id, output, ct);
 
-    /// <summary>Interactively create a chain of linked seeds.</summary>
+    /// <summary>Create a chain of linked seeds — interactively or from explicit titles.</summary>
     [Command("seed chain")]
-    public async Task<int> SeedChain(int? parent = null, string? type = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SeedChainCommand>().ExecuteAsync(parent, type, output, ct);
+    public async Task<int> SeedChain(int? parent = null, string? type = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, params string[] titles)
+        => await services.GetRequiredService<SeedChainCommand>().ExecuteAsync(parent, type, output, ct, titles: titles.Length > 0 ? titles : null);
 
     /// <summary>Validate seeds against publish rules.</summary>
     [Command("seed validate")]
@@ -714,7 +714,7 @@ Work Items:
   seed link <s> <t>    Create a virtual link between two items.
   seed unlink <s> <t>  Remove a virtual link between two items.
   seed links [id]      List virtual links (all or for a specific item).
-  seed chain           Interactively create a chain of linked seeds.
+  seed chain           Create a chain of linked seeds (interactive or batch).
   seed validate [id]   Validate seeds against publish rules.
   seed publish <id>    Publish a seed to Azure DevOps.
   seed publish --all   Publish all seeds in dependency order.

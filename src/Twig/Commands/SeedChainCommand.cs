@@ -8,8 +8,9 @@ using Twig.Hints;
 namespace Twig.Commands;
 
 /// <summary>
-/// Implements <c>twig seed chain</c>: interactive loop for rapid sequential seed creation
-/// with auto-linking. Each seed is linked to the previous one with "related" type.
+/// Implements <c>twig seed chain</c>: creates a chain of seeds with auto-linking.
+/// Supports batch mode (explicit titles) or interactive mode (prompt loop).
+/// Each seed is linked to the previous one with "successor" type.
 /// Supports <c>--parent &lt;id&gt;</c> to override active context and <c>--type &lt;type&gt;</c>
 /// to set work item type for all chain seeds.
 /// </summary>
@@ -22,12 +23,13 @@ public sealed class SeedChainCommand(
     OutputFormatterFactory formatterFactory,
     HintEngine hintEngine)
 {
-    /// <summary>Create a chain of seeds interactively, linking each to the previous.</summary>
+    /// <summary>Create a chain of seeds interactively or from explicit titles, linking each to the previous.</summary>
     public async Task<int> ExecuteAsync(
         int? parentOverride,
         string? type,
         string outputFormat,
-        CancellationToken ct)
+        CancellationToken ct,
+        string[]? titles = null)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
@@ -66,23 +68,33 @@ public sealed class SeedChainCommand(
         if (minSeedId.HasValue)
             WorkItem.InitializeSeedCounter(minSeedId.Value);
 
-        // 4. Interactive loop
+        // 4. Create seeds — batch mode (explicit titles) or interactive loop
         var createdSeeds = new List<WorkItem>();
-        var suppressPrompt = consoleInput.IsOutputRedirected;
 
-        while (true)
+        IEnumerable<string> GetTitleSource()
         {
-            if (!suppressPrompt)
-                Console.Write("Seed title (empty to finish): ");
+            if (titles is { Length: > 0 })
+            {
+                foreach (var t in titles) yield return t;
+                yield break;
+            }
+            var suppressPrompt = consoleInput.IsOutputRedirected;
+            while (true)
+            {
+                if (!suppressPrompt)
+                    Console.Write("Seed title (empty to finish): ");
+                var line = consoleInput.ReadLine();
+                if (string.IsNullOrEmpty(line))
+                    yield break;
+                yield return line;
+            }
+        }
 
-            var line = consoleInput.ReadLine();
-            if (string.IsNullOrEmpty(line))
-                break;
-
-            var seedResult = SeedFactory.Create(line, parent, processConfig, typeOverride);
+        foreach (var title in GetTitleSource())
+        {
+            var seedResult = SeedFactory.Create(title, parent, processConfig, typeOverride);
             if (!seedResult.IsSuccess)
             {
-                // Print partial summary so the user knows what was already persisted
                 if (createdSeeds.Count > 0)
                 {
                     var partialChain = string.Join(" \u2192 ", createdSeeds.Select(s => $"#{s.Id}"));
@@ -96,7 +108,6 @@ public sealed class SeedChainCommand(
             var seed = seedResult.Value;
             await workItemRepo.SaveAsync(seed, ct);
 
-            // Link to previous seed in chain (related)
             if (createdSeeds.Count > 0)
             {
                 var previousSeed = createdSeeds[^1];

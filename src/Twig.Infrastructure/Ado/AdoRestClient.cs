@@ -123,9 +123,16 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         using var _ = await SendAsync(HttpMethod.Post, url, content, ifMatch: null, ct);
     }
 
-    public async Task<IReadOnlyList<int>> QueryByWiqlAsync(string wiql, CancellationToken ct = default)
+    public Task<IReadOnlyList<int>> QueryByWiqlAsync(string wiql, CancellationToken ct = default)
+        => ExecuteWiqlAsync(wiql, top: null, ct);
+
+    public Task<IReadOnlyList<int>> QueryByWiqlAsync(string wiql, int top, CancellationToken ct = default)
+        => ExecuteWiqlAsync(wiql, top, ct);
+
+    private async Task<IReadOnlyList<int>> ExecuteWiqlAsync(string wiql, int? top, CancellationToken ct)
     {
-        var url = $"{_orgUrl}/{_project}/_apis/wit/wiql?api-version={ApiVersion}";
+        var topParam = top.HasValue ? $"&$top={top.Value}" : "";
+        var url = $"{_orgUrl}/{_project}/_apis/wit/wiql?api-version={ApiVersion}{topParam}";
         var request = new AdoWiqlRequest { Query = wiql };
         var json = JsonSerializer.Serialize(request, TwigJsonContext.Default.AdoWiqlRequest);
         var content = new StringContent(json, Encoding.UTF8, "application/json");
@@ -136,13 +143,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         if (dto.WorkItems is null || dto.WorkItems.Count == 0)
             return Array.Empty<int>();
 
-        var ids = new List<int>(dto.WorkItems.Count);
-        foreach (var item in dto.WorkItems)
-        {
-            ids.Add(item.Id);
-        }
-
-        return ids;
+        return dto.WorkItems.Select(x => x.Id).ToList();
     }
 
     public async Task AddLinkAsync(int sourceId, int targetId, string adoLinkType, CancellationToken ct = default)

@@ -212,6 +212,29 @@ public class WiqlQueryBuilderTests
         result.ShouldContain("[System.WorkItemType] = 'User''s Story'");
     }
 
+    [Theory]
+    [InlineData("'; DROP TABLE WorkItems --", "''; DROP TABLE WorkItems --")]
+    [InlineData("' OR 1=1 --", "'' OR 1=1 --")]
+    [InlineData("'''", "''''''")]
+    public void Build_SearchText_InjectionPatterns_AllQuotesEscaped(
+        string malicious, string expectedEscaped)
+    {
+        var result = WiqlQueryBuilder.Build(new QueryParameters { SearchText = malicious });
+
+        // Every single-quote in the input must be doubled so it cannot
+        // break out of the WIQL string literal context.
+        result.ShouldContain($"CONTAINS '{expectedEscaped}'");
+    }
+
+    [Fact]
+    public void Build_TopValue_NeverAppearsInWiql()
+    {
+        var result = WiqlQueryBuilder.Build(new QueryParameters { Top = 50, TypeFilter = "Bug" });
+
+        result.ShouldNotContain("TOP");
+        result.ShouldNotContain("top");
+    }
+
     [Fact]
     public void Build_AreaPathFilterAndDefaultAreaPaths_BothIncluded()
     {

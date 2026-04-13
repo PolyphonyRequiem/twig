@@ -115,6 +115,7 @@ public sealed class JsonCompactOutputFormatter(JsonOutputFormatter full) : IOutp
     public string FormatSeedReconcileResult(SeedReconcileResult result) => full.FormatSeedReconcileResult(result);
     public string FormatSeedPublishResult(SeedPublishResult result) => full.FormatSeedPublishResult(result);
     public string FormatSeedPublishBatchResult(SeedPublishBatchResult result) => full.FormatSeedPublishBatchResult(result);
+    public string FormatQueryResults(QueryResult result) => full.FormatQueryResults(result);
 
     // ── Private helpers ─────────────────────────────────────────────
 

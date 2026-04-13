@@ -302,6 +302,10 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> Show([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, ct);
 
+    /// <summary>Search and filter work items via ad-hoc WIQL queries.</summary>
+    public async Task<int> Query([Argument] string? searchText = null, string? type = null, string? state = null, string? assignedTo = null, string? areaPath = null, string? iterationPath = null, string? createdSince = null, string? changedSince = null, int top = 25, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<QueryCommand>().ExecuteAsync(searchText, type, state, assignedTo, areaPath, iterationPath, createdSince, changedSince, top, output, ct);
+
     /// <summary>Show status of the active work item.</summary>
     public async Task<int> Status(string output = OutputFormatterFactory.DefaultFormat, bool noLive = false, CancellationToken ct = default)
         => await services.GetRequiredService<StatusCommand>().ExecuteAsync(output, noLive, ct);

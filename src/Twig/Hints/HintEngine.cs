@@ -170,6 +170,12 @@ public sealed class HintEngine
                 }
                 break;
 
+            case "query":
+                hints.Add("Use 'twig set <id>' to navigate to an item.");
+                hints.Add("Use 'twig show <id>' to view item details.");
+                hints.Add("Use '--output ids' to pipe IDs to other commands.");
+                break;
+
             case "next":
             case "prev":
                 hints.Add("Try: twig next, twig prev, twig up, twig status");

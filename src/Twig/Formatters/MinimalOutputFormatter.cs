@@ -311,6 +311,8 @@ public sealed class MinimalOutputFormatter : IOutputFormatter
         return TrimEnd(sb);
     }
 
+    public string FormatQueryResults(QueryResult result) => string.Empty;
+
     private static string TrimEnd(StringBuilder sb)
     {
         if (sb.Length > 0 && sb[sb.Length - 1] == '\n') sb.Length -= 1;

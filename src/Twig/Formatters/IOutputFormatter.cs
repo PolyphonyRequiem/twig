@@ -5,8 +5,8 @@ using Twig.Domain.ValueObjects;
 namespace Twig.Formatters;
 
 /// <summary>
-/// Abstraction for formatting CLI output. Three implementations:
-/// Human (ANSI), JSON (stable schema), Minimal (pipe-friendly).
+/// Abstraction for formatting CLI output. Four implementations:
+/// Human (ANSI), JSON (stable schema), JsonCompact (slim schema), Minimal (pipe-friendly).
 /// </summary>
 public interface IOutputFormatter
 {
@@ -75,4 +75,9 @@ public interface IOutputFormatter
 
     /// <summary>Formats a batch seed publish result for display.</summary>
     string FormatSeedPublishBatchResult(SeedPublishBatchResult result);
+
+    // ── Query result formatting ─────────────────────────────────────
+
+    /// <summary>Formats query results for display.</summary>
+    string FormatQueryResults(QueryResult result);
 }

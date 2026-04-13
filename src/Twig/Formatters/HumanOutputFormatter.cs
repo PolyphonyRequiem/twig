@@ -1525,4 +1525,27 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         return result;
     }
 
+    public string FormatQueryResults(QueryResult result)
+    {
+        var sb = new StringBuilder();
+
+        var countLabel = result.IsTruncated
+            ? $"Found {result.Items.Count}+ items (results limited)"
+            : $"Found {result.Items.Count} item(s)";
+        sb.AppendLine(FormatInfo(countLabel));
+        sb.AppendLine();
+
+        foreach (var item in result.Items)
+        {
+            var badge = GetTypeBadge(item.Type);
+            var typeColor = GetTypeColor(item.Type);
+            var stateColor = GetStateColor(item.State);
+            var assigned = item.AssignedTo ?? "(unassigned)";
+
+            sb.AppendLine($"  {Dim}#{item.Id}{Reset}  {typeColor}{badge} {item.Type}{Reset}   {item.Title}   [{stateColor}{item.State}{Reset}]  {Dim}{assigned}{Reset}");
+        }
+
+        return sb.ToString().TrimEnd('\r', '\n');
+    }
+
 }

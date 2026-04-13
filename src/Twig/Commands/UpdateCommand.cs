@@ -19,13 +19,15 @@ public sealed class UpdateCommand(
     IConsoleInput consoleInput,
     OutputFormatterFactory formatterFactory,
     IPromptStateWriter? promptStateWriter = null,
+    TextReader? stdinReader = null,
     TextWriter? stderr = null,
     TextWriter? stdout = null)
 {
+    private readonly TextReader _stdin = stdinReader ?? Console.In;
     private readonly TextWriter _stderr = stderr ?? Console.Error;
     private readonly TextWriter _stdout = stdout ?? Console.Out;
 
-    public async Task<int> ExecuteAsync(string field, string value, string outputFormat = OutputFormatterFactory.DefaultFormat, string? format = null, CancellationToken ct = default)
+    public async Task<int> ExecuteAsync(string field, string? value = null, string outputFormat = OutputFormatterFactory.DefaultFormat, string? format = null, string? filePath = null, bool readStdin = false, CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
@@ -34,6 +36,48 @@ public sealed class UpdateCommand(
             _stderr.WriteLine(fmt.FormatError("Usage: twig update <field> <value>"));
             return 2;
         }
+
+        // Value source validation: exactly one of inline value, --file, or --stdin must be specified.
+        var sourceCount = (value is not null ? 1 : 0) + (filePath is not null ? 1 : 0) + (readStdin ? 1 : 0);
+        if (sourceCount == 0)
+        {
+            _stderr.WriteLine(fmt.FormatError("No value specified. Provide inline value, --file <path>, or --stdin."));
+            return 2;
+        }
+        if (sourceCount > 1)
+        {
+            _stderr.WriteLine(fmt.FormatError("Multiple value sources. Use exactly one of: inline value, --file, or --stdin."));
+            return 2;
+        }
+
+        if (format is not null && !string.Equals(format, "markdown", StringComparison.OrdinalIgnoreCase))
+        {
+            _stderr.WriteLine(fmt.FormatError($"Unknown format '{format}'. Supported formats: markdown"));
+            return 2;
+        }
+
+        // Resolve the effective value from the selected source.
+        string resolvedValue;
+        if (filePath is not null)
+        {
+            if (!File.Exists(filePath))
+            {
+                _stderr.WriteLine(fmt.FormatError($"File not found: {filePath}"));
+                return 2;
+            }
+            resolvedValue = await File.ReadAllTextAsync(filePath, ct);
+        }
+        else if (readStdin)
+        {
+            resolvedValue = await _stdin.ReadToEndAsync(ct);
+        }
+        else
+        {
+            resolvedValue = value!;
+        }
+        if (format is null && (filePath is not null || readStdin))
+            resolvedValue = resolvedValue.TrimEnd('\r', '\n');
+        var effectiveValue = format is null ? resolvedValue : MarkdownConverter.ToHtml(resolvedValue);
 
         var resolved = await activeItemResolver.GetActiveItemAsync();
         if (!resolved.TryGetWorkItem(out var local, out var errorId, out var errorReason))
@@ -54,13 +98,6 @@ public sealed class UpdateCommand(
         if (conflictOutcome is ConflictOutcome.AcceptedRemote or ConflictOutcome.Aborted)
             return 0;
 
-        if (format is not null && !string.Equals(format, "markdown", StringComparison.OrdinalIgnoreCase))
-        {
-            _stderr.WriteLine(fmt.FormatError($"Unknown format '{format}'. Supported formats: markdown"));
-            return 2;
-        }
-        var effectiveValue = format is null ? value : MarkdownConverter.ToHtml(value);
-
         var changes = new[] { new FieldChange(field, null, effectiveValue) };
         try
         {
@@ -79,7 +116,10 @@ public sealed class UpdateCommand(
 
         if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
-        _stdout.WriteLine(fmt.FormatSuccess($"#{local.Id} {local.Title} updated: {field} = '{value}'"));
+        var displayValue = filePath is not null ? $"[from file: {filePath}]"
+                         : readStdin ? "[from stdin]"
+                         : resolvedValue;
+        _stdout.WriteLine(fmt.FormatSuccess($"#{local.Id} {local.Title} updated: {field} = '{displayValue}'"));
 
         return 0;
     }

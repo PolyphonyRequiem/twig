@@ -35,13 +35,13 @@ public class UpdateCommandTests
         _cmd = CreateCommand();
     }
 
-    private UpdateCommand CreateCommand(TextWriter? stderr = null, TextWriter? stdout = null)
+    private UpdateCommand CreateCommand(TextReader? stdinReader = null, TextWriter? stderr = null, TextWriter? stdout = null)
     {
         var formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         return new UpdateCommand(resolver, _workItemRepo, _adoService, _pendingChangeStore,
-            _consoleInput, formatterFactory, stderr: stderr, stdout: stdout);
+            _consoleInput, formatterFactory, stdinReader: stdinReader, stderr: stderr, stdout: stdout);
     }
 
     private void SetupSuccessfulPatch()
@@ -278,6 +278,230 @@ public class UpdateCommandTests
         var result = await _cmd.ExecuteAsync("System.Title", "Updated");
 
         result.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Update_NoValueSource_ReturnsExitCode2()
+    {
+        var stderr = new StringWriter();
+        var cmd = CreateCommand(stderr: stderr);
+
+        var result = await cmd.ExecuteAsync("System.Title");
+
+        result.ShouldBe(2);
+        stderr.ToString().ShouldContain("No value specified");
+        stderr.ToString().ShouldContain("--file");
+        stderr.ToString().ShouldContain("--stdin");
+    }
+
+    [Theory]
+    [InlineData("inline", "file.txt", false)]
+    [InlineData("inline", null, true)]
+    [InlineData(null, "file.txt", true)]
+    [InlineData("inline", "file.txt", true)]
+    public async Task Update_MultipleValueSources_ReturnsExitCode2(string? value, string? filePath, bool readStdin)
+    {
+        var stderr = new StringWriter();
+        var cmd = CreateCommand(stderr: stderr);
+
+        var result = await cmd.ExecuteAsync("System.Title", value: value, filePath: filePath, readStdin: readStdin);
+
+        result.ShouldBe(2);
+        stderr.ToString().ShouldContain("Multiple value sources");
+    }
+
+    [Fact]
+    public async Task Update_File_ReadsContentAndPatches()
+    {
+        SetupSuccessfulPatch();
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            await File.WriteAllTextAsync(tempFile, "file content");
+            var result = await _cmd.ExecuteAsync("System.Description", filePath: tempFile);
+
+            result.ShouldBe(0);
+            await _adoService.Received().PatchAsync(1,
+                Arg.Is<IReadOnlyList<FieldChange>>(c => c[0].NewValue == "file content"),
+                Arg.Any<int>(), Arg.Any<CancellationToken>());
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public async Task Update_Stdin_ReadsContentAndPatches()
+    {
+        SetupSuccessfulPatch();
+        var stdinReader = new StringReader("stdin content");
+        var cmd = CreateCommand(stdinReader: stdinReader);
+
+        var result = await cmd.ExecuteAsync("System.Description", readStdin: true);
+
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(1,
+            Arg.Is<IReadOnlyList<FieldChange>>(c => c[0].NewValue == "stdin content"),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Update_File_WithMarkdownFormat_ConvertsToHtml()
+    {
+        SetupSuccessfulPatch();
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            await File.WriteAllTextAsync(tempFile, "# Heading\n");
+            var result = await _cmd.ExecuteAsync("System.Description", filePath: tempFile, format: "markdown");
+
+            result.ShouldBe(0);
+            await _adoService.Received().PatchAsync(1,
+                Arg.Is<IReadOnlyList<FieldChange>>(c =>
+                    c[0].NewValue!.Contains("<h1") &&
+                    c[0].NewValue!.Contains("Heading</h1>")),
+                Arg.Any<int>(), Arg.Any<CancellationToken>());
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public async Task Update_Stdin_WithMarkdownFormat_ConvertsToHtml()
+    {
+        SetupSuccessfulPatch();
+        var stdinReader = new StringReader("# Heading\n");
+        var cmd = CreateCommand(stdinReader: stdinReader);
+
+        var result = await cmd.ExecuteAsync("System.Description", readStdin: true, format: "markdown");
+
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(1,
+            Arg.Is<IReadOnlyList<FieldChange>>(c =>
+                c[0].NewValue!.Contains("<h1") &&
+                c[0].NewValue!.Contains("Heading</h1>")),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Update_File_NotFound_ReturnsExitCode2()
+    {
+        var stderr = new StringWriter();
+        var cmd = CreateCommand(stderr: stderr);
+
+        var result = await cmd.ExecuteAsync("System.Description", filePath: "/nonexistent/path.md");
+
+        result.ShouldBe(2);
+        stderr.ToString().ShouldContain("File not found: /nonexistent/path.md");
+        await _adoService.DidNotReceive().PatchAsync(
+            Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Update_Stdin_EmptyInput_PatchesEmptyString()
+    {
+        SetupSuccessfulPatch();
+        var stdinReader = new StringReader("");
+        var cmd = CreateCommand(stdinReader: stdinReader);
+
+        var result = await cmd.ExecuteAsync("System.Title", readStdin: true);
+
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(1,
+            Arg.Is<IReadOnlyList<FieldChange>>(c => c[0].NewValue == ""),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Update_File_SuccessMessage_ShowsFilePath()
+    {
+        SetupSuccessfulPatch();
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            await File.WriteAllTextAsync(tempFile, "content");
+            var stdout = new StringWriter();
+            var cmd = CreateCommand(stdout: stdout);
+
+            await cmd.ExecuteAsync("System.Description", filePath: tempFile);
+
+            var output = stdout.ToString();
+            output.ShouldContain($"[from file: {tempFile}]");
+            output.ShouldNotContain("content");
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public async Task Update_Stdin_SuccessMessage_ShowsStdinIndicator()
+    {
+        SetupSuccessfulPatch();
+        var stdinReader = new StringReader("piped content");
+        var stdout = new StringWriter();
+        var cmd = CreateCommand(stdinReader: stdinReader, stdout: stdout);
+
+        await cmd.ExecuteAsync("System.Description", readStdin: true);
+
+        var output = stdout.ToString();
+        output.ShouldContain("[from stdin]");
+        output.ShouldNotContain("piped content");
+    }
+
+    [Fact]
+    public async Task Update_File_TrailingNewline_PlainText_Trims()
+    {
+        SetupSuccessfulPatch();
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            await File.WriteAllTextAsync(tempFile, "value\r\n");
+            var result = await _cmd.ExecuteAsync("System.Title", filePath: tempFile);
+
+            result.ShouldBe(0);
+            await _adoService.Received().PatchAsync(1,
+                Arg.Is<IReadOnlyList<FieldChange>>(c => c[0].NewValue == "value"),
+                Arg.Any<int>(), Arg.Any<CancellationToken>());
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public async Task Update_Stdin_TrailingNewline_PlainText_Trims()
+    {
+        SetupSuccessfulPatch();
+        var stdinReader = new StringReader("value\r\n");
+        var cmd = CreateCommand(stdinReader: stdinReader);
+
+        var result = await cmd.ExecuteAsync("System.Title", readStdin: true);
+
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(1,
+            Arg.Is<IReadOnlyList<FieldChange>>(c => c[0].NewValue == "value"),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Update_InlineValue_SuccessMessage_ShowsValue()
+    {
+        SetupSuccessfulPatch();
+        var stdout = new StringWriter();
+        var cmd = CreateCommand(stdout: stdout);
+
+        await cmd.ExecuteAsync("System.Title", "New Title");
+
+        var output = stdout.ToString();
+        output.ShouldContain("New Title");
+        output.ShouldNotContain("[from file:");
+        output.ShouldNotContain("[from stdin]");
     }
 
     private void SetupActiveItem(WorkItem item)

@@ -481,8 +481,10 @@ public sealed class TwigCommands(IServiceProvider services)
 
     /// <summary>Update a field on the active work item.</summary>
     /// <param name="format">Convert the input value before sending to ADO. Supported: "markdown" (converts Markdown to HTML). Distinct from --output, which controls display format.</param>
-    public async Task<int> Update([Argument] string field, [Argument] string value, string output = OutputFormatterFactory.DefaultFormat, string? format = null, CancellationToken ct = default)
-        => await services.GetRequiredService<UpdateCommand>().ExecuteAsync(field, value, output, format, ct);
+    /// <param name="file">Read the field value from a file instead of an inline argument.</param>
+    /// <param name="stdin">Read the field value from piped standard input.</param>
+    public async Task<int> Update([Argument] string field, [Argument] string? value = null, string output = OutputFormatterFactory.DefaultFormat, string? format = null, string? file = null, bool stdin = false, CancellationToken ct = default)
+        => await services.GetRequiredService<UpdateCommand>().ExecuteAsync(field, value, output, format, file, stdin, ct);
 
     /// <summary>Edit work item fields in an external editor.</summary>
     public async Task<int> Edit(string? field = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)

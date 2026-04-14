@@ -32,14 +32,14 @@ Check if this issue needs user acceptance (user-facing changes or complex accept
 
 {% if issue_reviewer is defined and issue_reviewer.output and not issue_reviewer.output.approved %}
 **Issue review failed — changes needed:**
-{{ issue_reviewer.output.feedback }}
+{{ issue_reviewer.output.feedback | default('') }}
 Create a fix task for this issue and set action=implement_task.
 {% endif %}
 
 {% if user_acceptance is defined and user_acceptance.output %}
 **User acceptance result:** {{ user_acceptance.output.selected }}
 {% if user_acceptance.output.selected == 'changes' %}
-**Feedback:** {{ user_acceptance.output.feedback }}
+**Feedback:** {{ user_acceptance.output.feedback | default('') }}
 {% endif %}
 If accepted or skipped: add this issue to reviewed_issues and proceed.
 If changes requested: create a fix task and set action=implement_task.

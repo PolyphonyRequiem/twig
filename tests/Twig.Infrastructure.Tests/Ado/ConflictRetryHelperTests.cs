@@ -1,14 +1,14 @@
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
-using Twig.Commands;
+using Twig.Infrastructure.Ado;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado.Exceptions;
 using Twig.TestKit;
 using Xunit;
 
-namespace Twig.Cli.Tests.Commands;
+namespace Twig.Infrastructure.Tests.Ado;
 
 public sealed class ConflictRetryHelperTests
 {

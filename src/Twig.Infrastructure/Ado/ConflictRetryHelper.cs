@@ -2,9 +2,9 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado.Exceptions;
 
-namespace Twig.Commands;
+namespace Twig.Infrastructure.Ado;
 
-internal static class ConflictRetryHelper
+public static class ConflictRetryHelper
 {
     /// <summary>
     /// Attempts to patch a work item; on <see cref="AdoConflictException"/>
@@ -12,7 +12,7 @@ internal static class ConflictRetryHelper
     /// A second conflict is rethrown for the caller to handle.
     /// </summary>
     /// <returns>The new revision number after a successful patch.</returns>
-    internal static async Task<int> PatchWithRetryAsync(
+    public static async Task<int> PatchWithRetryAsync(
         IAdoWorkItemService adoService,
         int itemId,
         IReadOnlyList<FieldChange> changes,

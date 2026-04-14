@@ -29,6 +29,9 @@ artifacts/
 .idea/
 *.sln.iml
 
+# Build logs / binary logs
+*.binlog
+
 # Logs and test results
 *.log
 TestResults/

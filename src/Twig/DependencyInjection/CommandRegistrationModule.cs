@@ -70,6 +70,7 @@ public static class CommandRegistrationModule
         services.AddSingleton<WorkspaceCommand>();
         services.AddSingleton<ConfigCommand>();
         services.AddSingleton<ConfigStatusFieldsCommand>();
+        services.AddSingleton<QueryCommand>();
     }
 
     private static void AddGitCommands(IServiceCollection services)

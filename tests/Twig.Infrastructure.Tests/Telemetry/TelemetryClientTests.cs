@@ -27,6 +27,7 @@ public class TelemetryClientTests
         "merge_needed",
         "field_count",
         "item_count",
+        "result_count",
         "hash_changed",
         "used_all"
     };
@@ -244,6 +245,7 @@ public class TelemetryClientTests
     [InlineData("merge_needed")]
     [InlineData("field_count")]
     [InlineData("item_count")]
+    [InlineData("result_count")]
     [InlineData("hash_changed")]
     [InlineData("used_all")]
     public void AllowlistTest_SafeKeys_AreAccepted(string key)

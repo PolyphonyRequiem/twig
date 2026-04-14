@@ -287,6 +287,17 @@ public class MinimalOutputFormatterTests
         result.ShouldBe("loading items...");
     }
 
+    // ── QueryResult formatting ─────────────────────────────────────
+
+    [Fact]
+    public void FormatQueryResults_AlwaysReturnsEmpty()
+    {
+        // Minimal formatter always suppresses query output — no variation by content
+        _formatter.FormatQueryResults(new QueryResult(Array.Empty<WorkItem>(), IsTruncated: false)).ShouldBe(string.Empty);
+        _formatter.FormatQueryResults(new QueryResult(Array.Empty<WorkItem>(), IsTruncated: true)).ShouldBe(string.Empty);
+        _formatter.FormatQueryResults(new QueryResult(new[] { CreateWorkItem(42, "Some task", "Active") }, IsTruncated: false)).ShouldBe(string.Empty);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     private static WorkItem CreateWorkItem(int id, string title, string state, string? assignedTo = null)

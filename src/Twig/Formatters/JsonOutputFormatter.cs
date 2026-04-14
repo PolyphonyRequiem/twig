@@ -669,4 +669,35 @@ public sealed class JsonOutputFormatter : IOutputFormatter
 
         writer.WriteEndObject();
     }
+
+    public string FormatQueryResults(QueryResult result)
+    {
+        using var stream = new MemoryStream();
+        using var writer = new Utf8JsonWriter(stream, WriterOptions);
+
+        writer.WriteStartObject();
+        writer.WriteString("query", result.Query);
+        writer.WriteNumber("count", result.Items.Count);
+        writer.WriteBoolean("truncated", result.IsTruncated);
+
+        writer.WriteStartArray("items");
+        foreach (var item in result.Items)
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("id", item.Id);
+            writer.WriteString("type", item.Type.ToString());
+            writer.WriteString("title", item.Title);
+            writer.WriteString("state", item.State);
+            writer.WriteString("assignedTo", item.AssignedTo);
+            writer.WriteString("areaPath", item.AreaPath.ToString());
+            writer.WriteString("iterationPath", item.IterationPath.ToString());
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+
+        writer.WriteEndObject();
+
+        writer.Flush();
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
 }

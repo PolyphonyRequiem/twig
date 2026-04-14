@@ -13,7 +13,7 @@ using Xunit;
 
 namespace Twig.Cli.Tests.Hints;
 
-public class HintEngineTests
+public sealed class HintEngineTests
 {
     // ── Suppression ─────────────────────────────────────────────────
 
@@ -409,6 +409,21 @@ public class HintEngineTests
         var hints = engine.GetHints("workspace", workspace: ws);
 
         hints.ShouldBeEmpty();
+    }
+
+    // ── query command ───────────────────────────────────────────────
+
+    [Fact]
+    public void GetHints_Query_ReturnsAllThreeHints()
+    {
+        var engine = CreateEngine();
+
+        var hints = engine.GetHints("query");
+
+        hints.Count.ShouldBe(3);
+        hints[0].ShouldContain("twig set <id>");
+        hints[1].ShouldContain("twig show <id>");
+        hints[2].ShouldContain("--output ids");
     }
 
     // ── unknown command ─────────────────────────────────────────────

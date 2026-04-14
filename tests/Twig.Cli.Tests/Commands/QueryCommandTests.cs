@@ -382,7 +382,9 @@ public sealed class QueryCommandTests
 
         exitCode.ShouldBe(0);
         await _adoService.Received(1).QueryByWiqlAsync(
-            Arg.Is<string>(wiql => wiql.Contains("[System.AreaPath] UNDER 'MyProject\\CoreTeam'")),
+            Arg.Is<string>(wiql =>
+                wiql.Contains("[System.AreaPath] UNDER 'MyProject\\CoreTeam'")
+                && wiql.Contains("ORDER BY [System.ChangedDate] DESC")),
             Arg.Any<int>(),
             Arg.Any<CancellationToken>());
 

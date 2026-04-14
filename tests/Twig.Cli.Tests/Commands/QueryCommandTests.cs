@@ -3,7 +3,6 @@ using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
-using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
@@ -32,7 +31,7 @@ public sealed class QueryCommandTests
             new HumanOutputFormatter(), new JsonOutputFormatter(),
             new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
 
-        _hintEngine = new HintEngine(new DisplayConfig());
+        _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
     }
 
     private QueryCommand CreateCommand(TextWriter? stderr = null) =>
@@ -51,15 +50,14 @@ public sealed class QueryCommandTests
 
     private static async Task<(int ExitCode, string Output)> CaptureOutput(Func<Task<int>> run)
     {
+        var original = Console.Out;
         var writer = new StringWriter();
         Console.SetOut(writer);
         try { return (await run(), writer.ToString()); }
-        finally { Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true }); }
+        finally { Console.SetOut(original); }
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  FR-01: Keyword search
-    // ═══════════════════════════════════════════════════════════════
+    // FR-01: Keyword search
 
     [Fact]
     public async Task ExecuteAsync_KeywordSearch_CallsQueryWithContainsInWiql()
@@ -77,9 +75,7 @@ public sealed class QueryCommandTests
             Arg.Any<CancellationToken>());
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  FR-02–FR-06, FR-14: Combined filters with AND logic
-    // ═══════════════════════════════════════════════════════════════
+    // FR-02–FR-06, FR-14: Combined filters with AND logic
 
     [Fact]
     public async Task ExecuteAsync_CombinedFilters_AllClausesPresent()
@@ -105,9 +101,7 @@ public sealed class QueryCommandTests
             Arg.Any<CancellationToken>());
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  FR-07, FR-08, FR-09: Time filters
-    // ═══════════════════════════════════════════════════════════════
+    // FR-07, FR-08, FR-09: Time filters
 
     [Theory]
     [InlineData("7d", 7)]
@@ -143,9 +137,7 @@ public sealed class QueryCommandTests
             Arg.Any<CancellationToken>());
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  FR-10, DD-01: $top passed to QueryByWiqlAsync
-    // ═══════════════════════════════════════════════════════════════
+    // FR-10, DD-01: $top passed to QueryByWiqlAsync
 
     [Fact]
     public async Task ExecuteAsync_TopParameter_PassedToAdoService()
@@ -175,9 +167,7 @@ public sealed class QueryCommandTests
             Arg.Any<CancellationToken>());
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  FR-13, FR-19, DD-04: IDs output skips formatter and hints
-    // ═══════════════════════════════════════════════════════════════
+    // FR-13, FR-19, DD-04: IDs output skips formatter and hints
 
     [Fact]
     public async Task ExecuteAsync_IdsOutput_PrintsOneIdPerLine()
@@ -195,9 +185,7 @@ public sealed class QueryCommandTests
         output.Trim().ShouldBe("1234\n1235\n1240");
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  FR-16: Results cached in SQLite
-    // ═══════════════════════════════════════════════════════════════
+    // FR-16: Results cached in SQLite
 
     [Fact]
     public async Task ExecuteAsync_ResultsCached_SaveBatchAsyncCalled()
@@ -213,9 +201,7 @@ public sealed class QueryCommandTests
             Arg.Any<CancellationToken>());
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  FR-17: Default area path from config
-    // ═══════════════════════════════════════════════════════════════
+    // FR-17: Default area path from config
 
     [Fact]
     public async Task ExecuteAsync_DefaultAreaPathFromConfig_AppliedWhenNoFlag()
@@ -263,9 +249,7 @@ public sealed class QueryCommandTests
             Arg.Any<CancellationToken>());
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  FR-20: Invalid duration produces error and exit code 1
-    // ═══════════════════════════════════════════════════════════════
+    // FR-20: Invalid duration produces error and exit code 1
 
     [Theory]
     [InlineData("7x")]
@@ -303,9 +287,7 @@ public sealed class QueryCommandTests
             Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  FR-21, DD-10: No-filter query executes with defaults
-    // ═══════════════════════════════════════════════════════════════
+    // FR-21, DD-10: No-filter query executes with defaults
 
     [Fact]
     public async Task ExecuteAsync_NoFilters_QueriesWithDefaultsAndReturnsExitCode0()
@@ -325,9 +307,7 @@ public sealed class QueryCommandTests
             Arg.Any<CancellationToken>());
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  NFR-03, NFR-05: Zero results — exit code 0, friendly message
-    // ═══════════════════════════════════════════════════════════════
+    // NFR-03, NFR-05: Zero results — exit code 0, friendly message
 
     [Fact]
     public async Task ExecuteAsync_ZeroResults_ReturnsExitCode0()
@@ -343,9 +323,7 @@ public sealed class QueryCommandTests
             Arg.Any<IEnumerable<WorkItem>>(), Arg.Any<CancellationToken>());
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  NFR-06: Telemetry emitted
-    // ═══════════════════════════════════════════════════════════════
+    // NFR-06: Telemetry emitted
 
     [Fact]
     public async Task ExecuteAsync_Telemetry_EmittedWithCorrectProperties()
@@ -382,9 +360,7 @@ public sealed class QueryCommandTests
             Arg.Any<Dictionary<string, double>>());
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  FR-15: ORDER BY ChangedDate DESC
-    // ═══════════════════════════════════════════════════════════════
+    // FR-15: ORDER BY ChangedDate DESC
 
     [Fact]
     public async Task ExecuteAsync_DefaultOrder_ChangedDateDesc()
@@ -400,9 +376,7 @@ public sealed class QueryCommandTests
             Arg.Any<CancellationToken>());
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  Default area path fallback: AreaPaths list
-    // ═══════════════════════════════════════════════════════════════
+    // Default area path fallback: AreaPaths list
 
     [Fact]
     public async Task ExecuteAsync_DefaultAreaPathList_AppliedAsUnder()
@@ -425,9 +399,7 @@ public sealed class QueryCommandTests
             Arg.Any<CancellationToken>());
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  Default area path fallback: single AreaPath
-    // ═══════════════════════════════════════════════════════════════
+    // Default area path fallback: single AreaPath
 
     [Fact]
     public async Task ExecuteAsync_DefaultSingleAreaPath_AppliedAsUnder()
@@ -448,9 +420,7 @@ public sealed class QueryCommandTests
             Arg.Any<CancellationToken>());
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  JSON output format
-    // ═══════════════════════════════════════════════════════════════
+    // JSON output format
 
     [Fact]
     public async Task ExecuteAsync_JsonOutput_ProducesValidJson()
@@ -467,9 +437,7 @@ public sealed class QueryCommandTests
         output.ShouldContain("\"id\": 1");
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  IDs output with zero results — no output
-    // ═══════════════════════════════════════════════════════════════
+    // IDs output with zero results — no output
 
     [Fact]
     public async Task ExecuteAsync_IdsOutputZeroResults_NoOutput()
@@ -483,9 +451,7 @@ public sealed class QueryCommandTests
         output.Trim().ShouldBeEmpty();
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  DD-09: Truncation heuristic
-    // ═══════════════════════════════════════════════════════════════
+    // DD-09: Truncation heuristic
 
     [Fact]
     public async Task ExecuteAsync_TruncationHeuristic_IndicatedWhenCountEqualsTop()

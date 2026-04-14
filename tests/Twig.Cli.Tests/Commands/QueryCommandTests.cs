@@ -339,7 +339,7 @@ public sealed class QueryCommandTests
         var result = await cmd.ExecuteAsync(changedSince: invalidDuration);
 
         result.ShouldBe(1);
-        stderrWriter.ToString().ShouldContain("error: Invalid duration");
+        stderrWriter.ToString().ShouldContain($"error: Invalid duration '{invalidDuration}'");
         // No WIQL query should have been executed
         await _adoService.DidNotReceive().QueryByWiqlAsync(
             Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>());

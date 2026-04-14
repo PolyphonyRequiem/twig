@@ -135,15 +135,15 @@ public sealed class StatusCommand(
                     var workingSet = await workingSetService.ComputeAsync(item.IterationPath);
                     await renderer.RenderWithSyncAsync(
                         buildCachedView: () => spectreRenderer.BuildStatusViewAsync(
-                            getItem: () => Task.FromResult<Domain.Aggregates.WorkItem?>(item),
+                            item,
                             getPendingChanges: () => pendingChangeStore.GetChangesAsync(item.Id),
-                            ct: CancellationToken.None,
                             fieldDefinitions: fieldDefs,
                             statusFieldEntries: statusFieldEntries,
                             childProgress: childProgress,
                             links: links,
                             parent: parent,
-                            children: children),
+                            children: children,
+                            cacheStaleMinutes: config.Display.CacheStaleMinutes),
                         performSync: () => syncCoordinator.SyncWorkingSetAsync(workingSet),
                         buildRevisedView: syncResult => Task.FromResult<Spectre.Console.Rendering.IRenderable?>(null),
                         CancellationToken.None);
@@ -161,7 +161,8 @@ public sealed class StatusCommand(
                         childProgress: childProgress,
                         links: links,
                         parent: parent,
-                        children: children);
+                        children: children,
+                        cacheStaleMinutes: config.Display.CacheStaleMinutes);
                 }
             }
             else
@@ -176,7 +177,8 @@ public sealed class StatusCommand(
                     childProgress: childProgress,
                     links: links,
                     parent: parent,
-                    children: children);
+                    children: children,
+                    cacheStaleMinutes: config.Display.CacheStaleMinutes);
             }
 
             var seeds = await workItemRepo.GetSeedsAsync();

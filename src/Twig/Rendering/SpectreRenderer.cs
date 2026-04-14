@@ -437,25 +437,28 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     /// corruption when the sync indicator clears.
     /// </summary>
     internal async Task<Spectre.Console.Rendering.IRenderable> BuildStatusViewAsync(
-        Func<Task<WorkItem?>> getItem,
+        WorkItem item,
         Func<Task<IReadOnlyList<PendingChangeRecord>>> getPendingChanges,
-        CancellationToken ct,
         IReadOnlyList<Domain.ValueObjects.FieldDefinition>? fieldDefinitions = null,
         IReadOnlyList<Domain.ValueObjects.StatusFieldEntry>? statusFieldEntries = null,
         (int Done, int Total)? childProgress = null,
         IReadOnlyList<Domain.ValueObjects.WorkItemLink>? links = null,
         WorkItem? parent = null,
-        IReadOnlyList<WorkItem>? children = null)
+        IReadOnlyList<WorkItem>? children = null,
+        int cacheStaleMinutes = 5)
     {
-        var item = await getItem() ?? throw new InvalidOperationException("Work item must not be null when building status view.");
         var pending = await getPendingChanges();
+
+        // Cache-age indicator (FR-02, FR-03)
+        var cacheAge = CacheAgeFormatter.Format(item.LastSyncedAt, cacheStaleMinutes);
+        var cacheAgeMarkup = cacheAge is not null ? $" [dim]{Markup.Escape(cacheAge)}[/]" : "";
 
         var summaryBadge = _theme.FormatTypeBadge(item.Type);
         var summaryState = _theme.FormatState(item.State);
-        var summaryMarkup = new Markup($"#{item.Id} [aqua]●[/] {summaryBadge} {Markup.Escape(item.Type.ToString())} — {Markup.Escape(item.Title)} {summaryState}");
+        var summaryMarkup = new Markup($"#{item.Id} [aqua]●[/] {summaryBadge} {Markup.Escape(item.Type.ToString())} — {Markup.Escape(item.Title)} {summaryState}{cacheAgeMarkup}");
 
-        // Work item detail panel
-        var dirty = item.IsDirty ? " [yellow]✎[/]" : "";
+        // Work item detail panel — dirty indicator uses ● (DD-03)
+        var dirty = item.IsDirty ? " [yellow]●[/]" : "";
         var itemGrid = new Grid().AddColumn().AddColumn();
         itemGrid.AddRow("[dim]Type:[/]", _theme.FormatTypeBadge(item.Type) + " " + Markup.Escape(item.Type.ToString()));
         itemGrid.AddRow("[dim]State:[/]", _theme.FormatState(item.State));
@@ -481,24 +484,12 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             }
         }
 
+        // Dirty-state summary using DirtyStateSummary (FR-04, FR-05, FR-06)
         if (pending.Count > 0)
         {
-            var noteCount = pending.Count(c => string.Equals(c.ChangeType, "note", StringComparison.OrdinalIgnoreCase));
-            var fieldCount = pending.Count - noteCount;
-
-            var parts = new List<string>();
-            if (fieldCount > 0)
-            {
-                var fieldLabel = fieldCount == 1 ? "field change" : "field changes";
-                parts.Add($"{fieldCount} {fieldLabel}");
-            }
-            if (noteCount > 0)
-            {
-                var noteLabel = noteCount == 1 ? "note" : "notes";
-                parts.Add($"{noteCount} {noteLabel} staged");
-            }
-            if (parts.Count > 0)
-                itemGrid.AddRow("", $"[dim]{string.Join(", ", parts)}[/]");
+            var dirtySummary = DirtyStateSummary.Build(pending)!;
+            itemGrid.AddRow("", $"[yellow]{Markup.Escape(dirtySummary)}[/]");
+            itemGrid.AddRow("", "[dim](unsaved — run 'twig save' to push)[/]");
         }
 
         // Relationships section — hierarchy + non-hierarchy links
@@ -538,7 +529,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         }
 
         var itemPanel = new Panel(panelContent)
-            .Header($"[bold]#{item.Id} {Markup.Escape(item.Title)}[/]{dirty}")
+            .Header($"[bold]#{item.Id} {Markup.Escape(item.Title)}[/]{dirty}{cacheAgeMarkup}")
             .Border(BoxBorder.Rounded)
             .Expand();
 
@@ -554,15 +545,17 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         (int Done, int Total)? childProgress = null,
         IReadOnlyList<Domain.ValueObjects.WorkItemLink>? links = null,
         WorkItem? parent = null,
-        IReadOnlyList<WorkItem>? children = null)
+        IReadOnlyList<WorkItem>? children = null,
+        int cacheStaleMinutes = 5)
     {
         var item = await getItem();
         if (item is null)
             return;
 
         var view = await BuildStatusViewAsync(
-            () => Task.FromResult<WorkItem?>(item),
-            getPendingChanges, ct, fieldDefinitions, statusFieldEntries, childProgress, links, parent, children);
+            item,
+            getPendingChanges, fieldDefinitions, statusFieldEntries, childProgress, links, parent, children,
+            cacheStaleMinutes: cacheStaleMinutes);
         _console.Write(view);
     }
 

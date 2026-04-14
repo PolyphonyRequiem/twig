@@ -250,7 +250,7 @@ public class StatusCommandTests : IDisposable
 
         var output = _testConsole.Output;
         output.ShouldContain("Dirty Item");
-        output.ShouldContain("✎");
+        output.ShouldContain("●");
     }
 
     [Fact]
@@ -274,7 +274,7 @@ public class StatusCommandTests : IDisposable
         result.ShouldBe(0);
 
         var output = _testConsole.Output;
-        output.ShouldContain("1 field change, 2 notes staged");
+        output.ShouldContain("local: 1 field change, 2 notes");
     }
 
     [Fact]
@@ -440,7 +440,7 @@ public class StatusCommandTests : IDisposable
 
         var output = _testConsole.Output;
         output.ShouldContain("Dirty Dashboard");
-        output.ShouldContain("✎");
+        output.ShouldContain("●");
     }
 
     [Fact]
@@ -460,7 +460,7 @@ public class StatusCommandTests : IDisposable
             ct: CancellationToken.None);
 
         var output = _testConsole.Output;
-        output.ShouldContain("2 field changes, 1 note staged");
+        output.ShouldContain("local: 2 field changes, 1 note");
     }
 
     [Fact]

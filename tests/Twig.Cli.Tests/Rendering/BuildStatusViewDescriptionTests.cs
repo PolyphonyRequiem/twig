@@ -160,9 +160,8 @@ public class BuildStatusViewDescriptionTests
     private async Task<string> RenderStatusViewAsync(WorkItem item, List<StatusFieldEntry>? statusFieldEntries = null)
     {
         var renderable = await _renderer.BuildStatusViewAsync(
-            () => Task.FromResult<WorkItem?>(item),
+            item,
             () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>([]),
-            CancellationToken.None,
             statusFieldEntries: statusFieldEntries);
         _testConsole.Write(renderable);
         return _testConsole.Output;

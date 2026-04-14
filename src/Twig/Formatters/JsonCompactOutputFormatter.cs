@@ -115,7 +115,27 @@ public sealed class JsonCompactOutputFormatter(JsonOutputFormatter full) : IOutp
     public string FormatSeedReconcileResult(SeedReconcileResult result) => full.FormatSeedReconcileResult(result);
     public string FormatSeedPublishResult(SeedPublishResult result) => full.FormatSeedPublishResult(result);
     public string FormatSeedPublishBatchResult(SeedPublishBatchResult result) => full.FormatSeedPublishBatchResult(result);
-    public string FormatQueryResults(QueryResult result) => full.FormatQueryResults(result);
+    public string FormatQueryResults(QueryResult result)
+    {
+        using var stream = new MemoryStream();
+        using var writer = new Utf8JsonWriter(stream);
+
+        writer.WriteStartArray();
+        foreach (var item in result.Items)
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("id", item.Id);
+            writer.WriteString("title", item.Title);
+            writer.WriteString("type", item.Type.ToString());
+            writer.WriteString("state", item.State);
+            writer.WriteString("assignedTo", item.AssignedTo);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+
+        writer.Flush();
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
 
     // ── Private helpers ─────────────────────────────────────────────
 

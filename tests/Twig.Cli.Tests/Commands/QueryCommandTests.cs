@@ -38,13 +38,8 @@ public sealed class QueryCommandTests
     private QueryCommand CreateCommand(TextWriter? stderr = null) =>
         new(_adoService, _workItemRepo, _config, _formatterFactory, _hintEngine, _telemetryClient, stderr);
 
-    private static IReadOnlyList<WorkItem> BuildItems(params (int Id, string Title, string State)[] specs)
-    {
-        var items = new List<WorkItem>();
-        foreach (var (id, title, state) in specs)
-            items.Add(new WorkItemBuilder(id, title).InState(state).Build());
-        return items;
-    }
+    private static IReadOnlyList<WorkItem> BuildItems(params (int Id, string Title, string State)[] specs) =>
+        specs.Select(s => new WorkItemBuilder(s.Id, s.Title).InState(s.State).Build()).ToList();
 
     private void SetupAdoReturns(IReadOnlyList<int> ids, IReadOnlyList<WorkItem> items)
     {
@@ -52,6 +47,14 @@ public sealed class QueryCommandTests
             .Returns(ids);
         _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
             .Returns(items);
+    }
+
+    private static async Task<(int ExitCode, string Output)> CaptureOutput(Func<Task<int>> run)
+    {
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+        try { return (await run(), writer.ToString()); }
+        finally { Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true }); }
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -184,22 +187,12 @@ public sealed class QueryCommandTests
             (1235, "Item B", "Doing"),
             (1240, "Item C", "Done"));
         SetupAdoReturns([1234, 1235, 1240], items);
+        var cmd = CreateCommand();
 
-        var stdout = new StringWriter();
-        Console.SetOut(stdout);
-        try
-        {
-            var cmd = CreateCommand();
-            var result = await cmd.ExecuteAsync(searchText: "test", outputFormat: "ids");
-            result.ShouldBe(0);
+        var (result, output) = await CaptureOutput(() => cmd.ExecuteAsync(searchText: "test", outputFormat: "ids"));
 
-            var output = stdout.ToString().Trim();
-            output.ShouldBe("1234\n1235\n1240");
-        }
-        finally
-        {
-            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
-        }
+        result.ShouldBe(0);
+        output.Trim().ShouldBe("1234\n1235\n1240");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -464,24 +457,14 @@ public sealed class QueryCommandTests
     {
         var items = BuildItems((1, "Test item", "New"));
         SetupAdoReturns([1], items);
+        var cmd = CreateCommand();
 
-        var stdout = new StringWriter();
-        Console.SetOut(stdout);
-        try
-        {
-            var cmd = CreateCommand();
-            var result = await cmd.ExecuteAsync(searchText: "test", outputFormat: "json");
-            result.ShouldBe(0);
+        var (result, output) = await CaptureOutput(() => cmd.ExecuteAsync(searchText: "test", outputFormat: "json"));
 
-            var output = stdout.ToString();
-            output.ShouldContain("\"count\": 1");
-            output.ShouldContain("\"truncated\": false");
-            output.ShouldContain("\"id\": 1");
-        }
-        finally
-        {
-            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
-        }
+        result.ShouldBe(0);
+        output.ShouldContain("\"count\": 1");
+        output.ShouldContain("\"truncated\": false");
+        output.ShouldContain("\"id\": 1");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -492,21 +475,12 @@ public sealed class QueryCommandTests
     public async Task ExecuteAsync_IdsOutputZeroResults_NoOutput()
     {
         SetupAdoReturns([], []);
+        var cmd = CreateCommand();
 
-        var stdout = new StringWriter();
-        Console.SetOut(stdout);
-        try
-        {
-            var cmd = CreateCommand();
-            var result = await cmd.ExecuteAsync(outputFormat: "ids");
-            result.ShouldBe(0);
+        var (result, output) = await CaptureOutput(() => cmd.ExecuteAsync(outputFormat: "ids"));
 
-            stdout.ToString().Trim().ShouldBeEmpty();
-        }
-        finally
-        {
-            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
-        }
+        result.ShouldBe(0);
+        output.Trim().ShouldBeEmpty();
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -521,21 +495,11 @@ public sealed class QueryCommandTests
             (1, "A", "New"), (2, "B", "New"), (3, "C", "New"),
             (4, "D", "New"), (5, "E", "New"));
         SetupAdoReturns([1, 2, 3, 4, 5], items);
+        var cmd = CreateCommand();
 
-        var stdout = new StringWriter();
-        Console.SetOut(stdout);
-        try
-        {
-            var cmd = CreateCommand();
-            var result = await cmd.ExecuteAsync(top: 5);
-            result.ShouldBe(0);
+        var (result, output) = await CaptureOutput(() => cmd.ExecuteAsync(top: 5));
 
-            var output = stdout.ToString();
-            output.ShouldContain("results limited");
-        }
-        finally
-        {
-            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
-        }
+        result.ShouldBe(0);
+        output.ShouldContain("results limited");
     }
 }

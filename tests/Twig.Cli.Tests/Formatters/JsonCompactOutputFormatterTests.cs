@@ -156,6 +156,118 @@ public class JsonCompactOutputFormatterTests
         result.ShouldBeEmpty();
     }
 
+    // ── FormatQueryResults (Task 3.4) ───────────────────────────────
+
+    [Fact]
+    public void FormatQueryResults_ProducesValidJsonArray()
+    {
+        var items = new[] { CreateWorkItem(1, "Item", "Active") };
+        var result = new QueryResult(items, IsTruncated: false);
+
+        var output = _formatter.FormatQueryResults(result);
+
+        var doc = JsonDocument.Parse(output);
+        doc.RootElement.ValueKind.ShouldBe(JsonValueKind.Array);
+    }
+
+    [Fact]
+    public void FormatQueryResults_ZeroResults_ReturnsEmptyArray()
+    {
+        var result = new QueryResult(Array.Empty<WorkItem>(), IsTruncated: false);
+
+        var output = _formatter.FormatQueryResults(result);
+
+        output.ShouldBe("[]");
+    }
+
+    [Fact]
+    public void FormatQueryResults_IsCompact_NoIndentation()
+    {
+        var items = new[] { CreateWorkItem(1, "Item", "Active") };
+        var result = new QueryResult(items, IsTruncated: false);
+
+        var output = _formatter.FormatQueryResults(result);
+
+        output.ShouldNotContain("\n");
+        output.ShouldNotContain("  ");
+    }
+
+    [Fact]
+    public void FormatQueryResults_ItemsHaveCompactFields()
+    {
+        var item = new WorkItem
+        {
+            Id = 42,
+            Type = WorkItemType.Issue,
+            Title = "MCP server integration",
+            State = "Doing",
+            AssignedTo = "Daniel Green",
+            AreaPath = AreaPath.Parse("Twig").Value,
+            IterationPath = IterationPath.Parse("Twig\\Sprint 1").Value,
+        };
+        var result = new QueryResult(new[] { item }, IsTruncated: false);
+
+        var output = _formatter.FormatQueryResults(result);
+        var root = JsonDocument.Parse(output).RootElement;
+        var itemEl = root[0];
+
+        itemEl.GetProperty("id").GetInt32().ShouldBe(42);
+        itemEl.GetProperty("title").GetString().ShouldBe("MCP server integration");
+        itemEl.GetProperty("type").GetString().ShouldBe("Issue");
+        itemEl.GetProperty("state").GetString().ShouldBe("Doing");
+        itemEl.GetProperty("assignedTo").GetString().ShouldBe("Daniel Green");
+    }
+
+    [Fact]
+    public void FormatQueryResults_OmitsMetadataFields()
+    {
+        var items = new[] { CreateWorkItem(1, "Item", "Active") };
+        var result = new QueryResult(items, IsTruncated: false, Query: "test");
+
+        var output = _formatter.FormatQueryResults(result);
+        var root = JsonDocument.Parse(output).RootElement;
+
+        // Should be a flat array, not an object with query/count/truncated
+        root.ValueKind.ShouldBe(JsonValueKind.Array);
+
+        // Items should not contain areaPath/iterationPath (full-format fields)
+        var itemEl = root[0];
+        itemEl.TryGetProperty("areaPath", out _).ShouldBeFalse();
+        itemEl.TryGetProperty("iterationPath", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void FormatQueryResults_NullAssignedTo_WritesNull()
+    {
+        var item = CreateWorkItem(1, "Unassigned Task", "New");
+        var result = new QueryResult(new[] { item }, IsTruncated: false);
+
+        var output = _formatter.FormatQueryResults(result);
+        var root = JsonDocument.Parse(output).RootElement;
+
+        root[0].GetProperty("assignedTo").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public void FormatQueryResults_MultipleItems_AllPresent()
+    {
+        var items = new[]
+        {
+            CreateWorkItem(1, "First", "New"),
+            CreateWorkItem(2, "Second", "Active"),
+            CreateWorkItem(3, "Third", "Closed"),
+        };
+        var result = new QueryResult(items, IsTruncated: false);
+
+        var output = _formatter.FormatQueryResults(result);
+        var root = JsonDocument.Parse(output).RootElement;
+
+        root.GetArrayLength().ShouldBe(3);
+        root[0].GetProperty("id").GetInt32().ShouldBe(1);
+        root[1].GetProperty("id").GetInt32().ShouldBe(2);
+        root[2].GetProperty("id").GetInt32().ShouldBe(3);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     private static WorkItem CreateWorkItem(int id, string title, string state)

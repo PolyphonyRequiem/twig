@@ -430,4 +430,160 @@ public class JsonOutputFormatterTests
             AreaPath = AreaPath.Parse("Project").Value,
         };
     }
+
+    // ── FormatQueryResults (Task 3.3) ───────────────────────────────
+
+    [Fact]
+    public void FormatQueryResults_ProducesValidJson()
+    {
+        var items = new[] { CreateWorkItem(1, "Item", "Active") };
+        var result = new QueryResult(items, IsTruncated: false, Query: "all items");
+
+        var output = _formatter.FormatQueryResults(result);
+
+        JsonDocument.Parse(output).ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void FormatQueryResults_HasQueryField()
+    {
+        var result = new QueryResult(Array.Empty<WorkItem>(), IsTruncated: false, Query: "state = 'Doing'");
+
+        var output = _formatter.FormatQueryResults(result);
+        var root = JsonDocument.Parse(output).RootElement;
+
+        root.GetProperty("query").GetString().ShouldBe("state = 'Doing'");
+    }
+
+    [Fact]
+    public void FormatQueryResults_DefaultQuery_IsAllItems()
+    {
+        var result = new QueryResult(Array.Empty<WorkItem>(), IsTruncated: false);
+
+        var output = _formatter.FormatQueryResults(result);
+        var root = JsonDocument.Parse(output).RootElement;
+
+        root.GetProperty("query").GetString().ShouldBe("all items");
+    }
+
+    [Fact]
+    public void FormatQueryResults_HasCountField()
+    {
+        var items = new[] { CreateWorkItem(1, "A", "New"), CreateWorkItem(2, "B", "Active") };
+        var result = new QueryResult(items, IsTruncated: false);
+
+        var output = _formatter.FormatQueryResults(result);
+        var root = JsonDocument.Parse(output).RootElement;
+
+        root.GetProperty("count").GetInt32().ShouldBe(2);
+    }
+
+    [Fact]
+    public void FormatQueryResults_ZeroItems_CountIsZero()
+    {
+        var result = new QueryResult(Array.Empty<WorkItem>(), IsTruncated: false);
+
+        var output = _formatter.FormatQueryResults(result);
+        var root = JsonDocument.Parse(output).RootElement;
+
+        root.GetProperty("count").GetInt32().ShouldBe(0);
+        root.GetProperty("items").GetArrayLength().ShouldBe(0);
+    }
+
+    [Fact]
+    public void FormatQueryResults_Truncated_TrueWhenSet()
+    {
+        var items = new[] { CreateWorkItem(1, "A", "New") };
+        var result = new QueryResult(items, IsTruncated: true);
+
+        var output = _formatter.FormatQueryResults(result);
+        var root = JsonDocument.Parse(output).RootElement;
+
+        root.GetProperty("truncated").GetBoolean().ShouldBeTrue();
+    }
+
+    [Fact]
+    public void FormatQueryResults_NotTruncated_FalseWhenUnset()
+    {
+        var items = new[] { CreateWorkItem(1, "A", "New") };
+        var result = new QueryResult(items, IsTruncated: false);
+
+        var output = _formatter.FormatQueryResults(result);
+        var root = JsonDocument.Parse(output).RootElement;
+
+        root.GetProperty("truncated").GetBoolean().ShouldBeFalse();
+    }
+
+    [Fact]
+    public void FormatQueryResults_ItemsHaveRequiredFields()
+    {
+        var item = new WorkItem
+        {
+            Id = 42,
+            Type = WorkItemType.Issue,
+            Title = "MCP server integration",
+            State = "Doing",
+            AssignedTo = "Daniel Green",
+            AreaPath = AreaPath.Parse("Twig").Value,
+            IterationPath = IterationPath.Parse("Twig\\Sprint 1").Value,
+        };
+        var result = new QueryResult(new[] { item }, IsTruncated: false, Query: "title contains 'MCP'");
+
+        var output = _formatter.FormatQueryResults(result);
+        var root = JsonDocument.Parse(output).RootElement;
+        var itemEl = root.GetProperty("items")[0];
+
+        itemEl.GetProperty("id").GetInt32().ShouldBe(42);
+        itemEl.GetProperty("type").GetString().ShouldBe("Issue");
+        itemEl.GetProperty("title").GetString().ShouldBe("MCP server integration");
+        itemEl.GetProperty("state").GetString().ShouldBe("Doing");
+        itemEl.GetProperty("assignedTo").GetString().ShouldBe("Daniel Green");
+        itemEl.GetProperty("areaPath").GetString().ShouldBe("Twig");
+        itemEl.GetProperty("iterationPath").GetString().ShouldBe("Twig\\Sprint 1");
+    }
+
+    [Fact]
+    public void FormatQueryResults_NullAssignedTo_WritesNull()
+    {
+        var item = CreateWorkItem(1, "Unassigned Task", "New");
+        var result = new QueryResult(new[] { item }, IsTruncated: false);
+
+        var output = _formatter.FormatQueryResults(result);
+        var root = JsonDocument.Parse(output).RootElement;
+
+        root.GetProperty("items")[0].GetProperty("assignedTo").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public void FormatQueryResults_MultipleItems_AllPresent()
+    {
+        var items = new[]
+        {
+            CreateWorkItem(10, "First", "New"),
+            CreateWorkItem(20, "Second", "Active"),
+            CreateWorkItem(30, "Third", "Closed"),
+        };
+        var result = new QueryResult(items, IsTruncated: false);
+
+        var output = _formatter.FormatQueryResults(result);
+        var root = JsonDocument.Parse(output).RootElement;
+
+        root.GetProperty("items").GetArrayLength().ShouldBe(3);
+        root.GetProperty("items")[0].GetProperty("id").GetInt32().ShouldBe(10);
+        root.GetProperty("items")[1].GetProperty("id").GetInt32().ShouldBe(20);
+        root.GetProperty("items")[2].GetProperty("id").GetInt32().ShouldBe(30);
+    }
+
+    [Fact]
+    public void FormatQueryResults_FieldOrder_QueryBeforeCount()
+    {
+        var result = new QueryResult(Array.Empty<WorkItem>(), IsTruncated: false, Query: "all items");
+
+        var output = _formatter.FormatQueryResults(result);
+
+        // Verify "query" appears before "count" in the output
+        var queryIdx = output.IndexOf("\"query\"", StringComparison.Ordinal);
+        var countIdx = output.IndexOf("\"count\"", StringComparison.Ordinal);
+        queryIdx.ShouldBeLessThan(countIdx);
+    }
 }

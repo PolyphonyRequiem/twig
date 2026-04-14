@@ -676,6 +676,7 @@ public sealed class JsonOutputFormatter : IOutputFormatter
         using var writer = new Utf8JsonWriter(stream, WriterOptions);
 
         writer.WriteStartObject();
+        writer.WriteString("query", result.Query);
         writer.WriteNumber("count", result.Items.Count);
         writer.WriteBoolean("truncated", result.IsTruncated);
 

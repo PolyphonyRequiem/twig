@@ -115,7 +115,8 @@ public sealed partial class QueryCommand(
             await workItemRepo.SaveBatchAsync(items, ct);
 
         // 7. Build result model (DD-09: truncation heuristic)
-        var result = new QueryResult(items, items.Count >= top);
+        var queryDescription = BuildQueryDescription(parameters);
+        var result = new QueryResult(items, items.Count >= top, queryDescription);
 
         // 8. Branch on output format (DD-04, FR-19)
         if (string.Equals(outputFormat, "ids", StringComparison.OrdinalIgnoreCase))
@@ -189,4 +190,33 @@ public sealed partial class QueryCommand(
 
     [GeneratedRegex(@"^(\d+)([dwm])$", RegexOptions.None)]
     private static partial Regex DurationPattern();
+
+    /// <summary>
+    /// Builds a human-readable description of the active query filters
+    /// (e.g. "title contains 'keyword' AND state = 'Doing'").
+    /// Used as the <c>query</c> field in JSON output.
+    /// </summary>
+    private static string BuildQueryDescription(QueryParameters parameters)
+    {
+        var parts = new List<string>();
+
+        if (!string.IsNullOrEmpty(parameters.SearchText))
+            parts.Add($"title contains '{parameters.SearchText}'");
+        if (!string.IsNullOrEmpty(parameters.TypeFilter))
+            parts.Add($"type = '{parameters.TypeFilter}'");
+        if (!string.IsNullOrEmpty(parameters.StateFilter))
+            parts.Add($"state = '{parameters.StateFilter}'");
+        if (!string.IsNullOrEmpty(parameters.AssignedToFilter))
+            parts.Add($"assignedTo = '{parameters.AssignedToFilter}'");
+        if (!string.IsNullOrEmpty(parameters.AreaPathFilter))
+            parts.Add($"areaPath under '{parameters.AreaPathFilter}'");
+        if (!string.IsNullOrEmpty(parameters.IterationPathFilter))
+            parts.Add($"iterationPath under '{parameters.IterationPathFilter}'");
+        if (parameters.CreatedSinceDays.HasValue)
+            parts.Add($"created within {parameters.CreatedSinceDays.Value}d");
+        if (parameters.ChangedSinceDays.HasValue)
+            parts.Add($"changed within {parameters.ChangedSinceDays.Value}d");
+
+        return parts.Count > 0 ? string.Join(" AND ", parts) : "all items";
+    }
 }

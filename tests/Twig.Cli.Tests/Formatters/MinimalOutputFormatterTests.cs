@@ -290,9 +290,26 @@ public class MinimalOutputFormatterTests
     // ── QueryResult formatting ─────────────────────────────────────
 
     [Fact]
-    public void FormatQueryResults_ReturnsEmpty()
+    public void FormatQueryResults_ReturnsEmpty_WhenNoItems()
     {
         var result = _formatter.FormatQueryResults(new QueryResult(Array.Empty<WorkItem>(), IsTruncated: false));
+
+        result.ShouldBe(string.Empty);
+    }
+
+    [Fact]
+    public void FormatQueryResults_ReturnsEmpty_WhenTruncated()
+    {
+        var result = _formatter.FormatQueryResults(new QueryResult(Array.Empty<WorkItem>(), IsTruncated: true));
+
+        result.ShouldBe(string.Empty);
+    }
+
+    [Fact]
+    public void FormatQueryResults_ReturnsEmpty_WithItems()
+    {
+        var items = new[] { CreateWorkItem(42, "Some task", "Active") };
+        var result = _formatter.FormatQueryResults(new QueryResult(items, IsTruncated: false));
 
         result.ShouldBe(string.Empty);
     }

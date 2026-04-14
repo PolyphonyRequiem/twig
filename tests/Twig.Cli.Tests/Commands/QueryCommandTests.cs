@@ -366,19 +366,28 @@ public sealed class QueryCommandTests
     [Fact]
     public async Task ExecuteAsync_NoFilters_QueriesWithDefaultsAndReturnsExitCode0()
     {
+        _config.Defaults = new DefaultsConfig
+        {
+            AreaPathEntries =
+            [
+                new AreaPathEntry { Path = "MyProject\\CoreTeam", IncludeChildren = true }
+            ]
+        };
+
         var items = BuildItems((100, "Recent item", "New"));
         SetupAdoReturns([100], items);
         var cmd = CreateCommand();
 
-        var result = await cmd.ExecuteAsync();
+        var (exitCode, output) = await CaptureOutput(() => cmd.ExecuteAsync());
 
-        result.ShouldBe(0);
+        exitCode.ShouldBe(0);
         await _adoService.Received(1).QueryByWiqlAsync(
-            Arg.Is<string>(wiql =>
-                wiql.Contains("SELECT [System.Id] FROM WorkItems") &&
-                wiql.EndsWith("ORDER BY [System.ChangedDate] DESC")),
+            Arg.Is<string>(wiql => wiql.Contains("[System.AreaPath] UNDER 'MyProject\\CoreTeam'")),
             Arg.Any<int>(),
             Arg.Any<CancellationToken>());
+
+        output.ShouldContain("Recent item");
+        output.ShouldContain("Found 1 item(s)");
     }
 
     // NFR-03, NFR-05: Zero results — exit code 0, friendly message

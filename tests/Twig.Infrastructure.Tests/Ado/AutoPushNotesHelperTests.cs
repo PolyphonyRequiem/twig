@@ -1,11 +1,10 @@
 using NSubstitute;
-using Shouldly;
-using Twig.Commands;
+using Twig.Infrastructure.Ado;
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
 using Xunit;
 
-namespace Twig.Cli.Tests.Commands;
+namespace Twig.Infrastructure.Tests.Ado;
 
 /// <summary>
 /// Tests for <see cref="AutoPushNotesHelper"/> covering all branches:

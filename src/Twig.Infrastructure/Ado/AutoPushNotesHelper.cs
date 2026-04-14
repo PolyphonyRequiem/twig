@@ -1,18 +1,13 @@
 using Twig.Domain.Interfaces;
 
-namespace Twig.Commands;
+namespace Twig.Infrastructure.Ado;
 
 /// <summary>
 /// Pushes pending notes as ADO comments and clears them.
-/// Shared by StateCommand and UpdateCommand.
 /// </summary>
-internal static class AutoPushNotesHelper
+public static class AutoPushNotesHelper
 {
-    /// <summary>
-    /// Pushes any pending notes for the given work item as ADO comments,
-    /// then clears the note-type pending changes.
-    /// </summary>
-    internal static async Task PushAndClearAsync(
+    public static async Task PushAndClearAsync(
         int workItemId,
         IPendingChangeStore pendingChangeStore,
         IAdoWorkItemService adoService)

@@ -255,16 +255,16 @@ public sealed class QueryCommandTests
     // FR-16: Results cached in SQLite
 
     [Fact]
-    public async Task ExecuteAsync_ResultsCached_SaveBatchAsyncCalled()
+    public async Task ExecuteAsync_WithResults_CachesExactFetchedItemsViaSaveBatchAsync()
     {
-        var items = BuildItems((42, "Cached item", "New"));
-        SetupAdoReturns([42], items);
+        var fetchedItems = BuildItems((42, "First item", "New"), (43, "Second item", "Doing"));
+        SetupAdoReturns([42, 43], fetchedItems);
         var cmd = CreateCommand();
 
-        await cmd.ExecuteAsync(searchText: "cached");
+        await cmd.ExecuteAsync(searchText: "items");
 
         await _workItemRepo.Received(1).SaveBatchAsync(
-            Arg.Is<IEnumerable<WorkItem>>(batch => batch.Any(i => i.Id == 42)),
+            Arg.Is<IEnumerable<WorkItem>>(items => items.SequenceEqual(fetchedItems)),
             Arg.Any<CancellationToken>());
     }
 

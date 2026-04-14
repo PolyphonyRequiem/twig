@@ -285,12 +285,15 @@ public sealed class QueryCommandTests
         SetupAdoReturns([], []);
         var cmd = CreateCommand();
 
-        await cmd.ExecuteAsync();
+        var result = await cmd.ExecuteAsync();
+
+        result.ShouldBe(0);
 
         await _adoService.Received(1).QueryByWiqlAsync(
             Arg.Is<string>(wiql =>
                 wiql.Contains("[System.AreaPath] UNDER 'MyProject\\TeamA'") &&
-                wiql.Contains("[System.AreaPath] = 'MyProject\\TeamB'")),
+                wiql.Contains("[System.AreaPath] = 'MyProject\\TeamB'") &&
+                wiql.Contains(" OR ")),
             Arg.Any<int>(),
             Arg.Any<CancellationToken>());
     }

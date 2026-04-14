@@ -105,6 +105,26 @@ public sealed class QueryCommandTests
             Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task ExecuteAsync_WithMultipleFilters_GeneratesAndJoinedClauses()
+    {
+        SetupAdoReturns([], []);
+        var cmd = CreateCommand();
+
+        await cmd.ExecuteAsync(
+            searchText: "MCP server",
+            type: "Issue",
+            assignedTo: "Daniel Green");
+
+        await _adoService.Received(1).QueryByWiqlAsync(
+            Arg.Is<string>(wiql =>
+                wiql.Contains("[System.Title] CONTAINS 'MCP server'") &&
+                wiql.Contains(" AND [System.WorkItemType] = 'Issue'") &&
+                wiql.Contains(" AND [System.AssignedTo] = 'Daniel Green'")),
+            Arg.Any<int>(),
+            Arg.Any<CancellationToken>());
+    }
+
     // FR-07, FR-08, FR-09: Time filters
 
     [Theory]

@@ -311,6 +311,8 @@ public sealed class MinimalOutputFormatter : IOutputFormatter
         return TrimEnd(sb);
     }
 
+    // TODO: Implement minimal query output formatting (NG-7 stub — returns empty intentionally for now).
+    // Tracked for future implementation: render query results as plain tab-separated or line-per-item text.
     public string FormatQueryResults(QueryResult result) => string.Empty;
 
     private static string TrimEnd(StringBuilder sb)

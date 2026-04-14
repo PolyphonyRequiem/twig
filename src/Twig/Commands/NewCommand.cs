@@ -21,7 +21,7 @@ public sealed class NewCommand(
 {
     public async Task<int> ExecuteAsync(
         string? title,
-        string type,
+        string? type = null,
         string? area = null,
         string? iteration = null,
         string? description = null,
@@ -37,6 +37,12 @@ public sealed class NewCommand(
         {
             Console.Error.WriteLine(fmt.FormatError("Usage: twig new --title \"title\" --type <type>"));
             return 2;
+        }
+
+        if (type is null)
+        {
+            Console.Error.WriteLine(fmt.FormatError("Type is required. Usage: twig new \"title\" --type <type>, or provide --parent to infer type."));
+            return 1;
         }
 
         var typeResult = WorkItemType.Parse(type);

@@ -340,6 +340,21 @@ public class NewCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task New_NullType_Returns1_WithTypeRequiredError()
+    {
+        var errWriter = new StringWriter();
+        Console.SetError(errWriter);
+
+        var result = await _cmd.ExecuteAsync("My Item", type: null);
+
+        result.ShouldBe(1);
+        errWriter.ToString().ShouldContain("Type is required");
+
+        await _adoService.DidNotReceive().CreateAsync(
+            Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task New_WithParent_SetsParentIdInPayload()
     {
         ArrangeCreateSuccess(200, "Child Task", parentId: 42);

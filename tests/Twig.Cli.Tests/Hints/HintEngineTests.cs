@@ -13,7 +13,7 @@ using Xunit;
 
 namespace Twig.Cli.Tests.Hints;
 
-public class HintEngineTests
+public sealed class HintEngineTests
 {
     // ── Suppression ─────────────────────────────────────────────────
 

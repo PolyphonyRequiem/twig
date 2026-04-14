@@ -2650,7 +2650,7 @@ public class HumanOutputFormatterTests
     }
 
     [Fact]
-    public void FormatQueryResults_ContainsAnsiEscapes()
+    public void FormatQueryResults_ContainsAnsiAndTableBorders()
     {
         var items = new[] { CreateWorkItem(1, "Styled item", "Active") };
         var result = new QueryResult(items, IsTruncated: false);
@@ -2658,18 +2658,7 @@ public class HumanOutputFormatterTests
         var output = _formatter.FormatQueryResults(result);
 
         output.ShouldContain("\x1b["); // ANSI escape present
-    }
-
-    [Fact]
-    public void FormatQueryResults_ContainsTableBorders()
-    {
-        var items = new[] { CreateWorkItem(1, "Table item", "Active") };
-        var result = new QueryResult(items, IsTruncated: false);
-
-        var output = _formatter.FormatQueryResults(result);
-
-        // Spectre.Console Rounded border uses box-drawing characters
-        output.ShouldContain("─");
+        output.ShouldContain("─");    // Spectre.Console Rounded border
     }
 
     [Fact]

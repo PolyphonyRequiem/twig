@@ -16,16 +16,18 @@ public sealed class AdoRestClientWiqlTopTests
     private const string OrgUrl = "https://dev.azure.com/testorg";
     private const string Project = "testproject";
 
-    [Fact]
-    public async Task QueryByWiqlAsync_WithTop_AppendsTopToUrl()
+    [Theory]
+    [InlineData(10)]
+    [InlineData(1)]
+    public async Task QueryByWiqlAsync_WithTop_AppendsTopToUrl(int top)
     {
         var handler = new WiqlTrackingHandler(new List<int> { 1, 2, 3 });
         IAdoWorkItemService client = CreateClient(handler);
 
-        await client.QueryByWiqlAsync("SELECT [System.Id] FROM WorkItems", top: 10);
+        await client.QueryByWiqlAsync("SELECT [System.Id] FROM WorkItems", top: top);
 
         handler.LastWiqlUrl.ShouldNotBeNull();
-        handler.LastWiqlUrl.ShouldContain("$top=10");
+        handler.LastWiqlUrl.ShouldContain($"$top={top}");
     }
 
     [Fact]
@@ -61,18 +63,6 @@ public sealed class AdoRestClientWiqlTopTests
 
         handler.LastWiqlUrl.ShouldNotBeNull();
         handler.LastWiqlUrl.ShouldNotContain("$top");
-    }
-
-    [Fact]
-    public async Task QueryByWiqlAsync_WithTop1_AppendsTop1()
-    {
-        var handler = new WiqlTrackingHandler(new List<int> { 42 });
-        IAdoWorkItemService client = CreateClient(handler);
-
-        await client.QueryByWiqlAsync("SELECT [System.Id] FROM WorkItems", top: 1);
-
-        handler.LastWiqlUrl.ShouldNotBeNull();
-        handler.LastWiqlUrl.ShouldContain("$top=1");
     }
 
     // ── Helpers ──────────────────────────────────────────────────────

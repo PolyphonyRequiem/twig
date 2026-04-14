@@ -34,8 +34,8 @@ public sealed class QueryCommandTests
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
     }
 
-    private QueryCommand CreateCommand(TextWriter? stderr = null) =>
-        new(_adoService, _workItemRepo, _config, _formatterFactory, _hintEngine, _telemetryClient, stderr);
+    private QueryCommand CreateCommand(TextWriter? stderr = null, HintEngine? hintEngine = null) =>
+        new(_adoService, _workItemRepo, _config, _formatterFactory, hintEngine ?? _hintEngine, _telemetryClient, stderr);
 
     private static IReadOnlyList<WorkItem> BuildItems(params (int Id, string Title, string State)[] specs) =>
         specs.Select(s => new WorkItemBuilder(s.Id, s.Title).InState(s.State).Build()).ToList();
@@ -377,17 +377,29 @@ public sealed class QueryCommandTests
     // NFR-03, NFR-05: Zero results — exit code 0, friendly message
 
     [Fact]
-    public async Task ExecuteAsync_ZeroResults_ReturnsExitCode0()
+    public async Task ExecuteAsync_WithZeroResults_ReturnsExitCode0WithNoItemsFoundMessage()
     {
         SetupAdoReturns([], []);
-        var cmd = CreateCommand();
+        var cmd = CreateCommand(hintEngine: new HintEngine(new DisplayConfig { Hints = true }));
 
-        var result = await cmd.ExecuteAsync(searchText: "nonexistent");
+        var (exitCode, output) = await CaptureOutput(() => cmd.ExecuteAsync(searchText: "nonexistent"));
 
-        result.ShouldBe(0);
-        // SaveBatchAsync should not be called for empty results
+        // NFR-03: zero results is not an error
+        exitCode.ShouldBe(0);
+
+        // formatter's FormatInfo path is exercised (not skipped)
+        output.ShouldContain("No items found.");
+
+        // NFR-05: hint engine surfaces contextual hints for zero-result queries
+        output.ShouldContain("twig set <id>");
+
+        // cache is not written for empty results
         await _workItemRepo.DidNotReceive().SaveBatchAsync(
             Arg.Any<IEnumerable<WorkItem>>(), Arg.Any<CancellationToken>());
+
+        // FetchBatchAsync is not called when query returns no IDs
+        await _adoService.DidNotReceive().FetchBatchAsync(
+            Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>());
     }
 
     // NFR-06: Telemetry emitted

@@ -2,5 +2,9 @@
 <RunSettings>
   <RunConfiguration>
     <TestCaseFilter>Category!=Interactive&amp;Category!=Integration</TestCaseFilter>
+    <!-- Kill the entire test session if it exceeds 5 minutes (300,000 ms).
+         Prevents hung tests (e.g. Spectre.Console deadlocks) from blocking
+         CI pipelines and conductor agent sessions indefinitely. -->
+    <TestSessionTimeout>300000</TestSessionTimeout>
   </RunConfiguration>
 </RunSettings>

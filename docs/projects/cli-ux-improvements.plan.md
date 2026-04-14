@@ -359,20 +359,20 @@ All open questions from prior revisions have been resolved through design decisi
 | T-1321-3 | **Unit tests**: File reads content and patches correctly. Stdin reads content and patches correctly. `--format markdown` composes with both file and stdin. Multi-source (file + stdin, value + file) returns exit 2. No source returns exit 2. Missing file returns exit 2 with path. Empty stdin (immediate EOF) produces empty-string patch. Success message shows file path / stdin indicator. File with trailing newline: plain-text field trims trailing `\n`, `--format markdown` preserves it. | `UpdateCommandTests.cs` | M | G-7 |
 
 **Acceptance Criteria**:
-- [ ] `twig update System.Description --file desc.md` reads file and patches ADO
-- [ ] `cat desc.md | twig update System.Description --stdin` reads stdin and patches ADO
-- [ ] `--file desc.md --format markdown` converts file contents from Markdown to HTML
-- [ ] `--stdin --format markdown` converts stdin content from Markdown to HTML
-- [ ] Providing inline value + `--file` → exit 2 with clear error
-- [ ] Providing `--file` + `--stdin` → exit 2 with clear error
-- [ ] No value source at all → exit 2 with clear error
-- [ ] `--file` with nonexistent path → exit 2 with file path in error message
-- [ ] Success message shows `[from file: <path>]` or `[from stdin]` instead of raw content
-- [ ] `--stdin` with empty input (immediate EOF) patches an empty string (consistent with `twig update field ""`)
-- [ ] `--file` with trailing newline in plain-text field → `TrimEnd` removes trailing `\r\n`
-- [ ] `--file` with trailing newline in `--format markdown` → trailing newline preserved (HTML conversion handles it)
-- [ ] All 12 existing UpdateCommand tests pass unchanged
-- [ ] New tests cover all file, stdin, and validation paths
+- [x] `twig update System.Description --file desc.md` reads file and patches ADO
+- [x] `cat desc.md | twig update System.Description --stdin` reads stdin and patches ADO
+- [x] `--file desc.md --format markdown` converts file contents from Markdown to HTML
+- [x] `--stdin --format markdown` converts stdin content from Markdown to HTML
+- [x] Providing inline value + `--file` → exit 2 with clear error
+- [x] Providing `--file` + `--stdin` → exit 2 with clear error
+- [x] No value source at all → exit 2 with clear error
+- [x] `--file` with nonexistent path → exit 2 with file path in error message
+- [x] Success message shows `[from file: <path>]` or `[from stdin]` instead of raw content
+- [x] `--stdin` with empty input (immediate EOF) patches an empty string (consistent with `twig update field ""`)
+- [x] `--file` with trailing newline in plain-text field → `TrimEnd` removes trailing `\r\n`
+- [x] `--file` with trailing newline in `--format markdown` → trailing newline preserved (HTML conversion handles it)
+- [x] All 12 existing UpdateCommand tests pass unchanged
+- [x] New tests cover all file, stdin, and validation paths
 
 ### Issue #1267 — Add non-interactive seed chain creation for tooling
 
@@ -386,16 +386,16 @@ All open questions from prior revisions have been resolved through design decisi
 | T-1267-2 | **Unit tests**: Batch 3 titles → 3 seeds + 2 successor links. Batch 1 title → 1 seed + 0 links. Empty/null titles → interactive mode (verify `ReadLine` called). Batch with `--parent` override. Batch with `--type` override. Batch with invalid child type → error. ConsoleAppFramework rest-arg parsing: verify `--type Task "A" "B"` correctly separates `--type` as named flag from `"A" "B"` as rest-arg titles (not captured as titles). | `SeedChainCommandTests.cs` | M | G-7, NF-3 |
 
 **Acceptance Criteria**:
-- [ ] `twig seed chain --type Task "A" "B" "C"` creates 3 seeds with 2 successor links
-- [ ] `twig seed chain "Solo"` creates 1 seed with no links
-- [ ] `twig seed chain` with no titles → interactive mode (backward compatible)
-- [ ] `--parent` and `--type` overrides work correctly in batch mode
-- [ ] Invalid child type in batch mode → exit 1 with error
-- [ ] Mid-batch error prints partial summary before error message
-- [ ] Summary output shows chain: `"Created 3 seeds: #-X → #-Y → #-Z"`
-- [ ] All 13 existing SeedChainCommand tests pass unchanged
-- [ ] New tests cover batch happy paths, error paths, and interactive fallback
-- [ ] `--type Task "A" "B"` correctly parses `--type` as named flag (not captured as title)
+- [x] `twig seed chain --type Task "A" "B" "C"` creates 3 seeds with 2 successor links
+- [x] `twig seed chain "Solo"` creates 1 seed with no links
+- [x] `twig seed chain` with no titles → interactive mode (backward compatible)
+- [x] `--parent` and `--type` overrides work correctly in batch mode
+- [x] Invalid child type in batch mode → exit 1 with error
+- [x] Mid-batch error prints partial summary before error message
+- [x] Summary output shows chain: `"Created 3 seeds: #-X → #-Y → #-Z"`
+- [x] All 13 existing SeedChainCommand tests pass unchanged
+- [x] New tests cover batch happy paths, error paths, and interactive fallback
+- [x] `--type Task "A" "B"` correctly parses `--type` as named flag (not captured as title)
 
 ## PR Groups
 
@@ -428,4 +428,15 @@ PR groups cluster tasks for reviewable pull requests. Both Issues are independen
 **Rationale**: Both tasks modify closely coupled code in a single command. Shipping them as one PR ensures the feature is complete and reviewable. The `Program.cs` change (adding `params string[]`) modifies a different method than PR-1, so no merge conflict risk.
 
 Both PRs are independent and can be developed, reviewed, and merged in parallel. Neither PR exceeds the ≤2000 LoC / ≤50 files guardrails.
+
+## Completion
+
+> **Completed**: 2026-04-14
+
+All planned work is complete. Both PRs have been merged to main:
+
+- **PR #21** — `twig update --file/--stdin` (Issue #1321): Merged. Adds `--file` and `--stdin` flags with mutual exclusivity validation, stdin injection for testability, and trailing newline handling.
+- **PR #22** — `twig seed chain` batch mode (Issue #1267): Merged. Adds `params string[]` rest-arg support for deterministic batch seed creation, with chain summary output.
+
+All acceptance criteria verified. All existing tests pass unchanged. No regressions.
 

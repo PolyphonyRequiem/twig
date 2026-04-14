@@ -177,17 +177,21 @@ public sealed class QueryCommandTests
 
     // FR-10, DD-01: $top passed to QueryByWiqlAsync
 
-    [Fact]
-    public async Task ExecuteAsync_TopParameter_PassedToAdoService()
+    [Theory]
+    [InlineData(1)]
+    [InlineData(5)]
+    [InlineData(50)]
+    [InlineData(100)]
+    public async Task ExecuteAsync_TopParameter_PassedToAdoService(int top)
     {
         SetupAdoReturns([], []);
         var cmd = CreateCommand();
 
-        await cmd.ExecuteAsync(top: 5);
+        await cmd.ExecuteAsync(top: top);
 
         await _adoService.Received(1).QueryByWiqlAsync(
             Arg.Any<string>(),
-            5,
+            top,
             Arg.Any<CancellationToken>());
     }
 

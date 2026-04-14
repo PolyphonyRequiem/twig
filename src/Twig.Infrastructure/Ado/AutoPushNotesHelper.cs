@@ -4,7 +4,6 @@ namespace Twig.Infrastructure.Ado;
 
 /// <summary>
 /// Pushes pending notes as ADO comments and clears them.
-/// Shared by StateCommand and UpdateCommand.
 /// </summary>
 public static class AutoPushNotesHelper
 {

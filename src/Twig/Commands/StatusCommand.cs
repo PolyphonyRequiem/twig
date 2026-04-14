@@ -37,10 +37,10 @@ public sealed class StatusCommand(
 {
     private readonly TextWriter _stderr = stderr ?? Console.Error;
 
-    public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool noLive = false, CancellationToken ct = default)
+    public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool noLive = false, bool noRefresh = false, CancellationToken ct = default)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
-        var exitCode = await ExecuteCoreAsync(outputFormat, noLive, ct);
+        var exitCode = await ExecuteCoreAsync(outputFormat, noLive, noRefresh, ct);
         telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
         {
             ["command"] = "status",
@@ -55,7 +55,7 @@ public sealed class StatusCommand(
         return exitCode;
     }
 
-    private async Task<int> ExecuteCoreAsync(string outputFormat, bool noLive, CancellationToken ct)
+    private async Task<int> ExecuteCoreAsync(string outputFormat, bool noLive, bool noRefresh, CancellationToken ct)
     {
         var (fmt, renderer) = pipelineFactory is not null
             ? pipelineFactory.Resolve(outputFormat, noLive)
@@ -125,10 +125,21 @@ public sealed class StatusCommand(
             try { links = await syncCoordinator.SyncLinksAsync(item.Id, ct); }
             catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
-            // FIX-002: Render status panel INSIDE the Live region to prevent border
-            // corruption when the sync indicator clears. BuildStatusViewAsync returns
-            // the complete status view as a composite IRenderable.
-            if (renderer is SpectreRenderer spectreRenderer)
+            // FIX-002: two-pass render (SpectreRenderer + network): show cached data immediately,
+            // then revise after sync. --no-refresh, non-Spectre renderers, and sync failures use static render.
+            Task RenderStaticAsync() => renderer.RenderStatusAsync(
+                getItem: () => Task.FromResult<Domain.Aggregates.WorkItem?>(item),
+                getPendingChanges: () => pendingChangeStore.GetChangesAsync(item.Id),
+                ct: CancellationToken.None,
+                fieldDefinitions: fieldDefs,
+                statusFieldEntries: statusFieldEntries,
+                childProgress: childProgress,
+                links: links,
+                parent: parent,
+                children: children,
+                cacheStaleMinutes: config.Display.CacheStaleMinutes);
+
+            if (renderer is SpectreRenderer spectreRenderer && !noRefresh)
             {
                 try
                 {
@@ -145,40 +156,40 @@ public sealed class StatusCommand(
                             children: children,
                             cacheStaleMinutes: config.Display.CacheStaleMinutes),
                         performSync: () => syncCoordinator.SyncWorkingSetAsync(workingSet),
-                        buildRevisedView: syncResult => Task.FromResult<Spectre.Console.Rendering.IRenderable?>(null),
+                        buildRevisedView: async _ =>
+                        {
+                            // Rebuild status view from fresh cache data after sync completes
+                            var freshItem = await workItemRepo.GetByIdAsync(item.Id, CancellationToken.None);
+                            if (freshItem is null) return null;
+
+                            var freshChildren = await workItemRepo.GetChildrenAsync(freshItem.Id, CancellationToken.None);
+                            var freshChildProgress = processConfigProvider.ComputeChildProgress(freshChildren);
+                            var freshParent = freshItem.ParentId.HasValue
+                                ? await workItemRepo.GetByIdAsync(freshItem.ParentId.Value, CancellationToken.None)
+                                : null;
+
+                            return await spectreRenderer.BuildStatusViewAsync(
+                                freshItem,
+                                getPendingChanges: () => pendingChangeStore.GetChangesAsync(freshItem.Id),
+                                fieldDefinitions: fieldDefs,
+                                statusFieldEntries: statusFieldEntries,
+                                childProgress: freshChildProgress,
+                                links: links,
+                                parent: freshParent,
+                                children: freshChildren,
+                                cacheStaleMinutes: config.Display.CacheStaleMinutes);
+                        },
                         CancellationToken.None);
                 }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception)
                 {
-                    // Sync failed — fall back to static render
-                    await renderer.RenderStatusAsync(
-                        getItem: () => Task.FromResult<Domain.Aggregates.WorkItem?>(item),
-                        getPendingChanges: () => pendingChangeStore.GetChangesAsync(item.Id),
-                        ct: CancellationToken.None,
-                        fieldDefinitions: fieldDefs,
-                        statusFieldEntries: statusFieldEntries,
-                        childProgress: childProgress,
-                        links: links,
-                        parent: parent,
-                        children: children,
-                        cacheStaleMinutes: config.Display.CacheStaleMinutes);
+                    await RenderStaticAsync();
                 }
             }
             else
             {
-                // Non-SpectreRenderer path — render directly (no sync indicator)
-                await renderer.RenderStatusAsync(
-                    getItem: () => Task.FromResult<Domain.Aggregates.WorkItem?>(item),
-                    getPendingChanges: () => pendingChangeStore.GetChangesAsync(item.Id),
-                    ct: CancellationToken.None,
-                    fieldDefinitions: fieldDefs,
-                    statusFieldEntries: statusFieldEntries,
-                    childProgress: childProgress,
-                    links: links,
-                    parent: parent,
-                    children: children,
-                    cacheStaleMinutes: config.Display.CacheStaleMinutes);
+                await RenderStaticAsync();
             }
 
             var seeds = await workItemRepo.GetSeedsAsync();

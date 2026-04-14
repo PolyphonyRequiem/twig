@@ -307,8 +307,8 @@ public sealed class TwigCommands(IServiceProvider services)
         => await services.GetRequiredService<QueryCommand>().ExecuteAsync(searchText, type, state, assignedTo, areaPath, iterationPath, createdSince, changedSince, top, output, ct);
 
     /// <summary>Show status of the active work item.</summary>
-    public async Task<int> Status(string output = OutputFormatterFactory.DefaultFormat, bool noLive = false, CancellationToken ct = default)
-        => await services.GetRequiredService<StatusCommand>().ExecuteAsync(output, noLive, ct);
+    public async Task<int> Status(string output = OutputFormatterFactory.DefaultFormat, bool noLive = false, bool noRefresh = false, CancellationToken ct = default)
+        => await services.GetRequiredService<StatusCommand>().ExecuteAsync(output, noLive, noRefresh, ct);
 
     /// <summary>Change the state of the active work item by name.</summary>
     public async Task<int> State([Argument] string name, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)

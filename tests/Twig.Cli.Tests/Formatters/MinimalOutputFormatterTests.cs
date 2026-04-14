@@ -287,6 +287,16 @@ public class MinimalOutputFormatterTests
         result.ShouldBe("loading items...");
     }
 
+    // ── QueryResult formatting ─────────────────────────────────────
+
+    [Fact]
+    public void FormatQueryResults_ReturnsEmpty()
+    {
+        var result = _formatter.FormatQueryResults(new QueryResult(Array.Empty<WorkItem>(), IsTruncated: false));
+
+        result.ShouldBe(string.Empty);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     private static WorkItem CreateWorkItem(int id, string title, string state, string? assignedTo = null)

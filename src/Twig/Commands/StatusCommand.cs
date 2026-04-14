@@ -228,24 +228,8 @@ public sealed class StatusCommand(
             // EPIC-004 ITEM-019: Compute child progress for sync path
             var syncChildProgress = processConfigProvider.ComputeChildProgress(syncChildren);
 
-            // EPIC-004 ITEM-019: Compute pending changes for consolidated footer
             var syncPending = await pendingChangeStore.GetChangesAsync(item.Id);
-            (int FieldCount, int NoteCount)? syncPendingChanges = null;
-            if (syncPending.Count > 0)
-            {
-                var syncNoteCount = 0;
-                var syncFieldCount = 0;
-                foreach (var change in syncPending)
-                {
-                    if (string.Equals(change.ChangeType, "note", StringComparison.OrdinalIgnoreCase))
-                        syncNoteCount++;
-                    else
-                        syncFieldCount++;
-                }
-                syncPendingChanges = (syncFieldCount, syncNoteCount);
-            }
-
-            Console.WriteLine(humanFmt.FormatWorkItem(item, showDirty: true, fieldDefs, statusFieldEntries, syncChildProgress, syncPendingChanges, syncLinks, syncParent, syncChildren));
+            Console.WriteLine(humanFmt.FormatWorkItem(item, showDirty: true, fieldDefs, statusFieldEntries, syncChildProgress, pendingChanges: null, syncLinks, syncParent, syncChildren, pendingChangeRecords: syncPending));
         }
         else if (fmt is JsonOutputFormatter jsonFmt)
             Console.WriteLine(jsonFmt.FormatWorkItem(item, showDirty: true, syncLinks, syncParent, syncChildren));

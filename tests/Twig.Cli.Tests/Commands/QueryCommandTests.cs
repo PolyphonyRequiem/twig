@@ -128,7 +128,6 @@ public sealed class QueryCommandTests
     // FR-07, FR-08, FR-09: Time filters
 
     [Theory]
-    [InlineData("7d", 7)]
     [InlineData("2w", 14)]
     [InlineData("1m", 30)]
     public async Task ExecuteAsync_ChangedSince_ProducesCorrectDaysInWiql(string duration, int expectedDays)
@@ -140,6 +139,21 @@ public sealed class QueryCommandTests
 
         await _adoService.Received(1).QueryByWiqlAsync(
             Arg.Is<string>(wiql => wiql.Contains($"[System.ChangedDate] >= @Today - {expectedDays}")),
+            Arg.Any<int>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WithChangedSince7d_GeneratesAtTodayMinus7InWiql()
+    {
+        SetupAdoReturns([], []);
+        var cmd = CreateCommand();
+
+        await cmd.ExecuteAsync(changedSince: "7d");
+
+        await _adoService.Received(1).QueryByWiqlAsync(
+            Arg.Is<string>(wiql =>
+                wiql == "SELECT [System.Id] FROM WorkItems WHERE [System.ChangedDate] >= @Today - 7 ORDER BY [System.ChangedDate] DESC"),
             Arg.Any<int>(),
             Arg.Any<CancellationToken>());
     }

@@ -1,10 +1,12 @@
 using System.Text;
+using Spectre.Console;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Enums;
 using Twig.Domain.ReadModels;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Config;
+using Twig.Rendering;
 
 namespace Twig.Formatters;
 
@@ -1527,6 +1529,9 @@ public sealed class HumanOutputFormatter : IOutputFormatter
 
     public string FormatQueryResults(QueryResult result)
     {
+        if (result.Items.Count == 0)
+            return FormatInfo("No items found.");
+
         var sb = new StringBuilder();
 
         var countLabel = result.IsTruncated
@@ -1535,17 +1540,53 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         sb.AppendLine(FormatInfo(countLabel));
         sb.AppendLine();
 
+        var table = new Table()
+            .Border(TableBorder.Rounded)
+            .AddColumn(new TableColumn("[bold]ID[/]").RightAligned())
+            .AddColumn(new TableColumn("[bold]Type[/]"))
+            .AddColumn("[bold]Title[/]")
+            .AddColumn(new TableColumn("[bold]State[/]"))
+            .AddColumn(new TableColumn("[bold]Assigned To[/]"));
+
         foreach (var item in result.Items)
         {
             var badge = GetTypeBadge(item.Type);
-            var typeColor = GetTypeColor(item.Type);
-            var stateColor = GetStateColor(item.State);
-            var assigned = item.AssignedTo ?? "(unassigned)";
+            var typeMarkupColor = SpectreTheme.GetTypeMarkupColor(item.Type.Value, _typeColors, _appearanceColors);
+            var stateMarkupColor = string.IsNullOrEmpty(item.State) ? "grey"
+                : SpectreTheme.GetCategoryMarkupColor(StateCategoryResolver.Resolve(item.State, _stateEntries));
 
-            sb.AppendLine($"  {Dim}#{item.Id}{Reset}  {typeColor}{badge} {item.Type}{Reset}   {item.Title}   [{stateColor}{item.State}{Reset}]  {Dim}{assigned}{Reset}");
+            table.AddRow(
+                $"[dim]#{item.Id}[/]",
+                $"[{typeMarkupColor}]{Markup.Escape(badge)} {Markup.Escape(item.Type.ToString())}[/]",
+                Markup.Escape(item.Title),
+                $"[{stateMarkupColor}]{Markup.Escape(item.State)}[/]",
+                string.IsNullOrEmpty(item.AssignedTo) ? "[dim](unassigned)[/]" : Markup.Escape(item.AssignedTo));
         }
 
-        return sb.ToString().TrimEnd('\r', '\n');
+        sb.Append(RenderTableToString(table));
+
+        if (result.IsTruncated)
+        {
+            sb.AppendLine();
+            sb.Append($"{Yellow}⚠{Reset} {Dim}Showing top {result.Items.Count} results — use --top to increase limit{Reset}");
+        }
+
+        return sb.ToString();
+    }
+
+    private static string RenderTableToString(Table table)
+    {
+        var writer = new StringWriter();
+        var console = AnsiConsole.Create(new AnsiConsoleSettings
+        {
+            Out = new AnsiConsoleOutput(writer),
+            Ansi = AnsiSupport.Yes,
+            ColorSystem = ColorSystemSupport.TrueColor,
+            Interactive = InteractionSupport.No,
+        });
+        console.Profile.Width = GetTerminalWidth();
+        console.Write(table);
+        return writer.ToString().TrimEnd('\r', '\n');
     }
 
 }

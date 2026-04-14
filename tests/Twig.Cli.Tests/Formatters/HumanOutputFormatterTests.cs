@@ -2558,4 +2558,145 @@ public class HumanOutputFormatterTests
         result.ShouldContain("Plain Item");
     }
 
+    // ── FormatQueryResults (Task 3.2) ───────────────────────────────
+
+    [Fact]
+    public void FormatQueryResults_ZeroItems_ReturnsNoItemsFound()
+    {
+        var result = new QueryResult(Array.Empty<WorkItem>(), IsTruncated: false);
+
+        var output = _formatter.FormatQueryResults(result);
+
+        output.ShouldContain("No items found");
+    }
+
+    [Fact]
+    public void FormatQueryResults_SingleItem_ContainsIdAndTitle()
+    {
+        var items = new[] { CreateWorkItem(42, "Fix login bug", "Active", "Alice") };
+        var result = new QueryResult(items, IsTruncated: false);
+
+        var output = _formatter.FormatQueryResults(result);
+
+        output.ShouldContain("42");
+        output.ShouldContain("Fix login bug");
+        output.ShouldContain("Alice");
+    }
+
+    [Fact]
+    public void FormatQueryResults_MultipleItems_ContainsSummaryLine()
+    {
+        var items = new[]
+        {
+            CreateWorkItem(1, "Item A", "Active", "Alice"),
+            CreateWorkItem(2, "Item B", "Closed", "Bob"),
+            CreateWorkItem(3, "Item C", "New"),
+        };
+        var result = new QueryResult(items, IsTruncated: false);
+
+        var output = _formatter.FormatQueryResults(result);
+
+        output.ShouldContain("Found 3 item(s)");
+    }
+
+    [Fact]
+    public void FormatQueryResults_Truncated_ShowsTruncationWarning()
+    {
+        var items = new[]
+        {
+            CreateWorkItem(1, "Item A", "Active"),
+            CreateWorkItem(2, "Item B", "Active"),
+        };
+        var result = new QueryResult(items, IsTruncated: true);
+
+        var output = _formatter.FormatQueryResults(result);
+
+        output.ShouldContain("Showing top 2 results");
+        output.ShouldContain("--top");
+    }
+
+    [Fact]
+    public void FormatQueryResults_Truncated_SummaryShowsPlusIndicator()
+    {
+        var items = new[] { CreateWorkItem(1, "Item", "Active") };
+        var result = new QueryResult(items, IsTruncated: true);
+
+        var output = _formatter.FormatQueryResults(result);
+
+        output.ShouldContain("Found 1+ items");
+    }
+
+    [Fact]
+    public void FormatQueryResults_NotTruncated_NoTruncationWarning()
+    {
+        var items = new[] { CreateWorkItem(1, "Item", "Active") };
+        var result = new QueryResult(items, IsTruncated: false);
+
+        var output = _formatter.FormatQueryResults(result);
+
+        output.ShouldNotContain("--top");
+        output.ShouldNotContain("Showing top");
+    }
+
+    [Fact]
+    public void FormatQueryResults_UnassignedItem_ShowsUnassignedLabel()
+    {
+        var items = new[] { CreateWorkItem(1, "Orphan task", "New") };
+        var result = new QueryResult(items, IsTruncated: false);
+
+        var output = _formatter.FormatQueryResults(result);
+
+        output.ShouldContain("(unassigned)");
+    }
+
+    [Fact]
+    public void FormatQueryResults_ContainsAnsiEscapes()
+    {
+        var items = new[] { CreateWorkItem(1, "Styled item", "Active") };
+        var result = new QueryResult(items, IsTruncated: false);
+
+        var output = _formatter.FormatQueryResults(result);
+
+        output.ShouldContain("\x1b["); // ANSI escape present
+    }
+
+    [Fact]
+    public void FormatQueryResults_ContainsTableBorders()
+    {
+        var items = new[] { CreateWorkItem(1, "Table item", "Active") };
+        var result = new QueryResult(items, IsTruncated: false);
+
+        var output = _formatter.FormatQueryResults(result);
+
+        // Spectre.Console Rounded border uses box-drawing characters
+        output.ShouldContain("─");
+    }
+
+    [Fact]
+    public void FormatQueryResults_ContainsColumnHeaders()
+    {
+        var items = new[] { CreateWorkItem(1, "Header check", "Active") };
+        var result = new QueryResult(items, IsTruncated: false);
+
+        var output = _formatter.FormatQueryResults(result);
+
+        output.ShouldContain("ID");
+        output.ShouldContain("Type");
+        output.ShouldContain("Title");
+        output.ShouldContain("State");
+        output.ShouldContain("Assigned To");
+    }
+
+    [Fact]
+    public void FormatQueryResults_SpecialCharactersInTitle_AreEscaped()
+    {
+        var items = new[] { CreateWorkItem(1, "Fix [urgent] bug & deploy", "Active") };
+        var result = new QueryResult(items, IsTruncated: false);
+
+        // Should not throw — Spectre markup special chars are escaped
+        var output = _formatter.FormatQueryResults(result);
+
+        output.ShouldNotBeNullOrEmpty();
+    }
+
 }

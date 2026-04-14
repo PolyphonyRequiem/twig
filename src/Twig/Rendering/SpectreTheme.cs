@@ -105,17 +105,17 @@ internal sealed class SpectreTheme
     internal string FormatTypeBadge(WorkItemType type)
     {
         var badge = GetTypeBadge(type);
-        var color = GetSpectreColor(type);
+        var color = GetTypeMarkupColor(type.Value, _typeColors, _appearanceColors);
         return $"[{color}]{Markup.Escape(badge)}[/]";
     }
 
     /// <summary>
-    /// Resolves a Spectre markup color string for the given type.
+    /// Resolves a Spectre markup color string for the given type name.
     /// Priority: TypeColorResolver hex → Spectre markup color, fallback: DeterministicTypeColor → Spectre color name.
     /// </summary>
-    private string GetSpectreColor(WorkItemType type)
+    internal static string GetTypeMarkupColor(string typeName, Dictionary<string, string>? typeColors, Dictionary<string, string>? appearanceColors)
     {
-        var hex = TypeColorResolver.ResolveHex(type.Value, _typeColors, _appearanceColors);
+        var hex = TypeColorResolver.ResolveHex(typeName, typeColors, appearanceColors);
         if (hex is not null)
         {
             var markupColor = HexToSpectreColor.ToMarkupColor(hex);
@@ -123,8 +123,7 @@ internal sealed class SpectreTheme
                 return markupColor;
         }
 
-        var ansi = DeterministicTypeColor.GetAnsiEscape(type.Value);
-        return ansi switch
+        return DeterministicTypeColor.GetAnsiEscape(typeName) switch
         {
             "\x1b[35m" => "purple",
             "\x1b[36m" => "aqua",

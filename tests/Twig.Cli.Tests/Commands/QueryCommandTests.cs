@@ -376,7 +376,7 @@ public sealed class QueryCommandTests
         await _adoService.Received(1).QueryByWiqlAsync(
             Arg.Is<string>(wiql =>
                 wiql.Contains("SELECT [System.Id] FROM WorkItems") &&
-                wiql.Contains("ORDER BY [System.ChangedDate] DESC")),
+                wiql.EndsWith("ORDER BY [System.ChangedDate] DESC")),
             Arg.Any<int>(),
             Arg.Any<CancellationToken>());
     }

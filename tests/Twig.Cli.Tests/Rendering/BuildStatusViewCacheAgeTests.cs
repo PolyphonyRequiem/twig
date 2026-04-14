@@ -152,8 +152,21 @@ public class BuildStatusViewCacheAgeTests
 
         var output = await RenderStatusViewAsync(item, changes: changes);
 
-        // ● indicator should be present (DD-03)
-        output.ShouldContain("●");
+        // Dirty item: aqua ● in summary line + yellow ● in panel header = at least 2
+        CountOccurrences(output, "●").ShouldBeGreaterThanOrEqualTo(2);
+    }
+
+    [Fact]
+    public async Task BuildStatusViewAsync_CleanItem_ExactlyOneBullet()
+    {
+        var item = CreateBuilder(207, "Clean Bullet")
+            .InState("Active")
+            .Build();
+
+        var output = await RenderStatusViewAsync(item);
+
+        // Clean item: only the unconditional aqua ● in the summary line
+        CountOccurrences(output, "●").ShouldBe(1);
     }
 
     [Fact]
@@ -310,15 +323,6 @@ public class BuildStatusViewCacheAgeTests
         return _testConsole.Output;
     }
 
-    private static int CountOccurrences(string text, string pattern)
-    {
-        int count = 0;
-        int index = 0;
-        while ((index = text.IndexOf(pattern, index, StringComparison.Ordinal)) != -1)
-        {
-            count++;
-            index += pattern.Length;
-        }
-        return count;
-    }
+    private static int CountOccurrences(string text, string pattern) =>
+        (text.Length - text.Replace(pattern, "", StringComparison.Ordinal).Length) / pattern.Length;
 }

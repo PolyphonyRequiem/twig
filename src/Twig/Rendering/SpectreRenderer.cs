@@ -485,9 +485,9 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         }
 
         // Dirty-state summary using DirtyStateSummary (FR-04, FR-05, FR-06)
-        if (pending.Count > 0)
+        var dirtySummary = DirtyStateSummary.Build(pending);
+        if (dirtySummary is not null)
         {
-            var dirtySummary = DirtyStateSummary.Build(pending)!;
             itemGrid.AddRow("", $"[yellow]{Markup.Escape(dirtySummary)}[/]");
             itemGrid.AddRow("", "[dim](unsaved — run 'twig save' to push)[/]");
         }
@@ -570,7 +570,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             return;
 
         // Build initial panel with core fields only (type, state, assigned, area, iteration)
-        var dirty = showDirty && item.IsDirty ? " [yellow]✎[/]" : "";
+        var dirty = showDirty && item.IsDirty ? " [yellow]●[/]" : "";
         var grid = new Grid().AddColumn().AddColumn();
         grid.AddRow("[dim]Type:[/]", _theme.FormatTypeBadge(item.Type) + " " + Markup.Escape(item.Type.ToString()));
         grid.AddRow("[dim]State:[/]", _theme.FormatState(item.State));

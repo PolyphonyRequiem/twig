@@ -404,6 +404,7 @@ public sealed class TwigCommands(IServiceProvider services)
         => await services.GetRequiredService<WebCommand>().ExecuteAsync(id, output, ct);
 
     /// <summary>Create a new child work item under the active item (backward compat shortcut).</summary>
+    [Hidden]
     public async Task<int> Seed([Argument] string title, string? type = null, bool editor = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SeedNewCommand>().ExecuteAsync(title, type, editor, output, ct);
 
@@ -725,7 +726,6 @@ Work Items:
   seed reconcile       Repair stale links after partial publishes.
   discard <id>         Drop pending changes for a work item.
   discard --all        Drop all pending changes (excludes seeds).
-  save                 Push pending changes to Azure DevOps.
   sync                 Flush pending changes then refresh from ADO.
 
 Git:

@@ -1,8 +1,8 @@
 Check the review results:
 **Technical Review:** Score {{ technical_reviewer.output.score }}/100
-{{ technical_reviewer.output.feedback }}
+{{ technical_reviewer.output.feedback | default('') }}
 **Readability Review:** Score {{ readability_reviewer.output.score }}/100
-{{ readability_reviewer.output.feedback }}
+{{ readability_reviewer.output.feedback | default('') }}
 **Plan:** {{ architect.output.issue_count }} issues, {{ architect.output.pr_group_count }} PR groups, ~{{ architect.output.total_estimated_loc }} LoC
 Rules:
 - Both scores must be ≥ 90 to pass

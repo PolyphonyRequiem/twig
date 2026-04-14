@@ -6,14 +6,14 @@ Implement the following task.
 **Plan:** Read `{{ (architect.output.plan_path if architect is defined and architect.output else plan_reader.output.plan_path) }}` for full context.
 {% if task_reviewer is defined and task_reviewer.output and not task_reviewer.output.approved %}
 **Previous review — fix these issues:**
-{{ task_reviewer.output.feedback }}
+{{ task_reviewer.output.feedback | default('') }}
 {% for issue in task_reviewer.output.issues %}
 - {{ issue }}
 {% endfor %}
 {% endif %}
 {% if pr_reviewer is defined and pr_reviewer.output and not pr_reviewer.output.approved %}
 **PR review feedback — fix these issues:**
-{{ pr_reviewer.output.feedback }}
+{{ pr_reviewer.output.feedback | default('') }}
 {% for issue in pr_reviewer.output.issues %}
 - {{ issue }}
 {% endfor %}

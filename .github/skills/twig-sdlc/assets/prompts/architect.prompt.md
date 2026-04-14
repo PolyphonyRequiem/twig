@@ -17,12 +17,12 @@ Revise the existing plan at `{{ architect.output.plan_path }}` to address this f
 {% endif %}
 {% if plan_approval is defined and plan_approval.output and plan_approval.output.selected == 'revise' %}
 **User Revision Request:**
-{{ plan_approval.output.feedback }}
+{{ plan_approval.output.feedback | default('No specific feedback provided.') }}
 Revise the existing plan at `{{ architect.output.plan_path }}` to address user feedback.
 {% endif %}
 {% if open_questions_gate is defined and open_questions_gate.output and open_questions_gate.output.selected == 'provide_input' %}
 **User Input on Open Questions:**
-{{ open_questions_gate.output.feedback }}
+{{ open_questions_gate.output.feedback | default('No specific input provided.') }}
 Incorporate user answers into the design. Resolve addressed questions, update
 affected decisions, and re-evaluate remaining open questions.
 {% endif %}

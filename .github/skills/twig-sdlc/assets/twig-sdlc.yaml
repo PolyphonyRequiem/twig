@@ -193,13 +193,14 @@ agents:
       **Plan Document:** {{ architect.output.plan_path }}
       {{ architect.output.open_questions_summary }}
     options:
+      # NOTE: first option is auto-selected by --skip-gates — keep safe defaults first
+      - label: "Proceed Without Answering"
+        value: proceed
+        route: reducer_plan
       - label: "Provide Input & Revise"
         value: provide_input
         route: architect
         prompt_for: feedback
-      - label: "Proceed Without Answering"
-        value: proceed
-        route: reducer_plan
       - label: "Abort Planning"
         value: abort
         route: $end
@@ -308,6 +309,7 @@ agents:
       **Tech Score:** {{ review_router.output.tech_score }}/100
       **Readability Score:** {{ review_router.output.read_score }}/100
     options:
+      # NOTE: first option is auto-selected by --skip-gates — keep safe defaults first
       - label: "Approve — proceed to implementation"
         value: approved
         route: work_tree_seeder

@@ -7,6 +7,7 @@ using Twig.Domain.Services;
 using Twig.Infrastructure;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.DependencyInjection;
+using Twig.Mcp;
 using Twig.Mcp.Services;
 using Twig.Mcp.Tools;
 
@@ -15,14 +16,14 @@ SQLitePCL.Batteries.Init();
 // FR-11: Workspace guard — exit with clear error if .twig/config is missing.
 // Must run before host build since TwigConfiguration.Load() silently returns
 // defaults for missing files, which would produce confusing downstream errors.
-var twigDir = Path.Combine(Directory.GetCurrentDirectory(), ".twig");
-var configPath = Path.Combine(twigDir, "config");
-
-if (!File.Exists(configPath))
+var (isValid, guardError) = WorkspaceGuard.CheckWorkspace(Directory.GetCurrentDirectory());
+if (!isValid)
 {
-    Console.Error.WriteLine("Twig workspace not initialized. Run 'twig init' first.");
+    Console.Error.WriteLine(guardError);
     return 1;
 }
+
+var configPath = Path.Combine(Directory.GetCurrentDirectory(), ".twig", "config");
 
 var config = TwigConfiguration.Load(configPath);
 

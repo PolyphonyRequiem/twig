@@ -229,4 +229,50 @@ public sealed class ProgramBootstrapTests
         var svc = provider.GetRequiredService<WorkingSetService>();
         svc.ShouldNotBeNull();
     }
+
+    [Fact]
+    public void WorkspaceGuard_MissingConfigFile_ReturnsInvalidWithMessage()
+    {
+        // FR-11: When .twig/config is missing, the guard should return IsValid=false
+        // with a clear error message telling the user to run 'twig init'.
+        var tempDir = Path.Combine(Path.GetTempPath(), $"twig-test-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+
+            var (isValid, error) = WorkspaceGuard.CheckWorkspace(tempDir);
+
+            isValid.ShouldBeFalse();
+            error.ShouldNotBeNull();
+            error.ShouldContain("twig init");
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void WorkspaceGuard_ConfigFileExistsAtExactPath_ReturnsValid()
+    {
+        // FR-11: The guard checks for a .twig/config *file* — not just a .twig/ directory.
+        var tempDir = Path.Combine(Path.GetTempPath(), $"twig-test-{Guid.NewGuid():N}");
+        try
+        {
+            var twigDir = Path.Combine(tempDir, ".twig");
+            Directory.CreateDirectory(twigDir);
+            File.WriteAllText(Path.Combine(twigDir, "config"), "{}");
+
+            var (isValid, error) = WorkspaceGuard.CheckWorkspace(tempDir);
+
+            isValid.ShouldBeTrue();
+            error.ShouldBeNull();
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
+    }
 }

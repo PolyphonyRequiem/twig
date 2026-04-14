@@ -66,13 +66,17 @@ public sealed class QueryCommandTests
         SetupAdoReturns([1], items);
         var cmd = CreateCommand();
 
-        var result = await cmd.ExecuteAsync(searchText: "MCP server");
+        var (exitCode, output) = await CaptureOutput(() => cmd.ExecuteAsync(searchText: "MCP server"));
 
-        result.ShouldBe(0);
+        exitCode.ShouldBe(0);
+
         await _adoService.Received(1).QueryByWiqlAsync(
-            Arg.Is<string>(wiql => wiql.Contains("CONTAINS 'MCP server'")),
+            Arg.Is<string>(wiql => wiql.Contains("[System.Title] CONTAINS 'MCP server'")),
             Arg.Any<int>(),
             Arg.Any<CancellationToken>());
+
+        output.ShouldContain("MCP server integration");
+        output.ShouldContain("Found 1 item(s)");
     }
 
     // FR-02–FR-06, FR-14: Combined filters with AND logic

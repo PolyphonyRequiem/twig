@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.RegularExpressions;
+using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
 using Twig.Domain.Services;
@@ -108,7 +109,7 @@ public sealed partial class QueryCommand(
         // 5. Fetch full work items
         var items = ids.Count > 0
             ? await adoService.FetchBatchAsync(ids, ct)
-            : (IReadOnlyList<Domain.Aggregates.WorkItem>)[]; 
+            : Array.Empty<WorkItem>();
 
         // 6. Cache results (FR-16)
         if (items.Count > 0)

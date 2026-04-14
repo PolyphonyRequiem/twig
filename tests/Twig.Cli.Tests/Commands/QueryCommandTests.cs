@@ -223,6 +223,35 @@ public sealed class QueryCommandTests
         output.Trim().ShouldBe("1234\n1235\n1240");
     }
 
+    [Fact]
+    public async Task ExecuteAsync_IdsOutput_SkipsFormatterAndHintEngine()
+    {
+        var items = BuildItems(
+            (10, "Alpha", "New"),
+            (20, "Beta", "Doing"),
+            (30, "Gamma", "Done"));
+        SetupAdoReturns([10, 20, 30], items);
+
+        // DD-04 + FR-19: null references act as assertions —
+        // any call to GetFormatter or GetHints will throw NullReferenceException.
+        var cmd = new QueryCommand(
+            _adoService, _workItemRepo, _config,
+            formatterFactory: null!,
+            hintEngine: null!,
+            _telemetryClient);
+
+        var (exitCode, output) = await CaptureOutput(() =>
+            cmd.ExecuteAsync(searchText: "test", outputFormat: "ids"));
+
+        // FR-13: one ID per line
+        exitCode.ShouldBe(0);
+        output.Trim().ShouldBe("10\n20\n30");
+
+        // Verify cache was still populated (FR-16 not skipped)
+        await _workItemRepo.Received(1).SaveBatchAsync(
+            Arg.Any<IEnumerable<WorkItem>>(), Arg.Any<CancellationToken>());
+    }
+
     // FR-16: Results cached in SQLite
 
     [Fact]

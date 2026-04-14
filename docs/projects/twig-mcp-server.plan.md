@@ -2,7 +2,7 @@
 
 > **Epic:** #1484 — Twig MCP Server
 > **Revision:** 9
-> **Status**: 🔨 In Progress
+> **Status**: 🔨 In Progress — 1/4 PR groups merged
 
 ---
 

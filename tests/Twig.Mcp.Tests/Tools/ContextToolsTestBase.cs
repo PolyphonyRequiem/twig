@@ -28,7 +28,7 @@ public abstract class ContextToolsTestBase : ReadToolsTestBase
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         return new ContextTools(
             _workItemRepo, _contextStore, resolver,
-            CreateSyncCoordinator(), CreateStatusOrchestrator(resolver),
+            CreateStatusOrchestrator(resolver),
             _promptStateWriter, CreateContextChangeService());
     }
 }

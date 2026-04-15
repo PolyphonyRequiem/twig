@@ -503,7 +503,7 @@ public sealed class McpResultBuilderTests
     // ── FormatFlushSummary ──────────────────────────────────────────
 
     [Fact]
-    public void FormatFlushSummary_SerializesViaMcpJsonContext()
+    public void FormatFlushSummary_ProducesValidJsonWithAllFields()
     {
         var summary = new McpFlushSummary
         {
@@ -587,44 +587,6 @@ public sealed class McpResultBuilderTests
 
         var result = McpResultBuilder.FormatFlushSummary(summary);
         result.IsError.ShouldBeNull();
-    }
-
-    // ── McpJsonContext source-gen ────────────────────────────────────
-
-    [Fact]
-    public void McpJsonContext_RoundTripFlushSummary()
-    {
-        var original = new McpFlushSummary
-        {
-            Flushed = 10,
-            Failed = 2,
-            Failures =
-            [
-                new McpFlushItemFailure { WorkItemId = 1, Reason = "Conflict" },
-                new McpFlushItemFailure { WorkItemId = 2, Reason = "Not found" },
-            ],
-        };
-
-        var json = JsonSerializer.Serialize(original, McpJsonContext.Default.McpFlushSummary);
-        var deserialized = JsonSerializer.Deserialize(json, McpJsonContext.Default.McpFlushSummary);
-
-        deserialized.ShouldNotBeNull();
-        deserialized.Flushed.ShouldBe(10);
-        deserialized.Failed.ShouldBe(2);
-        deserialized.Failures.Count.ShouldBe(2);
-    }
-
-    [Fact]
-    public void McpJsonContext_RoundTripEmptyFailures()
-    {
-        var original = new McpFlushSummary { Flushed = 5, Failed = 0 };
-
-        var json = JsonSerializer.Serialize(original, McpJsonContext.Default.McpFlushSummary);
-        var deserialized = JsonSerializer.Deserialize(json, McpJsonContext.Default.McpFlushSummary);
-
-        deserialized.ShouldNotBeNull();
-        deserialized.Flushed.ShouldBe(5);
-        deserialized.Failures.Count.ShouldBe(0);
     }
 
     // ── Helpers ─────────────────────────────────────────────────────

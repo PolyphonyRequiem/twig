@@ -1,6 +1,5 @@
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using ModelContextProtocol.Protocol;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
@@ -146,11 +145,21 @@ internal static class McpResultBuilder
             writer.WriteNumber("dirtyCount", dirtyItems.Count);
         });
 
-    public static CallToolResult FormatFlushSummary(McpFlushSummary summary)
-    {
-        var json = JsonSerializer.Serialize(summary, McpJsonContext.Default.McpFlushSummary);
-        return ToResult(json);
-    }
+    public static CallToolResult FormatFlushSummary(McpFlushSummary summary) =>
+        BuildJson(writer =>
+        {
+            writer.WriteNumber("flushed", summary.Flushed);
+            writer.WriteNumber("failed", summary.Failed);
+            writer.WriteStartArray("failures");
+            foreach (var f in summary.Failures)
+            {
+                writer.WriteStartObject();
+                writer.WriteNumber("workItemId", f.WorkItemId);
+                writer.WriteString("reason", f.Reason);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+        });
 
     private static CallToolResult BuildJson(Action<Utf8JsonWriter> write)
     {
@@ -212,9 +221,3 @@ public sealed record McpFlushItemFailure
     public int WorkItemId { get; init; }
     public string Reason { get; init; } = string.Empty;
 }
-
-[JsonSerializable(typeof(McpFlushSummary))]
-[JsonSourceGenerationOptions(
-    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-internal sealed partial class McpJsonContext : JsonSerializerContext;

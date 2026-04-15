@@ -174,6 +174,50 @@ public class RefreshOrchestratorTests
         result.Conflicts[0].RemoteRevision.ShouldBe(5);
     }
 
+    [Fact]
+    public async Task FetchItems_ActiveNotInBatch_FiresFetchAndChildrenConcurrently()
+    {
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { 1 });
+        var sprintItem = new WorkItemBuilder(1, "Sprint").Build();
+        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { sprintItem });
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+
+        // Track call ordering to verify concurrency
+        var callLog = new List<string>();
+        var activeItem = new WorkItemBuilder(42, "Active").Build();
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
+            .Returns(async call =>
+            {
+                callLog.Add("FetchAsync-start");
+                await Task.Yield();
+                callLog.Add("FetchAsync-end");
+                return activeItem;
+            });
+
+        var child = new WorkItemBuilder(100, "Child").Build();
+        _adoService.FetchChildrenAsync(42, Arg.Any<CancellationToken>())
+            .Returns(async call =>
+            {
+                callLog.Add("FetchChildrenAsync-start");
+                await Task.Yield();
+                callLog.Add("FetchChildrenAsync-end");
+                return (IReadOnlyList<WorkItem>)new[] { child };
+            });
+
+        var result = await _orchestrator.FetchItemsAsync("SELECT ...", force: false);
+
+        // Both calls should have been initiated before either completed
+        await _adoService.Received(1).FetchAsync(42, Arg.Any<CancellationToken>());
+        await _adoService.Received(1).FetchChildrenAsync(42, Arg.Any<CancellationToken>());
+
+        // FetchChildrenAsync should start before FetchAsync completes (concurrent)
+        var childStart = callLog.IndexOf("FetchChildrenAsync-start");
+        var fetchEnd = callLog.IndexOf("FetchAsync-end");
+        childStart.ShouldBeLessThan(fetchEnd, "FetchChildrenAsync should start before FetchAsync completes");
+    }
+
     // ── HydrateAncestorsAsync tests ─────────────────────────────────
 
     [Fact]

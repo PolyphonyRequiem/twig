@@ -74,11 +74,22 @@ public sealed class RefreshOrchestrator
         if (realIds.Count > 0)
             sprintItems = await _adoService.FetchBatchAsync(realIds, ct);
 
-        if (activeId.HasValue && activeId.Value > 0 && !realIds.Contains(activeId.Value))
-            activeItem = await _adoService.FetchAsync(activeId.Value, ct);
-
         if (activeId.HasValue && activeId.Value > 0)
-            childItems = await _adoService.FetchChildrenAsync(activeId.Value, ct);
+        {
+            var fetchChildrenTask = _adoService.FetchChildrenAsync(activeId.Value, ct);
+
+            if (!realIds.Contains(activeId.Value))
+            {
+                var fetchActiveTask = _adoService.FetchAsync(activeId.Value, ct);
+                await Task.WhenAll(fetchActiveTask, fetchChildrenTask);
+                activeItem = fetchActiveTask.Result;
+                childItems = fetchChildrenTask.Result;
+            }
+            else
+            {
+                childItems = await fetchChildrenTask;
+            }
+        }
 
         // Detect revision conflicts
         var conflicts = await FindConflictsAsync(sprintItems, activeItem, childItems, protectedIds, ct);

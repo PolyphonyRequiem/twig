@@ -1,18 +1,17 @@
 /// <summary>
 /// Per-command usage examples appended to <c>--help</c> output after ConsoleAppFramework's
-/// built-in help text. Populated by T-1525-2; resolution logic handles compound commands
-/// (e.g. <c>nav up</c>, <c>seed new</c>) and single-token commands (e.g. <c>set</c>, <c>flow-start</c>).
+/// built-in help text. Handles compound commands (e.g. <c>nav up</c>, <c>seed new</c>) and
+/// single-token commands (e.g. <c>set</c>, <c>flow-start</c>).
 /// </summary>
 internal static class CommandExamples
 {
     /// <summary>
     /// Command name → array of example lines. Each line is a complete example string
     /// (e.g. <c>"twig set 1234              Set context by work item ID"</c>).
-    /// Populated by T-1525-2; compound commands use space-separated keys (e.g. <c>"nav up"</c>).
+    /// Compound commands use space-separated keys (e.g. <c>"nav up"</c>).
     /// </summary>
     internal static Dictionary<string, string[]> Examples { get; } = new(StringComparer.Ordinal)
     {
-        // T-1525-2 will populate ≥2 examples per non-hidden command.
     };
 
     /// <summary>

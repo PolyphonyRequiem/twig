@@ -859,6 +859,22 @@ PR groups cluster tasks for reviewable pull requests, sized for ≤2000 LoC and 
 - **PR-3** combines services (Issue 2) with read tools (Issue 4) because read tools are the primary consumers of `McpResultBuilder`. Reviewing them together provides better context.
 - **PR-4** combines context tools (Issue 3) with mutation tools (Issue 5) — both are stateful tool implementations that share the `ActiveItemResolver` + `ConflictRetryHelper` + `AutoPushNotesHelper` patterns. Issue 6 config/doc updates (~80 LoC, 3 files) are included here as the natural feature-completion step rather than a separate PR.
 
+## Completion
+
+> **Completed:** 2026-04-15
+> **Version:** v0.37.0
+
+All 7 issues (1547–1553) delivered across 4 merged PRs:
+
+| PR | GitHub | Branch | Issues |
+|----|--------|--------|--------|
+| PR-1: Shared Layer Refactoring | #25 | `feat/mcp-shared-layer-refactoring` | 1547 |
+| PR-2: Project Scaffold & Bootstrap | #26 | `feat/mcp-project-scaffold` | 1548 |
+| PR-3: Services & Read Tools | #31 | `feat/mcp-services-read-tools` | 1549, 1551 |
+| PR-4: Context & Mutation Tools + Config | #32 | `feat/mcp-tools-and-config` | 1550, 1552, 1553 |
+
+The Twig MCP Server is feature-complete: 8 tools (`twig.set`, `twig.status`, `twig.tree`, `twig.workspace`, `twig.state`, `twig.update`, `twig.note`, `twig.sync`) exposed over stdio with typed parameters and structured JSON responses. Full AOT compatibility maintained.
+
 ## References
 
 - [MCP C# SDK Documentation](https://github.com/modelcontextprotocol/csharp-sdk)

@@ -107,6 +107,17 @@ public sealed class WorkspaceDiscoveryTests : IDisposable
         ex.ShouldBeNull();
     }
 
+    // ──────────────────────── Root boundary ────────────────────────
+
+    [Fact]
+    public void FindTwigDir_StartAtFilesystemRoot_ReturnsNullWithoutInfiniteLoop()
+    {
+        var root = Path.GetPathRoot(Path.GetTempPath())!;
+
+        // If walk-up has a bug (e.g., root's parent == root), this hangs; reaching here proves it terminates.
+        WorkspaceDiscovery.FindTwigDir(root);
+    }
+
     // ──────────────────────── Deep nesting ────────────────────────
 
     [Fact]

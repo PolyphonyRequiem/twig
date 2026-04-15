@@ -84,6 +84,9 @@ When starting a task: `twig set <id> --output json` → `twig state Doing --outp
 - You MUST NOT close Issues — only Tasks. Issues are closed by pr_group_manager
   after PR merge. If you close an Issue, the ADO state will diverge from code
   delivery status.
+- **Before running `twig state Done`**, verify the item is a Task:
+  `twig set <id> --output json` → check `"type"` is `"Task"`. If it's an Issue,
+  STOP — you do not own Issue state transitions.
 - You MUST NOT create branches or submit PRs.
 - When all issues pass review, return pr_group_ready — do not try to proceed further.
 

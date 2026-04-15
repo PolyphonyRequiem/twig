@@ -3,6 +3,12 @@ Close out the SDLC workflow.
 **Completed Issues:** {{ pr_group_manager.output.completed_issues | json }}
 **Completed PRs:** {{ pr_group_manager.output.completed_prs | json }}
 **Plan:** {{ (architect.output.plan_path if architect is defined and architect.output else plan_reader.output.plan_path) }}
+
+**PR Finalization Verification:**
+- Verified: {{ pr_finalizer.output.verified }}
+- Summary: {{ pr_finalizer.output.summary }}
+{% if pr_finalizer.output.state_violations | length > 0 %}- State Violations: {{ pr_finalizer.output.state_violations | json }}{% endif %}
+
 ## Ownership Convention
 Implementing agents (coder, task_manager) own Task state transitions.
 pr_group_manager owns Issue closure (only after PR merge).
@@ -14,13 +20,17 @@ Do NOT assume implementing agents have already transitioned the Epic.
    - This ensures issues/tasks transitioned by other agents are reflected locally
    - If sync fails with a transient ADO error, retry up to 3 times with 5-second delays
 1. **Verify all PRs are merged** (guard against premature close-out):
-   - For each PR in the completed list, verify it's actually merged:
+   - The pr_finalizer agent has already verified PR group completeness upstream.
+     Review its `summary` and `state_violations` above.
+   - As a defense-in-depth check, also verify directly:
+     For each PR in the completed list:
      `gh pr view <pr_number> --json state --jq '.state'` — must be "MERGED"
    - If any PR is not merged, STOP and report the issue — do not proceed
    - Also verify main has the commits: `git checkout main && git pull`
 1b. **Verify no unmerged feature branches** (guard against orphaned work):
    - Run: `git branch --no-merged main`
-   - Cross-reference against the plan's PR groups / branch name suggestions
+   - Cross-reference against the work tree's PR groups (not just the plan):
+     {{ work_tree_seeder.output.pr_groups | json }}
    - If ANY branch matches a planned PR group that should be complete, STOP and
      report — code exists on a branch that was never PR'd or merged
 1c. **Verify all child items are Done** (guard against premature Epic closure):

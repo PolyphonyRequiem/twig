@@ -19,12 +19,17 @@ internal static class McpResultBuilder
     public static CallToolResult ToError(string message) =>
         new() { Content = [new TextContentBlock { Text = message }], IsError = true };
 
-    public static CallToolResult FormatWorkItem(WorkItem item) =>
+    public static CallToolResult FormatWorkItemWithWorkingSet(
+        WorkItem item, int parentChainCount, int childCount) =>
         BuildJson(writer =>
         {
             WriteWorkItemCore(writer, item);
             writer.WriteString("areaPath", item.AreaPath.ToString());
             writer.WriteString("iterationPath", item.IterationPath.ToString());
+            writer.WriteStartObject("workingSet");
+            writer.WriteNumber("parentChainCount", parentChainCount);
+            writer.WriteNumber("childCount", childCount);
+            writer.WriteEndObject();
         });
 
     public static CallToolResult FormatStatus(StatusSnapshot snapshot) =>

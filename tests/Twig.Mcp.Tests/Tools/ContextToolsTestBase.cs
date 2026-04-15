@@ -14,6 +14,10 @@ public abstract class ContextToolsTestBase : ReadToolsTestBase
             new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore),
             _pendingChangeStore, _linkRepo, cacheStaleMinutes: 5);
 
+    protected ContextChangeService CreateContextChangeService() =>
+        new(_workItemRepo, _adoService, CreateSyncCoordinator(),
+            new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore), _linkRepo);
+
     protected StatusOrchestrator CreateStatusOrchestrator(ActiveItemResolver resolver) =>
         new(_contextStore, _workItemRepo, _pendingChangeStore, resolver,
             new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, _iterationService, null),
@@ -25,6 +29,6 @@ public abstract class ContextToolsTestBase : ReadToolsTestBase
         return new ContextTools(
             _workItemRepo, _contextStore, resolver,
             CreateSyncCoordinator(), CreateStatusOrchestrator(resolver),
-            _promptStateWriter);
+            _promptStateWriter, CreateContextChangeService());
     }
 }

@@ -221,6 +221,7 @@ public sealed class ContextToolsSetTests : ContextToolsTestBase
         root.GetProperty("parentId").GetInt32().ShouldBe(3);
         root.GetProperty("isDirty").GetBoolean().ShouldBe(false);
         root.GetProperty("isSeed").GetBoolean().ShouldBe(false);
+        root.TryGetProperty("workingSet", out _).ShouldBeTrue();
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -299,7 +300,7 @@ public sealed class ContextToolsSetTests : ContextToolsTestBase
 
         result.IsError.ShouldBeNull();
 
-        // GetParentChainAsync called at least twice (initial miss + post-fetch)
+        // GetParentChainAsync called twice: initial miss + post-fetch
         await _workItemRepo.Received(2).GetParentChainAsync(100, Arg.Any<CancellationToken>());
 
         // Parent was auto-fetched via resolver (once — sync finds it cached on second lookup)
@@ -328,7 +329,7 @@ public sealed class ContextToolsSetTests : ContextToolsTestBase
 
         result.IsError.ShouldBeNull();
 
-        // GetParentChainAsync called once (found on first attempt)
+        // GetParentChainAsync called once during hydration (parent was already cached)
         await _workItemRepo.Received(1).GetParentChainAsync(100, Arg.Any<CancellationToken>());
 
         // No auto-fetch since parent was already cached
@@ -348,5 +349,71 @@ public sealed class ContextToolsSetTests : ContextToolsTestBase
 
         // GetParentChainAsync should never be called for items without parents
         await _workItemRepo.DidNotReceive().GetParentChainAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  ContextChangeService — invoked after setting context
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Set_InvokesContextChangeServiceExtendWorkingSet()
+    {
+        var parent = new WorkItemBuilder(100, "Parent").AsFeature().InState("Active").Build();
+        var child1 = new WorkItemBuilder(201, "Child 1").AsTask().InState("New").WithParent(42).Build();
+        var child2 = new WorkItemBuilder(202, "Child 2").AsTask().InState("Active").WithParent(42).Build();
+        var item = new WorkItemBuilder(42, "Feature").AsFeature().InState("Active").WithParent(100).Build();
+
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
+        _workItemRepo.GetParentChainAsync(100, Arg.Any<CancellationToken>()).Returns(new[] { parent });
+        _workItemRepo.GetChildrenAsync(42, Arg.Any<CancellationToken>()).Returns(new[] { child1, child2 });
+
+        var result = await CreateSut().Set("42");
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+
+        // Verify working set summary is included in response
+        var workingSet = root.GetProperty("workingSet");
+        workingSet.GetProperty("parentChainCount").GetInt32().ShouldBe(1);
+        workingSet.GetProperty("childCount").GetInt32().ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task Set_WorkingSetSummary_ZeroCounts_WhenNoRelatives()
+    {
+        var item = new WorkItemBuilder(42, "Orphan Item").AsEpic().InState("Active").Build();
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _workItemRepo.GetChildrenAsync(42, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
+
+        var result = await CreateSut().Set("42");
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+
+        var workingSet = root.GetProperty("workingSet");
+        workingSet.GetProperty("parentChainCount").GetInt32().ShouldBe(0);
+        workingSet.GetProperty("childCount").GetInt32().ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Set_ContextChangeServiceFailure_DoesNotFailToolCall()
+    {
+        // ExtendWorkingSetAsync internally swallows errors, but even if the
+        // surrounding try-catch is needed — verify the tool still succeeds.
+        var item = new WorkItemBuilder(42, "Feature").AsFeature().InState("Active").Build();
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _workItemRepo.GetChildrenAsync(42, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
+
+        // Make SyncChildrenAsync throw to trigger a failure path in ContextChangeService
+        _adoService.FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("ADO unreachable"));
+
+        var result = await CreateSut().Set("42");
+
+        // Tool call should still succeed
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+        root.GetProperty("id").GetInt32().ShouldBe(42);
     }
 }

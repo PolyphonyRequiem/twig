@@ -17,7 +17,8 @@ public sealed class ContextTools(
     ActiveItemResolver activeItemResolver,
     SyncCoordinator syncCoordinator,
     StatusOrchestrator statusOrchestrator,
-    IPromptStateWriter promptStateWriter)
+    IPromptStateWriter promptStateWriter,
+    ContextChangeService contextChangeService)
 {
     [McpServerTool(Name = "twig.set"), Description("Set the active work item by ID or title pattern")]
     public async Task<CallToolResult> Set(
@@ -73,6 +74,15 @@ public sealed class ContextTools(
 
         await contextStore.SetActiveWorkItemIdAsync(item.Id, ct);
 
+        // Extend working set around the target item (parent chain, 2 levels of children, links).
+        // Best-effort — extension failures must never fail the tool call.
+        try
+        {
+            await contextChangeService.ExtendWorkingSetAsync(item.Id, ct);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch { /* best-effort */ }
+
         // Best-effort sync — never fails the tool call
         try
         {
@@ -83,7 +93,8 @@ public sealed class ContextTools(
 
         await promptStateWriter.WritePromptStateAsync();
 
-        return McpResultBuilder.FormatWorkItem(item);
+        var children = await workItemRepo.GetChildrenAsync(item.Id, ct);
+        return McpResultBuilder.FormatWorkItemWithWorkingSet(item, parentChainIds.Count, children.Count);
     }
 
     [McpServerTool(Name = "twig.status"), Description("Show the active work item status")]

@@ -1,3 +1,4 @@
+using System.Net;
 using Microsoft.Extensions.DependencyInjection;
 using Twig.Domain.Interfaces;
 using Twig.Infrastructure.Ado;
@@ -34,8 +35,9 @@ public static class NetworkServiceModule
             return new AzCliAuthProvider();
         });
 
-        // HTTP client — singleton is acceptable for short-lived CLI process.
-        services.AddSingleton<HttpClient>();
+        // HTTP client — singleton backed by SocketsHttpHandler for automatic
+        // gzip/Brotli decompression and HTTP/2 multiplexing with HTTP/1.1 fallback.
+        services.AddSingleton<HttpClient>(_ => CreateHttpClient());
 
         services.AddSingleton<IAdoWorkItemService>(sp =>
         {
@@ -76,5 +78,23 @@ public static class NetworkServiceModule
         });
 
         return services;
+    }
+
+    internal static HttpClient CreateHttpClient()
+    {
+        var handler = CreateSocketsHandler();
+        return new HttpClient(handler)
+        {
+            DefaultRequestVersion = HttpVersion.Version20,
+            DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrLower,
+        };
+    }
+
+    internal static SocketsHttpHandler CreateSocketsHandler()
+    {
+        return new SocketsHttpHandler
+        {
+            AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Brotli,
+        };
     }
 }

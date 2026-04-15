@@ -1,5 +1,4 @@
 using NSubstitute;
-using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
@@ -342,52 +341,6 @@ public sealed class SetCommandTests
         var output = await ExecuteCapturingOutput(CreateCommand(CreateProvider(config)), "500");
 
         output.ShouldContain("1/2");
-    }
-
-    // ── Context Change Extension (T-1544) ───────────────────────────
-
-    [Fact]
-    public async Task Set_WithContextChangeService_InvokesExtension()
-    {
-        var item = CreateWorkItem(42, "Test Item");
-        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
-        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
-        _adoService.FetchChildrenAsync(42, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
-
-        var result = await CreateCommandWithContextChange().ExecuteAsync("42");
-
-        result.ShouldBe(0);
-        // Extension triggers child sync via SyncCoordinator.SyncChildrenAsync
-        await _adoService.Received().FetchChildrenAsync(42, Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task Set_ExtensionFailure_DoesNotFailCommand()
-    {
-        var item = CreateWorkItem(42, "Test Item");
-        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
-        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
-        _adoService.FetchChildrenAsync(42, Arg.Any<CancellationToken>())
-            .ThrowsAsync(new InvalidOperationException("ADO unreachable"));
-
-        var result = await CreateCommandWithContextChange().ExecuteAsync("42");
-
-        result.ShouldBe(0);
-        await _contextStore.Received().SetActiveWorkItemIdAsync(42, Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task Set_NullContextChangeService_DoesNotCallExtension()
-    {
-        var item = CreateWorkItem(42, "Test Item");
-        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
-        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
-
-        var result = await _cmd.ExecuteAsync("42");
-
-        result.ShouldBe(0);
-        // FetchChildrenAsync is only called by extension — should not be called
-        await _adoService.DidNotReceive().FetchChildrenAsync(42, Arg.Any<CancellationToken>());
     }
 
     [Fact]

@@ -153,24 +153,16 @@ public sealed class RefreshCommand(
             .ToList();
         await config.SaveAsync(paths.ConfigPath);
 
-        // Fetch type state sequences and process configuration for the process_types table
-        try
-        {
-            await ProcessTypeSyncService.SyncAsync(iterationService, processTypeStore);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _stderr.WriteLine(fmt.FormatInfo($"⚠ Could not fetch type data: {ex.Message}"));
-        }
+        // Sync process types and field definitions concurrently (FR-5)
+        await Task.WhenAll(
+            SafeSyncAsync(() => ProcessTypeSyncService.SyncAsync(iterationService, processTypeStore), "type data"),
+            SafeSyncAsync(() => FieldDefinitionSyncService.SyncAsync(iterationService, fieldDefinitionStore), "field definitions"));
 
-        // Sync field definitions for dynamic column display names (EPIC-004)
-        try
+        async Task SafeSyncAsync(Func<Task> action, string label)
         {
-            await FieldDefinitionSyncService.SyncAsync(iterationService, fieldDefinitionStore);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _stderr.WriteLine(fmt.FormatInfo($"⚠ Could not fetch field definitions: {ex.Message}"));
+            try { await action(); }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            { _stderr.WriteLine(fmt.FormatInfo($"⚠ Could not fetch {label}: {ex.Message}")); }
         }
 
         // Update global profile metadata with current field definition hash

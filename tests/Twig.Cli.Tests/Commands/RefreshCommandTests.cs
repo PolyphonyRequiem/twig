@@ -553,6 +553,79 @@ public class RefreshCommandTests : RefreshCommandTestBase
         stderrOutput.ShouldNotContain("Cleansed");
     }
 
+    [Fact]
+    public async Task Refresh_BothMetadataSyncsAreCalled()
+    {
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+
+        var result = await _cmd.ExecuteAsync();
+
+        result.ShouldBe(0);
+        await _iterationService.Received().GetWorkItemTypesWithStatesAsync(Arg.Any<CancellationToken>());
+        await _iterationService.Received().GetProcessConfigurationAsync(Arg.Any<CancellationToken>());
+        await _iterationService.Received().GetFieldDefinitionsAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Refresh_ProcessTypeSyncFailure_DoesNotBlockFieldDefinitionSync()
+    {
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _iterationService.GetWorkItemTypesWithStatesAsync(Arg.Any<CancellationToken>())
+            .Returns<IReadOnlyList<WorkItemTypeWithStates>>(_ => throw new InvalidOperationException("ADO type fetch failed"));
+
+        var sw = new StringWriter();
+        var cmd = CreateCommand(sw);
+        var result = await cmd.ExecuteAsync();
+
+        result.ShouldBe(0);
+        sw.ToString().ShouldContain("Could not fetch type data");
+        await _iterationService.Received().GetFieldDefinitionsAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Refresh_FieldDefinitionSyncFailure_DoesNotBlockProcessTypeSync()
+    {
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _iterationService.GetFieldDefinitionsAsync(Arg.Any<CancellationToken>())
+            .Returns<IReadOnlyList<Domain.ValueObjects.FieldDefinition>>(_ => throw new InvalidOperationException("ADO field fetch failed"));
+
+        var sw = new StringWriter();
+        var cmd = CreateCommand(sw);
+        var result = await cmd.ExecuteAsync();
+
+        result.ShouldBe(0);
+        sw.ToString().ShouldContain("Could not fetch field definitions");
+        await _iterationService.Received().GetWorkItemTypesWithStatesAsync(Arg.Any<CancellationToken>());
+        await _iterationService.Received().GetProcessConfigurationAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Refresh_BothMetadataSyncsFail_ReturnsSuccessWithWarnings()
+    {
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _iterationService.GetWorkItemTypesWithStatesAsync(Arg.Any<CancellationToken>())
+            .Returns<IReadOnlyList<WorkItemTypeWithStates>>(_ => throw new InvalidOperationException("type error"));
+        _iterationService.GetFieldDefinitionsAsync(Arg.Any<CancellationToken>())
+            .Returns<IReadOnlyList<Domain.ValueObjects.FieldDefinition>>(_ => throw new InvalidOperationException("field error"));
+
+        var sw = new StringWriter();
+        var cmd = CreateCommand(sw);
+        var result = await cmd.ExecuteAsync();
+
+        result.ShouldBe(0);
+        var stderr = sw.ToString();
+        stderr.ShouldContain("Could not fetch type data");
+        stderr.ShouldContain("Could not fetch field definitions");
+    }
+
     private static WorkItem CreateWorkItem(int id, string title)
     {
         return new WorkItem

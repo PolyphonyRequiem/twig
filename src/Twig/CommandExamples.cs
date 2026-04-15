@@ -29,8 +29,8 @@ internal static class CommandExamples
         ],
         ["query"] =
         [
-            "twig query \"my bugs\"       Run a saved ADO query by name",
-            "twig query \"sprint tasks\" --state Active  Filter query results by state",
+            "twig query \"login bug\"              Search title & description",
+            "twig query --state Doing --top 50    Filter by state, limit results",
         ],
         ["status"] =
         [

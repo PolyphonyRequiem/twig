@@ -44,6 +44,7 @@ public sealed partial class QueryCommand(
         var startTimestamp = Stopwatch.GetTimestamp();
         var hasFilters = HasAnyFilter(searchText, type, state, assignedTo, areaPath, iterationPath, createdSince, changedSince);
         var (exitCode, resultCount) = await ExecuteCoreAsync(
+            hasFilters,
             searchText, type, state, assignedTo, areaPath, iterationPath,
             createdSince, changedSince, top, outputFormat, ct);
 
@@ -66,6 +67,7 @@ public sealed partial class QueryCommand(
     }
 
     private async Task<(int ExitCode, int ResultCount)> ExecuteCoreAsync(
+        bool hasFilters,
         string? searchText,
         string? type,
         string? state,
@@ -80,7 +82,7 @@ public sealed partial class QueryCommand(
     {
         // 0. No-args detection: short-circuit before WIQL when no filters provided (FR-01)
         // --output and --top alone are formatting/limit controls, not filters.
-        if (!HasAnyFilter(searchText, type, state, assignedTo, areaPath, iterationPath, createdSince, changedSince))
+        if (!hasFilters)
         {
             return RenderQuerySummary(outputFormat);
         }

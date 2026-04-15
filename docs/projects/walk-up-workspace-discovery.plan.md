@@ -390,6 +390,22 @@ PG-1 (core + DI)
 └── PG-2 (entry points + editor)  ← depends on PG-1
 ```
 
+## Completion
+
+**Completed:** 2026-04-15
+**Delivered via:** PR #35 (merged 2026-04-15T17:28:27Z)
+**Release tag:** v0.39.1
+
+### Summary
+
+All 10 tasks across 2 PR groups were implemented and merged in a single day. The `WorkspaceDiscovery.FindTwigDir()` walk-up search is now active across all three entry points (CLI, TUI, MCP), the DI registration, and `EditorLauncher`. Unit tests cover CWD, ancestor, not-found, nearest-wins, and root boundary scenarios.
+
+### Process Notes
+
+- **PG-1** and **PG-2** were co-merged in a single PR (#35) rather than delivered as separate PRs. All code went through PR review — no direct-to-main commits.
+- Commit cadence was steady: 10 commits over ~4 hours, with two reduction sweeps interspersed.
+- All acceptance criteria from the plan were met without scope changes.
+
 ## References
 
 - Git's `discover_git_directory()`: https://github.com/git/git/blob/master/setup.c

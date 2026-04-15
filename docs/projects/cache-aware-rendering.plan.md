@@ -1,7 +1,7 @@
 # Cache-Aware Rendering & Live Refresh
 
 **Epic:** #1519  
-> **Status**: 🔨 In Progress — 1/3 PR groups merged  
+> **Status**: 🔨 In Progress — 2/3 PR groups merged  
 **Revision:** 2 — Addressed tech (82→) and readability (88→) review feedback
 
 ---

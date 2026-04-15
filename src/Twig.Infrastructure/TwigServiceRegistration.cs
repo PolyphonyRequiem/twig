@@ -34,10 +34,15 @@ public static class TwigServiceRegistration
     /// <param name="services">The service collection.</param>
     /// <param name="preloadedConfig">Optional pre-loaded config to avoid redundant file I/O.
     /// When null, config is loaded from disk on first resolution.</param>
+    /// <param name="twigDir">Optional explicit path to the <c>.twig</c> directory.
+    /// When null, falls back to <c>Path.Combine(Directory.GetCurrentDirectory(), ".twig")</c>.</param>
     public static IServiceCollection AddTwigCoreServices(
         this IServiceCollection services,
-        TwigConfiguration? preloadedConfig = null)
+        TwigConfiguration? preloadedConfig = null,
+        string? twigDir = null)
     {
+        var resolvedTwigDir = twigDir ?? Path.Combine(Directory.GetCurrentDirectory(), ".twig");
+
         // Configuration — use pre-loaded instance if available, otherwise load on first resolution
         if (preloadedConfig is not null)
         {
@@ -45,10 +50,9 @@ public static class TwigServiceRegistration
         }
         else
         {
-            services.AddSingleton(sp =>
+            services.AddSingleton(_ =>
             {
-                var twigDir = Path.Combine(Directory.GetCurrentDirectory(), ".twig");
-                var configPath = Path.Combine(twigDir, "config");
+                var configPath = Path.Combine(resolvedTwigDir, "config");
                 return TwigConfiguration.Load(configPath);
             });
         }
@@ -57,8 +61,7 @@ public static class TwigServiceRegistration
         services.AddSingleton(sp =>
         {
             var config = sp.GetRequiredService<TwigConfiguration>();
-            var twigDir = Path.Combine(Directory.GetCurrentDirectory(), ".twig");
-            return TwigPaths.BuildPaths(twigDir, config);
+            return TwigPaths.BuildPaths(resolvedTwigDir, config);
         });
 
         // SQLite persistence — registered unconditionally. SqliteCacheStore is

@@ -81,15 +81,17 @@ public sealed class TreeCommand(
                 spectreRenderer.ParentChildMap = BacklogHierarchyService.InferParentChildMap(processConfig);
             }
 
-            // Shared helper: resolve sibling count for a given node
-            async Task<int?> GetSiblingCountAsync(int nodeId)
-            {
-                var parentId = nodeId == resolvedItem.Id
-                    ? resolvedItem.ParentId
-                    : (await workItemRepo.GetByIdAsync(nodeId, ct))?.ParentId;
-                if (!parentId.HasValue) return null;
-                return (await workItemRepo.GetChildrenAsync(parentId.Value, ct)).Count;
-            }
+            // Shared factory: build a sibling-count resolver for any root item and token
+            Func<int, Task<int?>> MakeSiblingCounter(Domain.Aggregates.WorkItem root, CancellationToken token) =>
+                async nodeId =>
+                {
+                    var parentId = nodeId == root.Id ? root.ParentId
+                        : (await workItemRepo.GetByIdAsync(nodeId, token))?.ParentId;
+                    if (!parentId.HasValue) return null;
+                    return (await workItemRepo.GetChildrenAsync(parentId.Value, token)).Count;
+                };
+
+            var getSiblingCount = MakeSiblingCounter(resolvedItem, ct);
 
             // Fallback: render tree without sync (--no-refresh, non-Spectre renderers, sync failures)
             Task RenderTreeDirectAsync() => renderer.RenderTreeAsync(
@@ -101,7 +103,7 @@ public sealed class TreeCommand(
                 maxChildren: maxChildren,
                 activeId: activeId,
                 ct: ct,
-                getSiblingCount: GetSiblingCountAsync,
+                getSiblingCount: getSiblingCount,
                 getLinks: async () =>
                 {
                     try { return await syncCoordinator.SyncLinksAsync(resolvedItem.Id, ct); }
@@ -131,7 +133,7 @@ public sealed class TreeCommand(
                             cachedChildren,
                             maxChildren,
                             activeId,
-                            GetSiblingCountAsync,
+                            getSiblingCount,
                             cachedLinks,
                             config.Display.CacheStaleMinutes),
                         performSync: () => syncCoordinator.SyncWorkingSetAsync(workingSet),
@@ -146,22 +148,13 @@ public sealed class TreeCommand(
                                 : await workItemRepo.GetParentChainAsync(freshItem.ParentId.Value, CancellationToken.None);
                             var freshChildren = await workItemRepo.GetChildrenAsync(freshItem.Id, CancellationToken.None);
 
-                            async Task<int?> GetFreshSiblingCountAsync(int nodeId)
-                            {
-                                int? parentId = nodeId == freshItem.Id
-                                    ? freshItem.ParentId
-                                    : (await workItemRepo.GetByIdAsync(nodeId, CancellationToken.None))?.ParentId;
-                                if (!parentId.HasValue) return null;
-                                return (await workItemRepo.GetChildrenAsync(parentId.Value, CancellationToken.None)).Count;
-                            }
-
                             return await spectreRenderer.BuildTreeViewAsync(
                                 freshItem,
                                 freshParentChain,
                                 freshChildren,
                                 maxChildren,
                                 activeId,
-                                GetFreshSiblingCountAsync,
+                                MakeSiblingCounter(freshItem, CancellationToken.None),
                                 cachedLinks,
                                 config.Display.CacheStaleMinutes);
                         },

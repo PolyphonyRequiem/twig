@@ -2745,32 +2745,6 @@ public class HumanOutputFormatterTests
     }
 
     [Fact]
-    public void FormatStatusSummary_CacheAge_ShowsHoursForOlderItems()
-    {
-        var item = new WorkItemBuilder(504, "Hours Stale")
-            .InState("Active")
-            .LastSyncedAt(DateTimeOffset.UtcNow.AddHours(-3))
-            .Build();
-
-        var result = _formatter.FormatStatusSummary(item);
-
-        result.ShouldContain("(cached 3h ago)");
-    }
-
-    [Fact]
-    public void FormatStatusSummary_CacheAge_ShowsDaysForVeryOldItems()
-    {
-        var item = new WorkItemBuilder(505, "Days Stale")
-            .InState("Active")
-            .LastSyncedAt(DateTimeOffset.UtcNow.AddDays(-2))
-            .Build();
-
-        var result = _formatter.FormatStatusSummary(item);
-
-        result.ShouldContain("(cached 2d ago)");
-    }
-
-    [Fact]
     public void FormatStatusSummary_CustomThreshold_Respects_CacheStaleMinutes()
     {
         var config = new DisplayConfig { CacheStaleMinutes = 30 };

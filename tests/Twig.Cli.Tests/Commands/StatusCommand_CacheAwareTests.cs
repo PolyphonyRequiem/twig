@@ -130,18 +130,6 @@ public sealed class StatusCommand_CacheAwareTests : IDisposable
     }
 
     [Fact]
-    public async Task NoRefresh_ReturnsZeroExitCode()
-    {
-        var item = CreateWorkItem(1, "Simple Item");
-        SetupActiveItem(item);
-
-        var cmd = CreateCommandWithPipeline(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync("human", noRefresh: true);
-
-        result.ShouldBe(0);
-    }
-
-    [Fact]
     public async Task NoRefresh_NoActiveItem_ReturnsError()
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);

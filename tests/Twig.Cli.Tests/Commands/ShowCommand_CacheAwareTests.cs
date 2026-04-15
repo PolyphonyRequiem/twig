@@ -111,6 +111,9 @@ public sealed class ShowCommand_CacheAwareTests
         var output = _testConsole.Output;
         output.ShouldContain("#1");
         output.ShouldContain("Two Pass Show Item");
+
+        // Verify the sync path was actually exercised (not just cache-only)
+        await _adoService.Received().FetchAsync(1, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -123,19 +126,16 @@ public sealed class ShowCommand_CacheAwareTests
         var freshItem = CreateWorkItem(1, "Updated Title");
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(freshItem);
 
-        // On second GetByIdAsync call (after sync writes), return fresh data
-        var callCount = 0;
+        // First two GetByIdAsync calls return cached data (initial lookup + ProtectedCacheWriter check),
+        // third call (buildRevisedView after sync) returns fresh data
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>())
-            .Returns(_ =>
-            {
-                callCount++;
-                return callCount <= 2 ? cachedItem : freshItem;
-            });
+            .Returns(cachedItem, cachedItem, freshItem);
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
         var result = await cmd.ExecuteAsync(1, "human");
 
         result.ShouldBe(0);
+        _testConsole.Output.ShouldContain("Updated Title");
     }
 
     [Fact]

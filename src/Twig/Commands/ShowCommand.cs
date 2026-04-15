@@ -133,7 +133,19 @@ public sealed class ShowCommand(
                                 ? await workItemRepo.GetByIdAsync(freshItem.ParentId.Value, CancellationToken.None)
                                 : null;
 
-                            return await BuildView(freshItem, freshParent, freshChildren, processConfigProvider.ComputeChildProgress(freshChildren));
+                            IReadOnlyList<WorkItemLink> freshLinks = [];
+                            try { freshLinks = await linkRepo.GetLinksAsync(freshItem.Id, CancellationToken.None); }
+                            catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
+
+                            return await spectreRenderer.BuildStatusViewAsync(freshItem,
+                                getPendingChanges: () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>([]),
+                                fieldDefinitions: fieldDefs,
+                                statusFieldEntries: statusFieldEntries,
+                                childProgress: processConfigProvider.ComputeChildProgress(freshChildren),
+                                links: freshLinks,
+                                parent: freshParent,
+                                children: freshChildren,
+                                cacheStaleMinutes: config.Display.CacheStaleMinutes);
                         },
                         CancellationToken.None);
                 }

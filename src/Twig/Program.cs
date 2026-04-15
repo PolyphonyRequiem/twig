@@ -319,8 +319,8 @@ public sealed class TwigCommands(IServiceProvider services)
         => await services.GetRequiredService<NewCommand>().ExecuteAsync(title, type, area, iteration, description, parent, set, editor, output, ct);
 
     /// <summary>Display the work item tree hierarchy.</summary>
-    public async Task<int> Tree(string output = OutputFormatterFactory.DefaultFormat, int? depth = null, bool all = false, bool noLive = false, CancellationToken ct = default)
-        => await services.GetRequiredService<TreeCommand>().ExecuteAsync(output, depth, all, noLive, ct);
+    public async Task<int> Tree(string output = OutputFormatterFactory.DefaultFormat, int? depth = null, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default)
+        => await services.GetRequiredService<TreeCommand>().ExecuteAsync(output, depth, all, noLive, noRefresh, ct);
 
     /// <summary>Navigate to the parent work item.</summary>
     [Command("nav up")]

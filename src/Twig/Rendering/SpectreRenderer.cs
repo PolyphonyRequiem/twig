@@ -284,20 +284,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         var (tree, focusContainer) = await BuildSpectreTreeAsync(focusedItem, parentChain, activeId, getSiblingCount);
 
         // EPIC-005: Unparented banner for tree view
-        IRenderable treeRenderable = tree;
-        if (TypeLevelMap is not null && ParentChildMap is not null
-            && parentChain.Count == 0
-            && !focusedItem.ParentId.HasValue
-            && TypeLevelMap.TryGetValue(focusedItem.Type.Value, out var focusLevel)
-            && focusLevel > 0)
-        {
-            var expectedParent = Formatters.HumanOutputFormatter.FindExpectedParentTypeName(
-                focusedItem.Type.Value, ParentChildMap);
-            var parentLabel = expectedParent ?? "a parent";
-            treeRenderable = new Rows(
-                new Markup($"[dim](unparented — expected under a {Markup.Escape(parentLabel)})[/]"),
-                tree);
-        }
+        var treeRenderable = ApplyUnparentedBanner(tree, focusedItem, parentChain);
 
         // Stage 2: Render tree immediately (parent chain + focused item), then add children
         await _console.Live(treeRenderable)
@@ -428,6 +415,89 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         var marker = (activeId.HasValue && item.Id == activeId.Value) ? "[aqua]●[/] " : "";
         var dirty = item.IsDirty ? " [yellow]✎[/]" : "";
         return $"{marker}{_theme.FormatTypeBadge(item.Type)} [bold]#{item.Id} {Markup.Escape(item.Title)}[/]{dirty} {_theme.FormatState(item.State)}";
+    }
+
+    private IRenderable ApplyUnparentedBanner(Tree tree, WorkItem focusedItem, IReadOnlyList<WorkItem> parentChain)
+    {
+        if (TypeLevelMap is null || ParentChildMap is null
+            || parentChain.Count != 0
+            || focusedItem.ParentId.HasValue
+            || !TypeLevelMap.TryGetValue(focusedItem.Type.Value, out var focusLevel)
+            || focusLevel == 0)
+            return tree;
+        var expectedParent = Formatters.HumanOutputFormatter.FindExpectedParentTypeName(
+            focusedItem.Type.Value, ParentChildMap);
+        return new Rows(
+            new Markup($"[dim](unparented — expected under a {Markup.Escape(expectedParent ?? "a parent")})[/]"),
+            tree);
+    }
+
+    /// <summary>
+    /// Builds the complete tree view as a composite <see cref="IRenderable"/> without
+    /// writing to the console. Used by <see cref="Commands.TreeCommand"/> to compose the tree
+    /// view inside a <see cref="RenderWithSyncAsync"/> Live region, preventing the degenerate
+    /// empty-cached-view pattern.
+    /// </summary>
+    internal async Task<IRenderable> BuildTreeViewAsync(
+        WorkItem focusedItem,
+        IReadOnlyList<WorkItem> parentChain,
+        IReadOnlyList<WorkItem> children,
+        int maxChildren,
+        int? activeId,
+        Func<int, Task<int?>>? getSiblingCount = null,
+        IReadOnlyList<Domain.ValueObjects.WorkItemLink>? links = null,
+        int cacheStaleMinutes = 5)
+    {
+        var (tree, focusContainer) = await BuildSpectreTreeAsync(focusedItem, parentChain, activeId, getSiblingCount);
+
+        // Cache-age on focused node
+        var focusCacheAge = CacheAgeFormatter.Format(focusedItem.LastSyncedAt, cacheStaleMinutes);
+        if (focusCacheAge is not null)
+        {
+            // Append cache-age as a dimmed sibling node below the focus
+            focusContainer.AddNode($"[dim]{Markup.Escape(focusCacheAge)}[/]");
+        }
+
+        // Add children with cache-age indicators on stale items
+        var displayCount = Math.Min(children.Count, maxChildren);
+        var hasMore = children.Count > maxChildren;
+
+        for (var i = 0; i < displayCount; i++)
+        {
+            var child = children[i];
+            var activeMarker = (activeId.HasValue && child.Id == activeId.Value)
+                ? "[aqua]●[/] " : "";
+            var dirty = child.IsDirty ? " [yellow]✎[/]" : "";
+            var effort = Formatters.FormatterHelpers.GetEffortDisplay(child);
+            var effortSuffix = effort is not null ? $" [dim]{Markup.Escape(effort)}[/]" : "";
+            var stateColor = _theme.GetStateCategoryMarkupColor(child.State);
+
+            var childCacheAge = CacheAgeFormatter.Format(child.LastSyncedAt, cacheStaleMinutes);
+            var childCacheAgeMarkup = childCacheAge is not null ? $" [dim]{Markup.Escape(childCacheAge)}[/]" : "";
+
+            var label = $"[{stateColor}]│[/] {activeMarker}{_theme.FormatTypeBadge(child.Type)} #{child.Id} {Markup.Escape(child.Title)}{dirty} {_theme.FormatState(child.State)}{effortSuffix}{childCacheAgeMarkup}";
+            focusContainer.AddNode(label);
+        }
+
+        if (hasMore)
+        {
+            focusContainer.AddNode($"[dim]... and {children.Count - maxChildren} more[/]");
+        }
+
+        // Links section
+        if (links is { Count: > 0 })
+        {
+            focusContainer.AddNode("[dim]┊[/]");
+            var linksNode = focusContainer.AddNode("[blue]⇄[/] [dim]Links[/]");
+            foreach (var link in links)
+            {
+                var linkLabel = $"[blue]{Markup.Escape(link.LinkType)}[/]: #{link.TargetId}";
+                linksNode.AddNode(linkLabel);
+            }
+        }
+
+        // EPIC-005: Unparented banner for tree view
+        return ApplyUnparentedBanner(tree, focusedItem, parentChain);
     }
 
     /// <summary>
@@ -980,7 +1050,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
                 switch (result)
                 {
-                    case SyncResult.UpToDate:
+                    case SyncResult.UpToDate or SyncResult.Skipped:
                         ctx.UpdateTarget(new Rows(cachedView, new Markup("[dim]✓ up to date[/]")));
                         ctx.Refresh();
                         await Task.Delay(SyncStatusDelay, ct);
@@ -1022,14 +1092,6 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                         ctx.UpdateTarget(new Rows(cachedView, new Markup($"[yellow]⚠ sync failed ({reason})[/]")));
                         ctx.Refresh();
                         // Failed status persists — no delay/clear
-                        break;
-
-                    case SyncResult.Skipped:
-                        ctx.UpdateTarget(new Rows(cachedView, new Markup("[dim]✓ up to date[/]")));
-                        ctx.Refresh();
-                        await Task.Delay(SyncStatusDelay, ct);
-                        ctx.UpdateTarget(new Rows(cachedView, new Text(" ")));
-                        ctx.Refresh();
                         break;
 
                     default:

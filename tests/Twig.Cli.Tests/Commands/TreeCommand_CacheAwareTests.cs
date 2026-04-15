@@ -1,5 +1,6 @@
 using NSubstitute;
 using Shouldly;
+using Spectre.Console.Rendering;
 using Spectre.Console.Testing;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
@@ -47,6 +48,7 @@ public sealed class TreeCommand_CacheAwareTests
 
         _testConsole = new TestConsole();
         _spectreRenderer = new SpectreRenderer(_testConsole, new SpectreTheme(new DisplayConfig()));
+        _spectreRenderer.SyncStatusDelay = TimeSpan.Zero;
     }
 
     private RenderingPipelineFactory CreateTtyPipelineFactory() =>
@@ -145,8 +147,6 @@ public sealed class TreeCommand_CacheAwareTests
         var item = CreateWorkItem(1, "Two Pass Tree Item");
         SetupActiveItem(item);
 
-        _spectreRenderer.SyncStatusDelay = TimeSpan.Zero;
-
         var cmd = CreateCommand(CreateTtyPipelineFactory());
         // noRefresh defaults to false — should use RenderWithSyncAsync
         var result = await cmd.ExecuteAsync("human");
@@ -163,8 +163,6 @@ public sealed class TreeCommand_CacheAwareTests
     {
         var item = CreateWorkItem(1, "Sync Indicator Item");
         SetupActiveItem(item);
-
-        _spectreRenderer.SyncStatusDelay = TimeSpan.Zero;
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
         var result = await cmd.ExecuteAsync("human");
@@ -199,8 +197,6 @@ public sealed class TreeCommand_CacheAwareTests
                 return Task.FromResult<IReadOnlyList<WorkItem>>(Array.Empty<WorkItem>());
             });
 
-        _spectreRenderer.SyncStatusDelay = TimeSpan.Zero;
-
         var cmd = CreateCommand(CreateTtyPipelineFactory());
         var result = await cmd.ExecuteAsync("human");
 
@@ -229,8 +225,6 @@ public sealed class TreeCommand_CacheAwareTests
         };
         SetupActiveItem(staleItem);
 
-        _spectreRenderer.SyncStatusDelay = TimeSpan.Zero;
-
         var cmd = CreateCommand(CreateTtyPipelineFactory());
         var result = await cmd.ExecuteAsync("human");
 
@@ -256,8 +250,6 @@ public sealed class TreeCommand_CacheAwareTests
             LastSyncedAt = DateTimeOffset.UtcNow,
         };
         SetupActiveItem(freshItem);
-
-        _spectreRenderer.SyncStatusDelay = TimeSpan.Zero;
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
         var result = await cmd.ExecuteAsync("human");
@@ -289,8 +281,6 @@ public sealed class TreeCommand_CacheAwareTests
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
             .Returns(new[] { staleChild });
 
-        _spectreRenderer.SyncStatusDelay = TimeSpan.Zero;
-
         var cmd = CreateCommand(CreateTtyPipelineFactory());
         var result = await cmd.ExecuteAsync("human");
 
@@ -317,9 +307,7 @@ public sealed class TreeCommand_CacheAwareTests
 
         result.ShouldNotBeNull();
 
-        var console = new TestConsole();
-        console.Write(result);
-        console.Output.ShouldContain("Focus Only");
+        RenderToString(result).ShouldContain("Focus Only");
     }
 
     [Fact]
@@ -335,9 +323,7 @@ public sealed class TreeCommand_CacheAwareTests
             maxChildren: 10,
             activeId: 1);
 
-        var console = new TestConsole();
-        console.Write(result);
-        var output = console.Output;
+        var output = RenderToString(result);
         output.ShouldContain("Parent Focus");
         output.ShouldContain("Child Node");
     }
@@ -355,9 +341,7 @@ public sealed class TreeCommand_CacheAwareTests
             maxChildren: 10,
             activeId: 1);
 
-        var console = new TestConsole();
-        console.Write(result);
-        var output = console.Output;
+        var output = RenderToString(result);
         output.ShouldContain("Root Epic");
         output.ShouldContain("Focused Task");
     }
@@ -377,10 +361,7 @@ public sealed class TreeCommand_CacheAwareTests
             maxChildren: 2,
             activeId: 1);
 
-        var console = new TestConsole();
-        console.Write(result);
-        var output = console.Output;
-        output.ShouldContain("... and 3 more");
+        RenderToString(result).ShouldContain("... and 3 more");
     }
 
     [Fact]
@@ -400,9 +381,7 @@ public sealed class TreeCommand_CacheAwareTests
             activeId: 1,
             links: links);
 
-        var console = new TestConsole();
-        console.Write(result);
-        var output = console.Output;
+        var output = RenderToString(result);
         output.ShouldContain("Links");
         output.ShouldContain("Related");
         output.ShouldContain("#42");
@@ -430,10 +409,7 @@ public sealed class TreeCommand_CacheAwareTests
             activeId: 1,
             cacheStaleMinutes: 5);
 
-        var console = new TestConsole();
-        console.Write(result);
-        var output = console.Output;
-        output.ShouldContain("cached 15m ago");
+        RenderToString(result).ShouldContain("cached 15m ago");
     }
 
     [Fact]
@@ -458,10 +434,7 @@ public sealed class TreeCommand_CacheAwareTests
             activeId: 1,
             cacheStaleMinutes: 5);
 
-        var console = new TestConsole();
-        console.Write(result);
-        var output = console.Output;
-        output.ShouldNotContain("cached");
+        RenderToString(result).ShouldNotContain("cached");
     }
 
     // ── Two-pass data change validation ────────────────────────────
@@ -520,8 +493,6 @@ public sealed class TreeCommand_CacheAwareTests
                 return Task.FromResult(CreateWorkItem(callInfo.ArgAt<int>(0), "Fetched"));
             });
 
-        _spectreRenderer.SyncStatusDelay = TimeSpan.Zero;
-
         var cmd = CreateCommand(CreateTtyPipelineFactory());
         var result = await cmd.ExecuteAsync("human");
 
@@ -534,6 +505,13 @@ public sealed class TreeCommand_CacheAwareTests
     }
 
     // ── Helpers ──────────────────────────────────────────────────────
+
+    private static string RenderToString(IRenderable renderable)
+    {
+        var console = new TestConsole();
+        console.Write(renderable);
+        return console.Output;
+    }
 
     private static WorkItem CreateWorkItem(int id, string title, int? parentId = null, string type = "Task", string state = "New") =>
         new()

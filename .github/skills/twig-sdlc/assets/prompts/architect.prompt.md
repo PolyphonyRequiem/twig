@@ -145,6 +145,7 @@ hierarchy. A PR group may contain:
 Size each PR group for reviewability (≤2000 LoC, ≤50 files).
 Classify each as **deep** (few files, complex) or **wide** (many files, mechanical).
 Define execution order between PR groups using successor links.
+**Naming:** Use `PG-1`, `PG-2`, etc. (not `PR-1`) to avoid confusion with GitHub PR numbers.
 
 ### References *(optional)*
 Links to relevant documentation, prior art, RFCs, or external resources.

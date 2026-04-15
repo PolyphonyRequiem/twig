@@ -1,38 +1,53 @@
 # Cache-Aware Rendering & Live Refresh
 
 **Epic:** #1519  
-> **Status**: ✅ Done  
-**Revision:** 2 — Addressed tech (82→) and readability (88→) review feedback
+> **Status**: 🔨 In Progress  
+**Revision:** 4 — Addressed tech (88) and readability (92) review feedback: (1) Added Issue #1522 for MCP `ContextChangeService` integration gap; (2) Updated Background narrative from pre-implementation baseline to post-implementation current state; (3) Added `ContextTools.cs` to `SetActiveWorkItemIdAsync` call-site audit; (4) Fixed `~varies` line numbers to exact values; (5) Added `--no-refresh`/`--no-live` forward-reference in Executive Summary; (6) Clarified context-change data flow step 4; (7) Moved Completion section to appendix position after References.
+
+| Rev | Changes |
+|-----|---------|
+| 1 | Initial draft |
+| 2 | Expanded design, added call-site audits |
+| 3 | Corrected line-number references post-implementation, added Open Questions, consolidated `--no-refresh`/`--no-live` into DD-01 |
+| 4 | MCP integration gap (Issue #1522), narrative updated to post-implementation state, exact call-site line numbers |
 
 ---
 
 ## Executive Summary
 
-This design implements a **two-pass rendering pattern** across all twig display commands (`status`, `show`, `tree`, `query`, `workspace`) and a **context-change working set extension** for `twig set`. Today, most display commands render from a local SQLite cache that may be stale, with no visual indication of staleness or dirty state. Users see outdated work item states (e.g., items shown as "To Do" when they're actually "Done" in ADO), eroding trust in CLI output. The solution introduces: (1) immediate cache-first rendering with cache-age indicators, (2) background ADO sync with Spectre.Console Live region updates, (3) prominent dirty-item indicators, (4) a `--no-refresh` opt-out flag, and (5) automatic working set expansion when `twig set` targets an out-of-sprint item. The existing `RenderWithSyncAsync` primitive in `SpectreRenderer` provides the foundation — this work generalizes that pattern, adds cache-age metadata to the display, enriches dirty-item rendering, and introduces a `ContextChangeService` for consistent working set expansion.
+This design implements a **two-pass rendering pattern** across all twig display commands (`status`, `show`, `tree`, `workspace`) and a **context-change working set extension** for `twig set`. The solution introduces: (1) immediate cache-first rendering with cache-age indicators, (2) background ADO sync with Spectre.Console Live region updates, (3) prominent dirty-item indicators, (4) a `--no-refresh` opt-out flag (orthogonal to `--no-live` — see [DD-01](#design-decisions) for the distinction), and (5) automatic working set expansion when `twig set` targets an out-of-sprint item via `ContextChangeService`. Issues #1520 (two-pass rendering) and #1521 (context change extension) are delivered. **Remaining gap:** the MCP server (`twig-mcp`) calls `SetActiveWorkItemIdAsync` in `ContextTools.Set()` but does not invoke `ContextChangeService`, leaving MCP consumers with the same orphaned-context problem that CLI consumers had before this epic. Issue #1522 addresses this gap.
 
 ## Background
 
 ### Current Architecture
 
 Twig uses a layered architecture:
-- **Domain layer** (`Twig.Domain`): Aggregates (`WorkItem`), services (`SyncCoordinator`, `WorkingSetService`, `ActiveItemResolver`), interfaces (`IWorkItemRepository`, `IAdoWorkItemService`)
+- **Domain layer** (`Twig.Domain`): Aggregates (`WorkItem`), services (`SyncCoordinator`, `WorkingSetService`, `ActiveItemResolver`, `ContextChangeService`), interfaces (`IWorkItemRepository`, `IAdoWorkItemService`)
 - **Infrastructure layer** (`Twig.Infrastructure`): SQLite persistence (`SqliteWorkItemRepository`), ADO REST client, configuration
 - **CLI layer** (`Twig`): Commands, rendering (`SpectreRenderer`), formatters (`HumanOutputFormatter`, `JsonOutputFormatter`)
+- **MCP layer** (`Twig.Mcp`): MCP server exposing `ContextTools`, `ReadTools`, `MutationTools` — shares domain services but has its own DI registrations
 
-### Existing Two-Pass Rendering
+### Two-Pass Rendering (Implemented — Issue #1520)
 
-The codebase already implements a partial two-pass pattern:
-- `IAsyncRenderer.RenderWithSyncAsync()` exists as a cache-render-fetch-revise primitive
+All display commands now implement the two-pass cache-then-refresh pattern:
+- `IAsyncRenderer.RenderWithSyncAsync()` is the cache-render-fetch-revise primitive
 - `SpectreRenderer.RenderWithSyncAsync()` uses `Spectre.Console.Live` regions with sync status indicators (`⟳ syncing...`, `✓ up to date`, `⚠ sync failed`)
-- `StatusCommand` uses `RenderWithSyncAsync` to render cached status then sync the working set
-- `TreeCommand` uses `RenderWithSyncAsync` but only for a post-render sync (renders a blank `Text(" ")` as the cached view)
+- `StatusCommand` (line 147): full two-pass — builds status view via `BuildStatusViewAsync`, syncs working set, rebuilds on completion
+- `TreeCommand` (line 129): full two-pass — builds tree view via `BuildTreeViewAsync` as cached view, syncs working set, rebuilds from fresh data
+- `ShowCommand` (line 123): full two-pass — builds status view from cache, syncs item by ID, rebuilds; `--no-refresh` opt-out available
+- `WorkspaceCommand`: cache-age display on sprint items, `--no-refresh` flag
+- `CacheAgeFormatter` and `DirtyStateSummary` utilities provide cache-age formatting and dirty-state summary rendering
 
-### Current Gaps
-1. **No cache-age display**: `WorkItem.LastSyncedAt` exists but is never shown to users
-2. **Inconsistent two-pass adoption**: `StatusCommand` uses it properly; `TreeCommand` uses it awkwardly (empty cached view); `ShowCommand` and `QueryCommand` don't use it at all
-3. **No dirty-item indicators**: `WorkItem.IsDirty` exists but display commands don't render it
-4. **No `--no-refresh` flag**: Only `--no-live` exists (which disables the entire async renderer, not just the sync pass)
-5. **`twig set` doesn't expand working set**: Context changes to out-of-sprint items leave the cache with an isolated item — no parents, children, or related links
+### Context Change Extension (Implemented — Issue #1521)
+
+`ContextChangeService` is registered in CLI DI (`CommandServiceModule`) and integrated into:
+- `SetCommand` (line 229): calls `ExtendWorkingSetAsync` after setting context
+- `NewCommand` (line 147): calls `ExtendWorkingSetAsync` when `--set` flag is used
+- `FlowStartCommand` (line 167): calls `ExtendWorkingSetAsync` after context set
+
+### Remaining Gap: MCP Server
+
+`ContextChangeService` is **not registered** in MCP DI (`Twig.Mcp/Program.cs`) and **not called** from `ContextTools.Set()`. The MCP `twig.set` tool (line 74) calls `contextStore.SetActiveWorkItemIdAsync(item.Id, ct)` and performs inline parent chain hydration (lines 61–72) followed by a `SyncItemSetAsync` (line 79), but does not invoke `ContextChangeService.ExtendWorkingSetAsync()`. This means MCP consumers experience the same orphaned-context problem described in Problem Statement #5 — children and related links are not proactively cached.
 
 ### Key Existing Components
 
@@ -42,7 +57,7 @@ The codebase already implements a partial two-pass pattern:
 | `WorkItem.IsDirty` | `Aggregates/WorkItem.cs:41` | Dirty flag (already tracked) |
 | `PendingChangeRecord` | `Common/PendingChangeRecord.cs` | Change details (type, field, old/new values) |
 | `IPendingChangeStore.GetChangesAsync()` | `Interfaces/IPendingChangeStore.cs` | Retrieves pending changes per item |
-| `RenderWithSyncAsync()` | `Rendering/SpectreRenderer.cs:969` | Existing Live region two-pass primitive |
+| `RenderWithSyncAsync()` | `Rendering/SpectreRenderer.cs:1036` | Existing Live region two-pass primitive |
 | `SyncCoordinator.SyncWorkingSetAsync()` | `Services/SyncCoordinator.cs:85` | Syncs stale items in working set |
 | `SyncCoordinator.SyncItemSetAsync()` | `Services/SyncCoordinator.cs:109` | Syncs explicit item IDs |
 | `SyncCoordinator.SyncChildrenAsync()` | `Services/SyncCoordinator.cs:182` | Fetches all children of a parent |
@@ -55,37 +70,40 @@ The codebase already implements a partial two-pass pattern:
 
 ### Call-Site Audit: Commands Using Display Rendering
 
-| File | Method | Current Rendering | Has Sync? | Has `--no-live`? | Impact |
-|------|--------|-------------------|-----------|------------------|--------|
-| `Commands/StatusCommand.cs` | `ExecuteCoreAsync` | `RenderWithSyncAsync` + `RenderStatusAsync` | ✅ Working set sync | ✅ `noLive` param | Add cache-age, dirty indicators, `--no-refresh` |
-| `Commands/TreeCommand.cs` | `ExecuteCoreAsync` | `RenderTreeAsync` + blank `RenderWithSyncAsync` | ✅ Post-render sync | ✅ `noLive` param | Integrate sync into tree render, add cache-age |
-| `Commands/ShowCommand.cs` | `ExecuteCoreAsync` | `RenderStatusAsync` (no sync) | ❌ Cache-only | ❌ No flag | Add `--no-refresh`, optional sync pass |
-| `Commands/QueryCommand.cs` | `ExecuteCoreAsync` | `FormatQueryResults` (formatter only) | ❌ Always fetches from ADO | ❌ No flag | Already live — cache results, add age display |
-| `Commands/WorkspaceCommand.cs` | `ExecuteCoreAsync` | `RenderWorkspaceAsync` (streaming) | ✅ Via streaming chunks | ✅ `noLive` param | Add cache-age to sprint items |
-| `Commands/SetCommand.cs` | `ExecuteCoreAsync` | `RenderStatusAsync` (post-set display) | ✅ Item + parent chain sync | ❌ No flag | Add `ContextChangeService` integration |
-| `Commands/NewCommand.cs` | `ExecuteAsync` | `FormatSuccess` (simple output) | N/A (creates in ADO) | ❌ No flag | Add `ContextChangeService` when `--set` |
+| File | Method | Current Rendering | Has Sync? | Has `--no-live`? | Has `--no-refresh`? | Status |
+|------|--------|-------------------|-----------|------------------|---------------------|--------|
+| `Commands/StatusCommand.cs` | `ExecuteCoreAsync` | `RenderWithSyncAsync` (L147) + `BuildStatusViewAsync` | ✅ Working set sync | ✅ `noLive` param | ✅ `noRefresh` param | ✅ Done |
+| `Commands/TreeCommand.cs` | `ExecuteCoreAsync` | `RenderWithSyncAsync` (L129) + `BuildTreeViewAsync` | ✅ Working set sync | ✅ `noLive` param | ✅ `noRefresh` param | ✅ Done |
+| `Commands/ShowCommand.cs` | `ExecuteCoreAsync` | `RenderWithSyncAsync` (L123) + `BuildStatusViewAsync` | ✅ Item sync | ❌ N/A (DD-07) | ✅ `noRefresh` param | ✅ Done |
+| `Commands/QueryCommand.cs` | `ExecuteCoreAsync` | `FormatQueryResults` (formatter only) | ❌ Always fetches from ADO | ❌ No flag | ❌ No flag | N/A (NG-03) |
+| `Commands/WorkspaceCommand.cs` | `ExecuteCoreAsync` | `RenderWorkspaceAsync` (streaming) | ✅ Via streaming chunks | ✅ `noLive` param | ✅ `noRefresh` param | ✅ Done |
+| `Commands/SetCommand.cs` | `ExecuteCoreAsync` | `RenderStatusAsync` (post-set display) | ✅ Item + parent chain sync | ❌ No flag | ❌ No flag | ✅ ContextChangeService integrated (L229) |
+| `Commands/NewCommand.cs` | `ExecuteAsync` | `FormatSuccess` (simple output) | N/A (creates in ADO) | ❌ No flag | ❌ No flag | ✅ ContextChangeService integrated |
+| `Twig.Mcp/Tools/ContextTools.cs` | `Set` | `McpResultBuilder.FormatWorkItem` (text) | ✅ Item + parent chain sync (L79) | N/A (MCP) | N/A (MCP) | ❌ **Missing ContextChangeService** |
 
 ### Call-Site Audit: `RenderWithSyncAsync` Callers
 
 | File | Line | Usage | Notes |
 |------|------|-------|-------|
-| `Commands/StatusCommand.cs` | 136 | Full two-pass: builds status view → syncs working set → revises | Proper usage; needs `--no-refresh` bypass |
-| `Commands/TreeCommand.cs` | 119 | Degenerate: empty cached view → syncs → no revision | Should integrate sync into tree rendering |
+| `Commands/StatusCommand.cs` | 147 | Full two-pass: builds status view → syncs working set → rebuilds from fresh data | `--no-refresh` bypasses to static render |
+| `Commands/TreeCommand.cs` | 129 | Full two-pass: builds tree view via `BuildTreeViewAsync` → syncs working set → rebuilds tree | `--no-refresh` bypasses to direct tree render |
+| `Commands/ShowCommand.cs` | 123 | Full two-pass: builds status view → syncs item by ID → rebuilds from fresh data | `--no-refresh` bypasses to static render |
 
 ### Call-Site Audit: `contextStore.SetActiveWorkItemIdAsync` (Context Change Points)
 
-| File | Line | Scenario | Should Trigger Working Set Extension? |
-|------|------|----------|--------------------------------------|
-| `Commands/SetCommand.cs` | 146 | `twig set <id>` | ✅ Yes — primary use case |
-| `Commands/NewCommand.cs` | 134 | `twig new --set` | ✅ Yes — just created, needs graph |
-| `Commands/FlowStartCommand.cs` | 161 | `twig flow start` | ✅ Yes — starting work on an item |
-| `Commands/HookHandlerCommand.cs` | ~varies | git post-checkout hook | ❌ No — implicit, should be lightweight |
-| `Commands/NavigationCommands.cs` | ~varies | `twig up/down/root` | ❌ No — target is already cached; no graph expansion needed |
-| `Commands/NavigationHistoryCommands.cs` | 41 | `twig back` | ❌ No — navigates to previously-visited item already in cache; recording a duplicate history entry is intentionally bypassed (DD-04 in nav-history design) |
-| `Commands/NavigationHistoryCommands.cs` | 71 | `twig fore` | ❌ No — same rationale as `back`; restores forward-stack context |
-| `Commands/NavigationHistoryCommands.cs` | 177 | `twig history` (interactive picker) | ❌ No — picks from previously-visited items already in cache |
-| `Commands/SeedPublishCommand.cs` | 43, 60 | `twig seed publish` (active seed remapped) | ❌ No — context update is a side-effect of ID remapping (seed→ADO); the item was just published so it's already fresh. Extension would be redundant. |
-| `Commands/StashCommand.cs` | ~varies | `twig stash pop` | ❌ No — restoring a previously-cached context |
+| File | Line | Scenario | Should Trigger Working Set Extension? | Currently Calls ContextChangeService? |
+|------|------|----------|--------------------------------------|--------------------------------------|
+| `Commands/SetCommand.cs` | 147 | `twig set <id>` | ✅ Yes — primary use case | ✅ Yes (L229) |
+| `Commands/NewCommand.cs` | 143 | `twig new --set` | ✅ Yes — just created, needs graph | ✅ Yes |
+| `Commands/FlowStartCommand.cs` | 162 | `twig flow start` | ✅ Yes — starting work on an item | ✅ Yes |
+| **`Twig.Mcp/Tools/ContextTools.cs`** | **74** | **`twig.set` via MCP** | **✅ Yes — same rationale as CLI `set`** | **❌ No — gap** |
+| `Commands/HookHandlerCommand.cs` | 64 | git post-checkout hook | ❌ No — implicit, should be lightweight | ❌ No (intentional) |
+| `Commands/NavigationCommands.cs` | 64 | `twig up/down/root` | ❌ No — target is already cached; no graph expansion needed | ❌ No (intentional) |
+| `Commands/NavigationHistoryCommands.cs` | 41 | `twig back` | ❌ No — navigates to previously-visited item already in cache; recording a duplicate history entry is intentionally bypassed (DD-04 in nav-history design) | ❌ No (intentional) |
+| `Commands/NavigationHistoryCommands.cs` | 71 | `twig fore` | ❌ No — same rationale as `back`; restores forward-stack context | ❌ No (intentional) |
+| `Commands/NavigationHistoryCommands.cs` | 177 | `twig history` (interactive picker) | ❌ No — picks from previously-visited items already in cache | ❌ No (intentional) |
+| `Commands/SeedPublishCommand.cs` | 43, 60 | `twig seed publish` (active seed remapped) | ❌ No — context update is a side-effect of ID remapping (seed→ADO); the item was just published so it's already fresh. Extension would be redundant. | ❌ No (intentional) |
+| `Commands/StashCommand.cs` | 122 | `twig stash pop` | ❌ No — restoring a previously-cached context | ❌ No (intentional) |
 
 ## Problem Statement
 
@@ -97,7 +115,9 @@ The codebase already implements a partial two-pass pattern:
 
 4. **No opt-out for scripting**: There's no way to skip the background sync for offline or scripted use cases. `--no-live` disables the entire Spectre renderer, not just the sync.
 
-5. **Orphaned context after `twig set`**: When setting context to an out-of-sprint item, only the item itself (and parent chain) are fetched. Children, grandchildren, and related links are not proactively cached, leaving `twig tree` and `twig status` with incomplete data.
+5. **Orphaned context after `twig set`**: When setting context to an out-of-sprint item, only the item itself (and parent chain) are fetched. Children, grandchildren, and related links are not proactively cached, leaving `twig tree` and `twig status` with incomplete data. *(Resolved in CLI by Issue #1521 — `ContextChangeService` now extends the working set.)*
+
+6. **MCP `twig.set` shares the orphaned-context problem**: `ContextTools.Set()` in `Twig.Mcp` calls `SetActiveWorkItemIdAsync` (line 74) and performs inline parent chain hydration, but does not invoke `ContextChangeService`. MCP consumers (Copilot agents) calling `twig.set` get the same incomplete cache that CLI users had before Issue #1521 — children and related links are not proactively fetched. The existing inline parent chain logic in `ContextTools.Set()` (lines 61–72) duplicates functionality that `ContextChangeService.HydrateParentChainAsync` already provides.
 
 ## Goals and Non-Goals
 
@@ -109,6 +129,7 @@ The codebase already implements a partial two-pass pattern:
 - **G-5**: `twig set` to an out-of-sprint item proactively fetches: parents to root, 2 levels of children, 1 level of related links
 - **G-6**: All context-change scenarios (`set`, `new --set`, `flow start`) use a single `ContextChangeService` codepath
 - **G-7**: Working set extension is additive — never removes existing cached items
+- **G-8**: MCP `twig.set` uses `ContextChangeService` for working set extension, achieving parity with CLI `twig set`
 
 ### Non-Goals
 - **NG-1**: Real-time push notifications from ADO (polling only)
@@ -128,7 +149,7 @@ The codebase already implements a partial two-pass pattern:
 | FR-03 | Cache age format: `(cached Xm ago)`, `(cached Xh ago)`, or `(cached Xd ago)` |
 | FR-04 | Dirty items display a `●` indicator with a change summary |
 | FR-05 | Dirty item summary format: `local: Title changed, State → Doing` |
-| FR-06 | Dirty items show a tooltip: `(unsaved — run 'twig save' to push)` |
+| FR-06 | Dirty items show a trailing hint: `(unsaved — run 'twig save' to push)` |
 | FR-07 | `--no-refresh` flag on `status`, `show`, `tree`, `workspace` skips sync pass |
 | FR-08 | `--no-refresh` is independent of `--no-live` — can use rich rendering without sync |
 | FR-09 | `twig set` to out-of-sprint item fetches parents to root |
@@ -136,6 +157,8 @@ The codebase already implements a partial two-pass pattern:
 | FR-11 | `twig set` to out-of-sprint item fetches 1 level of related links |
 | FR-12 | Context change working set extension is additive (never evicts) |
 | FR-13 | All context-change scenarios use `ContextChangeService` |
+| FR-14 | MCP `twig.set` invokes `ContextChangeService.ExtendWorkingSetAsync()` after setting context |
+| FR-15 | MCP `twig.set` replaces inline parent chain hydration with `ContextChangeService` (eliminates code duplication) |
 
 
 ### Non-Functional Requirements
@@ -143,7 +166,7 @@ The codebase already implements a partial two-pass pattern:
 | ID | Requirement |
 |----|-------------|
 | NFR-01 | Cache-first render completes in < 100ms (no network I/O) |
-| NFR-02 | Background sync is awaited within Spectre.Console Live regions (not fire-and-forget). The sync runs inside `RenderWithSyncAsync`'s Live context so the display can update on completion. Only `ContextChangeService.ExtendWorkingSetAsync` (post-display in `SetCommand`) is truly fire-and-forget with error swallowing. |
+| NFR-02 | Background sync is awaited within Spectre.Console Live regions (not fire-and-forget). See DD-08 for the sole fire-and-forget exception. |
 | NFR-03 | AOT compatible — no reflection, all types in `TwigJsonContext` |
 | NFR-04 | Working set extension fetches are parallelized where possible |
 | NFR-05 | `--no-refresh` commands work fully offline |
@@ -174,14 +197,27 @@ The design introduces three new components and modifies the existing rendering p
 │  Domain Services                                         │
 │                                                         │
 │  ┌───────────────────┐  ┌────────────────────────────┐  │
-│  │ SyncCoordinator    │  │ ContextChangeService (NEW) │  │
+│  │ SyncCoordinator    │  │ ContextChangeService       │  │
 │  │ (existing)         │  │                            │  │
 │  │ - SyncItemSetAsync │  │ - ExtendWorkingSetAsync()  │  │
 │  │ - SyncWorkingSet   │  │   → fetch parents to root  │  │
 │  │ - SyncChildrenAsync│  │   → fetch 2 levels children│  │
 │  └───────────────────┘  │   → fetch 1 level links     │  │
-│                          └────────────────────────────┘  │
-└─────────────────────────────────────────────────────────┘
+│                          └──────┬─────────────────────┘  │
+└─────────────────────────────────┼────────────────────────┘
+                                  │
+                    ┌─────────────▼──────────────┐
+                    │  Consumers of               │
+                    │  ContextChangeService       │
+                    │                             │
+                    │  CLI:                       │
+                    │  ✅ SetCommand (L229)       │
+                    │  ✅ NewCommand              │
+                    │  ✅ FlowStartCommand        │
+                    │                             │
+                    │  MCP:                       │
+                    │  ❌ ContextTools.Set (gap)  │
+                    └─────────────────────────────┘
 ```
 
 ### Key Components
@@ -256,7 +292,7 @@ public sealed class ContextChangeService(
 
 `RenderingPipelineFactory` does **not** change. Commands own the `noRefresh` logic: when the flag is set, commands call the direct render method (`RenderStatusAsync`, `RenderTreeAsync`) instead of `RenderWithSyncAsync`. This keeps the renderer interface unchanged — the opt-out lives in commands where it belongs. This is distinct from `--no-live`, which disables the Spectre renderer entirely.
 
-**Note on `ShowCommand` and `--no-live`:** `ShowCommand` does not currently have a `--no-live` parameter and will not gain one — it has no async rendering path. It only gains `--no-refresh` to control whether a background sync occurs after the initial cached display.
+**Note:** `ShowCommand` gains `--no-refresh` only — see DD-07 for rationale.
 
 ### Data Flow: Two-Pass Rendering (status command example)
 
@@ -283,7 +319,7 @@ User runs: twig status
   └─ 7. Exit
 ```
 
-**Note:** The `buildRevisedView` callback (currently returning `null` in `StatusCommand` at line 148) will be changed to rebuild the full status `IRenderable` from fresh cache data after sync. This is what makes Pass 2 visually update the display. Returning `null` on sync failure preserves the Pass 1 cached view.
+**Note:** The `buildRevisedView` callback (L159-181 in `StatusCommand`) rebuilds the full status `IRenderable` from fresh cache data after sync. This is what makes Pass 2 visually update the display. Returning `null` on sync failure preserves the Pass 1 cached view.
 
 ### Data Flow: Context Change Working Set Extension
 
@@ -295,7 +331,8 @@ User runs: twig set 1234  (item #1234 is NOT in current sprint)
   │
   ├─ 2. Set active context: contextStore.SetActiveWorkItemIdAsync(1234)
   ├─ 3. Record navigation history
-  ├─ 4. Display item (same as twig status)
+  ├─ 4. Display item (renders via RenderStatusAsync — static, no two-pass sync;
+  │     SetCommand uses a direct render, not RenderWithSyncAsync)
   │
   ├─ 5. ContextChangeService.ExtendWorkingSetAsync(1234)
   │     ├─ 5a. HydrateParentChainAsync: fetch #1234's parent, grandparent, ... to root
@@ -312,15 +349,16 @@ User runs: twig set 1234  (item #1234 is NOT in current sprint)
 
 | ID | Decision | Rationale |
 |----|----------|-----------|
-| DD-01 | `--no-refresh` is a new flag, independent of `--no-live` | `--no-live` disables Spectre rendering entirely (for piped output). `--no-refresh` keeps rich rendering but skips network I/O. Different use cases. |
+| DD-01 | `--no-refresh` is a new flag, independent of `--no-live` | **Canonical distinction:** `--no-live` disables the Spectre async renderer entirely (intended for piped/scripted output where a TTY is unavailable). `--no-refresh` keeps rich Spectre rendering but skips the background ADO sync pass (intended for offline use or fast cached reads). The two flags are orthogonal. |
 | DD-02 | Cache age displayed only when exceeds threshold | Showing "cached 0s ago" on every item adds noise. Only show when data might actually be stale. |
 | DD-03 | Dirty indicator uses `●` character | Consistent with git/VS Code conventions. Visible in all terminals. |
 | DD-04 | `ContextChangeService` is a new service, not an extension of `SyncCoordinator` | Separation of concerns: sync = cache freshness, context change = graph expansion. |
-| DD-05 | Children fetched to depth 2 (not configurable initially) | Matches the Epic→Issue→Task hierarchy depth. Configurable depth is a future enhancement. |
+| DD-05 | Children fetched to depth 2 (fixed) | Matches the Epic→Issue→Task hierarchy depth. |
 | DD-06 | Related links limited to depth 1 | Prevents exponential graph expansion. Related items are informational, not structural. |
-| DD-07 | `ShowCommand` gets optional sync (opt-in via absence of `--no-refresh`) | `show` is documented as cache-only read. Adding sync changes semantics — but with `--no-refresh` default-off, the new behavior is the default and users can opt out. `ShowCommand` does **not** get a `--no-live` flag — it currently has no async rendering path (no `RenderWithSyncAsync` usage), so `--no-live` is irrelevant. It will gain `--no-refresh` only. |
+| DD-07 | `ShowCommand` gains sync but not `--no-live` | `show` was cache-only; adding sync changes semantics, but `--no-refresh` provides opt-out. `ShowCommand` has no async rendering path, so `--no-live` is irrelevant (see DD-01). |
 | DD-08 | Working set extension is fire-and-forget with error swallowing | Same pattern as existing post-render syncs. Extension failures must never fail the command. |
-| DD-09 | `StatusCommand` revised view callback returns a rebuilt status view after sync | Currently returns `null` (placeholder). This plan changes it to rebuild the status `IRenderable` from fresh data after sync completes, so the Live region displays updated state. This is the core of the two-pass pattern. |
+| DD-09 | `StatusCommand` revised view callback rebuilds the status view after sync | The `buildRevisedView` callback (L159-181) re-fetches the item, children, and parent from cache after sync, then rebuilds the full status `IRenderable`. Returning `null` on failure preserves the Pass 1 cached view. This is the core of the two-pass pattern. |
+| DD-10 | MCP `ContextTools.Set()` should use `ContextChangeService` and remove inline parent chain hydration | The inline parent chain hydration (lines 61–72) duplicates `ContextChangeService.HydrateParentChainAsync`. Replacing it with a single `ExtendWorkingSetAsync` call simplifies the code, adds child/link hydration for free, and establishes parity with CLI `SetCommand`. The inline `SyncItemSetAsync` (line 79) can be removed since `ContextChangeService` handles parent chain sync. |
 
 ## Alternatives Considered
 
@@ -365,7 +403,7 @@ User runs: twig set 1234  (item #1234 is NOT in current sprint)
 - `RenderingPipelineFactory` — existing rendering router
 
 ### Sequencing Constraints
-- Issue #1520 (two-pass rendering) must be implemented before Issue #1521 (context change extension) because `ContextChangeService` will benefit from the two-pass rendering pattern for displaying fetch progress.
+- Issue #1522 depends on Issue #1521: `ContextChangeService` must exist and be tested before it can be registered in MCP DI. (Issues #1520 and #1521 are delivered.)
 
 ## Impact Analysis
 
@@ -398,14 +436,21 @@ User runs: twig set 1234  (item #1234 is NOT in current sprint)
 | Context change extension creates large cache for deeply nested items | Low | Medium | Depth limits (2 children, 1 link) bound the expansion; eviction still runs |
 | `--no-refresh` flag name conflicts with future flags | Low | Low | Prefix is specific; `--cached` alias could be added later |
 | `ShowCommand` adding sync changes its documented "cache-only" contract | Medium | Medium | Document the change; `--no-refresh` preserves old behavior |
+| Context change extension increases ADO API call volume in CI/automation | Medium | Medium | Scripts calling `twig set` repeatedly could generate bursts of 3-5 ADO API calls per context change. Mitigated by `--no-refresh` for scripted use cases; future work could add rate limiting or a `--no-extend` flag. |
+| MCP extension may slow `twig.set` response for agents | Low | Low | `ExtendWorkingSetAsync` runs best-effort after the MCP response is built. Extension failures are swallowed — no impact on tool result. Agents may see slightly longer total round-trip time but receive the formatted response before extension completes. |
 
 ## Open Questions
 
-| # | Question | Severity | Status |
-|---|----------|----------|--------|
-| Q-1 | Should `ShowCommand` sync by default, or should it remain cache-only with opt-in `--refresh`? The current doc says "cache-only, no sync." Adding sync changes semantics. | Low | **Resolved** — DD-07 decides: sync by default, `--no-refresh` preserves old cache-only behavior. New behavior matches user expectations and is consistent with other display commands. |
-| Q-2 | Should cache-age display include the actual timestamp (e.g., `cached at 2:15 PM`) or just relative time? | Low | Recommend: relative time only — simpler, timezone-agnostic |
-| Q-3 | Should `NavigationCommands` (up/down/root) trigger working set extension? | Low | **Resolved: No** — these navigate within existing cache. Extension only for `set`/`new --set`/`flow start` |
+> Questions OQ-01 through OQ-05 were resolved during implementation. OQ-06 is new in Revision 4.
+
+| ID | Question | Severity | Resolution |
+|----|----------|----------|------------|
+| OQ-01 | Should `--no-refresh` also suppress `ContextChangeService` graph extension? | Low | No — `--no-refresh` controls display sync only. Graph extension is a cache operation, not a display concern. The two are independent. |
+| OQ-02 | Should `ShowCommand` gain `--no-live` in addition to `--no-refresh`? | Low | No — `ShowCommand` has no async rendering path. `--no-live` is irrelevant. See DD-07. |
+| OQ-03 | What is the maximum reasonable depth for child hydration in `ContextChangeService`? | Low | Fixed at 2 levels (matches Epic→Issue→Task hierarchy). |
+| OQ-04 | Should `NavigationCommands` (`up`/`down`/`root`) trigger `ContextChangeService`? | Low | No — navigation targets are already in cache (same tree). Extension would be redundant. See call-site audit. |
+| OQ-05 | Should context-change extension be rate-limited for CI/automation scenarios? | Low | Not in this epic. The `--no-refresh` flag covers scripted use cases. |
+| OQ-06 | Should MCP `twig.set` run `ExtendWorkingSetAsync` before or after returning the tool result? | Low | After — the response should include the formatted work item immediately. Extension runs best-effort after the response is built, same as CLI `SetCommand` pattern (L229 runs after display output). |
 
 ## Files Affected
 
@@ -422,28 +467,31 @@ User runs: twig set 1234  (item #1234 is NOT in current sprint)
 | `tests/Twig.Cli.Tests/Commands/StatusCommand_CacheAwareTests.cs` | Integration tests for two-pass status rendering |
 | `tests/Twig.Cli.Tests/Commands/TreeCommand_CacheAwareTests.cs` | Integration tests for two-pass tree rendering |
 | `tests/Twig.Cli.Tests/Commands/ShowCommand_CacheAwareTests.cs` | Integration tests for ShowCommand sync behavior and `--no-refresh` flag |
-| `tests/Twig.Cli.Tests/Commands/WorkspaceCommand_CacheAwareTests.cs` | Integration tests for WorkspaceCommand cache-age display |
+| `tests/Twig.Cli.Tests/Rendering/WorkspaceCacheAgeTests.cs` | Integration tests for WorkspaceCommand cache-age display |
 | `tests/Twig.Cli.Tests/Commands/SetCommand_ContextChangeTests.cs` | Integration tests for context change working set extension |
 | `tests/Twig.Cli.Tests/Commands/FlowStartCommand_ContextChangeTests.cs` | Integration tests for FlowStartCommand context change extension |
 | `tests/Twig.Cli.Tests/Commands/NewCommand_ContextChangeTests.cs` | Integration tests for NewCommand `--set` context change extension |
+| `tests/Twig.Mcp.Tests/Tools/ContextTools_ContextChangeTests.cs` | Integration tests for MCP `twig.set` context change extension |
 
 ### Modified Files
 
 | File Path | Changes |
 |-----------|---------|
-| `src/Twig/Commands/StatusCommand.cs` | Add `noRefresh` parameter, integrate cache-age and dirty indicators into cached view, change `buildRevisedView` callback (line 148) from returning `null` to rebuilding status view from fresh data |
+| `src/Twig/Commands/StatusCommand.cs` | Add `noRefresh` parameter, integrate cache-age and dirty indicators into cached view, `buildRevisedView` callback (L159-181) rebuilds status view from fresh data |
 | `src/Twig/Commands/TreeCommand.cs` | Add `noRefresh` parameter, integrate sync into tree render with revised view |
 | `src/Twig/Commands/ShowCommand.cs` | Add `noRefresh` parameter, add optional two-pass sync with `RenderWithSyncAsync` |
 | `src/Twig/Commands/WorkspaceCommand.cs` | Add `noRefresh` parameter, display cache-age on sprint items |
 | `src/Twig/Commands/SetCommand.cs` | Add `ContextChangeService.ExtendWorkingSetAsync()` call after context set |
 | `src/Twig/Commands/NewCommand.cs` | Add `ContextChangeService.ExtendWorkingSetAsync()` when `--set` is used |
-| `src/Twig/Commands/FlowStartCommand.cs` | Add `ContextChangeService.ExtendWorkingSetAsync()` after context set (line 161) |
+| `src/Twig/Commands/FlowStartCommand.cs` | Add `ContextChangeService.ExtendWorkingSetAsync()` after context set (L162) |
 | `src/Twig/Rendering/SpectreRenderer.cs` | Add cache-age display in status/tree view builders, add dirty indicator rendering |
 | `src/Twig/Formatters/HumanOutputFormatter.cs` | Add cache-age suffix and dirty indicator to `FormatWorkItem` output |
 | `src/Twig/Formatters/JsonOutputFormatter.cs` | No change — JSON consumers can call ADO directly for live data |
 | `src/Twig/DependencyInjection/CommandServiceModule.cs` | Register `ContextChangeService` |
 | `src/Twig/DependencyInjection/CommandRegistrationModule.cs` | Wire `ContextChangeService` into `SetCommand`, `NewCommand`, `FlowStartCommand` |
 | `src/Twig/Program.cs` | Add `--no-refresh` parameter to `Status`, `Tree`, `Show`, `Workspace` commands |
+| `src/Twig.Mcp/Tools/ContextTools.cs` | Replace inline parent chain hydration with `ContextChangeService.ExtendWorkingSetAsync()`; remove redundant `SyncItemSetAsync` call |
+| `src/Twig.Mcp/Program.cs` | Register `ContextChangeService` in MCP DI container |
 
 ## ADO Work Item Structure
 
@@ -463,10 +511,10 @@ User runs: twig set 1234  (item #1234 is NOT in current sprint)
 | T-1520-2 | **Create `DirtyStateSummary` utility** — Pure static class with `Build(IReadOnlyList<PendingChangeRecord> changes)` → `string?`. Handles empty list (null), single field change, state change (shows old→new), note count, and mixed changes with truncation. Add comprehensive unit tests. | `src/Twig.Domain/Services/DirtyStateSummary.cs`, `tests/Twig.Domain.Tests/Services/DirtyStateSummaryTests.cs` | S (~120 LoC) |
 | T-1520-3 | **Add cache-age and dirty indicators to `SpectreRenderer` status view** — Modify `BuildStatusViewAsync` to include cache-age suffix in the item header row and a dirty indicator row when `IsDirty` is true. Use `CacheAgeFormatter` and `DirtyStateSummary`. Pass `CacheStaleMinutes` config value through to the renderer. | `src/Twig/Rendering/SpectreRenderer.cs` | M (~150 LoC) |
 | T-1520-4 | **Add cache-age and dirty to `HumanOutputFormatter`** — Modify `FormatWorkItem` and `FormatStatusSummary` to include cache-age suffix and dirty indicator. This covers the `--no-live` / piped-output path. | `src/Twig/Formatters/HumanOutputFormatter.cs` | S (~80 LoC) |
-| T-1520-5 | **Add `--no-refresh` flag to `StatusCommand`** — Add `noRefresh` parameter. When true, skip `RenderWithSyncAsync` and use direct `RenderStatusAsync`. Change the `buildRevisedView` callback (currently returning `null` at line 148) to rebuild the full status `IRenderable` from fresh cache data after sync completes. Wire through `Program.cs`. Add tests verifying: sync is skipped with `--no-refresh`, revised view rebuilds on sync success, `null` returned on sync failure. | `src/Twig/Commands/StatusCommand.cs`, `src/Twig/Program.cs`, `tests/Twig.Cli.Tests/Commands/StatusCommand_CacheAwareTests.cs` | M (~150 LoC) |
+| T-1520-5 | **Add `--no-refresh` flag to `StatusCommand`** — Add `noRefresh` parameter. When true, skip `RenderWithSyncAsync` and use direct `RenderStatusAsync`. The `buildRevisedView` callback (L159-181) rebuilds the full status `IRenderable` from fresh cache data after sync completes. Wire through `Program.cs`. Add tests verifying: sync is skipped with `--no-refresh`, revised view rebuilds on sync success, `null` returned on sync failure. | `src/Twig/Commands/StatusCommand.cs`, `src/Twig/Program.cs`, `tests/Twig.Cli.Tests/Commands/StatusCommand_CacheAwareTests.cs` | M (~150 LoC) |
 | T-1520-6 | **Integrate two-pass sync into `TreeCommand`** — Replace the degenerate empty-cached-view `RenderWithSyncAsync` with a proper pattern: build tree view as cached view, sync working set, then rebuild tree as revised view. Add `noRefresh` parameter. Wire through `Program.cs`. | `src/Twig/Commands/TreeCommand.cs`, `src/Twig/Program.cs`, `tests/Twig.Cli.Tests/Commands/TreeCommand_CacheAwareTests.cs` | L (~250 LoC) |
-| T-1520-7 | **Add two-pass sync to `ShowCommand`** — Add `RenderWithSyncAsync` usage: render cached item immediately, sync item by ID, revise display. Add `noRefresh` parameter (but **not** `--no-live` — `ShowCommand` has no async rendering path). Show is currently cache-only; this adds network I/O (guarded by `--no-refresh`). Wire through `Program.cs`. Add tests verifying sync behavior and `--no-refresh` bypass. | `src/Twig/Commands/ShowCommand.cs`, `src/Twig/Program.cs`, `tests/Twig.Cli.Tests/Commands/ShowCommand_CacheAwareTests.cs` | M (~120 LoC) |
-| T-1520-8 | **Add cache-age to `WorkspaceCommand` sprint items** — Add cache-age suffix to stale sprint items in workspace table. Add `noRefresh` flag. Wire through `Program.cs`. Add tests verifying cache-age display on stale items. | `src/Twig/Commands/WorkspaceCommand.cs`, `src/Twig/Program.cs`, `tests/Twig.Cli.Tests/Commands/WorkspaceCommand_CacheAwareTests.cs` | S (~80 LoC) |
+| T-1520-7 | **Add two-pass sync to `ShowCommand`** — Add `RenderWithSyncAsync` usage: render cached item immediately, sync item by ID, revise display. Add `noRefresh` parameter only (see DD-07). Wire through `Program.cs`. Add tests verifying sync behavior and `--no-refresh` bypass. | `src/Twig/Commands/ShowCommand.cs`, `src/Twig/Program.cs`, `tests/Twig.Cli.Tests/Commands/ShowCommand_CacheAwareTests.cs` | M (~120 LoC) |
+| T-1520-8 | **Add cache-age to `WorkspaceCommand` sprint items** — Add cache-age suffix to stale sprint items in workspace table. Add `noRefresh` flag. Wire through `Program.cs`. Add tests verifying cache-age display on stale items. | `src/Twig/Commands/WorkspaceCommand.cs`, `src/Twig/Program.cs`, `tests/Twig.Cli.Tests/Rendering/WorkspaceCacheAgeTests.cs` | S (~80 LoC) |
 
 **Acceptance Criteria:**
 - [x] All display commands render cached data first, then refresh
@@ -490,7 +538,7 @@ User runs: twig set 1234  (item #1234 is NOT in current sprint)
 | T-1521-1 | **Create `ContextChangeService`** — Domain service with `ExtendWorkingSetAsync(int itemId, CancellationToken)`. Implements parent chain hydration (iterative fetch up to root), 2-level child fetch (parallel `SyncChildrenAsync` calls), and 1-level related link fetch (`SyncLinksAsync`, silently skipped if `IWorkItemLinkRepository` is null). All fetches are additive (save to cache, never evict). All errors are swallowed (fire-and-forget pattern). Add comprehensive unit tests with mocked `IAdoWorkItemService`. | `src/Twig.Domain/Services/ContextChangeService.cs`, `tests/Twig.Domain.Tests/Services/ContextChangeServiceTests.cs` | L (~300 LoC) |
 | T-1521-2 | **Register `ContextChangeService` in DI** — Add factory registration in `CommandServiceModule`. Wire dependencies: `IWorkItemRepository`, `IAdoWorkItemService`, `SyncCoordinator`, `ProtectedCacheWriter`, `IWorkItemLinkRepository` (optional/nullable). | `src/Twig/DependencyInjection/CommandServiceModule.cs` | XS (~20 LoC) |
 | T-1521-3 | **Integrate into `SetCommand`** — After setting active context, call `ContextChangeService.ExtendWorkingSetAsync(item.Id)`. Run as fire-and-forget after display output. Ensure eviction uses the expanded working set. | `src/Twig/Commands/SetCommand.cs`, `src/Twig/DependencyInjection/CommandRegistrationModule.cs` | M (~60 LoC) |
-| T-1521-4 | **Integrate into `NewCommand` and `FlowStartCommand`** — When `--set` flag is used in `NewCommand`, call `ContextChangeService.ExtendWorkingSetAsync()`. Similarly for `FlowStartCommand` after context is set (line 161). Add integration tests for both commands verifying context change triggers working set extension. | `src/Twig/Commands/NewCommand.cs`, `src/Twig/Commands/FlowStartCommand.cs`, `tests/Twig.Cli.Tests/Commands/NewCommand_ContextChangeTests.cs`, `tests/Twig.Cli.Tests/Commands/FlowStartCommand_ContextChangeTests.cs` | S (~80 LoC) |
+| T-1521-4 | **Integrate into `NewCommand` and `FlowStartCommand`** — When `--set` flag is used in `NewCommand`, call `ContextChangeService.ExtendWorkingSetAsync()`. Similarly for `FlowStartCommand` after context is set (L162). Add integration tests for both commands verifying context change triggers working set extension. | `src/Twig/Commands/NewCommand.cs`, `src/Twig/Commands/FlowStartCommand.cs`, `tests/Twig.Cli.Tests/Commands/NewCommand_ContextChangeTests.cs`, `tests/Twig.Cli.Tests/Commands/FlowStartCommand_ContextChangeTests.cs` | S (~80 LoC) |
 | T-1521-5 | **Add integration tests for context change extension** — Test scenarios: (1) set to out-of-sprint item → parents/children/links fetched, (2) set to in-sprint item → minimal additional fetches, (3) network failure during extension → command still succeeds, (4) additive guarantee → existing cache items not removed. | `tests/Twig.Cli.Tests/Commands/SetCommand_ContextChangeTests.cs` | M (~200 LoC) |
 
 **Acceptance Criteria:**
@@ -502,56 +550,94 @@ User runs: twig set 1234  (item #1234 is NOT in current sprint)
 - [x] All context change points (`set`, `new --set`, `flow start`) use `ContextChangeService`
 - [x] Extension failures never cause the command to fail
 
+---
+
+### Issue #1522: MCP `twig.set` ContextChangeService integration
+
+**Goal:** Integrate `ContextChangeService` into the MCP server so that `twig.set` via MCP achieves parity with CLI `twig set` — setting context to an out-of-sprint item proactively extends the working set with parent chain, children, and related links.
+
+**Prerequisites:** Issue #1521 (ContextChangeService must exist and be tested)
+
+#### Tasks
+
+| Task ID | Description | Files | Effort Estimate | Status |
+|---------|-------------|-------|----------------|--------|
+| T-1522-1 | **Register `ContextChangeService` in MCP DI** — Add factory-based registration in `Twig.Mcp/Program.cs` using the same pattern as `SyncCoordinator` (explicit `sp => new ContextChangeService(...)` for AOT robustness). Wire dependencies: `IWorkItemRepository`, `IAdoWorkItemService`, `SyncCoordinator`, `ProtectedCacheWriter`, `IWorkItemLinkRepository` (optional/nullable). | `src/Twig.Mcp/Program.cs` | XS (~15 LoC) | TO DO |
+| T-1522-2 | **Integrate into `ContextTools.Set()`** — Inject `ContextChangeService` into `ContextTools` constructor. Replace the inline parent chain hydration (lines 61–72) and `SyncItemSetAsync` call (line 79) with a single `contextChangeService.ExtendWorkingSetAsync(item.Id, ct)` call after `contextStore.SetActiveWorkItemIdAsync`. Run best-effort (same fire-and-forget pattern as CLI `SetCommand`). | `src/Twig.Mcp/Tools/ContextTools.cs` | S (~40 LoC net reduction) | TO DO |
+| T-1522-3 | **Add integration tests for MCP context change** — Test scenarios: (1) `twig.set` invokes `ExtendWorkingSetAsync` (covers both numeric ID and pattern inputs — same assertion, same code path), (2) extension failure does not affect tool result. Child/link hydration behavior is already fully covered by `ContextChangeServiceTests.cs`; these tests verify wiring only. | `tests/Twig.Mcp.Tests/Tools/ContextTools_ContextChangeTests.cs` | S (~80 LoC) | TO DO |
+
+**Acceptance Criteria:**
+- [ ] `ContextChangeService` is registered in MCP DI container
+- [ ] `ContextTools.Set()` calls `ExtendWorkingSetAsync` after setting context
+- [ ] Inline parent chain hydration in `ContextTools.Set()` is removed (replaced by `ContextChangeService`)
+- [ ] Extension failures never fail the `twig.set` MCP tool call
+- [ ] MCP `twig.set` fetches parents, 2 levels of children, and 1 level of links (parity with CLI)
+
 ## PR Groups
 
-### PR Group 1: Two-Pass Rendering for Status and Tree Commands
+### PG-1: Two-Pass Rendering for Status and Tree Commands ✅
 **Tasks:** T-1520-1, T-1520-2, T-1520-3, T-1520-4, T-1520-5, T-1520-6  
 **Classification:** Deep — new domain utilities plus rendering pipeline and two key commands  
 **Estimated LoC:** ~850  
 **Files:** ~14 (source + test)  
 **Description:** Pure domain utilities for cache-age formatting and dirty-state summarization, followed by integration into `SpectreRenderer` and `HumanOutputFormatter`. Adds `--no-refresh` to `StatusCommand` and `TreeCommand`. Fixes `TreeCommand`'s degenerate `RenderWithSyncAsync` usage. The formatting utilities have no callers until the renderer changes ship — batching into one PR avoids a useless intermediate state.  
-**Successors:** PR Group 2
+**Status:** ✅ Merged (PR #29)  
+**Successors:** PG-2
 
-### PR Group 2: Two-Pass Rendering for Show and Workspace
+### PG-2: Two-Pass Rendering for Show and Workspace ✅
 **Tasks:** T-1520-7, T-1520-8  
 **Classification:** Wide — mechanical application of the same pattern to remaining commands  
 **Estimated LoC:** ~250  
 **Files:** ~8 (source + test)  
-**Description:** Extends the two-pass pattern to `ShowCommand` (adds `--no-refresh` only, not `--no-live`) and `WorkspaceCommand`. Includes integration tests for both. All patterns established in PR Group 1.  
-**Successors:** None — can ship in parallel with PR Group 3
+**Description:** Extends the two-pass pattern to `ShowCommand` (adds `--no-refresh` only, not `--no-live`) and `WorkspaceCommand`. Includes integration tests for both. All patterns established in PG-1.  
+**Status:** ✅ Merged (PR #30)  
+**Successors:** None
 
-### PR Group 3: Context Change Working Set Extension
+### PG-3: Context Change Working Set Extension ✅
 **Tasks:** T-1521-1, T-1521-2, T-1521-3, T-1521-4, T-1521-5  
 **Classification:** Deep — new domain service with graph traversal logic  
 **Estimated LoC:** ~660  
 **Files:** ~12 (source + test, including FlowStartCommand and NewCommand context-change tests)  
 **Description:** Introduces `ContextChangeService` (with nullable `IWorkItemLinkRepository` for graceful degradation), registers it in DI, and integrates into `SetCommand`, `NewCommand`, and `FlowStartCommand`. Comprehensive tests for parent/child/link hydration across all three integration points.  
-**Successors:** None — can ship in parallel with PR Group 2
+**Status:** ✅ Merged (PR #33)  
+**Successors:** PG-4
+
+### PG-4: MCP ContextChangeService Integration
+**Tasks:** T-1522-1, T-1522-2, T-1522-3  
+**Classification:** Deep — small scope but modifies MCP server DI and tool behavior  
+**Estimated LoC:** ~120 (net reduction in `ContextTools.cs` offset by new test file)
+**Files:** ~3 (source + test)  
+**Description:** Registers `ContextChangeService` in MCP DI, replaces the inline parent chain hydration in `ContextTools.Set()` with a single `ExtendWorkingSetAsync` call, and adds integration tests. Small change surface but semantically significant — establishes MCP–CLI parity for context change behavior.  
+**Status:** TO DO  
+**Successors:** None
 
 ### PR Group Execution Order
 
 ```
-PR Group 1 ──► PR Group 2
-          │
-          └──► PR Group 3
+PG-1 ──► PG-2                    (✅ Done)
+  │
+  └──► PG-3 ──► PG-4             (PG-3 ✅ Done, PG-4 remaining)
 ```
 
-PR Groups 2 and 3 are independent after PR Group 1 and can be reviewed/merged in parallel.
-
-## Completion
-
-**Completed:** 2026-04-15  
-**Merged PRs:** PR #29 (Status/Tree two-pass), PR #30 (Show/Workspace two-pass), PR #33 (Context change working set extension)  
-**Issues Closed:** #1520 (Two-pass rendering), #1521 (Context change auto-extends working set)  
-**Epic:** #1519 → Done
-
-All three PR groups shipped successfully. The two-pass cache-then-refresh rendering pattern is now active across `StatusCommand`, `TreeCommand`, `ShowCommand`, and `WorkspaceCommand`. Cache-age indicators and dirty-state summaries provide visual feedback on data freshness. The `--no-refresh` flag is available on all display commands. `ContextChangeService` automatically extends the working set with parent chains, child graphs, and related links when context changes via `set`, `new --set`, or `flow start`.
+PG-4 depends on PG-3 because `ContextChangeService` must exist before it can be registered in MCP DI.
 
 ## References
 
-- Existing `RenderWithSyncAsync` implementation: `src/Twig/Rendering/SpectreRenderer.cs:969-1048`
+- Existing `RenderWithSyncAsync` implementation: `src/Twig/Rendering/SpectreRenderer.cs:1036-1107`
 - Spectre.Console Live API: https://spectreconsole.net/live/live-display
 - ADO REST API — Get Work Item: `_apis/wit/workitems/{id}?$expand=relations`
 - Existing `SyncCoordinator` design: `src/Twig.Domain/Services/SyncCoordinator.cs`
 - Set Command sync optimization plan: `docs/projects/set-command-sync-optimization.plan.md`
+
+---
+
+## Appendix: Completion Log
+
+**Issues #1520, #1521 completed:** 2026-04-15  
+**Merged PRs:** PR #29 (Status/Tree two-pass), PR #30 (Show/Workspace two-pass), PR #33 (Context change working set extension)  
+**Issues Closed:** #1520 (Two-pass rendering), #1521 (Context change auto-extends working set)
+
+All three initial PR groups shipped successfully. The two-pass cache-then-refresh rendering pattern is now active across `StatusCommand`, `TreeCommand`, `ShowCommand`, and `WorkspaceCommand`. Cache-age indicators and dirty-state summaries provide visual feedback on data freshness. The `--no-refresh` flag is available on all display commands. `ContextChangeService` automatically extends the working set with parent chains, child graphs, and related links when context changes via `set`, `new --set`, or `flow start` in the CLI.
+
+**Remaining:** Issue #1522 (MCP integration) — PG-4.
 

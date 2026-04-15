@@ -23,7 +23,7 @@ public sealed class ProgramBootstrapTests
     public void DomainServices_FactoryRegistrations_ResolveCorrectTypes()
     {
         // Verify that the factory-based DI registrations (DD-10) register all
-        // 6 domain orchestration services with the correct concrete types.
+        // 7 domain orchestration services with the correct concrete types.
         var services = new ServiceCollection();
 
         // Register mock infrastructure dependencies
@@ -68,6 +68,13 @@ public sealed class ProgramBootstrapTests
             sp.GetRequiredService<IWorkItemLinkRepository>(),
             sp.GetRequiredService<TwigConfiguration>().Display.CacheStaleMinutes));
 
+        services.AddSingleton(sp => new ContextChangeService(
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<SyncCoordinator>(),
+            sp.GetRequiredService<ProtectedCacheWriter>(),
+            sp.GetService<IWorkItemLinkRepository>()));
+
         services.AddSingleton(sp => new WorkingSetService(
             sp.GetRequiredService<IContextStore>(),
             sp.GetRequiredService<IWorkItemRepository>(),
@@ -102,10 +109,11 @@ public sealed class ProgramBootstrapTests
 
         using var provider = services.BuildServiceProvider();
 
-        // All 6 domain services + McpPendingChangeFlusher must resolve
+        // All 7 domain services + McpPendingChangeFlusher must resolve
         provider.GetRequiredService<ActiveItemResolver>().ShouldNotBeNull();
         provider.GetRequiredService<ProtectedCacheWriter>().ShouldNotBeNull();
         provider.GetRequiredService<SyncCoordinator>().ShouldNotBeNull();
+        provider.GetRequiredService<ContextChangeService>().ShouldNotBeNull();
         provider.GetRequiredService<WorkingSetService>().ShouldNotBeNull();
         provider.GetRequiredService<RefreshOrchestrator>().ShouldNotBeNull();
         provider.GetRequiredService<StatusOrchestrator>().ShouldNotBeNull();

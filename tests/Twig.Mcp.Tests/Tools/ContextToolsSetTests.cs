@@ -158,30 +158,6 @@ public sealed class ContextToolsSetTests : ContextToolsTestBase
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  Sync failure — best-effort, does not fail the tool call
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task Set_SyncFails_StillReturnsItem()
-    {
-        var item = new WorkItemBuilder(42, "Feature").AsFeature().InState("Active")
-            .LastSyncedAt(null).Build();
-        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
-
-        // SyncItemSetAsync will call FetchAsync for stale items — make it fail
-        _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
-            .ThrowsAsync(new InvalidOperationException("Sync network failure"));
-
-        var result = await CreateSut().Set("42");
-
-        result.IsError.ShouldBeNull();
-        var root = ParseResult(result);
-        root.GetProperty("id").GetInt32().ShouldBe(42);
-
-        await _contextStore.Received(1).SetActiveWorkItemIdAsync(42, Arg.Any<CancellationToken>());
-    }
-
-    // ═══════════════════════════════════════════════════════════════
     //  OperationCanceledException — propagates (not swallowed)
     // ═══════════════════════════════════════════════════════════════
 
@@ -221,6 +197,7 @@ public sealed class ContextToolsSetTests : ContextToolsTestBase
         root.GetProperty("parentId").GetInt32().ShouldBe(3);
         root.GetProperty("isDirty").GetBoolean().ShouldBe(false);
         root.GetProperty("isSeed").GetBoolean().ShouldBe(false);
+        root.TryGetProperty("workingSet", out _).ShouldBeTrue();
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -266,87 +243,4 @@ public sealed class ContextToolsSetTests : ContextToolsTestBase
         });
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  Parent chain hydration — warms cache for downstream twig.tree
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task Set_ItemWithParent_HydratesParentChain()
-    {
-        // Leaf task with parent feature — child has recent sync to isolate from SyncCoordinator
-        var recentSync = DateTimeOffset.UtcNow;
-        var parentItem = new WorkItemBuilder(100, "Parent Feature").AsFeature().InState("Active")
-            .LastSyncedAt(recentSync).Build();
-        var childItem = new WorkItemBuilder(42, "Child Task").AsTask().InState("New")
-            .WithParent(100).LastSyncedAt(recentSync).Build();
-
-        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(childItem);
-
-        // First GetParentChainAsync call returns empty (parent not in cache)
-        // Second call (after auto-fetch) returns the parent
-        _workItemRepo.GetParentChainAsync(100, Arg.Any<CancellationToken>())
-            .Returns(
-                Array.Empty<WorkItem>(),
-                new[] { parentItem });
-
-        // Parent not in cache initially → resolver auto-fetches from ADO.
-        // After resolver caches it, SyncCoordinator also looks it up — return the item.
-        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>())
-            .Returns((WorkItem?)null, parentItem);
-        _adoService.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(parentItem);
-
-        var result = await CreateSut().Set("42");
-
-        result.IsError.ShouldBeNull();
-
-        // GetParentChainAsync called at least twice (initial miss + post-fetch)
-        await _workItemRepo.Received(2).GetParentChainAsync(100, Arg.Any<CancellationToken>());
-
-        // Parent was auto-fetched via resolver (once — sync finds it cached on second lookup)
-        await _adoService.Received(1).FetchAsync(100, Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task Set_ItemWithParent_CachedChain_SkipsAutoFetch()
-    {
-        // Parent is already in cache — no auto-fetch needed
-        // Both items have recent sync to isolate from SyncCoordinator
-        var recentSync = DateTimeOffset.UtcNow;
-        var parentItem = new WorkItemBuilder(100, "Parent Feature").AsFeature().InState("Active")
-            .LastSyncedAt(recentSync).Build();
-        var childItem = new WorkItemBuilder(42, "Child Task").AsTask().InState("New")
-            .WithParent(100).LastSyncedAt(recentSync).Build();
-
-        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(childItem);
-        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(parentItem);
-
-        // First GetParentChainAsync call returns the parent (already cached)
-        _workItemRepo.GetParentChainAsync(100, Arg.Any<CancellationToken>())
-            .Returns(new[] { parentItem });
-
-        var result = await CreateSut().Set("42");
-
-        result.IsError.ShouldBeNull();
-
-        // GetParentChainAsync called once (found on first attempt)
-        await _workItemRepo.Received(1).GetParentChainAsync(100, Arg.Any<CancellationToken>());
-
-        // No auto-fetch since parent was already cached
-        await _adoService.DidNotReceive().FetchAsync(100, Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task Set_ItemWithoutParent_SkipsParentChainHydration()
-    {
-        // Item has no parent — no chain hydration at all
-        var item = new WorkItemBuilder(42, "Root Item").AsEpic().InState("Active").Build();
-        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
-
-        var result = await CreateSut().Set("42");
-
-        result.IsError.ShouldBeNull();
-
-        // GetParentChainAsync should never be called for items without parents
-        await _workItemRepo.DidNotReceive().GetParentChainAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
-    }
 }

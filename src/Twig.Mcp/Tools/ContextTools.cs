@@ -15,9 +15,9 @@ public sealed class ContextTools(
     IWorkItemRepository workItemRepo,
     IContextStore contextStore,
     ActiveItemResolver activeItemResolver,
-    SyncCoordinator syncCoordinator,
     StatusOrchestrator statusOrchestrator,
-    IPromptStateWriter promptStateWriter)
+    IPromptStateWriter promptStateWriter,
+    ContextChangeService contextChangeService)
 {
     [McpServerTool(Name = "twig.set"), Description("Set the active work item by ID or title pattern")]
     public async Task<CallToolResult> Set(
@@ -57,33 +57,28 @@ public sealed class ContextTools(
             item = matches[0];
         }
 
-        // Hydrate parent chain so downstream read tools (twig.tree) see a complete hierarchy
-        var parentChainIds = new List<int>();
-        if (item.ParentId.HasValue)
-        {
-            var chain = await workItemRepo.GetParentChainAsync(item.ParentId.Value, ct);
-            if (chain.Count == 0)
-            {
-                // Parent not in cache — auto-fetch via resolver (best-effort)
-                await activeItemResolver.ResolveByIdAsync(item.ParentId.Value, ct);
-                chain = await workItemRepo.GetParentChainAsync(item.ParentId.Value, ct);
-            }
-            parentChainIds.AddRange(chain.Select(p => p.Id));
-        }
-
         await contextStore.SetActiveWorkItemIdAsync(item.Id, ct);
 
-        // Best-effort sync — never fails the tool call
+        // Extend working set around the target item (parent chain, 2 levels of children, links).
+        // Best-effort — extension failures must never fail the tool call.
         try
         {
-            await syncCoordinator.SyncItemSetAsync([item.Id, ..parentChainIds], ct);
+            await contextChangeService.ExtendWorkingSetAsync(item.Id, ct);
         }
         catch (OperationCanceledException) { throw; }
         catch { /* best-effort */ }
 
         await promptStateWriter.WritePromptStateAsync();
 
-        return McpResultBuilder.FormatWorkItem(item);
+        // Compute working set summary for the response (post-extension snapshot)
+        var parentChainCount = 0;
+        if (item.ParentId.HasValue)
+        {
+            var chain = await workItemRepo.GetParentChainAsync(item.ParentId.Value, ct);
+            parentChainCount = chain.Count;
+        }
+        var children = await workItemRepo.GetChildrenAsync(item.Id, ct);
+        return McpResultBuilder.FormatWorkItemWithWorkingSet(item, parentChainCount, children.Count);
     }
 
     [McpServerTool(Name = "twig.status"), Description("Show the active work item status")]

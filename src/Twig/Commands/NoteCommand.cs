@@ -7,9 +7,51 @@ using Twig.Hints;
 namespace Twig.Commands;
 
 /// <summary>
-/// Implements <c>twig note ["text"]</c>: adds a note to the active work item.
-/// If text is provided inline, stores as pending. Otherwise launches editor.
+/// Implements <c>twig note ["text"]</c>: adds a note (ADO comment) to the active work item.
+/// If text is provided inline it is pushed immediately; otherwise an editor is launched.
 /// </summary>
+/// <remarks>
+/// <para><strong>Code paths</strong></para>
+/// <list type="number">
+///   <item>
+///     <term>Push-on-write (non-seed, online)</term>
+///     <description>
+///       Calls <see cref="IAdoWorkItemService.AddCommentAsync"/> directly, then clears any
+///       locally-staged notes via <see cref="IPendingChangeStore.ClearChangesByTypeAsync"/>.
+///       An inner try-catch re-fetches the work item to resync the local cache; resync failure
+///       is non-fatal — the note is already in ADO.
+///     </description>
+///   </item>
+///   <item>
+///     <term>Offline fallback (non-seed, ADO unreachable)</term>
+///     <description>
+///       When <c>AddCommentAsync</c> throws, the note is staged locally via
+///       <see cref="StageLocallyAsync"/> and will be flushed later by
+///       <see cref="PendingChangeFlusher"/> (save/sync/flow-done) or by
+///       <see cref="Twig.Infrastructure.Ado.AutoPushNotesHelper"/> (update/state/edit).
+///     </description>
+///   </item>
+///   <item>
+///     <term>Seed staging</term>
+///     <description>
+///       Seed items have no ADO identity, so notes are always staged locally via
+///       <see cref="StageLocallyAsync"/>. They are flushed when the seed is published
+///       through <see cref="PendingChangeFlusher"/>.
+///     </description>
+///   </item>
+/// </list>
+/// <para><strong>Related components</strong></para>
+/// <list type="bullet">
+///   <item>
+///     <see cref="Twig.Infrastructure.Ado.AutoPushNotesHelper"/> — side-effect flusher that
+///     pushes residual staged notes during <c>update</c>, <c>state</c>, and <c>edit</c> commands.
+///   </item>
+///   <item>
+///     <see cref="PendingChangeFlusher"/> — batch flusher used by <c>save</c>, <c>sync</c>,
+///     and <c>flow-done</c> for any remaining staged notes (offline fallback or seed publish).
+///   </item>
+/// </list>
+/// </remarks>
 public sealed class NoteCommand(
     ActiveItemResolver activeItemResolver,
     IWorkItemRepository workItemRepo,

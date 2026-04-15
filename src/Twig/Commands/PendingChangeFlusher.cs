@@ -36,9 +36,7 @@ public sealed class PendingChangeFlusher(
 {
     private readonly TextWriter _stderr = stderr ?? Console.Error;
 
-    /// <summary>
-    /// Flushes pending changes for the specified item IDs.
-    /// </summary>
+    /// <inheritdoc/>
     public async Task<FlushResult> FlushAsync(
         IReadOnlyList<int> itemIds,
         string outputFormat = OutputFormatterFactory.DefaultFormat,

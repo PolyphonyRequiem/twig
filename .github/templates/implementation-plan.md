@@ -183,3 +183,31 @@
 ## Notes
 
 [Any additional notes, context, or decisions]
+
+---
+
+## Close-Out Checklist
+
+### Completion Summary
+
+**Completed**: [YYYY-MM-DD]
+
+[1–2 paragraph narrative: what was delivered, key decisions made, lessons learned]
+
+### Pull Requests
+
+| PR | Title | Status |
+|----|-------|--------|
+| #NNN | [PR title] | [Status] |
+
+### Final Task Status
+
+| Task | Description | Status |
+|------|-------------|--------|
+| T-X-1 | [Description] | ✅ Done |
+
+### ADO Close-Out
+
+- [ ] All child Tasks and Issues transitioned to Done (`twig set <id>` → `twig state Done`)
+- [ ] Parent Epic transitioned to Done (`twig set <id>` → `twig state Done`)
+- [ ] `git push` completed — all commits on remote

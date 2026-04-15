@@ -21,6 +21,8 @@ internal sealed class OhMyPoshCommands
     /// <summary>
     /// Generates shell hook function and Oh My Posh text segment JSON.
     /// </summary>
+    /// <param name="style">Segment style: powerline, plain, diamond.</param>
+    /// <param name="shell">Target shell: pwsh, bash, zsh, fish.</param>
     public int Init(string style = "powerline", string shell = "pwsh")
     {
         var hookOutput = GenerateShellHook(shell);

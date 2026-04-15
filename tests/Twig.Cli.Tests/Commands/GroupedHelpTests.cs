@@ -79,12 +79,12 @@ public sealed class GroupedHelpTests
         missingExamples.ShouldBeEmpty(
             $"Non-hidden commands missing from CommandExamples: {string.Join(", ", missingExamples)}");
 
-        // Every example entry must contain at least one line
-        var emptyExamples = nonHidden
-            .Where(cmd => CommandExamples.Examples.TryGetValue(cmd, out var ex) && ex.Length == 0)
+        // Every example entry must have ≥2 examples (plan requirement F-7)
+        var tooFewExamples = nonHidden
+            .Where(cmd => CommandExamples.Examples.TryGetValue(cmd, out var ex) && ex.Length < 2)
             .ToList();
-        emptyExamples.ShouldBeEmpty(
-            $"Commands with empty example arrays: {string.Join(", ", emptyExamples)}");
+        tooFewExamples.ShouldBeEmpty(
+            $"Commands with fewer than 2 examples: {string.Join(", ", tooFewExamples)}");
 
         // Every individual example line must be non-whitespace
         var blankLineCommands = nonHidden

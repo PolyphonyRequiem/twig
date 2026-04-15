@@ -99,27 +99,6 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  No context item — workspace has null context, no error
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task Workspace_NoContextItem_ReturnsNullContextWithoutError()
-    {
-        SetupIteration();
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
-        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>());
-        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>());
-
-        var result = await CreateSut(_config).Workspace();
-
-        result.IsError.ShouldBeNull();
-        var root = ParseResult(result);
-        root.GetProperty("context").ValueKind.ShouldBe(JsonValueKind.Null);
-    }
-
-    // ═══════════════════════════════════════════════════════════════
     //  Context ID exists but item not in cache — null context
     // ═══════════════════════════════════════════════════════════════
 
@@ -253,5 +232,148 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
         var staleSeeds = root.GetProperty("staleSeeds");
         staleSeeds.GetArrayLength().ShouldBe(1);
         staleSeeds[0].GetInt32().ShouldBe(300);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Empty workspace — no context, sprint items, or seeds
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Workspace_Empty_ReturnsZeroCounts()
+    {
+        SetupIteration();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var result = await CreateSut(_config).Workspace();
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+
+        root.GetProperty("context").ValueKind.ShouldBe(JsonValueKind.Null);
+        root.GetProperty("sprintItems").GetArrayLength().ShouldBe(0);
+        root.GetProperty("seeds").GetArrayLength().ShouldBe(0);
+        root.GetProperty("staleSeeds").GetArrayLength().ShouldBe(0);
+        root.GetProperty("dirtyCount").GetInt32().ShouldBe(0);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Dirty seeds contribute to dirtyCount
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Workspace_DirtySeed_CountedInDirtyCount()
+    {
+        SetupIteration();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var dirtySeed = new WorkItemBuilder(500, "Dirty Seed").AsTask().AsSeed().Dirty().Build();
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns([dirtySeed]);
+
+        var result = await CreateSut(_config).Workspace();
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+
+        root.GetProperty("dirtyCount").GetInt32().ShouldBe(1);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Work item JSON properties serialized correctly
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Workspace_SprintItem_ContainsAllCoreProperties()
+    {
+        SetupIteration();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+
+        var item = new WorkItemBuilder(42, "My Bug").AsBug().InState("Resolved")
+            .AssignedTo("Alice").WithParent(10).Dirty().Build();
+        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+            .Returns([item]);
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var result = await CreateSut(_config).Workspace();
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+        var sprintItem = root.GetProperty("sprintItems")[0];
+
+        sprintItem.GetProperty("id").GetInt32().ShouldBe(42);
+        sprintItem.GetProperty("title").GetString().ShouldBe("My Bug");
+        sprintItem.GetProperty("type").GetString().ShouldBe("Bug");
+        sprintItem.GetProperty("state").GetString().ShouldBe("Resolved");
+        sprintItem.GetProperty("assignedTo").GetString().ShouldBe("Alice");
+        sprintItem.GetProperty("isDirty").GetBoolean().ShouldBe(true);
+        sprintItem.GetProperty("isSeed").GetBoolean().ShouldBe(false);
+        sprintItem.GetProperty("parentId").GetInt32().ShouldBe(10);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Seed without SeedCreatedAt — not counted as stale
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Workspace_SeedWithoutSeedCreatedAt_NotStale()
+    {
+        SetupIteration();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        // Build a seed manually without SeedCreatedAt (isSeed=true but no date)
+        var seedNoDate = new WorkItem
+        {
+            Id = 600,
+            Title = "Dateless Seed",
+            Type = WorkItemType.Task,
+            State = "New",
+            IsSeed = true,
+            SeedCreatedAt = null,
+        };
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns([seedNoDate]);
+
+        var result = await CreateSut(_config).Workspace();
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+
+        root.GetProperty("seeds").GetArrayLength().ShouldBe(1);
+        root.GetProperty("staleSeeds").GetArrayLength().ShouldBe(0);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Context item has null parentId serialized correctly
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Workspace_ContextItemNoParent_ParentIdIsNull()
+    {
+        SetupIteration();
+        var contextItem = new WorkItemBuilder(7, "Root Item").AsEpic().InState("Active").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(7);
+        _workItemRepo.GetByIdAsync(7, Arg.Any<CancellationToken>()).Returns(contextItem);
+        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var result = await CreateSut(_config).Workspace();
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+        var context = root.GetProperty("context");
+
+        context.GetProperty("id").GetInt32().ShouldBe(7);
+        context.GetProperty("parentId").ValueKind.ShouldBe(JsonValueKind.Null);
     }
 }

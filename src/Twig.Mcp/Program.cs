@@ -56,6 +56,13 @@ builder.Services.AddSingleton(sp => new SyncCoordinator(
     sp.GetRequiredService<IWorkItemLinkRepository>(),
     sp.GetRequiredService<TwigConfiguration>().Display.CacheStaleMinutes));
 
+builder.Services.AddSingleton(sp => new ContextChangeService(
+    sp.GetRequiredService<IWorkItemRepository>(),
+    sp.GetRequiredService<IAdoWorkItemService>(),
+    sp.GetRequiredService<SyncCoordinator>(),
+    sp.GetRequiredService<ProtectedCacheWriter>(),
+    sp.GetService<IWorkItemLinkRepository>()));
+
 builder.Services.AddSingleton(sp => new WorkingSetService(
     sp.GetRequiredService<IContextStore>(),
     sp.GetRequiredService<IWorkItemRepository>(),

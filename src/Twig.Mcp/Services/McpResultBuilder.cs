@@ -233,14 +233,14 @@ internal static class McpResultBuilder
     }
 }
 
-internal sealed record McpFlushSummary
+public sealed record McpFlushSummary
 {
     public int Flushed { get; init; }
     public int Failed { get; init; }
     public IReadOnlyList<McpFlushItemFailure> Failures { get; init; } = [];
 }
 
-internal sealed record McpFlushItemFailure
+public sealed record McpFlushItemFailure
 {
     public int WorkItemId { get; init; }
     public string Reason { get; init; } = string.Empty;

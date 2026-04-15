@@ -670,6 +670,112 @@ internal static class VersionHelper
 /// </summary>
 internal static class GroupedHelp
 {
+    /// <summary>
+    /// Manually-maintained set of every CLI command name that twig accepts.
+    /// Includes top-level commands, compound sub-commands, group prefixes,
+    /// hidden backward-compat aliases, and the <c>help</c> pseudo-command.
+    /// Validated by the completeness test (T-1523-4) to prevent drift.
+    /// </summary>
+    public static HashSet<string> KnownCommands { get; } =
+    [
+        // Getting Started
+        "init",
+        "sync",
+
+        // Views
+        "status",
+        "tree",
+        "workspace",
+        "ws",
+        "sprint",
+
+        // Context
+        "set",
+        "show",
+        "query",
+        "web",
+
+        // Navigation
+        "nav",
+        "nav up",
+        "nav down",
+        "nav next",
+        "nav prev",
+        "nav back",
+        "nav fore",
+        "nav history",
+
+        // Work Items
+        "state",
+        "note",
+        "update",
+        "edit",
+        "new",
+        "discard",
+        "seed new",
+        "seed edit",
+        "seed discard",
+        "seed view",
+        "seed link",
+        "seed unlink",
+        "seed links",
+        "seed chain",
+        "seed validate",
+        "seed publish",
+        "seed reconcile",
+        "link parent",
+        "link unparent",
+        "link reparent",
+
+        // Git
+        "branch",
+        "commit",
+        "pr",
+        "stash",
+        "stash pop",
+        "log",
+        "context",
+        "hooks install",
+        "hooks uninstall",
+
+        // Workflow
+        "flow-start",
+        "flow-done",
+        "flow-close",
+
+        // System
+        "config",
+        "config status-fields",
+        "version",
+        "upgrade",
+        "changelog",
+
+        // Experimental
+        "tui",
+        "ohmyposh",
+        "ohmyposh init",
+
+        // Pseudo-command (early-exit handles single-arg; multi-arg falls through)
+        "help",
+
+        // Hidden backward-compat aliases (still accepted by the CLI)
+        "up",
+        "down",
+        "next",
+        "prev",
+        "back",
+        "fore",
+        "history",
+        "seed",
+        "save",
+        "refresh",
+        "_hook",
+
+        // Group prefixes for compound commands without standalone handlers
+        "link",
+        "hooks",
+    ];
+
     internal static void Show()
     {
         var v = VersionHelper.GetVersion();

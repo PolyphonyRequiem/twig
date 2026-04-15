@@ -7,6 +7,7 @@ using Twig.Domain.ReadModels;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Mcp.Services;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Mcp.Tests.Services;
@@ -67,7 +68,12 @@ public sealed class McpResultBuilderTests
     [Fact]
     public void FormatWorkItem_ProducesValidJsonWithAllFields()
     {
-        var item = CreateWorkItem(42, "Test Item", "Task", "Active", "Alice", parentId: 10);
+        var item = new WorkItemBuilder(42, "Test Item")
+            .AsTask()
+            .InState("Active")
+            .AssignedTo("Alice")
+            .WithParent(10)
+            .Build();
 
         var result = McpResultBuilder.FormatWorkItem(item);
         var json = GetJsonText(result);
@@ -89,7 +95,7 @@ public sealed class McpResultBuilderTests
     [Fact]
     public void FormatWorkItem_NullParentId_WritesNull()
     {
-        var item = CreateWorkItem(1, "Root", "Epic", "New", null, parentId: null);
+        var item = new WorkItemBuilder(1, "Root").AsEpic().InState("New").Build();
 
         var result = McpResultBuilder.FormatWorkItem(item);
         var json = GetJsonText(result);
@@ -102,10 +108,55 @@ public sealed class McpResultBuilderTests
     [Fact]
     public void FormatWorkItem_ResultIsNotError()
     {
-        var item = CreateWorkItem(1, "Item", "Bug", "Active", null);
+        var item = new WorkItemBuilder(1, "Item").AsBug().InState("Active").Build();
 
         var result = McpResultBuilder.FormatWorkItem(item);
         result.IsError.ShouldBeNull();
+    }
+
+    [Fact]
+    public void FormatWorkItem_DirtyItem_ReflectsIsDirtyTrue()
+    {
+        var item = new WorkItemBuilder(5, "Dirty Item").AsTask().Dirty().Build();
+
+        var result = McpResultBuilder.FormatWorkItem(item);
+        using var doc = JsonDocument.Parse(GetJsonText(result));
+
+        doc.RootElement.GetProperty("isDirty").GetBoolean().ShouldBeTrue();
+    }
+
+    [Fact]
+    public void FormatWorkItem_SeedItem_ReflectsIsSeedTrue()
+    {
+        var item = new WorkItemBuilder(-1, "Seed Item").AsTask().AsSeed().Build();
+
+        var result = McpResultBuilder.FormatWorkItem(item);
+        using var doc = JsonDocument.Parse(GetJsonText(result));
+
+        doc.RootElement.GetProperty("isSeed").GetBoolean().ShouldBeTrue();
+    }
+
+    [Fact]
+    public void FormatWorkItem_SpecialCharactersInTitle_PreservedInJson()
+    {
+        var item = new WorkItemBuilder(1, """Fix "quotes" & <tags>""").AsTask().Build();
+
+        var result = McpResultBuilder.FormatWorkItem(item);
+        using var doc = JsonDocument.Parse(GetJsonText(result));
+
+        doc.RootElement.GetProperty("title").GetString().ShouldBe("""Fix "quotes" & <tags>""");
+    }
+
+    [Fact]
+    public void FormatWorkItem_OutputIsIndentedJson()
+    {
+        var item = WorkItemBuilder.Simple(1, "Item");
+
+        var result = McpResultBuilder.FormatWorkItem(item);
+        var json = GetJsonText(result);
+
+        json.ShouldContain("\n");
+        json.ShouldContain("  ");
     }
 
     // ── FormatStatus ────────────────────────────────────────────────
@@ -129,7 +180,7 @@ public sealed class McpResultBuilderTests
     [Fact]
     public void FormatStatus_WithItem_IncludesItemAndPendingChanges()
     {
-        var item = CreateWorkItem(7, "Status Item", "Task", "Done", "Bob");
+        var item = new WorkItemBuilder(7, "Status Item").AsTask().InState("Done").AssignedTo("Bob").Build();
         var snapshot = new StatusSnapshot
         {
             HasContext = true,
@@ -154,6 +205,33 @@ public sealed class McpResultBuilderTests
     }
 
     [Fact]
+    public void FormatStatus_MultiplePendingChanges_AllSerialized()
+    {
+        var item = new WorkItemBuilder(3, "Multi Change").AsTask().InState("Active").Build();
+        var snapshot = new StatusSnapshot
+        {
+            HasContext = true,
+            ActiveId = 3,
+            Item = item,
+            PendingChanges =
+            [
+                new PendingChangeRecord(3, "field", "System.Title", "A", "B"),
+                new PendingChangeRecord(3, "state", "System.State", "New", "Active"),
+                new PendingChangeRecord(3, "field", "System.AssignedTo", null, "Alice"),
+            ],
+        };
+
+        var result = McpResultBuilder.FormatStatus(snapshot);
+        using var doc = JsonDocument.Parse(GetJsonText(result));
+        var changes = doc.RootElement.GetProperty("pendingChanges");
+
+        changes.GetArrayLength().ShouldBe(3);
+        changes[0].GetProperty("oldValue").GetString().ShouldBe("A");
+        changes[1].GetProperty("changeType").GetString().ShouldBe("state");
+        changes[2].GetProperty("oldValue").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    [Fact]
     public void FormatStatus_Unreachable_IncludesErrorFields()
     {
         var snapshot = StatusSnapshot.Unreachable(99, 99, "Not found");
@@ -168,14 +246,31 @@ public sealed class McpResultBuilderTests
     }
 
     [Fact]
-    public void FormatStatus_WithSeeds_IncludesSeedArray()
+    public void FormatStatus_NoUnreachable_OmitsErrorFields()
     {
-        var seed = CreateSeedWorkItem(-1, "My Seed", "Task");
         var snapshot = new StatusSnapshot
         {
             HasContext = true,
             ActiveId = 1,
-            Item = CreateWorkItem(1, "Active", "Epic", "Active", null),
+            Item = WorkItemBuilder.Simple(1, "OK"),
+        };
+
+        var result = McpResultBuilder.FormatStatus(snapshot);
+        using var doc = JsonDocument.Parse(GetJsonText(result));
+
+        doc.RootElement.TryGetProperty("unreachableId", out _).ShouldBeFalse();
+        doc.RootElement.TryGetProperty("unreachableReason", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void FormatStatus_WithSeeds_IncludesSeedArray()
+    {
+        var seed = new WorkItemBuilder(-1, "My Seed").AsTask().AsSeed().Build();
+        var snapshot = new StatusSnapshot
+        {
+            HasContext = true,
+            ActiveId = 1,
+            Item = new WorkItemBuilder(1, "Active").AsEpic().InState("Active").Build(),
             Seeds = [seed],
         };
 
@@ -187,15 +282,39 @@ public sealed class McpResultBuilderTests
         doc.RootElement.GetProperty("seeds")[0].GetProperty("isSeed").GetBoolean().ShouldBeTrue();
     }
 
+    [Fact]
+    public void FormatStatus_ItemIncludesAreaAndIterationPaths()
+    {
+        var item = new WorkItemBuilder(1, "Pathed")
+            .AsTask()
+            .WithAreaPath(@"Project\Team")
+            .WithIterationPath(@"Project\Sprint 1")
+            .Build();
+
+        var snapshot = new StatusSnapshot
+        {
+            HasContext = true,
+            ActiveId = 1,
+            Item = item,
+        };
+
+        var result = McpResultBuilder.FormatStatus(snapshot);
+        using var doc = JsonDocument.Parse(GetJsonText(result));
+        var itemJson = doc.RootElement.GetProperty("item");
+
+        itemJson.TryGetProperty("areaPath", out _).ShouldBeTrue();
+        itemJson.TryGetProperty("iterationPath", out _).ShouldBeTrue();
+    }
+
     // ── FormatTree ──────────────────────────────────────────────────
 
     [Fact]
     public void FormatTree_ProducesValidStructure()
     {
-        var focus = CreateWorkItem(10, "Focus", "Epic", "Active", "Alice");
-        var parent = CreateWorkItem(5, "Parent", "Feature", "Active", "Bob");
-        var child1 = CreateWorkItem(20, "Child 1", "Task", "New", null);
-        var child2 = CreateWorkItem(21, "Child 2", "Task", "Active", "Carol");
+        var focus = new WorkItemBuilder(10, "Focus").AsEpic().InState("Active").AssignedTo("Alice").Build();
+        var parent = new WorkItemBuilder(5, "Parent").AsFeature().InState("Active").AssignedTo("Bob").Build();
+        var child1 = new WorkItemBuilder(20, "Child 1").AsTask().Build();
+        var child2 = new WorkItemBuilder(21, "Child 2").AsTask().InState("Active").AssignedTo("Carol").Build();
         var link = new WorkItemLink(10, 30, "Related");
 
         var tree = WorkTree.Build(focus, [parent], [child1, child2], focusedItemLinks: [link]);
@@ -217,7 +336,7 @@ public sealed class McpResultBuilderTests
     [Fact]
     public void FormatTree_EmptyChildren_WritesEmptyArrays()
     {
-        var focus = CreateWorkItem(1, "Solo", "Bug", "Active", null);
+        var focus = new WorkItemBuilder(1, "Solo").AsBug().InState("Active").Build();
         var tree = WorkTree.Build(focus, [], []);
 
         var result = McpResultBuilder.FormatTree(tree);
@@ -230,14 +349,54 @@ public sealed class McpResultBuilderTests
         doc.RootElement.GetProperty("totalChildren").GetInt32().ShouldBe(0);
     }
 
+    [Fact]
+    public void FormatTree_MultipleLinks_IncludesSourceAndTargetIds()
+    {
+        var focus = WorkItemBuilder.Simple(10, "Focus");
+        var links = new[]
+        {
+            new WorkItemLink(10, 20, "Related"),
+            new WorkItemLink(10, 30, "Predecessor"),
+        };
+        var tree = WorkTree.Build(focus, [], [], focusedItemLinks: links);
+
+        var result = McpResultBuilder.FormatTree(tree);
+        using var doc = JsonDocument.Parse(GetJsonText(result));
+        var linksArr = doc.RootElement.GetProperty("links");
+
+        linksArr.GetArrayLength().ShouldBe(2);
+        linksArr[0].GetProperty("sourceId").GetInt32().ShouldBe(10);
+        linksArr[0].GetProperty("targetId").GetInt32().ShouldBe(20);
+        linksArr[1].GetProperty("sourceId").GetInt32().ShouldBe(10);
+        linksArr[1].GetProperty("targetId").GetInt32().ShouldBe(30);
+        linksArr[1].GetProperty("linkType").GetString().ShouldBe("Predecessor");
+    }
+
+    [Fact]
+    public void FormatTree_DeepParentChain_PreservesOrder()
+    {
+        var focus = WorkItemBuilder.Simple(100, "Focus");
+        var grandparent = new WorkItemBuilder(1, "Grandparent").AsEpic().Build();
+        var parent = new WorkItemBuilder(50, "Parent").AsFeature().Build();
+        var tree = WorkTree.Build(focus, [grandparent, parent], []);
+
+        var result = McpResultBuilder.FormatTree(tree);
+        using var doc = JsonDocument.Parse(GetJsonText(result));
+        var chain = doc.RootElement.GetProperty("parentChain");
+
+        chain.GetArrayLength().ShouldBe(2);
+        chain[0].GetProperty("id").GetInt32().ShouldBe(1);
+        chain[1].GetProperty("id").GetInt32().ShouldBe(50);
+    }
+
     // ── FormatWorkspace ─────────────────────────────────────────────
 
     [Fact]
     public void FormatWorkspace_ProducesValidStructure()
     {
-        var context = CreateWorkItem(1, "Context", "Epic", "Active", "Alice");
-        var sprint = CreateWorkItem(2, "Sprint Item", "Task", "Active", "Bob");
-        var seed = CreateSeedWorkItem(-1, "Seed", "Bug");
+        var context = new WorkItemBuilder(1, "Context").AsEpic().InState("Active").AssignedTo("Alice").Build();
+        var sprint = new WorkItemBuilder(2, "Sprint Item").AsTask().InState("Active").AssignedTo("Bob").Build();
+        var seed = new WorkItemBuilder(-1, "Seed").AsBug().AsSeed().Build();
         var workspace = Workspace.Build(context, [sprint], [seed]);
 
         var result = McpResultBuilder.FormatWorkspace(workspace, staleDays: 7);
@@ -253,15 +412,48 @@ public sealed class McpResultBuilderTests
     }
 
     [Fact]
-    public void FormatWorkspace_NullContext_WritesNull()
+    public void FormatWorkspace_StaleSeed_AppearsInStaleArray()
+    {
+        var staleSeed = new WorkItemBuilder(-1, "Old Seed").AsTask().AsSeed(daysOld: 30).Build();
+        var freshSeed = new WorkItemBuilder(-2, "New Seed").AsTask().AsSeed(daysOld: 1).Build();
+        var workspace = Workspace.Build(null, [], [staleSeed, freshSeed]);
+
+        var result = McpResultBuilder.FormatWorkspace(workspace, staleDays: 7);
+        using var doc = JsonDocument.Parse(GetJsonText(result));
+        var staleIds = doc.RootElement.GetProperty("staleSeeds");
+
+        staleIds.GetArrayLength().ShouldBe(1);
+        staleIds[0].GetInt32().ShouldBe(-1);
+    }
+
+    [Fact]
+    public void FormatWorkspace_DirtyItems_ReflectedInDirtyCount()
+    {
+        var dirty1 = new WorkItemBuilder(1, "Dirty 1").AsTask().Dirty().Build();
+        var dirty2 = new WorkItemBuilder(2, "Dirty 2").AsTask().Dirty().Build();
+        var clean = new WorkItemBuilder(3, "Clean").AsTask().Build();
+        var workspace = Workspace.Build(null, [dirty1, dirty2, clean], []);
+
+        var result = McpResultBuilder.FormatWorkspace(workspace, staleDays: 7);
+        using var doc = JsonDocument.Parse(GetJsonText(result));
+
+        doc.RootElement.GetProperty("dirtyCount").GetInt32().ShouldBe(2);
+    }
+
+    [Fact]
+    public void FormatWorkspace_EmptyWorkspace_WritesNullContextAndZeroCounts()
     {
         var workspace = Workspace.Build(null, [], []);
 
         var result = McpResultBuilder.FormatWorkspace(workspace, staleDays: 7);
-        var json = GetJsonText(result);
-        using var doc = JsonDocument.Parse(json);
+        using var doc = JsonDocument.Parse(GetJsonText(result));
+        var root = doc.RootElement;
 
-        doc.RootElement.GetProperty("context").ValueKind.ShouldBe(JsonValueKind.Null);
+        root.GetProperty("context").ValueKind.ShouldBe(JsonValueKind.Null);
+        root.GetProperty("sprintItems").GetArrayLength().ShouldBe(0);
+        root.GetProperty("seeds").GetArrayLength().ShouldBe(0);
+        root.GetProperty("staleSeeds").GetArrayLength().ShouldBe(0);
+        root.GetProperty("dirtyCount").GetInt32().ShouldBe(0);
     }
 
     // ── FormatFlushSummary ──────────────────────────────────────────
@@ -301,6 +493,31 @@ public sealed class McpResultBuilderTests
     }
 
     [Fact]
+    public void FormatFlushSummary_MultipleFailures_AllSerialized()
+    {
+        var summary = new McpFlushSummary
+        {
+            Flushed = 1,
+            Failed = 3,
+            Failures =
+            [
+                new McpFlushItemFailure { WorkItemId = 10, Reason = "Conflict" },
+                new McpFlushItemFailure { WorkItemId = 20, Reason = "Not found" },
+                new McpFlushItemFailure { WorkItemId = 30, Reason = "Unauthorized" },
+            ],
+        };
+
+        var result = McpResultBuilder.FormatFlushSummary(summary);
+        using var doc = JsonDocument.Parse(GetJsonText(result));
+        var failures = doc.RootElement.GetProperty("failures");
+
+        failures.GetArrayLength().ShouldBe(3);
+        failures[0].GetProperty("workItemId").GetInt32().ShouldBe(10);
+        failures[1].GetProperty("reason").GetString().ShouldBe("Not found");
+        failures[2].GetProperty("workItemId").GetInt32().ShouldBe(30);
+    }
+
+    [Fact]
     public void FormatFlushSummary_UsesCamelCaseNaming()
     {
         var summary = new McpFlushSummary { Flushed = 1 };
@@ -310,15 +527,22 @@ public sealed class McpResultBuilderTests
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
 
-        // Verify camelCase: properties start with lowercase
         root.TryGetProperty("flushed", out _).ShouldBeTrue();
         root.TryGetProperty("failed", out _).ShouldBeTrue();
         root.TryGetProperty("failures", out _).ShouldBeTrue();
 
-        // Verify PascalCase variants are absent
         root.TryGetProperty("Flushed", out _).ShouldBeFalse();
         root.TryGetProperty("Failed", out _).ShouldBeFalse();
         root.TryGetProperty("Failures", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void FormatFlushSummary_ResultIsNotError()
+    {
+        var summary = new McpFlushSummary { Flushed = 1 };
+
+        var result = McpResultBuilder.FormatFlushSummary(summary);
+        result.IsError.ShouldBeNull();
     }
 
     // ── McpJsonContext source-gen ────────────────────────────────────
@@ -346,39 +570,23 @@ public sealed class McpResultBuilderTests
         deserialized.Failures.Count.ShouldBe(2);
     }
 
+    [Fact]
+    public void McpJsonContext_RoundTripEmptyFailures()
+    {
+        var original = new McpFlushSummary { Flushed = 5, Failed = 0 };
+
+        var json = JsonSerializer.Serialize(original, McpJsonContext.Default.McpFlushSummary);
+        var deserialized = JsonSerializer.Deserialize(json, McpJsonContext.Default.McpFlushSummary);
+
+        deserialized.ShouldNotBeNull();
+        deserialized.Flushed.ShouldBe(5);
+        deserialized.Failures.Count.ShouldBe(0);
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────
 
     private static string GetJsonText(CallToolResult result)
     {
         return result.Content[0].ShouldBeOfType<TextContentBlock>().Text!;
-    }
-
-    private static WorkItem CreateWorkItem(
-        int id, string title, string typeName, string state, string? assignedTo, int? parentId = null)
-    {
-        var typeResult = WorkItemType.Parse(typeName);
-        return new WorkItem
-        {
-            Id = id,
-            Title = title,
-            Type = typeResult.Value,
-            State = state,
-            AssignedTo = assignedTo,
-            ParentId = parentId,
-        };
-    }
-
-    private static WorkItem CreateSeedWorkItem(int id, string title, string typeName)
-    {
-        var typeResult = WorkItemType.Parse(typeName);
-        return new WorkItem
-        {
-            Id = id,
-            Title = title,
-            Type = typeResult.Value,
-            State = "New",
-            IsSeed = true,
-            SeedCreatedAt = DateTimeOffset.UtcNow,
-        };
     }
 }

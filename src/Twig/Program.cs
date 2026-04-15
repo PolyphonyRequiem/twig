@@ -310,9 +310,9 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> Set([Argument] string idOrPattern, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SetCommand>().ExecuteAsync(idOrPattern, output, ct);
 
-    /// <summary>Display a work item from cache without changing context.</summary>
-    public async Task<int> Show([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, ct);
+    /// <summary>Display a work item without changing context. Syncs by default; use --no-refresh for cache-only.</summary>
+    public async Task<int> Show([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, bool noRefresh = false, CancellationToken ct = default)
+        => await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, noRefresh, ct);
 
     /// <summary>Search and filter work items via ad-hoc WIQL queries.</summary>
     public async Task<int> Query([Argument] string? searchText = null, string? type = null, string? state = null, string? assignedTo = null, string? areaPath = null, string? iterationPath = null, string? createdSince = null, string? changedSince = null, int top = 25, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
@@ -833,7 +833,7 @@ Views:
 
 Context:
   set <id|pattern>     Set the active work item.
-  show <id>            Display a work item from cache (read-only).
+  show <id>            Display a work item (syncs by default; --no-refresh for cache-only).
   query [text]         Search work items by text, type, state, or assignee.
   web [id]             Open the active work item in the browser.
 

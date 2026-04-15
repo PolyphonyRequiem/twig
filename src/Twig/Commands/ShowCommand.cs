@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Spectre.Console.Rendering;
 using Twig.Domain.Common;
 using Twig.Domain.Extensions;
 using Twig.Domain.Interfaces;
@@ -11,14 +12,17 @@ using Twig.Rendering;
 namespace Twig.Commands;
 
 /// <summary>
-/// Implements <c>twig show &lt;id&gt;</c>: read-only, cache-only work item lookup by integer ID.
-/// Unlike <see cref="SetCommand"/>, this command does not change active context, trigger a sync,
-/// or record navigation history. All data comes exclusively from the local cache.
+/// Implements <c>twig show &lt;id&gt;</c>: read-only work item lookup by integer ID.
+/// Unlike <see cref="SetCommand"/>, this command does not change active context or record
+/// navigation history. By default, renders cached data immediately then syncs the item
+/// and revises the display. Use <c>--no-refresh</c> to skip the sync pass.
 /// </summary>
 public sealed class ShowCommand(
     IWorkItemRepository workItemRepo,
     IWorkItemLinkRepository linkRepo,
     OutputFormatterFactory formatterFactory,
+    SyncCoordinator syncCoordinator,
+    TwigConfiguration config,
     RenderingPipelineFactory? pipelineFactory = null,
     TwigPaths? paths = null,
     IFieldDefinitionStore? fieldDefinitionStore = null,
@@ -28,10 +32,10 @@ public sealed class ShowCommand(
 {
     private readonly TextWriter _stderr = stderr ?? Console.Error;
 
-    public async Task<int> ExecuteAsync(int id, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    public async Task<int> ExecuteAsync(int id, string outputFormat = OutputFormatterFactory.DefaultFormat, bool noRefresh = false, CancellationToken ct = default)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
-        var exitCode = await ExecuteCoreAsync(id, outputFormat, ct);
+        var exitCode = await ExecuteCoreAsync(id, outputFormat, noRefresh, ct);
         telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
         {
             ["command"] = "show",
@@ -46,13 +50,13 @@ public sealed class ShowCommand(
         return exitCode;
     }
 
-    private async Task<int> ExecuteCoreAsync(int id, string outputFormat, CancellationToken ct)
+    private async Task<int> ExecuteCoreAsync(int id, string outputFormat, bool noRefresh, CancellationToken ct)
     {
         var (fmt, renderer) = pipelineFactory is not null
             ? pipelineFactory.Resolve(outputFormat)
             : (formatterFactory.GetFormatter(outputFormat), null);
 
-        // Cache-only lookup — no ADO fetch, no sync
+        // Cache-first lookup — item must be in local cache
         var item = await workItemRepo.GetByIdAsync(id, ct);
         if (item is null)
         {
@@ -89,17 +93,60 @@ public sealed class ShowCommand(
 
         if (renderer is not null)
         {
-            // async renderer with empty pending changes (read-only view)
-            await renderer.RenderStatusAsync(
+            Task RenderStaticAsync() => renderer.RenderStatusAsync(
                 getItem: () => Task.FromResult<Domain.Aggregates.WorkItem?>(item),
                 getPendingChanges: () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>([]),
-                ct: ct,
+                ct: CancellationToken.None,
                 fieldDefinitions: fieldDefs,
                 statusFieldEntries: statusFieldEntries,
                 childProgress: childProgress,
                 links: links,
                 parent: parent,
-                children: children);
+                children: children,
+                cacheStaleMinutes: config.Display.CacheStaleMinutes);
+
+            if (renderer is SpectreRenderer spectreRenderer && !noRefresh)
+            {
+                Task<IRenderable> BuildView(Domain.Aggregates.WorkItem wi, Domain.Aggregates.WorkItem? pa, IReadOnlyList<Domain.Aggregates.WorkItem> ch, (int Done, int Total)? progress)
+                    => spectreRenderer.BuildStatusViewAsync(wi,
+                        getPendingChanges: () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>([]),
+                        fieldDefinitions: fieldDefs,
+                        statusFieldEntries: statusFieldEntries,
+                        childProgress: progress,
+                        links: links,
+                        parent: pa,
+                        children: ch,
+                        cacheStaleMinutes: config.Display.CacheStaleMinutes);
+
+                try
+                {
+                    await renderer.RenderWithSyncAsync(
+                        buildCachedView: () => BuildView(item, parent, children, childProgress),
+                        performSync: () => syncCoordinator.SyncItemSetAsync([id]),
+                        buildRevisedView: async _ =>
+                        {
+                            var freshItem = await workItemRepo.GetByIdAsync(id, CancellationToken.None);
+                            if (freshItem is null) return null;
+
+                            var freshChildren = await workItemRepo.GetChildrenAsync(freshItem.Id, CancellationToken.None);
+                            var freshParent = freshItem.ParentId.HasValue
+                                ? await workItemRepo.GetByIdAsync(freshItem.ParentId.Value, CancellationToken.None)
+                                : null;
+
+                            return await BuildView(freshItem, freshParent, freshChildren, processConfigProvider.ComputeChildProgress(freshChildren));
+                        },
+                        CancellationToken.None);
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception)
+                {
+                    await RenderStaticAsync();
+                }
+            }
+            else
+            {
+                await RenderStaticAsync();
+            }
         }
         else if (fmt is HumanOutputFormatter humanFmt)
         {

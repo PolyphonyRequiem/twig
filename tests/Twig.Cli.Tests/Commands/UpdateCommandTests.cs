@@ -504,6 +504,37 @@ public class UpdateCommandTests
         output.ShouldNotContain("[from stdin]");
     }
 
+    [Fact]
+    public async Task Update_WithExplicitId_ResolvesById()
+    {
+        var item = CreateWorkItem(42, "Explicit Item");
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(42, "Explicit Item"));
+        _adoService.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+        _pendingChangeStore.GetChangesAsync(42, Arg.Any<CancellationToken>()).Returns(Array.Empty<PendingChangeRecord>());
+
+        var result = await _cmd.ExecuteAsync("System.Title", "Updated", id: 42);
+
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(42,
+            Arg.Is<IReadOnlyList<FieldChange>>(c => c.Count == 1 && c[0].FieldName == "System.Title"),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+        // Should NOT have queried for the active item
+        await _contextStore.DidNotReceive().GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Update_WithoutId_FallsBackToActiveItem()
+    {
+        SetupSuccessfulPatch();
+
+        var result = await _cmd.ExecuteAsync("System.Title", "Updated");
+
+        result.ShouldBe(0);
+        // Should have queried for the active item
+        await _contextStore.Received().GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>());
+    }
+
     private void SetupActiveItem(WorkItem item)
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(item.Id);

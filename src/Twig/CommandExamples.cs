@@ -1,306 +1,308 @@
 /// <summary>
 /// Per-command usage examples appended to <c>--help</c> output after ConsoleAppFramework's
-/// built-in help text. Populated by T-1525-2; resolution logic handles compound commands
-/// (e.g. <c>nav up</c>, <c>seed new</c>) and single-token commands (e.g. <c>set</c>, <c>flow-start</c>).
+/// built-in help text. Handles compound commands (e.g. <c>nav up</c>, <c>seed new</c>) and
+/// single-token commands (e.g. <c>set</c>, <c>flow-start</c>).
 /// </summary>
 internal static class CommandExamples
 {
     /// <summary>
     /// Command name → array of example lines. Each line is a complete example string
     /// (e.g. <c>"twig set 1234              Set context by work item ID"</c>).
-    /// Populated by T-1525-2; compound commands use space-separated keys (e.g. <c>"nav up"</c>).
+    /// Compound commands use space-separated keys (e.g. <c>"nav up"</c>).
     /// </summary>
     internal static Dictionary<string, string[]> Examples { get; } = new(StringComparer.Ordinal)
     {
         ["init"] =
         [
-            "twig init myorg myproject                  Initialize workspace for org/project",
-            "twig init myorg myproject --team MyTeam    Initialize with a specific team",
+            "twig init https://dev.azure.com/myorg myproject    Initialize twig for a project",
+            "twig init https://dev.azure.com/myorg myproject --pat <token>    Initialize with a PAT",
         ],
         ["set"] =
         [
-            "twig set 1234                  Set active context to work item #1234",
-            "twig set \"login bug\"           Set active context by title pattern",
+            "twig set 1234              Set active context to work item #1234",
+            "twig set login bug         Search cache for 'login bug' and set as active",
         ],
         ["show"] =
         [
-            "twig show 1234                 Show details of work item #1234",
-            "twig show 1234 --output json   Show details in JSON format",
+            "twig show 1234             Show work item #1234",
+            "twig show 1234 --output json  Show work item #1234 as JSON",
         ],
         ["query"] =
         [
-            "twig query --state Active               Query all active work items",
-            "twig query \"login\" --type Task          Search tasks matching 'login'",
+            "twig query \"login bug\"              Search title & description",
+            "twig query --state Doing --top 50    Filter by state, limit results",
         ],
         ["status"] =
         [
-            "twig status                    Show current work item status",
-            "twig status --output json      Show status in JSON format",
+            "twig status                Show status of the active work item",
+            "twig status --output json  Show status as JSON (for scripting)",
         ],
         ["state"] =
         [
-            "twig state Active              Transition active item to Active",
-            "twig state Done                Mark active item as Done",
+            "twig state Active          Transition active item to Active",
+            "twig state Done            Transition active item to Done",
         ],
         ["new"] =
         [
-            "twig new \"Add login page\" --type Task     Create a new task",
-            "twig new \"Fix crash\" --type Bug --set     Create a bug and set it active",
+            "twig new task \"Write tests\"         Create a new Task under the active item",
+            "twig new bug \"Login fails on edge\"  Create a new Bug under the active item",
         ],
         ["tree"] =
         [
-            "twig tree                      Show work item hierarchy for current context",
-            "twig tree --depth 3            Show tree up to 3 levels deep",
+            "twig tree                  Render the sprint backlog as a tree",
+            "twig tree --output json    Output the tree as JSON",
         ],
         ["nav"] =
         [
-            "twig nav                       Open interactive navigation picker",
-            "twig nav --output minimal      Open picker with minimal output format",
+            "twig nav up                Navigate to the parent work item",
+            "twig nav down              Navigate to the first child work item",
         ],
         ["nav up"] =
         [
-            "twig nav up                    Navigate to parent of active item",
-            "twig nav up --output json      Navigate to parent, output JSON",
+            "twig nav up                Navigate to the parent work item",
+            "twig nav up --output json  Navigate up and output result as JSON",
         ],
         ["nav down"] =
         [
-            "twig nav down                  Navigate to first child of active item",
-            "twig nav down \"fix crash\"      Navigate down to child matching pattern",
+            "twig nav down              Navigate to the first child of the active item",
+            "twig nav down --output json  Navigate down and output as JSON",
         ],
         ["nav next"] =
         [
-            "twig nav next                  Navigate to next sibling of active item",
-            "twig nav next --output minimal Navigate to next sibling, minimal output",
+            "twig nav next              Navigate to the next sibling work item",
+            "twig nav next --output json  Navigate to next sibling and output as JSON",
         ],
         ["nav prev"] =
         [
-            "twig nav prev                  Navigate to previous sibling of active item",
-            "twig nav prev --output json    Navigate to previous sibling, JSON output",
+            "twig nav prev              Navigate to the previous sibling work item",
+            "twig nav prev --output json  Navigate to previous sibling and output as JSON",
         ],
         ["nav back"] =
         [
-            "twig nav back                  Go back in navigation history",
-            "twig nav back --output minimal Go back, minimal output",
+            "twig nav back              Go back one step in navigation history",
+            "twig nav back --output json  Go back and output result as JSON",
         ],
         ["nav fore"] =
         [
-            "twig nav fore                  Go forward in navigation history",
-            "twig nav fore --output minimal Go forward, minimal output",
+            "twig nav fore              Go forward one step in navigation history",
+            "twig nav fore --output json  Go forward and output result as JSON",
         ],
         ["nav history"] =
         [
-            "twig nav history               Show navigation history interactively",
-            "twig nav history --non-interactive   Print history without prompting",
+            "twig nav history           Show the navigation history stack",
+            "twig nav history --output json  Output navigation history as JSON",
         ],
         ["web"] =
         [
-            "twig web                       Open active work item in browser",
-            "twig web 1234                  Open work item #1234 in browser",
+            "twig web                   Open the active work item in a browser",
+            "twig web 1234              Open work item #1234 in a browser",
         ],
         ["seed new"] =
         [
-            "twig seed new \"Add login page\"         Create a new seed work item",
-            "twig seed new --editor                  Create a seed and open editor",
+            "twig seed new              Start authoring a new seed work item",
+            "twig seed new --type bug   Start authoring a new seed of type Bug",
         ],
         ["seed edit"] =
         [
-            "twig seed edit 42              Edit seed work item with local ID 42",
-            "twig seed edit 42 --output json   Edit seed and output result as JSON",
+            "twig seed edit             Edit the draft seed for the active item",
+            "twig seed edit 1234        Edit the draft seed for item #1234",
         ],
         ["seed discard"] =
         [
-            "twig seed discard 42           Discard seed with local ID 42 (prompt)",
-            "twig seed discard 42 --yes     Discard seed 42 without confirmation",
+            "twig seed discard          Discard the draft seed for the active item",
+            "twig seed discard 1234     Discard the draft seed for item #1234",
         ],
         ["seed view"] =
         [
-            "twig seed view                 List all staged seed work items",
-            "twig seed view --output json   List seeds in JSON format",
+            "twig seed view             View the draft seed for the active item",
+            "twig seed view --output json  View the seed as JSON",
         ],
         ["seed link"] =
         [
-            "twig seed link 42 1234                   Link seed 42 to item #1234",
-            "twig seed link 42 1234 --type Implements  Link with a specific relation type",
+            "twig seed link 1234 5678   Link seed #1234 as a child of #5678",
+            "twig seed link 1234        Link the seed #1234 under the active item",
         ],
         ["seed unlink"] =
         [
-            "twig seed unlink 42 1234               Remove link between seed 42 and #1234",
-            "twig seed unlink 42 1234 --type Tests  Remove a specific relation type link",
+            "twig seed unlink 1234      Remove the parent link from seed #1234",
+            "twig seed unlink           Remove the parent link from the active seed",
         ],
         ["seed links"] =
         [
-            "twig seed links                List links for all seeds",
-            "twig seed links 42             List links for seed with local ID 42",
+            "twig seed links            List all seeds with their parent links",
+            "twig seed links --output json  Output seed links as JSON",
         ],
         ["seed chain"] =
         [
-            "twig seed chain \"Task 1\" \"Task 2\" \"Task 3\"   Create a chain of seeds",
-            "twig seed chain --parent 1234 \"Task 1\" \"Task 2\"   Chain under parent #1234",
+            "twig seed chain            Show the full seed chain for the active item",
+            "twig seed chain --output json  Output the seed chain as JSON",
         ],
         ["seed validate"] =
         [
-            "twig seed validate             Validate all staged seeds",
-            "twig seed validate 42          Validate seed with local ID 42",
+            "twig seed validate         Validate all pending seeds before publish",
+            "twig seed validate 1234    Validate seed #1234 specifically",
         ],
         ["seed publish"] =
         [
-            "twig seed publish --all        Publish all validated seeds to ADO",
-            "twig seed publish 42           Publish seed with local ID 42",
+            "twig seed publish          Publish the active seed to ADO",
+            "twig seed publish --dry-run  Preview what would be published",
         ],
         ["seed reconcile"] =
         [
-            "twig seed reconcile            Reconcile seeds against ADO work items",
-            "twig seed reconcile --output json   Reconcile and output result as JSON",
+            "twig seed reconcile        Reconcile local seeds against ADO state",
+            "twig seed reconcile --output json  Output reconcile results as JSON",
         ],
         ["link parent"] =
         [
-            "twig link parent 1234          Set item #1234 as parent of active item",
-            "twig link parent 1234 --output json   Set parent, output JSON",
+            "twig link parent 5678      Set #5678 as the parent of the active item",
+            "twig link parent 5678 1234  Set #5678 as the parent of item #1234",
         ],
         ["link unparent"] =
         [
-            "twig link unparent             Remove parent link from active item",
-            "twig link unparent --output json    Remove parent, output JSON",
+            "twig link unparent         Remove the parent link from the active item",
+            "twig link unparent 1234    Remove the parent link from item #1234",
         ],
         ["link reparent"] =
         [
-            "twig link reparent 1234        Move active item under parent #1234",
-            "twig link reparent 1234 --output json   Reparent, output JSON",
+            "twig link reparent 5678        Move the active item under parent #5678",
+            "twig link reparent 5678 1234   Move item #1234 under parent #5678",
         ],
         ["note"] =
         [
-            "twig note \"Starting implementation\"    Add an inline note to active item",
-            "twig note                               Open editor to compose a note",
+            "twig note --text \"Investigated root cause\"   Add a note to the active item",
+            "twig note                                    Open editor to compose a note",
         ],
         ["update"] =
         [
-            "twig update System.Title \"New Title\"          Update the title field",
-            "twig update System.Description \"Details\" --format markdown   Update with markdown",
+            "twig update System.Title \"New title\"           Update the title field",
+            "twig update System.Description \"<p>…</p>\" --format markdown  Update description",
         ],
         ["edit"] =
         [
-            "twig edit                      Open active work item fields in editor",
-            "twig edit --output json        Edit and output result as JSON",
+            "twig edit                  Open the active item's description in an editor",
+            "twig edit System.Title     Open the Title field for editing",
         ],
         ["discard"] =
         [
-            "twig discard                   Discard all pending local changes",
-            "twig discard --output json     Discard changes, output JSON",
+            "twig discard               Discard all pending changes on the active item",
+            "twig discard --yes         Skip the confirmation prompt",
         ],
         ["sync"] =
         [
-            "twig sync                      Sync active work item with ADO",
-            "twig sync --force              Force a full sync, bypassing cache",
+            "twig sync                  Sync the working set from ADO",
+            "twig sync --force          Force a full resync, bypassing the cache",
         ],
         ["workspace"] =
         [
-            "twig workspace                 Show current sprint workspace",
-            "twig workspace --all           Show all work items in sprint layout",
+            "twig workspace             Show the current workspace (cached items)",
+            "twig workspace --output json  Output workspace info as JSON",
         ],
         ["sprint"] =
         [
-            "twig sprint                    Show sprint board view",
-            "twig sprint --output json      Show sprint board as JSON",
+            "twig sprint                Show the current sprint summary",
+            "twig sprint --output json  Output sprint info as JSON",
         ],
         ["config"] =
         [
-            "twig config sprint.columns \"State,Title\"   Set a config value",
-            "twig config sprint.columns                  Read the current value",
+            "twig config pat            Show the configured PAT setting",
+            "twig config pat <token>    Set the PAT to a new value",
         ],
         ["config status-fields"] =
         [
-            "twig config status-fields                   Show configured status fields",
-            "twig config status-fields --output json     Show status fields as JSON",
+            "twig config status-fields                    Show configured status fields",
+            "twig config status-fields --output json      Output status fields as JSON",
         ],
         ["branch"] =
         [
-            "twig branch                    Create a git branch for active work item",
-            "twig branch --no-transition    Create branch without state transition",
+            "twig branch                Create a branch name from the active work item",
+            "twig branch --no-transition  Create branch without transitioning work item state",
         ],
         ["commit"] =
         [
-            "twig commit \"Fix null ref\"     Commit with work item link in message",
-            "twig commit --no-link          Commit without auto-linking work item",
+            "twig commit                Create a commit message from the active work item",
+            "twig commit \"fix: my message\"  Commit with a custom message",
         ],
         ["pr"] =
         [
-            "twig pr                        Create a pull request for active item",
-            "twig pr --draft                Create a draft pull request",
+            "twig pr                    Open or create a PR for the current branch",
+            "twig pr --output json      Output PR info as JSON",
         ],
         ["stash"] =
         [
-            "twig stash                     Stash pending changes on active item",
-            "twig stash \"WIP: half done\"    Stash with a descriptive message",
+            "twig stash                 Stash pending changes on the active item",
+            "twig stash \"WIP: my changes\"  Stash with a descriptive message",
         ],
         ["stash pop"] =
         [
-            "twig stash pop                 Restore the most recent stash",
-            "twig stash pop --output json   Restore stash, output JSON",
+            "twig stash pop             Restore the most recently stashed changes",
+            "twig stash pop --output json  Output the restored stash details as JSON",
         ],
         ["log"] =
         [
-            "twig log                       Show recent activity log (last 20 entries)",
-            "twig log --count 50            Show last 50 log entries",
+            "twig log                   Show the change log for the active work item",
+            "twig log --output json     Output the change log as JSON",
         ],
         ["flow-start"] =
         [
-            "twig flow-start 1234           Start working on item #1234 end-to-end",
-            "twig flow-start \"login bug\" --no-branch   Start without creating a branch",
+            "twig flow-start 1234       Start a dev flow for work item #1234",
+            "twig flow-start            Start a dev flow for the active work item",
         ],
         ["flow-done"] =
         [
-            "twig flow-done                 Save changes, push, and create a PR",
-            "twig flow-done --no-pr         Save and push without creating a PR",
+            "twig flow-done             Mark the active flow as done and open a PR",
+            "twig flow-done --no-save   Mark as done, skipping the change-save step",
+            "twig flow-done --no-pr     Mark as done without creating a pull request",
         ],
         ["flow-close"] =
         [
-            "twig flow-close                Close active flow and clean up branch",
-            "twig flow-close --force        Force close even with uncommitted changes",
+            "twig flow-close            Close the active dev flow",
+            "twig flow-close --force    Force close even if guard conditions are not met",
+            "twig flow-close --no-branch-cleanup  Close without deleting the feature branch",
         ],
         ["hooks install"] =
         [
-            "twig hooks install             Install git hooks into .git/hooks",
-            "twig hooks install --output json   Install hooks, output JSON",
+            "twig hooks install         Install twig git hooks for this repository",
+            "twig hooks install --output json  Output install result as JSON",
         ],
         ["hooks uninstall"] =
         [
-            "twig hooks uninstall           Remove twig git hooks from .git/hooks",
-            "twig hooks uninstall --output json   Uninstall hooks, output JSON",
+            "twig hooks uninstall       Remove twig git hooks from this repository",
+            "twig hooks uninstall --output json  Output uninstall result as JSON",
         ],
         ["context"] =
         [
-            "twig context                   Show active workspace and work item context",
-            "twig context --output json     Show context in JSON format",
+            "twig context               Show the current twig context (workspace, active item)",
+            "twig context --output json  Output context as JSON",
         ],
         ["version"] =
         [
-            "twig version                   Print the installed twig version",
-            "twig version --output json     Print version in JSON format",
+            "twig version               Print the installed twig version",
+            "twig version --output json  Output version info as JSON",
         ],
         ["upgrade"] =
         [
-            "twig upgrade                   Upgrade twig to the latest release",
-            "twig upgrade --output json     Upgrade and output result as JSON",
+            "twig upgrade               Upgrade twig to the latest release",
+            "twig upgrade               Run in a new shell after install to pick up PATH changes",
         ],
         ["changelog"] =
         [
-            "twig changelog                 Show last 5 twig release notes",
-            "twig changelog --count 10      Show last 10 release notes",
+            "twig changelog             Show the twig release changelog",
+            "twig changelog --output json  Output changelog as JSON",
         ],
         ["tui"] =
         [
-            "twig tui                       Launch the terminal UI",
-            "twig tui --output json         Launch TUI with JSON output mode",
+            "twig tui                   Launch the interactive terminal UI",
+            "twig tui                   Navigate tree, status, and context interactively",
         ],
         ["mcp"] =
         [
-            "twig mcp                       Start the MCP server",
-            "twig mcp --output json         Start MCP server with JSON output",
+            "twig mcp                   Start the twig MCP server",
+            "twig mcp                   Exposes twig tools to AI agents via the MCP protocol",
         ],
         ["ohmyposh init"] =
         [
-            "twig ohmyposh init             Generate Oh My Posh segment config",
-            "twig ohmyposh init --shell zsh Generate config for zsh shell",
+            "twig ohmyposh init         Output the oh-my-posh segment JSON for twig context",
+            "twig ohmyposh init --output json  Same, explicitly requesting JSON output",
         ],
     };
 

@@ -50,8 +50,6 @@ function Install-Shim($exeName, $coreName) {
 function Enable-Shims {
     # Rename release binaries so the .cmd shims take precedence via PATHEXT.
     foreach ($name in @('twig', 'twig-mcp', 'twig-tui')) {
-        $exe  = Join-Path $globalDir "$name.exe"
-        $core = Join-Path $globalDir "$name-core.exe"
         if ((Test-Path $exe) -and -not (Test-Path $core)) {
             Rename-Item $exe $core
             Write-Host "  Renamed $name.exe -> $name-core.exe" -ForegroundColor DarkGray
@@ -62,7 +60,6 @@ function Enable-Shims {
 
 function Disable-Shims {
     foreach ($name in @('twig', 'twig-mcp', 'twig-tui')) {
-        $shim = Join-Path $globalDir "$name.cmd"
         $core = Join-Path $globalDir "$name-core.exe"
         $exe  = Join-Path $globalDir "$name.exe"
         if (Test-Path $shim) {
@@ -113,6 +110,9 @@ if (-not (Test-Path $localDir)) {
 Invoke-Publish "twig" "src\Twig\Twig.csproj"
 Invoke-Publish "twig-mcp" "src\Twig.Mcp\Twig.Mcp.csproj"
 Invoke-Publish "twig-tui" "src\Twig.Tui\Twig.Tui.csproj" "SingleFile"
+
+# Install shims so 'twig' on PATH resolves to the local build
+Enable-Shims
 
 # Install shims so 'twig' on PATH resolves to the local build
 Enable-Shims

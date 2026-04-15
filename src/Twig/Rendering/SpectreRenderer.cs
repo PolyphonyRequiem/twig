@@ -467,7 +467,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             var child = children[i];
             var activeMarker = (activeId.HasValue && child.Id == activeId.Value)
                 ? "[aqua]●[/] " : "";
-            var dirty = child.IsDirty ? " [yellow]✎[/]" : "";
+            var dirty = child.IsDirty ? " [yellow]●[/]" : "";
             var effort = Formatters.FormatterHelpers.GetEffortDisplay(child);
             var effortSuffix = effort is not null ? $" [dim]{Markup.Escape(effort)}[/]" : "";
             var stateColor = _theme.GetStateCategoryMarkupColor(child.State);

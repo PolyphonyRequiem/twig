@@ -275,9 +275,17 @@ public sealed class StatusCommand(
                 Console.WriteLine(formatted);
         }
 
-        // Sync working set silently after output (EPIC-004)
-        var syncWorkingSet = await workingSetService.ComputeAsync(item.IterationPath);
-        await syncCoordinator.SyncWorkingSetAsync(syncWorkingSet);
+        // Sync working set silently after output (EPIC-004) — best-effort; skip if --no-refresh
+        if (!noRefresh)
+        {
+            try
+            {
+                var syncWorkingSet = await workingSetService.ComputeAsync(item.IterationPath);
+                await syncCoordinator.SyncWorkingSetAsync(syncWorkingSet);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception) { /* sync is best-effort — don't fail the command */ }
+        }
 
         return 0;
     }

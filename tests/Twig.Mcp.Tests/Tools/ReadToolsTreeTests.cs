@@ -4,11 +4,7 @@ using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Domain.Aggregates;
-using Twig.Domain.Interfaces;
-using Twig.Domain.Services;
-using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Config;
-using Twig.Mcp.Tools;
 using Twig.TestKit;
 using Xunit;
 
@@ -19,36 +15,12 @@ namespace Twig.Mcp.Tests.Tools;
 /// Covers happy path, no active item, unreachable item, children rendering,
 /// depth limiting, sibling counts, and best-effort link sync.
 /// </summary>
-public sealed class ReadToolsTreeTests
+public sealed class ReadToolsTreeTests : ReadToolsTestBase
 {
-    private readonly IContextStore _contextStore = Substitute.For<IContextStore>();
-    private readonly IWorkItemRepository _workItemRepo = Substitute.For<IWorkItemRepository>();
-    private readonly IAdoWorkItemService _adoService = Substitute.For<IAdoWorkItemService>();
-    private readonly IPendingChangeStore _pendingChangeStore = Substitute.For<IPendingChangeStore>();
-    private readonly IWorkItemLinkRepository _linkRepo = Substitute.For<IWorkItemLinkRepository>();
-
     private readonly TwigConfiguration _config = new()
     {
         Display = new DisplayConfig { TreeDepth = 10, CacheStaleMinutes = 5 },
     };
-
-    private ReadTools CreateSut()
-    {
-        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        var protectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        var syncCoordinator = new SyncCoordinator(
-            _workItemRepo, _adoService, protectedWriter, _pendingChangeStore,
-            _linkRepo, _config.Display.CacheStaleMinutes);
-
-        return new ReadTools(_workItemRepo, resolver, syncCoordinator, _config);
-    }
-
-    private static JsonElement ParseResult(CallToolResult result)
-    {
-        var text = result.Content[0].ShouldBeOfType<TextContentBlock>().Text;
-        using var doc = JsonDocument.Parse(text);
-        return doc.RootElement.Clone();
-    }
 
     // ═══════════════════════════════════════════════════════════════
     //  No active item — error
@@ -60,7 +32,7 @@ public sealed class ReadToolsTreeTests
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>())
             .Returns((int?)null);
 
-        var result = await CreateSut().Tree();
+        var result = await CreateSut(_config).Tree();
 
         result.IsError.ShouldBe(true);
         result.Content[0].ShouldBeOfType<TextContentBlock>()
@@ -81,7 +53,7 @@ public sealed class ReadToolsTreeTests
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("Network error"));
 
-        var result = await CreateSut().Tree();
+        var result = await CreateSut(_config).Tree();
 
         result.IsError.ShouldBe(true);
         var text = result.Content[0].ShouldBeOfType<TextContentBlock>().Text;
@@ -111,7 +83,7 @@ public sealed class ReadToolsTreeTests
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
             .Returns([focus]);
 
-        var result = await CreateSut().Tree();
+        var result = await CreateSut(_config).Tree();
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
@@ -147,7 +119,7 @@ public sealed class ReadToolsTreeTests
         _workItemRepo.GetChildrenAsync(5, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var result = await CreateSut().Tree();
+        var result = await CreateSut(_config).Tree();
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
@@ -174,7 +146,7 @@ public sealed class ReadToolsTreeTests
         _workItemRepo.GetChildrenAsync(10, Arg.Any<CancellationToken>())
             .Returns(children);
 
-        var result = await CreateSut().Tree(depth: 2);
+        var result = await CreateSut(_config).Tree(depth: 2);
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
@@ -197,7 +169,7 @@ public sealed class ReadToolsTreeTests
         _workItemRepo.GetChildrenAsync(10, Arg.Any<CancellationToken>())
             .Returns(children);
 
-        var result = await CreateSut().Tree(depth: null);
+        var result = await CreateSut(_config).Tree(depth: null);
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
@@ -219,7 +191,7 @@ public sealed class ReadToolsTreeTests
         _workItemRepo.GetChildrenAsync(10, Arg.Any<CancellationToken>())
             .Returns(children);
 
-        var result = await CreateSut().Tree(depth: 100);
+        var result = await CreateSut(_config).Tree(depth: 100);
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
@@ -244,7 +216,7 @@ public sealed class ReadToolsTreeTests
         _adoService.FetchWithLinksAsync(10, Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("Network error"));
 
-        var result = await CreateSut().Tree();
+        var result = await CreateSut(_config).Tree();
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
@@ -271,7 +243,7 @@ public sealed class ReadToolsTreeTests
         _workItemRepo.GetChildrenAsync(42, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var result = await CreateSut().Tree();
+        var result = await CreateSut(_config).Tree();
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
@@ -301,7 +273,7 @@ public sealed class ReadToolsTreeTests
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
             .Returns([focus, sibling]);
 
-        var result = await CreateSut().Tree();
+        var result = await CreateSut(_config).Tree();
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
@@ -328,7 +300,7 @@ public sealed class ReadToolsTreeTests
         _workItemRepo.GetChildrenAsync(5, Arg.Any<CancellationToken>())
             .Returns([child1, child2]);
 
-        var result = await CreateSut().Tree();
+        var result = await CreateSut(_config).Tree();
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);

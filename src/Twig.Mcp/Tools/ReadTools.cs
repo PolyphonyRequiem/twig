@@ -17,6 +17,8 @@ namespace Twig.Mcp.Tools;
 [McpServerToolType]
 public sealed class ReadTools(
     IWorkItemRepository workItemRepo,
+    IContextStore contextStore,
+    IIterationService iterationService,
     ActiveItemResolver activeItemResolver,
     SyncCoordinator syncCoordinator,
     TwigConfiguration config)
@@ -67,5 +69,34 @@ public sealed class ReadTools(
         var tree = WorkTree.Build(item, parentChain, children, siblingCounts, links);
 
         return McpResultBuilder.FormatTree(tree, totalChildCount);
+    }
+
+    [McpServerTool(Name = "twig.workspace"), Description("Returns the current sprint workspace: active context item, sprint backlog items, and seeds.")]
+    public async Task<CallToolResult> Workspace(
+        [Description("Show all team items instead of just the current user")] bool all = false,
+        CancellationToken ct = default)
+    {
+        // 1. Context item (nullable — no error if absent)
+        var contextId = await contextStore.GetActiveWorkItemIdAsync(ct);
+        WorkItem? contextItem = contextId.HasValue
+            ? await workItemRepo.GetByIdAsync(contextId.Value, ct)
+            : null;
+
+        // 2. Current iteration
+        var iteration = await iterationService.GetCurrentIterationAsync(ct);
+
+        // 3. Sprint items — filter by user when all=false and display name is configured
+        var sprintItems = !all && config.User.DisplayName is not null
+            ? await workItemRepo.GetByIterationAndAssigneeAsync(iteration, config.User.DisplayName, ct)
+            : await workItemRepo.GetByIterationAsync(iteration, ct);
+
+        // 4. Seeds
+        var seeds = await workItemRepo.GetSeedsAsync(ct);
+
+        // 5. Build workspace
+        var workspace = Domain.ReadModels.Workspace.Build(contextItem, sprintItems, seeds);
+
+        // 6. Format result
+        return McpResultBuilder.FormatWorkspace(workspace, config.Seed.StaleDays);
     }
 }

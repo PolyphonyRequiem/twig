@@ -19,20 +19,46 @@ Implement the following task.
 {% endfor %}
 {% endif %}
 ## Steps
-1. **Deep Codebase Research**
-   - Analyze the codebase to understand existing patterns and conventions
-   - Identify all files that will be created, modified, or deleted for THIS task
-   - Review related modules and their interfaces
-   - Identify integration points and potential conflicts
-   - Document the coding style, naming conventions, and patterns used
-   - Add a twig note: `twig note --text "Research: <findings>"`
-2. **Implement the changes** following existing conventions
-   - Add a twig note: `twig note --text "Impl: <what was done>"`
-3. **Write tests** covering the new functionality and edge cases
-   - Track edge cases you explicitly handled (for reviewer visibility)
-4. **Run tests:** `dotnet test --settings test.runsettings`
-   - Add a twig note: `twig note --text "Tests: <count> tests, <coverage>"`
-5. **Commit:** `git add -A && git commit -m "<descriptive message>"`
+
+### Step 0 — Prior State Check (< 3 minutes, MANDATORY)
+Before doing ANY research or implementation, check if this task was already worked on:
+```
+git --no-pager log --oneline -10
+git --no-pager diff --stat HEAD
+git --no-pager status --short
+```
+**If commits already exist for this task** (matching the task ID, issue, or description):
+- Verify the existing work is correct with *targeted* spot-checks — NOT a full re-verification
+- If it looks good: run `dotnet test --settings test.runsettings`, commit any uncommitted changes, and go straight to **Output**
+- If it has problems: fix only what's broken, don't redo from scratch
+- **Budget: spend ≤ 5 minutes verifying prior work. Trust prior commits unless you find concrete evidence of breakage.**
+
+**If no prior work exists**, proceed to Step 1.
+
+### Step 1 — Targeted Research (< 10 minutes)
+Research ONLY what you need for THIS task — not the whole codebase:
+- Read the plan file for this task's specific section
+- Identify files to create/modify (use `grep` and `glob`, not exploratory shell commands)
+- Check the conventions of 1-2 similar existing files as reference
+- Add a twig note: `twig note --text "Research: <findings>"`
+
+Do NOT: enumerate all modules, review every interface, or catalog the entire codebase.
+
+### Step 2 — Implement
+Implement the changes following existing conventions.
+- Add a twig note: `twig note --text "Impl: <what was done>"`
+
+### Step 3 — Write Tests
+Write tests covering the new functionality and edge cases.
+- Track edge cases you explicitly handled (for reviewer visibility)
+
+### Step 4 — Run Tests
+`dotnet test --settings test.runsettings`
+- Add a twig note: `twig note --text "Tests: <count> passed"`
+
+### Step 5 — Commit
+`git add -A && git commit -m "<descriptive message>"`
+
 Do NOT implement anything beyond this single task.
 
 ## Pre-Review Checklist (avoid review round-trips)

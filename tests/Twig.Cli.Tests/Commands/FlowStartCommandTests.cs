@@ -617,35 +617,10 @@ public class FlowStartCommandTests
 
     // ── Branch naming consistency (#1619) ────────────────────────────
 
-    [Fact]
-    public async Task BranchName_UsesTypeMapResolution_NotRawTypeName()
-    {
-        // "User Story" should resolve to "feature" via BranchNamingService default type map,
-        // not produce "user-story" (raw slugified type name from BranchNameTemplate).
-        var item = CreateWorkItem(1, "Add login", "New");
-        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
-        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
-        _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
-        _gitService.HasUncommittedChangesAsync(Arg.Any<CancellationToken>()).Returns(false);
-        _gitService.BranchExistsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(false);
-
-        // Use a template that includes {type} to verify resolution
-        _config.Git.BranchTemplate = "{type}/{id}-{title}";
-
-        var cmd = CreateCommand(_gitService);
-        var result = await cmd.ExecuteAsync("1");
-
-        result.ShouldBe(0);
-
-        // The branch name should use "feature" (resolved), not "user-story" (raw)
-        await _gitService.Received().CreateBranchAsync(
-            Arg.Is<string>(b => b.StartsWith("feature/")),
-            Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task BranchName_UsesCustomTypeMap_WhenConfigured()
+    [Theory]
+    [InlineData(null, "feature/")]   // default map: "User Story" → "feature"
+    [InlineData("story", "story/")] // custom map:  "User Story" → "story"
+    public async Task BranchName_UsesTypeMapForResolution(string? customMappedValue, string expectedPrefix)
     {
         var item = CreateWorkItem(1, "Add login", "New");
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
@@ -655,18 +630,16 @@ public class FlowStartCommandTests
         _gitService.HasUncommittedChangesAsync(Arg.Any<CancellationToken>()).Returns(false);
         _gitService.BranchExistsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(false);
 
-        // Custom type map overrides the default
         _config.Git.BranchTemplate = "{type}/{id}-{title}";
-        _config.Git.TypeMap = new Dictionary<string, string> { ["User Story"] = "story" };
+        if (customMappedValue is not null)
+            _config.Git.TypeMap = new Dictionary<string, string> { ["User Story"] = customMappedValue };
 
         var cmd = CreateCommand(_gitService);
         var result = await cmd.ExecuteAsync("1");
 
         result.ShouldBe(0);
-
-        // Should use the custom type map value "story"
         await _gitService.Received().CreateBranchAsync(
-            Arg.Is<string>(b => b.StartsWith("story/")),
+            Arg.Is<string>(b => b.StartsWith(expectedPrefix)),
             Arg.Any<CancellationToken>());
     }
 

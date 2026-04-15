@@ -6,6 +6,7 @@ obj/
 
 # Artifacts directory (AOT publish output, etc.)
 artifacts/
+publish-out/
 
 # NuGet packages
 *.nupkg

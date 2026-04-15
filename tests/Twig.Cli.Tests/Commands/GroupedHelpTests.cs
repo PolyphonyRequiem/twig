@@ -40,18 +40,7 @@ public sealed class GroupedHelpTests
     public void AllNonHiddenCommands_AppearInGroupedHelp()
     {
         var helpOutput = CaptureHelp();
-
-        // Methods documented inline as "(alias: ...)" on another entry
-        var aliases = new HashSet<string> { "Ws" };
-
-        var nonHidden = new List<string>();
-        var hidden = new List<string>();
-
-        DiscoverCommands(typeof(TwigCommands), prefix: null, aliases, nonHidden, hidden);
-        DiscoverCommands(typeof(OhMyPoshCommands), prefix: "ohmyposh", aliases, nonHidden, hidden);
-
-        // Sanity: we should discover a meaningful number of commands
-        nonHidden.Count.ShouldBeGreaterThan(40);
+        var (nonHidden, hidden) = GetCommands();
 
         // Every non-hidden command must be in KnownCommands
         var missingFromKnown = nonHidden
@@ -76,6 +65,52 @@ public sealed class GroupedHelpTests
             .ToList();
         leakedHidden.ShouldBeEmpty(
             $"Hidden commands leaked into Show() output: {string.Join(", ", leakedHidden)}");
+    }
+
+    [Fact]
+    public void AllCommands_HaveExamples()
+    {
+        var (nonHidden, _) = GetCommands();
+
+        // Every non-hidden command must have at least one example
+        var missingExamples = nonHidden
+            .Where(cmd => !CommandExamples.Examples.ContainsKey(cmd))
+            .ToList();
+        missingExamples.ShouldBeEmpty(
+            $"Non-hidden commands missing from CommandExamples: {string.Join(", ", missingExamples)}");
+
+        // Every example entry must have ≥2 examples (plan requirement F-7)
+        var tooFewExamples = nonHidden
+            .Where(cmd => CommandExamples.Examples.TryGetValue(cmd, out var ex) && ex.Length < 2)
+            .ToList();
+        tooFewExamples.ShouldBeEmpty(
+            $"Commands with fewer than 2 examples: {string.Join(", ", tooFewExamples)}");
+
+        // Every individual example line must be non-whitespace
+        var blankLineCommands = nonHidden
+            .Where(cmd => CommandExamples.Examples.TryGetValue(cmd, out var ex)
+                && ex.Any(string.IsNullOrWhiteSpace))
+            .ToList();
+        blankLineCommands.ShouldBeEmpty(
+            $"Commands with blank example lines: {string.Join(", ", blankLineCommands)}");
+
+        // No orphaned entries: every key in Examples must map to a known non-hidden command
+        var orphanedExamples = CommandExamples.Examples.Keys
+            .Where(key => !nonHidden.Contains(key))
+            .ToList();
+        orphanedExamples.ShouldBeEmpty(
+            $"CommandExamples contains entries for unknown/hidden commands: {string.Join(", ", orphanedExamples)}");
+    }
+
+    private static (List<string> NonHidden, List<string> Hidden) GetCommands()
+    {
+        var aliases = new HashSet<string> { "Ws" };
+        var nonHidden = new List<string>();
+        var hidden = new List<string>();
+        DiscoverCommands(typeof(TwigCommands), prefix: null, aliases, nonHidden, hidden);
+        DiscoverCommands(typeof(OhMyPoshCommands), prefix: "ohmyposh", aliases, nonHidden, hidden);
+        nonHidden.Count.ShouldBeGreaterThan(40);
+        return (nonHidden, hidden);
     }
 
     private static void DiscoverCommands(

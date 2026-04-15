@@ -68,6 +68,13 @@ public sealed class ProgramBootstrapTests
             sp.GetRequiredService<IWorkItemLinkRepository>(),
             sp.GetRequiredService<TwigConfiguration>().Display.CacheStaleMinutes));
 
+        services.AddSingleton(sp => new ContextChangeService(
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<SyncCoordinator>(),
+            sp.GetRequiredService<ProtectedCacheWriter>(),
+            sp.GetService<IWorkItemLinkRepository>()));
+
         services.AddSingleton(sp => new WorkingSetService(
             sp.GetRequiredService<IContextStore>(),
             sp.GetRequiredService<IWorkItemRepository>(),
@@ -94,13 +101,6 @@ public sealed class ProgramBootstrapTests
             sp.GetRequiredService<ActiveItemResolver>(),
             sp.GetRequiredService<WorkingSetService>(),
             sp.GetRequiredService<SyncCoordinator>()));
-
-        services.AddSingleton(sp => new ContextChangeService(
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
-            sp.GetRequiredService<SyncCoordinator>(),
-            sp.GetRequiredService<ProtectedCacheWriter>(),
-            sp.GetService<IWorkItemLinkRepository>()));
 
         services.AddSingleton(sp => new McpPendingChangeFlusher(
             sp.GetRequiredService<IWorkItemRepository>(),

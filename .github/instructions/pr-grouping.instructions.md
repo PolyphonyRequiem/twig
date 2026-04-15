@@ -16,13 +16,7 @@ other PRs.
 
 ## Naming Convention
 
-Use the **PG-N** prefix (e.g., PG-1, PG-2) to identify PR groups in plan documents.
-
-- **Why PG-N, not PR-N**: `PR-N` is ambiguous with GitHub pull request numbers
-  (e.g., PR #42 could be the 42nd pull request or PR group 42). `PG` is distinct and
-  reads naturally as "PR Group."
-- Number sequentially starting from PG-1.
-- Reference PG-N identifiers in commit messages and plan status updates.
+Use **PG-N** (not PR-N — ambiguous with GitHub pull request numbers) for PR groups in plan documents. Number sequentially from PG-1 and reference in commit messages and plan status updates.
 
 ## Sizing Guardrails
 
@@ -64,7 +58,7 @@ Many files with mechanical or repetitive changes that are straightforward to ver
 - Reviewer can verify by sampling — checking a few files confirms the pattern
 
 **Examples from Twig plans:**
-- Adding XML doc comments to all command classes (PG-1 in the Query Command Closeout)
+- Adding XML doc comments to all command classes across the solution
 - Updating `using` directives across the solution after a namespace rename
 
 ### Review Implications
@@ -80,7 +74,7 @@ Many files with mechanical or repetitive changes that are straightforward to ver
 
 ### The 2-PR Sweet Spot
 
-Two PR groups per epic is the observed sweet spot for Twig's completed epics (limited sample — treat as advisory, not prescriptive). With 2 PGs:
+Two PR groups per epic is the observed sweet spot for Twig's completed epics. With 2 PGs:
 
 - **Parallelism**: One PG can be in review while the other is being implemented.
 - **Isolation**: A blocking review comment on PG-1 doesn't stall PG-2.

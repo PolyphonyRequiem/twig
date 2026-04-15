@@ -615,6 +615,34 @@ public class FlowStartCommandTests
         }
     }
 
+    // ── Branch naming consistency (#1619) ────────────────────────────
+
+    [Theory]
+    [InlineData(null, "feature/")]   // default map: "User Story" → "feature"
+    [InlineData("story", "story/")] // custom map:  "User Story" → "story"
+    public async Task BranchName_UsesTypeMapForResolution(string? customMappedValue, string expectedPrefix)
+    {
+        var item = CreateWorkItem(1, "Add login", "New");
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+        _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
+        _gitService.HasUncommittedChangesAsync(Arg.Any<CancellationToken>()).Returns(false);
+        _gitService.BranchExistsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(false);
+
+        _config.Git.BranchTemplate = "{type}/{id}-{title}";
+        if (customMappedValue is not null)
+            _config.Git.TypeMap = new Dictionary<string, string> { ["User Story"] = customMappedValue };
+
+        var cmd = CreateCommand(_gitService);
+        var result = await cmd.ExecuteAsync("1");
+
+        result.ShouldBe(0);
+        await _gitService.Received().CreateBranchAsync(
+            Arg.Is<string>(b => b.StartsWith(expectedPrefix)),
+            Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task HumanFormat_NoStateTransition_ShowsCurrentState()
     {

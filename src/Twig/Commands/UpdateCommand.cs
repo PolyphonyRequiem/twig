@@ -28,7 +28,7 @@ public sealed class UpdateCommand(
     private readonly TextWriter _stderr = stderr ?? Console.Error;
     private readonly TextWriter _stdout = stdout ?? Console.Out;
 
-    public async Task<int> ExecuteAsync(string field, string? value = null, string outputFormat = OutputFormatterFactory.DefaultFormat, string? format = null, string? filePath = null, bool readStdin = false, CancellationToken ct = default)
+    public async Task<int> ExecuteAsync(string field, string? value = null, string outputFormat = OutputFormatterFactory.DefaultFormat, string? format = null, string? filePath = null, bool readStdin = false, int? id = null, CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
@@ -80,12 +80,14 @@ public sealed class UpdateCommand(
             resolvedValue = resolvedValue.TrimEnd('\r', '\n');
         var effectiveValue = format is null ? resolvedValue : MarkdownConverter.ToHtml(resolvedValue);
 
-        var resolved = await activeItemResolver.GetActiveItemAsync();
+        var resolved = id.HasValue
+            ? await activeItemResolver.ResolveByIdAsync(id.Value, ct)
+            : await activeItemResolver.GetActiveItemAsync(ct);
         if (!resolved.TryGetWorkItem(out var local, out var errorId, out var errorReason))
         {
             _stderr.WriteLine(fmt.FormatError(errorId is not null
                 ? $"Work item #{errorId} not found in cache."
-                : "No active work item. Run 'twig set <id>' first."));
+                : "No active work item. Run 'twig set <id>' or pass --id."));
             return 1;
         }
 

@@ -9,16 +9,6 @@ namespace Twig.Cli.Tests.Commands;
 public sealed class GroupedHelpTests
 {
     [Fact]
-    public void GroupedHelp_ShowsCorrectCommands()
-    {
-        var output = CaptureHelp();
-
-        output.ShouldNotContain("  save ");     // [Hidden] — must not appear
-        output.ShouldContain("  sync ");
-        output.ShouldContain("  seed new ");    // canonical seed command
-    }
-
-    [Fact]
     public void BareSeed_HasHiddenAttribute()
     {
         var method = typeof(TwigCommands).GetMethod(

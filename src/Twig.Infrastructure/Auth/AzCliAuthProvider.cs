@@ -11,7 +11,7 @@ namespace Twig.Infrastructure.Auth;
 internal sealed class AzCliAuthProvider : IAuthenticationProvider
 {
     private const string AzResource = "499b84ac-1321-427f-aa17-267ca6975798";
-    private static readonly TimeSpan ProcessTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan ProcessTimeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan TokenTtl = TimeSpan.FromMinutes(50);
 
     private readonly Func<ProcessStartInfo, Process?> _processStarter;

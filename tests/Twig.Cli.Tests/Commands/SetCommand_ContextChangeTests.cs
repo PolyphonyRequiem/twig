@@ -20,7 +20,6 @@ public sealed class SetCommand_ContextChangeTests : IDisposable
     private readonly IAdoWorkItemService _adoService;
     private readonly IContextStore _contextStore;
     private readonly IPendingChangeStore _pendingChangeStore;
-    private readonly IWorkItemLinkRepository _linkRepo;
     private readonly ActiveItemResolver _activeItemResolver;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
@@ -39,7 +38,6 @@ public sealed class SetCommand_ContextChangeTests : IDisposable
         _adoService = Substitute.For<IAdoWorkItemService>();
         _contextStore = Substitute.For<IContextStore>();
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
-        _linkRepo = Substitute.For<IWorkItemLinkRepository>();
 
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
 
@@ -73,38 +71,8 @@ public sealed class SetCommand_ContextChangeTests : IDisposable
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  Scenario 1: Out-of-sprint item → parents/children/links fetched
+    //  Wiring smoke test — confirms SetCommand calls ExtendWorkingSetAsync
     // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task Set_OutOfSprintItem_FetchesParentChainToRoot()
-    {
-        // Item 100 → parent 200 → parent 300 (root)
-        var item = new WorkItemBuilder(100, "Child Task")
-            .AsTask().WithParent(200)
-            .WithIterationPath("Project\\Sprint 2").Build();
-        var parent = new WorkItemBuilder(200, "Parent Story")
-            .AsUserStory().WithParent(300)
-            .WithIterationPath("Project\\Sprint 2").Build();
-        var root = new WorkItemBuilder(300, "Root Feature")
-            .AsFeature()
-            .WithIterationPath("Project").Build();
-
-        ArrangeItemInCache(item);
-        // Parent not in cache — must be fetched from ADO
-        _workItemRepo.GetByIdAsync(200, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
-        _adoService.FetchAsync(200, Arg.Any<CancellationToken>()).Returns(parent);
-        // Root not in cache — must be fetched from ADO
-        _workItemRepo.GetByIdAsync(300, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
-        _adoService.FetchAsync(300, Arg.Any<CancellationToken>()).Returns(root);
-
-        var cmd = CreateCommand();
-        var result = await cmd.ExecuteAsync("100");
-
-        result.ShouldBe(0);
-        await _adoService.Received().FetchAsync(200, Arg.Any<CancellationToken>());
-        await _adoService.Received().FetchAsync(300, Arg.Any<CancellationToken>());
-    }
 
     [Fact]
     public async Task Set_WithContextChange_FetchesTwoLevelsOfChildren()
@@ -122,74 +90,8 @@ public sealed class SetCommand_ContextChangeTests : IDisposable
         await _adoService.Received().FetchChildrenAsync(100, Arg.Any<CancellationToken>());
     }
 
-    [Fact]
-    public async Task Set_WithContextChange_FetchesLevel2ChildrenForEachLevel1Child()
-    {
-        var item = new WorkItemBuilder(100, "Parent Story")
-            .AsUserStory().WithIterationPath("Project\\Sprint 1").Build();
-        var child1 = new WorkItemBuilder(101, "Child 1").AsTask().WithParent(100).Build();
-        var child2 = new WorkItemBuilder(102, "Child 2").AsTask().WithParent(100).Build();
-
-        ArrangeItemInCache(item);
-        // After SyncChildrenAsync fetches from ADO, GetChildrenAsync returns cached children
-        _workItemRepo.GetChildrenAsync(100, Arg.Any<CancellationToken>())
-            .Returns(new[] { child1, child2 });
-
-        var cmd = CreateCommand();
-        var result = await cmd.ExecuteAsync("100");
-
-        result.ShouldBe(0);
-        // Level 2: FetchChildrenAsync called for each level-1 child
-        await _adoService.Received().FetchChildrenAsync(101, Arg.Any<CancellationToken>());
-        await _adoService.Received().FetchChildrenAsync(102, Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task Set_WithLinkRepo_SyncsLinks()
-    {
-        var item = new WorkItemBuilder(100, "Story with links")
-            .AsUserStory().WithIterationPath("Project\\Sprint 1").Build();
-
-        ArrangeItemInCache(item);
-        _adoService.FetchWithLinksAsync(100, Arg.Any<CancellationToken>())
-            .Returns((item, Array.Empty<WorkItemLink>()));
-
-        var cmd = CreateCommand(includeLinkRepo: true);
-        var result = await cmd.ExecuteAsync("100");
-
-        result.ShouldBe(0);
-        // SyncLinksAsync calls FetchWithLinksAsync
-        await _adoService.Received().FetchWithLinksAsync(100, Arg.Any<CancellationToken>());
-    }
-
     // ═══════════════════════════════════════════════════════════════
-    //  Scenario 2: In-sprint item with parent already cached → minimal fetches
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task Set_InSprintItem_ParentAlreadyCached_NoAdoParentFetch()
-    {
-        var item = new WorkItemBuilder(100, "Sprint Task")
-            .AsTask().WithParent(200)
-            .WithIterationPath("Project\\Sprint 1").Build();
-        var parent = new WorkItemBuilder(200, "Parent Story")
-            .AsUserStory()
-            .WithIterationPath("Project\\Sprint 1").Build();
-
-        ArrangeItemInCache(item);
-        // Parent IS in cache — no ADO fetch needed for parent chain
-        _workItemRepo.GetByIdAsync(200, Arg.Any<CancellationToken>()).Returns(parent);
-
-        var cmd = CreateCommand();
-        var result = await cmd.ExecuteAsync("100");
-
-        result.ShouldBe(0);
-        // Parent was in cache so FetchAsync(200) should NOT be called by the extension
-        await _adoService.DidNotReceive().FetchAsync(200, Arg.Any<CancellationToken>());
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  Scenario 3: Network failure during extension → command succeeds
+    //  Scenario 2: Network failure during extension → command succeeds
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
@@ -209,51 +111,9 @@ public sealed class SetCommand_ContextChangeTests : IDisposable
         await _contextStore.Received().SetActiveWorkItemIdAsync(100, Arg.Any<CancellationToken>());
     }
 
-    [Fact]
-    public async Task Set_ExtensionParentFetchFails_ChildrenStillFetched()
-    {
-        var item = new WorkItemBuilder(100, "Test Item")
-            .AsTask().WithParent(200)
-            .WithIterationPath("Project\\Sprint 1").Build();
-
-        ArrangeItemInCache(item);
-        // Parent fetch throws — but children should still be attempted
-        _workItemRepo.GetByIdAsync(200, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
-        _adoService.FetchAsync(200, Arg.Any<CancellationToken>())
-            .ThrowsAsync(new InvalidOperationException("ADO timeout"));
-
-        var cmd = CreateCommand();
-        var result = await cmd.ExecuteAsync("100");
-
-        result.ShouldBe(0);
-        // Children sync still runs despite parent chain failure
-        await _adoService.Received().FetchChildrenAsync(100, Arg.Any<CancellationToken>());
-    }
-
     // ═══════════════════════════════════════════════════════════════
-    //  Scenario 4: Additive guarantee → existing cache items not removed
+    //  Scenario 3: Null service → extension skipped
     // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task Set_WithContextChange_UsesProtectedCacheWriter_NeverCallsEvictDirectly()
-    {
-        var item = new WorkItemBuilder(100, "Test Item")
-            .AsTask().WithIterationPath("Project\\Sprint 1").Build();
-        var child = new WorkItemBuilder(101, "Child").AsTask().WithParent(100).Build();
-
-        ArrangeItemInCache(item);
-        _adoService.FetchChildrenAsync(100, Arg.Any<CancellationToken>())
-            .Returns(new[] { child });
-
-        var cmd = CreateCommand();
-        var result = await cmd.ExecuteAsync("100");
-
-        result.ShouldBe(0);
-        // Extension saves through ProtectedCacheWriter (via SyncCoordinator),
-        // which calls SaveAsync — never EvictExceptAsync or DeleteByIdAsync
-        await _workItemRepo.DidNotReceive().DeleteByIdAsync(
-            Arg.Any<int>(), Arg.Any<CancellationToken>());
-    }
 
     [Fact]
     public async Task Set_NullContextChangeService_DoesNotCallExtension()
@@ -275,16 +135,13 @@ public sealed class SetCommand_ContextChangeTests : IDisposable
     //  Helpers
     // ═══════════════════════════════════════════════════════════════
 
-    private SetCommand CreateCommand(bool withContextChange = true, bool includeLinkRepo = false)
+    private SetCommand CreateCommand(bool withContextChange = true)
     {
         var protectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
         var syncCoordinator = new SyncCoordinator(
-            _workItemRepo, _adoService, protectedWriter, _pendingChangeStore,
-            includeLinkRepo ? _linkRepo : null, 30);
+            _workItemRepo, _adoService, protectedWriter, _pendingChangeStore, 30);
         var contextChangeService = withContextChange
-            ? new ContextChangeService(
-                _workItemRepo, _adoService, syncCoordinator, protectedWriter,
-                includeLinkRepo ? _linkRepo : null)
+            ? new ContextChangeService(_workItemRepo, _adoService, syncCoordinator, protectedWriter)
             : null;
         return new SetCommand(
             _workItemRepo, _contextStore, _activeItemResolver, syncCoordinator,

@@ -5,7 +5,6 @@ using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
-using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
@@ -135,14 +134,8 @@ public sealed class FlowStartCommand_ContextChangeTests : IDisposable
             .Returns(Array.Empty<WorkItem>());
     }
 
-    private static WorkItem CreateWorkItem(int id, string title, string state) => new()
-    {
-        Id = id,
-        Type = WorkItemType.UserStory,
-        Title = title,
-        State = state,
-        AssignedTo = "Test User",
-        IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
-        AreaPath = AreaPath.Parse("Project").Value,
-    };
+    private static WorkItem CreateWorkItem(int id, string title, string state) =>
+        new WorkItemBuilder(id, title).AsUserStory().InState(state)
+            .AssignedTo("Test User").WithIterationPath("Project\\Sprint 1")
+            .WithAreaPath("Project").Build();
 }

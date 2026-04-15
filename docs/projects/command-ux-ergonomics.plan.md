@@ -1,6 +1,6 @@
 # Command UX & Ergonomics
 
-> **Status**: 🔨 In Progress — 1/2 PR groups merged | **Epic**: #1526 | **Revision**: R6 — Added PR Groups section (readability review); fixed stale FR-15 references in child/sibling 'Not Included' callouts; renamed 'Open Questions' to 'Design Q&A' (all resolved); fixed missing space in Data Flow header; added test case for simultaneous `--title` + trailing positional text (T-1527-2); added NFR-05 confirming no new telemetry properties; acknowledged `SeedFactory.Create` alternative in DD-8
+> **Status**: ✅ Done
 
 ## Executive Summary
 
@@ -697,6 +697,14 @@ PR-1 must merge before PR-2 because:
 3. Merging in order avoids merge conflicts in `Program.cs`
 
 **Total**: 2 PRs, ~700 LoC combined, each ≤500 LoC and ≤5 files — well within reviewability bounds.
+
+## Completion
+
+- **Date**: 2026-04-15
+- **Epic**: #1526 — Transitioned to Done
+- **Issues**: #1527 (Done), #1528 (Done)
+- **PRs merged**: PR-1 → GitHub PR #28 (trailing text support)
+- **Summary**: Delivered trailing unquoted text support for `twig note` and `twig new` commands via `params string[]` + `JoinTrailingText` helper. Issue #1528 work items (smart defaults, child/sibling sub-commands) were marked Done in ADO. See close-out observations for process notes.
 
 ## References
 

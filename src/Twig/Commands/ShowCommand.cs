@@ -35,10 +35,24 @@ public sealed class ShowCommand(
     public async Task<int> ExecuteAsync(int id, string outputFormat = OutputFormatterFactory.DefaultFormat, bool noRefresh = false, CancellationToken ct = default)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
-        var exitCode = await ExecuteCoreAsync(id, outputFormat, noRefresh, ct);
+        return TrackAndReturn("show", outputFormat, await ExecuteCoreAsync(id, outputFormat, noRefresh, ct), startTimestamp);
+    }
+
+    /// <summary>
+    /// Batch lookup: accepts comma-separated IDs, returns all found items.
+    /// Cache-only — no ADO fetch. Missing IDs are silently skipped.
+    /// </summary>
+    public async Task<int> ExecuteBatchAsync(string batch, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    {
+        var startTimestamp = Stopwatch.GetTimestamp();
+        return TrackAndReturn("show-batch", outputFormat, await ExecuteBatchCoreAsync(batch, outputFormat, ct), startTimestamp);
+    }
+
+    private int TrackAndReturn(string commandName, string outputFormat, int exitCode, long startTimestamp)
+    {
         telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
         {
-            ["command"] = "show",
+            ["command"] = commandName,
             ["exit_code"] = exitCode.ToString(),
             ["output_format"] = outputFormat,
             ["twig_version"] = VersionHelper.GetVersion(),
@@ -174,5 +188,47 @@ public sealed class ShowCommand(
         }
 
         return 0;
+    }
+
+    private async Task<int> ExecuteBatchCoreAsync(string batch, string outputFormat, CancellationToken ct)
+    {
+        var ids = ParseBatchIds(batch);
+        var items = new List<Domain.Aggregates.WorkItem>();
+
+        foreach (var id in ids)
+        {
+            var item = await workItemRepo.GetByIdAsync(id, ct);
+            if (item is not null)
+                items.Add(item);
+        }
+
+        var fmt = formatterFactory.GetFormatter(outputFormat);
+
+        if (fmt is JsonOutputFormatter jsonFmt)
+        {
+            Console.WriteLine(jsonFmt.FormatWorkItemBatch(items));
+        }
+        else
+        {
+            foreach (var item in items)
+                Console.WriteLine(fmt.FormatWorkItem(item, showDirty: false));
+        }
+
+        return 0;
+    }
+
+    private static List<int> ParseBatchIds(string batch)
+    {
+        var ids = new List<int>();
+        if (string.IsNullOrWhiteSpace(batch))
+            return ids;
+
+        foreach (var segment in batch.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (int.TryParse(segment, out var id))
+                ids.Add(id);
+        }
+
+        return ids;
     }
 }

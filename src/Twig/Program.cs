@@ -640,7 +640,13 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <summary>Launch the full-screen TUI mode (requires twig-tui binary).</summary>
     public Task<int> Tui()
     {
-        return Task.FromResult(TuiLauncher.Launch());
+        return Task.FromResult(BinaryLauncher.Launch("twig-tui", "Twig.Tui"));
+    }
+
+    /// <summary>Launch the MCP server (requires twig-mcp binary).</summary>
+    public Task<int> Mcp()
+    {
+        return Task.FromResult(BinaryLauncher.Launch("twig-mcp", "Twig.Mcp"));
     }
 }
 
@@ -753,6 +759,7 @@ System:
 
 Experimental:
   tui                  Launch the full-screen TUI mode.
+  mcp                  Launch the MCP server (stdio transport).
   ohmyposh init        Generate Oh My Posh shell hook and segment.
 
 Run 'twig <command> --help' for detailed usage of any command.
@@ -762,29 +769,22 @@ Run 'twig <command> --help' for detailed usage of any command.
 }
 
 /// <summary>
-/// Locates and launches the <c>twig-tui</c> binary. Searches the adjacent directory
-/// (same folder as the running <c>twig</c> binary) first, then falls back to PATH.
-/// Uses <see cref="System.Diagnostics.Process.Start"/> + <see cref="System.Diagnostics.Process.WaitForExit()"/>
-/// + exit code propagation — the correct pattern on Windows (no <c>exec()</c> syscall).
+/// Locates and launches a companion binary (e.g. <c>twig-tui</c>, <c>twig-mcp</c>).
+/// Searches the directory containing the running <c>twig</c> binary first, then falls back to PATH.
+/// Stdin/stdout are inherited for MCP stdio transport.
 /// </summary>
-internal static class TuiLauncher
+internal static class BinaryLauncher
 {
-    private const string TuiBinaryName = "twig-tui";
-
-    internal static int Launch(TextWriter? stderr = null)
+    internal static int Launch(string binaryName, string projectName, TextWriter? stderr = null)
     {
         stderr ??= Console.Error;
-        var exeName = OperatingSystem.IsWindows() ? $"{TuiBinaryName}.exe" : TuiBinaryName;
+        var exeName = OperatingSystem.IsWindows() ? $"{binaryName}.exe" : binaryName;
 
-        // 1. Look in the same directory as the running twig binary
-        var adjacentPath = FindAdjacentBinary(exeName);
-
-        // 2. Fall back to PATH lookup
-        var binaryPath = adjacentPath ?? FindInPath(exeName);
+        var binaryPath = FindAdjacentBinary(exeName) ?? FindInPath(exeName);
 
         if (binaryPath is null)
         {
-            stderr.WriteLine($"error: '{TuiBinaryName}' not found. Ensure the Twig.Tui project is built and on PATH or in the same directory as 'twig'.");
+            stderr.WriteLine($"error: '{binaryName}' not found. Ensure the {projectName} project is built and on PATH or in the same directory as 'twig'.");
             return 1;
         }
 
@@ -799,7 +799,7 @@ internal static class TuiLauncher
             using var process = System.Diagnostics.Process.Start(psi);
             if (process is null)
             {
-                stderr.WriteLine($"error: Failed to start '{TuiBinaryName}'.");
+                stderr.WriteLine($"error: Failed to start '{binaryName}'.");
                 return 1;
             }
 
@@ -809,14 +809,13 @@ internal static class TuiLauncher
         }
         catch (Exception ex)
         {
-            stderr.WriteLine($"error: Failed to launch TUI: {ex.Message}");
+            stderr.WriteLine($"error: Failed to launch '{binaryName}': {ex.Message}");
             return 1;
         }
     }
 
     private static string? FindAdjacentBinary(string exeName)
     {
-        // Use AppContext.BaseDirectory for AOT/single-file compatibility
         var baseDir = AppContext.BaseDirectory;
         if (!string.IsNullOrEmpty(baseDir))
         {
@@ -825,7 +824,6 @@ internal static class TuiLauncher
                 return candidate;
         }
 
-        // Also check the directory of the running process
         var processPath = Environment.ProcessPath;
         if (processPath is not null)
         {

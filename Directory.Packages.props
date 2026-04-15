@@ -7,8 +7,10 @@
     <PackageVersion Include="MinVer" Version="7.0.0" />
     <!-- CLI Framework -->
     <PackageVersion Include="ConsoleAppFramework" Version="5.7.13" />
+    <!-- MCP -->
+    <PackageVersion Include="ModelContextProtocol" Version="1.2.0" />
     <!-- SQLite -->
-    <PackageVersion Include="Microsoft.Data.Sqlite" Version="9.0.14" />
+    <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.6" />
     <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.11" />
     <!-- Markdown -->
     <PackageVersion Include="Markdig" Version="1.1.2" />
@@ -19,8 +21,11 @@
          no beta with the current namespace structure (Terminal.Gui.App, Terminal.Gui.Input, etc.) exists yet.
          Pinned to develop.5185 which is the latest confirmed-compatible nightly. -->
     <PackageVersion Include="Terminal.Gui" Version="2.0.0-develop.5185" />
+    <!-- Hosting -->
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.6" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.6" />
     <!-- DI -->
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="9.0.3" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.6" />
     <!-- Testing -->
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageVersion Include="xunit" Version="2.9.3" />

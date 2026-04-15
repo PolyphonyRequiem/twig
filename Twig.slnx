@@ -3,6 +3,7 @@
     <Project Path="src/Twig.Domain/Twig.Domain.csproj" />
     <Project Path="src/Twig.Infrastructure/Twig.Infrastructure.csproj" />
     <Project Path="src/Twig/Twig.csproj" />
+    <Project Path="src/Twig.Mcp/Twig.Mcp.csproj" />
     <Project Path="src/Twig.Tui/Twig.Tui.csproj" />
   </Folder>
   <Folder Name="/tests/">
@@ -10,6 +11,7 @@
     <Project Path="tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj" />
     <Project Path="tests/Twig.Domain.Tests/Twig.Domain.Tests.csproj" />
     <Project Path="tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj" />
+    <Project Path="tests/Twig.Mcp.Tests/Twig.Mcp.Tests.csproj" />
     <Project Path="tests/Twig.Tui.Tests/Twig.Tui.Tests.csproj" />
   </Folder>
 </Solution>

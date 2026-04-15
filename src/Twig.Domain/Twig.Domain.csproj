@@ -13,6 +13,8 @@
     <InternalsVisibleTo Include="Twig.Tui" />
     <InternalsVisibleTo Include="Twig.Tui.Tests" />
     <InternalsVisibleTo Include="twig" />
+    <InternalsVisibleTo Include="Twig.Mcp" />
+    <InternalsVisibleTo Include="Twig.Mcp.Tests" />
   </ItemGroup>
 
 </Project>

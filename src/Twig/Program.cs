@@ -797,6 +797,7 @@ Views:
 Context:
   set <id|pattern>     Set the active work item.
   show <id>            Display a work item from cache (read-only).
+  query [text]         Search work items by text, type, state, or assignee.
   web [id]             Open the active work item in the browser.
 
 Navigation:
@@ -814,6 +815,7 @@ Work Items:
   note                 Add a note to the active work item.
   update <field> <v>   Update a field on the active work item.
   edit                 Edit work item fields in an external editor.
+  new                  Create a new work item.
   link parent <id>     Set the parent of the active work item.
   link unparent        Remove the parent link from the active item.
   link reparent <id>   Remove current parent and set a new one.

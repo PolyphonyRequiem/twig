@@ -1,5 +1,6 @@
 using Shouldly;
 using Twig.Commands;
+using Twig.Infrastructure.Config;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
@@ -9,9 +10,26 @@ namespace Twig.Cli.Tests.Commands;
 /// with a known exit code to exercise the launch, wait, and return-content paths.
 /// </summary>
 [Trait("Category", "Interactive")]
-public class EditorLauncherTests
+public class EditorLauncherTests : IDisposable
 {
-    private readonly EditorLauncher _launcher = new();
+    private readonly string _tempRoot;
+    private readonly string _tempTwigDir;
+    private readonly EditorLauncher _launcher;
+
+    public EditorLauncherTests()
+    {
+        _tempRoot = Path.Combine(Path.GetTempPath(), $"twig-test-{Guid.NewGuid():N}");
+        _tempTwigDir = Path.Combine(_tempRoot, ".twig");
+        Directory.CreateDirectory(_tempTwigDir);
+        var paths = new TwigPaths(_tempTwigDir, Path.Combine(_tempTwigDir, "config"), Path.Combine(_tempTwigDir, "twig.db"));
+        _launcher = new EditorLauncher(paths);
+    }
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_tempRoot))
+            Directory.Delete(_tempRoot, recursive: true);
+    }
 
     [Fact]
     public async Task LaunchAsync_ProcessExitsZero_ReturnsModifiedContent()

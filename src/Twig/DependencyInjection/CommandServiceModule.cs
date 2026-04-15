@@ -29,7 +29,7 @@ public static class CommandServiceModule
                 sp.GetRequiredService<IProcessConfigurationProvider>()));
 
         // Editor launcher and console input
-        services.AddSingleton<IEditorLauncher, EditorLauncher>();
+        services.AddSingleton<IEditorLauncher>(sp => new EditorLauncher(sp.GetRequiredService<TwigPaths>()));
         services.AddSingleton<IConsoleInput, ConsoleInput>();
 
         // Shared domain services (DD-12: registered in CLI layer)

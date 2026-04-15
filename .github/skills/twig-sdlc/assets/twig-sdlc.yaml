@@ -10,7 +10,7 @@
 #            Post-merge checkpoint: verify branch merged + deleted + Issue state matches before proceeding
 #   Phase 5: Close-out — meta-observations (reduction now integrated into PR stage)
 #
-# Agents: 23 agents + 3 human gates (pr_group_manager + task_manager replace implementation_manager)
+# Agents: 24 agents + 3 human gates (pr_group_manager + task_manager + pr_finalizer gate)
 # Models: Opus 1M for deep reasoning (architect, coder, pr_reviewer, close_out)
 #         Sonnet for focused tasks (everything else)
 #
@@ -394,7 +394,7 @@ agents:
         when: "{{ output.action == 'start_tasks' }}"
       - to: reducer_pr
         when: "{{ output.action == 'submit_pr' }}"
-      - to: close_out
+      - to: pr_finalizer
         when: "{{ output.action == 'all_complete' }}"
   # ── Inner orchestrator: task lifecycle within a PR group ────────────
   - name: task_manager
@@ -723,6 +723,39 @@ agents:
     routes:
       - to: pr_group_manager
   # ---------------------------------------------------------------------------
+  # PR FINALIZATION GATE (verifies all PR groups merged before close-out)
+  # ---------------------------------------------------------------------------
+  - name: pr_finalizer
+    description: Verifies every PR group has a merged GitHub PR and no orphaned branches exist before allowing close-out
+    model: claude-sonnet-4.6
+    input:
+      - work_tree_seeder.output
+      - pr_group_manager.output
+      - intake.output
+    system_prompt: !file prompts/pr-finalizer.system.md
+    prompt: !file prompts/pr-finalizer.prompt.md
+    output:
+      verified:
+        type: boolean
+        description: True only if every PR group has a confirmed merged PR
+      unmerged_pr_groups:
+        type: array
+        description: PR group names that lack merged PRs
+      orphaned_branches:
+        type: array
+        description: Feature branches with unmerged work
+      state_violations:
+        type: array
+        description: Issues marked Done without merged code
+      summary:
+        type: string
+        description: Human-readable verification summary
+    routes:
+      - to: close_out
+        when: "{{ output.verified }}"
+      - to: pr_group_manager
+        when: "{{ not output.verified }}"
+  # ---------------------------------------------------------------------------
   # PR-STAGE REDUCTION (runs before PR submission, not post-merge)
   # ---------------------------------------------------------------------------
   - name: reducer_pr
@@ -759,6 +792,8 @@ agents:
       - architect.output?
       - plan_reader.output?
       - pr_group_manager.output
+      - pr_finalizer.output
+      - work_tree_seeder.output
     system_prompt: !file prompts/close-out.system.md
     prompt: !file prompts/close-out.prompt.md
     output:

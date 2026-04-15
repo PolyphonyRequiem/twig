@@ -5,7 +5,6 @@ using Twig.Commands;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
-using Twig.Formatters;
 using Twig.Infrastructure.Config;
 using Xunit;
 
@@ -15,22 +14,8 @@ namespace Twig.Cli.Tests.Commands;
 /// Tests for global profile metadata updates during <c>twig refresh</c>.
 /// Covers hash drift detection, LastSyncedAt updates, and FR-09 fault isolation.
 /// </summary>
-public class RefreshCommandProfileTests : IDisposable
+public class RefreshCommandProfileTests : RefreshCommandTestBase
 {
-    private readonly string _testDir;
-    private readonly TwigConfiguration _config;
-    private readonly TwigPaths _paths;
-    private readonly IProcessTypeStore _processTypeStore;
-    private readonly IFieldDefinitionStore _fieldDefinitionStore;
-    private readonly IContextStore _contextStore;
-    private readonly IWorkItemRepository _workItemRepo;
-    private readonly IAdoWorkItemService _adoService;
-    private readonly IIterationService _iterationService;
-    private readonly IPendingChangeStore _pendingChangeStore;
-    private readonly ProtectedCacheWriter _protectedCacheWriter;
-    private readonly WorkingSetService _workingSetService;
-    private readonly SyncCoordinator _syncCoordinator;
-    private readonly OutputFormatterFactory _formatterFactory;
     private readonly IGlobalProfileStore _globalProfileStore;
 
     private static readonly IReadOnlyList<FieldDefinition> TestFields =
@@ -44,77 +29,14 @@ public class RefreshCommandProfileTests : IDisposable
 
     public RefreshCommandProfileTests()
     {
-        _testDir = Path.Combine(Path.GetTempPath(), $"twig-refresh-profile-test-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(_testDir);
-        var twigDir = Path.Combine(_testDir, ".twig");
-        Directory.CreateDirectory(twigDir);
-        var configPath = Path.Combine(twigDir, "config");
-        var dbPath = Path.Combine(twigDir, "twig.db");
-
-        _config = new TwigConfiguration
-        {
-            Organization = "https://dev.azure.com/org",
-            Project = "MyProject",
-            ProcessTemplate = "Agile",
-        };
-        _paths = new TwigPaths(twigDir, configPath, dbPath);
-        _processTypeStore = Substitute.For<IProcessTypeStore>();
-        _fieldDefinitionStore = Substitute.For<IFieldDefinitionStore>();
+        _config.ProcessTemplate = "Agile";
         _globalProfileStore = Substitute.For<IGlobalProfileStore>();
-
-        _contextStore = Substitute.For<IContextStore>();
-        _workItemRepo = Substitute.For<IWorkItemRepository>();
-        _adoService = Substitute.For<IAdoWorkItemService>();
-        _iterationService = Substitute.For<IIterationService>();
-        _pendingChangeStore = Substitute.For<IPendingChangeStore>();
-        _protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        _syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, _protectedCacheWriter, _pendingChangeStore, 30);
-        _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, _iterationService, null);
-
-        // Standard stubs so refresh runs without errors
-        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<int>());
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
-        _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
-            .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
-        _iterationService.GetWorkItemTypeAppearancesAsync(Arg.Any<CancellationToken>())
-            .Returns(new List<WorkItemTypeAppearance>
-            {
-                new("Bug", "CC293D", "icon_insect"),
-                new("Task", "F2CB1D", "icon_clipboard"),
-            });
-        _iterationService.GetWorkItemTypesWithStatesAsync(Arg.Any<CancellationToken>())
-            .Returns(new List<WorkItemTypeWithStates>
-            {
-                new() { Name = "Bug", Color = "CC293D", IconId = "icon_insect", States = [] },
-                new() { Name = "Task", Color = "F2CB1D", IconId = "icon_clipboard", States = [] },
-            });
-        _iterationService.GetProcessConfigurationAsync(Arg.Any<CancellationToken>())
-            .Returns(new ProcessConfigurationData());
-
-        // Default: field store returns test fields
-        _fieldDefinitionStore.GetAllAsync(Arg.Any<CancellationToken>())
-            .Returns(TestFields);
-
-        _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
-    }
-
-    public void Dispose()
-    {
-        try
-        {
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-            if (Directory.Exists(_testDir))
-                Directory.Delete(_testDir, recursive: true);
-        }
-        catch { /* best effort cleanup */ }
+        _fieldDefinitionStore.GetAllAsync(Arg.Any<CancellationToken>()).Returns(TestFields);
     }
 
     private RefreshCommand CreateCommand(TextWriter? stderr = null) =>
-        new(_contextStore, _workItemRepo, _adoService, _iterationService,
-            _pendingChangeStore, _protectedCacheWriter, _config, _paths, _processTypeStore, _fieldDefinitionStore,
-            _formatterFactory, _workingSetService, _syncCoordinator, _globalProfileStore, stderr: stderr);
+        CreateRefreshCommand(stderr, _globalProfileStore);
+
 
     [Fact]
     public async Task Refresh_HashUnchanged_UpdatesLastSyncedAtOnly()

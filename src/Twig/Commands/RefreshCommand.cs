@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
@@ -9,23 +8,18 @@ using Twig.Infrastructure.Config;
 namespace Twig.Commands;
 
 /// <summary>
-/// Implements <c>twig refresh</c>: fetches the workspace scope from ADO and updates the local cache.
-/// Seeds (local-only items) are skipped. Protected items (dirty/pending) are guarded against overwrite.
+/// Implements <c>twig refresh</c>: builds the WIQL query, delegates fetch/save/conflict logic
+/// to <see cref="RefreshOrchestrator"/>, then runs post-refresh metadata and UI updates.
 /// </summary>
 public sealed class RefreshCommand(
     IContextStore contextStore,
-    IWorkItemRepository workItemRepo,
-    IAdoWorkItemService adoService,
     IIterationService iterationService,
-    IPendingChangeStore pendingChangeStore,
-    ProtectedCacheWriter protectedCacheWriter,
     TwigConfiguration config,
     TwigPaths paths,
     IProcessTypeStore processTypeStore,
     IFieldDefinitionStore fieldDefinitionStore,
     OutputFormatterFactory formatterFactory,
-    WorkingSetService workingSetService,
-    SyncCoordinator syncCoordinator,
+    RefreshOrchestrator orchestrator,
     IGlobalProfileStore? globalProfileStore = null,
     IPromptStateWriter? promptStateWriter = null,
     ITelemetryClient? telemetryClient = null,
@@ -105,128 +99,34 @@ public sealed class RefreshCommand(
         }
 
         wiql += " ORDER BY [System.Id]";
-        var ids = await adoService.QueryByWiqlAsync(wiql);
 
-        if (ids.Count == 0)
+        // Delegate fetch/save/conflict logic to the orchestrator
+        var fetchResult = await orchestrator.FetchItemsAsync(wiql, force, ct);
+
+        if (fetchResult.ItemCount == 0)
         {
             Console.WriteLine(fmt.FormatInfo("  No items found in current iteration."));
         }
         else
         {
-            // Fetch items in batch (skip seeds which have negative IDs)
-            var realIds = ids.Where(id => id > 0).ToList();
+            if (fetchResult.PhantomsCleansed > 0)
+                _stderr.WriteLine(fmt.FormatInfo($"ℹ Cleansed {fetchResult.PhantomsCleansed} phantom dirty flag(s)"));
 
-            // Cleanse phantom dirty flags before SyncGuard evaluation (#1335)
-            var phantomsCleansed = await workItemRepo.ClearPhantomDirtyFlagsAsync(ct);
-            if (phantomsCleansed > 0)
-                _stderr.WriteLine(fmt.FormatInfo($"ℹ Cleansed {phantomsCleansed} phantom dirty flag(s)"));
-
-            // Compute protected IDs for informational conflict detection
-            var protectedIds = !force
-                ? await SyncGuard.GetProtectedItemIdsAsync(workItemRepo, pendingChangeStore)
-                : (IReadOnlySet<int>)new HashSet<int>();
-
-            // Local helper: find revision conflicts between remote items and protected local items
-            async Task<List<(int Id, int LocalRev, int RemoteRev)>> FindConflictsAsync(
-                IEnumerable<WorkItem> remoteItems)
-            {
-                var conflicts = new List<(int Id, int LocalRev, int RemoteRev)>();
-                if (protectedIds.Count == 0) return conflicts;
-                foreach (var remoteItem in remoteItems)
-                {
-                    if (!protectedIds.Contains(remoteItem.Id)) continue;
-                    var localItem = await workItemRepo.GetByIdAsync(remoteItem.Id);
-                    if (localItem is not null && remoteItem.Revision > localItem.Revision)
-                        conflicts.Add((remoteItem.Id, localItem.Revision, remoteItem.Revision));
-                }
-                return conflicts;
-            }
-
-            // Local helper: print conflict details as informational warnings
-            void PrintConflictWarnings(List<(int Id, int LocalRev, int RemoteRev)> conflicts)
+            if (fetchResult.Conflicts.Count > 0)
             {
                 _stderr.WriteLine(fmt.FormatError("Warning: the following protected items have newer remote revisions (skipped):"));
-                foreach (var (id, localRev, remoteRev) in conflicts)
-                    _stderr.WriteLine(fmt.FormatError($"  #{id}: local rev {localRev} → remote rev {remoteRev}"));
+                foreach (var c in fetchResult.Conflicts)
+                    _stderr.WriteLine(fmt.FormatError($"  #{c.Id}: local rev {c.LocalRevision} → remote rev {c.RemoteRevision}"));
                 _stderr.WriteLine(fmt.FormatError("Run 'twig sync' first, or use 'twig sync --force' to overwrite."));
             }
 
-            // Fetch all scopes first, then save through appropriate path.
-            IReadOnlyList<WorkItem> sprintItems = [];
-            WorkItem? activeItem = null;
-            IReadOnlyList<WorkItem> childItems = [];
-            var activeId = await contextStore.GetActiveWorkItemIdAsync();
-            var fetched = 0;
-
-            if (realIds.Count > 0)
-            {
-                sprintItems = await adoService.FetchBatchAsync(realIds);
-                fetched = realIds.Count;
-                telemetryItemCount = fetched;
-            }
-
-            if (activeId.HasValue && activeId.Value > 0 && !realIds.Contains(activeId.Value))
-            {
-                activeItem = await adoService.FetchAsync(activeId.Value);
-            }
-
-            if (activeId.HasValue && activeId.Value > 0)
-            {
-                childItems = await adoService.FetchChildrenAsync(activeId.Value);
-            }
-
-            // Detect revision conflicts for informational output
-            var allConflicts = new List<(int Id, int LocalRev, int RemoteRev)>();
-            allConflicts.AddRange(await FindConflictsAsync(sprintItems));
-            if (activeItem is not null)
-                allConflicts.AddRange(await FindConflictsAsync([activeItem]));
-            allConflicts.AddRange(await FindConflictsAsync(childItems));
-
-            if (allConflicts.Count > 0)
-                PrintConflictWarnings(allConflicts);
-
-            // Persist fetched data: --force bypasses protection, otherwise use ProtectedCacheWriter
-            if (force)
-            {
-                if (sprintItems.Count > 0)
-                    await workItemRepo.SaveBatchAsync(sprintItems);
-                if (activeItem is not null)
-                    await workItemRepo.SaveAsync(activeItem);
-                if (childItems.Count > 0)
-                    await workItemRepo.SaveBatchAsync(childItems);
-            }
-            else
-            {
-                // Reuse the pre-computed protectedIds to avoid redundant SyncGuard queries
-                if (sprintItems.Count > 0)
-                    await protectedCacheWriter.SaveBatchProtectedAsync(sprintItems, protectedIds);
-                if (activeItem is not null)
-                    await protectedCacheWriter.SaveProtectedAsync(activeItem, protectedIds);
-                if (childItems.Count > 0)
-                    await protectedCacheWriter.SaveBatchProtectedAsync(childItems, protectedIds);
-            }
-
-            Console.WriteLine(fmt.FormatSuccess($"Refreshed {fetched} item(s)."));
+            telemetryItemCount = fetchResult.ItemCount;
+            Console.WriteLine(fmt.FormatSuccess($"Refreshed {fetchResult.ItemCount} item(s)."));
         }
 
-        // ITEM-155: Ancestor hydration — iteratively fetch orphan parent IDs not yet in cache.
-        // Repeat up to 5 levels to walk from fetched items up to root epics.
-        for (var level = 0; level < 5; level++)
-        {
-            var orphanIds = await workItemRepo.GetOrphanParentIdsAsync();
-            if (orphanIds.Count == 0)
-                break;
-
-            var ancestors = await adoService.FetchBatchAsync(orphanIds);
-            if (ancestors.Count == 0)
-                break;
-
-            await workItemRepo.SaveBatchAsync(ancestors);
-        }
-
-        // Sync working set after sprint item save (EPIC-004) — NO eviction (FR-013)
-        var workingSet = await workingSetService.ComputeAsync(iteration);
-        await syncCoordinator.SyncWorkingSetAsync(workingSet);
+        // Ancestor hydration and working set sync — delegated to orchestrator
+        await orchestrator.HydrateAncestorsAsync(ct);
+        await orchestrator.SyncWorkingSetAsync(iteration, ct);
 
         // Refresh user display name if not yet set
         if (string.IsNullOrWhiteSpace(config.User.DisplayName))

@@ -5,7 +5,6 @@ using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
-using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Infrastructure.Config;
@@ -18,80 +17,18 @@ namespace Twig.Cli.Tests.Commands;
 /// Verifies exit code logic, stderr output for flush failures,
 /// JSON structured output, and phase ordering.
 /// </summary>
-public sealed class SyncCommandTests : IDisposable
+public sealed class SyncCommandTests : RefreshCommandTestBase
 {
-    private readonly string _testDir;
-    private readonly TwigConfiguration _config;
-    private readonly TwigPaths _paths;
-    private readonly IContextStore _contextStore;
-    private readonly IWorkItemRepository _workItemRepo;
-    private readonly IAdoWorkItemService _adoService;
-    private readonly IIterationService _iterationService;
-    private readonly IPendingChangeStore _pendingChangeStore;
-    private readonly ProtectedCacheWriter _protectedCacheWriter;
-    private readonly WorkingSetService _workingSetService;
-    private readonly SyncCoordinator _syncCoordinator;
-    private readonly IProcessTypeStore _processTypeStore;
-    private readonly IFieldDefinitionStore _fieldDefinitionStore;
-    private readonly OutputFormatterFactory _formatterFactory;
     private readonly IPendingChangeFlusher _flusher;
 
     public SyncCommandTests()
     {
-        _testDir = Path.Combine(Path.GetTempPath(), $"twig-sync-test-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(_testDir);
-        var twigDir = Path.Combine(_testDir, ".twig");
-        Directory.CreateDirectory(twigDir);
-        var configPath = Path.Combine(twigDir, "config");
-        var dbPath = Path.Combine(twigDir, "twig.db");
-
-        _config = new TwigConfiguration { Organization = "https://dev.azure.com/org", Project = "MyProject" };
-        _paths = new TwigPaths(twigDir, configPath, dbPath);
-        _contextStore = Substitute.For<IContextStore>();
-        _workItemRepo = Substitute.For<IWorkItemRepository>();
-        _adoService = Substitute.For<IAdoWorkItemService>();
-        _iterationService = Substitute.For<IIterationService>();
-        _pendingChangeStore = Substitute.For<IPendingChangeStore>();
-        _protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        _syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, _protectedCacheWriter, _pendingChangeStore, 30);
-        _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, _iterationService, null);
-        _processTypeStore = Substitute.For<IProcessTypeStore>();
-        _fieldDefinitionStore = Substitute.For<IFieldDefinitionStore>();
         _flusher = Substitute.For<IPendingChangeFlusher>();
-
-        _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(),
-            new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
-
-        // Default iteration service stubs for RefreshCommand
-        _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
-            .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
         _iterationService.GetWorkItemTypeAppearancesAsync(Arg.Any<CancellationToken>())
             .Returns(new List<WorkItemTypeAppearance>());
         _iterationService.GetWorkItemTypesWithStatesAsync(Arg.Any<CancellationToken>())
             .Returns(new List<WorkItemTypeWithStates>());
-        _iterationService.GetProcessConfigurationAsync(Arg.Any<CancellationToken>())
-            .Returns(new ProcessConfigurationData());
-        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<int>());
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
     }
-
-    public void Dispose()
-    {
-        try
-        {
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-            if (Directory.Exists(_testDir))
-                Directory.Delete(_testDir, recursive: true);
-        }
-        catch { /* best effort cleanup */ }
-    }
-
-    private RefreshCommand CreateRefreshCommand(TextWriter? stderr = null) =>
-        new(_contextStore, _workItemRepo, _adoService, _iterationService,
-            _pendingChangeStore, _protectedCacheWriter, _config, _paths, _processTypeStore, _fieldDefinitionStore,
-            _formatterFactory, _workingSetService, _syncCoordinator, stderr: stderr);
 
     private SyncCommand CreateSyncCommand(TextWriter? stderr = null) =>
         new(_flusher, CreateRefreshCommand(stderr), _formatterFactory, stderr);

@@ -2,24 +2,13 @@
 
 **Work Item:** #1643 — Auto-upgrade twig-mcp and twig-tui alongside twig upgrade  
 **Type:** Issue  
-**Status:** Revised (v3)
+> **Status**: 🔨 In Progress
 
 ---
 
 ## Executive Summary
 
-When `twig upgrade` runs today, it only updates the main `twig` binary, leaving companion
-tools (`twig-mcp`, `twig-tui`) at their old versions or missing entirely. This plan introduces
-a **bundled archive** strategy: companion binaries are included in the same release archive
-as the main binary (`twig-{rid}.zip` / `twig-{rid}.tar.gz`), and the upgrade command,
-installer scripts, and a lightweight first-run check all extract and maintain these companions
-automatically. The design preserves version synchronization (all three binaries share the
-same MinVer-derived version from git tags) and minimizes network overhead (single download).
-
-> **twig-tui inclusion**: Terminal.Gui v2 does not support AOT and uses reflection extensively.
-> The plan attempts `PublishSingleFile=true` with trimming disabled. If CI validation (T-1645-2)
-> reveals runtime failures, twig-tui is excluded from the bundle and tracked as a follow-up issue.
-> This fallback does not block twig or twig-mcp companion upgrade functionality.
+This plan bundles companion tools (`twig-mcp`, `twig-tui`) into the existing `twig-{rid}` release archive so that `twig upgrade`, installer scripts, and a synchronous first-run check all install and maintain companions automatically — preserving version synchronization via MinVer git tags, minimizing network overhead to a single download, and reusing the `SelfUpdater` extraction pipeline via an `ICompanionInstaller` interface. Platform-detection helpers (`DetectRid`, `FindAsset`) are extracted to a shared `PlatformHelper` in `Twig.Infrastructure` to resolve the cross-project dependency. twig-tui is included on a best-effort basis (see [Conditional twig-tui Inclusion](#conditional-twig-tui-inclusion) policy).
 
 ---
 
@@ -37,7 +26,7 @@ The self-update system consists of three layers:
 
 Supporting abstractions:
 - `IHttpDownloader` — testable HTTP download abstraction
-- `IFileSystem` — testable file/directory operations (does NOT currently include `ReadAllText`/`WriteAllText`; provides `FileOpenRead`/`FileCreate` for stream-based I/O)
+- `IFileSystem` — testable file/directory operations (provides `FileOpenRead`/`FileCreate` for stream-based I/O; no `ReadAllText`/`WriteAllText`)
 - `SemVerComparer` — AOT-safe version comparison
 - `BinaryLauncher` — locates and launches companion binaries (adjacent directory → PATH fallback)
 
@@ -45,13 +34,15 @@ Supporting abstractions:
 
 | Tool | Project | Assembly Name | AOT | Publish Strategy | Notes |
 |------|---------|---------------|-----|------------------|-------|
-| twig-mcp | `src/Twig.Mcp/Twig.Mcp.csproj` | `twig-mcp` | ✅ Yes | Native AOT, self-contained (~15 MB) | MCP server, stdio transport |
-| twig-tui | `src/Twig.Tui/Twig.Tui.csproj` | `twig-tui` | ❌ No (`IsAotCompatible=false`) | `PublishSingleFile=true`, self-contained, **no trimming** (~60–80 MB) | Terminal.Gui v2 beta uses reflection extensively; not AOT-compatible; trimming produces runtime failures |
+| twig-mcp | `src/Twig.Mcp/Twig.Mcp.csproj` | `twig-mcp` | ✅ Yes (`PublishAot=true` in csproj) | Native AOT, self-contained (~15 MB) | MCP server, stdio transport |
+| twig-tui | `src/Twig.Tui/Twig.Tui.csproj` | `twig-tui` | ❌ No (`IsAotCompatible=false`) | `PublishSingleFile=true`, self-contained, **no trimming** (~30–40 MB) | Terminal.Gui v2 beta uses reflection extensively; not AOT-compatible; trimming produces runtime failures |
 
 Both companions:
 - Share the same `Directory.Build.props` (MinVer, .NET 10, `TreatWarningsAsErrors`)
 - Reference `Twig.Domain` and `Twig.Infrastructure`
 - Are expected to live in the same directory as the main `twig` binary (`~/.twig/bin/`)
+
+**Note**: `PublishAot` is set **per-project** in individual csproj files (e.g., `Twig.csproj`, `Twig.Mcp.csproj`), not in the shared `Directory.Build.props`.
 
 ### Current Release Pipeline
 
@@ -68,10 +59,7 @@ Companion binaries are **not** included in release archives.
 
 ### Local Development
 
-`publish-local.ps1` already publishes both `twig` and `twig-mcp` to `~/.twig/bin/`, but does
-**not** publish `twig-tui`. The `Invoke-Publish` function label says "AOT, win-x64" which is
-only accurate for `twig` and `twig-mcp`; adding `twig-tui` (non-AOT, `PublishSingleFile`)
-requires updating the function label to reflect that publish strategy varies by project.
+`publish-local.ps1` already publishes both `twig` and `twig-mcp` to `~/.twig/bin/`, but does **not** publish `twig-tui`.
 
 ### GitHub Release API — Version Matching
 
@@ -88,19 +76,21 @@ release matching a specific version. During first-run companion install, this me
 | File | Method/Location | Current Usage | Impact |
 |------|----------------|---------------|--------|
 | `SelfUpdateCommand.cs` | `ExecuteAsync()` (returns `Task<int>`) | Calls `selfUpdater.UpdateBinaryAsync()` (returns `Task<string>`); awaited result assigned to `newPath` local variable | Must handle new `UpdateResult` return type from `UpdateBinaryAsync`; destructure to get companion results |
-| `SelfUpdateCommand.cs` | `FindAsset()` | Looks for `twig-{rid}` asset only | No change needed (companions bundled in same archive) |
-| `SelfUpdater.cs` | `UpdateBinaryAsync()` | Extracts ONLY `twig.exe`/`twig` from archive | Must also extract companion binaries |
+| `SelfUpdateCommand.cs` | `FindAsset()` | Looks for `twig-{rid}` asset only | Delete; update all callers and tests to use `PlatformHelper.FindAsset()` directly |
+| `SelfUpdateCommand.cs` | `DetectRid()` | Detects platform RID | Delete; update all callers and tests to use `PlatformHelper.DetectRid()` directly |
+| `SelfUpdater.cs` | `UpdateBinaryAsync()` | Extracts ONLY `twig.exe`/`twig` from archive | Must also extract companion binaries; new `InstallCompanionsOnlyAsync` method for first-run check; implement `ICompanionInstaller` |
 | `SelfUpdater.cs` | `CleanupOldBinary()` | Cleans `twig.exe.old` only | Must also clean companion `.old` files |
 | `Program.cs:27` | Top-level | Calls `SelfUpdater.CleanupOldBinary()` on every startup | Add first-run companion check nearby |
-| `Program.cs:659` | `Tui()` | `BinaryLauncher.Launch("twig-tui", ...)` | No change (already handles missing binary) |
-| `Program.cs:665` | `Mcp()` | `BinaryLauncher.Launch("twig-mcp", ...)` | No change |
-| `CommandRegistrationModule.cs` | `AddSelfUpdateCommands()` | Resolves `repoSlug` from `AssemblyMetadataAttribute("GitHubRepo")` via reflection; registers `GitHubReleaseClient` and `SelfUpdater` | First-run check must share repo slug resolution (extract to shared helper or constant) |
+| `Program.cs:818` | `Tui()` | `BinaryLauncher.Launch("twig-tui", ...)` | No change (already handles missing binary) |
+| `Program.cs:824` | `Mcp()` | `BinaryLauncher.Launch("twig-mcp", ...)` | No change |
+| `CommandRegistrationModule.cs` | `AddSelfUpdateCommands()` | Resolves `repoSlug` from `AssemblyMetadataAttribute("GitHubRepo")` via `typeof(TwigCommands).Assembly`; registers `GitHubReleaseClient` and `SelfUpdater` | No change — `Program.cs` reads the same attribute inline |
 | `install.ps1` | Script body | Downloads and extracts `twig-win-x64.zip`, verifies `twig.exe` | Verify companion binaries too |
 | `install.sh` | Script body | Downloads and extracts `twig-{rid}.tar.gz`, verifies `twig` | Verify and `chmod +x` companions too |
-| `publish-local.ps1` | `Invoke-Publish` calls | Publishes `twig` + `twig-mcp` (label says "AOT, win-x64") | Add `twig-tui`; update label to reflect mixed publish strategies |
+| `publish-local.ps1` | `Invoke-Publish` calls | Publishes `twig` + `twig-mcp` (label says "AOT, win-x64") | Add `twig-tui` |
 | `release.yml` | Build job | Only `dotnet publish src/Twig/Twig.csproj` | Add companion publish steps with per-project flags |
 | `SelfUpdaterTests.cs` | Multiple test methods | Tests single-binary extraction; asserts `result.ShouldBe(currentExe)` (string) | Add companion extraction tests; update assertions for `UpdateResult` type |
-| `SelfUpdateCommandTests.cs` | `ExecuteAsync` tests | Tests single-binary upgrade flow | Add companion upgrade tests |
+| `SelfUpdateCommandTests.cs` | `ExecuteAsync` tests + `StubReleaseService` | Tests single-binary upgrade flow; `StubReleaseService` implements `IGitHubReleaseService` with 2 methods | Add companion upgrade tests; add `GetReleaseByTagAsync` to `StubReleaseService` |
+| `ChangelogCommandTests.cs` | `StubReleaseService` | Separate `StubReleaseService` implementing `IGitHubReleaseService` with 2 methods | Add `GetReleaseByTagAsync` to this stub too (interface compliance) |
 
 ---
 
@@ -129,10 +119,9 @@ rebuild or re-install them after every upgrade. Additionally:
 2. `twig upgrade` installs companions that are missing (even if the main binary is already up
    to date), providing a recovery path for incomplete installations.
 3. Installer scripts (`install.ps1`, `install.sh`) provision `twig-mcp` and `twig-tui` by
-   default alongside `twig`. If twig-tui fails `PublishSingleFile` validation (T-1645-2),
-   only `twig-mcp` is provisioned and twig-tui becomes a follow-up issue.
-4. A lightweight first-run check detects missing companions after a version change and installs
-   them automatically without user intervention.
+   default alongside `twig` (subject to the [Conditional twig-tui Inclusion](#conditional-twig-tui-inclusion) policy).
+4. A synchronous first-run check detects missing companions after a version change and installs
+   them automatically (with a timeout to bound startup delay).
 5. All three binaries remain version-synchronized via MinVer git tags.
 6. First-run companion install uses tag-matched release lookup (not latest) to prevent version
    skew between the main binary and companions.
@@ -143,14 +132,10 @@ rebuild or re-install them after every upgrade. Additionally:
   available companions are installed. (If size becomes a concern, this can be revisited.)
 - **Companion-specific upgrade**: There is no `twig upgrade --mcp-only` command. Companions
   are always upgraded alongside the main binary.
-- **twig-tui AOT compilation**: Terminal.Gui v2 does not support AOT. The TUI companion will
-  be published as a self-contained single-file app with **no trimming** (Terminal.Gui uses
-  reflection extensively; trimming causes runtime failures). If `PublishSingleFile` validation
-  fails (T-1645-2), twig-tui is excluded entirely and tracked as a follow-up.
-- **twig-tui trimming**: Explicitly excluded. Terminal.Gui v2 relies on reflection for
-  property binding, view construction, and event handling. Enabling trim would silently
-  break core TUI functionality. Publish with `PublishSingleFile=true, SelfContained=true,
-  PublishTrimmed=false`. Risk elevated to **High** — see Risks and Mitigations table.
+- **twig-tui AOT or trimming**: Terminal.Gui v2 does not support AOT (`IsAotCompatible=false`
+  in csproj) and relies on reflection. Publish with `PublishSingleFile=true, SelfContained=true,
+  PublishTrimmed=false`. See [Conditional twig-tui Inclusion](#conditional-twig-tui-inclusion)
+  for the validation gate and fallback policy.
 - **Rollback of individual companions**: The existing `publish-local.ps1 -Restore` backup/restore
   mechanism operates on the entire `~/.twig/bin/` directory, not individual binaries.
 
@@ -166,7 +151,7 @@ rebuild or re-install them after every upgrade. Additionally:
 | F2 | `twig upgrade` reports which companions were upgraded or installed in the console output |
 | F3 | `twig upgrade` upgrades companions even when the main binary is already at the latest version |
 | F4 | On startup, `twig` detects a version change and checks for missing companions |
-| F5 | Missing companions discovered at startup are downloaded and installed automatically using a tag-matched release (not latest) |
+| F5 | Missing companions discovered at startup are downloaded and installed synchronously using a tag-matched release (not latest), bounded by a timeout |
 | F6 | `install.ps1` extracts and verifies all three binaries from the release archive |
 | F7 | `install.sh` extracts, verifies, and `chmod +x` all three binaries from the release archive |
 | F8 | The release pipeline builds and bundles companion binaries into the existing per-platform archives |
@@ -180,6 +165,7 @@ rebuild or re-install them after every upgrade. Additionally:
 | NF3 | All new code must be AOT-compatible and pass `TreatWarningsAsErrors` |
 | NF4 | No telemetry changes — companion binary names are safe to log but companion paths/versions must not be sent |
 | NF5 | Companion binaries must be written atomically (download to temp file, then move to target) to prevent corrupted binaries on interrupted downloads |
+| NF6 | Failed companion installations must emit a diagnostic warning to stderr with a manual recovery path (`twig upgrade`) |
 
 ---
 
@@ -204,10 +190,12 @@ rebuild or re-install them after every upgrade. Additionally:
 │                                                                  │
 │  First-Run Check (Program.cs startup)                      [NEW] │
 │  ┌─────────────────────────────────────────────────────────┐     │
-│  │ 1. Read ~/.twig/bin/.twig-version marker (via IFileSystem)│   │
-│  │ 2. If version changed → check companion binaries        │     │
-│  │ 3. If missing → download from TAG-MATCHED release       │     │
-│  │ 4. Write version marker (via IFileSystem)               │     │
+│  │ 1. Check companion file existence (always, ~1ms)        │     │
+│  │ 2. If all present → return immediately (no I/O write)   │     │
+│  │ 3. If missing + marker matches → skip (already tried)   │     │
+│  │ 4. If missing + version changed → synchronous download  │     │
+│  │    └── Uses SelfUpdater.InstallCompanionsOnlyAsync()     │     │
+│  │ 5. Write version marker after attempt                   │     │
 │  └─────────────────────────────────────────────────────────┘     │
 └──────────────────────────────────────────────────────────────────┘
 
@@ -217,9 +205,9 @@ rebuild or re-install them after every upgrade. Additionally:
 │  release.yml build job:                                          │
 │  ┌─────────────────────────────────────────────────────────┐     │
 │  │ dotnet publish src/Twig/Twig.csproj     → twig(.exe)    │     │
-│  │   (AOT, self-contained)                                 │     │
+│  │   (AOT, self-contained — PublishAot in csproj)          │     │
 │  │ dotnet publish src/Twig.Mcp/...         → twig-mcp(.exe)│     │
-│  │   (AOT, self-contained)                                 │     │
+│  │   (AOT, self-contained — PublishAot in csproj)          │     │
 │  │ dotnet publish src/Twig.Tui/...         → twig-tui(.exe)│     │
 │  │   (SingleFile, self-contained, NO trim, NO AOT)         │     │
 │  │ Archive all three into twig-{rid}.zip/.tar.gz           │     │
@@ -234,74 +222,46 @@ rebuild or re-install them after every upgrade. Additionally:
 A new file in `Twig.Infrastructure/GitHub/` that defines known companion tools:
 
 ```csharp
-internal sealed record CompanionTool(string BinaryName)
-{
-    internal string GetExeName() =>
-        OperatingSystem.IsWindows() ? $"{BinaryName}.exe" : BinaryName;
-}
-
 internal static class CompanionTools
 {
-    internal static readonly CompanionTool Mcp = new("twig-mcp");
-    internal static readonly CompanionTool Tui = new("twig-tui");
-    internal static IReadOnlyList<CompanionTool> All { get; } = [Mcp, Tui];
+    internal static readonly string[] All = ["twig-mcp", "twig-tui"];
+
+    internal static string GetExeName(string name) =>
+        OperatingSystem.IsWindows() ? $"{name}.exe" : name;
 }
 ```
 
 This centralizes companion definitions so `SelfUpdater`, `SelfUpdateCommand`, and the
 first-run check all reference the same source of truth.
 
-#### 2. IFileSystem Extension
-
-Add `ReadAllText` and `WriteAllText` to `IFileSystem` to maintain the testability pattern
-established by `SelfUpdater`. The current interface only has stream-based I/O
-(`FileOpenRead`/`FileCreate`), and mixing `IFileSystem` with raw `File.ReadAllText`/
-`File.WriteAllText` would break testability.
+Also in this file: `UpdateResult` and `CompanionUpdateResult` record types for the
+`SelfUpdater` return value:
 
 ```csharp
-// Added to IFileSystem
-string ReadAllText(string path);
-void WriteAllText(string path, string contents);
+public sealed record UpdateResult(
+    string MainBinaryPath,
+    IReadOnlyList<CompanionUpdateResult> Companions);
 
-// Added to DefaultFileSystem
-public string ReadAllText(string path) => File.ReadAllText(path);
-public void WriteAllText(string path, string contents) => File.WriteAllText(path, contents);
+public sealed record CompanionUpdateResult(string Name, bool Found, string? InstalledPath);
 ```
 
-#### 3. Repo Slug Resolution Helper
+**Note — TwigJsonContext not required:** `UpdateResult` and `CompanionUpdateResult` are
+in-process return types consumed by `SelfUpdateCommand` and `CompanionFirstRunCheck`. They
+are never serialized to JSON, never appear in HTTP responses, and never cross process
+boundaries. They do **not** need `[JsonSerializable]` registration in `TwigJsonContext`.
 
-The `repoSlug` is currently resolved from `AssemblyMetadataAttribute("GitHubRepo")` in
-`CommandRegistrationModule.AddSelfUpdateCommands()`. The first-run check needs the same
-value but runs outside the DI lifecycle. Extract to a shared static helper:
+#### 2. Repo Slug Resolution
 
-```csharp
-// In Twig.Infrastructure/GitHub/RepoSlugResolver.cs (or inline in CompanionTool.cs)
-internal static class RepoSlugResolver
-{
-    private const string DefaultSlug = "PolyphonyRequiem/twig";
+The `repoSlug` is resolved from `AssemblyMetadataAttribute("GitHubRepo")`. Both callers
+(`CommandRegistrationModule.AddSelfUpdateCommands()` and the `Program.cs` first-run check)
+are in the CLI project and read the attribute inline — no shared method extraction needed.
 
-    internal static string Resolve(System.Reflection.Assembly? assembly = null)
-    {
-        assembly ??= typeof(RepoSlugResolver).Assembly;
-        var attrs = assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false);
-        foreach (var attr in attrs)
-        {
-            if (attr is System.Reflection.AssemblyMetadataAttribute meta
-                && meta.Key == "GitHubRepo" && meta.Value is not null)
-                return meta.Value;
-        }
-        return DefaultSlug;
-    }
-}
-```
-
-`CommandRegistrationModule.AddSelfUpdateCommands()` is refactored to use this helper,
-eliminating the duplicated logic.
-
-#### 4. IGitHubReleaseService — Tag-Matched Lookup
+#### 3. IGitHubReleaseService — Tag-Matched Lookup
 
 Add `GetReleaseByTagAsync` to `IGitHubReleaseService` to prevent version skew during
-first-run companion install:
+first-run companion install. This method returns the same `GitHubReleaseInfo` DTO used by
+`GetLatestReleaseAsync` — no new DTOs are needed; the GitHub API returns the same release
+JSON structure for both `/releases/latest` and `/releases/tags/{tag}` endpoints:
 
 ```csharp
 // Added to IGitHubReleaseService
@@ -325,33 +285,62 @@ public async Task<GitHubReleaseInfo?> GetReleaseByTagAsync(string tag, Cancellat
 This ensures the first-run check downloads companions matching the *installed* twig version,
 not the latest release.
 
-#### 5. SelfUpdater Enhancement
+#### 4. SelfUpdater Enhancement
 
 The `UpdateBinaryAsync` method is modified to accept additional binary names and extract
-them alongside the main binary:
+them alongside the main binary. A new `InstallCompanionsOnlyAsync` method is added for
+first-run check use, reusing the same download-extract pipeline to avoid code duplication.
 
-**Signature change:**
+**Shared extraction pipeline** — the existing download, archive extraction, binary search,
+and installation logic is refactored into private helpers that both methods use:
+
 ```csharp
-// Before
-public async Task<string> UpdateBinaryAsync(string downloadUrl, string archiveName, CancellationToken ct)
+// Private shared helpers:
+private async Task<string> DownloadArchiveAsync(string downloadUrl, string archiveName, CancellationToken ct)
+    // Downloads archive to temp file, returns path
 
-// After
+private string ExtractArchive(string tempArchive, string archiveName)
+    // Extracts archive to temp dir, returns path to temp extract dir
+
+private string? FindBinary(string directory, string binaryName)
+    // Searches recursively for a named binary in the extracted archive (promoted from private to shared helper)
+
+private void InstallBinaryToDir(string extractedBinary, string targetPath)
+    // Handles atomic write: temp → move, Windows rename trick, Unix chmod
+```
+
+**`UpdateBinaryAsync` signature:**
+
+`SelfUpdateCommand` and `SelfUpdater` are updated together in a single PR, so no
+backward-compatible wrapper is needed. The old `Task<string>` overload is replaced
+directly:
+
+```csharp
+// Replaces the old Task<string> overload directly
 public async Task<UpdateResult> UpdateBinaryAsync(
     string downloadUrl, string archiveName,
-    IReadOnlyList<string>? companionExeNames = null,
+    IReadOnlyList<string>? companionExeNames,
     CancellationToken ct = default)
 ```
 
-**New return type:**
+**New method for first-run check:**
 ```csharp
-public sealed record UpdateResult(
-    string MainBinaryPath,
-    IReadOnlyList<CompanionUpdateResult> Companions);
-
-public sealed record CompanionUpdateResult(string Name, bool Found, string? InstalledPath);
+/// <summary>
+/// Downloads the archive and installs only companion binaries (not the main binary).
+/// Used by CompanionFirstRunCheck to avoid duplicating the extraction pipeline.
+/// </summary>
+public async Task<IReadOnlyList<CompanionUpdateResult>> InstallCompanionsOnlyAsync(
+    string downloadUrl, string archiveName,
+    IReadOnlyList<string> companionExeNames,
+    string installDir,
+    CancellationToken ct = default)
 ```
 
-**Companion extraction logic** (added after main binary replacement):
+This method reuses the same `DownloadArchiveAsync`, `ExtractArchive`, `FindBinary`, and
+`InstallBinaryToDir` helpers as `UpdateBinaryAsync`, ensuring path traversal protection,
+atomic writes, and cleanup are shared — not reimplemented.
+
+**Companion extraction logic** (shared between both methods):
 ```
 for each companionExeName in companionExeNames:
     find companion binary in extracted archive (FindBinary)
@@ -387,13 +376,64 @@ public static void CleanupOldBinary()
         {
             foreach (var companion in CompanionTools.All)
             {
-                var oldPath = Path.Combine(dir, companion.GetExeName() + ".old");
+                var oldPath = Path.Combine(dir, CompanionTools.GetExeName(companion) + ".old");
                 try { if (fs.FileExists(oldPath)) fs.FileDelete(oldPath); } catch { }
             }
         }
     }
 }
 ```
+
+**Testability — `ICompanionInstaller` interface:**
+
+`SelfUpdater` is a `public sealed class`, which means NSubstitute cannot mock it directly.
+To enable unit testing of `CompanionFirstRunCheck` in isolation, a narrow interface is
+extracted for the companion-install capability:
+
+```csharp
+internal interface ICompanionInstaller
+{
+    Task<IReadOnlyList<CompanionUpdateResult>> InstallCompanionsOnlyAsync(
+        string downloadUrl, string archiveName,
+        IReadOnlyList<string> companionExeNames,
+        string installDir,
+        CancellationToken ct = default);
+}
+```
+
+`SelfUpdater` implements `ICompanionInstaller`. `CompanionFirstRunCheck` depends on
+`ICompanionInstaller` (not `SelfUpdater` directly), allowing tests to use
+`NSubstitute.Substitute.For<ICompanionInstaller>()` for clean unit tests. This follows
+the existing pattern of `IHttpDownloader` abstracting `HttpClient` for testability.
+
+`SelfUpdater` itself is tested via its existing `internal` constructor that accepts
+`IHttpDownloader`, `IFileSystem`, and `string? processPath` — the new companion
+extraction methods use the same injected dependencies and are tested with the same
+mock infrastructure.
+
+#### 5. PlatformHelper — Shared RID Detection and Asset Lookup
+
+`SelfUpdateCommand.DetectRid()` and `SelfUpdateCommand.FindAsset()` are currently
+`internal static` methods in the CLI project (`Twig`). `CompanionFirstRunCheck` lives
+in `Twig.Infrastructure` and needs these same helpers, but Infrastructure cannot
+reference the CLI project (wrong dependency direction).
+
+**Solution:** Extract both methods to a new `PlatformHelper` static class in
+`Twig.Infrastructure/GitHub/PlatformHelper.cs`:
+
+```csharp
+internal static class PlatformHelper
+{
+    internal static string? DetectRid() { /* moved from SelfUpdateCommand */ }
+
+    internal static (GitHubReleaseAssetInfo? asset, string archiveName) FindAsset(
+        GitHubReleaseInfo release, string rid) { /* moved from SelfUpdateCommand */ }
+}
+```
+
+`SelfUpdateCommand.DetectRid()` and `SelfUpdateCommand.FindAsset()` are **deleted**.
+All callers (including existing tests) are updated to call `PlatformHelper` directly.
+Tests are not public API — keeping delegating wrappers adds indirection with no benefit.
 
 #### 6. SelfUpdateCommand Changes
 
@@ -414,15 +454,22 @@ if already up to date:
     else → download current release archive, extract missing companions
 ```
 
-#### 7. First-Run Companion Check
+#### 7. First-Run Companion Check (`CompanionFirstRunCheck`)
 
-A new static class `CompanionFirstRunCheck` in `Twig.Infrastructure/GitHub/`:
+A **non-static** class in `Twig.Infrastructure/GitHub/` with injected dependencies.
+Dependencies are injected via interfaces (`IGitHubReleaseService`, `ICompanionInstaller`,
+`IFileSystem`) to enable isolated unit testing with NSubstitute:
 
 ```csharp
-internal static class CompanionFirstRunCheck
+internal sealed class CompanionFirstRunCheck(
+    IGitHubReleaseService releaseService,
+    ICompanionInstaller companionInstaller,
+    IFileSystem fileSystem)
 {
-    internal static void EnsureCompanions(
-        IFileSystem fileSystem, string? processPath, string currentVersion)
+    private static readonly TimeSpan DownloadTimeout = TimeSpan.FromSeconds(60);
+
+    internal async Task EnsureCompanionsAsync(
+        string? processPath, string currentVersion, CancellationToken ct = default)
     {
         if (processPath is null) return;
         var dir = Path.GetDirectoryName(processPath);
@@ -430,48 +477,106 @@ internal static class CompanionFirstRunCheck
 
         var versionFile = Path.Combine(dir, ".twig-version");
 
-        // Check version marker (using IFileSystem for testability)
+        // Phase 1: Quick check — are all companions present? (~1ms, no I/O write)
+        var missingCompanions = CompanionTools.All
+            .Select(CompanionTools.GetExeName)
+            .Where(exe => !fileSystem.FileExists(Path.Combine(dir, exe)))
+            .ToList();
+
+        if (missingCompanions.Count == 0)
+            return;
+
+        // Phase 2: Version check — avoid re-downloading same version
         if (fileSystem.FileExists(versionFile))
         {
-            var storedVersion = fileSystem.ReadAllText(versionFile).Trim();
-            if (storedVersion == currentVersion) return;
+            using var stream = fileSystem.FileOpenRead(versionFile);
+            using var reader = new StreamReader(stream);
+            var storedVersion = reader.ReadToEnd().Trim();
+            if (storedVersion == currentVersion)
+                return; // Already attempted this version — user must run 'twig upgrade'
         }
 
-        // Check companions
-        var allPresent = true;
-        foreach (var companion in CompanionTools.All)
+        // Phase 3: Synchronous download with timeout
+        Console.Error.WriteLine("Installing companion tools...");
+        try
         {
-            if (!fileSystem.FileExists(Path.Combine(dir, companion.GetExeName())))
-            {
-                allPresent = false;
-                break;
-            }
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(DownloadTimeout);
+
+            var rid = PlatformHelper.DetectRid();
+            if (rid is null) throw new InvalidOperationException("Cannot determine platform RID.");
+
+            var release = await releaseService.GetReleaseByTagAsync($"v{currentVersion}", cts.Token);
+            if (release is null) throw new InvalidOperationException($"No release found for tag v{currentVersion}.");
+
+            var (asset, archiveName) = PlatformHelper.FindAsset(release, rid);
+            if (asset is null) throw new InvalidOperationException($"No asset found for platform '{rid}'.");
+
+            var results = await companionInstaller.InstallCompanionsOnlyAsync(
+                asset.BrowserDownloadUrl, archiveName, missingCompanions, dir, cts.Token);
+
+            var installed = results.Count(r => r.Found);
+            Console.Error.WriteLine($"  Installed {installed} companion tool(s).");
         }
-
-        // Write version marker (even if companions are missing)
-        fileSystem.WriteAllText(versionFile, currentVersion);
-
-        if (!allPresent)
+        catch (OperationCanceledException)
         {
-            // Schedule background companion download
-            _ = Task.Run(() => DownloadMissingCompanionsAsync(dir, currentVersion));
+            Console.Error.WriteLine("  Companion installation timed out. Run 'twig upgrade' to install manually.");
         }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"  Companion installation failed: {ex.Message}");
+            Console.Error.WriteLine("  Run 'twig upgrade' to install manually.");
+        }
+
+        // Phase 4: Write marker after attempt (one attempt per version)
+        WriteVersionMarker(fileSystem, versionFile, currentVersion);
+    }
+
+    private static void WriteVersionMarker(IFileSystem fs, string path, string version)
+    {
+        using var stream = fs.FileCreate(path);
+        using var writer = new StreamWriter(stream);
+        writer.Write(version);
     }
 }
 ```
 
-**Repo slug resolution**: `DownloadMissingCompanionsAsync` uses `RepoSlugResolver.Resolve()`
-to get the repo slug, then constructs a `GitHubReleaseClient` with a new `HttpClient`.
-This avoids coupling with the DI container.
+**Key design decisions for the first-run check:**
 
-**Tag-matched download**: `DownloadMissingCompanionsAsync` calls
-`GetReleaseByTagAsync($"v{currentVersion}")` (not `GetLatestReleaseAsync`) to ensure
-companions match the installed twig version.
+1. **Synchronous, not fire-and-forget**: The download is blocking (with a 60s timeout) to
+   ensure it actually completes before the process exits. Typical twig commands complete in
+   <1s, so a fire-and-forget `Task.Run` would be killed before the download finishes. The
+   60s timeout accommodates the estimated 45–60 MB compressed archive on slow connections
+   (rural broadband, throttled networks). The value is a `TimeSpan` constant — easy to tune
+   in a follow-up if needed.
 
-**Atomic writes**: Background download extracts to a temp directory, then moves each
-companion binary to the target (temp → rename → move) per NF5.
+2. **Version marker written only after install attempt**: The marker records that an install
+   was attempted at this version, preventing retries on every command. The fast path (all
+   companions present) does *not* write the marker — a file write on every successful startup
+   would violate NF1 and is unnecessary since the presence check already guards the download.
+   If the download fails, the marker is still written — the user must run `twig upgrade`
+   explicitly for recovery.
 
-Failures are silently caught and do not affect command execution.
+3. **Companion existence is checked first**: Even before reading the version marker, the
+   check tests whether companion files exist. If all are present, no network call is made
+   (NF1: ~1ms overhead). This also handles the case where a user manually installs companions.
+
+4. **Reuses `SelfUpdater.InstallCompanionsOnlyAsync` via `ICompanionInstaller`**: No
+   duplication of archive download, extraction, path traversal validation, `FindBinary`
+   search, or atomic write logic. All security protections from `SelfUpdater` are inherited.
+   The `ICompanionInstaller` interface enables NSubstitute mocking in unit tests.
+
+5. **Non-static with injected dependencies**: `IGitHubReleaseService`, `ICompanionInstaller`,
+   and `IFileSystem` are constructor-injected, enabling full unit test coverage with mocked
+   dependencies. Tests can verify: version marker behavior, companion detection, download
+   triggers, failure handling, and timeout scenarios — all without real HTTP or file I/O.
+
+6. **Diagnostic output to stderr**: Failed installations emit a warning with the specific
+   error and a recovery path (`twig upgrade`), satisfying NF6.
+
+**IFileSystem — no new methods required**: Version marker reads use `FileOpenRead` +
+`StreamReader.ReadToEnd()` and writes use `FileCreate` + `StreamWriter.Write()`, both of
+which are existing `IFileSystem` methods. This avoids extending the interface surface.
 
 ### Data Flow
 
@@ -491,7 +596,7 @@ User runs "twig upgrade"
   │   │   │       └─ Return UpdateResult
   │   │   └─ NO: check for missing companions
   │   │       ├─ All present → "Already up to date"
-  │   │       └─ Missing → download archive, extract companions only
+  │   │       └─ Missing → download archive via InstallCompanionsOnlyAsync
   │   └─ Print upgrade summary (main + companions)
   │
   └─ Exit
@@ -499,14 +604,19 @@ User runs "twig upgrade"
 User runs any "twig" command (startup)
   │
   ├─ SelfUpdater.CleanupOldBinary() — clean .old files (main + companions)
-  ├─ CompanionFirstRunCheck.EnsureCompanions() — [NEW]
-  │   ├─ Read .twig-version marker (via IFileSystem)
-  │   ├─ Version matches? → skip
-  │   ├─ Check companion binaries exist
-  │   ├─ All present? → write marker, skip
-  │   └─ Missing? → write marker, fire background download
-  │       └─ Uses GetReleaseByTagAsync(v{currentVersion}) for version-matched companions
-  └─ Continue to command execution (unblocked)
+  ├─ CompanionFirstRunCheck.EnsureCompanionsAsync() — [NEW]
+  │   ├─ Check companion file existence (always, ~1ms)
+  │   ├─ All present? → return immediately (no I/O write)
+  │   ├─ Missing + marker matches current version? → skip (already tried)
+  │   └─ Missing + version changed? → synchronous download (60s timeout)
+  │       ├─ GetReleaseByTagAsync(v{currentVersion}) for version-matched companions
+  │       ├─ ICompanionInstaller.InstallCompanionsOnlyAsync() (reuses extraction pipeline)
+  │       ├─ Write marker after attempt
+  │       └─ Failures → stderr warning + "run 'twig upgrade'" (NF2, NF6)
+  └─ Continue to command execution
+  
+  NOTE: .GetAwaiter().GetResult() is safe here because it runs before
+        ConsoleApp.Create() — no SynchronizationContext exists yet.
 ```
 
 ### Design Decisions
@@ -514,14 +624,44 @@ User runs any "twig" command (startup)
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
 | Bundle vs. separate archives | **Bundle** all binaries in one archive | Version sync, single download, matches `publish-local.ps1` pattern |
-| Companion list location | `CompanionTools` static class in `Infrastructure.GitHub` | Shared by `SelfUpdater`, `SelfUpdateCommand`, and startup check |
-| Return type change | `UpdateResult` record | Backward-incompatible but only caller is `SelfUpdateCommand` (internal) |
-| First-run network call | Fire-and-forget background task with atomic writes | Must not block startup or affect exit codes (NF1, NF2); temp+move prevents corruption (NF5) |
-| Windows rename for companions | Apply rename trick to companions too | `twig-mcp` may be running as MCP server during upgrade |
-| twig-tui publishing | `PublishSingleFile=true, SelfContained=true, PublishTrimmed=false` | Terminal.Gui v2 uses reflection extensively — no AOT, no trimming. Expect ~60–80 MB binary. |
-| Version-matched downloads | `GetReleaseByTagAsync()` for first-run check | Prevents version skew: user on v1.2 won't accidentally get v1.3 companions |
-| File I/O testability | Extend `IFileSystem` with `ReadAllText`/`WriteAllText` | Maintains testability pattern; avoids mixing `IFileSystem` with raw `File.*` calls |
-| Repo slug sharing | `RepoSlugResolver` static helper | Eliminates duplication between `CommandRegistrationModule` and first-run check |
+| Companion list location | `CompanionTools` static class | `string[]` is sufficient; single-field record adds abstraction with no benefit |
+| Return type change | `UpdateResult` record; old signature replaced directly | `SelfUpdater` and `SelfUpdateCommand` are updated in the same PR — no wrapper needed |
+| First-run download strategy | **Synchronous** with 60s timeout | Fire-and-forget killed by process exit; synchronous ensures completion; 60s accommodates 45–60 MB archive on slow connections |
+| Version marker timing | Written **only after** download attempt | Fast path writes nothing — per-startup I/O violates NF1 (see "First-Run Companion Check" section) |
+| First-run deduplication | `ICompanionInstaller.InstallCompanionsOnlyAsync` | Shared pipeline; inherits path traversal + atomic write protections (see "SelfUpdater Enhancement" section) |
+| First-run testability | Non-static class, constructor-injected deps | `ICompanionInstaller` enables NSubstitute mocking of sealed `SelfUpdater` |
+| Repo slug resolution | Inline at each call site | Single 2-line attribute lookup; no method extraction needed |
+| Windows rename for companions | Apply rename trick | `twig-mcp` may be running as MCP server during upgrade |
+| twig-tui publishing | `PublishSingleFile=true`, no trim, no AOT | Terminal.Gui v2 uses reflection; attempt inclusion, exclude if CI fails |
+| Version-matched downloads | `GetReleaseByTagAsync()` for first-run | Prevents version skew between main binary and companions (see "IGitHubReleaseService — Tag-Matched Lookup" section) |
+| File I/O for version marker | Existing `IFileSystem.FileOpenRead`/`FileCreate` | Avoids extending `IFileSystem` interface |
+| Platform helpers location | `PlatformHelper` in `Twig.Infrastructure/GitHub/` | Resolves cross-project dependency; `SelfUpdateCommand`'s methods deleted (see "PlatformHelper" section) |
+| First-run HttpClient sharing | Single `HttpClient` via `NetworkServiceModule.CreateHttpClient()` | Avoids duplicate instances; shared gzip/Brotli/HTTP2 config |
+| `.GetAwaiter().GetResult()` safety | Must run **before** `ConsoleApp.Create()` | No `SynchronizationContext` → blocking is safe; inline comment required |
+| Shared helper promotion | `FindBinary` promoted to shared private helper | Used by both `UpdateBinaryAsync` and `InstallCompanionsOnlyAsync`; previously only called in single-binary extraction |
+| Concurrent first-run safety | No locking — duplicate downloads are harmless | Two simultaneous `twig` commands may race on the version marker; worst case is a redundant download. Atomic writes prevent binary corruption. Both processes write the same marker value, so no inconsistency results. File locking would add complexity for a benign edge case. |
+| `UpdateResult` serialization | **Not registered** in `TwigJsonContext` | In-process return types only — never serialized to JSON (see "CompanionTool Registry" note) |
+
+#### Conditional twig-tui Inclusion
+
+Per user decision (RQ-5): **"Try it. Omit TUI if there's an issue and we can follow up."**
+
+twig-tui is published with `PublishSingleFile=true`, `SelfContained=true`, and
+`PublishTrimmed=false`. Terminal.Gui v2 relies on reflection for property binding, view
+construction, and event handling — trimming produces silent runtime failures.
+
+**Validation gate:** T-1645-2 publishes twig-tui as SingleFile and runs a smoke test.
+If the publish fails or the binary produces runtime errors, the following exclusion steps
+are applied:
+
+1. Remove `twig-tui` from the `CompanionTools.All` array
+2. Remove the twig-tui `dotnet publish` step from `release.yml`
+3. Remove twig-tui verification from `install.ps1` and `install.sh`
+4. File a follow-up issue for twig-tui distribution
+
+This is acceptable because twig-tui is the newest companion and its absence does not
+block core twig or twig-mcp functionality. All subsequent sections reference this policy
+rather than restating the conditional logic.
 
 ---
 
@@ -545,22 +685,21 @@ asset (e.g., `twig-mcp-win-x64.zip`). The upgrade command would download each se
 **Decision:** Rejected. The simplicity of single-archive bundling and guaranteed version
 sync outweigh the marginal size savings.
 
-### No first-run check (upgrade-only)
+### Fire-and-forget first-run download
 
-Only install/upgrade companions via explicit `twig upgrade` or installer scripts. No startup
-check for missing companions.
+Instead of blocking startup, fire-and-forget the download via `Task.Run`.
 
 **Pros:**
-- Simpler implementation, no startup overhead
-- No background network calls
+- No startup delay
+- Command execution unblocked
 
 **Cons:**
-- Doesn't satisfy acceptance criterion 2 of parent Issue #1643: "First-run after upgrade
-  installs any missing companions automatically"
-- Users who manually install `twig` would never get companions
+- Process typically exits in <1s; the download task is killed before completing
+- Writing version marker before download completion blocks retries
+- Combined effect: first-run companion install is effectively non-functional
 
-**Decision:** Rejected. The first-run check is a safety net that ensures companions are
-available regardless of installation method.
+**Decision:** Rejected. Synchronous download with a 60s timeout is chosen instead.
+The one-time startup delay is acceptable for reliable companion installation.
 
 ---
 
@@ -570,23 +709,31 @@ available regardless of installation method.
 - **GitHub Releases API**: Used for both upgrade and first-run companion download.
   First-run check uses the `/releases/tags/{tag}` endpoint for version-matched lookup.
 - **MinVer**: All three projects derive version from git tags (existing dependency)
-- **Terminal.Gui v2**: Must support `PublishSingleFile` for `twig-tui` bundling (see Open
-  Question #1; CI validation task T-1645-2 explicitly tests this)
+- **Terminal.Gui v2**: Must support `PublishSingleFile` for `twig-tui` bundling. Resolved
+  question: attempt inclusion, exclude if validation fails (see Resolved Questions). CI
+  validation task T-1645-2 is the gate.
 
 ### Internal
-- **`SelfUpdater`**: Must be extended before `SelfUpdateCommand` can use it
-- **`IFileSystem`**: Must be extended with `ReadAllText`/`WriteAllText` before first-run check
+- **`SelfUpdater`**: Must be extended (companion extraction + `InstallCompanionsOnlyAsync` + implement `ICompanionInstaller`)
+  before `SelfUpdateCommand` and `CompanionFirstRunCheck` can use it
+- **`ICompanionInstaller`**: Must be defined in `CompanionTool.cs` before `SelfUpdater` can implement it and `CompanionFirstRunCheck` can depend on it
+- **`PlatformHelper`**: Must be extracted from `SelfUpdateCommand` before `CompanionFirstRunCheck` can call `DetectRid`/`FindAsset`
 - **`IGitHubReleaseService`**: Must add `GetReleaseByTagAsync` before first-run check
-- **`RepoSlugResolver`**: Must exist before first-run check (and refactored into
-  `CommandRegistrationModule`)
+- **`StubReleaseService`** (both in `SelfUpdateCommandTests` and `ChangelogCommandTests`): Each stub must add `GetReleaseByTagAsync` in place to satisfy the updated interface. The two stubs have different constructor shapes and are kept separate.
 - **`release.yml`**: Must bundle companions before upgrade can install them (deploy dependency)
 - **`CompanionTools` registry**: Must exist before any consumer can reference it
+- **`InternalsVisibleTo` configuration** (load-bearing): `CompanionFirstRunCheck`, `ICompanionInstaller`,
+  and `NetworkServiceModule.CreateHttpClient()` are all `internal` in `Twig.Infrastructure`. The CLI
+  project (`Twig`) can access them because `Twig.Infrastructure.csproj` declares
+  `InternalsVisibleTo` for assembly `Twig` (line 22–24 of the csproj). This existing configuration
+  is required — do not remove or rename it. Test projects (`Twig.Infrastructure.Tests`, `Twig.Cli.Tests`)
+  also have `InternalsVisibleTo` entries for the same reason.
 
 ### Sequencing
-1. `CompanionTools` registry + `IFileSystem` extension → `SelfUpdater` changes → `SelfUpdateCommand` changes → tests
+1. `CompanionTools` registry + `ICompanionInstaller` + `PlatformHelper` → `SelfUpdater` changes → `SelfUpdateCommand` changes → tests
 2. `release.yml` changes can proceed in parallel with code changes
 3. Installer script changes depend on `release.yml` (scripts extract what the pipeline bundles)
-4. First-run check depends on `CompanionTools` registry, `IFileSystem` extension, `RepoSlugResolver`, and `GetReleaseByTagAsync`
+4. First-run check depends on `CompanionTools` registry, `ICompanionInstaller`, `PlatformHelper`, `GetReleaseByTagAsync`, and `SelfUpdater` implementing `ICompanionInstaller`
 
 ---
 
@@ -596,12 +743,11 @@ available regardless of installation method.
 
 | Component | Impact |
 |-----------|--------|
-| `IFileSystem` / `DefaultFileSystem` | Add `ReadAllText` / `WriteAllText` methods |
 | `IGitHubReleaseService` / `GitHubReleaseClient` | Add `GetReleaseByTagAsync` method |
-| `SelfUpdater` | Return type change, companion extraction with atomic writes |
-| `SelfUpdateCommand` | Companion-aware upgrade flow, "install missing" when current |
-| `CommandRegistrationModule` | Refactor repo slug resolution to use `RepoSlugResolver` |
-| `Program.cs` | First-run companion check added after existing cleanup |
+| `SelfUpdater` | Implement `ICompanionInstaller`; return type change, companion extraction, new `InstallCompanionsOnlyAsync`, shared extraction helpers |
+| `SelfUpdateCommand` | Companion-aware upgrade flow, "install missing" when current; `DetectRid`/`FindAsset` delegate to `PlatformHelper` |
+| `Program.cs` | First-run companion check added after existing cleanup; shared `HttpClient`; ordering constraint documented |
+| `StubReleaseService` (2 instances) | Both stubs in test projects add `GetReleaseByTagAsync` implementation |
 | `install.ps1` | Verification of companion binaries added |
 | `install.sh` | Verification and `chmod +x` for companions added |
 | `release.yml` | Build + bundle steps for twig-mcp and twig-tui added |
@@ -610,8 +756,10 @@ available regardless of installation method.
 
 ### Backward Compatibility
 
-- **`SelfUpdater.UpdateBinaryAsync`** return type changes from `string` to `UpdateResult`.
-  Only caller is `SelfUpdateCommand` (internal). No external consumers.
+- **`SelfUpdater.UpdateBinaryAsync`** — The old `Task<string>` overload is replaced directly
+  with the new `Task<UpdateResult>` signature in PG-1. `SelfUpdater` and `SelfUpdateCommand`
+  are updated in the same PR, so no backward-compatible wrapper is needed. No external
+  consumers exist.
 - **Release archives** will now contain additional files. Old versions of `twig upgrade` will
   extract the archive but only look for `twig.exe` — companions are ignored. No breaking change.
 - **Installer scripts** will now verify more binaries. Old archives without companions will
@@ -620,12 +768,17 @@ available regardless of installation method.
 ### Performance
 
 - **Upgrade**: Archive download is larger. twig-mcp adds ~15 MB (AOT binary); twig-tui adds
-  ~60–80 MB (`PublishSingleFile`, self-contained, no trimming). Total archive size per
-  platform could reach 80–100 MB compressed. Single download vs. current single download.
+  ~30–40 MB (`PublishSingleFile`, self-contained, no trimming). Total archive size per
+  platform is estimated at **45–60 MB compressed**. This is a single download compared to the
+  current single-binary download. No maximum archive size acceptance criterion is imposed —
+  if download times become unacceptable, splitting twig-tui to a separate optional archive
+  is tracked as a potential follow-up (see Risks table).
 - **Startup**: First-run check adds one `File.Exists()` call per companion + one file read
   for version marker. Negligible overhead (~1ms).
-- **Background download**: Only runs once per version, only when companions are missing.
-  Does not block command execution.
+- **First-run companion install**: One-time synchronous blocking download (60s timeout),
+  only runs once per version when companions are missing. Blocks command execution during
+  the download but is bounded by the timeout. Subsequent runs with the same version skip
+  the download entirely (version marker check).
 
 ---
 
@@ -641,7 +794,6 @@ directory. Security implications:
 | **Man-in-the-middle** | TLS certificate validation in .NET's `HttpClient` prevents MITM attacks. No custom certificate handlers or `ServerCertificateCustomValidationCallback` overrides are used. |
 | **Path traversal** | `SelfUpdater.ExtractTar` already validates that extracted entries do not escape the target directory. This protection applies equally to companion extraction. |
 | **Temp file cleanup** | Atomic write pattern (temp → move) ensures partial downloads are never left as executable binaries in the install directory. Temp files are cleaned in `finally` blocks. |
-| **Future enhancement** | If GitHub releases ever include checksum files (e.g., `SHA256SUMS`), validation can be added to `SelfUpdater` without changing the public API. Tracked as a potential follow-up. |
 
 ---
 
@@ -649,27 +801,31 @@ directory. Security implications:
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|------------|--------|------------|
-| twig-tui `PublishSingleFile` incompatibility with Terminal.Gui | Medium | High | CI validation task T-1645-2 publishes twig-tui as SingleFile and runs smoke test. **User decision**: attempt inclusion; if SingleFile publish fails or produces runtime errors, exclude twig-tui from the bundle and file a follow-up issue (see Resolved Questions). twig-mcp is unaffected. |
-| twig-tui trim warnings at publish time | Medium | **High** | `PublishTrimmed=false` set explicitly in `Twig.Tui.csproj`. Terminal.Gui v2 relies on reflection for property binding, view construction, and event handling — trimming causes silent runtime failures. If any transitive dependency enables trimming, add `<TrimMode>partial</TrimMode>` override in csproj. CI must verify a clean publish with zero trim warnings. |
-| Archive size increase (80–100 MB compressed) slows download | Medium | Low | twig-tui at ~60–80 MB dominates. Monitor download times. If unacceptable, consider splitting twig-tui to a separate optional archive in a follow-up. |
+| twig-tui `PublishSingleFile` incompatibility with Terminal.Gui | Medium | High | T-1645-2 CI validation gate. If it fails, apply exclusion steps per [Conditional twig-tui Inclusion](#conditional-twig-tui-inclusion) policy. twig-mcp is unaffected. |
+| twig-tui trim warnings at publish time | Medium | **High** | `PublishTrimmed=false` set explicitly in `Twig.Tui.csproj`. If any transitive dependency enables trimming, add `<TrimMode>partial</TrimMode>` override. CI must verify a clean publish with zero trim warnings. |
+| Archive size increase (45–60 MB compressed) slows download | Medium | Low | twig-tui at ~30–40 MB dominates. Monitor download times. If unacceptable, consider splitting twig-tui to a separate optional archive in a follow-up. |
 | `twig-mcp` locked by running MCP server during upgrade | Medium | Low | Windows rename trick handles this (same as main binary). User must restart MCP server. |
-| Background first-run download fails silently | Low | Low | By design (NF2). User can always run `twig upgrade` explicitly. |
+| First-run synchronous download adds startup delay | Low | Low | Only triggers once per version upgrade, only when companions are missing. 60s timeout bounds worst case. Stderr message informs user. Timeout is a `TimeSpan` constant for easy tuning. |
 | Version marker file corruption | Low | Low | If unreadable, treat as version change and re-check companions. |
+| Concurrent first-run race condition | Low | Low | Two simultaneous `twig` commands could race on the version marker file. Worst case is a duplicate companion download (idempotent — atomic writes prevent corruption). Both processes write the same marker value, so no inconsistency results. No mitigation needed beyond existing atomic write pattern. |
 | Interrupted download leaves corrupted companion | Low | Medium | Atomic write pattern (NF5): download to temp file, move to target. Partial downloads never appear as the final binary. |
 
 ---
 
 ## Resolved Questions
 
-| # | Question | Resolution |
-|---|----------|------------|
-| 1 | Does Terminal.Gui v2 support `PublishSingleFile=true` without trimming? | **Resolved (user decision)**: Attempt inclusion with `PublishSingleFile=true, PublishTrimmed=false`. Task T-1645-2 validates via CI smoke test. If SingleFile publish fails or produces runtime errors, twig-tui is excluded from the bundle and a follow-up issue is filed. This is acceptable because twig-tui is the newest companion and its absence does not block core twig or twig-mcp functionality. |
+Documented below for audit trail. All questions in this section have been resolved
+and do not require further discussion.
 
-## Open Questions
-
-| # | Question | Severity | Notes |
-|---|----------|----------|-------|
-| 2 | Should the first-run companion download show a progress indicator? | Low | Current design is fire-and-forget. Could add a one-line message: "Installing companion tools..." — but this may confuse users if it appears during unrelated commands. |
+| ID | Question | Resolution |
+|----|----------|------------|
+| RQ-1 | Does Terminal.Gui v2 support `PublishSingleFile=true` without trimming? | **Resolved (user decision)**: Attempt inclusion. T-1645-2 is the CI validation gate. See [Conditional twig-tui Inclusion](#conditional-twig-tui-inclusion) for fallback steps. |
+| RQ-2 | Should the first-run companion download show a progress indicator? | **Resolved (user decision)**: Yes. The revised design uses synchronous download with a one-line stderr message: "Installing companion tools..." followed by a result count or error message. This is appropriate because the download only triggers once per version upgrade when companions are missing. |
+| RQ-3 | How is `SelfUpdater` mocked in `CompanionFirstRunCheck` tests given it is a sealed class? | **Resolved (v5)**: Extract a narrow `ICompanionInstaller` interface that `SelfUpdater` implements. `CompanionFirstRunCheck` depends on `ICompanionInstaller`, enabling NSubstitute mocking. This follows the existing `IHttpDownloader` pattern for testable HTTP abstraction. |
+| RQ-4 | How do `DetectRid` and `FindAsset` become accessible from `Twig.Infrastructure`? | **Resolved (v6)**: Extract both methods from `SelfUpdateCommand` (CLI project) to a shared `PlatformHelper` static class in `Twig.Infrastructure/GitHub/`. `SelfUpdateCommand.DetectRid()` and `FindAsset()` are **deleted**; all callers (including tests) are updated to call `PlatformHelper` directly. Wrappers would add indirection with no benefit — tests are not public API. |
+| RQ-5 | Should twig-tui be included or excluded from the companion bundle? | **Resolved (v6, user decision)**: "Try it. Omit TUI if there's an issue and we can follow up." See [Conditional twig-tui Inclusion](#conditional-twig-tui-inclusion) for the full policy. |
+| RQ-6 | Should the 60s first-run download timeout be configurable via env var? | **Resolved**: No. Compile-time `TimeSpan` constant is sufficient. Add `TWIG_DOWNLOAD_TIMEOUT` in a follow-up only if real-world feedback shows 60s is too short. |
+| RQ-7 | Should `twig upgrade` display a progress bar for companion downloads? | **Resolved**: No. Single stderr "Downloading…" line is sufficient. Progress bars would add complexity to `SelfUpdater`. Revisit if user feedback demands it. |
 
 ---
 
@@ -679,28 +835,29 @@ directory. Security implications:
 
 | File Path | Purpose |
 |-----------|---------|
-| `src/Twig.Infrastructure/GitHub/CompanionTool.cs` | `CompanionTool` record, `CompanionTools` static registry, `UpdateResult`/`CompanionUpdateResult` records, `RepoSlugResolver` static helper |
-| `src/Twig.Infrastructure/GitHub/CompanionFirstRunCheck.cs` | Static class implementing first-run companion detection and background download |
-| `tests/Twig.Infrastructure.Tests/GitHub/CompanionToolTests.cs` | Unit tests for `CompanionTool` registry, `RepoSlugResolver`, and `CompanionFirstRunCheck` |
+| `src/Twig.Infrastructure/GitHub/CompanionTool.cs` | `CompanionTools` static registry, `UpdateResult`/`CompanionUpdateResult` records, `ICompanionInstaller` interface |
+| `src/Twig.Infrastructure/GitHub/PlatformHelper.cs` | `PlatformHelper` static class with `DetectRid()` and `FindAsset()` extracted from `SelfUpdateCommand` for cross-project reuse |
+| `src/Twig.Infrastructure/GitHub/CompanionFirstRunCheck.cs` | Non-static sealed class implementing synchronous first-run companion detection and download using injected `IGitHubReleaseService`, `ICompanionInstaller`, and `IFileSystem` |
+| `tests/Twig.Infrastructure.Tests/GitHub/CompanionToolTests.cs` | Unit tests for `CompanionTools` registry (`All`, `GetExeName`) and `PlatformHelper` (`DetectRid`, `FindAsset`) |
+
 
 ### Modified Files
 
 | File Path | Changes |
 |-----------|---------|
-| `src/Twig.Infrastructure/GitHub/IFileSystem.cs` | Add `ReadAllText(string)` and `WriteAllText(string, string)` to `IFileSystem`; implement in `DefaultFileSystem` |
-| `src/Twig.Infrastructure/GitHub/SelfUpdater.cs` | Return type `string` → `UpdateResult`; companion extraction with atomic writes; `CleanupOldBinary` cleans companion `.old` files |
+| `src/Twig.Infrastructure/GitHub/SelfUpdater.cs` | New `UpdateBinaryAsync` overload returning `UpdateResult` (old `Task<string>` signature replaced directly — no wrapper); implement `ICompanionInstaller`; refactor extraction into shared helpers (including `FindBinary` promotion); new `InstallCompanionsOnlyAsync`; companion extraction with atomic writes; `CleanupOldBinary` cleans companion `.old` files |
 | `src/Twig.Domain/Interfaces/IGitHubReleaseService.cs` | Add `GetReleaseByTagAsync(string tag, CancellationToken)` method |
 | `src/Twig.Infrastructure/GitHub/GitHubReleaseClient.cs` | Implement `GetReleaseByTagAsync` using `/releases/tags/{tag}` endpoint |
-| `src/Twig/Commands/SelfUpdateCommand.cs` | Build companion name list; handle `UpdateResult`; "install missing companions" path when already current |
-| `src/Twig/DependencyInjection/CommandRegistrationModule.cs` | Refactor `AddSelfUpdateCommands` to use `RepoSlugResolver` |
-| `src/Twig/Program.cs` | Add `CompanionFirstRunCheck.EnsureCompanions()` call after `SelfUpdater.CleanupOldBinary()` |
-| `src/Twig.Tui/Twig.Tui.csproj` | Add `<PublishSingleFile>true</PublishSingleFile>`, `<SelfContained>true</SelfContained>`, `<PublishTrimmed>false</PublishTrimmed>` |
+| `src/Twig/Commands/SelfUpdateCommand.cs` | Build companion name list; handle `UpdateResult`; "install missing companions" path when already current; `DetectRid` and `FindAsset` **deleted** — call sites updated to use `PlatformHelper` directly |
+| `src/Twig/Program.cs` | Add `CompanionFirstRunCheck.EnsureCompanionsAsync()` call after `SelfUpdater.CleanupOldBinary()` |
+| `src/Twig.Tui/Twig.Tui.csproj` | Add `<PublishSingleFile>true</PublishSingleFile>`, `<SelfContained>true</SelfContained>`, `<PublishTrimmed>false</PublishTrimmed>` *(subject to [Conditional twig-tui Inclusion](#conditional-twig-tui-inclusion) validation)* |
 | `.github/workflows/release.yml` | Add `dotnet publish` steps for twig-mcp (AOT) and twig-tui (SingleFile, no trim); bundle into existing archive |
 | `install.ps1` | Verify `twig-mcp.exe` and `twig-tui.exe` after extraction; print companion versions |
 | `install.sh` | Verify `twig-mcp` and `twig-tui` after extraction; `chmod +x`; print companion versions |
-| `publish-local.ps1` | Add `Invoke-Publish "twig-tui"` step; update function label for mixed publish strategies; print twig-tui version |
-| `tests/Twig.Infrastructure.Tests/GitHub/SelfUpdaterTests.cs` | Add tests for companion extraction from zip/tar.gz archives; update existing tests for `UpdateResult` return type |
-| `tests/Twig.Cli.Tests/Commands/SelfUpdateCommandTests.cs` | Add tests for companion upgrade/install flow |
+| `publish-local.ps1` | Add `Invoke-Publish "twig-tui"` step |
+| `tests/Twig.Infrastructure.Tests/GitHub/SelfUpdaterTests.cs` | Add tests for companion extraction from zip/tar.gz archives; add tests for `InstallCompanionsOnlyAsync`; update existing tests for `UpdateResult` return type |
+| `tests/Twig.Cli.Tests/Commands/SelfUpdateCommandTests.cs` | Add tests for companion upgrade/install flow; update inline `StubReleaseService` to add `GetReleaseByTagAsync` |
+| `tests/Twig.Cli.Tests/Commands/ChangelogCommandTests.cs` | Update inline `StubReleaseService` to add `GetReleaseByTagAsync` |
 
 ---
 
@@ -719,17 +876,66 @@ for end-to-end validation but not for unit-testable code changes).
 
 | Task ID | Description | Files | Effort | Satisfies |
 |---------|-------------|-------|--------|-----------|
-| T-1644-1 | **Create CompanionTool registry and shared helpers** — Define `CompanionTool` record, `CompanionTools` static class listing known companions (`twig-mcp`, `twig-tui`), `UpdateResult` and `CompanionUpdateResult` record types, `RepoSlugResolver` static helper. Extend `IFileSystem` with `ReadAllText`/`WriteAllText` and implement in `DefaultFileSystem`. | `src/Twig.Infrastructure/GitHub/CompanionTool.cs`, `src/Twig.Infrastructure/GitHub/IFileSystem.cs` | S | — |
-| T-1644-2 | **Add `GetReleaseByTagAsync` to release service** — Add method to `IGitHubReleaseService` interface and implement in `GitHubReleaseClient` using the `/releases/tags/{tag}` GitHub API endpoint. Add unit test. | `src/Twig.Domain/Interfaces/IGitHubReleaseService.cs`, `src/Twig.Infrastructure/GitHub/GitHubReleaseClient.cs`, `tests/Twig.Infrastructure.Tests/GitHub/GitHubReleaseClientTests.cs` | S | F5 |
-| T-1644-3 | **Extend SelfUpdater for companions** — Modify `UpdateBinaryAsync` to accept `IReadOnlyList<string>? companionExeNames`, find and copy each companion from the extracted archive using atomic writes (temp → move). Apply Windows rename trick for locked companions. Change return type to `UpdateResult`. Extend `CleanupOldBinary` to also clean companion `.old` files. | `src/Twig.Infrastructure/GitHub/SelfUpdater.cs` | M | F1, NF5 |
-| T-1644-4 | **Update SelfUpdateCommand for companion-aware upgrades** — Build companion exe name list from `CompanionTools.All`. Pass to `UpdateBinaryAsync`. Handle `UpdateResult` to report companion upgrades. Add "install missing companions" path when main binary is already current. Refactor `CommandRegistrationModule.AddSelfUpdateCommands` to use `RepoSlugResolver`. | `src/Twig/Commands/SelfUpdateCommand.cs`, `src/Twig/DependencyInjection/CommandRegistrationModule.cs` | M | F1, F2, F3 |
-| T-1644-5 | **Add unit tests for companion upgrade flow** — Tests for: (a) SelfUpdater extracts companions from zip, (b) SelfUpdater extracts companions from tar.gz, (c) SelfUpdater handles missing companions in archive, (d) SelfUpdater uses atomic writes, (e) CleanupOldBinary cleans companion `.old` files, (f) SelfUpdateCommand reports companion results, (g) SelfUpdateCommand installs missing companions when current, (h) GetReleaseByTagAsync returns correct release. | `tests/Twig.Infrastructure.Tests/GitHub/SelfUpdaterTests.cs`, `tests/Twig.Cli.Tests/Commands/SelfUpdateCommandTests.cs` | L | — |
+| T-1644-1 | **Create CompanionTool registry, ICompanionInstaller, PlatformHelper, and shared helpers** | `src/Twig.Infrastructure/GitHub/CompanionTool.cs`, `src/Twig.Infrastructure/GitHub/PlatformHelper.cs` | S | F1, F4 (foundation) |
+
+T-1644-1 sub-steps:
+- Define `CompanionTools` static class: `string[] All = ["twig-mcp", "twig-tui"]` + `GetExeName(string)` helper
+- Add `UpdateResult` and `CompanionUpdateResult` sealed record types
+- Add `ICompanionInstaller` narrow interface for `InstallCompanionsOnlyAsync`
+- Extract `DetectRid()` and `FindAsset()` from `SelfUpdateCommand` into `PlatformHelper`
+- No `IFileSystem` changes — version marker I/O uses existing `FileOpenRead`/`FileCreate`
+| T-1644-2 | **Add `GetReleaseByTagAsync` to release service** | `src/Twig.Domain/Interfaces/IGitHubReleaseService.cs`, `src/Twig.Infrastructure/GitHub/GitHubReleaseClient.cs`, `tests/Twig.Infrastructure.Tests/GitHub/GitHubReleaseClientTests.cs` | S | F5 |
+
+T-1644-2 sub-steps:
+- Add `GetReleaseByTagAsync(string tag, CancellationToken)` to `IGitHubReleaseService` interface
+- Implement in `GitHubReleaseClient` using the `/releases/tags/{tag}` GitHub API endpoint (returns same `GitHubReleaseInfo` DTO — no new DTOs needed)
+- Add unit test for the new method
+- Add `GetReleaseByTagAsync` to each existing `StubReleaseService` in `SelfUpdateCommandTests.cs` and `ChangelogCommandTests.cs` in place
+| T-1644-3 | **Extend SelfUpdater for companions** | `src/Twig.Infrastructure/GitHub/SelfUpdater.cs` | M | F1, NF5 |
+
+T-1644-3 sub-steps:
+- Refactor `UpdateBinaryAsync` to extract shared helpers (`DownloadArchiveAsync`, `ExtractArchive`, `InstallBinaryToDir`)
+- Replace old `Task<string>` overload with new: `UpdateBinaryAsync(url, archive, companionExeNames, ct)` returning `UpdateResult`
+- Implement `ICompanionInstaller` interface on `SelfUpdater`
+- Add `InstallCompanionsOnlyAsync` method for first-run check (reuses shared helpers)
+- Apply Windows rename trick for locked companions (`twig-mcp` may be running)
+- Extend `CleanupOldBinary` to clean companion `.old` files
+| T-1644-4 | **Update SelfUpdateCommand for companion-aware upgrades** | `src/Twig/Commands/SelfUpdateCommand.cs` | M | F1, F2, F3 |
+
+T-1644-4 sub-steps:
+- Build companion exe name list from `CompanionTools.All`
+- Switch to new `UpdateBinaryAsync` overload
+- Handle `UpdateResult` to report companion upgrade results
+- Add "install missing companions" path when main binary is already current
+- **Delete** `SelfUpdateCommand.DetectRid()` and `FindAsset()`; update call sites to `PlatformHelper`
+| T-1644-5a | **Add unit tests for SelfUpdater companion extraction** | `tests/Twig.Infrastructure.Tests/GitHub/SelfUpdaterTests.cs`, `tests/Twig.Infrastructure.Tests/GitHub/GitHubReleaseClientTests.cs`, `tests/Twig.Infrastructure.Tests/GitHub/CompanionToolTests.cs` | M | Verifies F1, F5, NF5 |
+
+T-1644-5a test scenarios:
+- Extracts companions from zip archive
+- Extracts companions from tar.gz archive
+- Handles missing companions in archive (records `Found=false`)
+- Uses atomic writes (temp → move)
+- `CleanupOldBinary` cleans companion `.old` files
+- `InstallCompanionsOnlyAsync` installs only companions (not main binary)
+- `GetReleaseByTagAsync` returns correct release for a given tag
+- `PlatformHelper.DetectRid` and `FindAsset` produce correct results
+| T-1644-5b | **Add unit tests for SelfUpdateCommand companion flow** | `tests/Twig.Cli.Tests/Commands/SelfUpdateCommandTests.cs`, `tests/Twig.Cli.Tests/Commands/ChangelogCommandTests.cs` | M | Verifies F2, F3 |
+
+T-1644-5b sub-steps:
+- Add tests: command reports companion results; command installs missing companions when current version
+- Verify all `SelfUpdateCommand` call sites use `PlatformHelper` directly (no delegating wrappers)
+- Update each existing `StubReleaseService` in place to add `GetReleaseByTagAsync` (returns `null` by default)
 
 **Acceptance Criteria:**
-- [ ] `SelfUpdater.UpdateBinaryAsync` extracts all companion binaries found in the archive using atomic writes
+- [ ] `SelfUpdater.UpdateBinaryAsync` (new overload) extracts all companion binaries found in the archive using atomic writes
+- [ ] Old `Task<string>` overload replaced directly — no temporary backward-compatible wrapper
+- [ ] `SelfUpdater.InstallCompanionsOnlyAsync` downloads and installs only companion binaries
 - [ ] `SelfUpdater.CleanupOldBinary` removes companion `.old` files
 - [ ] `SelfUpdateCommand` reports which companions were upgraded or not found
 - [ ] `twig upgrade` installs missing companions even when main binary is up to date
+- [ ] `SelfUpdater` implements `ICompanionInstaller` interface
+- [ ] `PlatformHelper.DetectRid()` and `PlatformHelper.FindAsset()` work correctly from `Twig.Infrastructure`
+- [ ] `SelfUpdateCommand.DetectRid()` and `FindAsset()` are **deleted**; all call sites use `PlatformHelper` directly
 - [ ] `GetReleaseByTagAsync` returns the release matching a specific tag (not latest)
 - [ ] All existing `SelfUpdater` and `SelfUpdateCommand` tests still pass
 - [ ] New tests cover companion extraction, missing companions, atomic writes, and cleanup scenarios
@@ -748,97 +954,181 @@ are independently testable).
 
 | Task ID | Description | Files | Effort | Satisfies |
 |---------|-------------|-------|--------|-----------|
-| T-1645-1 | **Add companion publish steps to release.yml** — After publishing `src/Twig/Twig.csproj`, add `dotnet publish` for `src/Twig.Mcp/Twig.Mcp.csproj` (same AOT flags: `-c Release -r ${{ matrix.rid }} --self-contained true`) and `src/Twig.Tui/Twig.Tui.csproj` (non-AOT: `-c Release -r ${{ matrix.rid }} --self-contained true /p:PublishSingleFile=true /p:PublishTrimmed=false /p:PublishAot=false`). Flags apply identically across all four platform RIDs (win-x64, linux-x64, osx-x64, osx-arm64) — no platform-specific flag variations needed. All three publish to the same `./publish/${{ matrix.rid }}/` directory so the existing archive step bundles them together. | `.github/workflows/release.yml` | M | F8 |
-| T-1645-2 | **Add PublishSingleFile to Twig.Tui.csproj** — Add `<PublishSingleFile>true</PublishSingleFile>`, `<SelfContained>true</SelfContained>`, and `<PublishTrimmed>false</PublishTrimmed>` (Terminal.Gui v2 uses reflection extensively — trimming causes runtime failures). Verify clean publish locally. This task serves as CI validation for Open Question #1. | `src/Twig.Tui/Twig.Tui.csproj` | S | F8, NF3 |
-| T-1645-3 | **Update install.ps1 to verify companions** — After extracting the archive, verify that `twig-mcp.exe` and `twig-tui.exe` exist in the install directory. Print their versions alongside the main twig version. Use warnings (not errors) if companions are missing (older archives). | `install.ps1` | S | F6 |
-| T-1645-4 | **Update install.sh to verify companions** — After extracting the archive, verify that `twig-mcp` and `twig-tui` exist. Run `chmod +x` on each. Print their versions alongside the main twig version. Use warnings for missing companions. | `install.sh` | S | F7 |
-| T-1645-5 | **Update publish-local.ps1 to include twig-tui** — Add `Invoke-Publish "twig-tui" "src\Twig.Tui\Twig.Tui.csproj"` call. Update `Invoke-Publish` function label from "AOT, win-x64" to reflect that publish strategy varies by project (twig-tui is non-AOT SingleFile). Print twig-tui version at end. | `publish-local.ps1` | S | — |
+| T-1645-1 | **Add companion publish steps to release.yml** | `.github/workflows/release.yml` | M | F8 |
+| T-1645-2 | **Add PublishSingleFile to Twig.Tui.csproj and validate** | `src/Twig.Tui/Twig.Tui.csproj` | S | F8, NF3 |
+| T-1645-3 | **Update install.ps1 to verify companions** | `install.ps1` | S | F6 |
+| T-1645-4 | **Update install.sh to verify companions** | `install.sh` | S | F7 |
+| T-1645-5 | **Update publish-local.ps1 to include twig-tui** | `publish-local.ps1` | S | F8 (local dev) |
+
+T-1645-1 sub-steps:
+- After publishing `src/Twig/Twig.csproj`, add `dotnet publish` for `src/Twig.Mcp/Twig.Mcp.csproj` (same AOT flags: `-c Release -r ${{ matrix.rid }} --self-contained true`)
+- Add `dotnet publish` for `src/Twig.Tui/Twig.Tui.csproj` (non-AOT: `-c Release -r ${{ matrix.rid }} --self-contained true /p:PublishSingleFile=true /p:PublishTrimmed=false /p:PublishAot=false`)
+- Flags apply identically across all four platform RIDs (win-x64, linux-x64, osx-x64, osx-arm64) — no platform-specific flag variations needed
+- All three publish to the same `./publish/${{ matrix.rid }}/` directory so the existing archive step bundles them together
+
+T-1645-2 sub-steps:
+- Add `<PublishSingleFile>true</PublishSingleFile>`, `<SelfContained>true</SelfContained>`, `<PublishTrimmed>false</PublishTrimmed>` to Twig.Tui.csproj
+- Validate: (a) clean publish with zero trim warnings on win-x64, (b) smoke-test launch of the SingleFile binary
+- If either fails, apply exclusion steps per [Conditional twig-tui Inclusion](#conditional-twig-tui-inclusion) policy
+
+T-1645-3 sub-steps:
+- After extracting the archive, verify that `twig-mcp.exe` and `twig-tui.exe` exist in the install directory
+- Use warnings (not errors) if companions are missing (older archives)
+
+T-1645-4 sub-steps:
+- After extracting the archive, verify that `twig-mcp` and `twig-tui` exist
+- Run `chmod +x` on each companion
+- Use warnings for missing companions
+
+T-1645-5 sub-steps:
+- Add `Invoke-Publish "twig-tui" "src\Twig.Tui\Twig.Tui.csproj"` call
 
 **Acceptance Criteria:**
 - [ ] `release.yml` builds and bundles twig, twig-mcp, and twig-tui for all four platform RIDs
 - [ ] twig-tui publishes as a single-file self-contained binary with trimming disabled
-- [ ] twig-tui publish step specifies correct non-AOT flags on all platforms including Linux/macOS
-- [ ] `install.ps1` verifies all three binaries and prints their versions
-- [ ] `install.sh` verifies, `chmod +x`, and prints versions for all three binaries
-- [ ] `publish-local.ps1` publishes all three binaries to `~/.twig/bin/` with correct labels
+- [ ] twig-tui publish step uses explicit non-AOT flags (`/p:PublishSingleFile=true /p:PublishTrimmed=false /p:PublishAot=false`) identically on all platforms (win-x64, linux-x64, osx-x64, osx-arm64)
+- [ ] twig-tui publish produces zero trim warnings
+- [ ] `install.ps1` verifies all three binaries
+- [ ] `install.sh` verifies and `chmod +x` all three binaries
+- [ ] `publish-local.ps1` publishes all three binaries to `~/.twig/bin/`
 - [ ] Missing companions in older archives produce warnings, not errors
+- [ ] If twig-tui `PublishSingleFile` validation fails, apply exclusion per [Conditional twig-tui Inclusion](#conditional-twig-tui-inclusion) policy
 
 ---
 
 ### Issue #1646: Add first-run install of missing companions on next twig upgrade
 
-**Goal:** Implement a lightweight first-run check that detects missing companion binaries
-after a version change and installs them automatically in the background.
+**Goal:** Implement a synchronous first-run check that detects missing companion binaries
+after a version change and installs them automatically with a bounded timeout.
 
-**Prerequisites:** #1644 (CompanionTool registry, `IFileSystem` extension, `RepoSlugResolver`,
-and `GetReleaseByTagAsync` must exist).
+**Prerequisites:** #1644 (CompanionTool registry, `ICompanionInstaller`, `PlatformHelper`,
+`GetReleaseByTagAsync`, and `SelfUpdater` implementing `ICompanionInstaller` must exist).
 
 **Tasks:**
 
 | Task ID | Description | Files | Effort | Satisfies |
 |---------|-------------|-------|--------|-----------|
-| T-1646-1 | **Implement CompanionFirstRunCheck** — Static class with `EnsureCompanions(IFileSystem, string? processPath, string currentVersion)` method. Reads `.twig-version` marker using `IFileSystem.ReadAllText` (not raw `File.ReadAllText`). If version mismatch, checks for missing companions. If missing, fires background download task. Version marker always written via `IFileSystem.WriteAllText`. | `src/Twig.Infrastructure/GitHub/CompanionFirstRunCheck.cs` | M | F4, NF1 |
-| T-1646-2 | **Implement background companion download** — Private async method in `CompanionFirstRunCheck` that uses `RepoSlugResolver.Resolve()` to get repo slug, creates `GitHubReleaseClient` with a new `HttpClient`, calls `GetReleaseByTagAsync($"v{currentVersion}")` for version-matched lookup, downloads the archive, and extracts only missing companion binaries using atomic writes (temp → move). All failures are caught and swallowed (best-effort, NF2). | `src/Twig.Infrastructure/GitHub/CompanionFirstRunCheck.cs` | M | F5, NF2, NF5 |
-| T-1646-3 | **Integrate first-run check into Program.cs** — Call `CompanionFirstRunCheck.EnsureCompanions()` after `SelfUpdater.CleanupOldBinary()` in `Program.cs`. Pass `VersionHelper.GetVersion()` as the current version and `new DefaultFileSystem()` as the file system. | `src/Twig/Program.cs` | S | F4 |
-| T-1646-4 | **Add unit tests for first-run check** — Tests for: (a) version marker matches → no action, (b) version marker missing → checks companions, (c) version marker mismatch → checks companions, (d) all companions present → writes marker only, (e) companion missing → triggers download, (f) download failure → swallowed, marker still written, (g) all I/O goes through `IFileSystem` (no raw `File.*` calls). | `tests/Twig.Infrastructure.Tests/GitHub/CompanionToolTests.cs` | M | NF1, NF2, NF3 |
+| T-1646-1 | **Implement CompanionFirstRunCheck** | `src/Twig.Infrastructure/GitHub/CompanionFirstRunCheck.cs` | M | F4, F5, NF1, NF2, NF5, NF6 |
+
+T-1646-1 sub-steps:
+- Sealed non-static class with constructor-injected `IGitHubReleaseService`, `ICompanionInstaller`, `IFileSystem`
+- Method: `EnsureCompanionsAsync(string? processPath, string currentVersion, CancellationToken)`
+- **Phase 1**: Check companion file existence (always, ~1ms); if all present → return immediately, no I/O write
+- **Phase 2**: Read version marker; if matches current version → skip (already attempted)
+- **Phase 3**: Synchronous download with 60s timeout via `ICompanionInstaller.InstallCompanionsOnlyAsync()`
+- **Phase 4**: Write version marker **only after** download attempt
+- Platform detection via `PlatformHelper.DetectRid()` / `FindAsset()`
+- Marker I/O: `IFileSystem.FileOpenRead` + `StreamReader` / `IFileSystem.FileCreate` + `StreamWriter`
+| T-1646-2 | **Integrate first-run check into Program.cs** | `src/Twig/Program.cs` | S | F4 |
+
+T-1646-2 sub-steps:
+- Construct `CompanionFirstRunCheck` with **manual dependency wiring** (pre-DI, before `ConsoleApp.Create()`):
+  ```csharp
+  // After SelfUpdater.CleanupOldBinary(), before ConsoleApp.Create():
+  var httpClient = NetworkServiceModule.CreateHttpClient();
+  var repoSlug = "PolyphonyRequiem/twig"; // same default as CommandRegistrationModule
+  // Read AssemblyMetadataAttribute("GitHubRepo") — same inline pattern as AddSelfUpdateCommands()
+  var attrs = typeof(TwigCommands).Assembly
+      .GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false);
+  foreach (var attr in attrs) { /* resolve repoSlug */ }
+
+  var releaseService = new GitHubReleaseClient(httpClient, repoSlug);
+  var selfUpdater = new SelfUpdater(httpClient); // implements ICompanionInstaller
+  var fileSystem = new DefaultFileSystem();
+  var firstRunCheck = new CompanionFirstRunCheck(releaseService, selfUpdater, fileSystem);
+
+  // Safe to block — no SynchronizationContext exists before ConsoleApp.Create()
+  firstRunCheck.EnsureCompanionsAsync(Environment.ProcessPath, VersionHelper.GetVersion())
+      .GetAwaiter().GetResult();
+  ```
+- The `repoSlug` resolution duplicates the logic in `CommandRegistrationModule.AddSelfUpdateCommands()`. This is intentional — extracting a shared method would require either (a) making `AddSelfUpdateCommands` return the slug or (b) adding a static helper, both of which add coupling for a 4-line lookup. The duplication is bounded and explicit.
+- Add inline comment documenting the ordering constraint: `// Must run before ConsoleApp.Create() — no SynchronizationContext, blocking is safe`
+| T-1646-3 | **Add unit tests for first-run check** | `tests/Twig.Infrastructure.Tests/GitHub/CompanionToolTests.cs` | M | NF1, NF2, NF6 |
+
+T-1646-3 test scenarios:
+- All companions present → returns immediately, no I/O writes, no network call
+- Version marker missing → checks companions + triggers download
+- Version marker matches current version → skip even if companions missing
+- Version marker mismatch → checks companions + triggers download
+- `ICompanionInstaller.InstallCompanionsOnlyAsync` called with correct companion names and install dir
+- Download failure → stderr warning, marker still written, exit code unaffected
+- Download timeout → stderr warning, marker written
+- All three dependencies (`IGitHubReleaseService`, `ICompanionInstaller`, `IFileSystem`) mocked via NSubstitute — no real HTTP or file I/O
 
 **Acceptance Criteria:**
-- [ ] First-run check does not execute when version marker matches current version
+- [ ] First-run check does not execute a network call or write any I/O when all companion binaries are present (fast path)
 - [ ] First-run check uses `IFileSystem` for all file I/O (fully testable, no raw `File.*`)
+- [ ] First-run companion download uses `ICompanionInstaller.InstallCompanionsOnlyAsync` (no extraction logic duplication)
 - [ ] First-run companion download uses `GetReleaseByTagAsync` for version-matched lookup
-- [ ] First-run check writes version marker even when companions are missing
-- [ ] Missing companions trigger a background download that does not block command execution
-- [ ] Background download uses atomic writes (temp → move) to prevent corrupted binaries
-- [ ] Download failures do not affect command exit codes or output
+- [ ] First-run companion download uses `PlatformHelper.DetectRid()` and `PlatformHelper.FindAsset()` (not `SelfUpdateCommand`)
+- [ ] Program.cs creates a single shared `HttpClient` via `NetworkServiceModule.CreateHttpClient()` for both `GitHubReleaseClient` and `SelfUpdater`
+- [ ] `.GetAwaiter().GetResult()` usage has inline comment documenting pre-`ConsoleApp.Create()` ordering constraint
+- [ ] Version marker is written **only after** a download attempt — fast path (all present) performs no file writes
+- [ ] Missing companions with matching version marker → no retry (user must run `twig upgrade`)
+- [ ] Synchronous download bounded by 60s timeout
+- [ ] Download failures emit stderr warning with "Run 'twig upgrade' to install manually." (NF6)
+- [ ] Download failures do not affect command exit codes (NF2)
 - [ ] All new code is AOT-compatible and passes `TreatWarningsAsErrors`
+- [ ] `CompanionFirstRunCheck` is non-static with all dependencies constructor-injected (testable)
 
 ---
 
 ## PR Groups
 
-### PG-1: Companion upgrade infrastructure (deep)
+### PG-1a: Foundation types and platform helpers (wide)
 
-**Tasks:** T-1644-1, T-1644-2, T-1644-3, T-1644-5 (SelfUpdater portion)
+**Tasks:** T-1644-1, T-1644-2
 **Issues:** #1644
-**Classification:** Deep — few files, complex extraction and platform-specific logic
-**Estimated LoC:** ~450 (implementation + tests)
+**Classification:** Wide — many files, foundational type definitions and interface changes
+**Estimated LoC:** ~250 (implementation + tests)
 **Files:** ~8
 
 | File | Type |
 |------|------|
 | `src/Twig.Infrastructure/GitHub/CompanionTool.cs` | New |
-| `src/Twig.Infrastructure/GitHub/IFileSystem.cs` | Modified |
-| `src/Twig.Infrastructure/GitHub/SelfUpdater.cs` | Modified |
+| `src/Twig.Infrastructure/GitHub/PlatformHelper.cs` | New |
 | `src/Twig.Domain/Interfaces/IGitHubReleaseService.cs` | Modified |
 | `src/Twig.Infrastructure/GitHub/GitHubReleaseClient.cs` | Modified |
-| `tests/Twig.Infrastructure.Tests/GitHub/SelfUpdaterTests.cs` | Modified |
 | `tests/Twig.Infrastructure.Tests/GitHub/GitHubReleaseClientTests.cs` | Modified |
 | `tests/Twig.Infrastructure.Tests/GitHub/CompanionToolTests.cs` | New |
+| `tests/Twig.Cli.Tests/Commands/SelfUpdateCommandTests.cs` | Modified (StubReleaseService: add `GetReleaseByTagAsync`) |
+| `tests/Twig.Cli.Tests/Commands/ChangelogCommandTests.cs` | Modified (StubReleaseService: add `GetReleaseByTagAsync`) |
 
-**Successors:** PG-2, PG-4
+**Rationale for splitting:** The foundation types (`CompanionTools`, `ICompanionInstaller`,
+`PlatformHelper`, `UpdateResult`, `GetReleaseByTagAsync`) are stable, independently
+testable, and have no behavioral coupling to `SelfUpdater` or `SelfUpdateCommand`. Landing
+them first reduces the diff size and review burden of PG-1b.
+
+**Successors:** PG-1b
 
 ---
 
-### PG-2: Companion-aware upgrade command (deep)
+### PG-1b: SelfUpdater companion extraction + command (deep)
 
-**Tasks:** T-1644-4, T-1644-5 (SelfUpdateCommand portion)
+**Tasks:** T-1644-3, T-1644-4, T-1644-5a, T-1644-5b
 **Issues:** #1644
-**Classification:** Deep — complex command flow with "install missing" path
-**Estimated LoC:** ~250 (implementation + tests)
-**Files:** ~3
+**Classification:** Deep — complex extraction logic, platform-specific behavior, command flow changes
+**Estimated LoC:** ~600 (implementation + tests)
+**Files:** ~5
 
 | File | Type |
 |------|------|
+| `src/Twig.Infrastructure/GitHub/SelfUpdater.cs` | Modified |
 | `src/Twig/Commands/SelfUpdateCommand.cs` | Modified |
-| `src/Twig/DependencyInjection/CommandRegistrationModule.cs` | Modified |
+| `tests/Twig.Infrastructure.Tests/GitHub/SelfUpdaterTests.cs` | Modified |
 | `tests/Twig.Cli.Tests/Commands/SelfUpdateCommandTests.cs` | Modified |
+| `tests/Twig.Infrastructure.Tests/GitHub/CompanionToolTests.cs` | Modified (add InstallCompanionsOnlyAsync tests) |
 
-**Predecessors:** PG-1
-**Successors:** None (PG-4 depends only on PG-1)
+**Infrastructure and command land together:** `SelfUpdater` return type change and
+`SelfUpdateCommand` consumption are coupled — the old `Task<string>` overload is replaced
+directly with no backward-compatible wrapper.
+
+**Predecessors:** PG-1a (requires `CompanionTools`, `ICompanionInstaller`, `PlatformHelper`, `GetReleaseByTagAsync`)
+**Successors:** PG-3 (first-run check)
 
 ---
 
-### PG-3: Release pipeline and installer scripts (wide)
+### PG-2: Release pipeline and installer scripts (wide)
 
 **Tasks:** T-1645-1, T-1645-2, T-1645-3, T-1645-4, T-1645-5
 **Issues:** #1645
@@ -854,16 +1144,16 @@ and `GetReleaseByTagAsync` must exist).
 | `install.sh` | Modified |
 | `publish-local.ps1` | Modified |
 
-**Predecessors:** None (parallel with PG-1 and PG-2)
+**Predecessors:** None (parallel with PG-1a, PG-1b, and PG-3)
 **Successors:** None
 
 ---
 
-### PG-4: First-run companion check (deep)
+### PG-3: First-run companion check (deep)
 
-**Tasks:** T-1646-1, T-1646-2, T-1646-3, T-1646-4
+**Tasks:** T-1646-1, T-1646-2, T-1646-3
 **Issues:** #1646
-**Classification:** Deep — few files, async networking + platform concerns
+**Classification:** Deep — few files, synchronous networking + platform concerns
 **Estimated LoC:** ~350 (implementation + tests)
 **Files:** ~3
 
@@ -871,23 +1161,33 @@ and `GetReleaseByTagAsync` must exist).
 |------|------|
 | `src/Twig.Infrastructure/GitHub/CompanionFirstRunCheck.cs` | New |
 | `src/Twig/Program.cs` | Modified |
-| `tests/Twig.Infrastructure.Tests/GitHub/CompanionToolTests.cs` | Modified |
+| `tests/Twig.Infrastructure.Tests/GitHub/CompanionToolTests.cs` | Modified (created in PG-1a; extended here with first-run check tests) |
 
-**Predecessors:** PG-1 (requires CompanionTools registry, IFileSystem extension, RepoSlugResolver, GetReleaseByTagAsync)
+**Predecessors:** PG-1b (requires `SelfUpdater` implementing `ICompanionInstaller`)
 
 ---
 
 ## Execution Order
 
 ```
-PG-1 (Companion infrastructure)
-  ├──→ PG-2 (Upgrade command)
-  └──→ PG-4 (First-run check)
-PG-3 (Pipeline + scripts) [parallel with PG-1, PG-2, and PG-4]
+PG-1a (Foundation types)
+  └──→ PG-1b (SelfUpdater + Command)
+         └──→ PG-3 (First-run check)
+PG-2 (Pipeline + scripts) [parallel with all]
 ```
 
-PG-4 depends only on PG-1 (not PG-2 or PG-3). PG-4 unit tests are independently
+PG-3 depends on PG-1b (not PG-2). PG-3 unit tests are independently
 testable against the infrastructure layer. Integration testing with the full pipeline
-(PG-3) can be done after all PRs merge.
+(PG-2) can be done after all PRs merge.
 
-Total estimated LoC across all PR groups: **~1,250**
+Total estimated LoC across all PR groups: **~1,400**
+
+---
+
+## References
+
+- [GitHub Releases API — Get the latest release](https://docs.github.com/en/rest/releases/releases#get-the-latest-release)
+- [GitHub Releases API — Get a release by tag name](https://docs.github.com/en/rest/releases/releases#get-a-release-by-tag-name)
+- [Terminal.Gui v2 — GitHub repository](https://github.com/gui-cs/Terminal.Gui)
+- [.NET PublishSingleFile documentation](https://learn.microsoft.com/en-us/dotnet/core/deploying/single-file/overview)
+- [.NET Native AOT deployment](https://learn.microsoft.com/en-us/dotnet/core/deploying/native-aot/)

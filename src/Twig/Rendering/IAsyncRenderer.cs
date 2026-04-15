@@ -19,7 +19,8 @@ public interface IAsyncRenderer
         int staleDays,
         bool isTeamView,
         CancellationToken ct,
-        IReadOnlyList<Domain.ValueObjects.ColumnSpec>? dynamicColumns = null);
+        IReadOnlyList<Domain.ValueObjects.ColumnSpec>? dynamicColumns = null,
+        int cacheStaleMinutes = 5);
 
     Task RenderTreeAsync(
         Func<Task<WorkItem?>> getFocusedItem,

@@ -310,9 +310,9 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> Set([Argument] string idOrPattern, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SetCommand>().ExecuteAsync(idOrPattern, output, ct);
 
-    /// <summary>Display a work item from cache without changing context.</summary>
-    public async Task<int> Show([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, ct);
+    /// <summary>Display a work item without changing context. Syncs by default; use --no-refresh for cache-only.</summary>
+    public async Task<int> Show([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, bool noRefresh = false, CancellationToken ct = default)
+        => await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, noRefresh, ct);
 
     /// <summary>Search and filter work items via ad-hoc WIQL queries.</summary>
     public async Task<int> Query([Argument] string? searchText = null, string? type = null, string? state = null, string? assignedTo = null, string? areaPath = null, string? iterationPath = null, string? createdSince = null, string? changedSince = null, int top = 25, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
@@ -535,16 +535,16 @@ public sealed class TwigCommands(IServiceProvider services)
     }
 
     /// <summary>Show the current workspace.</summary>
-    public async Task<int> Workspace(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, ct);
+    public async Task<int> Workspace(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default)
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, noRefresh, ct);
 
     /// <summary>Show the current workspace (short alias).</summary>
-    public async Task<int> Ws(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, ct);
+    public async Task<int> Ws(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default)
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, noRefresh, ct);
 
     /// <summary>Show sprint items, grouped by assignee. Defaults to your items; use --all for the full team.</summary>
-    public async Task<int> Sprint(string output = OutputFormatterFactory.DefaultFormat, bool all = false, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, ct: ct, sprintLayout: true);
+    public async Task<int> Sprint(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noRefresh = false, CancellationToken ct = default)
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noRefresh: noRefresh, ct: ct, sprintLayout: true);
 
     /// <summary>Read or set a configuration value.</summary>
     [Command("config")]
@@ -773,6 +773,7 @@ internal static class GroupedHelp
 
         // Experimental
         "tui",
+        "mcp",
         "ohmyposh",
         "ohmyposh init",
 
@@ -833,7 +834,7 @@ Views:
 
 Context:
   set <id|pattern>     Set the active work item.
-  show <id>            Display a work item from cache (read-only).
+  show <id>            Display a work item (syncs by default; --no-refresh for cache-only).
   query [text]         Search work items by text, type, state, or assignee.
   web [id]             Open the active work item in the browser.
 

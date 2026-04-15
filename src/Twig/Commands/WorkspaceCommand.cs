@@ -30,7 +30,7 @@ public sealed class WorkspaceCommand(
     WorkingSetService workingSetService,
     RenderingPipelineFactory? pipelineFactory = null)
 {
-    public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, CancellationToken ct = default, bool sprintLayout = false)
+    public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default, bool sprintLayout = false)
     {
         var (fmt, renderer) = pipelineFactory is not null
             ? pipelineFactory.Resolve(outputFormat, noLive)
@@ -79,54 +79,58 @@ public sealed class WorkspaceCommand(
                 yield return new WorkspaceDataChunk.SeedsLoaded(seeds);
 
                 // Stage 4: Check cache freshness for stale-while-revalidate (EPIC-006)
-                var lastRefreshedRaw = await contextStore.GetValueAsync("last_refreshed_at", ct);
-                if (IsCacheStale(lastRefreshedRaw, config.Display.CacheStaleMinutes))
+                // Skipped entirely when --no-refresh is specified
+                if (!noRefresh)
                 {
-                    yield return new WorkspaceDataChunk.RefreshStarted();
-
-                    // Cannot yield inside try/catch in C# iterators — collect results first.
-                    IReadOnlyList<Domain.Aggregates.WorkItem>? refreshedSprintItems = null;
-                    IReadOnlyList<Domain.Aggregates.WorkItem>? refreshedSeeds = null;
-                    bool refreshFailed = false;
-
-                    try
+                    var lastRefreshedRaw = await contextStore.GetValueAsync("last_refreshed_at", ct);
+                    if (IsCacheStale(lastRefreshedRaw, config.Display.CacheStaleMinutes))
                     {
-                        // Re-fetch sprint items via fresh ADO iteration resolution
-                        var freshIteration = await iterationService.GetCurrentIterationAsync(ct);
-                        if (!string.IsNullOrWhiteSpace(userDisplayName))
-                            refreshedSprintItems = await workItemRepo.GetByIterationAndAssigneeAsync(freshIteration, userDisplayName, ct);
-                        else
-                            refreshedSprintItems = await workItemRepo.GetByIterationAsync(freshIteration, ct);
+                        yield return new WorkspaceDataChunk.RefreshStarted();
 
-                        // Re-fetch seeds
-                        refreshedSeeds = await workItemRepo.GetSeedsAsync(ct);
+                        // Cannot yield inside try/catch in C# iterators — collect results first.
+                        IReadOnlyList<Domain.Aggregates.WorkItem>? refreshedSprintItems = null;
+                        IReadOnlyList<Domain.Aggregates.WorkItem>? refreshedSeeds = null;
+                        bool refreshFailed = false;
+
+                        try
+                        {
+                            // Re-fetch sprint items via fresh ADO iteration resolution
+                            var freshIteration = await iterationService.GetCurrentIterationAsync(ct);
+                            if (!string.IsNullOrWhiteSpace(userDisplayName))
+                                refreshedSprintItems = await workItemRepo.GetByIterationAndAssigneeAsync(freshIteration, userDisplayName, ct);
+                            else
+                                refreshedSprintItems = await workItemRepo.GetByIterationAsync(freshIteration, ct);
+
+                            // Re-fetch seeds
+                            refreshedSeeds = await workItemRepo.GetSeedsAsync(ct);
+                        }
+                        catch (Exception ex) when (ex is not OperationCanceledException)
+                        {
+                            // Re-fetch failed (network timeout, auth failure, etc.) —
+                            // fall back to original data so the renderer shows stale rows rather than an empty table.
+                            refreshFailed = true;
+                        }
+
+                        if (!refreshFailed && refreshedSprintItems is not null && refreshedSeeds is not null)
+                        {
+                            // Update closure variables so hint computation uses refreshed data
+                            sprintItems = refreshedSprintItems;
+                            seeds = refreshedSeeds;
+
+                            // Update freshness timestamp (best-effort — persistence failure must not discard fetched data)
+                            try { await contextStore.SetValueAsync("last_refreshed_at", DateTimeOffset.UtcNow.ToString("O"), ct); }
+                            catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort; data display is unaffected */ }
+                        }
+
+                        // Yield data rows (refreshed on success, original on failure)
+                        yield return new WorkspaceDataChunk.SprintItemsLoaded(sprintItems);
+                        yield return new WorkspaceDataChunk.SeedsLoaded(seeds);
+                        yield return new WorkspaceDataChunk.RefreshCompleted();
                     }
-                    catch (Exception ex) when (ex is not OperationCanceledException)
-                    {
-                        // Re-fetch failed (network timeout, auth failure, etc.) —
-                        // fall back to original data so the renderer shows stale rows rather than an empty table.
-                        refreshFailed = true;
-                    }
-
-                    if (!refreshFailed && refreshedSprintItems is not null && refreshedSeeds is not null)
-                    {
-                        // Update closure variables so hint computation uses refreshed data
-                        sprintItems = refreshedSprintItems;
-                        seeds = refreshedSeeds;
-
-                        // Update freshness timestamp (best-effort — persistence failure must not discard fetched data)
-                        try { await contextStore.SetValueAsync("last_refreshed_at", DateTimeOffset.UtcNow.ToString("O"), ct); }
-                        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort; data display is unaffected */ }
-                    }
-
-                    // Yield data rows (refreshed on success, original on failure)
-                    yield return new WorkspaceDataChunk.SprintItemsLoaded(sprintItems);
-                    yield return new WorkspaceDataChunk.SeedsLoaded(seeds);
-                    yield return new WorkspaceDataChunk.RefreshCompleted();
                 }
             }
 
-            await renderer.RenderWorkspaceAsync(StreamWorkspaceData(ct), config.Seed.StaleDays, all, ct, dynamicColumns);
+            await renderer.RenderWorkspaceAsync(StreamWorkspaceData(ct), config.Seed.StaleDays, all, ct, dynamicColumns, config.Display.CacheStaleMinutes);
 
             // Build Workspace from closure-populated variables for hint computation
             var workspace = Workspace.Build(contextItem, sprintItems, seeds);

@@ -559,4 +559,137 @@ public sealed class QueryCommandTests
         result.ShouldBe(0);
         output.ShouldContain("results limited");
     }
+
+    // --- #1640: --title and --description filters ---
+
+    [Fact]
+    public async Task ExecuteAsync_TitleFilter_GeneratesTitleContainsClause()
+    {
+        SetupAdoReturns([], []);
+        var cmd = CreateCommand();
+
+        await cmd.ExecuteAsync(title: "API");
+
+        await _adoService.Received(1).QueryByWiqlAsync(
+            Arg.Is<string>(wiql =>
+                wiql.Contains("[System.Title] CONTAINS 'API'") &&
+                !wiql.Contains("[System.Description]")),
+            Arg.Any<int>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_DescriptionFilter_GeneratesDescriptionContainsClause()
+    {
+        SetupAdoReturns([], []);
+        var cmd = CreateCommand();
+
+        await cmd.ExecuteAsync(description: "impl");
+
+        await _adoService.Received(1).QueryByWiqlAsync(
+            Arg.Is<string>(wiql =>
+                wiql.Contains("[System.Description] CONTAINS 'impl'") &&
+                !wiql.Contains("[System.Title]")),
+            Arg.Any<int>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_TitleAndDescription_GeneratesBothClauses()
+    {
+        SetupAdoReturns([], []);
+        var cmd = CreateCommand();
+
+        await cmd.ExecuteAsync(title: "API", description: "implementation");
+
+        await _adoService.Received(1).QueryByWiqlAsync(
+            Arg.Is<string>(wiql =>
+                wiql.Contains("[System.Title] CONTAINS 'API'") &&
+                wiql.Contains("[System.Description] CONTAINS 'implementation'")),
+            Arg.Any<int>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_SearchTextAndTitleAndDescription_AllPresent()
+    {
+        SetupAdoReturns([], []);
+        var cmd = CreateCommand();
+
+        await cmd.ExecuteAsync(searchText: "keyword", title: "API", description: "impl");
+
+        await _adoService.Received(1).QueryByWiqlAsync(
+            Arg.Is<string>(wiql =>
+                wiql.Contains("[System.Title] CONTAINS 'keyword'") &&
+                wiql.Contains("[System.Description] CONTAINS 'keyword'") &&
+                wiql.Contains("[System.Title] CONTAINS 'API'") &&
+                wiql.Contains("[System.Description] CONTAINS 'impl'")),
+            Arg.Any<int>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_TitleAlone_TreatedAsFilter_DoesNotShowSummary()
+    {
+        SetupAdoReturns([], []);
+        var cmd = CreateCommand();
+
+        var (exitCode, output) = await CaptureOutput(() => cmd.ExecuteAsync(title: "API"));
+
+        exitCode.ShouldBe(0);
+        output.ShouldNotContain("twig query — Search and filter work items");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_DescriptionAlone_TreatedAsFilter_DoesNotShowSummary()
+    {
+        SetupAdoReturns([], []);
+        var cmd = CreateCommand();
+
+        var (exitCode, output) = await CaptureOutput(() => cmd.ExecuteAsync(description: "impl"));
+
+        exitCode.ShouldBe(0);
+        output.ShouldNotContain("twig query — Search and filter work items");
+    }
+
+    // --- #1640: BuildQueryDescription accuracy ---
+
+    [Fact]
+    public async Task ExecuteAsync_SearchText_JsonDescriptionSaysTitleOrDescription()
+    {
+        var items = BuildItems((1, "Test", "New"));
+        SetupAdoReturns([1], items);
+        var cmd = CreateCommand();
+
+        var (_, output) = await CaptureOutput(() => cmd.ExecuteAsync(searchText: "keyword", outputFormat: "json"));
+
+        output.ShouldContain("title or description contains");
+        output.ShouldContain("keyword");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_TitleFilter_JsonDescriptionSaysTitleContains()
+    {
+        var items = BuildItems((1, "Test", "New"));
+        SetupAdoReturns([1], items);
+        var cmd = CreateCommand();
+
+        var (_, output) = await CaptureOutput(() => cmd.ExecuteAsync(title: "API", outputFormat: "json"));
+
+        output.ShouldContain("title contains");
+        output.ShouldContain("API");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_DescriptionFilter_JsonDescriptionSaysDescriptionContains()
+    {
+        var items = BuildItems((1, "Test", "New"));
+        SetupAdoReturns([1], items);
+        var cmd = CreateCommand();
+
+        var (_, output) = await CaptureOutput(() => cmd.ExecuteAsync(description: "impl", outputFormat: "json"));
+
+        output.ShouldContain("description contains");
+        output.ShouldContain("impl");
+    }
 }

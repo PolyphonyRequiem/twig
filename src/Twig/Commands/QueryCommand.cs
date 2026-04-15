@@ -30,6 +30,8 @@ public sealed partial class QueryCommand(
     /// <summary>Execute the query command.</summary>
     public async Task<int> ExecuteAsync(
         string? searchText = null,
+        string? title = null,
+        string? description = null,
         string? type = null,
         string? state = null,
         string? assignedTo = null,
@@ -42,10 +44,10 @@ public sealed partial class QueryCommand(
         CancellationToken ct = default)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
-        var hasFilters = HasAnyFilter(searchText, type, state, assignedTo, areaPath, iterationPath, createdSince, changedSince);
+        var hasFilters = HasAnyFilter(searchText, title, description, type, state, assignedTo, areaPath, iterationPath, createdSince, changedSince);
         var (exitCode, resultCount) = await ExecuteCoreAsync(
             hasFilters,
-            searchText, type, state, assignedTo, areaPath, iterationPath,
+            searchText, title, description, type, state, assignedTo, areaPath, iterationPath,
             createdSince, changedSince, top, outputFormat, ct);
 
         telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
@@ -69,6 +71,8 @@ public sealed partial class QueryCommand(
     private async Task<(int ExitCode, int ResultCount)> ExecuteCoreAsync(
         bool hasFilters,
         string? searchText,
+        string? title,
+        string? description,
         string? type,
         string? state,
         string? assignedTo,
@@ -101,6 +105,8 @@ public sealed partial class QueryCommand(
         var parameters = new QueryParameters
         {
             SearchText = searchText,
+            TitleFilter = title,
+            DescriptionFilter = description,
             TypeFilter = type,
             StateFilter = state,
             AssignedToFilter = assignedTo,
@@ -162,11 +168,12 @@ public sealed partial class QueryCommand(
         return (0, items.Count);
     }
 
-    // TODO(#1640, #1641): extend with || title is not null || description is not null || filter is not null
+    // TODO(#1641): extend with || filter is not null
     private static bool HasAnyFilter(
-        string? searchText, string? type, string? state, string? assignedTo,
+        string? searchText, string? title, string? description, string? type, string? state, string? assignedTo,
         string? areaPath, string? iterationPath, string? createdSince, string? changedSince) =>
-        searchText is not null || type is not null || state is not null || assignedTo is not null
+        searchText is not null || title is not null || description is not null
+        || type is not null || state is not null || assignedTo is not null
         || areaPath is not null || iterationPath is not null || createdSince is not null || changedSince is not null;
 
     /// <summary>
@@ -192,6 +199,8 @@ public sealed partial class QueryCommand(
         sb.AppendLine("  twig query --type Bug         Filter by work item type");
         sb.AppendLine();
         sb.AppendLine("Available filters:");
+        sb.AppendLine("  --title         Filter by title text (CONTAINS)");
+        sb.AppendLine("  --description   Filter by description text (CONTAINS)");
         sb.AppendLine("  --type          Filter by work item type (exact match)");
         sb.AppendLine("  --state         Filter by state (exact match)");
         sb.AppendLine("  --assignedTo    Filter by assignee (exact match)");
@@ -280,7 +289,11 @@ public sealed partial class QueryCommand(
         var parts = new List<string>();
 
         if (!string.IsNullOrEmpty(parameters.SearchText))
-            parts.Add($"title contains '{parameters.SearchText}'");
+            parts.Add($"title or description contains '{parameters.SearchText}'");
+        if (!string.IsNullOrEmpty(parameters.TitleFilter))
+            parts.Add($"title contains '{parameters.TitleFilter}'");
+        if (!string.IsNullOrEmpty(parameters.DescriptionFilter))
+            parts.Add($"description contains '{parameters.DescriptionFilter}'");
         if (!string.IsNullOrEmpty(parameters.TypeFilter))
             parts.Add($"type = '{parameters.TypeFilter}'");
         if (!string.IsNullOrEmpty(parameters.StateFilter))

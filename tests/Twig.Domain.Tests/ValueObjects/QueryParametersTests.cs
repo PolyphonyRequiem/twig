@@ -12,6 +12,8 @@ public class QueryParametersTests
         var sut = new QueryParameters();
 
         sut.SearchText.ShouldBeNull();
+        sut.TitleFilter.ShouldBeNull();
+        sut.DescriptionFilter.ShouldBeNull();
         sut.TypeFilter.ShouldBeNull();
         sut.StateFilter.ShouldBeNull();
         sut.AssignedToFilter.ShouldBeNull();

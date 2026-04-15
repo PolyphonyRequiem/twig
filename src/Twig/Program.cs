@@ -333,6 +333,8 @@ public sealed class TwigCommands(IServiceProvider services)
 
     /// <summary>Search and filter work items via ad-hoc WIQL queries.</summary>
     /// <param name="searchText">Free-text search across work item titles and descriptions.</param>
+    /// <param name="title">Filter by title text (CONTAINS match on System.Title).</param>
+    /// <param name="description">Filter by description text (CONTAINS match on System.Description).</param>
     /// <param name="type">Filter by work item type (e.g., Task, Bug, User Story).</param>
     /// <param name="state">Filter by work item state (e.g., Active, Closed).</param>
     /// <param name="assignedTo">Filter by assigned user (display name or email).</param>
@@ -342,8 +344,8 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="changedSince">Show items changed after this date (e.g., 2024-01-01, 7d, 2w).</param>
     /// <param name="top">Maximum number of results to return.</param>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
-    public async Task<int> Query([Argument] string? searchText = null, string? type = null, string? state = null, string? assignedTo = null, string? areaPath = null, string? iterationPath = null, string? createdSince = null, string? changedSince = null, int top = 25, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<QueryCommand>().ExecuteAsync(searchText, type, state, assignedTo, areaPath, iterationPath, createdSince, changedSince, top, output, ct);
+    public async Task<int> Query([Argument] string? searchText = null, string? title = null, string? description = null, string? type = null, string? state = null, string? assignedTo = null, string? areaPath = null, string? iterationPath = null, string? createdSince = null, string? changedSince = null, int top = 25, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<QueryCommand>().ExecuteAsync(searchText, title, description, type, state, assignedTo, areaPath, iterationPath, createdSince, changedSince, top, output, ct);
 
     /// <summary>Show status of the active work item.</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>

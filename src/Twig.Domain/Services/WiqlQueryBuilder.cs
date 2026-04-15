@@ -21,6 +21,8 @@ internal static class WiqlQueryBuilder
         var clauses = new List<string>();
 
         AppendSearchText(clauses, parameters.SearchText);
+        AppendContainsClause(clauses, "System.Title", parameters.TitleFilter);
+        AppendContainsClause(clauses, "System.Description", parameters.DescriptionFilter);
         AppendEqualsClause(clauses, "System.WorkItemType", parameters.TypeFilter);
         AppendEqualsClause(clauses, "System.State", parameters.StateFilter);
         AppendEqualsClause(clauses, "System.AssignedTo", parameters.AssignedToFilter);
@@ -50,6 +52,14 @@ internal static class WiqlQueryBuilder
 
         var escaped = EscapeWiqlString(searchText);
         clauses.Add($"([System.Title] CONTAINS '{escaped}' OR [System.Description] CONTAINS '{escaped}')");
+    }
+
+    private static void AppendContainsClause(List<string> clauses, string fieldName, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return;
+
+        clauses.Add($"[{fieldName}] CONTAINS '{EscapeWiqlString(value)}'");
     }
 
     private static void AppendEqualsClause(List<string> clauses, string fieldName, string? value)

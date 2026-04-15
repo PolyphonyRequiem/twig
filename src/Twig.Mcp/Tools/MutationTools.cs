@@ -31,11 +31,9 @@ public sealed class MutationTools(
         [Description("Set to true to proceed with backward or cut (remove-type) transitions without interactive confirmation")] bool force = false,
         CancellationToken ct = default)
     {
-        // 1. Validate input
         if (string.IsNullOrWhiteSpace(stateName))
             return McpResultBuilder.ToError("Usage: twig.state requires a target state name (e.g. Active, Closed, Resolved).");
 
-        // 2. Resolve active item
         var resolved = await activeItemResolver.GetActiveItemAsync(ct);
         if (resolved is ActiveItemResult.NoContext)
             return McpResultBuilder.ToError("No active work item. Use twig.set to set context.");
@@ -46,12 +44,10 @@ public sealed class MutationTools(
             ? f.WorkItem
             : ((ActiveItemResult.FetchedFromAdo)resolved).WorkItem;
 
-        // 3. Get process config
         var processConfig = processConfigProvider.GetConfiguration();
         if (!processConfig.TypeConfigs.TryGetValue(item.Type, out var typeConfig))
             return McpResultBuilder.ToError($"No process configuration found for type '{item.Type}'.");
 
-        // 4. Resolve state name
         var resolveResult = StateResolver.ResolveByName(stateName, typeConfig.StateEntries);
         if (!resolveResult.IsSuccess)
             return McpResultBuilder.ToError(resolveResult.Error);
@@ -59,11 +55,9 @@ public sealed class MutationTools(
         var newState = resolveResult.Value;
         var previousState = item.State;
 
-        // 5. Already in target state
         if (string.Equals(item.State, newState, StringComparison.OrdinalIgnoreCase))
             return McpResultBuilder.ToResult($"Already in state '{newState}'.");
 
-        // 6. Evaluate transition
         var transition = StateTransitionService.Evaluate(processConfig, item.Type, item.State, newState);
 
         if (!transition.IsAllowed)
@@ -73,15 +67,13 @@ public sealed class MutationTools(
             return McpResultBuilder.ToError(
                 $"Transition from '{item.State}' to '{newState}' requires confirmation (kind: {transition.Kind}). Retry with force: true to proceed.");
 
-        // 7. Push to ADO
         var remote = await adoService.FetchAsync(item.Id, ct);
         var changes = new[] { new FieldChange("System.State", item.State, newState) };
         await ConflictRetryHelper.PatchWithRetryAsync(adoService, item.Id, changes, remote.Revision, ct);
 
-        // 8. Auto-push pending notes
         await AutoPushNotesHelper.PushAndClearAsync(item.Id, pendingChangeStore, adoService);
 
-        // 9. Resync cache (best-effort, non-fatal)
+        // Resync cache — best-effort, non-fatal
         Domain.Aggregates.WorkItem updated;
         try
         {
@@ -90,15 +82,11 @@ public sealed class MutationTools(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // Best-effort — the ADO transition already succeeded.
-            // Fall back to the original item for the response.
             updated = item;
         }
 
-        // 10. Write prompt state
         await promptStateWriter.WritePromptStateAsync();
 
-        // 11. Return success
         return McpResultBuilder.FormatStateChange(updated, previousState);
     }
 
@@ -109,20 +97,16 @@ public sealed class MutationTools(
         [Description("Set to 'markdown' to convert the value from Markdown to HTML before storing (useful for System.Description)")] string? format = null,
         CancellationToken ct = default)
     {
-        // 1. Validate inputs
         if (string.IsNullOrWhiteSpace(field) || value is null)
             return McpResultBuilder.ToError("Usage: twig.update requires a field name and value.");
 
-        // 2. Validate format
         if (format is not null && !string.Equals(format, "markdown", StringComparison.OrdinalIgnoreCase))
             return McpResultBuilder.ToError($"Unknown format '{format}'. Supported formats: markdown");
 
-        // 3. Compute effective value
         var effectiveValue = string.Equals(format, "markdown", StringComparison.OrdinalIgnoreCase)
             ? MarkdownConverter.ToHtml(value)
             : value;
 
-        // 4. Resolve active item
         var resolved = await activeItemResolver.GetActiveItemAsync(ct);
         if (resolved is ActiveItemResult.NoContext)
             return McpResultBuilder.ToError("No active work item. Use twig.set to set context.");
@@ -133,10 +117,7 @@ public sealed class MutationTools(
             ? f.WorkItem
             : ((ActiveItemResult.FetchedFromAdo)resolved).WorkItem;
 
-        // 5. Fetch remote
         var remote = await adoService.FetchAsync(item.Id, ct);
-
-        // 6. Push field change
         var changes = new[] { new FieldChange(field, null, effectiveValue) };
         try
         {
@@ -147,17 +128,13 @@ public sealed class MutationTools(
             return McpResultBuilder.ToError("Concurrency conflict after retry. Use twig.sync to resync and retry.");
         }
 
-        // 7. Auto-push pending notes
         await AutoPushNotesHelper.PushAndClearAsync(item.Id, pendingChangeStore, adoService);
 
-        // 8. Resync cache
         var updated = await adoService.FetchAsync(item.Id, ct);
         await workItemRepo.SaveAsync(updated, ct);
 
-        // 9. Write prompt state
         await promptStateWriter.WritePromptStateAsync();
 
-        // 10. Return success
         return McpResultBuilder.FormatFieldUpdate(updated, field, value);
     }
 
@@ -166,11 +143,9 @@ public sealed class MutationTools(
         [Description("Note text to add as a comment")] string text,
         CancellationToken ct = default)
     {
-        // 1. Validate input
         if (string.IsNullOrWhiteSpace(text))
             return McpResultBuilder.ToError("Usage: twig.note requires non-empty text.");
 
-        // 2. Resolve active item
         var resolved = await activeItemResolver.GetActiveItemAsync(ct);
         if (resolved is ActiveItemResult.NoContext)
             return McpResultBuilder.ToError("No active work item. Use twig.set to set context.");
@@ -181,24 +156,22 @@ public sealed class MutationTools(
             ? f.WorkItem
             : ((ActiveItemResult.FetchedFromAdo)resolved).WorkItem;
 
-        // 3. Push comment to ADO (fall back to local staging on failure)
+        // Push comment to ADO — fall back to local staging on failure
         bool isPending;
         try
         {
             await adoService.AddCommentAsync(item.Id, text, ct);
             isPending = false;
 
-            // 4. Clear any previously staged notes (only on successful push)
             await pendingChangeStore.ClearChangesByTypeAsync(item.Id, "note", ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // ADO unreachable — stage locally
             await pendingChangeStore.AddChangeAsync(item.Id, "note", fieldName: null, oldValue: null, newValue: text, ct);
             isPending = true;
         }
 
-        // 5. Resync cache (best-effort, only on successful push)
+        // Resync cache — best-effort, only on successful push
         if (!isPending)
         {
             try
@@ -208,14 +181,12 @@ public sealed class MutationTools(
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                // Best-effort — the ADO comment already succeeded.
+                // best-effort
             }
         }
 
-        // 6. Write prompt state
         await promptStateWriter.WritePromptStateAsync();
 
-        // 7. Return success
         return McpResultBuilder.FormatNoteAdded(item.Id, item.Title, isPending);
     }
 
@@ -252,10 +223,8 @@ public sealed class MutationTools(
             catch { /* best-effort */ }
         }
 
-        // Write prompt state
         await promptStateWriter.WritePromptStateAsync();
 
-        // Return flush summary
         return McpResultBuilder.FormatFlushSummary(flushSummary);
     }
 }

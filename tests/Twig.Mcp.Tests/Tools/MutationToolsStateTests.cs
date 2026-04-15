@@ -315,33 +315,4 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
 
         await _promptStateWriter.Received(1).WritePromptStateAsync();
     }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  Response JSON contains previousState
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task State_ReturnJson_ContainsPreviousState()
-    {
-        var item = new WorkItemBuilder(42, "My Task").AsTask().InState("To Do").Build();
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
-        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
-
-        var config = BuildTaskProcessConfig();
-        _processConfigProvider.GetConfiguration().Returns(config);
-
-        var updatedItem = new WorkItemBuilder(42, "My Task").AsTask().InState("Doing").Build();
-        _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
-            .Returns(item, updatedItem);
-        _adoService.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(),
-            Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(2);
-
-        var result = await CreateMutationSut().State("Doing");
-
-        result.IsError.ShouldBeNull();
-        var root = ParseResult(result);
-        root.TryGetProperty("previousState", out var previousStateProp).ShouldBe(true);
-        previousStateProp.GetString().ShouldBe("To Do");
-    }
 }

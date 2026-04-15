@@ -464,6 +464,75 @@ public sealed class TreeCommand_CacheAwareTests
         output.ShouldNotContain("cached");
     }
 
+    // ── Two-pass data change validation ────────────────────────────
+
+    [Fact]
+    public async Task TwoPass_DataChangesAfterSync_RevisedViewUsesUpdatedData()
+    {
+        // Pass 1: item has title "Before Sync" under parent 100
+        var preSync = CreateWorkItem(1, "Before Sync", parentId: 100);
+        var oldParent = CreateWorkItem(100, "Old Parent", type: "Epic");
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+
+        // Track whether sync has been simulated
+        var syncCompleted = false;
+
+        // GetByIdAsync returns pre-sync data initially, post-sync data after sync
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                if (!syncCompleted)
+                    return Task.FromResult<WorkItem?>(preSync);
+
+                // After sync: title changed, re-parented to 200
+                return Task.FromResult<WorkItem?>(CreateWorkItem(1, "After Sync", parentId: 200));
+            });
+
+        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(oldParent);
+        _workItemRepo.GetByIdAsync(200, Arg.Any<CancellationToken>())
+            .Returns(CreateWorkItem(200, "New Parent", type: "Epic"));
+
+        _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        // Parent chain: old parent before sync, new parent after sync
+        _workItemRepo.GetParentChainAsync(100, Arg.Any<CancellationToken>())
+            .Returns(new[] { oldParent });
+        _workItemRepo.GetParentChainAsync(200, Arg.Any<CancellationToken>())
+            .Returns(new[] { CreateWorkItem(200, "New Parent", type: "Epic") });
+
+        // Sibling counts: 1 child under old parent, 3 under new parent
+        _workItemRepo.GetChildrenAsync(100, Arg.Any<CancellationToken>())
+            .Returns(new[] { preSync });
+        _workItemRepo.GetChildrenAsync(200, Arg.Any<CancellationToken>())
+            .Returns(new[] {
+                CreateWorkItem(1, "After Sync", parentId: 200),
+                CreateWorkItem(301, "Sibling A", parentId: 200),
+                CreateWorkItem(302, "Sibling B", parentId: 200),
+            });
+
+        // Simulate sync completing: flip the flag so subsequent repo calls return fresh data
+        _adoService.FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+            {
+                syncCompleted = true;
+                return Task.FromResult(CreateWorkItem(callInfo.ArgAt<int>(0), "Fetched"));
+            });
+
+        _spectreRenderer.SyncStatusDelay = TimeSpan.Zero;
+
+        var cmd = CreateCommand(CreateTtyPipelineFactory());
+        var result = await cmd.ExecuteAsync("human");
+
+        result.ShouldBe(0);
+
+        // The final (revised) view should show the post-sync title
+        var output = _testConsole.Output;
+        output.ShouldContain("After Sync");
+        output.ShouldContain("New Parent");
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     private static WorkItem CreateWorkItem(int id, string title, int? parentId = null, string type = "Task", string state = "New") =>

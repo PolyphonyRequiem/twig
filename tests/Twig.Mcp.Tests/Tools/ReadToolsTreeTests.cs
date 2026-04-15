@@ -134,11 +134,13 @@ public sealed class ReadToolsTreeTests : ReadToolsTestBase
     //  Depth limiting
     // ═══════════════════════════════════════════════════════════════
 
-    [Fact]
-    public async Task Tree_DepthParameter_LimitsChildren()
+    [Theory]
+    [InlineData(0, 3, 0)]  // depth=0: boundary — no children displayed
+    [InlineData(2, 5, 2)]  // depth=2: normal limit
+    public async Task Tree_DepthParameter_LimitsDisplayedChildren(int depth, int childCount, int expectedDisplayed)
     {
         var focus = new WorkItemBuilder(10, "Feature").AsFeature().InState("Active").Build();
-        var children = Enumerable.Range(20, 5)
+        var children = Enumerable.Range(20, childCount)
             .Select(i => new WorkItemBuilder(i, $"Task {i}").AsTask().WithParent(10).Build())
             .ToList();
 
@@ -146,14 +148,13 @@ public sealed class ReadToolsTreeTests : ReadToolsTestBase
         _workItemRepo.GetChildrenAsync(10, Arg.Any<CancellationToken>())
             .Returns(children);
 
-        var result = await CreateSut(_config).Tree(depth: 2);
+        var result = await CreateSut(_config).Tree(depth: depth);
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
 
-        // Only 2 children displayed, but totalChildren reflects actual count
-        root.GetProperty("children").GetArrayLength().ShouldBe(2);
-        root.GetProperty("totalChildren").GetInt32().ShouldBe(5);
+        root.GetProperty("children").GetArrayLength().ShouldBe(expectedDisplayed);
+        root.GetProperty("totalChildren").GetInt32().ShouldBe(childCount);
     }
 
     [Fact]
@@ -308,6 +309,69 @@ public sealed class ReadToolsTreeTests : ReadToolsTestBase
         // Root has no parent, so siblingCounts entry for root ID should be null
         var siblingCounts = root.GetProperty("siblingCounts");
         siblingCounts.GetProperty("5").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Deep parent chain — 3 levels
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Tree_DeepParentChain_RendersFullHierarchy()
+    {
+        var grandparent = new WorkItemBuilder(1, "Grand Epic").AsEpic().InState("Active").Build();
+        var parent = new WorkItemBuilder(2, "Mid Feature").AsFeature().InState("Active")
+            .WithParent(1).Build();
+        var focus = new WorkItemBuilder(10, "Leaf Task").AsTask().InState("Active")
+            .WithParent(2).Build();
+
+        SetupActiveItem(focus);
+        _workItemRepo.GetParentChainAsync(2, Arg.Any<CancellationToken>())
+            .Returns([grandparent, parent]);
+        _workItemRepo.GetChildrenAsync(10, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        // Sibling counts: focus is the only child of parent, parent is the only child of grandparent
+        _workItemRepo.GetChildrenAsync(2, Arg.Any<CancellationToken>())
+            .Returns([focus]);
+        _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
+            .Returns([parent]);
+
+        var result = await CreateSut(_config).Tree();
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+
+        // Parent chain should have 2 items (grandparent → parent)
+        var chain = root.GetProperty("parentChain");
+        chain.GetArrayLength().ShouldBe(2);
+        chain[0].GetProperty("id").GetInt32().ShouldBe(1);
+        chain[1].GetProperty("id").GetInt32().ShouldBe(2);
+
+        // Sibling counts: grandparent=null (root), parent=1, focus=1
+        var siblingCounts = root.GetProperty("siblingCounts");
+        siblingCounts.GetProperty("1").ValueKind.ShouldBe(JsonValueKind.Null);
+        siblingCounts.GetProperty("2").GetInt32().ShouldBe(1);
+        siblingCounts.GetProperty("10").GetInt32().ShouldBe(1);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  OperationCanceledException — propagates (not swallowed)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Tree_LinkSyncCancelled_PropagatesException()
+    {
+        var focus = new WorkItemBuilder(10, "Feature").AsFeature().InState("Active").Build();
+
+        SetupActiveItem(focus);
+        _workItemRepo.GetChildrenAsync(10, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        // OperationCanceledException should NOT be caught by the best-effort handler
+        _adoService.FetchWithLinksAsync(10, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new OperationCanceledException());
+
+        await Should.ThrowAsync<OperationCanceledException>(
+            () => CreateSut(_config).Tree());
     }
 
     // ═══════════════════════════════════════════════════════════════

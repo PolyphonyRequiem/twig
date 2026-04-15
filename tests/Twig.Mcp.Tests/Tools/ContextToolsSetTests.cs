@@ -1,12 +1,8 @@
-using System.Text.Json;
 using ModelContextProtocol.Protocol;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Domain.Aggregates;
-using Twig.Domain.Interfaces;
-using Twig.Domain.Services;
-using Twig.Mcp.Tools;
 using Twig.TestKit;
 using Xunit;
 
@@ -17,34 +13,8 @@ namespace Twig.Mcp.Tests.Tools;
 /// Covers numeric ID resolution, pattern matching, disambiguation,
 /// error paths, best-effort sync, and prompt state writes.
 /// </summary>
-public sealed class ContextToolsSetTests
+public sealed class ContextToolsSetTests : ContextToolsTestBase
 {
-    private readonly IWorkItemRepository _workItemRepo = Substitute.For<IWorkItemRepository>();
-    private readonly IContextStore _contextStore = Substitute.For<IContextStore>();
-    private readonly IAdoWorkItemService _adoService = Substitute.For<IAdoWorkItemService>();
-    private readonly IPendingChangeStore _pendingChangeStore = Substitute.For<IPendingChangeStore>();
-    private readonly IWorkItemLinkRepository _linkRepo = Substitute.For<IWorkItemLinkRepository>();
-    private readonly IPromptStateWriter _promptStateWriter = Substitute.For<IPromptStateWriter>();
-
-    private SyncCoordinator CreateSyncCoordinator() =>
-        new(_workItemRepo, _adoService,
-            new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore),
-            _pendingChangeStore, _linkRepo, cacheStaleMinutes: 5);
-
-    private ContextTools CreateSut()
-    {
-        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        return new ContextTools(
-            _workItemRepo, _contextStore, resolver,
-            CreateSyncCoordinator(), _promptStateWriter);
-    }
-
-    private static JsonElement ParseResult(CallToolResult result)
-    {
-        var text = result.Content[0].ShouldBeOfType<TextContentBlock>().Text;
-        using var doc = JsonDocument.Parse(text);
-        return doc.RootElement.Clone();
-    }
 
     // ═══════════════════════════════════════════════════════════════
     //  Happy path — numeric ID, cached
@@ -294,5 +264,89 @@ public sealed class ContextToolsSetTests
             _contextStore.SetActiveWorkItemIdAsync(5, Arg.Any<CancellationToken>());
             _promptStateWriter.WritePromptStateAsync();
         });
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Parent chain hydration — warms cache for downstream twig.tree
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Set_ItemWithParent_HydratesParentChain()
+    {
+        // Leaf task with parent feature — child has recent sync to isolate from SyncCoordinator
+        var recentSync = DateTimeOffset.UtcNow;
+        var parentItem = new WorkItemBuilder(100, "Parent Feature").AsFeature().InState("Active")
+            .LastSyncedAt(recentSync).Build();
+        var childItem = new WorkItemBuilder(42, "Child Task").AsTask().InState("New")
+            .WithParent(100).LastSyncedAt(recentSync).Build();
+
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(childItem);
+
+        // First GetParentChainAsync call returns empty (parent not in cache)
+        // Second call (after auto-fetch) returns the parent
+        _workItemRepo.GetParentChainAsync(100, Arg.Any<CancellationToken>())
+            .Returns(
+                Array.Empty<WorkItem>(),
+                new[] { parentItem });
+
+        // Parent not in cache initially → resolver auto-fetches from ADO.
+        // After resolver caches it, SyncCoordinator also looks it up — return the item.
+        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>())
+            .Returns((WorkItem?)null, parentItem);
+        _adoService.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(parentItem);
+
+        var result = await CreateSut().Set("42");
+
+        result.IsError.ShouldBeNull();
+
+        // GetParentChainAsync called at least twice (initial miss + post-fetch)
+        await _workItemRepo.Received(2).GetParentChainAsync(100, Arg.Any<CancellationToken>());
+
+        // Parent was auto-fetched via resolver (once — sync finds it cached on second lookup)
+        await _adoService.Received(1).FetchAsync(100, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Set_ItemWithParent_CachedChain_SkipsAutoFetch()
+    {
+        // Parent is already in cache — no auto-fetch needed
+        // Both items have recent sync to isolate from SyncCoordinator
+        var recentSync = DateTimeOffset.UtcNow;
+        var parentItem = new WorkItemBuilder(100, "Parent Feature").AsFeature().InState("Active")
+            .LastSyncedAt(recentSync).Build();
+        var childItem = new WorkItemBuilder(42, "Child Task").AsTask().InState("New")
+            .WithParent(100).LastSyncedAt(recentSync).Build();
+
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(childItem);
+        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(parentItem);
+
+        // First GetParentChainAsync call returns the parent (already cached)
+        _workItemRepo.GetParentChainAsync(100, Arg.Any<CancellationToken>())
+            .Returns(new[] { parentItem });
+
+        var result = await CreateSut().Set("42");
+
+        result.IsError.ShouldBeNull();
+
+        // GetParentChainAsync called once (found on first attempt)
+        await _workItemRepo.Received(1).GetParentChainAsync(100, Arg.Any<CancellationToken>());
+
+        // No auto-fetch since parent was already cached
+        await _adoService.DidNotReceive().FetchAsync(100, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Set_ItemWithoutParent_SkipsParentChainHydration()
+    {
+        // Item has no parent — no chain hydration at all
+        var item = new WorkItemBuilder(42, "Root Item").AsEpic().InState("Active").Build();
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+
+        var result = await CreateSut().Set("42");
+
+        result.IsError.ShouldBeNull();
+
+        // GetParentChainAsync should never be called for items without parents
+        await _workItemRepo.DidNotReceive().GetParentChainAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 }

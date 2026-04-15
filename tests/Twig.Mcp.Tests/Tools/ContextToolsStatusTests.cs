@@ -5,9 +5,6 @@ using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
-using Twig.Domain.Interfaces;
-using Twig.Domain.Services;
-using Twig.Mcp.Tools;
 using Twig.TestKit;
 using Xunit;
 
@@ -18,41 +15,8 @@ namespace Twig.Mcp.Tests.Tools;
 /// Covers no-context error, success with item, unreachable item,
 /// pending changes, and seeds in the status snapshot.
 /// </summary>
-public sealed class ContextToolsStatusTests
+public sealed class ContextToolsStatusTests : ContextToolsTestBase
 {
-    private readonly IWorkItemRepository _workItemRepo = Substitute.For<IWorkItemRepository>();
-    private readonly IContextStore _contextStore = Substitute.For<IContextStore>();
-    private readonly IAdoWorkItemService _adoService = Substitute.For<IAdoWorkItemService>();
-    private readonly IPendingChangeStore _pendingChangeStore = Substitute.For<IPendingChangeStore>();
-    private readonly IWorkItemLinkRepository _linkRepo = Substitute.For<IWorkItemLinkRepository>();
-    private readonly IPromptStateWriter _promptStateWriter = Substitute.For<IPromptStateWriter>();
-    private readonly IIterationService _iterationService = Substitute.For<IIterationService>();
-
-    private SyncCoordinator CreateSyncCoordinator() =>
-        new(_workItemRepo, _adoService,
-            new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore),
-            _pendingChangeStore, _linkRepo, cacheStaleMinutes: 5);
-
-    private StatusOrchestrator CreateStatusOrchestrator(ActiveItemResolver resolver) =>
-        new(_contextStore, _workItemRepo, _pendingChangeStore, resolver,
-            new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, _iterationService, null),
-            CreateSyncCoordinator());
-
-    private ContextTools CreateSut()
-    {
-        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        return new ContextTools(
-            _workItemRepo, _contextStore, resolver,
-            CreateSyncCoordinator(), CreateStatusOrchestrator(resolver),
-            _promptStateWriter);
-    }
-
-    private static JsonElement ParseResult(CallToolResult result)
-    {
-        var text = result.Content[0].ShouldBeOfType<TextContentBlock>().Text;
-        using var doc = JsonDocument.Parse(text);
-        return doc.RootElement.Clone();
-    }
 
     // ═══════════════════════════════════════════════════════════════
     //  No context — returns error

@@ -469,11 +469,11 @@ User runs: twig set 1234  (item #1234 is NOT in current sprint)
 | T-1520-8 | **Add cache-age to `WorkspaceCommand` sprint items** — Add cache-age suffix to stale sprint items in workspace table. Add `noRefresh` flag. Wire through `Program.cs`. Add tests verifying cache-age display on stale items. | `src/Twig/Commands/WorkspaceCommand.cs`, `src/Twig/Program.cs`, `tests/Twig.Cli.Tests/Commands/WorkspaceCommand_CacheAwareTests.cs` | S (~80 LoC) |
 
 **Acceptance Criteria:**
-- [ ] All display commands render cached data first, then refresh
-- [ ] Cache age is shown when data exceeds `CacheStaleMinutes`
-- [ ] Dirty items are visibly marked with `●` and change summary
-- [ ] `--no-refresh` flag skips the live sync pass on all display commands
-- [ ] All new code has unit tests with ≥ 90% branch coverage
+- [x] All display commands render cached data first, then refresh
+- [x] Cache age is shown when data exceeds `CacheStaleMinutes`
+- [x] Dirty items are visibly marked with `●` and change summary
+- [x] `--no-refresh` flag skips the live sync pass on all display commands
+- [x] All new code has unit tests with ≥ 90% branch coverage
 
 ---
 
@@ -494,13 +494,13 @@ User runs: twig set 1234  (item #1234 is NOT in current sprint)
 | T-1521-5 | **Add integration tests for context change extension** — Test scenarios: (1) set to out-of-sprint item → parents/children/links fetched, (2) set to in-sprint item → minimal additional fetches, (3) network failure during extension → command still succeeds, (4) additive guarantee → existing cache items not removed. | `tests/Twig.Cli.Tests/Commands/SetCommand_ContextChangeTests.cs` | M (~200 LoC) |
 
 **Acceptance Criteria:**
-- [ ] `twig set` to an out-of-sprint item fetches parents to root
-- [ ] `twig set` fetches 2 levels of children
-- [ ] `twig set` fetches 1 level of related links
-- [ ] Context change logic is in a single shared `ContextChangeService` codepath
-- [ ] Working set extension is additive (never removes existing items)
-- [ ] All context change points (`set`, `new --set`, `flow start`) use `ContextChangeService`
-- [ ] Extension failures never cause the command to fail
+- [x] `twig set` to an out-of-sprint item fetches parents to root
+- [x] `twig set` fetches 2 levels of children
+- [x] `twig set` fetches 1 level of related links
+- [x] Context change logic is in a single shared `ContextChangeService` codepath
+- [x] Working set extension is additive (never removes existing items)
+- [x] All context change points (`set`, `new --set`, `flow start`) use `ContextChangeService`
+- [x] Extension failures never cause the command to fail
 
 ## PR Groups
 
@@ -537,6 +537,15 @@ PR Group 1 ──► PR Group 2
 ```
 
 PR Groups 2 and 3 are independent after PR Group 1 and can be reviewed/merged in parallel.
+
+## Completion
+
+**Completed:** 2026-04-15  
+**Merged PRs:** PR #29 (Status/Tree two-pass), PR #30 (Show/Workspace two-pass), PR #33 (Context change working set extension)  
+**Issues Closed:** #1520 (Two-pass rendering), #1521 (Context change auto-extends working set)  
+**Epic:** #1519 → Done
+
+All three PR groups shipped successfully. The two-pass cache-then-refresh rendering pattern is now active across `StatusCommand`, `TreeCommand`, `ShowCommand`, and `WorkspaceCommand`. Cache-age indicators and dirty-state summaries provide visual feedback on data freshness. The `--no-refresh` flag is available on all display commands. `ContextChangeService` automatically extends the working set with parent chains, child graphs, and related links when context changes via `set`, `new --set`, or `flow start`.
 
 ## References
 

@@ -21,7 +21,10 @@ internal sealed class AdoIterationService : IIterationService
     private readonly string _project;
     private readonly string _team;
 
+    // Lazy-initialized caches — safe because CLI is single-threaded
     private Task<AdoWorkItemTypeListResponse?>? _workItemTypesCache;
+    private Task<ProcessConfigurationData>? _processConfigCache;
+    private Task<IReadOnlyList<FieldDefinition>>? _fieldDefinitionsCache;
 
     public AdoIterationService(
         HttpClient httpClient,
@@ -90,7 +93,7 @@ internal sealed class AdoIterationService : IIterationService
 
     private async Task<string?> DetectTemplateNameByHeuristicAsync(CancellationToken ct)
     {
-        var result = await GetWorkItemTypesResponseAsync(ct);
+        var result = await (_workItemTypesCache ??= FetchWorkItemTypesAsync(ct));
 
         if (result?.Value is null || result.Value.Count == 0)
             return "Basic";
@@ -117,7 +120,7 @@ internal sealed class AdoIterationService : IIterationService
 
     public async Task<IReadOnlyList<WorkItemTypeAppearance>> GetWorkItemTypeAppearancesAsync(CancellationToken ct = default)
     {
-        var result = await GetWorkItemTypesResponseAsync(ct);
+        var result = await (_workItemTypesCache ??= FetchWorkItemTypesAsync(ct));
 
         if (result?.Value is null || result.Value.Count == 0)
             return Array.Empty<WorkItemTypeAppearance>();
@@ -136,7 +139,7 @@ internal sealed class AdoIterationService : IIterationService
 
     public async Task<IReadOnlyList<WorkItemTypeWithStates>> GetWorkItemTypesWithStatesAsync(CancellationToken ct = default)
     {
-        var result = await GetWorkItemTypesResponseAsync(ct);
+        var result = await (_workItemTypesCache ??= FetchWorkItemTypesAsync(ct));
 
         if (result?.Value is null || result.Value.Count == 0)
             return Array.Empty<WorkItemTypeWithStates>();
@@ -167,63 +170,16 @@ internal sealed class AdoIterationService : IIterationService
         return types;
     }
 
-    public async Task<ProcessConfigurationData> GetProcessConfigurationAsync(CancellationToken ct = default)
+    public Task<ProcessConfigurationData> GetProcessConfigurationAsync(CancellationToken ct = default)
     {
-        var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/work/processconfiguration?api-version={ApiVersion}";
-        try
-        {
-            using var response = await SendAsync(url, ct);
-            await using var stream = await response.Content.ReadAsStreamAsync(ct);
-            var adoResponse = await JsonSerializer.DeserializeAsync(stream, TwigJsonContext.Default.AdoProcessConfigurationResponse, ct);
-
-            return new ProcessConfigurationData
-            {
-                TaskBacklog = MapBacklogLevel(adoResponse?.TaskBacklog),
-                RequirementBacklog = MapBacklogLevel(adoResponse?.RequirementBacklog),
-                PortfolioBacklogs = adoResponse?.PortfolioBacklogs?
-                    .Select(MapBacklogLevel)
-                    .Where(b => b is not null)
-                    .Cast<BacklogLevelConfiguration>()
-                    .ToList()
-                    ?? (IReadOnlyList<BacklogLevelConfiguration>)Array.Empty<BacklogLevelConfiguration>(),
-                BugWorkItems = MapBacklogLevel(adoResponse?.BugWorkItems),
-            };
-        }
-        catch (OperationCanceledException) { throw; }
-        catch (Exception ex) when (ex is AdoNotFoundException or AdoException)
-        {
-            Console.Error.WriteLine($"⚠ Could not fetch process configuration: {ex.Message}. Parent-child relationships will not be populated.");
-            return new ProcessConfigurationData();
-        }
+        _processConfigCache ??= FetchProcessConfigurationAsync(ct);
+        return _processConfigCache;
     }
 
-    public async Task<IReadOnlyList<FieldDefinition>> GetFieldDefinitionsAsync(CancellationToken ct = default)
+    public Task<IReadOnlyList<FieldDefinition>> GetFieldDefinitionsAsync(CancellationToken ct = default)
     {
-        var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/wit/fields?api-version={ApiVersion}";
-        try
-        {
-            using var response = await SendAsync(url, ct);
-            await using var stream = await response.Content.ReadAsStreamAsync(ct);
-            var result = await JsonSerializer.DeserializeAsync(stream, TwigJsonContext.Default.AdoFieldListResponse, ct);
-
-            if (result?.Value is null || result.Value.Count == 0)
-                return Array.Empty<FieldDefinition>();
-
-            var defs = new List<FieldDefinition>(result.Value.Count);
-            foreach (var f in result.Value)
-            {
-                if (f.ReferenceName is null || f.Name is null)
-                    continue;
-                defs.Add(new FieldDefinition(f.ReferenceName, f.Name, f.Type ?? "string", f.ReadOnly));
-            }
-            return defs;
-        }
-        catch (OperationCanceledException) { throw; }
-        catch (Exception ex) when (ex is AdoNotFoundException or AdoException)
-        {
-            Console.Error.WriteLine($"⚠ Could not fetch field definitions: {ex.Message}. Dynamic columns will use derived display names.");
-            return Array.Empty<FieldDefinition>();
-        }
+        _fieldDefinitionsCache ??= FetchFieldDefinitionsAsync(ct);
+        return _fieldDefinitionsCache;
     }
 
     public async Task<IReadOnlyList<(string Path, bool IncludeChildren)>> GetTeamAreaPathsAsync(CancellationToken ct = default)
@@ -316,19 +272,71 @@ internal sealed class AdoIterationService : IIterationService
         };
     }
 
-    private async Task<AdoWorkItemTypeListResponse?> GetWorkItemTypesResponseAsync(CancellationToken ct)
-    {
-        // Lazy initialization — safe because CLI is single-threaded
-        _workItemTypesCache ??= FetchWorkItemTypesAsync(ct);
-        return await _workItemTypesCache;
-    }
-
     private async Task<AdoWorkItemTypeListResponse?> FetchWorkItemTypesAsync(CancellationToken ct)
     {
         var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/wit/workitemtypes?api-version={ApiVersion}";
         using var response = await SendAsync(url, ct);
         await using var stream = await response.Content.ReadAsStreamAsync(ct);
         return await JsonSerializer.DeserializeAsync(stream, TwigJsonContext.Default.AdoWorkItemTypeListResponse, ct);
+    }
+
+    private async Task<ProcessConfigurationData> FetchProcessConfigurationAsync(CancellationToken ct)
+    {
+        var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/work/processconfiguration?api-version={ApiVersion}";
+        try
+        {
+            using var response = await SendAsync(url, ct);
+            await using var stream = await response.Content.ReadAsStreamAsync(ct);
+            var adoResponse = await JsonSerializer.DeserializeAsync(stream, TwigJsonContext.Default.AdoProcessConfigurationResponse, ct);
+
+            return new ProcessConfigurationData
+            {
+                TaskBacklog = MapBacklogLevel(adoResponse?.TaskBacklog),
+                RequirementBacklog = MapBacklogLevel(adoResponse?.RequirementBacklog),
+                PortfolioBacklogs = adoResponse?.PortfolioBacklogs?
+                    .Select(MapBacklogLevel)
+                    .Where(b => b is not null)
+                    .Cast<BacklogLevelConfiguration>()
+                    .ToList()
+                    ?? (IReadOnlyList<BacklogLevelConfiguration>)Array.Empty<BacklogLevelConfiguration>(),
+                BugWorkItems = MapBacklogLevel(adoResponse?.BugWorkItems),
+            };
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex) when (ex is AdoNotFoundException or AdoException)
+        {
+            Console.Error.WriteLine($"⚠ Could not fetch process configuration: {ex.Message}. Parent-child relationships will not be populated.");
+            return new ProcessConfigurationData();
+        }
+    }
+
+    private async Task<IReadOnlyList<FieldDefinition>> FetchFieldDefinitionsAsync(CancellationToken ct)
+    {
+        var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/wit/fields?api-version={ApiVersion}";
+        try
+        {
+            using var response = await SendAsync(url, ct);
+            await using var stream = await response.Content.ReadAsStreamAsync(ct);
+            var result = await JsonSerializer.DeserializeAsync(stream, TwigJsonContext.Default.AdoFieldListResponse, ct);
+
+            if (result?.Value is null || result.Value.Count == 0)
+                return Array.Empty<FieldDefinition>();
+
+            var defs = new List<FieldDefinition>(result.Value.Count);
+            foreach (var f in result.Value)
+            {
+                if (f.ReferenceName is null || f.Name is null)
+                    continue;
+                defs.Add(new FieldDefinition(f.ReferenceName, f.Name, f.Type ?? "string", f.ReadOnly));
+            }
+            return defs;
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex) when (ex is AdoNotFoundException or AdoException)
+        {
+            Console.Error.WriteLine($"⚠ Could not fetch field definitions: {ex.Message}. Dynamic columns will use derived display names.");
+            return Array.Empty<FieldDefinition>();
+        }
     }
 
     private async Task<HttpResponseMessage> SendAsync(string url, CancellationToken ct)

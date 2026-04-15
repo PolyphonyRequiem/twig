@@ -79,6 +79,7 @@ public class FlowCloseCommandTests
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
         _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
         _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
+        _gitService.GetWorktreeRootAsync(Arg.Any<CancellationToken>()).Returns((string?)null);
         _gitService.GetCurrentBranchAsync(Arg.Any<CancellationToken>()).Returns("feature/1-feature");
         _adoGitService.GetPullRequestsForBranchAsync("feature/1-feature", Arg.Any<CancellationToken>())
             .Returns(Array.Empty<PullRequestInfo>());
@@ -316,6 +317,74 @@ public class FlowCloseCommandTests
 
         result.ShouldBe(0);
         await _contextStore.Received().ClearActiveWorkItemIdAsync(Arg.Any<CancellationToken>());
+    }
+
+    // ── Linked worktree (task #1621) ──────────────────────────────────
+
+    [Fact]
+    public async Task LinkedWorktree_SkipsBranchCleanup_EmitsWarning()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        var item = CreateWorkItem(1, "Feature", "Resolved");
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+        _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
+        _gitService.GetWorktreeRootAsync(Arg.Any<CancellationToken>()).Returns("/tmp/my-worktree");
+        _gitService.GetCurrentBranchAsync(Arg.Any<CancellationToken>()).Returns("feature/1-feature");
+        _adoGitService.GetPullRequestsForBranchAsync("feature/1-feature", Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PullRequestInfo>());
+
+        var cmd = CreateCommand(_gitService, _adoGitService);
+        var result = await cmd.ExecuteAsync();
+
+        result.ShouldBe(0);
+        // Branch cleanup skipped — no checkout or delete
+        await _gitService.DidNotReceive().CheckoutAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _gitService.DidNotReceive().DeleteBranchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        // Context still cleared
+        await _contextStore.Received().ClearActiveWorkItemIdAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task MainWorkTree_ProceedsWithBranchCleanup()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        var item = CreateWorkItem(1, "Feature", "Resolved");
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+        _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
+        _gitService.GetWorktreeRootAsync(Arg.Any<CancellationToken>()).Returns((string?)null);
+        _gitService.GetCurrentBranchAsync(Arg.Any<CancellationToken>()).Returns("feature/1-feature");
+        _adoGitService.GetPullRequestsForBranchAsync("feature/1-feature", Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PullRequestInfo>());
+        _consoleInput.ReadLine().Returns("y");
+
+        var cmd = CreateCommand(_gitService, _adoGitService);
+        var result = await cmd.ExecuteAsync();
+
+        result.ShouldBe(0);
+        // Main working tree — normal cleanup proceeds
+        await _gitService.Received().CheckoutAsync("main", Arg.Any<CancellationToken>());
+        await _gitService.Received().DeleteBranchAsync("feature/1-feature", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task LinkedWorktree_NoBranchCleanupFlag_SkipsWorktreeCheck()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        var item = CreateWorkItem(1, "Feature", "Resolved");
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+
+        var cmd = CreateCommand(_gitService);
+        var result = await cmd.ExecuteAsync(noBranchCleanup: true);
+
+        result.ShouldBe(0);
+        // noBranchCleanup skips entire section — no worktree check either
+        await _gitService.DidNotReceive().GetWorktreeRootAsync(Arg.Any<CancellationToken>());
     }
 
     // ── Minimal output (ITEM-034) ──────────────────────────────────────

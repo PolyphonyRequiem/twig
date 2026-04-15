@@ -56,38 +56,41 @@ public sealed class FlowCloseCommand(
         }
 
         // 3. Guard: open PRs
+        bool isInWorkTree = false;
         string? currentBranch = null;
-        if (!force && gitService is not null && adoGitService is not null)
+        if (gitService is not null)
+        {
+            try { isInWorkTree = await gitService.IsInsideWorkTreeAsync(); }
+            catch (Exception ex) when (ex is not OutOfMemoryException) { }
+        }
+
+        if (!force && isInWorkTree && adoGitService is not null)
         {
             try
             {
-                var isInWorkTree = await gitService.IsInsideWorkTreeAsync();
-                if (isInWorkTree)
+                currentBranch = await gitService!.GetCurrentBranchAsync();
+                var prs = await adoGitService.GetPullRequestsForBranchAsync(currentBranch);
+                var activePrs = prs.Where(p =>
+                    string.Equals(p.Status, "active", StringComparison.OrdinalIgnoreCase)).ToList();
+
+                if (activePrs.Count > 0)
                 {
-                    currentBranch = await gitService.GetCurrentBranchAsync();
-                    var prs = await adoGitService.GetPullRequestsForBranchAsync(currentBranch);
-                    var activePrs = prs.Where(p =>
-                        string.Equals(p.Status, "active", StringComparison.OrdinalIgnoreCase)).ToList();
+                    var prList = string.Join(", ", activePrs.Select(p => $"PR #{p.PullRequestId}"));
 
-                    if (activePrs.Count > 0)
+                    if (consoleInput.IsOutputRedirected)
                     {
-                        var prList = string.Join(", ", activePrs.Select(p => $"PR #{p.PullRequestId}"));
+                        // Non-TTY: exit 2
+                        Console.Error.WriteLine(fmt.FormatError(
+                            $"Open pull request(s) detected: {prList}. Complete or abandon before closing."));
+                        return 2;
+                    }
 
-                        if (consoleInput.IsOutputRedirected)
-                        {
-                            // Non-TTY: exit 2
-                            Console.Error.WriteLine(fmt.FormatError(
-                                $"Open pull request(s) detected: {prList}. Complete or abandon before closing."));
-                            return 2;
-                        }
-
-                        Console.Write($"Open PR(s) detected: {prList}. Continue anyway? [y/N] ");
-                        var response = consoleInput.ReadLine()?.Trim();
-                        if (!string.Equals(response, "y", StringComparison.OrdinalIgnoreCase))
-                        {
-                            Console.WriteLine(fmt.FormatInfo("Cancelled."));
-                            return 0;
-                        }
+                    Console.Write($"Open PR(s) detected: {prList}. Continue anyway? [y/N] ");
+                    var response = consoleInput.ReadLine()?.Trim();
+                    if (!string.Equals(response, "y", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Console.WriteLine(fmt.FormatInfo("Cancelled."));
+                        return 0;
                     }
                 }
             }
@@ -110,12 +113,19 @@ public sealed class FlowCloseCommand(
 
         // 5. Branch cleanup (prompt then delete)
         bool branchDeleted = false;
-        if (!noBranchCleanup && gitService is not null)
+        if (!noBranchCleanup && isInWorkTree && gitService is not null)
         {
             try
             {
-                var isInWorkTree = await gitService.IsInsideWorkTreeAsync();
-                if (isInWorkTree)
+                var worktreeRoot = await gitService.GetWorktreeRootAsync();
+                if (worktreeRoot is not null)
+                {
+                    // Linked worktree — checkout+delete would orphan the directory
+                    Console.Error.WriteLine(fmt.FormatInfo(
+                        $"In a linked worktree at '{worktreeRoot}' — skipping branch cleanup. "
+                        + "Remove worktree manually: git worktree remove <path>"));
+                }
+                else
                 {
                     currentBranch ??= await gitService.GetCurrentBranchAsync();
                     var defaultTarget = config.Git.DefaultTarget;

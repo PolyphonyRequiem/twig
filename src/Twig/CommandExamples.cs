@@ -24,13 +24,13 @@ internal static class CommandExamples
         ],
         ["show"] =
         [
-            "twig show                  Show the active work item",
-            "twig show --output json    Show the active work item as JSON",
+            "twig show 1234             Show work item #1234",
+            "twig show 1234 --output json  Show work item #1234 as JSON",
         ],
         ["query"] =
         [
             "twig query \"my bugs\"       Run a saved ADO query by name",
-            "twig query --list          List all available saved queries",
+            "twig query \"sprint tasks\" --state Active  Filter query results by state",
         ],
         ["status"] =
         [
@@ -185,7 +185,7 @@ internal static class CommandExamples
         ["discard"] =
         [
             "twig discard               Discard all pending changes on the active item",
-            "twig discard --confirm     Discard pending changes with confirmation prompt",
+            "twig discard --yes         Skip the confirmation prompt",
         ],
         ["sync"] =
         [
@@ -204,8 +204,8 @@ internal static class CommandExamples
         ],
         ["config"] =
         [
-            "twig config                Show current twig configuration",
-            "twig config --output json  Output configuration as JSON",
+            "twig config pat            Show the configured PAT setting",
+            "twig config pat <token>    Set the PAT to a new value",
         ],
         ["config status-fields"] =
         [
@@ -215,12 +215,12 @@ internal static class CommandExamples
         ["branch"] =
         [
             "twig branch                Create a branch name from the active work item",
-            "twig branch --checkout     Create and check out the branch",
+            "twig branch --no-transition  Create branch without transitioning work item state",
         ],
         ["commit"] =
         [
             "twig commit                Create a commit message from the active work item",
-            "twig commit --push         Commit and push to the remote",
+            "twig commit \"fix: my message\"  Commit with a custom message",
         ],
         ["pr"] =
         [
@@ -230,12 +230,12 @@ internal static class CommandExamples
         ["stash"] =
         [
             "twig stash                 Stash pending changes on the active item",
-            "twig stash --list          List all stashed change sets",
+            "twig stash \"WIP: my changes\"  Stash with a descriptive message",
         ],
         ["stash pop"] =
         [
             "twig stash pop             Restore the most recently stashed changes",
-            "twig stash pop --id abc    Restore a specific stash by ID",
+            "twig stash pop --output json  Output the restored stash details as JSON",
         ],
         ["log"] =
         [
@@ -249,23 +249,25 @@ internal static class CommandExamples
         ],
         ["flow-done"] =
         [
-            "twig flow-done             Mark the active flow as done and push changes",
-            "twig flow-done --no-push   Mark as done without pushing to remote",
+            "twig flow-done             Mark the active flow as done and open a PR",
+            "twig flow-done --no-save   Mark as done, skipping the change-save step",
+            "twig flow-done --no-pr     Mark as done without creating a pull request",
         ],
         ["flow-close"] =
         [
             "twig flow-close            Close the active dev flow",
-            "twig flow-close --abandon  Close and abandon pending changes",
+            "twig flow-close --force    Force close even if guard conditions are not met",
+            "twig flow-close --no-branch-cleanup  Close without deleting the feature branch",
         ],
         ["hooks install"] =
         [
             "twig hooks install         Install twig git hooks for this repository",
-            "twig hooks install --force  Overwrite existing hooks",
+            "twig hooks install --output json  Output install result as JSON",
         ],
         ["hooks uninstall"] =
         [
             "twig hooks uninstall       Remove twig git hooks from this repository",
-            "twig hooks uninstall --force  Remove hooks even if modified",
+            "twig hooks uninstall --output json  Output uninstall result as JSON",
         ],
         ["context"] =
         [
@@ -280,7 +282,7 @@ internal static class CommandExamples
         ["upgrade"] =
         [
             "twig upgrade               Upgrade twig to the latest release",
-            "twig upgrade --check       Check for a newer version without installing",
+            "twig upgrade               Run in a new shell after install to pick up PATH changes",
         ],
         ["changelog"] =
         [
@@ -290,12 +292,12 @@ internal static class CommandExamples
         ["tui"] =
         [
             "twig tui                   Launch the interactive terminal UI",
-            "twig tui --workspace       Open TUI focused on the workspace view",
+            "twig tui                   Navigate tree, status, and context interactively",
         ],
         ["mcp"] =
         [
             "twig mcp                   Start the twig MCP server",
-            "twig mcp --port 5010       Start the MCP server on a specific port",
+            "twig mcp                   Exposes twig tools to AI agents via the MCP protocol",
         ],
         ["ohmyposh init"] =
         [

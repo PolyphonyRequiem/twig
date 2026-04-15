@@ -155,8 +155,6 @@ public sealed class QueryCommandNoArgsTests
         var cmd = CreateCommand();
         var (_, output) = await CaptureOutput(() => cmd.ExecuteAsync());
 
-        output.ShouldContain("--title");
-        output.ShouldContain("--description");
         output.ShouldContain("--type");
         output.ShouldContain("--state");
         output.ShouldContain("--assignedTo");
@@ -164,7 +162,6 @@ public sealed class QueryCommandNoArgsTests
         output.ShouldContain("--iterationPath");
         output.ShouldContain("--createdSince");
         output.ShouldContain("--changedSince");
-        output.ShouldContain("--filter");
         output.ShouldContain("--top");
         output.ShouldContain("--output");
     }

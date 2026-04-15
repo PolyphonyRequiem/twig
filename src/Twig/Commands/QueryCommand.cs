@@ -53,8 +53,8 @@ public sealed partial class QueryCommand(
             ["command"] = "query",
             ["exit_code"] = exitCode.ToString(),
             ["output_format"] = outputFormat,
-            ["had_filters"] = hasFilters.ToString(),
-            ["showed_summary"] = (!hasFilters).ToString(),
+            ["had_filters"] = hasFilters ? "true" : "false",
+            ["showed_summary"] = !hasFilters ? "true" : "false",
             ["twig_version"] = VersionHelper.GetVersion(),
             ["os_platform"] = System.Runtime.InteropServices.RuntimeInformation.OSDescription
         }, new Dictionary<string, double>
@@ -162,6 +162,7 @@ public sealed partial class QueryCommand(
         return (0, items.Count);
     }
 
+    // TODO(#1640, #1641): extend with || title is not null || description is not null || filter is not null
     private static bool HasAnyFilter(
         string? searchText, string? type, string? state, string? assignedTo,
         string? areaPath, string? iterationPath, string? createdSince, string? changedSince) =>
@@ -187,13 +188,10 @@ public sealed partial class QueryCommand(
         sb.AppendLine();
         sb.AppendLine("Usage:");
         sb.AppendLine("  twig query <search>           Search title and description");
-        sb.AppendLine("  twig query --title <text>     Search by title only");
         sb.AppendLine("  twig query --state Doing      Filter by state");
-        sb.AppendLine("  twig query --filter \"...\"     Structured filter expression");
+        sb.AppendLine("  twig query --type Bug         Filter by work item type");
         sb.AppendLine();
         sb.AppendLine("Available filters:");
-        sb.AppendLine("  --title         Search in title field (CONTAINS)");
-        sb.AppendLine("  --description   Search in description field (CONTAINS)");
         sb.AppendLine("  --type          Filter by work item type (exact match)");
         sb.AppendLine("  --state         Filter by state (exact match)");
         sb.AppendLine("  --assignedTo    Filter by assignee (exact match)");
@@ -201,33 +199,30 @@ public sealed partial class QueryCommand(
         sb.AppendLine("  --iterationPath Filter by iteration path (UNDER)");
         sb.AppendLine("  --createdSince  Items created within N days/weeks/months (e.g., 7d, 2w, 1m)");
         sb.AppendLine("  --changedSince  Items changed within N days/weeks/months");
-        sb.AppendLine("  --filter        Structured filter expression (e.g., \"state:Doing AND type:Bug\")");
         sb.AppendLine("  --top           Max results (default: 25)");
         sb.AppendLine("  --output        Output format: human, json, json-full, json-compact, minimal, ids");
         sb.AppendLine();
 
         // Show configured default area paths if available
         var defaultAreaPaths = ResolveDefaultAreaPaths();
-        sb.Append("Defaults:");
+        sb.AppendLine("Defaults:");
         if (defaultAreaPaths is { Count: > 0 })
         {
-            sb.AppendLine();
             var pathDescriptions = defaultAreaPaths.Select(p =>
                 p.IncludeChildren ? $"{p.Path} (include children)" : p.Path);
             sb.AppendLine($"  Area paths: {string.Join(", ", pathDescriptions)}");
         }
         else
         {
-            sb.AppendLine();
             sb.AppendLine("  Area paths: (none configured)");
         }
 
         sb.AppendLine();
         sb.AppendLine("Examples:");
         sb.AppendLine("  twig query \"login bug\"                       Search title & description");
-        sb.AppendLine("  twig query --title \"API\" --state Doing       Title search + state filter");
-        sb.AppendLine("  twig query --filter \"type:Bug AND state:New\" Structured filter");
-        sb.AppendLine("  twig query --changedSince 7d --top 50        Recently changed items");
+        sb.AppendLine("  twig query --state Doing --type Task          State + type filter");
+        sb.AppendLine("  twig query --changedSince 7d --top 50         Recently changed items");
+        sb.AppendLine("  twig query \"API\" --assignedTo \"Jane\"          Search + assignee filter");
 
         Console.Write(sb.ToString());
         return (0, 0);

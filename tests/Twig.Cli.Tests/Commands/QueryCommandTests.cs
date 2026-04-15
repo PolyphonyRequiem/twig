@@ -34,8 +34,8 @@ public sealed class QueryCommandTests
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
     }
 
-    private QueryCommand CreateCommand(TextWriter? stderr = null, HintEngine? hintEngine = null) =>
-        new(_adoService, _workItemRepo, _config, _formatterFactory, hintEngine ?? _hintEngine, _telemetryClient, stderr);
+    private QueryCommand CreateCommand(TextWriter? stderr = null, HintEngine? hintEngine = null, TwigConfiguration? config = null) =>
+        new(_adoService, _workItemRepo, config ?? _config, _formatterFactory, hintEngine ?? _hintEngine, _telemetryClient, stderr);
 
     private static IReadOnlyList<WorkItem> BuildItems(params (int Id, string Title, string State)[] specs) =>
         specs.Select(s => new WorkItemBuilder(s.Id, s.Title).InState(s.State).Build()).ToList();
@@ -361,7 +361,7 @@ public sealed class QueryCommandTests
             Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
-    // FR-21, DD-10: No-filter query executes with defaults
+    // FR-21, DD-10: No-filter query shows summary (#1639)
 
     [Fact]
     public async Task ExecuteAsync_NoFilters_ShowsSummaryInsteadOfQuery()
@@ -379,11 +379,118 @@ public sealed class QueryCommandTests
         var (exitCode, output) = await CaptureOutput(() => cmd.ExecuteAsync());
 
         exitCode.ShouldBe(0);
-        // No-args now shows summary instead of executing a query
         output.ShouldContain("twig query — Search and filter work items");
+        output.ShouldContain("Usage:");
+        output.ShouldContain("Available filters:");
+        output.ShouldContain("Examples:");
         output.ShouldContain("MyProject\\CoreTeam");
         await _adoService.DidNotReceive().QueryByWiqlAsync(
             Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_TopAlone_ShowsSummary_DoesNotCallAdo()
+    {
+        var cmd = CreateCommand();
+        var (exitCode, output) = await CaptureOutput(() => cmd.ExecuteAsync(top: 50));
+
+        exitCode.ShouldBe(0);
+        output.ShouldContain("twig query — Search and filter work items");
+        await _adoService.DidNotReceive()
+            .QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("json")]
+    [InlineData("json-compact")]
+    [InlineData("json-full")]
+    public async Task ExecuteAsync_NoFilters_JsonVariants_ShowSummaryText(string outputFormat)
+    {
+        var cmd = CreateCommand();
+        var (exitCode, output) = await CaptureOutput(() => cmd.ExecuteAsync(outputFormat: outputFormat));
+
+        exitCode.ShouldBe(0);
+        output.ShouldContain("twig query — Search and filter work items");
+        output.ShouldContain("Available filters:");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_NoFilters_OutputIds_ProducesEmptyOutput()
+    {
+        var cmd = CreateCommand();
+        var (exitCode, output) = await CaptureOutput(() => cmd.ExecuteAsync(outputFormat: "ids"));
+
+        exitCode.ShouldBe(0);
+        output.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_NoFilters_OutputMinimal_ProducesNoOutput()
+    {
+        var cmd = CreateCommand();
+        var (exitCode, output) = await CaptureOutput(() => cmd.ExecuteAsync(outputFormat: "minimal"));
+
+        exitCode.ShouldBe(0);
+        output.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_NoFilters_SummaryIncludesAllFilterFlags()
+    {
+        var cmd = CreateCommand();
+        var (_, output) = await CaptureOutput(() => cmd.ExecuteAsync());
+
+        output.ShouldContain("--title");
+        output.ShouldContain("--description");
+        output.ShouldContain("--type");
+        output.ShouldContain("--state");
+        output.ShouldContain("--assignedTo");
+        output.ShouldContain("--areaPath");
+        output.ShouldContain("--iterationPath");
+        output.ShouldContain("--createdSince");
+        output.ShouldContain("--changedSince");
+        output.ShouldContain("--top");
+        output.ShouldContain("--output");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_NoFilters_SummaryIncludesAllOutputFormatNames()
+    {
+        var cmd = CreateCommand();
+        var (_, output) = await CaptureOutput(() => cmd.ExecuteAsync());
+
+        output.ShouldContain("human");
+        output.ShouldContain("json");
+        output.ShouldContain("json-full");
+        output.ShouldContain("json-compact");
+        output.ShouldContain("minimal");
+        output.ShouldContain("ids");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_NoFilters_ShowsConfiguredAreaPaths()
+    {
+        var configWithPaths = new TwigConfiguration
+        {
+            Organization = "https://dev.azure.com/org",
+            Project = "MyProject",
+            Defaults = new DefaultsConfig { AreaPaths = ["MyProject\\TeamA", "MyProject\\TeamB"] }
+        };
+        var cmd = CreateCommand(config: configWithPaths);
+        var (_, output) = await CaptureOutput(() => cmd.ExecuteAsync());
+
+        output.ShouldContain("Area paths:");
+        output.ShouldContain("MyProject\\TeamA");
+        output.ShouldContain("MyProject\\TeamB");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_NoFilters_ShowsNoneWhenNoAreaPathsConfigured()
+    {
+        var cmd = CreateCommand();
+        var (_, output) = await CaptureOutput(() => cmd.ExecuteAsync());
+
+        output.ShouldContain("(none configured)");
     }
 
     // NFR-03, NFR-05: Zero results — exit code 0, friendly message

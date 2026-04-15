@@ -62,6 +62,55 @@ public sealed class GroupedHelpTests
         stderr.ShouldContain($"Unknown command: '{command}'");
     }
 
+    [Theory]
+    [InlineData("status")]
+    [InlineData("set")]
+    [InlineData("help")]
+    [InlineData("nav")]
+    [InlineData("seed")]
+    public void IsKnownCommand_RecognizesTopLevelCommands(string command)
+    {
+        GroupedHelp.IsKnownCommand([command]).ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData("nav", "up")]
+    [InlineData("nav", "down")]
+    [InlineData("seed", "new")]
+    [InlineData("seed", "edit")]
+    [InlineData("link", "parent")]
+    [InlineData("hooks", "install")]
+    [InlineData("ohmyposh", "init")]
+    public void IsKnownCommand_RecognizesCompoundCommands(string first, string second)
+    {
+        GroupedHelp.IsKnownCommand([first, second]).ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData("foobar")]
+    [InlineData("frobnicate")]
+    [InlineData("halp")]
+    [InlineData("stats")]
+    public void IsKnownCommand_ReturnsFalseForUnknownCommands(string command)
+    {
+        GroupedHelp.IsKnownCommand([command]).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void IsKnownCommand_ReturnsFalseForEmptyArgs()
+    {
+        GroupedHelp.IsKnownCommand([]).ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData("set", "123")]
+    [InlineData("status", "--all")]
+    public void IsKnownCommand_FallsBackToTopLevelWhenCompoundUnknown(string first, string second)
+    {
+        // "set 123" is not a compound command, but "set" is a top-level command
+        GroupedHelp.IsKnownCommand([first, second]).ShouldBeTrue();
+    }
+
     private static (string Stderr, string Stdout) CaptureShowUnknown(string command)
     {
         var origErr = Console.Error;

@@ -116,6 +116,15 @@ if (args.Length == 0)
     }
 }
 
+// Pre-routing interception: show grouped help for unknown commands instead of
+// ConsoleAppFramework's default flat error output.
+if (args.Length > 0 && !args[0].StartsWith('-') && !GroupedHelp.IsKnownCommand(args))
+{
+    GroupedHelp.ShowUnknown(args[0]);
+    Environment.ExitCode = 1;
+    return;
+}
+
 app.Run(args);
 
 /// <summary>
@@ -775,6 +784,15 @@ internal static class GroupedHelp
         "link",
         "hooks",
     ];
+
+    /// <summary>
+    /// Returns <c>true</c> when <paramref name="args"/> begins with a recognized
+    /// command name. All compound sub-command prefixes (e.g. <c>nav</c>, <c>seed</c>,
+    /// <c>link</c>, <c>hooks</c>) are already top-level entries in <see cref="KnownCommands"/>,
+    /// so checking <c>args[0]</c> is sufficient.
+    /// </summary>
+    public static bool IsKnownCommand(string[] args)
+        => args.Length > 0 && KnownCommands.Contains(args[0]);
 
     internal static void ShowUnknown(string command)
     {

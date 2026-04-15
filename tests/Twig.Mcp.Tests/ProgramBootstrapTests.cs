@@ -213,4 +213,43 @@ public sealed class ProgramBootstrapTests
                 Directory.Delete(rootDir, recursive: true);
         }
     }
+
+    [Fact]
+    public void DiscoveredTwigDir_FromSubdirectory_ThreadedCorrectly()
+    {
+        // Walk-up integration: when started from a subdirectory, the guard discovers
+        // .twig/ in a parent, and that path is threaded to AddTwigCoreServices.
+        var tempDir = Path.Combine(Path.GetTempPath(), $"twig-test-{Guid.NewGuid():N}");
+        try
+        {
+            var twigDir = Path.Combine(tempDir, ".twig");
+            Directory.CreateDirectory(twigDir);
+            File.WriteAllText(Path.Combine(twigDir, "config"), "{}");
+
+            // Create a nested subdirectory to simulate running from src/MyProject/
+            var subDir = Path.Combine(tempDir, "src", "MyProject");
+            Directory.CreateDirectory(subDir);
+
+            var (isValid, _, discoveredTwigDir) = WorkspaceGuard.CheckWorkspace(subDir);
+            isValid.ShouldBeTrue();
+            discoveredTwigDir.ShouldBe(twigDir);
+
+            var configPath = Path.Combine(discoveredTwigDir!, "config");
+            var config = TwigConfiguration.Load(configPath);
+
+            var services = new ServiceCollection();
+            services.AddTwigCoreServices(config, discoveredTwigDir);
+
+            using var provider = services.BuildServiceProvider();
+            var paths = provider.GetRequiredService<TwigPaths>();
+
+            // TwigPaths should point at the parent's .twig/, not the subdirectory
+            paths.TwigDir.ShouldBe(twigDir);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
+    }
 }

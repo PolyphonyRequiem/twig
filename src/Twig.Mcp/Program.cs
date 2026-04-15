@@ -32,7 +32,7 @@ var builder = Host.CreateApplicationBuilder(args);
 builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
 
 // Shared service registration (Infrastructure layer)
-builder.Services.AddTwigCoreServices(config);
+builder.Services.AddTwigCoreServices(config, discoveredTwigDir);
 builder.Services.AddTwigNetworkServices(config);
 
 // Domain orchestration services (subset of CLI's CommandServiceModule —

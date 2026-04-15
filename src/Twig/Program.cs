@@ -773,6 +773,7 @@ internal static class GroupedHelp
 
         // Experimental
         "tui",
+        "mcp",
         "ohmyposh",
         "ohmyposh init",
 

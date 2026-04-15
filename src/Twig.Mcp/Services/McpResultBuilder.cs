@@ -145,6 +145,33 @@ internal static class McpResultBuilder
             writer.WriteNumber("dirtyCount", dirtyItems.Count);
         });
 
+    public static CallToolResult FormatStateChange(WorkItem updated, string previousState) =>
+        BuildJson(writer =>
+        {
+            WriteWorkItemCore(writer, updated);
+            writer.WriteString("previousState", previousState);
+        });
+
+    public static CallToolResult FormatFieldUpdate(WorkItem updated, string field, string displayValue) =>
+        BuildJson(writer =>
+        {
+            WriteWorkItemCore(writer, updated);
+            var truncated = displayValue.Length > 100
+                ? string.Concat(displayValue.AsSpan(0, 100), "...")
+                : displayValue;
+            writer.WriteString("updatedField", field);
+            writer.WriteString("updatedValue", truncated);
+        });
+
+    public static CallToolResult FormatNoteAdded(int itemId, string title, bool isPending) =>
+        BuildJson(writer =>
+        {
+            writer.WriteNumber("id", itemId);
+            writer.WriteString("title", title);
+            writer.WriteBoolean("noteAdded", true);
+            writer.WriteBoolean("isPending", isPending);
+        });
+
     public static CallToolResult FormatFlushSummary(McpFlushSummary summary) =>
         BuildJson(writer =>
         {

@@ -509,7 +509,6 @@ public class UpdateCommandTests
     {
         var item = CreateWorkItem(42, "Explicit Item");
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
-        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(42, "Explicit Item"));
         _adoService.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
         _pendingChangeStore.GetChangesAsync(42, Arg.Any<CancellationToken>()).Returns(Array.Empty<PendingChangeRecord>());
 

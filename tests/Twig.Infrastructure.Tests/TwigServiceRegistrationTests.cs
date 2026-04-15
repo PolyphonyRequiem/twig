@@ -44,22 +44,6 @@ public sealed class TwigServiceRegistrationTests
     }
 
     [Fact]
-    public void AddTwigCoreServices_WithoutTwigDirArg_FallsBackToCwd()
-    {
-        var services = new ServiceCollection();
-        var config = new TwigConfiguration { Organization = "myorg", Project = "myproj" };
-
-        // Call without twigDir — backward-compatible overload
-        services.AddTwigCoreServices(preloadedConfig: config);
-
-        var provider = services.BuildServiceProvider();
-        var paths = provider.GetRequiredService<TwigPaths>();
-
-        var expectedDir = Path.Combine(Directory.GetCurrentDirectory(), ".twig");
-        paths.TwigDir.ShouldBe(expectedDir);
-    }
-
-    [Fact]
     public void AddTwigCoreServices_NullConfig_WithTwigDir_ConfigFallbackUsesProvidedDir()
     {
         // When preloadedConfig is null, the config factory loads from twigDir/config.

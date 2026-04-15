@@ -776,6 +776,13 @@ internal static class GroupedHelp
         "hooks",
     ];
 
+    internal static void ShowUnknown(string command)
+    {
+        Console.Error.WriteLine($"Unknown command: '{command}'");
+        Console.Error.WriteLine();
+        Show();
+    }
+
     internal static void Show()
     {
         var v = VersionHelper.GetVersion();

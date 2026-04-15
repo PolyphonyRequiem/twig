@@ -40,4 +40,38 @@ public sealed class GroupedHelpTests
             cmd.ShouldBe(cmd.ToLowerInvariant(), $"Command '{cmd}' should be lowercase (CLI convention)");
         }
     }
+
+    [Fact]
+    public void ShowUnknown_WritesErrorToStderrAndHelpToStdout()
+    {
+        var (stderr, stdout) = CaptureShowUnknown("frobnicate");
+
+        stderr.ShouldContain("Unknown command: 'frobnicate'");
+        stdout.ShouldContain("Usage: twig");
+        stdout.ShouldContain("Getting Started:");
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("some-weird-cmd")]
+    [InlineData("command with spaces")]
+    public void ShowUnknown_IncludesCommandNameInError(string command)
+    {
+        var (stderr, _) = CaptureShowUnknown(command);
+
+        stderr.ShouldContain($"Unknown command: '{command}'");
+    }
+
+    private static (string Stderr, string Stdout) CaptureShowUnknown(string command)
+    {
+        var origErr = Console.Error;
+        var origOut = Console.Out;
+        using var errWriter = new StringWriter();
+        using var outWriter = new StringWriter();
+        Console.SetError(errWriter);
+        Console.SetOut(outWriter);
+        try { GroupedHelp.ShowUnknown(command); }
+        finally { Console.SetError(origErr); Console.SetOut(origOut); }
+        return (errWriter.ToString(), outWriter.ToString());
+    }
 }

@@ -319,7 +319,7 @@ public sealed class McpResultBuilderTests
 
         var tree = WorkTree.Build(focus, [parent], [child1, child2], focusedItemLinks: [link]);
 
-        var result = McpResultBuilder.FormatTree(tree);
+        var result = McpResultBuilder.FormatTree(tree, 2);
         var json = GetJsonText(result);
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
@@ -339,7 +339,7 @@ public sealed class McpResultBuilderTests
         var focus = new WorkItemBuilder(1, "Solo").AsBug().InState("Active").Build();
         var tree = WorkTree.Build(focus, [], []);
 
-        var result = McpResultBuilder.FormatTree(tree);
+        var result = McpResultBuilder.FormatTree(tree, 0);
         var json = GetJsonText(result);
         using var doc = JsonDocument.Parse(json);
 
@@ -360,7 +360,7 @@ public sealed class McpResultBuilderTests
         };
         var tree = WorkTree.Build(focus, [], [], focusedItemLinks: links);
 
-        var result = McpResultBuilder.FormatTree(tree);
+        var result = McpResultBuilder.FormatTree(tree, 0);
         using var doc = JsonDocument.Parse(GetJsonText(result));
         var linksArr = doc.RootElement.GetProperty("links");
 
@@ -380,13 +380,57 @@ public sealed class McpResultBuilderTests
         var parent = new WorkItemBuilder(50, "Parent").AsFeature().Build();
         var tree = WorkTree.Build(focus, [grandparent, parent], []);
 
-        var result = McpResultBuilder.FormatTree(tree);
+        var result = McpResultBuilder.FormatTree(tree, 0);
         using var doc = JsonDocument.Parse(GetJsonText(result));
         var chain = doc.RootElement.GetProperty("parentChain");
 
         chain.GetArrayLength().ShouldBe(2);
         chain[0].GetProperty("id").GetInt32().ShouldBe(1);
         chain[1].GetProperty("id").GetInt32().ShouldBe(50);
+    }
+
+    [Fact]
+    public void FormatTree_TotalChildren_ReflectsActualCount_NotTruncated()
+    {
+        var focus = WorkItemBuilder.Simple(10, "Focus");
+        var child1 = new WorkItemBuilder(20, "Child 1").AsTask().Build();
+        var child2 = new WorkItemBuilder(21, "Child 2").AsTask().Build();
+        // Tree has 2 children but totalChildren is 5 (e.g., depth-truncated)
+        var tree = WorkTree.Build(focus, [], [child1, child2]);
+
+        var result = McpResultBuilder.FormatTree(tree, 5);
+        using var doc = JsonDocument.Parse(GetJsonText(result));
+
+        doc.RootElement.GetProperty("children").GetArrayLength().ShouldBe(2);
+        doc.RootElement.GetProperty("totalChildren").GetInt32().ShouldBe(5);
+    }
+
+    [Fact]
+    public void FormatTree_SiblingCounts_SerializedAsIdToCountMap()
+    {
+        var focus = new WorkItemBuilder(10, "Focus").WithParent(5).Build();
+        var parent = new WorkItemBuilder(5, "Parent").AsFeature().Build();
+        var siblingCounts = new Dictionary<int, int?> { [5] = null, [10] = 3 };
+        var tree = WorkTree.Build(focus, [parent], [], siblingCounts);
+
+        var result = McpResultBuilder.FormatTree(tree, 0);
+        using var doc = JsonDocument.Parse(GetJsonText(result));
+        var counts = doc.RootElement.GetProperty("siblingCounts");
+
+        counts.GetProperty("5").ValueKind.ShouldBe(JsonValueKind.Null);
+        counts.GetProperty("10").GetInt32().ShouldBe(3);
+    }
+
+    [Fact]
+    public void FormatTree_NoSiblingCounts_OmitsSiblingCountsKey()
+    {
+        var focus = WorkItemBuilder.Simple(10, "Focus");
+        var tree = WorkTree.Build(focus, [], []);
+
+        var result = McpResultBuilder.FormatTree(tree, 0);
+        using var doc = JsonDocument.Parse(GetJsonText(result));
+
+        doc.RootElement.TryGetProperty("siblingCounts", out _).ShouldBeFalse();
     }
 
     // ── FormatWorkspace ─────────────────────────────────────────────

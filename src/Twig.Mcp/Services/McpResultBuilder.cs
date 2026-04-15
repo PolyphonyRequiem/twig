@@ -20,27 +20,17 @@ internal static class McpResultBuilder
     public static CallToolResult ToError(string message) =>
         new() { Content = [new TextContentBlock { Text = message }], IsError = true };
 
-    public static CallToolResult FormatWorkItem(WorkItem item)
-    {
-        using var stream = new MemoryStream();
-        using var writer = new Utf8JsonWriter(stream, WriterOptions);
+    public static CallToolResult FormatWorkItem(WorkItem item) =>
+        BuildJson(writer =>
+        {
+            WriteWorkItemCore(writer, item);
+            writer.WriteString("areaPath", item.AreaPath.ToString());
+            writer.WriteString("iterationPath", item.IterationPath.ToString());
+        });
 
-        writer.WriteStartObject();
-        WriteWorkItemCore(writer, item);
-        writer.WriteString("areaPath", item.AreaPath.ToString());
-        writer.WriteString("iterationPath", item.IterationPath.ToString());
-        writer.WriteEndObject();
-
-        writer.Flush();
-        return ToResult(Encoding.UTF8.GetString(stream.ToArray()));
-    }
-
-    public static CallToolResult FormatStatus(StatusSnapshot snapshot)
-    {
-        using var stream = new MemoryStream();
-        using var writer = new Utf8JsonWriter(stream, WriterOptions);
-
-        writer.WriteStartObject();
+    public static CallToolResult FormatStatus(StatusSnapshot snapshot) =>
+        BuildJson(writer =>
+        {
         writer.WriteBoolean("hasContext", snapshot.HasContext);
 
         if (snapshot.Item is not null)
@@ -88,19 +78,11 @@ internal static class McpResultBuilder
             writer.WriteString("unreachableReason", snapshot.UnreachableReason);
         }
 
-        writer.WriteEndObject();
+        });
 
-        writer.Flush();
-        return ToResult(Encoding.UTF8.GetString(stream.ToArray()));
-    }
-
-    public static CallToolResult FormatTree(WorkTree tree)
-    {
-        using var stream = new MemoryStream();
-        using var writer = new Utf8JsonWriter(stream, WriterOptions);
-
-        writer.WriteStartObject();
-
+    public static CallToolResult FormatTree(WorkTree tree, int totalChildren) =>
+        BuildJson(writer =>
+        {
         // Focus
         writer.WritePropertyName("focus");
         writer.WriteStartObject();
@@ -127,7 +109,21 @@ internal static class McpResultBuilder
         }
         writer.WriteEndArray();
 
-        writer.WriteNumber("totalChildren", tree.Children.Count);
+        writer.WriteNumber("totalChildren", totalChildren);
+
+        // Sibling counts
+        if (tree.SiblingCounts is { Count: > 0 })
+        {
+            writer.WriteStartObject("siblingCounts");
+            foreach (var (id, count) in tree.SiblingCounts)
+            {
+                if (count.HasValue)
+                    writer.WriteNumber(id.ToString(), count.Value);
+                else
+                    writer.WriteNull(id.ToString());
+            }
+            writer.WriteEndObject();
+        }
 
         // Links
         writer.WriteStartArray("links");
@@ -137,19 +133,11 @@ internal static class McpResultBuilder
         }
         writer.WriteEndArray();
 
-        writer.WriteEndObject();
+        });
 
-        writer.Flush();
-        return ToResult(Encoding.UTF8.GetString(stream.ToArray()));
-    }
-
-    public static CallToolResult FormatWorkspace(Workspace workspace, int staleDays)
-    {
-        using var stream = new MemoryStream();
-        using var writer = new Utf8JsonWriter(stream, WriterOptions);
-
-        writer.WriteStartObject();
-
+    public static CallToolResult FormatWorkspace(Workspace workspace, int staleDays) =>
+        BuildJson(writer =>
+        {
         // Context
         writer.WritePropertyName("context");
         if (workspace.ContextItem is not null)
@@ -195,17 +183,23 @@ internal static class McpResultBuilder
         // Dirty count
         var dirtyItems = workspace.GetDirtyItems();
         writer.WriteNumber("dirtyCount", dirtyItems.Count);
-
-        writer.WriteEndObject();
-
-        writer.Flush();
-        return ToResult(Encoding.UTF8.GetString(stream.ToArray()));
-    }
+        });
 
     public static CallToolResult FormatFlushSummary(McpFlushSummary summary)
     {
         var json = JsonSerializer.Serialize(summary, McpJsonContext.Default.McpFlushSummary);
         return ToResult(json);
+    }
+
+    private static CallToolResult BuildJson(Action<Utf8JsonWriter> write)
+    {
+        using var stream = new MemoryStream();
+        using var writer = new Utf8JsonWriter(stream, WriterOptions);
+        writer.WriteStartObject();
+        write(writer);
+        writer.WriteEndObject();
+        writer.Flush();
+        return ToResult(Encoding.UTF8.GetString(stream.ToArray()));
     }
 
     private static void WriteWorkItemCore(Utf8JsonWriter writer, WorkItem item)

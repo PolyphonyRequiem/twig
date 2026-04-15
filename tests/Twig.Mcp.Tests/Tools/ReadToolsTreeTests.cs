@@ -46,7 +46,8 @@ public sealed class ReadToolsTreeTests
     private static JsonElement ParseResult(CallToolResult result)
     {
         var text = result.Content[0].ShouldBeOfType<TextContentBlock>().Text;
-        return JsonDocument.Parse(text).RootElement;
+        using var doc = JsonDocument.Parse(text);
+        return doc.RootElement.Clone();
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -178,9 +179,9 @@ public sealed class ReadToolsTreeTests
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
 
-        // Only 2 children should be included
+        // Only 2 children displayed, but totalChildren reflects actual count
         root.GetProperty("children").GetArrayLength().ShouldBe(2);
-        root.GetProperty("totalChildren").GetInt32().ShouldBe(2);
+        root.GetProperty("totalChildren").GetInt32().ShouldBe(5);
     }
 
     [Fact]
@@ -277,6 +278,39 @@ public sealed class ReadToolsTreeTests
 
         root.GetProperty("focus").GetProperty("id").GetInt32().ShouldBe(42);
         root.GetProperty("focus").GetProperty("title").GetString().ShouldBe("New Feature");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Sibling counts in JSON output
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Tree_SiblingCounts_IncludedInJsonOutput()
+    {
+        var parent = new WorkItemBuilder(1, "Epic").AsEpic().InState("Active").Build();
+        var focus = new WorkItemBuilder(10, "Feature").AsFeature().InState("Active")
+            .WithParent(1).Build();
+        var sibling = new WorkItemBuilder(11, "Sibling").AsFeature().WithParent(1).Build();
+
+        SetupActiveItem(focus);
+        _workItemRepo.GetParentChainAsync(1, Arg.Any<CancellationToken>())
+            .Returns([parent]);
+        _workItemRepo.GetChildrenAsync(10, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        // Parent 1 has 2 children (focus + sibling) -> sibling count for focus = 2
+        _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
+            .Returns([focus, sibling]);
+
+        var result = await CreateSut().Tree();
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+
+        var siblingCounts = root.GetProperty("siblingCounts");
+        // Parent (root) has null sibling count
+        siblingCounts.GetProperty("1").ValueKind.ShouldBe(JsonValueKind.Null);
+        // Focus has 2 siblings (children of parent)
+        siblingCounts.GetProperty("10").GetInt32().ShouldBe(2);
     }
 
     // ═══════════════════════════════════════════════════════════════

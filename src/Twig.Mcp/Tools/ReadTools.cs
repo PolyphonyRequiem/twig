@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
+using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
 using Twig.Domain.Services;
@@ -39,10 +40,11 @@ public sealed class ReadTools(
         // Build parent chain
         var parentChain = item.ParentId.HasValue
             ? await workItemRepo.GetParentChainAsync(item.ParentId.Value, ct)
-            : Array.Empty<Domain.Aggregates.WorkItem>();
+            : Array.Empty<WorkItem>();
 
         var maxChildren = depth ?? config.Display.TreeDepth;
         var allChildren = await workItemRepo.GetChildrenAsync(item.Id, ct);
+        var totalChildCount = allChildren.Count;
         var children = allChildren.Count > maxChildren
             ? allChildren.Take(maxChildren).ToList()
             : allChildren;
@@ -64,6 +66,6 @@ public sealed class ReadTools(
 
         var tree = WorkTree.Build(item, parentChain, children, siblingCounts, links);
 
-        return McpResultBuilder.FormatTree(tree);
+        return McpResultBuilder.FormatTree(tree, totalChildCount);
     }
 }

@@ -170,17 +170,11 @@ internal sealed class AdoIterationService : IIterationService
         return types;
     }
 
-    public Task<ProcessConfigurationData> GetProcessConfigurationAsync(CancellationToken ct = default)
-    {
+    public Task<ProcessConfigurationData> GetProcessConfigurationAsync(CancellationToken ct = default) =>
         _processConfigCache ??= FetchProcessConfigurationAsync(ct);
-        return _processConfigCache;
-    }
 
-    public Task<IReadOnlyList<FieldDefinition>> GetFieldDefinitionsAsync(CancellationToken ct = default)
-    {
+    public Task<IReadOnlyList<FieldDefinition>> GetFieldDefinitionsAsync(CancellationToken ct = default) =>
         _fieldDefinitionsCache ??= FetchFieldDefinitionsAsync(ct);
-        return _fieldDefinitionsCache;
-    }
 
     public async Task<IReadOnlyList<(string Path, bool IncludeChildren)>> GetTeamAreaPathsAsync(CancellationToken ct = default)
     {

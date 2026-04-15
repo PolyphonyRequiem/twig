@@ -1,23 +1,11 @@
-using System.Net;
-using System.Text;
 using Shouldly;
-using Twig.Domain.Interfaces;
 using Twig.Infrastructure.Ado;
 using Xunit;
 
 namespace Twig.Infrastructure.Tests.Ado;
 
-/// <summary>
-/// Verifies that <see cref="AdoIterationService"/> caches the workitemtypes HTTP response
-/// so that calling <c>DetectTemplateNameAsync</c>, <c>GetWorkItemTypeAppearancesAsync</c>,
-/// and <c>GetWorkItemTypesWithStatesAsync</c> in sequence produces only a single HTTP request.
-/// </summary>
-public class AdoIterationServiceCacheTests
+public sealed class AdoIterationServiceCacheTests
 {
-    private const string OrgUrl = "https://dev.azure.com/testorg";
-    private const string Project = "testproject";
-    private const string Team = "testteam";
-
     [Fact]
     public async Task AllThreeMethods_OnlyOneHttpCallToWorkItemTypes()
     {
@@ -251,25 +239,14 @@ public class AdoIterationServiceCacheTests
 
     // ── Helpers ──────────────────────────────────────────────────────
 
-    private static AdoIterationService CreateService(CountingHandler handler)
-    {
-        var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
-        var auth = new FakeAuthProvider();
-        return new AdoIterationService(http, auth, OrgUrl, Project, Team);
-    }
-
-    private sealed class FakeAuthProvider : IAuthenticationProvider
-    {
-        public Task<string> GetAccessTokenAsync(CancellationToken ct = default)
-            => Task.FromResult("fake-bearer-token");
-    }
+    private static AdoIterationService CreateService(CountingHandler handler) =>
+        FakeHandler.CreateService(handler);
 
     /// <summary>
-    /// HttpMessageHandler that counts calls per URL fragment and returns canned responses.
+    /// FakeHandler subclass that counts HTTP calls per URL fragment.
     /// </summary>
-    private sealed class CountingHandler : HttpMessageHandler
+    private sealed class CountingHandler : FakeHandler
     {
-        private readonly Dictionary<string, string> _responses = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, int> _callCounts = new(StringComparer.OrdinalIgnoreCase);
 
         public int GetCallCount(string urlFragment)
@@ -278,52 +255,18 @@ public class AdoIterationServiceCacheTests
             return count;
         }
 
-        public void SetRawResponse(string urlFragment, string json)
-        {
-            _responses[urlFragment] = json;
-        }
-
-        public void SetWorkItemTypesResponseWithStates(params (string name, string? color, string? iconId, bool isDisabled, (string name, string category)[] states)[] types)
-        {
-            var typeJsons = types.Select(t =>
-            {
-                var colorPart = t.color is not null ? $"\"color\":\"{t.color}\"" : "\"color\":null";
-                var iconPart = t.iconId is not null
-                    ? $"\"icon\":{{\"id\":\"{t.iconId}\",\"url\":\"https://example.com\"}}"
-                    : "\"icon\":null";
-                var stateJsons = t.states.Select(s => $"{{\"name\":\"{s.name}\",\"color\":\"FFFFFF\",\"category\":\"{s.category}\"}}");
-                var statesJson = $"\"states\":[{string.Join(',', stateJsons)}]";
-                return $"{{\"name\":\"{t.name}\",\"description\":\"\",\"referenceName\":\"System.{t.name.Replace(" ", "")}\",{colorPart},{iconPart},\"isDisabled\":{t.isDisabled.ToString().ToLowerInvariant()},{statesJson}}}";
-            });
-            var json = $"{{\"count\":{types.Length},\"value\":[{string.Join(',', typeJsons)}]}}";
-            _responses["/_apis/wit/workitemtypes"] = json;
-        }
-
-        protected override Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request,
-            CancellationToken cancellationToken)
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             var url = request.RequestUri!.ToString();
-
-            foreach (var kvp in _responses)
+            foreach (var key in _responses.Keys)
             {
-                if (url.Contains(kvp.Key, StringComparison.OrdinalIgnoreCase))
+                if (url.Contains(key, StringComparison.OrdinalIgnoreCase))
                 {
-                    // Increment call count
-                    _callCounts.TryGetValue(kvp.Key, out var count);
-                    _callCounts[kvp.Key] = count + 1;
-
-                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-                    {
-                        Content = new StringContent(kvp.Value, Encoding.UTF8, "application/json"),
-                    });
+                    _callCounts[key] = _callCounts.GetValueOrDefault(key) + 1;
+                    break;
                 }
             }
-
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)
-            {
-                Content = new StringContent(""),
-            });
+            return base.SendAsync(request, ct);
         }
     }
 }

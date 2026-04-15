@@ -1,6 +1,6 @@
 # Help System Consistency & Coverage
 
-> **Status**: 🔨 In Progress | **Epic**: #1522 | **Revision**: R7 — Revised per tech/readability review (84/91)
+> **Status**: 🔨 In Progress — 1/2 PR groups merged | **Epic**: #1522 | **Revision**: R7 — Revised per tech/readability review (84/91)
 
 ## Executive Summary
 

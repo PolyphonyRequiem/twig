@@ -1,6 +1,6 @@
 # Query Command UX Improvements
 
-> **Status**: 🔨 In Progress
+> **Status**: ✅ Done
 > **Issue**: #1638 (Epic)
 
 ## Executive Summary

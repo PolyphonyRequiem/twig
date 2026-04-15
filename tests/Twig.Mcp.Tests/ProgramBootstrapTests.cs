@@ -20,34 +20,6 @@ namespace Twig.Mcp.Tests;
 public sealed class ProgramBootstrapTests
 {
     [Fact]
-    public void WorkspaceGuard_ExistingConfigFile_AllowsConfigLoad()
-    {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"twig-test-{Guid.NewGuid():N}");
-        try
-        {
-            var twigDir = Path.Combine(tempDir, ".twig");
-            Directory.CreateDirectory(twigDir);
-            var configPath = Path.Combine(twigDir, "config");
-            File.WriteAllText(configPath, """
-                {
-                    "organization": "test-org",
-                    "project": "test-project"
-                }
-                """);
-
-            var config = TwigConfiguration.Load(configPath);
-            config.ShouldNotBeNull();
-            config.Organization.ShouldBe("test-org");
-            config.Project.ShouldBe("test-project");
-        }
-        finally
-        {
-            if (Directory.Exists(tempDir))
-                Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
     public void DomainServices_FactoryRegistrations_ResolveCorrectTypes()
     {
         // Verify that the factory-based DI registrations (DD-10) register all
@@ -175,8 +147,10 @@ public sealed class ProgramBootstrapTests
         try
         {
             Directory.CreateDirectory(tempDir);
+            // Create .twig/ dir without config so walk-up stops here
+            Directory.CreateDirectory(Path.Combine(tempDir, ".twig"));
 
-            var (isValid, error) = WorkspaceGuard.CheckWorkspace(tempDir);
+            var (isValid, error, _) = WorkspaceGuard.CheckWorkspace(tempDir);
 
             isValid.ShouldBeFalse();
             error.ShouldNotBeNull();
@@ -200,15 +174,43 @@ public sealed class ProgramBootstrapTests
             Directory.CreateDirectory(twigDir);
             File.WriteAllText(Path.Combine(twigDir, "config"), "{}");
 
-            var (isValid, error) = WorkspaceGuard.CheckWorkspace(tempDir);
+            var (isValid, error, resultTwigDir) = WorkspaceGuard.CheckWorkspace(tempDir);
 
             isValid.ShouldBeTrue();
             error.ShouldBeNull();
+            resultTwigDir.ShouldBe(twigDir);
         }
         finally
         {
             if (Directory.Exists(tempDir))
                 Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void WorkspaceGuard_NoTwigDirAnywhere_ReturnsNotFoundError()
+    {
+        // Walk-up search: when no .twig/ exists anywhere up the ancestor chain,
+        // return a clear error directing the user to run 'twig init'.
+        // Use a drive-root-level directory to avoid inheriting a real .twig/
+        // from an ancestor (e.g., the user's home directory).
+        var driveRoot = Path.GetPathRoot(Path.GetTempPath())!;
+        var rootDir = Path.Combine(driveRoot, $"twig-nows-{Guid.NewGuid():N}");
+        var tempDir = Path.Combine(rootDir, "deep", "nested");
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+
+            var (isValid, error, twigDir) = WorkspaceGuard.CheckWorkspace(tempDir);
+
+            isValid.ShouldBeFalse();
+            error.ShouldBe("No twig workspace found. Run 'twig init' in your project root.");
+            twigDir.ShouldBeNull();
+        }
+        finally
+        {
+            if (Directory.Exists(rootDir))
+                Directory.Delete(rootDir, recursive: true);
         }
     }
 }

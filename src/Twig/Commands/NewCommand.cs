@@ -17,7 +17,8 @@ public sealed class NewCommand(
     IEditorLauncher editorLauncher,
     OutputFormatterFactory formatterFactory,
     HintEngine hintEngine,
-    TwigConfiguration config)
+    TwigConfiguration config,
+    ContextChangeService? contextChangeService = null)
 {
     public async Task<int> ExecuteAsync(
         string? title,
@@ -152,6 +153,14 @@ public sealed class NewCommand(
             var formatted = fmt.FormatHint(hint);
             if (!string.IsNullOrEmpty(formatted))
                 Console.WriteLine(formatted);
+        }
+
+        // Extend working set around the new item (fire-and-forget — never fails the command).
+        // Runs after output so user sees success immediately.
+        if (set && contextChangeService is not null)
+        {
+            try { await contextChangeService.ExtendWorkingSetAsync(newId, ct); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { /* swallow */ }
         }
 
         return 0;

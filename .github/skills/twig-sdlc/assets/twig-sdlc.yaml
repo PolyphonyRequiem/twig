@@ -720,6 +720,21 @@ agents:
       pr_url:
         type: string
         description: URL of the merged PR
+      pr_number:
+        type: number
+        description: GitHub PR number
+      pr_group_name:
+        type: string
+        description: Name of the PR group that was merged (e.g. PG-1)
+      branch_name:
+        type: string
+        description: Branch that was merged and deleted
+      merge_commit:
+        type: string
+        description: Merge commit SHA on main
+      issue_ids:
+        type: array
+        description: ADO Issue IDs included in this PR group
     routes:
       - to: pr_group_manager
   # ---------------------------------------------------------------------------

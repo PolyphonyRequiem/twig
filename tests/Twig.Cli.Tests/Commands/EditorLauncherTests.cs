@@ -13,15 +13,14 @@ namespace Twig.Cli.Tests.Commands;
 public class EditorLauncherTests : IDisposable
 {
     private readonly string _tempRoot;
-    private readonly string _tempTwigDir;
     private readonly EditorLauncher _launcher;
 
     public EditorLauncherTests()
     {
         _tempRoot = Path.Combine(Path.GetTempPath(), $"twig-test-{Guid.NewGuid():N}");
-        _tempTwigDir = Path.Combine(_tempRoot, ".twig");
-        Directory.CreateDirectory(_tempTwigDir);
-        var paths = new TwigPaths(_tempTwigDir, Path.Combine(_tempTwigDir, "config"), Path.Combine(_tempTwigDir, "twig.db"));
+        var tempTwigDir = Path.Combine(_tempRoot, ".twig");
+        Directory.CreateDirectory(tempTwigDir);
+        var paths = new TwigPaths(tempTwigDir, Path.Combine(tempTwigDir, "config"), Path.Combine(tempTwigDir, "twig.db"));
         _launcher = new EditorLauncher(paths);
     }
 

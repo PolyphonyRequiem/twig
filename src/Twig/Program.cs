@@ -30,11 +30,13 @@ var app = ConsoleApp.Create()
     .ConfigureServices(services =>
     {
         // Core services (config, paths, SQLite persistence, repositories, stores)
-        // Load config once synchronously; pass to AddTwigCoreServices to avoid double-load.
-        var twigDir = Path.Combine(Directory.GetCurrentDirectory(), ".twig");
+        // Walk-up discovery: find nearest .twig/ in current or ancestor directories.
+        // Falls back to CWD-relative for commands that run before init (e.g., twig init).
+        var twigDir = WorkspaceDiscovery.FindTwigDir()
+            ?? Path.Combine(Directory.GetCurrentDirectory(), ".twig");
         var configPath = Path.Combine(twigDir, "config");
         var config = TwigConfiguration.Load(configPath);
-        services.AddTwigCoreServices(config);
+        services.AddTwigCoreServices(config, twigDir);
 
         // ITEM-138: Migrate legacy flat twig.db → nested context path.
         // LegacyDbMigrator is internal to CLI — must be called here, not in shared registration.
@@ -103,8 +105,8 @@ if (args.Length == 1 && args[0] is "-h" or "--help" or "help")
 if (args.Length == 0)
 {
     // Smart landing: route to status if workspace is initialized, otherwise show help
-    var twigDirCheck = Path.Combine(Directory.GetCurrentDirectory(), ".twig");
-    if (Directory.Exists(twigDirCheck))
+    var twigDirCheck = WorkspaceDiscovery.FindTwigDir();
+    if (twigDirCheck is not null)
     {
         args = ["status"];
         // Fall through to app.Run(args)

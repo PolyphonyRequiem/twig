@@ -12,12 +12,11 @@ using Twig.Tui.Views;
 
 SQLitePCL.Batteries.Init();
 
-// Workspace-not-initialized guard — must run before DI container is built
-var twigDir = Path.Combine(Directory.GetCurrentDirectory(), ".twig");
+var twigDir = WorkspaceDiscovery.FindTwigDir();
 
-if (!Directory.Exists(twigDir))
+if (twigDir is null)
 {
-    Console.Error.WriteLine("Twig workspace not initialized. Run 'twig init' first.");
+    Console.Error.WriteLine("Twig workspace not found (searched current and ancestor directories). Run 'twig init' first.");
     return 1;
 }
 
@@ -36,7 +35,7 @@ if (!File.Exists(tempPaths.DbPath))
 
 // Build DI container using shared registration
 var services = new ServiceCollection();
-services.AddTwigCoreServices(config);
+services.AddTwigCoreServices(config, twigDir);
 var provider = services.BuildServiceProvider();
 var workItemRepo = provider.GetRequiredService<IWorkItemRepository>();
 var contextStore = provider.GetRequiredService<IContextStore>();

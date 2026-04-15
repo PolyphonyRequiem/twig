@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Twig.Domain.Interfaces;
+using Twig.Infrastructure.Config;
 
 namespace Twig.Commands;
 
@@ -20,14 +21,20 @@ public sealed class EditorNotFoundException : InvalidOperationException
 /// </summary>
 public sealed class EditorLauncher : IEditorLauncher
 {
+    private readonly TwigPaths _twigPaths;
     private static readonly TimeSpan EditorTimeout = TimeSpan.FromMinutes(5);
+
+    public EditorLauncher(TwigPaths twigPaths)
+    {
+        _twigPaths = twigPaths;
+    }
 
     public async Task<string?> LaunchAsync(string initialContent, CancellationToken ct = default)
     {
         var editor = ResolveEditor();
         var (fileName, editorArgs) = ParseEditorCommand(editor);
 
-        var twigDir = Path.Combine(Directory.GetCurrentDirectory(), ".twig");
+        var twigDir = _twigPaths.TwigDir;
         var editMsgPath = Path.Combine(twigDir, "EDIT_MSG");
 
         // Ensure .twig directory exists for the temp file

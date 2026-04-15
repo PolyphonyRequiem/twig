@@ -1,5 +1,6 @@
 using Shouldly;
 using Twig.Commands;
+using Twig.Infrastructure.Config;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
@@ -95,7 +96,7 @@ public class EditorLauncherEnhancedTests
             Environment.SetEnvironmentVariable("VISUAL", tempScript);
             Environment.SetEnvironmentVariable("EDITOR", null);
 
-            var launcher = new EditorLauncher();
+            var launcher = new EditorLauncher(MakePaths());
             var result = await launcher.LaunchAsync("unchanged content");
             result.ShouldBeNull(); // unchanged => abort
         }
@@ -118,7 +119,7 @@ public class EditorLauncherEnhancedTests
             Environment.SetEnvironmentVariable("VISUAL", tempScript);
             Environment.SetEnvironmentVariable("EDITOR", null);
 
-            var launcher = new EditorLauncher();
+            var launcher = new EditorLauncher(MakePaths());
             var result = await launcher.LaunchAsync("test content");
             result.ShouldBeNull(); // non-zero exit => null
         }
@@ -141,11 +142,12 @@ public class EditorLauncherEnhancedTests
             Environment.SetEnvironmentVariable("VISUAL", tempScript);
             Environment.SetEnvironmentVariable("EDITOR", null);
 
-            var launcher = new EditorLauncher();
+            var paths = MakePaths();
+            var launcher = new EditorLauncher(paths);
             await launcher.LaunchAsync("content");
 
             // EDIT_MSG should be cleaned up
-            var editMsgPath = Path.Combine(Directory.GetCurrentDirectory(), ".twig", "EDIT_MSG");
+            var editMsgPath = Path.Combine(paths.TwigDir, "EDIT_MSG");
             File.Exists(editMsgPath).ShouldBeFalse("EDIT_MSG should be cleaned up after editor exits");
         }
         finally
@@ -171,5 +173,12 @@ public class EditorLauncherEnhancedTests
             System.Diagnostics.Process.Start("chmod", $"+x {sh}")?.WaitForExit();
             return sh;
         }
+    }
+
+    private static TwigPaths MakePaths()
+    {
+        var twigDir = Path.Combine(Path.GetTempPath(), $"twig-test-{Guid.NewGuid():N}", ".twig");
+        Directory.CreateDirectory(twigDir);
+        return new TwigPaths(twigDir, Path.Combine(twigDir, "config"), Path.Combine(twigDir, "twig.db"));
     }
 }

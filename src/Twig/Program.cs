@@ -299,6 +299,9 @@ internal static class ExceptionHandler
 /// </summary>
 public sealed class TwigCommands(IServiceProvider services)
 {
+    internal static string? JoinTrailingText(string? named, string[]? positional)
+        => named ?? (positional is { Length: > 0 } ? string.Join(" ", positional) : null);
+
     /// <summary>Initialize a new Twig workspace.</summary>
     public async Task<int> Init(string org, string project, string? team = null, string? gitProject = null, bool force = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<InitCommand>().ExecuteAsync(org, project, team, gitProject, force, output, ct);
@@ -324,8 +327,11 @@ public sealed class TwigCommands(IServiceProvider services)
         => await services.GetRequiredService<StateCommand>().ExecuteAsync(name, output, ct);
 
     /// <summary>Create a new work item in ADO.</summary>
-    public async Task<int> New(string title, string type, string? area = null, string? iteration = null, string? description = null, int? parent = null, bool set = false, bool editor = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<NewCommand>().ExecuteAsync(title, type, area, iteration, description, parent, set, editor, output, ct);
+    public async Task<int> New(string? title = null, string? type = null, string? area = null, string? iteration = null, string? description = null, int? parent = null, bool set = false, bool editor = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, params string[] titleParts)
+    {
+        var resolvedTitle = JoinTrailingText(title, titleParts);
+        return await services.GetRequiredService<NewCommand>().ExecuteAsync(resolvedTitle, type, area, iteration, description, parent, set, editor, output, ct);
+    }
 
     /// <summary>Display the work item tree hierarchy.</summary>
     public async Task<int> Tree(string output = OutputFormatterFactory.DefaultFormat, int? depth = null, bool all = false, bool noLive = false, CancellationToken ct = default)
@@ -490,8 +496,8 @@ public sealed class TwigCommands(IServiceProvider services)
         => await services.GetRequiredService<LinkCommand>().ReparentAsync(targetId, output, ct);
 
     /// <summary>Add a note to the active work item.</summary>
-    public async Task<int> Note(string? text = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<NoteCommand>().ExecuteAsync(text, output, ct);
+    public async Task<int> Note(string? text = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, params string[] textParts)
+        => await services.GetRequiredService<NoteCommand>().ExecuteAsync(JoinTrailingText(text, textParts), output, ct);
 
     /// <summary>Update a field on the active work item.</summary>
     /// <param name="format">Convert the input value before sending to ADO. Supported: "markdown" (converts Markdown to HTML). Distinct from --output, which controls display format.</param>

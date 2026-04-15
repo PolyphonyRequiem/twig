@@ -167,6 +167,7 @@ public sealed class WorkspaceCacheAgeTests
 
         // Stale item shows cache-age; fresh item does not
         output.ShouldContain("cached 30m ago");
+        output.ShouldNotContain("cached 1m ago");
         output.ShouldContain("Stale One");
         output.ShouldContain("Fresh One");
     }

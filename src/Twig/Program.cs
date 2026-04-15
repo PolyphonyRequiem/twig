@@ -535,16 +535,16 @@ public sealed class TwigCommands(IServiceProvider services)
     }
 
     /// <summary>Show the current workspace.</summary>
-    public async Task<int> Workspace(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, ct);
+    public async Task<int> Workspace(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default)
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, noRefresh, ct);
 
     /// <summary>Show the current workspace (short alias).</summary>
-    public async Task<int> Ws(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, ct);
+    public async Task<int> Ws(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default)
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, noRefresh, ct);
 
     /// <summary>Show sprint items, grouped by assignee. Defaults to your items; use --all for the full team.</summary>
-    public async Task<int> Sprint(string output = OutputFormatterFactory.DefaultFormat, bool all = false, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, ct: ct, sprintLayout: true);
+    public async Task<int> Sprint(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noRefresh = false, CancellationToken ct = default)
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noRefresh: noRefresh, ct: ct, sprintLayout: true);
 
     /// <summary>Read or set a configuration value.</summary>
     [Command("config")]

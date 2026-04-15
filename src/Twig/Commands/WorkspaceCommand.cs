@@ -126,7 +126,7 @@ public sealed class WorkspaceCommand(
                 }
             }
 
-            await renderer.RenderWorkspaceAsync(StreamWorkspaceData(ct), config.Seed.StaleDays, all, ct, dynamicColumns);
+            await renderer.RenderWorkspaceAsync(StreamWorkspaceData(ct), config.Seed.StaleDays, all, ct, dynamicColumns, config.Display.CacheStaleMinutes);
 
             // Build Workspace from closure-populated variables for hint computation
             var workspace = Workspace.Build(contextItem, sprintItems, seeds);

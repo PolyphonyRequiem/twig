@@ -33,7 +33,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         int staleDays,
         bool isTeamView,
         CancellationToken ct,
-        IReadOnlyList<Domain.ValueObjects.ColumnSpec>? dynamicColumns = null)
+        IReadOnlyList<Domain.ValueObjects.ColumnSpec>? dynamicColumns = null,
+        int cacheStaleMinutes = 5)
     {
         var table = SpectreTheme.CreateWorkspaceTable(isTeamView, dynamicColumns);
         string? savedCaption = null;
@@ -100,11 +101,14 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                                     var boldOpen = isActive ? "[bold]" : "";
                                     var boldClose = isActive ? "[/]" : "";
 
+                                    var cacheAge = CacheAgeFormatter.Format(item.LastSyncedAt, cacheStaleMinutes);
+                                    var cacheAgeMarkup = cacheAge is not null ? $" [dim]{Markup.Escape(cacheAge)}[/]" : "";
+
                                     var row = new List<string>
                                     {
                                         $"{marker}{boldOpen}{item.Id}{boldClose}",
                                         _theme.FormatTypeBadge(item.Type),
-                                        $"{boldOpen}{Markup.Escape(item.Title)}{boldClose}",
+                                        $"{boldOpen}{Markup.Escape(item.Title)}{boldClose}{cacheAgeMarkup}",
                                         _theme.FormatState(item.State),
                                     };
 

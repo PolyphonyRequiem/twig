@@ -6,8 +6,14 @@ namespace Twig.Domain.ValueObjects;
 /// </summary>
 public sealed record QueryParameters
 {
-    /// <summary>Free-text keyword for CONTAINS clause.</summary>
+    /// <summary>Free-text keyword for CONTAINS clause (searches title AND description).</summary>
     public string? SearchText { get; init; }
+
+    /// <summary>Title-only text filter (CONTAINS clause on System.Title).</summary>
+    public string? TitleFilter { get; init; }
+
+    /// <summary>Description-only text filter (CONTAINS clause on System.Description).</summary>
+    public string? DescriptionFilter { get; init; }
 
     /// <summary>Work item type filter (exact match).</summary>
     public string? TypeFilter { get; init; }

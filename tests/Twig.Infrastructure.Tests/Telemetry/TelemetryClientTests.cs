@@ -29,7 +29,9 @@ public class TelemetryClientTests
         "item_count",
         "result_count",
         "hash_changed",
-        "used_all"
+        "used_all",
+        "had_filters",
+        "showed_summary"
     };
 
     /// <summary>
@@ -248,6 +250,8 @@ public class TelemetryClientTests
     [InlineData("result_count")]
     [InlineData("hash_changed")]
     [InlineData("used_all")]
+    [InlineData("had_filters")]
+    [InlineData("showed_summary")]
     public void AllowlistTest_SafeKeys_AreAccepted(string key)
     {
         SafePropertyKeys.Contains(key).ShouldBeTrue($"Key '{key}' should be in the safe allowlist");

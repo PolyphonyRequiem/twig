@@ -30,6 +30,8 @@ public sealed partial class QueryCommand(
     /// <summary>Execute the query command.</summary>
     public async Task<int> ExecuteAsync(
         string? searchText = null,
+        string? title = null,
+        string? description = null,
         string? type = null,
         string? state = null,
         string? assignedTo = null,
@@ -42,8 +44,10 @@ public sealed partial class QueryCommand(
         CancellationToken ct = default)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
+        var hasFilters = HasAnyFilter(searchText, title, description, type, state, assignedTo, areaPath, iterationPath, createdSince, changedSince);
         var (exitCode, resultCount) = await ExecuteCoreAsync(
-            searchText, type, state, assignedTo, areaPath, iterationPath,
+            hasFilters,
+            searchText, title, description, type, state, assignedTo, areaPath, iterationPath,
             createdSince, changedSince, top, outputFormat, ct);
 
         telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
@@ -51,6 +55,8 @@ public sealed partial class QueryCommand(
             ["command"] = "query",
             ["exit_code"] = exitCode.ToString(),
             ["output_format"] = outputFormat,
+            ["had_filters"] = hasFilters ? "true" : "false",
+            ["showed_summary"] = !hasFilters ? "true" : "false",
             ["twig_version"] = VersionHelper.GetVersion(),
             ["os_platform"] = System.Runtime.InteropServices.RuntimeInformation.OSDescription
         }, new Dictionary<string, double>
@@ -63,7 +69,10 @@ public sealed partial class QueryCommand(
     }
 
     private async Task<(int ExitCode, int ResultCount)> ExecuteCoreAsync(
+        bool hasFilters,
         string? searchText,
+        string? title,
+        string? description,
         string? type,
         string? state,
         string? assignedTo,
@@ -75,6 +84,13 @@ public sealed partial class QueryCommand(
         string outputFormat,
         CancellationToken ct)
     {
+        // 0. No-args detection: short-circuit before WIQL when no filters provided (FR-01)
+        // --output and --top alone are formatting/limit controls, not filters.
+        if (!hasFilters)
+        {
+            return RenderQuerySummary(outputFormat);
+        }
+
         // 1. Parse time filters — return exit code 1 on invalid input (FR-20)
         if (!TryParseDuration(createdSince, out var createdSinceDays)) return (1, 0);
         if (!TryParseDuration(changedSince, out var changedSinceDays)) return (1, 0);
@@ -89,6 +105,8 @@ public sealed partial class QueryCommand(
         var parameters = new QueryParameters
         {
             SearchText = searchText,
+            TitleFilter = title,
+            DescriptionFilter = description,
             TypeFilter = type,
             StateFilter = state,
             AssignedToFilter = assignedTo,
@@ -150,6 +168,75 @@ public sealed partial class QueryCommand(
         return (0, items.Count);
     }
 
+    // TODO(#1641): extend with || filter is not null
+    private static bool HasAnyFilter(
+        string? searchText, string? title, string? description, string? type, string? state, string? assignedTo,
+        string? areaPath, string? iterationPath, string? createdSince, string? changedSince) =>
+        searchText is not null || title is not null || description is not null
+        || type is not null || state is not null || assignedTo is not null
+        || areaPath is not null || iterationPath is not null || createdSince is not null || changedSince is not null;
+
+    /// <summary>
+    /// Renders a human-readable summary of available query filters and usage examples
+    /// when the command is invoked with no arguments. Branches on output format:
+    /// human/json/json-full/json-compact show the summary, minimal suppresses output,
+    /// ids produces empty output. All paths return exit code 0.
+    /// </summary>
+    private (int ExitCode, int ResultCount) RenderQuerySummary(string outputFormat)
+    {
+        // ids and minimal: suppress output entirely
+        if (string.Equals(outputFormat, "ids", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(outputFormat, "minimal", StringComparison.OrdinalIgnoreCase))
+            return (0, 0);
+
+        // All other formats: render the human-readable summary
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("twig query — Search and filter work items");
+        sb.AppendLine();
+        sb.AppendLine("Usage:");
+        sb.AppendLine("  twig query <search>           Search title and description");
+        sb.AppendLine("  twig query --state Doing      Filter by state");
+        sb.AppendLine("  twig query --type Bug         Filter by work item type");
+        sb.AppendLine();
+        sb.AppendLine("Available filters:");
+        sb.AppendLine("  --title         Filter by title text (CONTAINS)");
+        sb.AppendLine("  --description   Filter by description text (CONTAINS)");
+        sb.AppendLine("  --type          Filter by work item type (exact match)");
+        sb.AppendLine("  --state         Filter by state (exact match)");
+        sb.AppendLine("  --assignedTo    Filter by assignee (exact match)");
+        sb.AppendLine("  --areaPath      Filter by area path (UNDER)");
+        sb.AppendLine("  --iterationPath Filter by iteration path (UNDER)");
+        sb.AppendLine("  --createdSince  Items created within N days/weeks/months (e.g., 7d, 2w, 1m)");
+        sb.AppendLine("  --changedSince  Items changed within N days/weeks/months");
+        sb.AppendLine("  --top           Max results (default: 25)");
+        sb.AppendLine("  --output        Output format: human, json, json-full, json-compact, minimal, ids");
+        sb.AppendLine();
+
+        // Show configured default area paths if available
+        var defaultAreaPaths = ResolveDefaultAreaPaths();
+        sb.AppendLine("Defaults:");
+        if (defaultAreaPaths is { Count: > 0 })
+        {
+            var pathDescriptions = defaultAreaPaths.Select(p =>
+                p.IncludeChildren ? $"{p.Path} (include children)" : p.Path);
+            sb.AppendLine($"  Area paths: {string.Join(", ", pathDescriptions)}");
+        }
+        else
+        {
+            sb.AppendLine("  Area paths: (none configured)");
+        }
+
+        sb.AppendLine();
+        sb.AppendLine("Examples:");
+        sb.AppendLine("  twig query \"login bug\"                       Search title & description");
+        sb.AppendLine("  twig query --state Doing --type Task          State + type filter");
+        sb.AppendLine("  twig query --changedSince 7d --top 50         Recently changed items");
+        sb.AppendLine("  twig query \"API\" --assignedTo \"Jane\"          Search + assignee filter");
+
+        Console.Write(sb.ToString());
+        return (0, 0);
+    }
+
     /// <summary>
     /// Resolves default area paths from config, matching RefreshCommand's pattern (L77–105).
     /// Maps <see cref="AreaPathEntry"/> values into (Path, IncludeChildren) tuples.
@@ -202,7 +289,11 @@ public sealed partial class QueryCommand(
         var parts = new List<string>();
 
         if (!string.IsNullOrEmpty(parameters.SearchText))
-            parts.Add($"title contains '{parameters.SearchText}'");
+            parts.Add($"title or description contains '{parameters.SearchText}'");
+        if (!string.IsNullOrEmpty(parameters.TitleFilter))
+            parts.Add($"title contains '{parameters.TitleFilter}'");
+        if (!string.IsNullOrEmpty(parameters.DescriptionFilter))
+            parts.Add($"description contains '{parameters.DescriptionFilter}'");
         if (!string.IsNullOrEmpty(parameters.TypeFilter))
             parts.Add($"type = '{parameters.TypeFilter}'");
         if (!string.IsNullOrEmpty(parameters.StateFilter))

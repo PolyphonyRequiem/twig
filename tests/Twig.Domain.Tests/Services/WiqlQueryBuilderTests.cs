@@ -138,6 +138,130 @@ public class WiqlQueryBuilderTests
     }
 
     // ═══════════════════════════════════════════════════════════════
+    //  Title and Description filters (#1640)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void Build_TitleFilter_ContainsOnTitleOnly()
+    {
+        var result = WiqlQueryBuilder.Build(new QueryParameters { TitleFilter = "API" });
+
+        result.ShouldContain("[System.Title] CONTAINS 'API'");
+        result.ShouldNotContain("[System.Description]");
+    }
+
+    [Fact]
+    public void Build_DescriptionFilter_ContainsOnDescriptionOnly()
+    {
+        var result = WiqlQueryBuilder.Build(new QueryParameters { DescriptionFilter = "impl" });
+
+        result.ShouldContain("[System.Description] CONTAINS 'impl'");
+        // Should not add a title clause
+        result.ShouldNotContain("[System.Title]");
+    }
+
+    [Fact]
+    public void Build_TitleFilterWithSingleQuote_EscapedCorrectly()
+    {
+        var result = WiqlQueryBuilder.Build(new QueryParameters { TitleFilter = "can't" });
+
+        result.ShouldContain("[System.Title] CONTAINS 'can''t'");
+    }
+
+    [Fact]
+    public void Build_DescriptionFilterWithSingleQuote_EscapedCorrectly()
+    {
+        var result = WiqlQueryBuilder.Build(new QueryParameters { DescriptionFilter = "don't" });
+
+        result.ShouldContain("[System.Description] CONTAINS 'don''t'");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Build_WhitespaceOrNullTitleFilter_NoContainsClause(string? titleFilter)
+    {
+        var result = WiqlQueryBuilder.Build(new QueryParameters { TitleFilter = titleFilter });
+
+        result.ShouldNotContain("CONTAINS");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Build_WhitespaceOrNullDescriptionFilter_NoContainsClause(string? descriptionFilter)
+    {
+        var result = WiqlQueryBuilder.Build(new QueryParameters { DescriptionFilter = descriptionFilter });
+
+        result.ShouldNotContain("CONTAINS");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Combination matrix: searchText + title + description (#1640)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void Build_SearchTextAndTitleFilter_BothPresent()
+    {
+        var result = WiqlQueryBuilder.Build(new QueryParameters
+        {
+            SearchText = "login",
+            TitleFilter = "API"
+        });
+
+        result.ShouldContain("([System.Title] CONTAINS 'login' OR [System.Description] CONTAINS 'login')");
+        result.ShouldContain("[System.Title] CONTAINS 'API'");
+        result.ShouldContain(" AND ");
+    }
+
+    [Fact]
+    public void Build_SearchTextAndDescriptionFilter_BothPresent()
+    {
+        var result = WiqlQueryBuilder.Build(new QueryParameters
+        {
+            SearchText = "login",
+            DescriptionFilter = "implementation"
+        });
+
+        result.ShouldContain("([System.Title] CONTAINS 'login' OR [System.Description] CONTAINS 'login')");
+        result.ShouldContain("[System.Description] CONTAINS 'implementation'");
+        result.ShouldContain(" AND ");
+    }
+
+    [Fact]
+    public void Build_TitleAndDescriptionFilters_BothPresent()
+    {
+        var result = WiqlQueryBuilder.Build(new QueryParameters
+        {
+            TitleFilter = "API",
+            DescriptionFilter = "implementation"
+        });
+
+        result.ShouldContain("[System.Title] CONTAINS 'API'");
+        result.ShouldContain("[System.Description] CONTAINS 'implementation'");
+        result.ShouldContain(" AND ");
+        // No OR clause — these are separate targeted filters
+        result.ShouldNotContain(" OR ");
+    }
+
+    [Fact]
+    public void Build_AllThreeTextFilters_AllAndJoined()
+    {
+        var result = WiqlQueryBuilder.Build(new QueryParameters
+        {
+            SearchText = "keyword",
+            TitleFilter = "API",
+            DescriptionFilter = "implementation"
+        });
+
+        result.ShouldContain("([System.Title] CONTAINS 'keyword' OR [System.Description] CONTAINS 'keyword')");
+        result.ShouldContain("[System.Title] CONTAINS 'API'");
+        result.ShouldContain("[System.Description] CONTAINS 'implementation'");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     //  Combined filters
     // ═══════════════════════════════════════════════════════════════
 

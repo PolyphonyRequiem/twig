@@ -127,6 +127,10 @@ if (args.Length > 0 && !args[0].StartsWith('-') && !GroupedHelp.IsKnownCommand(a
 
 app.Run(args);
 
+// Append usage examples when --help was requested for a specific command.
+if (args.Length >= 2 && args.Any(a => a is "-h" or "--help"))
+    CommandExamples.ShowIfPresent(args);
+
 /// <summary>
 /// Detects the git remote URL by spawning <c>git remote get-url origin</c>.
 /// Returns resolved project and repository, or the config defaults on failure.

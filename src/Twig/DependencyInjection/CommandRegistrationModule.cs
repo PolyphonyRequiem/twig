@@ -157,7 +157,8 @@ public static class CommandRegistrationModule
             sp.GetService<IGitService>(),
             sp.GetService<IIterationService>(),
             sp.GetRequiredService<IPromptStateWriter>(),
-            sp.GetService<INavigationHistoryStore>()));
+            sp.GetService<INavigationHistoryStore>(),
+            sp.GetService<Domain.Services.ContextChangeService>()));
         services.AddSingleton<FlowDoneCommand>(sp => new FlowDoneCommand(
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IPendingChangeStore>(),

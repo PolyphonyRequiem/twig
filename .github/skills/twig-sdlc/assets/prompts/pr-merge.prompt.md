@@ -11,7 +11,12 @@ Merge the approved PR.
    - If remote branch still exists: `git push origin --delete {{ pr_group_manager.output.branch_name }}`
 5. **Verify merge landed:** `git branch --no-merged main` — the PR group's branch
    must NOT appear. If it does, set merged=false.
-6. **Update plan status** — read the plan file and change its `> **Status**:` line
+6. **Capture merge metadata** for downstream verification:
+   - `git --no-pager log -1 --format="%H"` — record the merge commit SHA
+   - Record the PR group name from `{{ pr_group_manager.output.current_pr_group }}`
+   - Record the branch name from `{{ pr_group_manager.output.branch_name }}`
+   - Record the issue IDs from `{{ pr_group_manager.output.pr_group_issue_ids | json }}`
+7. **Update plan status** — read the plan file and change its `> **Status**:` line
    to `> **Status**: ✅ Done` (if this was the final PR group) or
    `> **Status**: 🔨 In Progress — <N>/<M> PR groups merged` (if more remain).
    Commit the change: `git add -A && git commit -m "docs: update plan status after PR merge"`

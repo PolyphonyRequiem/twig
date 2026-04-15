@@ -348,8 +348,9 @@ public class NewCommandTests : IDisposable
         var result = await _cmd.ExecuteAsync("My Item", type: null);
 
         result.ShouldBe(1);
-        errWriter.ToString().ShouldContain("Type is required");
-        errWriter.ToString().ShouldContain("or provide --parent to infer type");
+        var stderr = errWriter.ToString();
+        stderr.ShouldContain("Type is required");
+        stderr.ShouldContain("or provide --parent to infer type");
 
         await _adoService.DidNotReceive().CreateAsync(
             Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());

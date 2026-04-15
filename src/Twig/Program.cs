@@ -291,13 +291,7 @@ internal static class ExceptionHandler
 public sealed class TwigCommands(IServiceProvider services)
 {
     internal static string? JoinTrailingText(string? named, string[]? positional)
-    {
-        if (named is not null)
-            return named;
-        if (positional is { Length: > 0 })
-            return string.Join(" ", positional);
-        return null;
-    }
+        => named ?? (positional is { Length: > 0 } ? string.Join(" ", positional) : null);
 
     /// <summary>Initialize a new Twig workspace.</summary>
     public async Task<int> Init(string org, string project, string? team = null, string? gitProject = null, bool force = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)

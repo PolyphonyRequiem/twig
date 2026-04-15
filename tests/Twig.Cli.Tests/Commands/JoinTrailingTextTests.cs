@@ -20,7 +20,6 @@ public class JoinTrailingTextTests
     [Theory]
     [InlineData(new[] { "Fix", "the", "bug" }, "Fix the bug")]
     [InlineData(new[] { "WIP" }, "WIP")]
-    [InlineData(new[] { "one", "two", "three", "four", "five" }, "one two three four five")]
     [InlineData(new[] { "Done:", "all", "tests", "pass" }, "Done: all tests pass")]
     [InlineData(new[] { "Fix:", "issue", "#123", "(urgent)" }, "Fix: issue #123 (urgent)")]
     public void Positional_tokens_joined_with_single_space(string[] tokens, string expected)

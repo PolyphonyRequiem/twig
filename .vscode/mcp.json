@@ -74,6 +74,11 @@
       "url": "https://app-prinsights-01-mcp.azurewebsites.net/",
       "type": "http"
     },
+    "twig-mcp": {
+      "type": "stdio",
+      "command": "twig-mcp",
+      "description": "Twig MCP server — Azure DevOps work-item context and mutation tools for Copilot. Provides twig.set, twig.status, twig.tree, twig.workspace, twig.state, twig.update, twig.note, twig.sync."
+    },
     "work-iq": {
       "type": "stdio",
       "command": "npx",

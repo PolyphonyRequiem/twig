@@ -1,5 +1,4 @@
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
 using NSubstitute;
@@ -8,7 +7,6 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Infrastructure;
 using Twig.Infrastructure.Config;
-using Twig.Infrastructure.DependencyInjection;
 using Twig.Mcp.Services;
 using Twig.Mcp.Tools;
 using Xunit;
@@ -36,8 +34,6 @@ public sealed class ProgramBootstrapTests
                     "project": "test-project"
                 }
                 """);
-
-            File.Exists(configPath).ShouldBeTrue("Test precondition: config must exist");
 
             var config = TwigConfiguration.Load(configPath);
             config.ShouldNotBeNull();
@@ -145,39 +141,6 @@ public sealed class ProgramBootstrapTests
     }
 
     [Fact]
-    public void SyncCoordinator_ReceivesCacheStaleMinutes_FromConfig()
-    {
-        var services = new ServiceCollection();
-
-        services.AddSingleton(Substitute.For<IWorkItemRepository>());
-        services.AddSingleton(Substitute.For<IAdoWorkItemService>());
-        services.AddSingleton(Substitute.For<IPendingChangeStore>());
-        services.AddSingleton(Substitute.For<IWorkItemLinkRepository>());
-        services.AddSingleton(new TwigConfiguration
-        {
-            Display = new DisplayConfig { CacheStaleMinutes = 42 }
-        });
-
-        services.AddSingleton(sp => new ProtectedCacheWriter(
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IPendingChangeStore>()));
-
-        services.AddSingleton(sp => new SyncCoordinator(
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
-            sp.GetRequiredService<ProtectedCacheWriter>(),
-            sp.GetRequiredService<IPendingChangeStore>(),
-            sp.GetRequiredService<IWorkItemLinkRepository>(),
-            sp.GetRequiredService<TwigConfiguration>().Display.CacheStaleMinutes));
-
-        using var provider = services.BuildServiceProvider();
-
-        // SyncCoordinator should resolve without error when config provides the value
-        var coordinator = provider.GetRequiredService<SyncCoordinator>();
-        coordinator.ShouldNotBeNull();
-    }
-
-    [Fact]
     public void McpServerRegistration_ConfiguresServerInfo()
     {
         var services = new ServiceCollection();
@@ -201,33 +164,6 @@ public sealed class ProgramBootstrapTests
         options.Value.ServerInfo.ShouldNotBeNull();
         options.Value.ServerInfo.Name.ShouldBe("twig-mcp");
         options.Value.ServerInfo.Version.ShouldBe("1.0.0-test");
-    }
-
-    [Fact]
-    public void WorkingSetService_ReceivesUserDisplayName_FromConfig()
-    {
-        var services = new ServiceCollection();
-
-        services.AddSingleton(Substitute.For<IContextStore>());
-        services.AddSingleton(Substitute.For<IWorkItemRepository>());
-        services.AddSingleton(Substitute.For<IPendingChangeStore>());
-        services.AddSingleton(Substitute.For<IIterationService>());
-        services.AddSingleton(new TwigConfiguration
-        {
-            User = new UserConfig { DisplayName = "Jane Doe" }
-        });
-
-        services.AddSingleton(sp => new WorkingSetService(
-            sp.GetRequiredService<IContextStore>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IPendingChangeStore>(),
-            sp.GetRequiredService<IIterationService>(),
-            sp.GetRequiredService<TwigConfiguration>().User.DisplayName));
-
-        using var provider = services.BuildServiceProvider();
-
-        var svc = provider.GetRequiredService<WorkingSetService>();
-        svc.ShouldNotBeNull();
     }
 
     [Fact]

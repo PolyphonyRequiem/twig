@@ -532,17 +532,17 @@ The `--filter` flag accepts user-controlled input that is compiled into WIQL WHE
 | T-1639.4 | Write unit tests for no-args detection and summary rendering across all output formats (human, json, json-compact, minimal, ids) | `QueryCommandNoArgsTests.cs` | ~180 LoC |
 
 **Acceptance Criteria**:
-- [ ] `twig query` with no arguments shows usage help (exit code 0)
-- [ ] `twig query --output json` with no arguments outputs the human-readable summary text (exit code 0)
-- [ ] `twig query --output json-compact` with no arguments outputs the human-readable summary text (exit code 0)
-- [ ] `twig query --output ids` with no arguments produces empty output (exit code 0)
-- [ ] `twig query` with no arguments does NOT call ADO (no network request)
-- [ ] `twig query "text"` still executes normally (no regression)
-- [ ] `twig query --top 50` alone shows summary (formatting flags don't count as filters)
-- [ ] Summary includes all available filter flags with descriptions
-- [ ] Summary lists all output formats: human, json, json-full, json-compact, minimal, ids
-- [ ] Summary includes default area paths from config (if configured)
-- [ ] `had_filters` and `showed_summary` keys added to `SafePropertyKeys` and pass telemetry allowlist test
+- [x] `twig query` with no arguments shows usage help (exit code 0)
+- [x] `twig query --output json` with no arguments outputs the human-readable summary text (exit code 0)
+- [x] `twig query --output json-compact` with no arguments outputs the human-readable summary text (exit code 0)
+- [x] `twig query --output ids` with no arguments produces empty output (exit code 0)
+- [x] `twig query` with no arguments does NOT call ADO (no network request)
+- [x] `twig query "text"` still executes normally (no regression)
+- [x] `twig query --top 50` alone shows summary (formatting flags don't count as filters)
+- [x] Summary includes all available filter flags with descriptions
+- [x] Summary lists all output formats: human, json, json-full, json-compact, minimal, ids
+- [x] Summary includes default area paths from config (if configured)
+- [x] `had_filters` and `showed_summary` keys added to `SafePropertyKeys` and pass telemetry allowlist test
 
 ---
 
@@ -562,14 +562,14 @@ The `--filter` flag accepts user-controlled input that is compiled into WIQL WHE
 | T-1640.4 | Write unit tests: title-only, description-only, both combined, combined with searchText, WIQL builder tests | `QueryCommandTests.cs`, `WiqlQueryBuilderTests.cs` | ~120 LoC |
 
 **Acceptance Criteria**:
-- [ ] `twig query --title "API"` generates `[System.Title] CONTAINS 'API'`
-- [ ] `twig query --description "implementation"` generates `[System.Description] CONTAINS 'implementation'`
-- [ ] `twig query --title "X" --description "Y"` generates both clauses AND-joined
-- [ ] `twig query "Z" --title "X"` generates both searchText and title clauses AND-joined
-- [ ] Existing `twig query "text"` behavior unchanged (backward-compatible)
-- [ ] WIQL escaping applied correctly to title/description values
-- [ ] `BuildQueryDescription()` searchText description fixed from "title contains" to "title or description contains"
-- [ ] `had_title_filter` and `had_description_filter` keys added to `SafePropertyKeys` and pass telemetry allowlist test
+- [x] `twig query --title "API"` generates `[System.Title] CONTAINS 'API'`
+- [x] `twig query --description "implementation"` generates `[System.Description] CONTAINS 'implementation'`
+- [x] `twig query --title "X" --description "Y"` generates both clauses AND-joined
+- [x] `twig query "Z" --title "X"` generates both searchText and title clauses AND-joined
+- [x] Existing `twig query "text"` behavior unchanged (backward-compatible)
+- [x] WIQL escaping applied correctly to title/description values
+- [x] `BuildQueryDescription()` searchText description fixed from "title contains" to "title or description contains"
+- [x] `had_title_filter` and `had_description_filter` keys added to `SafePropertyKeys` and pass telemetry allowlist test
 
 ---
 
@@ -592,15 +592,15 @@ The `--filter` flag accepts user-controlled input that is compiled into WIQL WHE
 | T-1641.7 | Write integration tests: end-to-end filter expression through QueryCommand | `QueryCommandTests.cs`, `WiqlQueryBuilderTests.cs` | ~60 LoC |
 
 **Acceptance Criteria**:
-- [ ] `twig query --filter "state:Doing"` generates `[System.State] = 'Doing'`
-- [ ] `twig query --filter "state:Doing AND type:Bug"` generates correct AND-joined WIQL
-- [ ] `twig query --filter "(state:Doing OR state:New) AND type:Task"` handles parentheses correctly
-- [ ] Invalid field names produce clear error with list of valid fields (`state`, `type`, `assignedTo`, `areaPath`, `iterationPath`)
-- [ ] Invalid syntax produces clear error with position indicator
-- [ ] `--filter` clauses AND-join with other CLI flags
-- [ ] WIQL injection via filter values is prevented (single-quote escaping)
-- [ ] `had_filter_expression` key added to `SafePropertyKeys` and passes telemetry allowlist test
-- [ ] Error message for unknown fields lists only supported fields and suggests dedicated flags
+- [x] `twig query --filter "state:Doing"` generates `[System.State] = 'Doing'`
+- [x] `twig query --filter "state:Doing AND type:Bug"` generates correct AND-joined WIQL
+- [x] `twig query --filter "(state:Doing OR state:New) AND type:Task"` handles parentheses correctly
+- [x] Invalid field names produce clear error with list of valid fields (`state`, `type`, `assignedTo`, `areaPath`, `iterationPath`)
+- [x] Invalid syntax produces clear error with position indicator
+- [x] `--filter` clauses AND-join with other CLI flags
+- [x] WIQL injection via filter values is prevented (single-quote escaping)
+- [x] `had_filter_expression` key added to `SafePropertyKeys` and passes telemetry allowlist test
+- [x] Error message for unknown fields lists only supported fields and suggests dedicated flags
 
 ---
 
@@ -619,12 +619,12 @@ The `--filter` flag accepts user-controlled input that is compiled into WIQL WHE
 | T-1642.3 | Write tests for contextual hint logic — verify correct hints for each context (no-results, broad, truncated, default), verify hint suppression for json/minimal formats (existing behavior preserved) | `HintEngineTests.cs`, `QueryCommandTests.cs` | ~80 LoC |
 
 **Acceptance Criteria**:
-- [ ] After a broad `searchText` query, hint suggests `--title` or `--description`
-- [ ] After truncated results, hint suggests `--top` or additional filters
-- [ ] After zero results, hint suggests broadening search
-- [ ] Static "twig set" / "twig show" hints only appear when there are results
-- [ ] XML doc comment on `Query()` includes at least 2 usage examples
-- [ ] Hints are suppressed for json/minimal output (existing behavior preserved)
+- [x] After a broad `searchText` query, hint suggests `--title` or `--description`
+- [x] After truncated results, hint suggests `--top` or additional filters
+- [x] After zero results, hint suggests broadening search
+- [x] Static "twig set" / "twig show" hints only appear when there are results
+- [x] XML doc comment on `Query()` includes at least 2 usage examples
+- [x] Hints are suppressed for json/minimal output (existing behavior preserved)
 
 ## PR Groups
 
@@ -654,4 +654,17 @@ The filter expression parser benefits from focused review. The AST design and er
 **Predecessors**: PG-1 (hints reference title/description flags), PG-2 (hints reference filter syntax)
 
 Documentation and discoverability polish. Should be reviewed last since it references features from PG-1 and PG-2.
+
+## Completion
+
+> **Completed**: 2026-04-15
+> **Epic**: #1638 — transitioned to Done
+> **Issues**: #1639, #1640, #1641, #1642 — all Done
+> **PRs**: PG-1 (PR #37, merged), PG-2 (merged to main), PG-3 (merged to main)
+
+All four UX improvements to `twig query` have been implemented and merged:
+1. **No-args summary** (#1639) — shows rich usage help when invoked without filters
+2. **Title/description filters** (#1640) — `--title` and `--description` flags for field-specific search
+3. **Structured filter expressions** (#1641) — `--filter` flag with compound expression parsing
+4. **Discoverability enhancements** (#1642) — contextual hints, improved help text, usage examples
 

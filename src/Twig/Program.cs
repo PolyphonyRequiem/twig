@@ -116,6 +116,15 @@ if (args.Length == 0)
     }
 }
 
+// Pre-routing interception: show grouped help for unknown commands instead of
+// ConsoleAppFramework's default flat error output.
+if (args.Length > 0 && !args[0].StartsWith('-') && !GroupedHelp.IsKnownCommand(args))
+{
+    GroupedHelp.ShowUnknown(args[0]);
+    Environment.ExitCode = 1;
+    return;
+}
+
 app.Run(args);
 
 /// <summary>
@@ -404,6 +413,7 @@ public sealed class TwigCommands(IServiceProvider services)
         => await services.GetRequiredService<WebCommand>().ExecuteAsync(id, output, ct);
 
     /// <summary>Create a new child work item under the active item (backward compat shortcut).</summary>
+    [Hidden]
     public async Task<int> Seed([Argument] string title, string? type = null, bool editor = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SeedNewCommand>().ExecuteAsync(title, type, editor, output, ct);
 
@@ -675,6 +685,128 @@ internal static class VersionHelper
 /// </summary>
 internal static class GroupedHelp
 {
+    /// <summary>
+    /// Manually-maintained set of every CLI command name that twig accepts.
+    /// Includes top-level commands, compound sub-commands, group prefixes,
+    /// hidden backward-compat aliases, and the <c>help</c> pseudo-command.
+    /// Validated by the completeness test (T-1523-4) to prevent drift.
+    /// </summary>
+    public static HashSet<string> KnownCommands { get; } =
+    [
+        // Getting Started
+        "init",
+        "sync",
+
+        // Views
+        "status",
+        "tree",
+        "workspace",
+        "ws",
+        "sprint",
+
+        // Context
+        "set",
+        "show",
+        "query",
+        "web",
+
+        // Navigation
+        "nav",
+        "nav up",
+        "nav down",
+        "nav next",
+        "nav prev",
+        "nav back",
+        "nav fore",
+        "nav history",
+
+        // Work Items
+        "state",
+        "note",
+        "update",
+        "edit",
+        "new",
+        "discard",
+        "seed new",
+        "seed edit",
+        "seed discard",
+        "seed view",
+        "seed link",
+        "seed unlink",
+        "seed links",
+        "seed chain",
+        "seed validate",
+        "seed publish",
+        "seed reconcile",
+        "link parent",
+        "link unparent",
+        "link reparent",
+
+        // Git
+        "branch",
+        "commit",
+        "pr",
+        "stash",
+        "stash pop",
+        "log",
+        "context",
+        "hooks install",
+        "hooks uninstall",
+
+        // Workflow
+        "flow-start",
+        "flow-done",
+        "flow-close",
+
+        // System
+        "config",
+        "config status-fields",
+        "version",
+        "upgrade",
+        "changelog",
+
+        // Experimental
+        "tui",
+        "ohmyposh",
+        "ohmyposh init",
+
+        // Pseudo-command (early-exit handles single-arg; multi-arg falls through)
+        "help",
+
+        // Hidden backward-compat aliases (still accepted by the CLI)
+        "up",
+        "down",
+        "next",
+        "prev",
+        "back",
+        "fore",
+        "history",
+        "seed",
+        "save",
+        "refresh",
+        "_hook",
+
+        // Group prefixes for compound commands without standalone handlers
+        "link",
+        "hooks",
+    ];
+
+    /// <summary>
+    /// Returns <c>true</c> when <paramref name="args"/> begins with a recognized
+    /// command name. All compound sub-command prefixes (e.g. <c>nav</c>, <c>seed</c>,
+    /// <c>link</c>, <c>hooks</c>) are already top-level entries in <see cref="KnownCommands"/>,
+    /// so checking <c>args[0]</c> is sufficient.
+    /// </summary>
+    public static bool IsKnownCommand(string[] args)
+        => args.Length > 0 && KnownCommands.Contains(args[0]);
+
+    internal static void ShowUnknown(string command)
+    {
+        Console.Error.WriteLine($"Unknown command: '{command}'");
+        Console.Error.WriteLine();
+        Show();
+    }
+
     internal static void Show()
     {
         var v = VersionHelper.GetVersion();
@@ -696,6 +828,7 @@ Views:
 Context:
   set <id|pattern>     Set the active work item.
   show <id>            Display a work item from cache (read-only).
+  query [text]         Search work items by text, type, state, or assignee.
   web [id]             Open the active work item in the browser.
 
 Navigation:
@@ -713,6 +846,7 @@ Work Items:
   note                 Add a note to the active work item.
   update <field> <v>   Update a field on the active work item.
   edit                 Edit work item fields in an external editor.
+  new                  Create a new work item.
   link parent <id>     Set the parent of the active work item.
   link unparent        Remove the parent link from the active item.
   link reparent <id>   Remove current parent and set a new one.
@@ -731,7 +865,6 @@ Work Items:
   seed reconcile       Repair stale links after partial publishes.
   discard <id>         Drop pending changes for a work item.
   discard --all        Drop all pending changes (excludes seeds).
-  save                 Push pending changes to Azure DevOps.
   sync                 Flush pending changes then refresh from ADO.
 
 Git:

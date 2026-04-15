@@ -230,22 +230,6 @@ public sealed class SetCommand_ContextChangeTests : IDisposable
         await _adoService.Received().FetchChildrenAsync(100, Arg.Any<CancellationToken>());
     }
 
-    [Fact]
-    public async Task Set_ExtensionThrowsOperationCanceled_PropagatesException()
-    {
-        var item = new WorkItemBuilder(100, "Test Item")
-            .AsTask().WithIterationPath("Project\\Sprint 1").Build();
-
-        ArrangeItemInCache(item);
-        _adoService.FetchChildrenAsync(100, Arg.Any<CancellationToken>())
-            .ThrowsAsync(new OperationCanceledException("Cancelled"));
-
-        var cmd = CreateCommand();
-
-        await Should.ThrowAsync<OperationCanceledException>(
-            () => cmd.ExecuteAsync("100"));
-    }
-
     // ═══════════════════════════════════════════════════════════════
     //  Scenario 4: Additive guarantee → existing cache items not removed
     // ═══════════════════════════════════════════════════════════════

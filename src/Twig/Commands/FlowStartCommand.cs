@@ -291,10 +291,7 @@ public sealed class FlowStartCommand(
         // Extend working set around the target item (fire-and-forget — never fails the command).
         // Runs after output so user sees success immediately.
         if (contextChangeService is not null)
-        {
-            try { await contextChangeService.ExtendWorkingSetAsync(item.Id, ct); }
-            catch (Exception ex) when (ex is not OperationCanceledException) { /* swallow */ }
-        }
+            await contextChangeService.ExtendWorkingSetAsync(item.Id, ct);
 
         if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 

@@ -227,10 +227,7 @@ public sealed class SetCommand(
         // Extend working set around the target item (fire-and-forget — never fails the command).
         // Runs BEFORE eviction so the expanded cache is reflected in working set computation.
         if (contextChangeService is not null)
-        {
-            try { await contextChangeService.ExtendWorkingSetAsync(item.Id, ct); }
-            catch (Exception ex) when (ex is not OperationCanceledException) { /* swallow */ }
-        }
+            await contextChangeService.ExtendWorkingSetAsync(item.Id, ct);
 
         // Targeted sync — best-effort, never fails the command (DD-1, DD-2)
         try

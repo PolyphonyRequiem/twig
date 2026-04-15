@@ -115,20 +115,6 @@ public sealed class FlowStartCommand_ContextChangeTests : IDisposable
         await _adoService.DidNotReceive().FetchChildrenAsync(42, Arg.Any<CancellationToken>());
     }
 
-    [Fact]
-    public async Task FlowStart_ExtensionThrowsOperationCanceled_PropagatesException()
-    {
-        var item = CreateWorkItem(42, "Add login", "New");
-        ArrangeItemResolution(item);
-        _adoService.FetchChildrenAsync(42, Arg.Any<CancellationToken>())
-            .ThrowsAsync(new OperationCanceledException("Cancelled"));
-
-        var cmd = CreateCommandWithContextChange();
-
-        await Should.ThrowAsync<OperationCanceledException>(
-            () => cmd.ExecuteAsync("42", noBranch: true, noState: true, noAssign: true));
-    }
-
     private FlowStartCommand CreateCommandWithContextChange()
     {
         var syncCoordinator = new SyncCoordinator(

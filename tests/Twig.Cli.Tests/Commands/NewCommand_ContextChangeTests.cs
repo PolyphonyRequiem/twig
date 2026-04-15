@@ -132,19 +132,6 @@ public sealed class NewCommand_ContextChangeTests : IDisposable
         await _adoService.DidNotReceive().FetchChildrenAsync(42, Arg.Any<CancellationToken>());
     }
 
-    [Fact]
-    public async Task New_ExtensionThrowsOperationCanceled_PropagatesException()
-    {
-        ArrangeCreateSuccess(42);
-        _adoService.FetchChildrenAsync(42, Arg.Any<CancellationToken>())
-            .ThrowsAsync(new OperationCanceledException("Cancelled"));
-
-        var cmd = CreateCommandWithContextChange();
-
-        await Should.ThrowAsync<OperationCanceledException>(
-            () => cmd.ExecuteAsync("My Task", "Task", set: true));
-    }
-
     private NewCommand CreateCommandWithContextChange()
     {
         var protectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);

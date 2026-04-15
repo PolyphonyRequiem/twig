@@ -1,7 +1,7 @@
 # Cache-Aware Rendering & Live Refresh
 
 **Epic:** #1519  
-> **Status**: 🔨 In Progress  
+> **Status**: ✅ Done  
 **Revision:** 2 — Addressed tech (82→) and readability (88→) review feedback
 
 ---

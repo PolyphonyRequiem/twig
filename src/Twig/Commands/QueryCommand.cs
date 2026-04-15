@@ -51,6 +51,7 @@ public sealed partial class QueryCommand(
             ["command"] = "query",
             ["exit_code"] = exitCode.ToString(),
             ["output_format"] = outputFormat,
+            ["had_filters"] = HasAnyFilter(searchText, type, state, assignedTo, areaPath, iterationPath, createdSince, changedSince).ToString(),
             ["twig_version"] = VersionHelper.GetVersion(),
             ["os_platform"] = System.Runtime.InteropServices.RuntimeInformation.OSDescription
         }, new Dictionary<string, double>
@@ -75,6 +76,13 @@ public sealed partial class QueryCommand(
         string outputFormat,
         CancellationToken ct)
     {
+        // 0. No-args detection: short-circuit before WIQL when no filters provided (FR-01)
+        // --output and --top alone are formatting/limit controls, not filters.
+        if (!HasAnyFilter(searchText, type, state, assignedTo, areaPath, iterationPath, createdSince, changedSince))
+        {
+            return RenderQuerySummary(outputFormat);
+        }
+
         // 1. Parse time filters — return exit code 1 on invalid input (FR-20)
         if (!TryParseDuration(createdSince, out var createdSinceDays)) return (1, 0);
         if (!TryParseDuration(changedSince, out var changedSinceDays)) return (1, 0);
@@ -148,6 +156,77 @@ public sealed partial class QueryCommand(
             Console.WriteLine(fmt.FormatHint(hint));
 
         return (0, items.Count);
+    }
+
+    private static bool HasAnyFilter(
+        string? searchText, string? type, string? state, string? assignedTo,
+        string? areaPath, string? iterationPath, string? createdSince, string? changedSince) =>
+        searchText is not null || type is not null || state is not null || assignedTo is not null
+        || areaPath is not null || iterationPath is not null || createdSince is not null || changedSince is not null;
+
+    /// <summary>
+    /// Renders a human-readable summary of available query filters and usage examples
+    /// when the command is invoked with no arguments. Branches on output format:
+    /// human/json/json-full/json-compact show the summary, minimal suppresses output,
+    /// ids produces empty output. All paths return exit code 0.
+    /// </summary>
+    private (int ExitCode, int ResultCount) RenderQuerySummary(string outputFormat)
+    {
+        // ids and minimal: suppress output entirely
+        if (string.Equals(outputFormat, "ids", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(outputFormat, "minimal", StringComparison.OrdinalIgnoreCase))
+            return (0, 0);
+
+        // All other formats: render the human-readable summary
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("twig query — Search and filter work items");
+        sb.AppendLine();
+        sb.AppendLine("Usage:");
+        sb.AppendLine("  twig query <search>           Search title and description");
+        sb.AppendLine("  twig query --title <text>     Search by title only");
+        sb.AppendLine("  twig query --state Doing      Filter by state");
+        sb.AppendLine("  twig query --filter \"...\"     Structured filter expression");
+        sb.AppendLine();
+        sb.AppendLine("Available filters:");
+        sb.AppendLine("  --title         Search in title field (CONTAINS)");
+        sb.AppendLine("  --description   Search in description field (CONTAINS)");
+        sb.AppendLine("  --type          Filter by work item type (exact match)");
+        sb.AppendLine("  --state         Filter by state (exact match)");
+        sb.AppendLine("  --assignedTo    Filter by assignee (exact match)");
+        sb.AppendLine("  --areaPath      Filter by area path (UNDER)");
+        sb.AppendLine("  --iterationPath Filter by iteration path (UNDER)");
+        sb.AppendLine("  --createdSince  Items created within N days/weeks/months (e.g., 7d, 2w, 1m)");
+        sb.AppendLine("  --changedSince  Items changed within N days/weeks/months");
+        sb.AppendLine("  --filter        Structured filter expression (e.g., \"state:Doing AND type:Bug\")");
+        sb.AppendLine("  --top           Max results (default: 25)");
+        sb.AppendLine("  --output        Output format: human, json, json-full, json-compact, minimal, ids");
+        sb.AppendLine();
+
+        // Show configured default area paths if available
+        var defaultAreaPaths = ResolveDefaultAreaPaths();
+        sb.Append("Defaults:");
+        if (defaultAreaPaths is { Count: > 0 })
+        {
+            sb.AppendLine();
+            var pathDescriptions = defaultAreaPaths.Select(p =>
+                p.IncludeChildren ? $"{p.Path} (include children)" : p.Path);
+            sb.AppendLine($"  Area paths: {string.Join(", ", pathDescriptions)}");
+        }
+        else
+        {
+            sb.AppendLine();
+            sb.AppendLine("  Area paths: (none configured)");
+        }
+
+        sb.AppendLine();
+        sb.AppendLine("Examples:");
+        sb.AppendLine("  twig query \"login bug\"                       Search title & description");
+        sb.AppendLine("  twig query --title \"API\" --state Doing       Title search + state filter");
+        sb.AppendLine("  twig query --filter \"type:Bug AND state:New\" Structured filter");
+        sb.AppendLine("  twig query --changedSince 7d --top 50        Recently changed items");
+
+        Console.Write(sb.ToString());
+        return (0, 0);
     }
 
     /// <summary>

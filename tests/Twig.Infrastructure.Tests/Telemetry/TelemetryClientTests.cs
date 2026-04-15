@@ -29,7 +29,8 @@ public class TelemetryClientTests
         "item_count",
         "result_count",
         "hash_changed",
-        "used_all"
+        "used_all",
+        "had_filters"
     };
 
     /// <summary>

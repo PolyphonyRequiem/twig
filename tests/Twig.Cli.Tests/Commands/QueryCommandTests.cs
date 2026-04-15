@@ -187,7 +187,7 @@ public sealed class QueryCommandTests
         SetupAdoReturns([], []);
         var cmd = CreateCommand();
 
-        await cmd.ExecuteAsync(top: top);
+        await cmd.ExecuteAsync(searchText: "test", top: top);
 
         await _adoService.Received(1).QueryByWiqlAsync(
             Arg.Any<string>(),
@@ -201,7 +201,7 @@ public sealed class QueryCommandTests
         SetupAdoReturns([], []);
         var cmd = CreateCommand();
 
-        await cmd.ExecuteAsync();
+        await cmd.ExecuteAsync(searchText: "test");
 
         await _adoService.Received(1).QueryByWiqlAsync(
             Arg.Any<string>(),
@@ -289,7 +289,7 @@ public sealed class QueryCommandTests
         SetupAdoReturns([], []);
         var cmd = CreateCommand();
 
-        var result = await cmd.ExecuteAsync();
+        var result = await cmd.ExecuteAsync(searchText: "test");
 
         result.ShouldBe(0);
 
@@ -364,7 +364,7 @@ public sealed class QueryCommandTests
     // FR-21, DD-10: No-filter query executes with defaults
 
     [Fact]
-    public async Task ExecuteAsync_NoFilters_QueriesWithDefaultsAndReturnsExitCode0()
+    public async Task ExecuteAsync_NoFilters_ShowsSummaryInsteadOfQuery()
     {
         _config.Defaults = new DefaultsConfig
         {
@@ -374,22 +374,16 @@ public sealed class QueryCommandTests
             ]
         };
 
-        var items = BuildItems((100, "Recent item", "New"));
-        SetupAdoReturns([100], items);
         var cmd = CreateCommand();
 
         var (exitCode, output) = await CaptureOutput(() => cmd.ExecuteAsync());
 
         exitCode.ShouldBe(0);
-        await _adoService.Received(1).QueryByWiqlAsync(
-            Arg.Is<string>(wiql =>
-                wiql.Contains("[System.AreaPath] UNDER 'MyProject\\CoreTeam'")
-                && wiql.Contains("ORDER BY [System.ChangedDate] DESC")),
-            Arg.Any<int>(),
-            Arg.Any<CancellationToken>());
-
-        output.ShouldContain("Recent item");
-        output.ShouldContain("Found 1 item(s)");
+        // No-args now shows summary instead of executing a query
+        output.ShouldContain("twig query — Search and filter work items");
+        output.ShouldContain("MyProject\\CoreTeam");
+        await _adoService.DidNotReceive().QueryByWiqlAsync(
+            Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
     // NFR-03, NFR-05: Zero results — exit code 0, friendly message
@@ -486,7 +480,7 @@ public sealed class QueryCommandTests
         SetupAdoReturns([], []);
         var cmd = CreateCommand();
 
-        await cmd.ExecuteAsync();
+        await cmd.ExecuteAsync(searchText: "test");
 
         await _adoService.Received(1).QueryByWiqlAsync(
             Arg.Is<string>(wiql =>
@@ -509,7 +503,7 @@ public sealed class QueryCommandTests
         SetupAdoReturns([], []);
         var cmd = CreateCommand();
 
-        await cmd.ExecuteAsync();
+        await cmd.ExecuteAsync(searchText: "test");
 
         await _adoService.Received(1).QueryByWiqlAsync(
             Arg.Is<string>(wiql => wiql.Contains("[System.AreaPath] UNDER 'MyProject\\Solo'")),
@@ -560,7 +554,7 @@ public sealed class QueryCommandTests
         SetupAdoReturns([1, 2, 3, 4, 5], items);
         var cmd = CreateCommand();
 
-        var (result, output) = await CaptureOutput(() => cmd.ExecuteAsync(top: 5));
+        var (result, output) = await CaptureOutput(() => cmd.ExecuteAsync(searchText: "test", top: 5));
 
         result.ShouldBe(0);
         output.ShouldContain("results limited");

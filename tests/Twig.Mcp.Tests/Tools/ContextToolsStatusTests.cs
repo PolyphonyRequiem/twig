@@ -60,6 +60,7 @@ public sealed class ContextToolsStatusTests : ContextToolsTestBase
         root.GetProperty("item").GetProperty("title").GetString().ShouldBe("My Feature");
         root.GetProperty("pendingChanges").GetArrayLength().ShouldBe(0);
         root.GetProperty("seeds").GetArrayLength().ShouldBe(0);
+        root.GetProperty("item").GetProperty("parentId").ValueKind.ShouldBe(JsonValueKind.Null);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -151,4 +152,99 @@ public sealed class ContextToolsStatusTests : ContextToolsTestBase
         await Should.ThrowAsync<OperationCanceledException>(
             () => CreateSut().Status());
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Output format — verifies full work item JSON shape in status
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Status_ReturnsFullItemJsonShape()
+    {
+        var item = new WorkItemBuilder(7, "Detailed Task")
+            .AsTask()
+            .InState("Active")
+            .AssignedTo("Test User")
+            .WithParent(3)
+            .WithAreaPath(@"Project\Area")
+            .WithIterationPath(@"Project\Sprint 1")
+            .Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(7);
+        _workItemRepo.GetByIdAsync(7, Arg.Any<CancellationToken>()).Returns(item);
+        _pendingChangeStore.GetChangesAsync(7, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var result = await CreateSut().Status();
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+        root.GetProperty("hasContext").GetBoolean().ShouldBeTrue();
+
+        var itemJson = root.GetProperty("item");
+        itemJson.GetProperty("id").GetInt32().ShouldBe(7);
+        itemJson.GetProperty("title").GetString().ShouldBe("Detailed Task");
+        itemJson.GetProperty("type").GetString().ShouldBe("Task");
+        itemJson.GetProperty("state").GetString().ShouldBe("Active");
+        itemJson.GetProperty("assignedTo").GetString().ShouldBe("Test User");
+        itemJson.GetProperty("parentId").GetInt32().ShouldBe(3);
+        itemJson.GetProperty("isDirty").GetBoolean().ShouldBe(false);
+        itemJson.GetProperty("isSeed").GetBoolean().ShouldBe(false);
+        itemJson.GetProperty("areaPath").GetString().ShouldBe(@"Project\Area");
+        itemJson.GetProperty("iterationPath").GetString().ShouldBe(@"Project\Sprint 1");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Multiple pending changes — all serialized
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Status_MultiplePendingChanges_AllSerialized()
+    {
+        var item = new WorkItemBuilder(10, "Multi-Change Item").AsTask().InState("Active").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(10);
+        _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(item);
+        _pendingChangeStore.GetChangesAsync(10, Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new PendingChangeRecord(10, "FieldUpdate", "System.State", "New", "Active"),
+                new PendingChangeRecord(10, "FieldUpdate", "System.AssignedTo", null, "User A"),
+                new PendingChangeRecord(10, "FieldUpdate", "System.Title", "Old Title", "Multi-Change Item"),
+            });
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var result = await CreateSut().Status();
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+        var changes = root.GetProperty("pendingChanges");
+        changes.GetArrayLength().ShouldBe(3);
+        changes[0].GetProperty("fieldName").GetString().ShouldBe("System.State");
+        changes[1].GetProperty("fieldName").GetString().ShouldBe("System.AssignedTo");
+        changes[2].GetProperty("fieldName").GetString().ShouldBe("System.Title");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Dirty item — isDirty flag reflected in status result
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Status_DirtyItem_ReflectsIsDirtyTrue()
+    {
+        var item = new WorkItemBuilder(15, "Dirty Task").AsTask().InState("New").Dirty().Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(15);
+        _workItemRepo.GetByIdAsync(15, Arg.Any<CancellationToken>()).Returns(item);
+        _pendingChangeStore.GetChangesAsync(15, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var result = await CreateSut().Status();
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+        root.GetProperty("item").GetProperty("isDirty").GetBoolean().ShouldBeTrue();
+    }
+
 }

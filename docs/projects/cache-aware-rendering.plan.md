@@ -1,7 +1,7 @@
 # Cache-Aware Rendering & Live Refresh
 
 **Epic:** #1519  
-> **Status**: 🔨 In Progress  
+> **Status**: ✅ Done  
 **Revision:** 4 — Addressed tech (88) and readability (92) review feedback: (1) Added Issue #1522 for MCP `ContextChangeService` integration gap; (2) Updated Background narrative from pre-implementation baseline to post-implementation current state; (3) Added `ContextTools.cs` to `SetActiveWorkItemIdAsync` call-site audit; (4) Fixed `~varies` line numbers to exact values; (5) Added `--no-refresh`/`--no-live` forward-reference in Executive Summary; (6) Clarified context-change data flow step 4; (7) Moved Completion section to appendix position after References.
 
 | Rev | Changes |

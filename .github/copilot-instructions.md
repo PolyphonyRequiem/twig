@@ -15,7 +15,8 @@ sprint backlogs as rich terminal trees using Spectre.Console.
 - Nullable reference types enabled globally
 - **Process-agnostic**: No hardcoded state names, type names, or process template assumptions.
   All process-specific mapping comes from `IProcessConfigurationProvider` at runtime.
-  See `.github/instructions/process-agnostic.instructions.md` for the full principle.
+  Never assume a specific process template (Agile, Scrum, CMMI, Basic) — discover
+  states, types, and fields dynamically via the provider.
 
 ## Coding Conventions
 
@@ -91,6 +92,21 @@ When committing code that implements plan work:
 - After committing, transition the ADO item: `twig set <id>` then `twig state Done`
 - When all epics complete, also transition the plan-level Epic to Done
 - If no mapping exists for the current work, commit normally without AB# reference
+
+### PR Grouping Strategy
+
+PR groups (PGs) are a cross-cutting overlay that organizes plan tasks into reviewable
+pull requests. They are **not** a 1:1 mapping to the ADO work item hierarchy — grouping
+is driven by review coherence.
+
+Key heuristics:
+- **2-PR sweet spot**: Two PGs per epic balances parallelism, isolation, and merge simplicity.
+- **3-PR threshold**: Three PGs is where cognitive overhead increases meaningfully —
+  justify reaching for 3, don't default to it.
+- **Sizing guardrails**: ≤2,000 LoC and ≤50 files per PG.
+- **Deep vs Wide**: Classify each PG to set reviewer expectations.
+
+See `.github/instructions/pr-grouping.instructions.md` for the full guide.
 
 ## Work Item Lifecycle Protocol
 

@@ -1,11 +1,13 @@
 using System.Text.RegularExpressions;
 using Shouldly;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Common;
 using Twig.Domain.ReadModels;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Infrastructure.Config;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Cli.Tests.Formatters;
@@ -47,7 +49,8 @@ public class HumanOutputFormatterTests
 
         var result = _formatter.FormatWorkItem(item, showDirty: true);
 
-        result.ShouldContain("✎");
+        // DD-03: dirty indicator is ● (not ✎)
+        result.ShouldContain("●");
     }
 
     [Fact]
@@ -59,7 +62,7 @@ public class HumanOutputFormatterTests
 
         var result = _formatter.FormatWorkItem(item, showDirty: false);
 
-        result.ShouldNotContain("✎");
+        result.ShouldNotContain("\x1b[33m●");
     }
 
     [Fact]
@@ -2505,7 +2508,7 @@ public class HumanOutputFormatterTests
     }
 
     [Fact]
-    public void FormatWorkItem_DirtyMarker_UsesPencilGlyph()
+    public void FormatWorkItem_DirtyMarker_UsesBulletGlyph()
     {
         var item = CreateWorkItem(1, "Edited Item", "Active");
         item.UpdateField("System.Title", "New Title");
@@ -2513,9 +2516,8 @@ public class HumanOutputFormatterTests
 
         var result = _formatter.FormatWorkItem(item, showDirty: true);
 
-        // TEST-009: Dirty marker MUST render as ✎ (U+270E) instead of •
-        result.ShouldContain("✎");
-        result.ShouldNotContain("•");
+        // DD-03: Dirty marker MUST render as ● (U+25CF) for FormatWorkItem
+        result.ShouldContain("●");
     }
 
     [Fact]
@@ -2686,6 +2688,304 @@ public class HumanOutputFormatterTests
         var output = _formatter.FormatQueryResults(result);
 
         output.ShouldNotBeNullOrEmpty();
+    }
+
+    // ── Cache-age indicator (T-1520-4) ──────────────────────────────
+
+    [Fact]
+    public void FormatStatusSummary_StaleItem_ShowsCacheAge()
+    {
+        var item = new WorkItemBuilder(500, "Stale Summary")
+            .InState("Active")
+            .LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-15))
+            .Build();
+
+        var result = _formatter.FormatStatusSummary(item);
+
+        result.ShouldContain("(cached 15m ago)");
+    }
+
+    [Fact]
+    public void FormatStatusSummary_FreshItem_NoCacheAge()
+    {
+        var item = new WorkItemBuilder(501, "Fresh Summary")
+            .InState("Active")
+            .LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-2))
+            .Build();
+
+        var result = _formatter.FormatStatusSummary(item);
+
+        result.ShouldNotContain("cached");
+    }
+
+    [Fact]
+    public void FormatStatusSummary_NullLastSyncedAt_NoCacheAge()
+    {
+        var item = new WorkItemBuilder(502, "No Sync")
+            .InState("Active")
+            .Build();
+
+        var result = _formatter.FormatStatusSummary(item);
+
+        result.ShouldNotContain("cached");
+    }
+
+    [Fact]
+    public void FormatStatusSummary_CacheAge_IsDimmed()
+    {
+        var item = new WorkItemBuilder(503, "Dim Cache")
+            .InState("Active")
+            .LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-10))
+            .Build();
+
+        var result = _formatter.FormatStatusSummary(item);
+
+        // Dim ANSI code should wrap the cache-age
+        result.ShouldContain("\x1b[2m(cached 10m ago)");
+    }
+
+    [Fact]
+    public void FormatStatusSummary_CustomThreshold_Respects_CacheStaleMinutes()
+    {
+        var config = new DisplayConfig { CacheStaleMinutes = 30 };
+        var fmt = new HumanOutputFormatter(config);
+        var item = new WorkItemBuilder(506, "Custom Threshold")
+            .InState("Active")
+            .LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-15))
+            .Build();
+
+        var result = fmt.FormatStatusSummary(item);
+
+        // 15 minutes < 30 minute threshold → fresh, no cache age
+        result.ShouldNotContain("cached");
+    }
+
+    [Fact]
+    public void FormatWorkItem_StaleItem_ShowsCacheAgeInHeader()
+    {
+        var item = new WorkItemBuilder(510, "Stale Detail")
+            .InState("Active")
+            .LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-20))
+            .Build();
+
+        var result = _formatter.FormatWorkItem(item, showDirty: false,
+            fieldDefinitions: null);
+
+        result.ShouldContain("(cached 20m ago)");
+        // Cache age should be on the first line (header)
+        var firstLine = result.Split('\n')[0];
+        firstLine.ShouldContain("cached 20m ago");
+    }
+
+    [Fact]
+    public void FormatWorkItem_FreshItem_NoCacheAge()
+    {
+        var item = new WorkItemBuilder(511, "Fresh Detail")
+            .InState("Active")
+            .LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-2))
+            .Build();
+
+        var result = _formatter.FormatWorkItem(item, showDirty: false,
+            fieldDefinitions: null);
+
+        result.ShouldNotContain("cached");
+    }
+
+    [Fact]
+    public void FormatWorkItem_NullLastSyncedAt_NoCacheAge()
+    {
+        var item = new WorkItemBuilder(512, "Never Synced")
+            .InState("Active")
+            .Build();
+
+        var result = _formatter.FormatWorkItem(item, showDirty: false,
+            fieldDefinitions: null);
+
+        result.ShouldNotContain("cached");
+    }
+
+    // ── Dirty-state summary (T-1520-4) ──────────────────────────────
+
+    [Fact]
+    public void FormatWorkItem_DirtyItem_UsesBulletIndicator()
+    {
+        var item = new WorkItemBuilder(520, "Dirty Bullet")
+            .InState("Active")
+            .Dirty()
+            .Build();
+
+        var result = _formatter.FormatWorkItem(item, showDirty: true,
+            fieldDefinitions: null);
+
+        // DD-03: dirty indicator is ● (not ✎)
+        result.ShouldContain("●");
+    }
+
+    [Fact]
+    public void FormatWorkItem_WithPendingChangeRecords_ShowsDirtySummary()
+    {
+        var item = new WorkItemBuilder(521, "Dirty Summary")
+            .InState("Active")
+            .Dirty()
+            .Build();
+        var changes = new List<PendingChangeRecord>
+        {
+            new(521, "field", "System.Title", "Old Title", "Dirty Summary")
+        };
+
+        var result = _formatter.FormatWorkItem(item, showDirty: true,
+            fieldDefinitions: null,
+            pendingChangeRecords: changes);
+
+        result.ShouldContain("local: Title changed");
+    }
+
+    [Fact]
+    public void FormatWorkItem_WithPendingChangeRecords_ShowsUnsavedHint()
+    {
+        var item = new WorkItemBuilder(522, "Unsaved Item")
+            .InState("Active")
+            .Dirty()
+            .Build();
+        var changes = new List<PendingChangeRecord>
+        {
+            new(522, "field", "System.Title", "Old", "New")
+        };
+
+        var result = _formatter.FormatWorkItem(item, showDirty: true,
+            fieldDefinitions: null,
+            pendingChangeRecords: changes);
+
+        result.ShouldContain("(unsaved — run 'twig save' to push)");
+    }
+
+    [Fact]
+    public void FormatWorkItem_WithStateChange_ShowsStateTransition()
+    {
+        var item = new WorkItemBuilder(523, "State Change")
+            .InState("Doing")
+            .Dirty()
+            .Build();
+        var changes = new List<PendingChangeRecord>
+        {
+            new(523, "state", "System.State", "New", "Doing")
+        };
+
+        var result = _formatter.FormatWorkItem(item, showDirty: true,
+            fieldDefinitions: null,
+            pendingChangeRecords: changes);
+
+        result.ShouldContain("local: State New → Doing");
+    }
+
+    [Fact]
+    public void FormatWorkItem_EmptyPendingChangeRecords_NoDirtySummary()
+    {
+        var item = new WorkItemBuilder(524, "Clean Item")
+            .InState("Active")
+            .Build();
+        var changes = new List<PendingChangeRecord>();
+
+        var result = _formatter.FormatWorkItem(item, showDirty: true,
+            fieldDefinitions: null,
+            pendingChangeRecords: changes);
+
+        result.ShouldNotContain("local:");
+        result.ShouldNotContain("unsaved");
+    }
+
+    [Fact]
+    public void FormatWorkItem_DirtySummary_IsYellow()
+    {
+        var item = new WorkItemBuilder(525, "Yellow Summary")
+            .InState("Active")
+            .Dirty()
+            .Build();
+        var changes = new List<PendingChangeRecord>
+        {
+            new(525, "field", "System.Title", "Old", "New")
+        };
+
+        var result = _formatter.FormatWorkItem(item, showDirty: true,
+            fieldDefinitions: null,
+            pendingChangeRecords: changes);
+
+        // Yellow ANSI code should wrap the dirty summary
+        result.ShouldContain("\x1b[33mlocal: Title changed");
+    }
+
+    [Fact]
+    public void FormatWorkItem_ManyChanges_ShowsAggregatedSummary()
+    {
+        var item = new WorkItemBuilder(526, "Many Changes")
+            .InState("Active")
+            .Dirty()
+            .Build();
+        var changes = new List<PendingChangeRecord>
+        {
+            new(526, "field", "System.Title", "Old", "New"),
+            new(526, "field", "System.Description", "Old Desc", "New Desc"),
+            new(526, "note", null, null, "A note")
+        };
+
+        var result = _formatter.FormatWorkItem(item, showDirty: true,
+            fieldDefinitions: null,
+            pendingChangeRecords: changes);
+
+        result.ShouldContain("local: 2 field changes, 1 note");
+    }
+
+    [Fact]
+    public void FormatWorkItem_CacheAgeAndDirty_BothDisplayed()
+    {
+        var item = new WorkItemBuilder(527, "Stale and Dirty")
+            .InState("Active")
+            .Dirty()
+            .LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-20))
+            .Build();
+        var changes = new List<PendingChangeRecord>
+        {
+            new(527, "field", "System.Title", "Old", "New")
+        };
+
+        var result = _formatter.FormatWorkItem(item, showDirty: true,
+            fieldDefinitions: null,
+            pendingChangeRecords: changes);
+
+        result.ShouldContain("cached 20m ago");
+        result.ShouldContain("local: Title changed");
+    }
+
+    [Fact]
+    public void FormatWorkItem_FallbackTuple_WhenNoRecordsProvided()
+    {
+        var item = new WorkItemBuilder(528, "Tuple Fallback")
+            .InState("Active")
+            .Dirty()
+            .Build();
+
+        var result = _formatter.FormatWorkItem(item, showDirty: true,
+            fieldDefinitions: null,
+            pendingChanges: (2, 1));
+
+        // Falls back to the tuple-based footer
+        result.ShouldContain("2 field changes");
+        result.ShouldContain("1 note staged");
+        // Should NOT show DirtyStateSummary output
+        result.ShouldNotContain("local:");
+    }
+
+    [Fact]
+    public void FormatWorkItem_SimpleOverload_NoCacheAge_WhenFresh()
+    {
+        var item = new WorkItemBuilder(529, "Simple Fresh")
+            .InState("Active")
+            .LastSyncedAt(DateTimeOffset.UtcNow.AddMinutes(-1))
+            .Build();
+
+        var result = _formatter.FormatWorkItem(item, showDirty: false);
+
+        result.ShouldNotContain("cached");
     }
 
 }

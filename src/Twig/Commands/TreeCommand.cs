@@ -26,10 +26,10 @@ public sealed class TreeCommand(
     ITelemetryClient? telemetryClient = null)
 {
     /// <summary>Display the work item hierarchy as a tree.</summary>
-    public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, int? depth = null, bool all = false, bool noLive = false, CancellationToken ct = default)
+    public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, int? depth = null, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
-        var exitCode = await ExecuteCoreAsync(outputFormat, depth, all, noLive, ct);
+        var exitCode = await ExecuteCoreAsync(outputFormat, depth, all, noLive, noRefresh, ct);
         telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
         {
             ["command"] = "tree",
@@ -44,7 +44,7 @@ public sealed class TreeCommand(
         return exitCode;
     }
 
-    private async Task<int> ExecuteCoreAsync(string outputFormat, int? depth, bool all, bool noLive, CancellationToken ct)
+    private async Task<int> ExecuteCoreAsync(string outputFormat, int? depth, bool all, bool noLive, bool noRefresh, CancellationToken ct)
     {
         var (fmt, renderer) = pipelineFactory is not null
             ? pipelineFactory.Resolve(outputFormat, noLive)
@@ -74,14 +74,27 @@ public sealed class TreeCommand(
         {
             // EPIC-005: Load process config for unparented banner
             var processConfig = await processTypeStore.GetProcessConfigurationDataAsync();
-            if (renderer is SpectreRenderer spectreRenderer && processConfig is not null)
+            var spectreRenderer = renderer as SpectreRenderer;
+            if (spectreRenderer is not null && processConfig is not null)
             {
                 spectreRenderer.TypeLevelMap = BacklogHierarchyService.GetTypeLevelMap(processConfig);
                 spectreRenderer.ParentChildMap = BacklogHierarchyService.InferParentChildMap(processConfig);
             }
 
-            // Async progressive rendering path — delegates to SpectreRenderer.RenderTreeAsync.
-            await renderer.RenderTreeAsync(
+            // Shared factory: build a sibling-count resolver for any root item and token
+            Func<int, Task<int?>> MakeSiblingCounter(Domain.Aggregates.WorkItem root, CancellationToken token) =>
+                async nodeId =>
+                {
+                    var parentId = nodeId == root.Id ? root.ParentId
+                        : (await workItemRepo.GetByIdAsync(nodeId, token))?.ParentId;
+                    if (!parentId.HasValue) return null;
+                    return (await workItemRepo.GetChildrenAsync(parentId.Value, token)).Count;
+                };
+
+            var getSiblingCount = MakeSiblingCounter(resolvedItem, ct);
+
+            // Fallback: render tree without sync (--no-refresh, non-Spectre renderers, sync failures)
+            Task RenderTreeDirectAsync() => renderer.RenderTreeAsync(
                 getFocusedItem: () => Task.FromResult<Domain.Aggregates.WorkItem?>(resolvedItem),
                 getParentChain: async () => resolvedItem?.ParentId is null
                     ? Array.Empty<Domain.Aggregates.WorkItem>()
@@ -90,43 +103,75 @@ public sealed class TreeCommand(
                 maxChildren: maxChildren,
                 activeId: activeId,
                 ct: ct,
-                getSiblingCount: async (nodeId) =>
-                {
-                    // Find the node in the resolved item or its future parent chain
-                    int? parentId = null;
-                    if (resolvedItem is not null && resolvedItem.Id == nodeId)
-                        parentId = resolvedItem.ParentId;
-                    else
-                    {
-                        // Parent chain will be fetched by the renderer; look up from repo
-                        var node = await workItemRepo.GetByIdAsync(nodeId, ct);
-                        parentId = node?.ParentId;
-                    }
-                    if (!parentId.HasValue) return null;
-                    var siblings = await workItemRepo.GetChildrenAsync(parentId.Value, ct);
-                    return siblings.Count;
-                },
+                getSiblingCount: getSiblingCount,
                 getLinks: async () =>
                 {
                     try { return await syncCoordinator.SyncLinksAsync(resolvedItem.Id, ct); }
                     catch (Exception ex) when (ex is not OperationCanceledException) { return Array.Empty<WorkItemLink>(); }
                 });
 
-            // Sync working set after cached render (EPIC-004) — best-effort
-            try
+            if (spectreRenderer is not null && !noRefresh)
             {
-                var workingSet = await workingSetService.ComputeAsync(resolvedItem.IterationPath);
-                await renderer.RenderWithSyncAsync(
-                    buildCachedView: () =>
-                        Task.FromResult<Spectre.Console.Rendering.IRenderable>(
-                            new Spectre.Console.Text(" ")),
-                    performSync: () => syncCoordinator.SyncWorkingSetAsync(workingSet),
-                    buildRevisedView: syncResult =>
-                        Task.FromResult<Spectre.Console.Rendering.IRenderable?>(null),
-                    CancellationToken.None);
+                // Two-pass rendering: build tree from cache → sync → rebuild from fresh data
+                try
+                {
+                    var cachedParentChain = resolvedItem.ParentId is null
+                        ? Array.Empty<Domain.Aggregates.WorkItem>()
+                        : await workItemRepo.GetParentChainAsync(resolvedItem.ParentId.Value, ct);
+                    var cachedChildren = await workItemRepo.GetChildrenAsync(activeId.Value, ct);
+
+                    IReadOnlyList<WorkItemLink> cachedLinks = Array.Empty<WorkItemLink>();
+                    try { cachedLinks = await syncCoordinator.SyncLinksAsync(resolvedItem.Id, ct); }
+                    catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
+
+                    var workingSet = await workingSetService.ComputeAsync(resolvedItem.IterationPath);
+
+                    await renderer.RenderWithSyncAsync(
+                        buildCachedView: () => spectreRenderer.BuildTreeViewAsync(
+                            resolvedItem,
+                            cachedParentChain,
+                            cachedChildren,
+                            maxChildren,
+                            activeId,
+                            getSiblingCount,
+                            cachedLinks,
+                            config.Display.CacheStaleMinutes),
+                        performSync: () => syncCoordinator.SyncWorkingSetAsync(workingSet),
+                        buildRevisedView: async _ =>
+                        {
+                            // Rebuild tree from fresh cache data after sync completes
+                            var freshItem = await workItemRepo.GetByIdAsync(resolvedItem.Id, CancellationToken.None);
+                            if (freshItem is null) return null;
+
+                            var freshParentChain = freshItem.ParentId is null
+                                ? Array.Empty<Domain.Aggregates.WorkItem>()
+                                : await workItemRepo.GetParentChainAsync(freshItem.ParentId.Value, CancellationToken.None);
+                            var freshChildren = await workItemRepo.GetChildrenAsync(freshItem.Id, CancellationToken.None);
+
+                            return await spectreRenderer.BuildTreeViewAsync(
+                                freshItem,
+                                freshParentChain,
+                                freshChildren,
+                                maxChildren,
+                                activeId,
+                                MakeSiblingCounter(freshItem, CancellationToken.None),
+                                cachedLinks,
+                                config.Display.CacheStaleMinutes);
+                        },
+                        CancellationToken.None);
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception)
+                {
+                    // Sync failure — fallback to direct tree render without sync
+                    await RenderTreeDirectAsync();
+                }
             }
-            catch (OperationCanceledException) { throw; }
-            catch (Exception) { /* sync is best-effort — don't fail the command */ }
+            else
+            {
+                // --no-refresh or non-Spectre renderer: render tree directly, no sync
+                await RenderTreeDirectAsync();
+            }
 
             return 0;
         }
@@ -195,14 +240,17 @@ public sealed class TreeCommand(
             Console.WriteLine(fmt.FormatTree(tree, maxChildren, activeId));
         }
 
-        // Sync working set silently after output (EPIC-004) — best-effort
-        try
+        // Sync working set silently after output (EPIC-004) — best-effort; skip if --no-refresh
+        if (!noRefresh)
         {
-            var syncWorkingSet = await workingSetService.ComputeAsync(item.IterationPath);
-            await syncCoordinator.SyncWorkingSetAsync(syncWorkingSet);
+            try
+            {
+                var syncWorkingSet = await workingSetService.ComputeAsync(item.IterationPath);
+                await syncCoordinator.SyncWorkingSetAsync(syncWorkingSet);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception) { /* sync is best-effort — don't fail the command */ }
         }
-        catch (OperationCanceledException) { throw; }
-        catch (Exception) { /* sync is best-effort — don't fail the command */ }
 
         return 0;
     }

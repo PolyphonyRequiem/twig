@@ -222,8 +222,8 @@ public sealed class FlowStartCommand(
         {
             try
             {
-                branchName = BranchNameTemplate.Generate(
-                    config.Git.BranchTemplate, item.Id, item.Type.Value, item.Title);
+                branchName = BranchNamingService.Generate(
+                    item, config.Git.BranchTemplate, config.Git.TypeMap);
 
                 var branchExists = await gitService.BranchExistsAsync(branchName);
                 if (branchExists)

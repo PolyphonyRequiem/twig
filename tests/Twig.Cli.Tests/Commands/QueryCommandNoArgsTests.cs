@@ -94,22 +94,14 @@ public sealed class QueryCommandNoArgsTests
 
     // --- T-1639.2: Output format handling ---
 
-    [Fact]
-    public async Task NoArgs_OutputJson_ShowsSummaryText()
+    [Theory]
+    [InlineData("json")]
+    [InlineData("json-compact")]
+    [InlineData("json-full")]
+    public async Task NoArgs_OutputJsonVariants_ShowsSummaryText(string outputFormat)
     {
         var cmd = CreateCommand();
-        var (exitCode, output) = await CaptureOutput(() => cmd.ExecuteAsync(outputFormat: "json"));
-
-        exitCode.ShouldBe(0);
-        output.ShouldContain("twig query — Search and filter work items");
-        output.ShouldContain("Available filters:");
-    }
-
-    [Fact]
-    public async Task NoArgs_OutputJsonCompact_ShowsSummaryText()
-    {
-        var cmd = CreateCommand();
-        var (exitCode, output) = await CaptureOutput(() => cmd.ExecuteAsync(outputFormat: "json-compact"));
+        var (exitCode, output) = await CaptureOutput(() => cmd.ExecuteAsync(outputFormat: outputFormat));
 
         exitCode.ShouldBe(0);
         output.ShouldContain("twig query — Search and filter work items");

@@ -41,7 +41,10 @@ public sealed class NewCommand(
 
         if (type is null)
         {
-            Console.Error.WriteLine(fmt.FormatError("Type is required. Usage: twig new \"title\" --type <type>, or provide --parent to infer type."));
+            var msg = parent is null
+                ? "Type is required. Usage: twig new \"title\" --type <type>, or provide --parent to infer type."
+                : "--type is required. Type inference from --parent is not yet supported; use --type <type> explicitly.";
+            Console.Error.WriteLine(fmt.FormatError(msg));
             return 1;
         }
 

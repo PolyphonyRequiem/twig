@@ -49,6 +49,10 @@ public sealed class GroupedHelpTests
         stderr.ShouldContain("Unknown command: 'frobnicate'");
         stdout.ShouldContain("Usage: twig");
         stdout.ShouldContain("Getting Started:");
+        stdout.ShouldContain("Views:");
+        stdout.ShouldContain("Navigation:");
+        stdout.ShouldContain("Work Items:");
+        stdout.ShouldContain("Git:");
     }
 
     [Theory]

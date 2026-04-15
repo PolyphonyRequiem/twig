@@ -1,6 +1,6 @@
 # Command UX & Ergonomics
 
-> **Status**: 🔨 In Progress | **Epic**: #1526 | **Revision**: R6 — Added PR Groups section (readability review); fixed stale FR-15 references in child/sibling 'Not Included' callouts; renamed 'Open Questions' to 'Design Q&A' (all resolved); fixed missing space in Data Flow header; added test case for simultaneous `--title` + trailing positional text (T-1527-2); added NFR-05 confirming no new telemetry properties; acknowledged `SeedFactory.Create` alternative in DD-8
+> **Status**: 🔨 In Progress — 1/2 PR groups merged | **Epic**: #1526 | **Revision**: R6 — Added PR Groups section (readability review); fixed stale FR-15 references in child/sibling 'Not Included' callouts; renamed 'Open Questions' to 'Design Q&A' (all resolved); fixed missing space in Data Flow header; added test case for simultaneous `--title` + trailing positional text (T-1527-2); added NFR-05 confirming no new telemetry properties; acknowledged `SeedFactory.Create` alternative in DD-8
 
 ## Executive Summary
 

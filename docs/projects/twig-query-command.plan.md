@@ -1,6 +1,6 @@
 # twig query: Ad-hoc Work Item Search and Filtering
 
-> **Status**: 🔨 In Progress — 1/2 PR groups merged  
+> **Status**: ✅ Done
 > **Epic**: #1302  
 
 ## Executive Summary
@@ -802,3 +802,17 @@ duplicated in the command tests. TwigJsonContext verification is folded into Tas
 - Formatter pattern: `src/Twig/Formatters/IOutputFormatter.cs`
 - Command pattern: `src/Twig/Commands/ShowCommand.cs`
 - TestKit builder: `tests/Twig.TestKit/WorkItemBuilder.cs`
+
+---
+
+## Completion
+
+> **Completed**: 2026-04-15  
+> **Epic**: #1302 → Done  
+> **Issues**: #1490, #1491, #1492, #1493 → all Done  
+> **PRs**: #23 (Domain Foundation, merged 2026-04-13), #24 (Query Command + CLI + Formatters + Tests, merged 2026-04-14)
+
+All 4 Issues and 25 Tasks delivered across 2 PRs. Domain foundation (QueryParameters,
+WiqlQueryBuilder, QueryResult) shipped in PR #23; QueryCommand with CLI integration,
+4-formatter output support, hint engine extensions, and comprehensive command-level
+tests shipped in PR #24. Both PRs merged cleanly and feature branches cleaned up.

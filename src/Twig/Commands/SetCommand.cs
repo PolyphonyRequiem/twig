@@ -35,7 +35,8 @@ public sealed class SetCommand(
     IPendingChangeStore? pendingChangeStore = null,
     TwigPaths? paths = null,
     IFieldDefinitionStore? fieldDefinitionStore = null,
-    IProcessConfigurationProvider? processConfigProvider = null)
+    IProcessConfigurationProvider? processConfigProvider = null,
+    ContextChangeService? contextChangeService = null)
 {
     public async Task<int> ExecuteAsync(string idOrPattern, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
@@ -221,6 +222,14 @@ public sealed class SetCommand(
         else
         {
             Console.WriteLine(fmt.FormatWorkItem(item, showDirty: false));
+        }
+
+        // Extend working set around the target item (fire-and-forget — never fails the command).
+        // Runs BEFORE eviction so the expanded cache is reflected in working set computation.
+        if (contextChangeService is not null)
+        {
+            try { await contextChangeService.ExtendWorkingSetAsync(item.Id, ct); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { /* swallow */ }
         }
 
         // Targeted sync — best-effort, never fails the command (DD-1, DD-2)

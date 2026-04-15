@@ -104,6 +104,14 @@ public static class CommandServiceModule
             sp.GetRequiredService<WorkingSetService>(),
             sp.GetRequiredService<SyncCoordinator>()));
 
+        // Context change extension — additively hydrates parent chain + downstream graph
+        services.AddSingleton<ContextChangeService>(sp => new ContextChangeService(
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<SyncCoordinator>(),
+            sp.GetRequiredService<ProtectedCacheWriter>(),
+            sp.GetService<IWorkItemLinkRepository>()));
+
         // PendingChangeFlusher — flush loop shared by SaveCommand, SyncCommand, FlowDoneCommand
         services.AddSingleton<IPendingChangeFlusher>(sp => new PendingChangeFlusher(
             sp.GetRequiredService<IWorkItemRepository>(),

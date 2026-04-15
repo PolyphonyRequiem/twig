@@ -20,6 +20,7 @@
     <ProjectReference Include="..\..\src\Twig.Mcp\Twig.Mcp.csproj" />
     <ProjectReference Include="..\..\src\Twig.Domain\Twig.Domain.csproj" />
     <ProjectReference Include="..\..\src\Twig.Infrastructure\Twig.Infrastructure.csproj" />
+    <ProjectReference Include="..\Twig.TestKit\Twig.TestKit.csproj" />
   </ItemGroup>
 
 </Project>

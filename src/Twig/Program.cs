@@ -303,6 +303,9 @@ internal static class ExceptionHandler
 /// </summary>
 public sealed class TwigCommands(IServiceProvider services)
 {
+    internal static string? JoinTrailingText(string? named, string[]? positional)
+        => named ?? (positional is { Length: > 0 } ? string.Join(" ", positional) : null);
+
     /// <summary>Initialize a new Twig workspace.</summary>
     /// <param name="org">Azure DevOps organization name (e.g., contoso).</param>
     /// <param name="project">Azure DevOps project name.</param>
@@ -319,11 +322,12 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> Set([Argument] string idOrPattern, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SetCommand>().ExecuteAsync(idOrPattern, output, ct);
 
-    /// <summary>Display a work item from cache without changing context.</summary>
+    /// <summary>Display a work item without changing context. Syncs by default; use --no-refresh for cache-only.</summary>
     /// <param name="id">Work item ID to display.</param>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
-    public async Task<int> Show([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, ct);
+    /// <param name="noRefresh">Skip the sync and show cached data only.</param>
+    public async Task<int> Show([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, bool noRefresh = false, CancellationToken ct = default)
+        => await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, noRefresh, ct);
 
     /// <summary>Search and filter work items via ad-hoc WIQL queries.</summary>
     /// <param name="searchText">Free-text search across work item titles and descriptions.</param>
@@ -342,8 +346,9 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <summary>Show status of the active work item.</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     /// <param name="noLive">Disable live-refresh and render a static snapshot.</param>
-    public async Task<int> Status(string output = OutputFormatterFactory.DefaultFormat, bool noLive = false, CancellationToken ct = default)
-        => await services.GetRequiredService<StatusCommand>().ExecuteAsync(output, noLive, ct);
+    /// <param name="noRefresh">Skip the sync and show cached data only.</param>
+    public async Task<int> Status(string output = OutputFormatterFactory.DefaultFormat, bool noLive = false, bool noRefresh = false, CancellationToken ct = default)
+        => await services.GetRequiredService<StatusCommand>().ExecuteAsync(output, noLive, noRefresh, ct);
 
     /// <summary>Change the state of the active work item by name.</summary>
     /// <param name="name">Target state name (e.g., Active, Resolved, Closed).</param>
@@ -361,16 +366,20 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="set">Set the new work item as the active context after creation.</param>
     /// <param name="editor">Open an external editor to fill in fields.</param>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
-    public async Task<int> New(string title, string type, string? area = null, string? iteration = null, string? description = null, int? parent = null, bool set = false, bool editor = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<NewCommand>().ExecuteAsync(title, type, area, iteration, description, parent, set, editor, output, ct);
+    public async Task<int> New(string? title = null, string? type = null, string? area = null, string? iteration = null, string? description = null, int? parent = null, bool set = false, bool editor = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, params string[] titleParts)
+    {
+        var resolvedTitle = JoinTrailingText(title, titleParts);
+        return await services.GetRequiredService<NewCommand>().ExecuteAsync(resolvedTitle, type, area, iteration, description, parent, set, editor, output, ct);
+    }
 
     /// <summary>Display the work item tree hierarchy.</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     /// <param name="depth">Maximum tree depth to display.</param>
     /// <param name="all">Show all items in the hierarchy, not just the active subtree.</param>
     /// <param name="noLive">Disable live-refresh and render a static snapshot.</param>
-    public async Task<int> Tree(string output = OutputFormatterFactory.DefaultFormat, int? depth = null, bool all = false, bool noLive = false, CancellationToken ct = default)
-        => await services.GetRequiredService<TreeCommand>().ExecuteAsync(output, depth, all, noLive, ct);
+    /// <param name="noRefresh">Skip the sync and show cached data only.</param>
+    public async Task<int> Tree(string output = OutputFormatterFactory.DefaultFormat, int? depth = null, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default)
+        => await services.GetRequiredService<TreeCommand>().ExecuteAsync(output, depth, all, noLive, noRefresh, ct);
 
     /// <summary>Navigate to the parent work item.</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
@@ -581,8 +590,8 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <summary>Add a note to the active work item.</summary>
     /// <param name="text">Note text to add; omit to open an editor.</param>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
-    public async Task<int> Note(string? text = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<NoteCommand>().ExecuteAsync(text, output, ct);
+    public async Task<int> Note(string? text = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, params string[] textParts)
+        => await services.GetRequiredService<NoteCommand>().ExecuteAsync(JoinTrailingText(text, textParts), output, ct);
 
     /// <summary>Update a field on the active work item.</summary>
     /// <param name="field">ADO field name or alias to update (e.g., System.Title, title).</param>
@@ -634,21 +643,24 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     /// <param name="all">Show all team members' items, not just yours.</param>
     /// <param name="noLive">Disable live-refresh and render a static snapshot.</param>
-    public async Task<int> Workspace(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, ct);
+    /// <param name="noRefresh">Skip the sync and show cached data only.</param>
+    public async Task<int> Workspace(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default)
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, noRefresh, ct);
 
     /// <summary>Show the current workspace (short alias).</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     /// <param name="all">Show all team members' items, not just yours.</param>
     /// <param name="noLive">Disable live-refresh and render a static snapshot.</param>
-    public async Task<int> Ws(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, ct);
+    /// <param name="noRefresh">Skip the sync and show cached data only.</param>
+    public async Task<int> Ws(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default)
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, noRefresh, ct);
 
     /// <summary>Show sprint items, grouped by assignee. Defaults to your items; use --all for the full team.</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     /// <param name="all">Show all team members' items, not just yours.</param>
-    public async Task<int> Sprint(string output = OutputFormatterFactory.DefaultFormat, bool all = false, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, ct: ct, sprintLayout: true);
+    /// <param name="noRefresh">Skip the sync and show cached data only.</param>
+    public async Task<int> Sprint(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noRefresh = false, CancellationToken ct = default)
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noRefresh: noRefresh, ct: ct, sprintLayout: true);
 
     /// <summary>Read or set a configuration value.</summary>
     /// <param name="key">Configuration key to read or set (e.g., git.project, ado.pat).</param>
@@ -979,7 +991,7 @@ Views:
 
 Context:
   set <id|pattern>     Set the active work item.
-  show <id>            Display a work item from cache (read-only).
+  show <id>            Display a work item (syncs by default; --no-refresh for cache-only).
   query [text]         Search work items by text, type, state, or assignee.
   web [id]             Open the active work item in the browser.
 

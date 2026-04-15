@@ -343,7 +343,51 @@ public sealed class SetCommandTests
         output.ShouldContain("1/2");
     }
 
+    [Fact]
+    public async Task Set_CacheMiss_EvictionIncludesExtendedParents()
+    {
+        // Arrange: cache miss → fetchedFromAdo = true
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        var grandparent = CreateWorkItem(200, "Grandparent");
+        var parent = CreateWorkItem(100, "Parent").WithParentId(200);
+        var item = CreateWorkItem(42, "Child").WithParentId(100);
+
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
+        _adoService.FetchAsync(200, Arg.Any<CancellationToken>()).Returns(grandparent);
+        _adoService.FetchChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        // Parent chain hydration in SetCommand (direct parent only)
+        _workItemRepo.GetParentChainAsync(100, Arg.Any<CancellationToken>())
+            .Returns(new[] { parent });
+
+        // After extension, working set computation sees full parent chain
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetParentChainAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new[] { parent, grandparent });
+
+        var result = await CreateCommandWithContextChange().ExecuteAsync("42");
+
+        result.ShouldBe(0);
+        // Eviction keep set should include grandparent 200 (from expanded working set)
+        await _workItemRepo.Received().EvictExceptAsync(
+            Arg.Is<IReadOnlySet<int>>(ids => ids.Contains(200)),
+            Arg.Any<CancellationToken>());
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
+
+    private SetCommand CreateCommandWithContextChange()
+    {
+        var pendingStore = Substitute.For<IPendingChangeStore>();
+        var protectedWriter = new ProtectedCacheWriter(_workItemRepo, pendingStore);
+        var contextChangeService = new ContextChangeService(
+            _workItemRepo, _adoService, _syncCoordinator, protectedWriter);
+        return new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
+            _workingSetService, _formatterFactory, _hintEngine,
+            contextChangeService: contextChangeService);
+    }
 
     private void ArrangeParentWithChildren(WorkItem parent, WorkItem[] children)
     {

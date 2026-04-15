@@ -340,6 +340,41 @@ public class NewCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task New_NullType_NoParent_Returns1_WithTypeRequiredError()
+    {
+        var errWriter = new StringWriter();
+        Console.SetError(errWriter);
+
+        var result = await _cmd.ExecuteAsync("My Item", type: null);
+
+        result.ShouldBe(1);
+        var stderr = errWriter.ToString();
+        stderr.ShouldContain("Type is required");
+        stderr.ShouldContain("or provide --parent to infer type");
+
+        await _adoService.DidNotReceive().CreateAsync(
+            Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task New_NullType_WithParent_Returns1_WithInferenceNotSupportedError()
+    {
+        var errWriter = new StringWriter();
+        Console.SetError(errWriter);
+
+        var result = await _cmd.ExecuteAsync("My Item", type: null, parent: 5);
+
+        result.ShouldBe(1);
+        var stderr = errWriter.ToString();
+        stderr.ShouldContain("--type is required");
+        stderr.ShouldContain("not yet supported");
+        stderr.ShouldNotContain("or provide --parent to infer type");
+
+        await _adoService.DidNotReceive().CreateAsync(
+            Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task New_WithParent_SetsParentIdInPayload()
     {
         ArrangeCreateSuccess(200, "Child Task", parentId: 42);

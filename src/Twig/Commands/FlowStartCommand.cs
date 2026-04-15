@@ -29,7 +29,8 @@ public sealed class FlowStartCommand(
     IGitService? gitService = null,
     IIterationService? iterationService = null,
     IPromptStateWriter? promptStateWriter = null,
-    INavigationHistoryStore? historyStore = null)
+    INavigationHistoryStore? historyStore = null,
+    ContextChangeService? contextChangeService = null)
 {
     /// <summary>Begin working on a work item: set context, transition state, assign, create branch.</summary>
     public async Task<int> ExecuteAsync(
@@ -192,16 +193,7 @@ public sealed class FlowStartCommand(
         string? assignedDisplayName = null;
         if (!noAssign)
         {
-            var shouldAssign = false;
-
-            if (string.IsNullOrWhiteSpace(item.AssignedTo))
-            {
-                shouldAssign = true;
-            }
-            else if (take)
-            {
-                shouldAssign = true;
-            }
+            var shouldAssign = string.IsNullOrWhiteSpace(item.AssignedTo) || take;
 
             if (shouldAssign)
             {
@@ -295,6 +287,11 @@ public sealed class FlowStartCommand(
             if (!string.IsNullOrEmpty(formatted))
                 Console.WriteLine(formatted);
         }
+
+        // Extend working set around the target item (fire-and-forget — never fails the command).
+        // Runs after output so user sees success immediately.
+        if (contextChangeService is not null)
+            await contextChangeService.ExtendWorkingSetAsync(item.Id, ct);
 
         if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 

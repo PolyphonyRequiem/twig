@@ -4,6 +4,7 @@ using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Infrastructure.Config;
@@ -21,6 +22,8 @@ public sealed class ShowCommandTests : IDisposable
     private readonly ITelemetryClient _telemetryClient;
     private readonly IFieldDefinitionStore _fieldDefinitionStore;
     private readonly IProcessConfigurationProvider _processConfigProvider;
+    private readonly SyncCoordinator _syncCoordinator;
+    private readonly TwigConfiguration _config;
     private readonly string _tempDir;
     private readonly TwigPaths _paths;
     private readonly ShowCommand _cmd;
@@ -32,6 +35,12 @@ public sealed class ShowCommandTests : IDisposable
         _telemetryClient = Substitute.For<ITelemetryClient>();
         _fieldDefinitionStore = Substitute.For<IFieldDefinitionStore>();
         _processConfigProvider = Substitute.For<IProcessConfigurationProvider>();
+
+        var adoService = Substitute.For<IAdoWorkItemService>();
+        var pendingChangeStore = Substitute.For<IPendingChangeStore>();
+        var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, pendingChangeStore);
+        _syncCoordinator = new SyncCoordinator(_workItemRepo, adoService, protectedCacheWriter, pendingChangeStore, 30);
+        _config = new TwigConfiguration();
 
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(),
@@ -45,6 +54,8 @@ public sealed class ShowCommandTests : IDisposable
             _workItemRepo,
             _linkRepo,
             _formatterFactory,
+            _syncCoordinator,
+            _config,
             paths: _paths,
             fieldDefinitionStore: _fieldDefinitionStore,
             processConfigProvider: _processConfigProvider,
@@ -60,6 +71,7 @@ public sealed class ShowCommandTests : IDisposable
 
     private ShowCommand CreateCommandWithPipeline(RenderingPipelineFactory pipelineFactory, TextWriter? stderr = null) =>
         new(_workItemRepo, _linkRepo, _formatterFactory,
+            _syncCoordinator, _config,
             pipelineFactory: pipelineFactory, paths: _paths,
             fieldDefinitionStore: _fieldDefinitionStore,
             processConfigProvider: _processConfigProvider,
@@ -76,6 +88,7 @@ public sealed class ShowCommandTests : IDisposable
         _workItemRepo.GetByIdAsync(999, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
         var stderrWriter = new StringWriter();
         var cmd = new ShowCommand(_workItemRepo, _linkRepo, _formatterFactory,
+            _syncCoordinator, _config,
             telemetryClient: _telemetryClient, stderr: stderrWriter);
 
         var result = await cmd.ExecuteAsync(999);
@@ -319,7 +332,7 @@ public sealed class ShowCommandTests : IDisposable
     {
         var item = new WorkItemBuilder(42, "Minimal Deps").Build();
         SetupCachedItem(item);
-        var cmd = new ShowCommand(_workItemRepo, _linkRepo, _formatterFactory);
+        var cmd = new ShowCommand(_workItemRepo, _linkRepo, _formatterFactory, _syncCoordinator, _config);
 
         var output = await CaptureStdout(() => cmd.ExecuteAsync(42, "json"));
 

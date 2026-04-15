@@ -220,6 +220,59 @@ public class CacheRefreshTests
         output.ShouldContain("Active");
     }
 
+    // ── --no-refresh flag: skips sync pass ──────────────────────────
+
+    [Fact]
+    public async Task NoRefresh_SkipsSyncPass_RendersFromCacheOnly()
+    {
+        // Arrange: stale timestamp — would normally trigger refresh
+        _contextStore.GetValueAsync("last_refreshed_at", Arg.Any<CancellationToken>())
+            .Returns(DateTimeOffset.UtcNow.AddMinutes(-10).ToString("O"));
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(1, "Active"));
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { CreateWorkItem(10, "Cached Task") });
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var cmd = CreateCommand(CreateTtyPipelineFactory());
+
+        // Act
+        var result = await cmd.ExecuteAsync("human", noRefresh: true);
+
+        // Assert — command succeeds, data rendered, but no refresh badge
+        result.ShouldBe(0);
+        var output = _testConsole.Output;
+        output.ShouldContain("Cached Task");
+        output.ShouldNotContain("refreshing");
+        // Verify last_refreshed_at was NOT read for staleness check
+        await _contextStore.DidNotReceive().GetValueAsync("last_refreshed_at", Arg.Any<CancellationToken>());
+        // Verify last_refreshed_at was NOT updated
+        await _contextStore.DidNotReceive().SetValueAsync(
+            "last_refreshed_at", Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task NoRefresh_IsIndependentOfNoLive()
+    {
+        // Arrange: stale timestamp — would normally trigger refresh
+        _contextStore.GetValueAsync("last_refreshed_at", Arg.Any<CancellationToken>())
+            .Returns(DateTimeOffset.UtcNow.AddMinutes(-10).ToString("O"));
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(CreateWorkItem(1, "Active"));
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { CreateWorkItem(10, "Task B") });
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var cmd = CreateCommand(CreateTtyPipelineFactory());
+
+        // Both flags set: noLive + noRefresh
+        var result = await cmd.ExecuteAsync("human", noLive: true, noRefresh: true);
+
+        result.ShouldBe(0);
+    }
+
     // ── SpectreRenderer refresh badge tests ─────────────────────────
 
     [Fact]
@@ -373,7 +426,6 @@ public class CacheRefreshTests
         _contextStore.GetValueAsync("last_refreshed_at", Arg.Any<CancellationToken>())
             .Returns(DateTimeOffset.UtcNow.AddMinutes(-10).ToString("O"));
 
-        var so1 = new StatusOrchestrator(_contextStore, _workItemRepo, pendingChangeStore, _activeItemResolver, _workingSetService, new SyncCoordinator(_workItemRepo, _adoService, new ProtectedCacheWriter(_workItemRepo, pendingChangeStore), pendingChangeStore, 30));
         var cmd = new StatusCommand(_contextStore, _workItemRepo, pendingChangeStore, _config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, new SyncCoordinator(_workItemRepo, _adoService, new ProtectedCacheWriter(_workItemRepo, pendingChangeStore), pendingChangeStore, 30), new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db")), CreateTtyPipelineFactory());
         var result = await cmd.ExecuteAsync("human");
 
@@ -398,7 +450,6 @@ public class CacheRefreshTests
         _contextStore.GetValueAsync("last_refreshed_at", Arg.Any<CancellationToken>())
             .Returns(DateTimeOffset.UtcNow.AddMinutes(-1).ToString("O"));
 
-        var so2 = new StatusOrchestrator(_contextStore, _workItemRepo, pendingChangeStore, _activeItemResolver, _workingSetService, new SyncCoordinator(_workItemRepo, _adoService, new ProtectedCacheWriter(_workItemRepo, pendingChangeStore), pendingChangeStore, 30));
         var cmd = new StatusCommand(_contextStore, _workItemRepo, pendingChangeStore, _config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, new SyncCoordinator(_workItemRepo, _adoService, new ProtectedCacheWriter(_workItemRepo, pendingChangeStore), pendingChangeStore, 30), new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db")), CreateTtyPipelineFactory());
         var result = await cmd.ExecuteAsync("human");
 

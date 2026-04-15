@@ -33,7 +33,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         int staleDays,
         bool isTeamView,
         CancellationToken ct,
-        IReadOnlyList<Domain.ValueObjects.ColumnSpec>? dynamicColumns = null)
+        IReadOnlyList<Domain.ValueObjects.ColumnSpec>? dynamicColumns = null,
+        int cacheStaleMinutes = 5)
     {
         var table = SpectreTheme.CreateWorkspaceTable(isTeamView, dynamicColumns);
         string? savedCaption = null;
@@ -100,11 +101,14 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                                     var boldOpen = isActive ? "[bold]" : "";
                                     var boldClose = isActive ? "[/]" : "";
 
+                                    var cacheAge = CacheAgeFormatter.Format(item.LastSyncedAt, cacheStaleMinutes);
+                                    var cacheAgeMarkup = cacheAge is not null ? $" [dim]{Markup.Escape(cacheAge)}[/]" : "";
+
                                     var row = new List<string>
                                     {
                                         $"{marker}{boldOpen}{item.Id}{boldClose}",
                                         _theme.FormatTypeBadge(item.Type),
-                                        $"{boldOpen}{Markup.Escape(item.Title)}{boldClose}",
+                                        $"{boldOpen}{Markup.Escape(item.Title)}{boldClose}{cacheAgeMarkup}",
                                         _theme.FormatState(item.State),
                                     };
 
@@ -284,20 +288,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         var (tree, focusContainer) = await BuildSpectreTreeAsync(focusedItem, parentChain, activeId, getSiblingCount);
 
         // EPIC-005: Unparented banner for tree view
-        IRenderable treeRenderable = tree;
-        if (TypeLevelMap is not null && ParentChildMap is not null
-            && parentChain.Count == 0
-            && !focusedItem.ParentId.HasValue
-            && TypeLevelMap.TryGetValue(focusedItem.Type.Value, out var focusLevel)
-            && focusLevel > 0)
-        {
-            var expectedParent = Formatters.HumanOutputFormatter.FindExpectedParentTypeName(
-                focusedItem.Type.Value, ParentChildMap);
-            var parentLabel = expectedParent ?? "a parent";
-            treeRenderable = new Rows(
-                new Markup($"[dim](unparented — expected under a {Markup.Escape(parentLabel)})[/]"),
-                tree);
-        }
+        var treeRenderable = ApplyUnparentedBanner(tree, focusedItem, parentChain);
 
         // Stage 2: Render tree immediately (parent chain + focused item), then add children
         await _console.Live(treeRenderable)
@@ -430,6 +421,89 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         return $"{marker}{_theme.FormatTypeBadge(item.Type)} [bold]#{item.Id} {Markup.Escape(item.Title)}[/]{dirty} {_theme.FormatState(item.State)}";
     }
 
+    private IRenderable ApplyUnparentedBanner(Tree tree, WorkItem focusedItem, IReadOnlyList<WorkItem> parentChain)
+    {
+        if (TypeLevelMap is null || ParentChildMap is null
+            || parentChain.Count != 0
+            || focusedItem.ParentId.HasValue
+            || !TypeLevelMap.TryGetValue(focusedItem.Type.Value, out var focusLevel)
+            || focusLevel == 0)
+            return tree;
+        var expectedParent = Formatters.HumanOutputFormatter.FindExpectedParentTypeName(
+            focusedItem.Type.Value, ParentChildMap);
+        return new Rows(
+            new Markup($"[dim](unparented — expected under a {Markup.Escape(expectedParent ?? "a parent")})[/]"),
+            tree);
+    }
+
+    /// <summary>
+    /// Builds the complete tree view as a composite <see cref="IRenderable"/> without
+    /// writing to the console. Used by <see cref="Commands.TreeCommand"/> to compose the tree
+    /// view inside a <see cref="RenderWithSyncAsync"/> Live region, preventing the degenerate
+    /// empty-cached-view pattern.
+    /// </summary>
+    internal async Task<IRenderable> BuildTreeViewAsync(
+        WorkItem focusedItem,
+        IReadOnlyList<WorkItem> parentChain,
+        IReadOnlyList<WorkItem> children,
+        int maxChildren,
+        int? activeId,
+        Func<int, Task<int?>>? getSiblingCount = null,
+        IReadOnlyList<Domain.ValueObjects.WorkItemLink>? links = null,
+        int cacheStaleMinutes = 5)
+    {
+        var (tree, focusContainer) = await BuildSpectreTreeAsync(focusedItem, parentChain, activeId, getSiblingCount);
+
+        // Cache-age on focused node
+        var focusCacheAge = CacheAgeFormatter.Format(focusedItem.LastSyncedAt, cacheStaleMinutes);
+        if (focusCacheAge is not null)
+        {
+            // Append cache-age as a dimmed sibling node below the focus
+            focusContainer.AddNode($"[dim]{Markup.Escape(focusCacheAge)}[/]");
+        }
+
+        // Add children with cache-age indicators on stale items
+        var displayCount = Math.Min(children.Count, maxChildren);
+        var hasMore = children.Count > maxChildren;
+
+        for (var i = 0; i < displayCount; i++)
+        {
+            var child = children[i];
+            var activeMarker = (activeId.HasValue && child.Id == activeId.Value)
+                ? "[aqua]●[/] " : "";
+            var dirty = child.IsDirty ? " [yellow]●[/]" : "";
+            var effort = Formatters.FormatterHelpers.GetEffortDisplay(child);
+            var effortSuffix = effort is not null ? $" [dim]{Markup.Escape(effort)}[/]" : "";
+            var stateColor = _theme.GetStateCategoryMarkupColor(child.State);
+
+            var childCacheAge = CacheAgeFormatter.Format(child.LastSyncedAt, cacheStaleMinutes);
+            var childCacheAgeMarkup = childCacheAge is not null ? $" [dim]{Markup.Escape(childCacheAge)}[/]" : "";
+
+            var label = $"[{stateColor}]│[/] {activeMarker}{_theme.FormatTypeBadge(child.Type)} #{child.Id} {Markup.Escape(child.Title)}{dirty} {_theme.FormatState(child.State)}{effortSuffix}{childCacheAgeMarkup}";
+            focusContainer.AddNode(label);
+        }
+
+        if (hasMore)
+        {
+            focusContainer.AddNode($"[dim]... and {children.Count - maxChildren} more[/]");
+        }
+
+        // Links section
+        if (links is { Count: > 0 })
+        {
+            focusContainer.AddNode("[dim]┊[/]");
+            var linksNode = focusContainer.AddNode("[blue]⇄[/] [dim]Links[/]");
+            foreach (var link in links)
+            {
+                var linkLabel = $"[blue]{Markup.Escape(link.LinkType)}[/]: #{link.TargetId}";
+                linksNode.AddNode(linkLabel);
+            }
+        }
+
+        // EPIC-005: Unparented banner for tree view
+        return ApplyUnparentedBanner(tree, focusedItem, parentChain);
+    }
+
     /// <summary>
     /// Builds the complete status view as a composite <see cref="IRenderable"/> without
     /// writing to the console. Used by <see cref="StatusCommand"/> to compose the status
@@ -437,25 +511,28 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     /// corruption when the sync indicator clears.
     /// </summary>
     internal async Task<Spectre.Console.Rendering.IRenderable> BuildStatusViewAsync(
-        Func<Task<WorkItem?>> getItem,
+        WorkItem item,
         Func<Task<IReadOnlyList<PendingChangeRecord>>> getPendingChanges,
-        CancellationToken ct,
         IReadOnlyList<Domain.ValueObjects.FieldDefinition>? fieldDefinitions = null,
         IReadOnlyList<Domain.ValueObjects.StatusFieldEntry>? statusFieldEntries = null,
         (int Done, int Total)? childProgress = null,
         IReadOnlyList<Domain.ValueObjects.WorkItemLink>? links = null,
         WorkItem? parent = null,
-        IReadOnlyList<WorkItem>? children = null)
+        IReadOnlyList<WorkItem>? children = null,
+        int cacheStaleMinutes = 5)
     {
-        var item = await getItem() ?? throw new InvalidOperationException("Work item must not be null when building status view.");
         var pending = await getPendingChanges();
+
+        // Cache-age indicator (FR-02, FR-03)
+        var cacheAge = CacheAgeFormatter.Format(item.LastSyncedAt, cacheStaleMinutes);
+        var cacheAgeMarkup = cacheAge is not null ? $" [dim]{Markup.Escape(cacheAge)}[/]" : "";
 
         var summaryBadge = _theme.FormatTypeBadge(item.Type);
         var summaryState = _theme.FormatState(item.State);
-        var summaryMarkup = new Markup($"#{item.Id} [aqua]●[/] {summaryBadge} {Markup.Escape(item.Type.ToString())} — {Markup.Escape(item.Title)} {summaryState}");
+        var summaryMarkup = new Markup($"#{item.Id} [aqua]●[/] {summaryBadge} {Markup.Escape(item.Type.ToString())} — {Markup.Escape(item.Title)} {summaryState}{cacheAgeMarkup}");
 
-        // Work item detail panel
-        var dirty = item.IsDirty ? " [yellow]✎[/]" : "";
+        // Work item detail panel — dirty indicator uses ● (DD-03)
+        var dirty = item.IsDirty ? " [yellow]●[/]" : "";
         var itemGrid = new Grid().AddColumn().AddColumn();
         itemGrid.AddRow("[dim]Type:[/]", _theme.FormatTypeBadge(item.Type) + " " + Markup.Escape(item.Type.ToString()));
         itemGrid.AddRow("[dim]State:[/]", _theme.FormatState(item.State));
@@ -481,24 +558,12 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             }
         }
 
-        if (pending.Count > 0)
+        // Dirty-state summary using DirtyStateSummary (FR-04, FR-05, FR-06)
+        var dirtySummary = DirtyStateSummary.Build(pending);
+        if (dirtySummary is not null)
         {
-            var noteCount = pending.Count(c => string.Equals(c.ChangeType, "note", StringComparison.OrdinalIgnoreCase));
-            var fieldCount = pending.Count - noteCount;
-
-            var parts = new List<string>();
-            if (fieldCount > 0)
-            {
-                var fieldLabel = fieldCount == 1 ? "field change" : "field changes";
-                parts.Add($"{fieldCount} {fieldLabel}");
-            }
-            if (noteCount > 0)
-            {
-                var noteLabel = noteCount == 1 ? "note" : "notes";
-                parts.Add($"{noteCount} {noteLabel} staged");
-            }
-            if (parts.Count > 0)
-                itemGrid.AddRow("", $"[dim]{string.Join(", ", parts)}[/]");
+            itemGrid.AddRow("", $"[yellow]{Markup.Escape(dirtySummary)}[/]");
+            itemGrid.AddRow("", "[dim](unsaved — run 'twig save' to push)[/]");
         }
 
         // Relationships section — hierarchy + non-hierarchy links
@@ -538,7 +603,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         }
 
         var itemPanel = new Panel(panelContent)
-            .Header($"[bold]#{item.Id} {Markup.Escape(item.Title)}[/]{dirty}")
+            .Header($"[bold]#{item.Id} {Markup.Escape(item.Title)}[/]{dirty}{cacheAgeMarkup}")
             .Border(BoxBorder.Rounded)
             .Expand();
 
@@ -554,15 +619,17 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         (int Done, int Total)? childProgress = null,
         IReadOnlyList<Domain.ValueObjects.WorkItemLink>? links = null,
         WorkItem? parent = null,
-        IReadOnlyList<WorkItem>? children = null)
+        IReadOnlyList<WorkItem>? children = null,
+        int cacheStaleMinutes = 5)
     {
         var item = await getItem();
         if (item is null)
             return;
 
         var view = await BuildStatusViewAsync(
-            () => Task.FromResult<WorkItem?>(item),
-            getPendingChanges, ct, fieldDefinitions, statusFieldEntries, childProgress, links, parent, children);
+            item,
+            getPendingChanges, fieldDefinitions, statusFieldEntries, childProgress, links, parent, children,
+            cacheStaleMinutes: cacheStaleMinutes);
         _console.Write(view);
     }
 
@@ -577,7 +644,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             return;
 
         // Build initial panel with core fields only (type, state, assigned, area, iteration)
-        var dirty = showDirty && item.IsDirty ? " [yellow]✎[/]" : "";
+        var dirty = showDirty && item.IsDirty ? " [yellow]●[/]" : "";
         var grid = new Grid().AddColumn().AddColumn();
         grid.AddRow("[dim]Type:[/]", _theme.FormatTypeBadge(item.Type) + " " + Markup.Escape(item.Type.ToString()));
         grid.AddRow("[dim]State:[/]", _theme.FormatState(item.State));
@@ -987,7 +1054,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
                 switch (result)
                 {
-                    case SyncResult.UpToDate:
+                    case SyncResult.UpToDate or SyncResult.Skipped:
                         ctx.UpdateTarget(new Rows(cachedView, new Markup("[dim]✓ up to date[/]")));
                         ctx.Refresh();
                         await Task.Delay(SyncStatusDelay, ct);
@@ -1029,14 +1096,6 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                         ctx.UpdateTarget(new Rows(cachedView, new Markup($"[yellow]⚠ sync failed ({reason})[/]")));
                         ctx.Refresh();
                         // Failed status persists — no delay/clear
-                        break;
-
-                    case SyncResult.Skipped:
-                        ctx.UpdateTarget(new Rows(cachedView, new Markup("[dim]✓ up to date[/]")));
-                        ctx.Refresh();
-                        await Task.Delay(SyncStatusDelay, ct);
-                        ctx.UpdateTarget(new Rows(cachedView, new Text(" ")));
-                        ctx.Refresh();
                         break;
 
                     default:

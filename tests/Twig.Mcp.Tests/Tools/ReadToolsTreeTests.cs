@@ -314,6 +314,31 @@ public sealed class ReadToolsTreeTests
     }
 
     // ═══════════════════════════════════════════════════════════════
+    //  Root with children — siblingCounts contains null for root
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Tree_RootItemWithChildren_SiblingCountsContainsNullForRoot()
+    {
+        var focus = new WorkItemBuilder(5, "Root Epic").AsEpic().InState("Active").Build();
+        var child1 = new WorkItemBuilder(20, "Child 1").AsFeature().WithParent(5).Build();
+        var child2 = new WorkItemBuilder(21, "Child 2").AsFeature().WithParent(5).Build();
+
+        SetupActiveItem(focus);
+        _workItemRepo.GetChildrenAsync(5, Arg.Any<CancellationToken>())
+            .Returns([child1, child2]);
+
+        var result = await CreateSut().Tree();
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+
+        // Root has no parent, so siblingCounts entry for root ID should be null
+        var siblingCounts = root.GetProperty("siblingCounts");
+        siblingCounts.GetProperty("5").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     //  Helpers
     // ═══════════════════════════════════════════════════════════════
 

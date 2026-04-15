@@ -31,158 +31,119 @@ internal static class McpResultBuilder
     public static CallToolResult FormatStatus(StatusSnapshot snapshot) =>
         BuildJson(writer =>
         {
-        writer.WriteBoolean("hasContext", snapshot.HasContext);
+            writer.WriteBoolean("hasContext", snapshot.HasContext);
 
-        if (snapshot.Item is not null)
-        {
-            writer.WritePropertyName("item");
-            writer.WriteStartObject();
-            WriteWorkItemCore(writer, snapshot.Item);
-            writer.WriteString("areaPath", snapshot.Item.AreaPath.ToString());
-            writer.WriteString("iterationPath", snapshot.Item.IterationPath.ToString());
-            writer.WriteEndObject();
-        }
-        else
-        {
-            writer.WriteNull("item");
-        }
+            if (snapshot.Item is not null)
+            {
+                writer.WritePropertyName("item");
+                writer.WriteStartObject();
+                WriteWorkItemCore(writer, snapshot.Item);
+                writer.WriteString("areaPath", snapshot.Item.AreaPath.ToString());
+                writer.WriteString("iterationPath", snapshot.Item.IterationPath.ToString());
+                writer.WriteEndObject();
+            }
+            else
+            {
+                writer.WriteNull("item");
+            }
 
-        // Pending changes
-        writer.WriteStartArray("pendingChanges");
-        foreach (var change in snapshot.PendingChanges)
-        {
-            writer.WriteStartObject();
-            writer.WriteNumber("workItemId", change.WorkItemId);
-            writer.WriteString("changeType", change.ChangeType);
-            writer.WriteString("fieldName", change.FieldName);
-            writer.WriteString("oldValue", change.OldValue);
-            writer.WriteString("newValue", change.NewValue);
-            writer.WriteEndObject();
-        }
-        writer.WriteEndArray();
+            // Pending changes
+            writer.WriteStartArray("pendingChanges");
+            foreach (var change in snapshot.PendingChanges)
+            {
+                writer.WriteStartObject();
+                writer.WriteNumber("workItemId", change.WorkItemId);
+                writer.WriteString("changeType", change.ChangeType);
+                writer.WriteString("fieldName", change.FieldName);
+                writer.WriteString("oldValue", change.OldValue);
+                writer.WriteString("newValue", change.NewValue);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
 
-        // Seeds
-        writer.WriteStartArray("seeds");
-        foreach (var seed in snapshot.Seeds)
-        {
-            writer.WriteStartObject();
-            WriteWorkItemCore(writer, seed);
-            writer.WriteEndObject();
-        }
-        writer.WriteEndArray();
+            WriteWorkItemArray(writer, "seeds", snapshot.Seeds);
 
-        // Error state
-        if (snapshot.UnreachableId.HasValue)
-        {
-            writer.WriteNumber("unreachableId", snapshot.UnreachableId.Value);
-            writer.WriteString("unreachableReason", snapshot.UnreachableReason);
-        }
-
+            // Error state
+            if (snapshot.UnreachableId.HasValue)
+            {
+                writer.WriteNumber("unreachableId", snapshot.UnreachableId.Value);
+                writer.WriteString("unreachableReason", snapshot.UnreachableReason);
+            }
         });
 
     public static CallToolResult FormatTree(WorkTree tree, int totalChildren) =>
         BuildJson(writer =>
         {
-        // Focus
-        writer.WritePropertyName("focus");
-        writer.WriteStartObject();
-        WriteWorkItemCore(writer, tree.FocusedItem);
-        writer.WriteEndObject();
-
-        // Parent chain
-        writer.WriteStartArray("parentChain");
-        foreach (var parent in tree.ParentChain)
-        {
+            // Focus
+            writer.WritePropertyName("focus");
             writer.WriteStartObject();
-            WriteWorkItemCore(writer, parent);
+            WriteWorkItemCore(writer, tree.FocusedItem);
             writer.WriteEndObject();
-        }
-        writer.WriteEndArray();
 
-        // Children
-        writer.WriteStartArray("children");
-        foreach (var child in tree.Children)
-        {
-            writer.WriteStartObject();
-            WriteWorkItemCore(writer, child);
-            writer.WriteEndObject();
-        }
-        writer.WriteEndArray();
+            // Parent chain
+            WriteWorkItemArray(writer, "parentChain", tree.ParentChain);
 
-        writer.WriteNumber("totalChildren", totalChildren);
+            // Children
+            WriteWorkItemArray(writer, "children", tree.Children);
 
-        // Sibling counts
-        if (tree.SiblingCounts is { Count: > 0 })
-        {
-            writer.WriteStartObject("siblingCounts");
-            foreach (var (id, count) in tree.SiblingCounts)
+            writer.WriteNumber("totalChildren", totalChildren);
+
+            // Sibling counts
+            if (tree.SiblingCounts is { Count: > 0 })
             {
-                if (count.HasValue)
-                    writer.WriteNumber(id.ToString(), count.Value);
-                else
-                    writer.WriteNull(id.ToString());
+                writer.WriteStartObject("siblingCounts");
+                foreach (var (id, count) in tree.SiblingCounts)
+                {
+                    if (count.HasValue)
+                        writer.WriteNumber(id.ToString(), count.Value);
+                    else
+                        writer.WriteNull(id.ToString());
+                }
+                writer.WriteEndObject();
             }
-            writer.WriteEndObject();
-        }
 
-        // Links
-        writer.WriteStartArray("links");
-        foreach (var link in tree.FocusedItemLinks)
-        {
-            WriteLinkObject(writer, link);
-        }
-        writer.WriteEndArray();
-
+            // Links
+            writer.WriteStartArray("links");
+            foreach (var link in tree.FocusedItemLinks)
+            {
+                WriteLinkObject(writer, link);
+            }
+            writer.WriteEndArray();
         });
 
     public static CallToolResult FormatWorkspace(Workspace workspace, int staleDays) =>
         BuildJson(writer =>
         {
-        // Context
-        writer.WritePropertyName("context");
-        if (workspace.ContextItem is not null)
-        {
-            writer.WriteStartObject();
-            WriteWorkItemCore(writer, workspace.ContextItem);
-            writer.WriteEndObject();
-        }
-        else
-        {
-            writer.WriteNullValue();
-        }
+            // Context
+            writer.WritePropertyName("context");
+            if (workspace.ContextItem is not null)
+            {
+                writer.WriteStartObject();
+                WriteWorkItemCore(writer, workspace.ContextItem);
+                writer.WriteEndObject();
+            }
+            else
+            {
+                writer.WriteNullValue();
+            }
 
-        // Sprint items
-        writer.WriteStartArray("sprintItems");
-        foreach (var item in workspace.SprintItems)
-        {
-            writer.WriteStartObject();
-            WriteWorkItemCore(writer, item);
-            writer.WriteEndObject();
-        }
-        writer.WriteEndArray();
+            // Sprint items
+            WriteWorkItemArray(writer, "sprintItems", workspace.SprintItems);
 
-        // Seeds
-        writer.WriteStartArray("seeds");
-        foreach (var seed in workspace.Seeds)
-        {
-            writer.WriteStartObject();
-            WriteWorkItemCore(writer, seed);
-            writer.WriteEndObject();
-        }
-        writer.WriteEndArray();
+            WriteWorkItemArray(writer, "seeds", workspace.Seeds);
 
-        // Stale seeds
-        var staleSeeds = workspace.GetStaleSeeds(staleDays);
-        writer.WriteStartArray("staleSeeds");
-        foreach (var s in staleSeeds)
-        {
-            writer.WriteNumberValue(s.Id);
-        }
-        writer.WriteEndArray();
+            // Stale seeds
+            var staleSeeds = workspace.GetStaleSeeds(staleDays);
+            writer.WriteStartArray("staleSeeds");
+            foreach (var s in staleSeeds)
+            {
+                writer.WriteNumberValue(s.Id);
+            }
+            writer.WriteEndArray();
 
-        // Dirty count
-        var dirtyItems = workspace.GetDirtyItems();
-        writer.WriteNumber("dirtyCount", dirtyItems.Count);
+            // Dirty count
+            var dirtyItems = workspace.GetDirtyItems();
+            writer.WriteNumber("dirtyCount", dirtyItems.Count);
         });
 
     public static CallToolResult FormatFlushSummary(McpFlushSummary summary)
@@ -200,6 +161,18 @@ internal static class McpResultBuilder
         writer.WriteEndObject();
         writer.Flush();
         return ToResult(Encoding.UTF8.GetString(stream.ToArray()));
+    }
+
+    private static void WriteWorkItemArray(Utf8JsonWriter writer, string name, IEnumerable<WorkItem> items)
+    {
+        writer.WriteStartArray(name);
+        foreach (var item in items)
+        {
+            writer.WriteStartObject();
+            WriteWorkItemCore(writer, item);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
     }
 
     private static void WriteWorkItemCore(Utf8JsonWriter writer, WorkItem item)

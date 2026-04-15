@@ -1,6 +1,7 @@
 using System.Text;
 using Spectre.Console;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Common;
 using Twig.Domain.Enums;
 using Twig.Domain.ReadModels;
 using Twig.Domain.Services;
@@ -32,6 +33,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
     private readonly Dictionary<string, string>? _typeIconIds;
     private readonly string _iconMode;
     private readonly IReadOnlyList<StateEntry>? _stateEntries;
+    private readonly int _cacheStaleMinutes;
 
     public HumanOutputFormatter() : this(new DisplayConfig()) { }
 
@@ -48,6 +50,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
             .Where(a => a.IconId is not null)
             .ToDictionary(a => a.Name, a => a.IconId!, StringComparer.OrdinalIgnoreCase);
         _stateEntries = stateEntries;
+        _cacheStaleMinutes = displayConfig.CacheStaleMinutes;
     }
 
     public string FormatStatusSummary(WorkItem item)
@@ -55,7 +58,9 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         var typeColor = GetTypeColor(item.Type);
         var badge = GetTypeBadge(item.Type);
         var stateColor = GetStateColor(item.State);
-        return $"#{item.Id} {Cyan}●{Reset} {typeColor}{badge} {item.Type}{Reset} — {item.Title} [{stateColor}{item.State}{Reset}]";
+        var cacheAge = CacheAgeFormatter.Format(item.LastSyncedAt, _cacheStaleMinutes);
+        var cacheAgeSuffix = cacheAge is not null ? $" {Dim}{cacheAge}{Reset}" : "";
+        return $"#{item.Id} {Cyan}●{Reset} {typeColor}{badge} {item.Type}{Reset} — {item.Title} [{stateColor}{item.State}{Reset}]{cacheAgeSuffix}";
     }
 
     public string FormatWorkItem(WorkItem item, bool showDirty)
@@ -70,13 +75,16 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         (int FieldCount, int NoteCount)? pendingChanges = null,
         IReadOnlyList<WorkItemLink>? links = null,
         WorkItem? parent = null,
-        IReadOnlyList<WorkItem>? children = null)
+        IReadOnlyList<WorkItem>? children = null,
+        IReadOnlyList<PendingChangeRecord>? pendingChangeRecords = null)
     {
         var sb = new StringBuilder();
         var stateColor = GetStateColor(item.State);
-        var dirty = showDirty && item.IsDirty ? $" {Yellow}✎{Reset}" : "";
+        var dirty = showDirty && item.IsDirty ? $" {Yellow}●{Reset}" : "";
+        var cacheAge = CacheAgeFormatter.Format(item.LastSyncedAt, _cacheStaleMinutes);
+        var cacheAgeSuffix = cacheAge is not null ? $" {Dim}{cacheAge}{Reset}" : "";
 
-        sb.AppendLine($"{Bold}#{item.Id} {item.Title}{Reset}{dirty}");
+        sb.AppendLine($"{Bold}#{item.Id} {item.Title}{Reset}{dirty}{cacheAgeSuffix}");
         var typeColor = GetTypeColor(item.Type);
         var badge = GetTypeBadge(item.Type);
         sb.AppendLine($"  Type:      {typeColor}{badge} {item.Type}{Reset}");
@@ -132,8 +140,19 @@ public sealed class HumanOutputFormatter : IOutputFormatter
             }
         }
 
-        // EPIC-004 ITEM-018: Consolidated pending changes footer (only non-zero segments)
-        if (pendingChanges is { } pc && (pc.FieldCount > 0 || pc.NoteCount > 0))
+        // Dirty-state summary using DirtyStateSummary when raw records available (FR-04, FR-05, FR-06)
+        if (pendingChangeRecords is { Count: > 0 })
+        {
+            var dirtySummary = DirtyStateSummary.Build(pendingChangeRecords);
+            if (dirtySummary is not null)
+            {
+                sb.AppendLine();
+                sb.AppendLine($"  {Yellow}{dirtySummary}{Reset}");
+                sb.Append($"  {Dim}(unsaved — run 'twig save' to push){Reset}");
+            }
+        }
+        // Fallback: consolidated pending changes footer from tuple (only non-zero segments)
+        else if (pendingChanges is { } pc && (pc.FieldCount > 0 || pc.NoteCount > 0))
         {
             sb.AppendLine();
             var parts = new List<string>();

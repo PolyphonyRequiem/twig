@@ -124,7 +124,7 @@ public class RenderWorkItemTests
         await _renderer.RenderWorkItemAsync(() => Task.FromResult<WorkItem?>(item), true, CancellationToken.None);
 
         var output = _testConsole.Output;
-        output.ShouldContain("✎");
+        output.ShouldContain("●");
     }
 
     [Fact]
@@ -137,7 +137,7 @@ public class RenderWorkItemTests
 
         var output = _testConsole.Output;
         output.ShouldContain("Dirty Item");
-        output.ShouldNotContain("✎");
+        output.ShouldNotContain("●");
     }
 
     // ── Null item ───────────────────────────────────────────────────

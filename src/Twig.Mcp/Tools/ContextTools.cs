@@ -16,6 +16,7 @@ public sealed class ContextTools(
     IContextStore contextStore,
     ActiveItemResolver activeItemResolver,
     SyncCoordinator syncCoordinator,
+    StatusOrchestrator statusOrchestrator,
     IPromptStateWriter promptStateWriter)
 {
     [McpServerTool(Name = "twig.set"), Description("Set the active work item by ID or title pattern")]
@@ -56,12 +57,26 @@ public sealed class ContextTools(
             item = matches[0];
         }
 
+        // Hydrate parent chain so downstream read tools (twig.tree) see a complete hierarchy
+        var parentChainIds = new List<int>();
+        if (item.ParentId.HasValue)
+        {
+            var chain = await workItemRepo.GetParentChainAsync(item.ParentId.Value, ct);
+            if (chain.Count == 0)
+            {
+                // Parent not in cache — auto-fetch via resolver (best-effort)
+                await activeItemResolver.ResolveByIdAsync(item.ParentId.Value, ct);
+                chain = await workItemRepo.GetParentChainAsync(item.ParentId.Value, ct);
+            }
+            parentChainIds.AddRange(chain.Select(p => p.Id));
+        }
+
         await contextStore.SetActiveWorkItemIdAsync(item.Id, ct);
 
         // Best-effort sync — never fails the tool call
         try
         {
-            await syncCoordinator.SyncItemSetAsync([item.Id], ct);
+            await syncCoordinator.SyncItemSetAsync([item.Id, ..parentChainIds], ct);
         }
         catch (OperationCanceledException) { throw; }
         catch { /* best-effort */ }
@@ -69,5 +84,16 @@ public sealed class ContextTools(
         await promptStateWriter.WritePromptStateAsync();
 
         return McpResultBuilder.FormatWorkItem(item);
+    }
+
+    [McpServerTool(Name = "twig.status"), Description("Show the active work item status")]
+    public async Task<CallToolResult> Status(CancellationToken ct = default)
+    {
+        var snapshot = await statusOrchestrator.GetSnapshotAsync(ct);
+
+        if (!snapshot.HasContext)
+            return McpResultBuilder.ToError("No active work item. Use twig.set to set context.");
+
+        return McpResultBuilder.FormatStatus(snapshot);
     }
 }

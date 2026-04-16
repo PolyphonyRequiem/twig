@@ -18,7 +18,7 @@ public class RefreshOrchestratorTests
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly ProtectedCacheWriter _protectedCacheWriter;
     private readonly WorkingSetService _workingSetService;
-    private readonly SyncCoordinator _syncCoordinator;
+    private readonly SyncCoordinatorFactory _syncCoordinatorFactory;
     private readonly RefreshOrchestrator _orchestrator;
 
     public RefreshOrchestratorTests()
@@ -33,11 +33,11 @@ public class RefreshOrchestratorTests
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
         _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, _iterationService, null);
-        _syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, _protectedCacheWriter, _pendingChangeStore, 30);
+        _syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, _protectedCacheWriter, _pendingChangeStore, null, 30, 30);
 
         _orchestrator = new RefreshOrchestrator(
-            _contextStore, _workItemRepo, _adoService, _iterationService,
-            _pendingChangeStore, _protectedCacheWriter, _workingSetService, _syncCoordinator);
+            _contextStore, _workItemRepo, _adoService,
+            _pendingChangeStore, _protectedCacheWriter, _workingSetService, _syncCoordinatorFactory);
     }
 
     // ── FetchItemsAsync tests ──────────────────────────────────────

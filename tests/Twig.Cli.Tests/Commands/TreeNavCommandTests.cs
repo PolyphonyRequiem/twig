@@ -22,7 +22,6 @@ public class TreeNavCommandTests
     private readonly HintEngine _hintEngine;
     private readonly ActiveItemResolver _activeItemResolver;
     private readonly WorkingSetService _workingSetService;
-    private readonly SyncCoordinator _syncCoordinator;
     private readonly SyncCoordinatorFactory _syncCoordinatorFactory;
     private readonly IProcessTypeStore _processTypeStore;
     private readonly SetCommand _setCommand;
@@ -49,8 +48,6 @@ public class TreeNavCommandTests
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, pendingChangeStore);
-        var syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, protectedCacheWriter, pendingChangeStore, 30);
-        _syncCoordinator = syncCoordinator;
         _syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, protectedCacheWriter, pendingChangeStore, null, 30, 30);
         var iterationService = Substitute.For<IIterationService>();
         iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
@@ -58,7 +55,7 @@ public class TreeNavCommandTests
         var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, iterationService, null);
         _workingSetService = workingSetService;
         _processTypeStore = Substitute.For<IProcessTypeStore>();
-        _setCommand = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, syncCoordinator,
+        _setCommand = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory,
             workingSetService, _formatterFactory, _hintEngine);
     }
 

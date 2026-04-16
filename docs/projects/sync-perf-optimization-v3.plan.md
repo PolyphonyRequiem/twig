@@ -1,8 +1,8 @@
 # Sync Performance Optimization v3
 
 **Epic:** #1611 — Sync Performance Optimization
-**Status:** In Progress (3 of 5 Issues completed; #1614 in progress — 3 of 6 tasks done)
-**Revision:** Rev 10
+**Status:** In Progress (3 of 5 Issues completed; #1614 in progress — 3 of 6 tasks done, #1662 ~80% complete)
+**Revision:** Rev 11
 
 ---
 
@@ -16,9 +16,9 @@ Issues #1612 (batch fetch), #1616 (HTTP transport), and #1613 (parallel refresh 
 delegated orchestrator) are all complete. The remaining work is: (1) completing the tiered
 cache TTL migration (#1614) — the `SyncCoordinatorFactory` class, its tests,
 `DisplayConfig.CacheStaleMinutesReadOnly`, and the DI registrations in both CLI and MCP
-are already implemented; what remains is migrating 10 command/service consumers from direct
-`SyncCoordinator` injection to `SyncCoordinatorFactory` tier selection and updating 34 test
-files — and (2) reading the MSAL token cache file directly to eliminate per-command `az`
+are already implemented; what remains is migrating 6 command/service consumers from direct
+`SyncCoordinator` injection to `SyncCoordinatorFactory` tier selection and updating 23
+remaining test files (10 already migrated)— and (2) reading the MSAL token cache file directly to eliminate per-command `az`
 process spawn overhead (#1673).
 
 ## Background
@@ -68,27 +68,27 @@ Issue #1613 (parallel refresh + delegated orchestrator) is complete.
 Every consumer of `SyncCoordinator` must be migrated to `SyncCoordinatorFactory` for
 tiered cache TTL (#1614). The table below inventories all call sites:
 
-| # | File | Class/Method | Current Usage | TTL Tier |
-|---|------|-------------|---------------|----------|
-| 1 | `src/Twig/Commands/StatusCommand.cs` | `StatusCommand` (ctor) | `SyncWorkingSetAsync`, `SyncLinksAsync` | **ReadOnly** |
-| 2 | `src/Twig/Commands/TreeCommand.cs` | `TreeCommand` (ctor) | `SyncWorkingSetAsync`, `SyncLinksAsync` | **ReadOnly** |
-| 3 | `src/Twig/Commands/ShowCommand.cs` | `ShowCommand` (ctor) | `SyncItemSetAsync` | **ReadOnly** |
-| 4 | `src/Twig/Commands/SetCommand.cs` | `SetCommand` (ctor) | `SyncItemSetAsync`, `SyncLinksAsync` | **ReadWrite** |
-| 5 | `src/Twig/Commands/LinkCommand.cs` | `LinkCommand` (ctor) | `SyncLinksAsync` | **ReadWrite** |
-| 6 | `src/Twig.Domain/Services/StatusOrchestrator.cs` | `StatusOrchestrator` (ctor) | `SyncWorkingSetAsync` | **ReadOnly** |
-| 7 | `src/Twig.Domain/Services/RefreshOrchestrator.cs` | `RefreshOrchestrator` (ctor) | `SyncWorkingSetAsync` | **ReadWrite** ¹ |
-| 8 | `src/Twig.Domain/Services/ContextChangeService.cs` | `ContextChangeService` (ctor) | `SyncChildrenAsync`, `SyncLinksAsync` | **ReadWrite** |
-| 9 | `src/Twig.Mcp/Tools/ReadTools.cs` | `ReadTools` (ctor) | `SyncLinksAsync` | **ReadOnly** |
-| 10 | `src/Twig.Mcp/Tools/MutationTools.cs` | `MutationTools` (ctor) | `SyncItemSetAsync` | **ReadWrite** |
-| 11 | `src/Twig/DependencyInjection/CommandServiceModule.cs` | DI factory | Singleton registration | **Both** |
-| 12 | `src/Twig.Mcp/Program.cs` | DI factory (SyncCoordinator) | Singleton registration | **Both** |
-| 13 | `src/Twig.Mcp/Program.cs` | ContextChangeService DI lambda | `sp.GetRequiredService<SyncCoordinator>()` passed to ctor | **ReadWrite** |
+| # | File | Class/Method | Current Usage | TTL Tier | Status |
+|---|------|-------------|---------------|----------|--------|
+| 1 | `src/Twig/Commands/StatusCommand.cs` | `StatusCommand` (ctor) | `SyncWorkingSetAsync`, `SyncLinksAsync` | **ReadOnly** | ✅ Done |
+| 2 | `src/Twig/Commands/TreeCommand.cs` | `TreeCommand` (ctor) | `SyncWorkingSetAsync`, `SyncLinksAsync` | **ReadOnly** | ✅ Done |
+| 3 | `src/Twig/Commands/ShowCommand.cs` | `ShowCommand` (ctor) | `SyncItemSetAsync` | **ReadOnly** | ✅ Done |
+| 4 | `src/Twig/Commands/SetCommand.cs` | `SetCommand` (ctor) | `SyncItemSetAsync`, `SyncLinksAsync` | **ReadWrite** | ⬜ #1663 |
+| 5 | `src/Twig/Commands/LinkCommand.cs` | `LinkCommand` (ctor) | `SyncLinksAsync` | **ReadWrite** | ⬜ #1663 |
+| 6 | `src/Twig.Domain/Services/StatusOrchestrator.cs` | `StatusOrchestrator` (ctor) | `SyncWorkingSetAsync` | **ReadOnly** | ✅ Done |
+| 7 | `src/Twig.Domain/Services/RefreshOrchestrator.cs` | `RefreshOrchestrator` (ctor) | `SyncWorkingSetAsync` | **ReadWrite** ¹ | ⬜ #1663 |
+| 8 | `src/Twig.Domain/Services/ContextChangeService.cs` | `ContextChangeService` (ctor) | `SyncChildrenAsync`, `SyncLinksAsync` | **ReadWrite** | ⬜ #1663 |
+| 9 | `src/Twig.Mcp/Tools/ReadTools.cs` | `ReadTools` (ctor) | `SyncLinksAsync` | **ReadOnly** | ⬜ #1662 |
+| 10 | `src/Twig.Mcp/Tools/MutationTools.cs` | `MutationTools` (ctor) | `SyncItemSetAsync` | **ReadWrite** | ⬜ #1663 |
+| 11 | `src/Twig/DependencyInjection/CommandServiceModule.cs` | DI factory | Singleton registration | **Both** | ✅ Done |
+| 12 | `src/Twig.Mcp/Program.cs` | DI factory (SyncCoordinator) | Singleton registration | **Both** | ✅ Done |
+| 13 | `src/Twig.Mcp/Program.cs` | ContextChangeService DI lambda | `sp.GetRequiredService<SyncCoordinator>()` passed to ctor | **ReadWrite** | ⬜ #1663 |
 > **Note:** `ContextTools.cs` does NOT directly consume `SyncCoordinator` — it accesses
 > sync functionality indirectly through `StatusOrchestrator` and `ContextChangeService`
 > (rows 6 and 8). No code change is required in `ContextTools.cs` for the factory migration.
 
 **Test files referencing SyncCoordinator:** 34 files across `Twig.Cli.Tests`, `Twig.Domain.Tests`,
-and `Twig.Mcp.Tests`. This includes 4 base classes (`RefreshCommandTestBase`,
+and `Twig.Mcp.Tests` (10 already migrated; 23 remaining — see Task #1664).This includes 4 base classes (`RefreshCommandTestBase`,
 `ContextToolsTestBase`, `MutationToolsTestBase`, `ReadToolsTestBase`) that centralize
 `SyncCoordinator` setup — updating these base classes covers their transitive consumers.
 Full list in Task #1664.
@@ -114,7 +114,7 @@ Full list in Task #1664.
 `SyncCoordinator` through base test classes or command constructors.
 `ContextToolsSetTests.cs` references `SyncCoordinator` only transitively via
 `ContextToolsTestBase` — it requires no direct code change. All 34 files with direct
-references are accounted for in the migration scope; no additional transitive consumers
+references are accounted for in the migration scope (10 already migrated; 23 remain); no additional transitive consumers
 require direct changes.
 
 ## Problem Statement
@@ -409,11 +409,6 @@ data, no read-only distinction).
 | DD-23 | Explicit `[JsonPropertyName("AccessToken")]` on `MsalTokenCache` DTO | `TwigJsonContext` uses `CamelCase` naming policy. The MSAL cache file uses PascalCase `"AccessToken"` at the top level. Without `[JsonPropertyName]`, the source-generated deserializer looks for `"accessToken"` and silently produces `null`, defeating the optimization. Inner properties (`secret`, `target`) match camelCase naturally. |
 | DD-24 | 50-minute in-memory TTL alignment with `AzCliAuthProvider` | The decorator's TTL must not exceed the inner provider's `TokenTtl` (50 minutes). If the decorator cached longer, it could serve a token that `AzCliAuthProvider` has already discarded, creating inconsistent behavior on fallback paths where the inner provider returns a different (newer) token. Matching TTLs ensures cache coherence across the decorator chain. |
 | DD-25 | Factory TTL values sourced from `DisplayConfig` at DI registration time | `CacheStaleMinutesReadOnly` (default: 15) and `CacheStaleMinutes` (default: 5) are both user-configurable via the twig config file. The factory clamps ReadOnly ≥ ReadWrite at construction time (line 23 of `SyncCoordinatorFactory.cs`) to prevent display commands from being more aggressive than mutating commands. This makes TTL thresholds adjustable without code changes, consistent with how other `DisplayConfig` settings (e.g., `TreeDepth`, `Hints`) are user-configurable. |
-
-> **Note:** DD-19 was assigned to a design decision in the v2 plan (sync-perf-optimization-v2.plan.md)
-> that was superseded during the parallel-refresh refactoring. The numbering gap is intentional to
-> maintain traceability across plan revisions.
-
 ### Alternatives Considered
 
 **DD-16: Factory vs. Keyed Services for tiered SyncCoordinator injection**
@@ -450,7 +445,7 @@ data, no read-only distinction).
 | 1a | #1659 (DisplayConfig) | — | **Done** | `CacheStaleMinutesReadOnly` property already exists |
 | 1b | #1660 (SyncCoordinatorFactory) | — | **Done** | Class + tests implemented and passing |
 | 2 | #1661 (DI registration) | #1659, #1660 | **Done** | Factory + backward-compat registered in CLI + MCP |
-| 3a | #1662 (read-only migration) | #1661 | TO DO | Can run in parallel with #1663 |
+| 3a | #1662 (read-only migration) | #1661 | **IN PROGRESS** (~80%) | 4 of 5 source files done; only `ReadTools.cs` (MCP) remains |
 | 3b | #1663 (mutating migration) | #1661 | TO DO | Can run in parallel with #1662 |
 | 4 | #1664 (test migration) | #1662, #1663 | TO DO | Requires all commands migrated first |
 | — | #1673 (MSAL cache) | — | TO DO | Fully independent, any time |
@@ -470,7 +465,7 @@ This change touches **3 source projects**, **3 test projects**, and **~47 files 
 | MCP tools | 2 files (`ReadTools`, `MutationTools`) | Low | Same mechanical change as CLI commands |
 | Auth infrastructure | 2 new files (`MsalCacheTokenProvider`, tests) | Medium | New decorator in auth chain; errors fall back silently |
 | JSON serialization | `TwigJsonContext.cs` | Low | Additive: new `[JsonSerializable]` attribute |
-| Test files | 34 files across 3 test projects | Low | Mechanical factory substitution; 4 base classes cover ~15 transitive consumers |
+| Test files | 23 remaining files across 3 test projects | Low | Mechanical factory substitution; 10 already migrated; 4 base classes cover ~15 transitive consumers |
 
 ### Backward Compatibility
 
@@ -527,19 +522,19 @@ permissions match `AzCliAuthProvider`'s existing threat model. Telemetry emits o
 | `src/Twig.Domain/Services/SyncCoordinatorFactory.cs` | Already implemented — no changes needed |
 | `src/Twig/DependencyInjection/CommandServiceModule.cs` | Already implemented — factory + backward-compat registered; DI lambdas for `StatusOrchestrator`, `RefreshOrchestrator`, `ContextChangeService` still resolve `SyncCoordinator` via backward-compat and will be updated in #1662/#1663 |
 | `src/Twig.Mcp/Program.cs` | Already implemented — factory + backward-compat registered; DI lambdas for domain services still resolve `SyncCoordinator` via backward-compat and will be updated in #1662/#1663 |
-| `src/Twig/Commands/StatusCommand.cs` | Inject `SyncCoordinatorFactory`, use `.ReadOnly` |
-| `src/Twig/Commands/TreeCommand.cs` | Inject `SyncCoordinatorFactory`, use `.ReadOnly` |
-| `src/Twig/Commands/ShowCommand.cs` | Inject `SyncCoordinatorFactory`, use `.ReadOnly` |
+| `src/Twig/Commands/StatusCommand.cs` | ✅ Already migrated — injects `SyncCoordinatorFactory`, uses `.ReadOnly` |
+| `src/Twig/Commands/TreeCommand.cs` | ✅ Already migrated — injects `SyncCoordinatorFactory`, uses `.ReadOnly` |
+| `src/Twig/Commands/ShowCommand.cs` | ✅ Already migrated — injects `SyncCoordinatorFactory`, uses `.ReadOnly` |
 | `src/Twig/Commands/SetCommand.cs` | Inject `SyncCoordinatorFactory`, use `.ReadWrite` |
 | `src/Twig/Commands/LinkCommand.cs` | Inject `SyncCoordinatorFactory`, use `.ReadWrite` |
-| `src/Twig.Domain/Services/StatusOrchestrator.cs` | Inject `SyncCoordinatorFactory`, use `.ReadOnly` |
+| `src/Twig.Domain/Services/StatusOrchestrator.cs` | ✅ Already migrated — injects `SyncCoordinatorFactory`, uses `.ReadOnly` |
 | `src/Twig.Domain/Services/RefreshOrchestrator.cs` | Inject `SyncCoordinatorFactory`, use `.ReadWrite` |
 | `src/Twig.Domain/Services/ContextChangeService.cs` | Inject `SyncCoordinatorFactory`, use `.ReadWrite` |
 | `src/Twig.Mcp/Tools/ReadTools.cs` | Inject `SyncCoordinatorFactory`, use `.ReadOnly` |
 | `src/Twig.Mcp/Tools/MutationTools.cs` | Inject `SyncCoordinatorFactory`, use `.ReadWrite` |
 | `src/Twig.Infrastructure/DependencyInjection/NetworkServiceModule.cs` | Wrap `AzCliAuthProvider` in `MsalCacheTokenProvider` |
 | `src/Twig.Infrastructure/Serialization/TwigJsonContext.cs` | Add `MsalTokenCache` serialization |
-| 34 test files (see Task #1664 table) | Replace `SyncCoordinator` with `SyncCoordinatorFactory` in test setup |
+| 23 remaining test files (see Task #1664 table; 10 already migrated) | Replace `SyncCoordinator` with `SyncCoordinatorFactory` in test setup |
 
 ### Deleted Files
 

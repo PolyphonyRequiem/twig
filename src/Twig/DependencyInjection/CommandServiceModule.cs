@@ -96,11 +96,10 @@ public static class CommandServiceModule
             sp.GetRequiredService<IContextStore>(),
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IAdoWorkItemService>(),
-            sp.GetRequiredService<IIterationService>(),
             sp.GetRequiredService<IPendingChangeStore>(),
             sp.GetRequiredService<ProtectedCacheWriter>(),
             sp.GetRequiredService<WorkingSetService>(),
-            sp.GetRequiredService<SyncCoordinator>()));
+            sp.GetRequiredService<SyncCoordinatorFactory>()));
 
         services.AddSingleton<StatusOrchestrator>(sp => new StatusOrchestrator(
             sp.GetRequiredService<IContextStore>(),

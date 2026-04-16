@@ -22,7 +22,7 @@ public class SetCommandDisambiguationTests
     private readonly IAdoWorkItemService _adoService;
     private readonly IContextStore _contextStore;
     private readonly ActiveItemResolver _activeItemResolver;
-    private readonly SyncCoordinator _syncCoordinator;
+    private readonly SyncCoordinatorFactory _syncCoordinatorFactory;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
     private readonly IAsyncRenderer _mockRenderer;
@@ -45,7 +45,7 @@ public class SetCommandDisambiguationTests
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, pendingChangeStore);
-        _syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, protectedCacheWriter, pendingChangeStore, 30);
+        _syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, protectedCacheWriter, pendingChangeStore, null, 30, 30);
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
@@ -73,7 +73,7 @@ public class SetCommandDisambiguationTests
         iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
         var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, iterationService, null);
-        return new(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
+        return new(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory,
             workingSetService, _formatterFactory, _hintEngine, pipelineFactory);
     }
 

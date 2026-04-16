@@ -10,36 +10,15 @@ namespace Twig.Domain.Services;
 /// <c>RefreshCommand</c> builds the WIQL string (which depends on Infrastructure config)
 /// and delegates the rest to this service.
 /// </summary>
-public sealed class RefreshOrchestrator
+public sealed class RefreshOrchestrator(
+    IContextStore contextStore,
+    IWorkItemRepository workItemRepo,
+    IAdoWorkItemService adoService,
+    IPendingChangeStore pendingChangeStore,
+    ProtectedCacheWriter protectedCacheWriter,
+    WorkingSetService workingSetService,
+    SyncCoordinatorFactory syncCoordinatorFactory)
 {
-    private readonly IContextStore _contextStore;
-    private readonly IWorkItemRepository _workItemRepo;
-    private readonly IAdoWorkItemService _adoService;
-    private readonly IIterationService _iterationService;
-    private readonly IPendingChangeStore _pendingChangeStore;
-    private readonly ProtectedCacheWriter _protectedCacheWriter;
-    private readonly WorkingSetService _workingSetService;
-    private readonly SyncCoordinator _syncCoordinator;
-
-    public RefreshOrchestrator(
-        IContextStore contextStore,
-        IWorkItemRepository workItemRepo,
-        IAdoWorkItemService adoService,
-        IIterationService iterationService,
-        IPendingChangeStore pendingChangeStore,
-        ProtectedCacheWriter protectedCacheWriter,
-        WorkingSetService workingSetService,
-        SyncCoordinator syncCoordinator)
-    {
-        _contextStore = contextStore;
-        _workItemRepo = workItemRepo;
-        _adoService = adoService;
-        _iterationService = iterationService;
-        _pendingChangeStore = pendingChangeStore;
-        _protectedCacheWriter = protectedCacheWriter;
-        _workingSetService = workingSetService;
-        _syncCoordinator = syncCoordinator;
-    }
 
     /// <summary>
     /// Fetches sprint items, active item, and children from ADO. Returns conflicts if any.
@@ -47,34 +26,34 @@ public sealed class RefreshOrchestrator
     public async Task<RefreshFetchResult> FetchItemsAsync(
         string wiql, bool force, CancellationToken ct = default)
     {
-        var ids = await _adoService.QueryByWiqlAsync(wiql, ct);
+        var ids = await adoService.QueryByWiqlAsync(wiql, ct);
         if (ids.Count == 0)
             return new RefreshFetchResult { ItemCount = 0 };
 
         var realIds = ids.Where(id => id > 0).ToList();
 
         // Cleanse phantom dirty flags before SyncGuard evaluation (#1335)
-        var phantomsCleansed = await _workItemRepo.ClearPhantomDirtyFlagsAsync(ct);
+        var phantomsCleansed = await workItemRepo.ClearPhantomDirtyFlagsAsync(ct);
 
         var protectedIds = !force
-            ? await SyncGuard.GetProtectedItemIdsAsync(_workItemRepo, _pendingChangeStore, ct)
+            ? await SyncGuard.GetProtectedItemIdsAsync(workItemRepo, pendingChangeStore, ct)
             : (IReadOnlySet<int>)new HashSet<int>();
 
         IReadOnlyList<WorkItem> sprintItems = [];
         WorkItem? activeItem = null;
         IReadOnlyList<WorkItem> childItems = [];
-        var activeId = await _contextStore.GetActiveWorkItemIdAsync(ct);
+        var activeId = await contextStore.GetActiveWorkItemIdAsync(ct);
 
         if (realIds.Count > 0)
-            sprintItems = await _adoService.FetchBatchAsync(realIds, ct);
+            sprintItems = await adoService.FetchBatchAsync(realIds, ct);
 
         if (activeId.HasValue && activeId.Value > 0)
         {
-            var fetchChildrenTask = _adoService.FetchChildrenAsync(activeId.Value, ct);
+            var fetchChildrenTask = adoService.FetchChildrenAsync(activeId.Value, ct);
 
             if (!realIds.Contains(activeId.Value))
             {
-                var fetchActiveTask = _adoService.FetchAsync(activeId.Value, ct);
+                var fetchActiveTask = adoService.FetchAsync(activeId.Value, ct);
                 await Task.WhenAll(fetchActiveTask, fetchChildrenTask);
                 activeItem = fetchActiveTask.Result;
                 childItems = fetchChildrenTask.Result;
@@ -92,20 +71,20 @@ public sealed class RefreshOrchestrator
         if (force)
         {
             if (sprintItems.Count > 0)
-                await _workItemRepo.SaveBatchAsync(sprintItems, ct);
+                await workItemRepo.SaveBatchAsync(sprintItems, ct);
             if (activeItem is not null)
-                await _workItemRepo.SaveAsync(activeItem, ct);
+                await workItemRepo.SaveAsync(activeItem, ct);
             if (childItems.Count > 0)
-                await _workItemRepo.SaveBatchAsync(childItems, ct);
+                await workItemRepo.SaveBatchAsync(childItems, ct);
         }
         else
         {
             if (sprintItems.Count > 0)
-                await _protectedCacheWriter.SaveBatchProtectedAsync(sprintItems, protectedIds, ct);
+                await protectedCacheWriter.SaveBatchProtectedAsync(sprintItems, protectedIds, ct);
             if (activeItem is not null)
-                await _protectedCacheWriter.SaveProtectedAsync(activeItem, protectedIds, ct);
+                await protectedCacheWriter.SaveProtectedAsync(activeItem, protectedIds, ct);
             if (childItems.Count > 0)
-                await _protectedCacheWriter.SaveBatchProtectedAsync(childItems, protectedIds, ct);
+                await protectedCacheWriter.SaveBatchProtectedAsync(childItems, protectedIds, ct);
         }
 
         return new RefreshFetchResult
@@ -123,21 +102,21 @@ public sealed class RefreshOrchestrator
     {
         for (var level = 0; level < 5; level++)
         {
-            var orphanIds = await _workItemRepo.GetOrphanParentIdsAsync(ct);
+            var orphanIds = await workItemRepo.GetOrphanParentIdsAsync(ct);
             if (orphanIds.Count == 0) break;
 
-            var ancestors = await _adoService.FetchBatchAsync(orphanIds, ct);
+            var ancestors = await adoService.FetchBatchAsync(orphanIds, ct);
             if (ancestors.Count == 0) break;
 
-            await _workItemRepo.SaveBatchAsync(ancestors, ct);
+            await workItemRepo.SaveBatchAsync(ancestors, ct);
         }
     }
 
     /// <summary>Syncs the working set after refresh (no eviction per FR-013).</summary>
     public async Task SyncWorkingSetAsync(IterationPath iteration, CancellationToken ct = default)
     {
-        var workingSet = await _workingSetService.ComputeAsync(iteration, ct);
-        await _syncCoordinator.SyncWorkingSetAsync(workingSet, ct);
+        var workingSet = await workingSetService.ComputeAsync(iteration, ct);
+        await syncCoordinatorFactory.ReadWrite.SyncWorkingSetAsync(workingSet, ct);
     }
 
     private async Task<IReadOnlyList<RefreshConflict>> FindConflictsAsync(
@@ -155,7 +134,7 @@ public sealed class RefreshOrchestrator
             foreach (var remoteItem in items)
             {
                 if (!protectedIds.Contains(remoteItem.Id)) continue;
-                var localItem = await _workItemRepo.GetByIdAsync(remoteItem.Id, ct);
+                var localItem = await workItemRepo.GetByIdAsync(remoteItem.Id, ct);
                 if (localItem is not null && remoteItem.Revision > localItem.Revision)
                     conflicts.Add(new RefreshConflict(remoteItem.Id, localItem.Revision, remoteItem.Revision));
             }

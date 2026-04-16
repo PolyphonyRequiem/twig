@@ -27,6 +27,11 @@ internal static class CommandExamples
             "twig show 1234             Show work item #1234",
             "twig show 1234 --output json  Show work item #1234 as JSON",
         ],
+        ["show-batch"] =
+        [
+            "twig show-batch --batch 1234,5678,9012 --output json  Batch lookup as JSON array",
+            "twig show-batch --batch 42             Single item batch lookup",
+        ],
         ["query"] =
         [
             "twig query \"login bug\"              Search title & description",
@@ -41,6 +46,11 @@ internal static class CommandExamples
         [
             "twig state Active          Transition active item to Active",
             "twig state Done            Transition active item to Done",
+        ],
+        ["states"] =
+        [
+            "twig states                List available states for the active item's type",
+            "twig states -o json        Output states as JSON (for automation/extensions)",
         ],
         ["new"] =
         [

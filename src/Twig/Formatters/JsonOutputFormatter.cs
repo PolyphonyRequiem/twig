@@ -34,19 +34,7 @@ public sealed class JsonOutputFormatter : IOutputFormatter
         using var writer = new Utf8JsonWriter(stream, WriterOptions);
 
         writer.WriteStartObject();
-        writer.WriteNumber("id", item.Id);
-        writer.WriteString("title", item.Title);
-        writer.WriteString("type", item.Type.ToString());
-        writer.WriteString("state", item.State);
-        writer.WriteString("assignedTo", item.AssignedTo);
-        writer.WriteString("areaPath", item.AreaPath.ToString());
-        writer.WriteString("iterationPath", item.IterationPath.ToString());
-        writer.WriteBoolean("isDirty", showDirty && item.IsDirty);
-        writer.WriteBoolean("isSeed", item.IsSeed);
-        if (item.ParentId.HasValue)
-            writer.WriteNumber("parentId", item.ParentId.Value);
-        else
-            writer.WriteNull("parentId");
+        WriteCoreFields(writer, item, showDirty);
 
         // Relationships — hierarchy + non-hierarchy
         if (parent is not null)
@@ -89,6 +77,29 @@ public sealed class JsonOutputFormatter : IOutputFormatter
         }
 
         writer.WriteEndObject();
+
+        writer.Flush();
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    /// <summary>
+    /// Formats a batch of work items as a JSON array. Each element uses the same
+    /// top-level schema as <see cref="FormatWorkItem(WorkItem, bool)"/> but without
+    /// relationship enrichment (parent, children, links).
+    /// </summary>
+    public string FormatWorkItemBatch(IReadOnlyList<WorkItem> items)
+    {
+        using var stream = new MemoryStream();
+        using var writer = new Utf8JsonWriter(stream, WriterOptions);
+
+        writer.WriteStartArray();
+        foreach (var item in items)
+        {
+            writer.WriteStartObject();
+            WriteCoreFields(writer, item, showDirty: false);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
 
         writer.Flush();
         return Encoding.UTF8.GetString(stream.ToArray());
@@ -640,6 +651,23 @@ public sealed class JsonOutputFormatter : IOutputFormatter
     /// consumers who need path data should use FormatWorkItem for standalone items.
     /// When <paramref name="dynamicColumns"/> is provided, includes those field values.
     /// </summary>
+    private static void WriteCoreFields(Utf8JsonWriter writer, WorkItem item, bool showDirty)
+    {
+        writer.WriteNumber("id", item.Id);
+        writer.WriteString("title", item.Title);
+        writer.WriteString("type", item.Type.ToString());
+        writer.WriteString("state", item.State);
+        writer.WriteString("assignedTo", item.AssignedTo);
+        writer.WriteString("areaPath", item.AreaPath.ToString());
+        writer.WriteString("iterationPath", item.IterationPath.ToString());
+        writer.WriteBoolean("isDirty", showDirty && item.IsDirty);
+        writer.WriteBoolean("isSeed", item.IsSeed);
+        if (item.ParentId.HasValue)
+            writer.WriteNumber("parentId", item.ParentId.Value);
+        else
+            writer.WriteNull("parentId");
+    }
+
     private static void WriteWorkItemObject(Utf8JsonWriter writer, WorkItem item, IReadOnlyList<Domain.ValueObjects.ColumnSpec>? dynamicColumns = null)
     {
         writer.WriteStartObject();

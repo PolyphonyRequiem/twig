@@ -331,6 +331,13 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> Show([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, bool noRefresh = false, CancellationToken ct = default)
         => await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, noRefresh, ct);
 
+    /// <summary>Display multiple work items by ID (cache-only). Missing IDs are silently skipped.</summary>
+    /// <param name="batch">Comma-separated work item IDs (e.g., 1234,5678,9012).</param>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    [Command("show-batch")]
+    public async Task<int> ShowBatch(string batch, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<ShowCommand>().ExecuteBatchAsync(batch, output, ct);
+
     /// <summary>Search and filter work items via ad-hoc WIQL queries.</summary>
     /// <param name="searchText">Free-text search across work item titles and descriptions.</param>
     /// <param name="title">Filter by title text (CONTAINS match on System.Title).</param>
@@ -359,6 +366,11 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     public async Task<int> State([Argument] string name, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<StateCommand>().ExecuteAsync(name, output, ct);
+
+    /// <summary>List available workflow states for the active work item's type.</summary>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    public async Task<int> States(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<StatesCommand>().ExecuteAsync(output, ct);
 
     /// <summary>Create a new work item in ADO.</summary>
     /// <param name="title">Title for the new work item.</param>
@@ -875,6 +887,7 @@ internal static class GroupedHelp
         // Context
         "set",
         "show",
+        "show-batch",
         "query",
         "web",
 
@@ -890,6 +903,7 @@ internal static class GroupedHelp
 
         // Work Items
         "state",
+        "states",
         "note",
         "update",
         "edit",
@@ -997,6 +1011,7 @@ Views:
 Context:
   set <id|pattern>     Set the active work item.
   show <id>            Display a work item (syncs by default; --no-refresh for cache-only).
+  show-batch --batch   Display multiple work items by ID (cache-only).
   query [text]         Search work items by text, type, state, or assignee.
   web [id]             Open the active work item in the browser.
 
@@ -1012,6 +1027,7 @@ Navigation:
 
 Work Items:
   state <name>         Change the state (e.g. Active, Closed).
+  states               List available states for the active item's type.
   note                 Add a note to the active work item.
   update <field> <v>   Update a field on the active work item.
   edit                 Edit work item fields in an external editor.

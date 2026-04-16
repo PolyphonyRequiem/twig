@@ -1,10 +1,12 @@
 # Query Command Closeout — Documentation Improvements
 
 > **Status**: ✅ Done — All PRs merged | **Issue**: #1634 | **Parent Epic**: #1302
+>
+> **Note**: This plan resides on the `feature/1634-query-closeout` branch alongside pre-implementation source files. The delivered artifacts (XML doc comments, template section, instructions file) were merged to `main` via PRs #38 and #41 on separate branches — see `main` for the final state of all modified files.
 
 ## Executive Summary
 
-This plan addresses three closeout findings from the Query Command epic (#1302). The findings span code documentation, process templates, and strategic guidance: (1) standardizing note flushing semantics by correcting misleading XML doc comments and documenting the push-on-write vs stage-and-batch dual-path model, (2) adding a close-out checklist section to the plan template for structured wrap-up guidance, and (3) documenting the "2-PR sweet spot, 3-PR threshold" PR grouping heuristic. All deliverables are documentation and process improvements — XML doc comments, a Copilot instruction file, and a template update — delivered across two PRs on separate branches (see [Alternatives Considered](#alternatives-considered)) and merged to `main`.
+This plan addresses three closeout findings from the Query Command epic (#1302) — correcting misleading XML doc comments on `NoteCommand`, `AutoPushNotesHelper`, and `PendingChangeFlusher` to document the push-on-write vs stage-and-batch dual-path model; adding a structured close-out checklist section to the plan template for consistent wrap-up across future epics; and creating a centralized Copilot instruction file with the "2-PR sweet spot, 3-PR threshold" PR grouping heuristic. All deliverables are documentation and process improvements with no runtime behavior changes, delivered across two PRs on separate branches (see [Alternatives Considered](#alternatives-considered)) and merged to `main`.
 
 ---
 
@@ -25,11 +27,11 @@ The twig CLI underwent a major architectural transformation in Epic #1338 (Push-
 
 While the push-on-write convergence resolved the primary inconsistency (notes no longer require explicit `twig save`), the code lacks clear documentation of the canonical behavior. Three distinct flush paths exist, and the relationship between them is implicit rather than documented. Compounding this, `NoteCommand`'s existing XML doc summary is **factually incorrect** post-push-on-write — for non-seed items, notes are pushed immediately via `AddCommentAsync()`, not stored as pending. The verbatim incorrect summary:
 
-> `"Implements twig note ["text"]: adds a note to the active work item. If text is provided inline, stores as pending. Otherwise launches editor."`
+> `"Implements <c>twig note ["text"]</c>: adds a note to the active work item. If text is provided inline, stores as pending. Otherwise launches editor."`
 
 #### Plan Template System
 
-The project uses `.plan.md` documents in `docs/projects/` for feature planning, with 25 active documents and 55 archived documents — plans, PRDs, requirements, design docs, scenario maps, audit artifacts, and code references. A formal template exists at `.github/templates/implementation-plan.md` with phases, testing strategy, rollout plan, and success metrics — but it lacks a close-out/completion section. In practice, six completed plans have organically developed inline completion annotations — using bold text markers like `**Completion Notes**` and `**Completion Date**` within existing task or epic sections — to record what was delivered and when: `twig-iconid-glyph-mapping`, `twig-on-twig-integration`, `twig-prompt-state`, `twig-release`, `twig-seed-publish`, and `twig-tree-enhancements` (all in `docs/projects/archive/`). These annotations appear within task detail blocks rather than as standalone section headings, and their format varies across plans. This pattern is not codified in the template.
+The project uses `.plan.md` documents in `docs/projects/` for feature planning. A formal template exists at `.github/templates/implementation-plan.md` — but it lacks a close-out/completion section. In practice, several completed plans have organically developed inline completion annotations using bold text markers like `**Completion Notes**` and `**Completion Date**` within task or epic sections, but their format varies and the pattern is not codified in the template.
 
 #### PR Grouping Documentation
 
@@ -61,7 +63,7 @@ PR grouping guidance is distributed across individual plan documents (9 complete
 | ID | Non-Goal |
 |----|----------|
 | NG-1 | Refactoring the note flushing implementation — the current hybrid pattern is intentional and correct; only documentation is needed |
-| NG-2 | Changing the `AutoPushNotesHelper` error handling gradient (EditCommand catches both auto-push and resync; StateCommand propagates auto-push but catches resync; UpdateCommand propagates both) — this is a known design decision documented in Proposed Design (DD-2) |
+| NG-2 | Changing the `AutoPushNotesHelper` error handling gradient — `EditCommand` catches both auto-push and resync failures, `StateCommand` propagates auto-push but catches resync, and `UpdateCommand` propagates both. This plan documents the existing gradient in XML doc comments but does not modify the error-handling behavior itself. |
 
 ## Requirements
 
@@ -80,8 +82,7 @@ PR grouping guidance is distributed across individual plan documents (9 complete
 | ID | Requirement | Tasks |
 |----|-------------|-------|
 | NFR-1 | All XML doc comments must compile cleanly under `TreatWarningsAsErrors=true` — including `<see cref=""/>` references to private members (e.g., `StageLocallyAsync`) resolving without CS1574 warnings | T-1635-1, T-1635-2, T-1635-3 |
-| NFR-2 | No runtime behavior changes — all deliverables are documentation-only | All |
-| NFR-3 | PR grouping guidance must be advisory, not prescriptive — plans may deviate with documented rationale | T-1637-1 |
+| NFR-2 | PR grouping guidance must be advisory, not prescriptive — plans may deviate with documented rationale | T-1637-1 |
 
 ## Proposed Design
 
@@ -93,17 +94,7 @@ This is a documentation-only effort — no runtime behavior changes. The approac
 
 | ID | Decision | Rationale |
 |----|----------|-----------|
-| DD-1 | **Close-Out Checklist placement**: append after `## Notes` at the end of the plan template | Matches the organic convention established by six completed plans, which placed inline `**Completion Notes**` / `**Completion Date**` annotations at the end of their task and epic blocks. The new `## Close-Out Checklist` heading formalizes and elevates this pattern into a dedicated, discoverable section. Preserves natural chronological flow — planning sections first, post-completion record last. |
-| DD-2 | **Error-handling gradient documented in situ** (in `AutoPushNotesHelper`'s XML doc), not refactored | The gradient across `EditCommand` (lenient), `StateCommand` (middle), and `UpdateCommand` (strict) is an intentional design choice documented in NG-2. Documenting the existing behavior in XML doc comments is the correct action; refactoring the error-handling is explicitly out of scope. |
-
-### Merge Strategy
-
-Implementation was delivered on two separate branches (one per PR group), both created fresh from `main` and merged independently:
-
-- **PG-1** → branch `users/dangreen/pg1-note-flushing-docs-closeout-template` → PR #38 (merged)
-- **PG-2** → branch `feature/pg2-pr-grouping-instructions` → PR #41 (merged)
-
-This replaced the originally planned single `feature/1634-query-closeout` branch, which diverged from `main` as other work landed during planning — the branch sits 3 commits ahead of `main` but `main` has advanced significantly past it, making it unsuitable for clean PRs. The original feature branch was not used for any merged implementation. Creating two short-lived branches from `main` eliminated merge-conflict risk and enabled independent review. See [Alternatives Considered](#alternatives-considered) for the full decision rationale.
+| DD-1 | **Close-Out Checklist placement**: append after `## Notes` at the end of the plan template | Matches the organic convention established by completed plans, which placed inline `**Completion Notes**` / `**Completion Date**` annotations at the end of their task and epic blocks. The new `## Close-Out Checklist` heading formalizes and elevates this pattern into a dedicated, discoverable section. Preserves natural chronological flow — planning sections first, post-completion record last. |
 
 ### Testing Strategy
 
@@ -119,14 +110,14 @@ No new tests are required. All changes are documentation-only:
 
 ### Branch Strategy: Single Feature Branch vs Two Separate Branches
 
-The original plan assumed a single long-lived feature branch (`feature/1634-query-closeout`) for all three Issues. During implementation, the feature branch diverged significantly from `main`, raising the risk of merge conflicts (see [Risks and Mitigations](#risks-and-mitigations), row 2).
+The original plan assumed a single long-lived feature branch (`feature/1634-query-closeout`) for all three Issues. During implementation, the feature branch diverged significantly from `main` — 3 commits ahead but `main` had advanced past it — making it unsuitable for clean PRs.
 
 | Approach | Pros | Cons |
 |----------|------|------|
 | **Single feature branch** | Simpler branch management; single integration point | Higher merge-conflict risk from divergence; all-or-nothing merge blocks independent review |
 | **Two separate branches** *(chosen)* | Each branch is short-lived and merges independently; eliminates cross-PR conflict; enables independent review timelines | Slightly more branch management overhead; requires coordinating two merges |
 
-The two-branch approach was adopted in response to observed divergence. Each branch mapped to one PR group (PG-1 → `users/dangreen/pg1-note-flushing-docs-closeout-template`, PG-2 → `feature/pg2-pr-grouping-instructions`), both created from `main` and merged independently. This aligned with the PR grouping guidance being documented in this very plan (the "2-PR sweet spot" heuristic).
+The two-branch approach was adopted in response to observed divergence. Each branch mapped to one PR group (PG-1 → `users/dangreen/pg1-note-flushing-docs-closeout-template` → PR #38, PG-2 → `feature/pg2-pr-grouping-instructions` → PR #41), both created from `main` and merged independently. The original `feature/1634-query-closeout` branch was not used for any merged implementation. This aligned with the PR grouping guidance being documented in this very plan (the "2-PR sweet spot" heuristic).
 
 ### PR Count: Two-PR vs Three-PR Delivery
 
@@ -143,7 +134,7 @@ Two PRs were chosen because the combined scope is small enough that grouping #16
 
 ## Dependencies
 
-No external dependencies — all deliverables are documentation-only.
+No external dependencies. Internal sequencing constraints are minimal:
 
 ### Internal Dependencies
 
@@ -162,13 +153,13 @@ The three Issues are independent — no sequencing constraints between them. Wit
 | Risk | Likelihood | Impact | Mitigation | Outcome |
 |------|-----------|--------|------------|---------|
 | XML doc `<remarks>` and `<list>` elements produce CS1570/CS1571 warnings, breaking the build under `TreatWarningsAsErrors=true` | Medium | High | Validate XML doc syntax by running `dotnet build` after each T-1635 task. Use only well-formed XML elements (`<para>`, `<list>`, `<item>`, `<c>`) and avoid bare angle brackets or unescaped ampersands in doc comments. Review compiler output for CS1570/CS1571 specifically before committing. | Did not materialize — all XML docs compiled cleanly. |
-| Feature branch diverges significantly from `main` — merge conflicts possible when creating PRs | Medium | Medium | Rebase or merge `main` into the feature branch before creating PRs. Point-in-time divergence snapshots (e.g., commit counts) age quickly; the mitigation is structural rather than time-dependent. | Mitigated by delivering work on two separate short-lived branches (see [Merge Strategy](#merge-strategy)) rather than a single long-lived feature branch. Both merged cleanly to `main` as PRs #38 and #41. The original `feature/1634-query-closeout` branch was not used for any merged implementation and remains diverged from `main`. |
+| Feature branch diverges significantly from `main` — merge conflicts possible when creating PRs | Medium | Medium | Rebase or merge `main` into the feature branch before creating PRs. Point-in-time divergence snapshots (e.g., commit counts) age quickly; the mitigation is structural rather than time-dependent. | Mitigated by delivering work on two separate short-lived branches (see [Alternatives Considered](#alternatives-considered)) rather than a single long-lived feature branch. Both merged cleanly to `main` as PRs #38 and #41. The original `feature/1634-query-closeout` branch was not used for any merged implementation and remains diverged from `main`. |
 
 ---
 
 ## Open Questions
 
-All questions were resolved prior to implementation. No open items remain.
+None — all design decisions were resolved during implementation. The three deliverables (XML doc comments, template section, instructions file) were straightforward documentation tasks with no ambiguous requirements or unresolved trade-offs.
 
 ---
 
@@ -276,8 +267,7 @@ All questions were resolved prior to implementation. No open items remain.
 
 1. **Add `### PR Grouping Strategy` subsection** to `.github/copilot-instructions.md` inside the existing `## ADO Work Item Tracking` section, placed after `### Commit conventions` (which ends with *"If no mapping exists for the current work, commit normally without AB# reference"*) and before `## Work Item Lifecycle Protocol`
 2. **Content**: Brief description of PR grouping purpose plus a `See .github/instructions/pr-grouping.instructions.md for the full guide` reference
-3. **Fix dangling file reference**: Replace the line *"See `.github/instructions/process-agnostic.instructions.md` for the full principle."* in the `## Project Overview` section with inline text that makes the bullet self-contained — specifically: *"States, types, and field names are never hardcoded — all process-specific mapping is resolved through `IProcessConfigurationProvider` at runtime."* — removing the dependency on a non-existent file
-4. **Traceability**: Both changes trace to FR-4
+3. **Fix dangling file reference**: Replace the line *"See `.github/instructions/process-agnostic.instructions.md` for the full principle."* in the `## Project Overview` section with inline text that makes the bullet self-contained — specifically: *"Never assume a specific process template (Agile, Scrum, CMMI, Basic) — discover states, types, and fields dynamically via the provider."* — removing the dependency on a non-existent file
 
 **Acceptance Criteria** *(all met — delivered in PR #41)*:
 - [x] A new `.github/instructions/pr-grouping.instructions.md` file exists with all required sections
@@ -291,7 +281,7 @@ All questions were resolved prior to implementation. No open items remain.
 
 ## PR Groups
 
-This closeout effort is delivered as two PR groups, separating the code-touching XML doc changes and template update (PG-1) from the pure-Markdown strategy documentation (PG-2). PR groups are classified as **deep** (few files, complex or nuanced changes requiring careful review) or **wide** (many files, mechanical or formulaic changes that can be reviewed quickly). PG-1 touches 5 files with XML doc additions — including the analytically dense error-handling gradient documentation in `AutoPushNotesHelper` — and a template appendix; wide by file count, though the gradient analysis carries more nuance than purely mechanical additions. PG-2 concentrates on 2 files but introduces new strategic guidance that warrants holistic review — a deep PR.
+This closeout effort is delivered as two PR groups, separating the code-touching XML doc changes and template update (PG-1) from the pure-Markdown strategy documentation (PG-2). Each is classified as **deep** (few files, complex or nuanced changes requiring careful review) or **wide** (many files, mechanical or formulaic changes that can be reviewed quickly) — see the individual tables below for classification rationale.
 
 ### PG-1: Note Flushing Documentation + Close-Out Template
 

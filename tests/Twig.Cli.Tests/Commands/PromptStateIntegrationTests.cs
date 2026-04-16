@@ -500,10 +500,9 @@ public class PromptStateIntegrationTests : IDisposable
         var refreshSyncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, refreshProtectedWriter, _pendingChangeStore, 30);
         var refreshWorkingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, iterationService, null);
         var refreshOrchestrator = new RefreshOrchestrator(_contextStore, _workItemRepo, _adoService, iterationService,
-            _pendingChangeStore, refreshProtectedWriter, refreshWorkingSetService, refreshSyncCoordinator, _processTypeStore, _fieldDefinitionStore);
-        var cmd = new RefreshCommand(_contextStore, _workItemRepo, _adoService, iterationService,
-            _pendingChangeStore, refreshProtectedWriter, _config, _paths, _processTypeStore, _fieldDefinitionStore,
-            _formatterFactory, refreshWorkingSetService, refreshSyncCoordinator, promptStateWriter: writer);
+            _pendingChangeStore, refreshProtectedWriter, refreshWorkingSetService, refreshSyncCoordinator);
+        var cmd = new RefreshCommand(_contextStore, iterationService, _config, _paths, _processTypeStore, _fieldDefinitionStore,
+            _formatterFactory, refreshOrchestrator, promptStateWriter: writer);
 
         var result = await cmd.ExecuteAsync();
 

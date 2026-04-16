@@ -20,8 +20,6 @@ public sealed class RefreshOrchestrator
     private readonly ProtectedCacheWriter _protectedCacheWriter;
     private readonly WorkingSetService _workingSetService;
     private readonly SyncCoordinator _syncCoordinator;
-    private readonly IProcessTypeStore _processTypeStore;
-    private readonly IFieldDefinitionStore _fieldDefinitionStore;
 
     public RefreshOrchestrator(
         IContextStore contextStore,
@@ -31,9 +29,7 @@ public sealed class RefreshOrchestrator
         IPendingChangeStore pendingChangeStore,
         ProtectedCacheWriter protectedCacheWriter,
         WorkingSetService workingSetService,
-        SyncCoordinator syncCoordinator,
-        IProcessTypeStore processTypeStore,
-        IFieldDefinitionStore fieldDefinitionStore)
+        SyncCoordinator syncCoordinator)
     {
         _contextStore = contextStore;
         _workItemRepo = workItemRepo;
@@ -43,8 +39,6 @@ public sealed class RefreshOrchestrator
         _protectedCacheWriter = protectedCacheWriter;
         _workingSetService = workingSetService;
         _syncCoordinator = syncCoordinator;
-        _processTypeStore = processTypeStore;
-        _fieldDefinitionStore = fieldDefinitionStore;
     }
 
     /// <summary>
@@ -74,11 +68,22 @@ public sealed class RefreshOrchestrator
         if (realIds.Count > 0)
             sprintItems = await _adoService.FetchBatchAsync(realIds, ct);
 
-        if (activeId.HasValue && activeId.Value > 0 && !realIds.Contains(activeId.Value))
-            activeItem = await _adoService.FetchAsync(activeId.Value, ct);
-
         if (activeId.HasValue && activeId.Value > 0)
-            childItems = await _adoService.FetchChildrenAsync(activeId.Value, ct);
+        {
+            var fetchChildrenTask = _adoService.FetchChildrenAsync(activeId.Value, ct);
+
+            if (!realIds.Contains(activeId.Value))
+            {
+                var fetchActiveTask = _adoService.FetchAsync(activeId.Value, ct);
+                await Task.WhenAll(fetchActiveTask, fetchChildrenTask);
+                activeItem = fetchActiveTask.Result;
+                childItems = fetchChildrenTask.Result;
+            }
+            else
+            {
+                childItems = await fetchChildrenTask;
+            }
+        }
 
         // Detect revision conflicts
         var conflicts = await FindConflictsAsync(sprintItems, activeItem, childItems, protectedIds, ct);
@@ -134,22 +139,6 @@ public sealed class RefreshOrchestrator
         var workingSet = await _workingSetService.ComputeAsync(iteration, ct);
         await _syncCoordinator.SyncWorkingSetAsync(workingSet, ct);
     }
-
-    /// <summary>Syncs process types from ADO.</summary>
-    public async Task SyncProcessTypesAsync(CancellationToken ct = default)
-    {
-        await ProcessTypeSyncService.SyncAsync(_iterationService, _processTypeStore, ct);
-    }
-
-    /// <summary>Syncs field definitions from ADO.</summary>
-    public async Task SyncFieldDefinitionsAsync(CancellationToken ct = default)
-    {
-        await FieldDefinitionSyncService.SyncAsync(_iterationService, _fieldDefinitionStore, ct);
-    }
-
-    /// <summary>Gets the current iteration path.</summary>
-    public Task<IterationPath> GetCurrentIterationAsync(CancellationToken ct = default) =>
-        _iterationService.GetCurrentIterationAsync(ct);
 
     private async Task<IReadOnlyList<RefreshConflict>> FindConflictsAsync(
         IReadOnlyList<WorkItem> sprintItems, WorkItem? activeItem,

@@ -49,7 +49,7 @@ function Install-Shim($exeName, $coreName) {
 
 function Enable-Shims {
     # Rename release binaries so the .cmd shims take precedence via PATHEXT.
-    foreach ($name in @('twig', 'twig-mcp')) {
+    foreach ($name in @('twig', 'twig-mcp', 'twig-tui')) {
         $exe  = Join-Path $globalDir "$name.exe"
         $core = Join-Path $globalDir "$name-core.exe"
         if ((Test-Path $exe) -and -not (Test-Path $core)) {
@@ -61,7 +61,7 @@ function Enable-Shims {
 }
 
 function Disable-Shims {
-    foreach ($name in @('twig', 'twig-mcp')) {
+    foreach ($name in @('twig', 'twig-mcp', 'twig-tui')) {
         $shim = Join-Path $globalDir "$name.cmd"
         $core = Join-Path $globalDir "$name-core.exe"
         $exe  = Join-Path $globalDir "$name.exe"
@@ -76,9 +76,9 @@ function Disable-Shims {
     }
 }
 
-function Invoke-Publish($label, $csproj) {
+function Invoke-Publish($label, $csproj, $type = "AOT") {
     Write-Host ""
-    Write-Host "Publishing $label (AOT, win-x64) ..." -ForegroundColor Cyan
+    Write-Host "Publishing $label ($type, win-x64) ..." -ForegroundColor Cyan
     dotnet publish "$projectDir\$csproj" -c Release -r win-x64 --self-contained true -o $localDir
     if ($LASTEXITCODE -ne 0) {
         Write-Host "$label publish failed." -ForegroundColor Red
@@ -112,21 +112,19 @@ if (-not (Test-Path $localDir)) {
 
 Invoke-Publish "twig" "src\Twig\Twig.csproj"
 Invoke-Publish "twig-mcp" "src\Twig.Mcp\Twig.Mcp.csproj"
+Invoke-Publish "twig-tui" "src\Twig.Tui\Twig.Tui.csproj" "SingleFile"
 
 # Install shims so 'twig' on PATH resolves to the local build
 Enable-Shims
 
 Write-Host ""
 Write-Host "Local publish complete!" -ForegroundColor Green
-$twigExe = Join-Path $localDir "twig.exe"
-if (Test-Path $twigExe) {
-    $v = & $twigExe --version 2>&1
-    Write-Host "  twig:     $v"
-}
-$mcpExe = Join-Path $localDir "twig-mcp.exe"
-if (Test-Path $mcpExe) {
-    $v = & $mcpExe --version 2>&1
-    Write-Host "  twig-mcp: $v"
+foreach ($name in @('twig', 'twig-mcp', 'twig-tui')) {
+    $exe = Join-Path $localDir "$name.exe"
+    if (Test-Path $exe) {
+        $v = & $exe --version 2>&1
+        Write-Host ("  {0,-9} {1}" -f "$($name):", $v)
+    }
 }
 Write-Host "  Build at: $localDir" -ForegroundColor DarkGray
 Write-Host "  Run './publish-local.ps1 -Restore' to remove local build and shims." -ForegroundColor DarkGray

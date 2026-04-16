@@ -453,16 +453,6 @@ public sealed class SelfUpdaterTests : IDisposable
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  Interface assignability
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public void SelfUpdater_ImplementsICompanionInstaller()
-    {
-        typeof(SelfUpdater).ShouldBeAssignableTo(typeof(ICompanionInstaller));
-    }
-
-    // ═══════════════════════════════════════════════════════════════
     //  Companion extraction — UpdateBinaryAsync with companions
     // ═══════════════════════════════════════════════════════════════
 

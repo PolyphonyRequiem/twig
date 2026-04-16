@@ -42,15 +42,23 @@ public static class CommandServiceModule
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IPendingChangeStore>()));
 
-        // DD-13: SyncCoordinator accepts int cacheStaleMinutes (not TwigConfiguration)
-        // to avoid Domain → Infrastructure circular reference.
-        services.AddSingleton<SyncCoordinator>(sp => new SyncCoordinator(
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
-            sp.GetRequiredService<ProtectedCacheWriter>(),
-            sp.GetRequiredService<IPendingChangeStore>(),
-            sp.GetRequiredService<IWorkItemLinkRepository>(),
-            sp.GetRequiredService<TwigConfiguration>().Display.CacheStaleMinutes));
+        // DD-13 + #1614: SyncCoordinatorFactory holds ReadOnly (longer TTL) and ReadWrite (shorter TTL)
+        // tiers. Accepts int primitives to avoid Domain → Infrastructure circular reference.
+        services.AddSingleton<SyncCoordinatorFactory>(sp =>
+        {
+            var display = sp.GetRequiredService<TwigConfiguration>().Display;
+            return new SyncCoordinatorFactory(
+                sp.GetRequiredService<IWorkItemRepository>(),
+                sp.GetRequiredService<IAdoWorkItemService>(),
+                sp.GetRequiredService<ProtectedCacheWriter>(),
+                sp.GetRequiredService<IPendingChangeStore>(),
+                sp.GetRequiredService<IWorkItemLinkRepository>(),
+                display.CacheStaleMinutesReadOnly,
+                display.CacheStaleMinutes);
+        });
+
+        // Backward compat — direct SyncCoordinator consumers resolve to factory.ReadWrite
+        services.AddSingleton(sp => sp.GetRequiredService<SyncCoordinatorFactory>().ReadWrite);
 
         // DD-02: WorkingSetService accepts string? userDisplayName primitive (same pattern)
         services.AddSingleton<WorkingSetService>(sp => new WorkingSetService(

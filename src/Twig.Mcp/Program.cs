@@ -48,13 +48,23 @@ builder.Services.AddSingleton(sp => new ProtectedCacheWriter(
     sp.GetRequiredService<IWorkItemRepository>(),
     sp.GetRequiredService<IPendingChangeStore>()));
 
-builder.Services.AddSingleton(sp => new SyncCoordinator(
-    sp.GetRequiredService<IWorkItemRepository>(),
-    sp.GetRequiredService<IAdoWorkItemService>(),
-    sp.GetRequiredService<ProtectedCacheWriter>(),
-    sp.GetRequiredService<IPendingChangeStore>(),
-    sp.GetRequiredService<IWorkItemLinkRepository>(),
-    sp.GetRequiredService<TwigConfiguration>().Display.CacheStaleMinutes));
+// #1614: SyncCoordinatorFactory — MCP uses CacheStaleMinutes for both tiers
+// (agent-driven tools need fresh data, no read-only distinction).
+builder.Services.AddSingleton(sp =>
+{
+    var staleMinutes = sp.GetRequiredService<TwigConfiguration>().Display.CacheStaleMinutes;
+    return new SyncCoordinatorFactory(
+        sp.GetRequiredService<IWorkItemRepository>(),
+        sp.GetRequiredService<IAdoWorkItemService>(),
+        sp.GetRequiredService<ProtectedCacheWriter>(),
+        sp.GetRequiredService<IPendingChangeStore>(),
+        sp.GetRequiredService<IWorkItemLinkRepository>(),
+        readOnlyStaleMinutes: staleMinutes,
+        readWriteStaleMinutes: staleMinutes);
+});
+
+// Backward compat — MCP tool classes inject SyncCoordinator directly
+builder.Services.AddSingleton(sp => sp.GetRequiredService<SyncCoordinatorFactory>().ReadWrite);
 
 builder.Services.AddSingleton(sp => new ContextChangeService(
     sp.GetRequiredService<IWorkItemRepository>(),

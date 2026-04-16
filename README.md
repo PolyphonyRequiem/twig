@@ -4,6 +4,8 @@ A high-performance, opinionated CLI for Azure DevOps work item management. Twig 
 
 Built with C# .NET 10 Native AOT — single binary, sub-100ms cold start.
 
+> 📖 **[Full Documentation](docs/README.md)** — architecture, internals, and contributor guides
+
 ## Quick Start
 
 ```bash
@@ -270,15 +272,29 @@ src/
   Twig/                 — CLI entry point (ConsoleAppFramework + Spectre.Console)
   Twig.Domain/          — Pure domain model (zero NuGet dependencies)
   Twig.Infrastructure/  — SQLite cache, ADO REST client, auth, git integration
+  Twig.Mcp/             — MCP server exposing domain tools via stdio
   Twig.Tui/             — Full-screen TUI (Terminal.Gui v2)
 tests/
-  Twig.Domain.Tests/
-  Twig.Infrastructure.Tests/
-  Twig.Cli.Tests/
-  Twig.Tui.Tests/
+  Twig.Cli.Tests/       — CLI command and integration tests
+  Twig.Domain.Tests/    — Domain model unit tests
+  Twig.Infrastructure.Tests/ — Infrastructure layer tests
+  Twig.Mcp.Tests/       — MCP server tests
+  Twig.Tui.Tests/       — TUI tests
+  Twig.TestKit/         — Shared test utilities and builders
 docs/
-  projects/             — Design docs, plans, scenarios
+  architecture/         — Architecture reference documentation
 ```
+
+## Next Topics
+
+Dive deeper into how twig works:
+
+- **[Architecture Overview](docs/architecture/overview.md)** — layered design, project structure, key constraints
+- **[Data Layer](docs/architecture/data-layer.md)** — SQLite caching, sync coordination, process-agnostic design
+- **[Commands](docs/architecture/commands.md)** — CLI framework, rendering pipeline, telemetry
+- **[ADO Integration](docs/architecture/ado-integration.md)** — REST client, auth, conflict resolution
+- **[MCP Server](docs/architecture/mcp-server.md)** — tool catalog, workspace guard
+- **[Build & Release](docs/architecture/build-and-release.md)** — AOT compilation, versioning, release pipeline
 
 ## License
 

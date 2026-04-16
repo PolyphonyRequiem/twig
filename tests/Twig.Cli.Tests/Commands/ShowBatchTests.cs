@@ -9,21 +9,19 @@ using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Infrastructure.Config;
 using Twig.TestKit;
+
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
 
-public sealed class ShowBatchTests : IDisposable
+public sealed class ShowBatchTests
 {
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IWorkItemLinkRepository _linkRepo;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly ITelemetryClient _telemetryClient;
-    private readonly IProcessConfigurationProvider _processConfigProvider;
     private readonly SyncCoordinator _syncCoordinator;
     private readonly TwigConfiguration _config;
-    private readonly string _tempDir;
-    private readonly TwigPaths _paths;
     private readonly ShowCommand _cmd;
 
     public ShowBatchTests()
@@ -31,7 +29,6 @@ public sealed class ShowBatchTests : IDisposable
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _linkRepo = Substitute.For<IWorkItemLinkRepository>();
         _telemetryClient = Substitute.For<ITelemetryClient>();
-        _processConfigProvider = Substitute.For<IProcessConfigurationProvider>();
 
         var adoService = Substitute.For<IAdoWorkItemService>();
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
@@ -43,24 +40,13 @@ public sealed class ShowBatchTests : IDisposable
             new HumanOutputFormatter(), new JsonOutputFormatter(),
             new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
 
-        _tempDir = Path.Combine(Path.GetTempPath(), "twig-showbatch-test-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(_tempDir);
-        _paths = new TwigPaths(_tempDir, Path.Combine(_tempDir, "config"), Path.Combine(_tempDir, "twig.db"));
-
         _cmd = new ShowCommand(
             _workItemRepo,
             _linkRepo,
             _formatterFactory,
             _syncCoordinator,
             _config,
-            paths: _paths,
-            processConfigProvider: _processConfigProvider,
             telemetryClient: _telemetryClient);
-    }
-
-    public void Dispose()
-    {
-        try { Directory.Delete(_tempDir, true); } catch { }
     }
 
     // ═══════════════════════════════════════════════════════════════

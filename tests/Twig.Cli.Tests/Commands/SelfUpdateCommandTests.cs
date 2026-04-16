@@ -113,6 +113,49 @@ public class SelfUpdateCommandTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_AlreadyUpToDate_NoMatchingAsset_SkipsCompanionInstall()
+    {
+        // When up to date but the release has no asset matching the current platform,
+        // companion install is skipped gracefully (warning to stderr, return 0).
+        var currentVersion = VersionHelper.GetVersion();
+        var release = new GitHubReleaseInfo(
+            currentVersion, $"Release {currentVersion}", "notes", null,
+            new[] { new GitHubReleaseAssetInfo("twig-fake-platform.zip", "https://example.com/dl", 1024) });
+
+        var stubService = new StubReleaseService(latestRelease: release);
+        var stubUpdater = new SelfUpdater(new HttpClient());
+        var command = new SelfUpdateCommand(stubService, stubUpdater);
+
+        var exitCode = await command.ExecuteAsync();
+
+        exitCode.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AlreadyUpToDate_CompanionInstallFailure_Returns0()
+    {
+        // When up to date and companion install fails (download error),
+        // the command still returns 0 — companion install failures are non-fatal.
+        var currentVersion = VersionHelper.GetVersion();
+        var rid = PlatformHelper.DetectRid() ?? "win-x64";
+        var ext = rid.StartsWith("win-", StringComparison.Ordinal) ? ".zip" : ".tar.gz";
+        var assetName = $"twig-{rid}{ext}";
+
+        var release = new GitHubReleaseInfo(
+            currentVersion, $"Release {currentVersion}", "notes", null,
+            new[] { new GitHubReleaseAssetInfo(assetName, "https://invalid.example.com/notfound", 1024) });
+
+        var stubService = new StubReleaseService(latestRelease: release);
+        var stubUpdater = new SelfUpdater(new HttpClient());
+        var command = new SelfUpdateCommand(stubService, stubUpdater);
+
+        var exitCode = await command.ExecuteAsync();
+
+        // Non-fatal: companion install failure does not affect the exit code
+        exitCode.ShouldBe(0);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_NewerVersionButNoPlatformBinary_Returns1()
     {
         // Supply a release newer than current (which is "0.0.0" in test) with no matching asset

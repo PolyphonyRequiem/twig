@@ -866,6 +866,26 @@ public class TwigConfigurationTests : IDisposable
 
     // --- EPIC-004 display.fillRateThreshold, display.maxExtraColumns, display.columns.* ---
 
+    // --- Tiered cache TTL: display.cachestaleminutesreadonly ---
+
+    [Fact]
+    public void DisplayConfig_CacheStaleMinutesReadOnly_DefaultIs15()
+    {
+        var config = new TwigConfiguration();
+        config.Display.CacheStaleMinutesReadOnly.ShouldBe(15);
+    }
+
+    [Fact]
+    public async Task SaveAndLoad_RoundTrip_IncludesCacheStaleMinutesReadOnly()
+    {
+        var configPath = Path.Combine(_tempDir, "config_ro_ttl.json");
+        var config = new TwigConfiguration { Display = { CacheStaleMinutesReadOnly = 30 } };
+        await config.SaveAsync(configPath);
+
+        var loaded = await TwigConfiguration.LoadAsync(configPath);
+        loaded.Display.CacheStaleMinutesReadOnly.ShouldBe(30);
+    }
+
     [Fact]
     public void SetValue_DisplayFillRateThreshold_ValidValue()
     {

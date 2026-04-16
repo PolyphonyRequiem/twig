@@ -40,12 +40,12 @@ public class NextPrevCommandTests
         var activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, pendingChangeStore);
-        var syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, protectedCacheWriter, pendingChangeStore, 30);
+        var syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, protectedCacheWriter, pendingChangeStore, null, 30, 30);
         var iterationService = Substitute.For<IIterationService>();
         iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
         var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, iterationService, null);
-        var setCommand = new SetCommand(_workItemRepo, _contextStore, activeItemResolver, syncCoordinator,
+        var setCommand = new SetCommand(_workItemRepo, _contextStore, activeItemResolver, syncCoordinatorFactory,
             workingSetService, formatterFactory, hintEngine);
         _navCmd = new NavigationCommands(_contextStore, _workItemRepo, _seedLinkRepo, _workItemLinkRepo, setCommand, formatterFactory, activeItemResolver);
     }

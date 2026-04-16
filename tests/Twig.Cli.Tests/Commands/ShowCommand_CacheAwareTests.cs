@@ -18,7 +18,7 @@ public sealed class ShowCommand_CacheAwareTests
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IWorkItemLinkRepository _linkRepo;
     private readonly IAdoWorkItemService _adoService;
-    private readonly SyncCoordinator _syncCoordinator;
+    private readonly SyncCoordinatorFactory _syncCoordinatorFactory;
     private readonly TwigConfiguration _config;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly TestConsole _testConsole;
@@ -31,7 +31,7 @@ public sealed class ShowCommand_CacheAwareTests
         _adoService = Substitute.For<IAdoWorkItemService>();
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, pendingChangeStore);
-        _syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, protectedCacheWriter, pendingChangeStore, 30);
+        _syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, protectedCacheWriter, pendingChangeStore, null, 30, 30);
         _config = new TwigConfiguration();
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
@@ -45,7 +45,7 @@ public sealed class ShowCommand_CacheAwareTests
         new(_formatterFactory, _spectreRenderer, isOutputRedirected: () => false);
 
     private ShowCommand CreateCommand(RenderingPipelineFactory? pipelineFactory = null, TextWriter? stderr = null) =>
-        new(_workItemRepo, _linkRepo, _formatterFactory, _syncCoordinator, _config,
+        new(_workItemRepo, _linkRepo, _formatterFactory, _syncCoordinatorFactory, _config,
             pipelineFactory: pipelineFactory, stderr: stderr);
 
     private void SetupCachedItem(WorkItem item)

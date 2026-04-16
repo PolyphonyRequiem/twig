@@ -334,6 +334,7 @@ public sealed class DisplayConfig
     public int TreeDepth { get; set; } = 10;
     public string Icons { get; set; } = "unicode";
     public int CacheStaleMinutes { get; set; } = 5;
+    public int CacheStaleMinutesReadOnly { get; set; } = 15;
     public Dictionary<string, string>? TypeColors { get; set; }
     public DisplayColumnsConfig? Columns { get; set; }
     public double FillRateThreshold { get; set; } = 0.4;

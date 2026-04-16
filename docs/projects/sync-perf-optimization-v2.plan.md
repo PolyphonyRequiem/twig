@@ -2,7 +2,7 @@
 
 **Epic:** #1611 — Sync Performance Optimization
 **Author:** Copilot (Principal Architect)
-> **Status**: 🔨 In Progress
+> **Status**: 🔨 In Progress — 1/2 PR groups merged
 
 ---
 
@@ -621,7 +621,7 @@ All design questions have been resolved. No blocking open questions remain.
 
 | PR Group | Title | Issues/Tasks | Type | Est. LoC | Predecessors | Status |
 |----------|-------|-------------|------|----------|--------------|--------|
-| PG-3b | Refresh test updates | #1613: #1658 | **deep** (few files, test verification) | ~80 | PG-3 | 🔄 In Progress |
+| PG-3b | Refresh test updates | #1613: #1658 | **deep** (few files, test verification) | ~80 | PG-3 | ✅ Merged |
 | PG-4 | Tiered cache TTL (config + factory + DI + commands + tests) | #1614: all tasks | **wide** (~38 files, mechanical DI wiring) | ~335 | PG-2 | 📋 To Do |
 
 **Execution order:**

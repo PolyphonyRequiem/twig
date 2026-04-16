@@ -14,7 +14,7 @@ public sealed class LinkCommand(
     ActiveItemResolver activeItemResolver,
     IAdoWorkItemService adoService,
     IWorkItemLinkRepository linkRepo,
-    SyncCoordinator syncCoordinator,
+    SyncCoordinatorFactory syncCoordinatorFactory,
     OutputFormatterFactory formatterFactory,
     TextWriter? stderr = null)
 {
@@ -150,7 +150,7 @@ public sealed class LinkCommand(
     {
         try
         {
-            await syncCoordinator.SyncLinksAsync(id, ct);
+            await syncCoordinatorFactory.ReadWrite.SyncLinksAsync(id, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

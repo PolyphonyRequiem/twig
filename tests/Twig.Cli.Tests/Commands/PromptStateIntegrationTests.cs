@@ -109,12 +109,12 @@ public class PromptStateIntegrationTests : IDisposable
         var writer = CreateWriter();
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var protectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        var syncCoord = new SyncCoordinator(_workItemRepo, _adoService, protectedWriter, _pendingChangeStore, 30);
+        var syncCoordFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, protectedWriter, _pendingChangeStore, null, 30, 30);
         var iterService = Substitute.For<IIterationService>();
         iterService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
         var wsService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, iterService, null);
-        var cmd = new SetCommand(_workItemRepo, _contextStore, resolver, syncCoord,
+        var cmd = new SetCommand(_workItemRepo, _contextStore, resolver, syncCoordFactory,
             wsService, _formatterFactory, _hintEngine, promptStateWriter: writer);
 
         var result = await cmd.ExecuteAsync("12345");
@@ -310,12 +310,12 @@ public class PromptStateIntegrationTests : IDisposable
 
         var resolver2 = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var protectedWriter2 = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        var syncCoord2 = new SyncCoordinator(_workItemRepo, _adoService, protectedWriter2, _pendingChangeStore, 30);
+        var syncCoordFactory2 = new SyncCoordinatorFactory(_workItemRepo, _adoService, protectedWriter2, _pendingChangeStore, null, 30, 30);
         var iterService2 = Substitute.For<IIterationService>();
         iterService2.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
         var wsService2 = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, iterService2, null);
-        var cmd = new SetCommand(_workItemRepo, _contextStore, resolver2, syncCoord2,
+        var cmd = new SetCommand(_workItemRepo, _contextStore, resolver2, syncCoordFactory2,
             wsService2, _formatterFactory, _hintEngine, promptStateWriter: failWriter);
 
         var result = await cmd.ExecuteAsync("42");
@@ -498,10 +498,10 @@ public class PromptStateIntegrationTests : IDisposable
 
         var writer = CreateWriter();
         var refreshProtectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        var refreshSyncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, refreshProtectedWriter, _pendingChangeStore, 30);
+        var refreshSyncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, refreshProtectedWriter, _pendingChangeStore, null, 30, 30);
         var refreshWorkingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, iterationService, null);
-        var refreshOrchestrator = new RefreshOrchestrator(_contextStore, _workItemRepo, _adoService, iterationService,
-            _pendingChangeStore, refreshProtectedWriter, refreshWorkingSetService, refreshSyncCoordinator);
+        var refreshOrchestrator = new RefreshOrchestrator(_contextStore, _workItemRepo, _adoService,
+            _pendingChangeStore, refreshProtectedWriter, refreshWorkingSetService, refreshSyncCoordinatorFactory);
         var cmd = new RefreshCommand(_contextStore, iterationService, _config, _paths, _processTypeStore, _fieldDefinitionStore,
             _formatterFactory, refreshOrchestrator, promptStateWriter: writer);
 

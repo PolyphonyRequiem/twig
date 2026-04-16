@@ -135,10 +135,10 @@ public sealed class NewCommand_ContextChangeTests : IDisposable
     private NewCommand CreateCommandWithContextChange()
     {
         var protectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        var syncCoordinator = new SyncCoordinator(
-            _workItemRepo, _adoService, protectedWriter, _pendingChangeStore, 30);
+        var syncCoordinatorFactory = new SyncCoordinatorFactory(
+            _workItemRepo, _adoService, protectedWriter, _pendingChangeStore, null, readOnlyStaleMinutes: 30, readWriteStaleMinutes: 30);
         var contextChangeService = new ContextChangeService(
-            _workItemRepo, _adoService, syncCoordinator, protectedWriter);
+            _workItemRepo, _adoService, syncCoordinatorFactory.ReadWrite, protectedWriter);
         return new NewCommand(
             _adoService, _workItemRepo, _contextStore,
             _fieldDefStore, _editorLauncher, _formatterFactory,

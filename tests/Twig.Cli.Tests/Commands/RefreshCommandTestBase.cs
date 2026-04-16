@@ -49,11 +49,11 @@ public abstract class RefreshCommandTestBase : IDisposable
         _fieldDefinitionStore = Substitute.For<IFieldDefinitionStore>();
 
         _protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        var syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, _protectedCacheWriter, _pendingChangeStore, 30);
+        var syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, _protectedCacheWriter, _pendingChangeStore, null, 30, 30);
         var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, _iterationService, null);
         _orchestrator = new RefreshOrchestrator(
-            _contextStore, _workItemRepo, _adoService, _iterationService,
-            _pendingChangeStore, _protectedCacheWriter, workingSetService, syncCoordinator);
+            _contextStore, _workItemRepo, _adoService,
+            _pendingChangeStore, _protectedCacheWriter, workingSetService, syncCoordinatorFactory);
 
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);

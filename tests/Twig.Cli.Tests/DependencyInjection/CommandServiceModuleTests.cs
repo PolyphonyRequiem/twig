@@ -12,11 +12,7 @@ namespace Twig.Cli.Tests.DependencyInjection;
 
 public sealed class CommandServiceModuleTests
 {
-    /// <summary>
-    /// Builds a service provider with all infrastructure mocks registered,
-    /// then calls <see cref="CommandServiceModule.AddTwigCommandServices"/>.
-    /// </summary>
-    private static ServiceProvider BuildFullProvider()
+    private static ServiceProvider BuildProviderWithConfig(TwigConfiguration config)
     {
         var services = new ServiceCollection();
 
@@ -40,15 +36,17 @@ public sealed class CommandServiceModuleTests
             new JsonCompactOutputFormatter(new JsonOutputFormatter()),
             new MinimalOutputFormatter()));
 
-        services.AddSingleton(new TwigConfiguration
+        services.AddSingleton(config);
+        services.AddTwigCommandServices();
+        return services.BuildServiceProvider();
+    }
+
+    private static ServiceProvider BuildFullProvider() =>
+        BuildProviderWithConfig(new TwigConfiguration
         {
             Display = new DisplayConfig { CacheStaleMinutes = 30 },
             User = new UserConfig { DisplayName = "Test User" }
         });
-
-        services.AddTwigCommandServices();
-        return services.BuildServiceProvider();
-    }
 
     [Fact]
     public void ContextChangeService_Resolves_WithAllDependencies()
@@ -58,6 +56,26 @@ public sealed class CommandServiceModuleTests
         var service = provider.GetRequiredService<ContextChangeService>();
 
         service.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void SyncCoordinatorFactory_Resolves_WithBothTiers()
+    {
+        using var provider = BuildFullProvider();
+
+        // GetRequiredService throws if the registration is missing
+        provider.GetRequiredService<SyncCoordinatorFactory>();
+    }
+
+    [Fact]
+    public void SyncCoordinator_Resolves_ToFactoryReadWrite()
+    {
+        using var provider = BuildFullProvider();
+
+        var factory = provider.GetRequiredService<SyncCoordinatorFactory>();
+        var coordinator = provider.GetRequiredService<SyncCoordinator>();
+
+        coordinator.ShouldBeSameAs(factory.ReadWrite);
     }
 
 }

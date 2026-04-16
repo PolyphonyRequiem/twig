@@ -26,7 +26,7 @@ public class CacheFirstReadCommandTests
     private readonly IContextStore _contextStore;
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly ActiveItemResolver _activeItemResolver;
-    private readonly SyncCoordinator _syncCoordinator;
+    private readonly SyncCoordinatorFactory _syncCoordinatorFactory;
     private readonly WorkingSetService _workingSetService;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
@@ -48,7 +48,7 @@ public class CacheFirstReadCommandTests
             .Returns(Array.Empty<WorkItemLink>());
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        _syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, protectedCacheWriter, _pendingChangeStore, 30);
+        _syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, protectedCacheWriter, _pendingChangeStore, null, 30, 30);
         var iterationService = Substitute.For<IIterationService>();
         iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
@@ -67,7 +67,7 @@ public class CacheFirstReadCommandTests
         var item = CreateWorkItem(42, "Cached Item");
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
+        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory,
             _workingSetService, _formatterFactory, _hintEngine);
         var result = await cmd.ExecuteAsync("42");
 
@@ -90,7 +90,7 @@ public class CacheFirstReadCommandTests
 
         var config = new TwigConfiguration { Seed = new SeedConfig { StaleDays = 14 } };
         var cmd = new StatusCommand(_contextStore, _workItemRepo, _pendingChangeStore,
-            config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinator,
+            config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinatorFactory,
             new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db")));
         var result = await cmd.ExecuteAsync();
 
@@ -121,7 +121,7 @@ public class CacheFirstReadCommandTests
         // Working set sync fetches stale items via FetchAsync (not FetchChildrenAsync)
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
+        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory,
             _workingSetService, _formatterFactory, _hintEngine);
         var result = await cmd.ExecuteAsync("42");
 
@@ -140,7 +140,7 @@ public class CacheFirstReadCommandTests
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
             .Throws(new HttpRequestException("Network unavailable"));
 
-        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
+        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory,
             _workingSetService, _formatterFactory, _hintEngine);
         var result = await cmd.ExecuteAsync("42");
 
@@ -167,7 +167,7 @@ public class CacheFirstReadCommandTests
         // SyncItemSetAsync skips dirty items — dirty protection is enforced at write time
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
+        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory,
             _workingSetService, _formatterFactory, _hintEngine);
         var result = await cmd.ExecuteAsync("42");
 
@@ -184,7 +184,7 @@ public class CacheFirstReadCommandTests
         var item = CreateWorkItem(42, "JSON Test Item");
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
+        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory,
             _workingSetService, _formatterFactory, _hintEngine);
 
         var result = await cmd.ExecuteAsync("42", "json");
@@ -204,7 +204,7 @@ public class CacheFirstReadCommandTests
 
         var config = new TwigConfiguration { Seed = new SeedConfig { StaleDays = 14 } };
         var cmd = new StatusCommand(_contextStore, _workItemRepo, _pendingChangeStore,
-            config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinator,
+            config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinatorFactory,
             new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db")));
 
         var result = await cmd.ExecuteAsync("json");
@@ -220,7 +220,7 @@ public class CacheFirstReadCommandTests
         var item = CreateWorkItem(42, "Fetched Item");
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
+        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory,
             _workingSetService, _formatterFactory, _hintEngine);
         var result = await cmd.ExecuteAsync("42");
 
@@ -245,7 +245,7 @@ public class CacheFirstReadCommandTests
 
         var config = new TwigConfiguration { Seed = new SeedConfig { StaleDays = 14 } };
         var cmd = new StatusCommand(_contextStore, _workItemRepo, _pendingChangeStore,
-            config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinator,
+            config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinatorFactory,
             new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db")));
         var result = await cmd.ExecuteAsync();
 
@@ -268,7 +268,7 @@ public class CacheFirstReadCommandTests
 
         var config = new TwigConfiguration();
         var cmd = new TreeCommand(_contextStore, _workItemRepo, config,
-            _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator, _processTypeStore);
+            _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore);
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -285,7 +285,7 @@ public class CacheFirstReadCommandTests
 
         var config = new TwigConfiguration();
         var cmd = new TreeCommand(_contextStore, _workItemRepo, config,
-            _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator, _processTypeStore);
+            _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore);
 
         var result = await cmd.ExecuteAsync();
         result.ShouldBe(1);
@@ -307,7 +307,7 @@ public class CacheFirstReadCommandTests
         _workItemRepo.GetChildrenAsync(2, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var setCmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
+        var setCmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory,
             _workingSetService, _formatterFactory, _hintEngine);
         var navCmd = new NavigationCommands(_contextStore, _workItemRepo, _seedLinkRepo, _workItemLinkRepo, setCmd, _formatterFactory,
             _activeItemResolver);
@@ -326,7 +326,7 @@ public class CacheFirstReadCommandTests
         _adoService.FetchAsync(999, Arg.Any<CancellationToken>())
             .Throws(new HttpRequestException("Not found"));
 
-        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
+        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory,
             _workingSetService, _formatterFactory, _hintEngine);
         var result = await cmd.ExecuteAsync("999");
 
@@ -343,7 +343,7 @@ public class CacheFirstReadCommandTests
 
         var config = new TwigConfiguration { Seed = new SeedConfig { StaleDays = 14 } };
         var cmd = new StatusCommand(_contextStore, _workItemRepo, _pendingChangeStore,
-            config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinator,
+            config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinatorFactory,
             new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db")));
 
         var result = await cmd.ExecuteAsync();
@@ -365,7 +365,7 @@ public class CacheFirstReadCommandTests
         _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
         _adoService.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
 
-        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
+        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory,
             _workingSetService, _formatterFactory, _hintEngine);
         var result = await cmd.ExecuteAsync("42");
 
@@ -410,7 +410,7 @@ public class CacheFirstReadCommandTests
         var item = CreateWorkItem(42, "Minimal Item");
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinator,
+        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory,
             _workingSetService, _formatterFactory, _hintEngine);
         var result = await cmd.ExecuteAsync("42", "minimal");
 

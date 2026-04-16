@@ -28,7 +28,7 @@ public class OfflineModeTests
     private readonly IConsoleInput _consoleInput;
     private readonly ActiveItemResolver _activeItemResolver;
     private readonly WorkingSetService _workingSetService;
-    private readonly SyncCoordinator _syncCoordinator;
+    private readonly SyncCoordinatorFactory _syncCoordinatorFactory;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
 
@@ -41,7 +41,7 @@ public class OfflineModeTests
         _consoleInput = Substitute.For<IConsoleInput>();
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        _syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, protectedCacheWriter, _pendingChangeStore, 30);
+        _syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, protectedCacheWriter, _pendingChangeStore, null, 30, 30);
         var iterationService = Substitute.For<IIterationService>();
         iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
@@ -84,12 +84,10 @@ public class OfflineModeTests
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var statusOrchestrator = new StatusOrchestrator(
-            _contextStore, _workItemRepo, _pendingChangeStore, _activeItemResolver, _workingSetService, _syncCoordinator);
         var statusCmd = new StatusCommand(
             _contextStore, _workItemRepo, _pendingChangeStore,
             new TwigConfiguration(), _formatterFactory, _hintEngine,
-            _activeItemResolver, _workingSetService, _syncCoordinator,
+            _activeItemResolver, _workingSetService, _syncCoordinatorFactory,
             new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db")));
         var result = await statusCmd.ExecuteAsync();
 

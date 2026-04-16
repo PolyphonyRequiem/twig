@@ -22,11 +22,12 @@ public abstract class ReadToolsTestBase
     {
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var protectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        var syncCoordinator = new SyncCoordinator(
+        var syncCoordinatorFactory = new SyncCoordinatorFactory(
             _workItemRepo, _adoService, protectedWriter, _pendingChangeStore,
-            _linkRepo, config.Display.CacheStaleMinutes);
+            _linkRepo, readOnlyStaleMinutes: config.Display.CacheStaleMinutes,
+            readWriteStaleMinutes: config.Display.CacheStaleMinutes);
 
-        return new ReadTools(_workItemRepo, _contextStore, _iterationService, resolver, syncCoordinator, config);
+        return new ReadTools(_workItemRepo, _contextStore, _iterationService, resolver, syncCoordinatorFactory.ReadOnly, config);
     }
 
     protected static JsonElement ParseResult(CallToolResult result)

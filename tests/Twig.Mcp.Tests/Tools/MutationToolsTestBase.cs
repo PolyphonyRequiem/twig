@@ -18,9 +18,13 @@ public abstract class MutationToolsTestBase : ContextToolsTestBase
     {
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var flusher = new McpPendingChangeFlusher(_workItemRepo, _adoService, _pendingChangeStore);
+        var syncCoordFactory = new SyncCoordinatorFactory(
+            _workItemRepo, _adoService,
+            new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore),
+            _pendingChangeStore, _linkRepo, readOnlyStaleMinutes: 5, readWriteStaleMinutes: 5);
         return new MutationTools(
             resolver, _workItemRepo, _adoService, _pendingChangeStore,
-            _processConfigProvider, _promptStateWriter, flusher, CreateSyncCoordinator());
+            _processConfigProvider, _promptStateWriter, flusher, syncCoordFactory.ReadWrite);
     }
 
     /// <summary>

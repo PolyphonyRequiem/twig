@@ -116,10 +116,10 @@ public sealed class FlowStartCommand_ContextChangeTests : IDisposable
 
     private FlowStartCommand CreateCommandWithContextChange()
     {
-        var syncCoordinator = new SyncCoordinator(
-            _workItemRepo, _adoService, _protectedCacheWriter, _pendingChangeStore, 30);
+        var syncCoordinatorFactory = new SyncCoordinatorFactory(
+            _workItemRepo, _adoService, _protectedCacheWriter, _pendingChangeStore, null, readOnlyStaleMinutes: 30, readWriteStaleMinutes: 30);
         var contextChangeService = new ContextChangeService(
-            _workItemRepo, _adoService, syncCoordinator, _protectedCacheWriter);
+            _workItemRepo, _adoService, syncCoordinatorFactory.ReadWrite, _protectedCacheWriter);
         return new FlowStartCommand(
             _workItemRepo, _adoService, _contextStore, _activeItemResolver, _protectedCacheWriter,
             _processConfigProvider, _consoleInput, _formatterFactory, _hintEngine, _config,

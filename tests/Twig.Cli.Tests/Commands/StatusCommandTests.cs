@@ -24,7 +24,7 @@ public class StatusCommandTests : IDisposable
     private readonly IAdoWorkItemService _adoService;
     private readonly ActiveItemResolver _activeItemResolver;
     private readonly WorkingSetService _workingSetService;
-    private readonly SyncCoordinator _syncCoordinator;
+    private readonly SyncCoordinatorFactory _syncCoordinatorFactory;
     private readonly TwigConfiguration _config;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
@@ -42,7 +42,7 @@ public class StatusCommandTests : IDisposable
         _adoService = Substitute.For<IAdoWorkItemService>();
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        _syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, protectedCacheWriter, _pendingChangeStore, 30);
+        _syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, protectedCacheWriter, _pendingChangeStore, null, 30, 30);
         var iterationService = Substitute.For<IIterationService>();
         iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
@@ -61,7 +61,7 @@ public class StatusCommandTests : IDisposable
         _spectreRenderer = new SpectreRenderer(_testConsole, new SpectreTheme(new DisplayConfig()));
 
         _cmd = new StatusCommand(_contextStore, _workItemRepo, _pendingChangeStore,
-            _config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinator, _paths);
+            _config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _paths);
     }
 
     public void Dispose()
@@ -80,11 +80,11 @@ public class StatusCommandTests : IDisposable
     private StatusCommand CreateCommandWithPipeline(RenderingPipelineFactory pipelineFactory, TextWriter? stderr = null) =>
         new(_contextStore, _workItemRepo, _pendingChangeStore, _config,
             _formatterFactory, new HintEngine(new DisplayConfig { Hints = true }), _activeItemResolver,
-            _workingSetService, _syncCoordinator, _paths, pipelineFactory, stderr: stderr);
+            _workingSetService, _syncCoordinatorFactory, _paths, pipelineFactory, stderr: stderr);
 
     private StatusCommand CreateCommandWithGit(IGitService? git = null, IAdoGitService? adoGit = null) =>
         new(_contextStore, _workItemRepo, _pendingChangeStore, _config,
-            _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinator, _paths,
+            _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _paths,
             pipelineFactory: null, gitService: git, adoGitService: adoGit);
 
     // ── Core command behavior ───────────────────────────────────────
@@ -180,7 +180,7 @@ public class StatusCommandTests : IDisposable
                 Git = new GitConfig { BranchPattern = BranchNameTemplate.DefaultPattern },
             },
             _formatterFactory, new HintEngine(new DisplayConfig { Hints = true }),
-            _activeItemResolver, _workingSetService, _syncCoordinator, _paths, gitService: gitService);
+            _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _paths, gitService: gitService);
 
         var result = await cmd.ExecuteAsync();
 
@@ -203,7 +203,7 @@ public class StatusCommandTests : IDisposable
                 Git = new GitConfig { BranchPattern = BranchNameTemplate.DefaultPattern },
             },
             _formatterFactory, new HintEngine(new DisplayConfig { Hints = true }),
-            _activeItemResolver, _workingSetService, _syncCoordinator, _paths, gitService: gitService);
+            _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _paths, gitService: gitService);
 
         var result = await cmd.ExecuteAsync();
 

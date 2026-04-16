@@ -16,14 +16,14 @@ namespace Twig.Commands;
 /// Implements <c>twig set &lt;idOrPattern&gt;</c>: resolves a work item by ID or title pattern,
 /// fetches from ADO if not cached, loads parent chain, and sets active context.
 /// On cache miss (FetchedFromAdo), computes the working set for eviction (FR-012),
-/// then syncs only the target item and parent chain via <see cref="SyncCoordinator.SyncItemSetAsync"/>.
+/// then syncs only the target item and parent chain via <see cref="SyncCoordinatorFactory"/>.
 /// On cache hit (Found), skips working set computation and syncs only the target + parents.
 /// </summary>
 public sealed class SetCommand(
     IWorkItemRepository workItemRepo,
     IContextStore contextStore,
     ActiveItemResolver activeItemResolver,
-    SyncCoordinator syncCoordinator,
+    SyncCoordinatorFactory syncCoordinatorFactory,
     WorkingSetService workingSetService,
     OutputFormatterFactory formatterFactory,
     HintEngine hintEngine,
@@ -156,7 +156,7 @@ public sealed class SetCommand(
             : null;
 
         IReadOnlyList<WorkItemLink> links = [];
-        try { links = await syncCoordinator.SyncLinksAsync(item.Id, ct); }
+        try { links = await syncCoordinatorFactory.ReadWrite.SyncLinksAsync(item.Id, ct); }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
         var fieldDefs = fieldDefinitionStore is not null
@@ -240,7 +240,7 @@ public sealed class SetCommand(
             }
 
             // Sync target item + parent chain only (DD-2: SyncItemSetAsync skips full working set)
-            await syncCoordinator.SyncItemSetAsync([item.Id, ..parentChainIds], ct);
+            await syncCoordinatorFactory.ReadWrite.SyncItemSetAsync([item.Id, ..parentChainIds], ct);
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)

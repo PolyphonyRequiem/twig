@@ -23,64 +23,36 @@ is published as a self-contained single-file bundle (Terminal.Gui does not suppo
 
 ## Architecture Diagram
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Entry Points                             │
-│                                                                 │
-│  ┌──────────────┐  ┌──────────────────┐  ┌───────────────────┐  │
-│  │  twig (CLI)   │  │  twig-mcp (MCP)  │  │  twig-tui (TUI)  │  │
-│  │              │  │                  │  │                   │  │
-│  │ Console­App­  │  │ Model­Context­   │  │ Terminal.Gui      │  │
-│  │ Framework    │  │ Protocol (stdio) │  │ (reflection-      │  │
-│  │ Spectre.     │  │                  │  │  based, non-AOT)  │  │
-│  │ Console      │  │                  │  │                   │  │
-│  └──────┬───────┘  └────────┬─────────┘  └─────────┬─────────┘  │
-│         │                   │                      │            │
-└─────────┼───────────────────┼──────────────────────┼────────────┘
-          │                   │                      │
-          ▼                   ▼                      ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      Twig.Domain                                │
-│                                                                 │
-│  Aggregates    Services          Interfaces     Value Objects    │
-│  ┌──────────┐  ┌──────────────┐  ┌───────────┐  ┌────────────┐ │
-│  │WorkItem  │  │SyncCoord­    │  │IWorkItem­ │  │WorkItem­   │ │
-│  │Process­  │  │  inator      │  │ Repository│  │ Type       │ │
-│  │ Config   │  │Refresh­      │  │IContext­  │  │AreaPath    │ │
-│  │          │  │ Orchestrator │  │ Store     │  │Iteration­  │ │
-│  │          │  │Status­       │  │IPending­  │  │ Path       │ │
-│  │          │  │ Orchestrator │  │ ChangeStore│ │            │ │
-│  │          │  │FlowTransi­  │  │IAdoWork­  │  │            │ │
-│  │          │  │ tionService  │  │ ItemService│ │            │ │
-│  └──────────┘  └──────────────┘  └───────────┘  └────────────┘ │
-│                                                                 │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │
-                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                   Twig.Infrastructure                           │
-│                                                                 │
-│  Persistence (SQLite)       ADO REST            Other           │
-│  ┌────────────────────┐  ┌────────────────┐  ┌───────────────┐  │
-│  │SqliteWorkItem­     │  │AdoRestClient   │  │GitCliService  │  │
-│  │ Repository         │  │AdoGitClient    │  │TwigJson­      │  │
-│  │SqliteContextStore  │  │AdoIteration­   │  │ Context       │  │
-│  │SqlitePending­      │  │ Service        │  │TwigConfig­    │  │
-│  │ ChangeStore        │  │AdoResponse­    │  │ uration       │  │
-│  │SqliteCacheStore    │  │ Mapper         │  │Telemetry­     │  │
-│  │  (connection pool) │  │ConflictRetry­  │  │ Client        │  │
-│  │                    │  │ Helper         │  │AuthProviders  │  │
-│  └────────┬───────────┘  └───────┬────────┘  └───────────────┘  │
-│           │                      │                              │
-└───────────┼──────────────────────┼──────────────────────────────┘
-            │                      │
-            ▼                      ▼
-     ┌──────────────┐     ┌────────────────┐
-     │  SQLite DB   │     │  Azure DevOps  │
-     │  .twig/{org}/ │     │  REST API      │
-     │  {project}/  │     │                │
-     │  twig.db     │     │                │
-     └──────────────┘     └────────────────┘
+```mermaid
+graph TD
+    subgraph Entry["Entry Points"]
+        CLI["twig (CLI)<br/>ConsoleAppFramework<br/>Spectre.Console"]
+        MCP["twig-mcp (MCP)<br/>ModelContextProtocol (stdio)"]
+        TUI["twig-tui (TUI)<br/>Terminal.Gui<br/>(reflection-based, non-AOT)"]
+    end
+
+    subgraph Domain["Twig.Domain"]
+        Aggregates["Aggregates<br/>WorkItem<br/>ProcessConfig"]
+        Services["Services<br/>SyncCoordinator<br/>RefreshOrchestrator<br/>StatusOrchestrator<br/>FlowTransitionService"]
+        Interfaces["Interfaces<br/>IWorkItemRepository<br/>IContextStore<br/>IPendingChangeStore<br/>IAdoWorkItemService"]
+        ValueObjects["Value Objects<br/>WorkItemType<br/>AreaPath<br/>IterationPath"]
+    end
+
+    subgraph Infra["Twig.Infrastructure"]
+        Persistence["Persistence (SQLite)<br/>SqliteWorkItemRepository<br/>SqliteContextStore<br/>SqlitePendingChangeStore<br/>SqliteCacheStore<br/>(connection pool)"]
+        AdoRest["ADO REST<br/>AdoRestClient<br/>AdoGitClient<br/>AdoIterationService<br/>AdoResponseMapper<br/>ConflictRetryHelper"]
+        Other["Other<br/>GitCliService<br/>TwigJsonContext<br/>TwigConfiguration<br/>TelemetryClient<br/>AuthProviders"]
+    end
+
+    SQLite["SQLite DB<br/>.twig/{org}/{project}/twig.db"]
+    ADO["Azure DevOps REST API"]
+
+    CLI --> Domain
+    MCP --> Domain
+    TUI --> Domain
+    Domain --> Infra
+    Persistence --> SQLite
+    AdoRest --> ADO
 ```
 
 **Dependency rule:** Dependencies flow downward only. Domain has zero references to

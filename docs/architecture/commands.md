@@ -17,13 +17,13 @@ text, and command router at compile time with zero reflection. This is critical 
 
 All CLI commands are routed through a single hub class registered at startup:
 
-```
-Program.cs
-├── ConsoleApp.Create()
-│   └── .ConfigureServices(services => { ... })
-├── app.UseFilter<ExceptionFilter>()
-├── app.Add<TwigCommands>()            ← primary command hub
-└── app.Add<OhMyPoshCommands>("ohmyposh")  ← namespaced sub-group
+```mermaid
+graph TD
+    P["Program.cs"] --> Create["ConsoleApp.Create()"]
+    Create --> Config[".ConfigureServices(services => { ... })"]
+    P --> Filter["app.UseFilter&lt;ExceptionFilter&gt;()"]
+    P --> Cmds["app.Add&lt;TwigCommands&gt;()<br/>← primary command hub"]
+    P --> OMP["app.Add&lt;OhMyPoshCommands&gt;('ohmyposh')<br/>← namespaced sub-group"]
 ```
 
 **`TwigCommands`** (`src/Twig/Program.cs`) is a thin routing class that maps every CLI verb
@@ -69,21 +69,21 @@ is initialised, otherwise shows grouped help.
 
 Every command follows a consistent execution pipeline:
 
-```
-CLI args → ConsoleAppFramework parser
-         → TwigCommands routing method
-         → DI-resolved command class
-         → ExecuteAsync()
-             ├── Stopwatch.GetTimestamp()       (telemetry start)
-             ├── RenderingPipelineFactory.Resolve()
-             │   → (IOutputFormatter, IAsyncRenderer?)
-             ├── ExecuteCoreAsync()             (command logic)
-             │   ├── resolve active context
-             │   ├── domain service calls
-             │   ├── format + render output
-             │   └── emit hints
-             ├── telemetryClient.TrackEvent()   (fire-and-forget)
-             └── return exit code (0 = success, 1 = error, 2 = usage)
+```mermaid
+graph LR
+    Args["CLI args"] --> Parser["ConsoleAppFramework parser"]
+    Parser --> Routing["TwigCommands routing method"]
+    Routing --> Resolve["DI-resolved command class"]
+    Resolve --> Exec["ExecuteAsync()"]
+    Exec --> Stopwatch["Stopwatch.GetTimestamp()<br/>(telemetry start)"]
+    Exec --> Pipeline["RenderingPipelineFactory.Resolve()<br/>→ IOutputFormatter, IAsyncRenderer?"]
+    Exec --> Core["ExecuteCoreAsync()<br/>(command logic)"]
+    Core --> Context["resolve active context"]
+    Core --> Domain["domain service calls"]
+    Core --> Render["format + render output"]
+    Core --> Hints["emit hints"]
+    Exec --> Telemetry["telemetryClient.TrackEvent()<br/>(fire-and-forget)"]
+    Exec --> Exit["return exit code<br/>0=success, 1=error, 2=usage"]
 ```
 
 ### DI Injection Pattern

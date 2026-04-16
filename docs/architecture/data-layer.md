@@ -201,18 +201,14 @@ Batch operations accept pre-computed protected IDs to avoid N+1 queries.
 
 ### Architecture
 
-```
-                   ┌──────────────┐
-  CLI commands ──▶ │SyncCoordinator│ ──▶ IAdoWorkItemService (REST)
-                   └──────┬───────┘
-                          │
-                   ┌──────▼───────────┐
-                   │ProtectedCacheWriter│ ──▶ SyncGuard
-                   └──────┬───────────┘
-                          │
-                   ┌──────▼──────────┐
-                   │SqliteWorkItemRepo│ ──▶ SQLite
-                   └─────────────────┘
+```mermaid
+graph LR
+    CLI["CLI commands"] --> SC["SyncCoordinator"]
+    SC --> ADO["IAdoWorkItemService (REST)"]
+    SC --> PCW["ProtectedCacheWriter"]
+    PCW --> SG["SyncGuard"]
+    PCW --> Repo["SqliteWorkItemRepo"]
+    Repo --> DB["SQLite"]
 ```
 
 ### SyncCoordinator

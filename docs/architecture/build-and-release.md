@@ -143,21 +143,15 @@ Runs on `ubuntu-latest` after all platform builds succeed:
 
 ### Project dependency graph
 
-```
-Twig.Domain (lib)
-  │
-  ├─▶ Twig.Infrastructure (lib)
-  │     ├ Markdig, Microsoft.Data.Sqlite
-  │     └ InternalsVisibleTo: all consumers + test projects
-  │
-  ├─▶ Twig (exe) ─── CLI ─── AOT
-  │     └ ConsoleAppFramework, Spectre.Console
-  │
-  ├─▶ Twig.Mcp (exe) ─── MCP server ─── AOT
-  │     └ ModelContextProtocol, Microsoft.Extensions.Hosting
-  │
-  └─▶ Twig.Tui (exe) ─── TUI ─── non-AOT, SingleFile
-        └ Terminal.Gui v2 (nightly)
+```mermaid
+graph TD
+    Domain["Twig.Domain (lib)"] --> Infra["Twig.Infrastructure (lib)<br/>Markdig, Microsoft.Data.Sqlite<br/>InternalsVisibleTo: all consumers + test projects"]
+    Domain --> CLI["Twig (exe) — CLI — AOT<br/>ConsoleAppFramework, Spectre.Console"]
+    Domain --> McpExe["Twig.Mcp (exe) — MCP server — AOT<br/>ModelContextProtocol, Microsoft.Extensions.Hosting"]
+    Domain --> Tui["Twig.Tui (exe) — TUI — non-AOT, SingleFile<br/>Terminal.Gui v2 (nightly)"]
+    Infra --> CLI
+    Infra --> McpExe
+    Infra --> Tui
 ```
 
 ### twig (CLI)

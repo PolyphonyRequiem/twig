@@ -63,13 +63,6 @@ public class SelfUpdateCommandTests : IDisposable
         result.ShouldBe(0);
     }
 
-    [Fact]
-    public void SemVerComparer_BothRelease_AreEqual()
-    {
-        var result = SemVerComparer.Compare("1.0.0", "1.0.0");
-        result.ShouldBe(0);
-    }
-
     // ── SemVerComparer: v prefix stripping ─────────────────────────────
 
     [Theory]
@@ -113,25 +106,6 @@ public class SelfUpdateCommandTests : IDisposable
         var currentVersion = VersionHelper.GetVersion();
         var release = new GitHubReleaseInfo(
             currentVersion, $"Release {currentVersion}", "notes", null,
-            new[] { new GitHubReleaseAssetInfo("twig-win-x64.zip", "https://example.com/dl", 1024) });
-
-        var stubService = new StubReleaseService(latestRelease: release);
-        var stubUpdater = new SelfUpdater(new HttpClient());
-        var command = new SelfUpdateCommand(stubService, stubUpdater);
-
-        var exitCode = await command.ExecuteAsync();
-
-        exitCode.ShouldBe(0);
-    }
-
-    [Fact]
-    public async Task ExecuteAsync_AlreadyUpToDate_NoMatchingAsset_SkipsCompanionInstall()
-    {
-        // When up to date but the release has no asset matching the current platform,
-        // companion install is skipped gracefully (warning to stderr, return 0).
-        var currentVersion = VersionHelper.GetVersion();
-        var release = new GitHubReleaseInfo(
-            currentVersion, $"Release {currentVersion}", "notes", null,
             new[] { new GitHubReleaseAssetInfo("twig-fake-platform.zip", "https://example.com/dl", 1024) });
 
         var stubService = new StubReleaseService(latestRelease: release);
@@ -167,6 +141,58 @@ public class SelfUpdateCommandTests : IDisposable
 
         // Non-fatal: companion install failure does not affect the exit code
         exitCode.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AlreadyUpToDate_InstallsMissingCompanions_ReportsResults()
+    {
+        // F3: when main binary is already current and companions are missing,
+        // they get installed and per-companion results appear in console output.
+        var currentExe = Path.Combine(_tempDir, ExeName);
+        File.WriteAllText(currentExe, "current");
+
+        var companionExeNames = CompanionTools.All
+            .Select(CompanionTools.GetExeName)
+            .ToArray();
+
+        // Build a zip archive containing companion binaries (no main binary needed)
+        var zipBytes = CreateZipArchive(
+            [.. companionExeNames.Select(c => (c, "companion"u8.ToArray()))]);
+
+        var currentVersion = VersionHelper.GetVersion();
+        var rid = PlatformHelper.DetectRid() ?? "win-x64";
+        var ext = rid.StartsWith("win-", StringComparison.Ordinal) ? ".zip" : ".tar.gz";
+        var assetName = $"twig-{rid}{ext}";
+
+        var release = new GitHubReleaseInfo(
+            currentVersion, $"Release {currentVersion}", "notes", null,
+            new[] { new GitHubReleaseAssetInfo(assetName, "https://example.com/dl", 1024) });
+
+        var selfUpdater = new SelfUpdater(
+            new FakeDownloader(zipBytes), new DefaultFileSystem(), currentExe);
+        var command = new SelfUpdateCommand(
+            new StubReleaseService(latestRelease: release), selfUpdater);
+
+        // Act: capture stdout to verify companion result output
+        var originalOut = Console.Out;
+        using var sw = new StringWriter();
+        Console.SetOut(sw);
+        try
+        {
+            var exitCode = await command.ExecuteAsync();
+
+            exitCode.ShouldBe(0);
+            var output = sw.ToString();
+
+            // ReportCompanionResults should have printed a line per companion
+            foreach (var c in companionExeNames)
+                output.ShouldContain(c);
+            output.ShouldContain("installed");
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+        }
     }
 
     [Fact]

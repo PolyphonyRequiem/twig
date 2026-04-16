@@ -13,7 +13,7 @@ namespace Twig.Infrastructure.Tests.GitHub;
 /// Validates that snake_case GitHub API keys deserialize correctly via
 /// explicit <c>[JsonPropertyName]</c> attributes.
 /// </summary>
-public class GitHubReleaseClientTests
+public sealed class GitHubReleaseClientTests
 {
     // ── DTO deserialization ───────────────────────────────────────────
 

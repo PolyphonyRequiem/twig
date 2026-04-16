@@ -18,6 +18,20 @@ internal static class CompanionTools
 }
 
 /// <summary>
+/// Abstraction for companion installation, enabling NSubstitute mocking
+/// of the sealed <see cref="SelfUpdater"/> in unit tests (e.g., <c>CompanionFirstRunCheck</c>).
+/// </summary>
+internal interface ICompanionInstaller
+{
+    Task<IReadOnlyList<CompanionUpdateResult>> InstallCompanionsOnlyAsync(
+        string archiveUrl,
+        string archiveName,
+        IReadOnlyList<string> companionExeNames,
+        string installDir,
+        CancellationToken ct = default);
+}
+
+/// <summary>
 /// Result of a full self-update operation (main binary + companions).
 /// In-process only — never serialized to JSON.
 /// </summary>
@@ -30,21 +44,3 @@ public sealed record UpdateResult(
 /// <paramref name="Found"/> indicates whether the binary was present in the archive.
 /// </summary>
 public sealed record CompanionUpdateResult(string Name, bool Found, string? InstalledPath);
-
-/// <summary>
-/// Narrow interface for installing companion binaries from a release archive.
-/// Implemented by <see cref="SelfUpdater"/> — kept internal to limit surface area.
-/// </summary>
-internal interface ICompanionInstaller
-{
-    /// <summary>
-    /// Downloads the archive at <paramref name="archiveUrl"/> and extracts only the
-    /// companion executables whose names appear in <paramref name="companionExeNames"/>.
-    /// </summary>
-    Task<IReadOnlyList<CompanionUpdateResult>> InstallCompanionsOnlyAsync(
-        string archiveUrl,
-        string archiveName,
-        IReadOnlyList<string> companionExeNames,
-        string installDir,
-        CancellationToken ct = default);
-}

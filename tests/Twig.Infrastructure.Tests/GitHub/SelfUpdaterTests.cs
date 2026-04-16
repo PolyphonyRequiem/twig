@@ -14,7 +14,7 @@ namespace Twig.Infrastructure.Tests.GitHub;
 /// Covers: happy-path update, path traversal defense, download failures,
 /// incomplete downloads, permission errors, file-lock scenarios, and cleanup.
 /// </summary>
-public class SelfUpdaterTests : IDisposable
+public sealed class SelfUpdaterTests : IDisposable
 {
     private static readonly string ExeName = OperatingSystem.IsWindows() ? "twig.exe" : "twig";
     private readonly string _tempDir;
@@ -48,10 +48,10 @@ public class SelfUpdaterTests : IDisposable
         var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
 
         // Act
-        var result = await sut.UpdateBinaryAsync("https://example.com/archive.zip", "twig-win-x64.zip");
+        var result = await sut.UpdateBinaryAsync("https://example.com/archive.zip", "twig-win-x64.zip", null);
 
         // Assert
-        result.ShouldBe(currentExe);
+        result.MainBinaryPath.ShouldBe(currentExe);
         var updatedContent = File.ReadAllBytes(currentExe);
         updatedContent.ShouldBe(binaryContent);
 
@@ -74,10 +74,10 @@ public class SelfUpdaterTests : IDisposable
         var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
 
         // Act
-        var result = await sut.UpdateBinaryAsync("https://example.com/archive.tar.gz", "twig-linux-x64.tar.gz");
+        var result = await sut.UpdateBinaryAsync("https://example.com/archive.tar.gz", "twig-linux-x64.tar.gz", null);
 
         // Assert
-        result.ShouldBe(currentExe);
+        result.MainBinaryPath.ShouldBe(currentExe);
         var updatedContent = File.ReadAllBytes(currentExe);
         updatedContent.ShouldBe(binaryContent);
     }
@@ -95,9 +95,9 @@ public class SelfUpdaterTests : IDisposable
         var downloader = new FakeDownloader(zipBytes);
         var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
 
-        var result = await sut.UpdateBinaryAsync("https://example.com/dl.zip", "twig-win-x64.zip");
+        var result = await sut.UpdateBinaryAsync("https://example.com/dl.zip", "twig-win-x64.zip", null);
 
-        result.ShouldBe(currentExe);
+        result.MainBinaryPath.ShouldBe(currentExe);
         File.ReadAllBytes(currentExe).ShouldBe(binaryContent);
     }
 
@@ -111,7 +111,7 @@ public class SelfUpdaterTests : IDisposable
         var downloader = new FakeDownloader(zipBytes);
         var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
 
-        await sut.UpdateBinaryAsync("https://example.com/dl.zip", "twig-win-x64.zip");
+        await sut.UpdateBinaryAsync("https://example.com/dl.zip", "twig-win-x64.zip", null);
 
         // Temp directories in the system temp folder matching twig-update-* pattern should be cleaned up.
         // We can't easily assert on temp dir cleanup without hooking, but we verify no exception was thrown.
@@ -182,7 +182,7 @@ public class SelfUpdaterTests : IDisposable
         var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
 
         var ex = await Should.ThrowAsync<InvalidOperationException>(
-            () => sut.UpdateBinaryAsync("https://example.com/dl.tar.gz", "twig-linux-x64.tar.gz"));
+            () => sut.UpdateBinaryAsync("https://example.com/dl.tar.gz", "twig-linux-x64.tar.gz", null));
         ex.Message.ShouldContain("Path traversal detected");
     }
 
@@ -206,7 +206,7 @@ public class SelfUpdaterTests : IDisposable
         var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
 
         var ex = await Should.ThrowAsync<InvalidOperationException>(
-            () => sut.UpdateBinaryAsync("https://example.com/missing.zip", "twig-win-x64.zip"));
+            () => sut.UpdateBinaryAsync("https://example.com/missing.zip", "twig-win-x64.zip", null));
         ex.Message.ShouldContain("Failed to download update");
         ex.Message.ShouldContain("https://example.com/missing.zip");
         ex.Message.ShouldContain(expectedFragment);
@@ -226,7 +226,7 @@ public class SelfUpdaterTests : IDisposable
         var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
 
         var ex = await Should.ThrowAsync<InvalidOperationException>(
-            () => sut.UpdateBinaryAsync("https://example.com/slow.zip", "twig-win-x64.zip"));
+            () => sut.UpdateBinaryAsync("https://example.com/slow.zip", "twig-win-x64.zip", null));
         ex.Message.ShouldContain("Failed to download update");
         ex.InnerException.ShouldBeOfType<TaskCanceledException>();
     }
@@ -247,7 +247,7 @@ public class SelfUpdaterTests : IDisposable
 
         // Should throw during zip extraction
         await Should.ThrowAsync<Exception>(
-            () => sut.UpdateBinaryAsync("https://example.com/dl.zip", "twig-win-x64.zip"));
+            () => sut.UpdateBinaryAsync("https://example.com/dl.zip", "twig-win-x64.zip", null));
 
         // Original binary should still exist (not partially overwritten)
         File.ReadAllText(currentExe).ShouldBe("old");
@@ -264,7 +264,7 @@ public class SelfUpdaterTests : IDisposable
         var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
 
         await Should.ThrowAsync<Exception>(
-            () => sut.UpdateBinaryAsync("https://example.com/dl.tar.gz", "twig-linux-x64.tar.gz"));
+            () => sut.UpdateBinaryAsync("https://example.com/dl.tar.gz", "twig-linux-x64.tar.gz", null));
 
         // Original binary should still exist
         File.ReadAllText(currentExe).ShouldBe("old");
@@ -282,7 +282,7 @@ public class SelfUpdaterTests : IDisposable
         var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
 
         var ex = await Should.ThrowAsync<InvalidOperationException>(
-            () => sut.UpdateBinaryAsync("https://example.com/dl.zip", "twig-win-x64.zip"));
+            () => sut.UpdateBinaryAsync("https://example.com/dl.zip", "twig-win-x64.zip", null));
         ex.Message.ShouldContain("Could not find");
         ex.Message.ShouldContain(ExeName);
     }
@@ -325,7 +325,7 @@ public class SelfUpdaterTests : IDisposable
         var sut = new SelfUpdater(downloader, fileSystem, currentExe);
 
         var ex = await Should.ThrowAsync<UnauthorizedAccessException>(
-            () => sut.UpdateBinaryAsync("https://example.com/dl.zip", "twig-win-x64.zip"));
+            () => sut.UpdateBinaryAsync("https://example.com/dl.zip", "twig-win-x64.zip", null));
         ex.Message.ShouldContain("Access to the path is denied");
 
         // Verify cleanup was attempted
@@ -364,10 +364,10 @@ public class SelfUpdaterTests : IDisposable
         var sut = new SelfUpdater(downloader, fileSystem, currentExe);
 
         // Act — should succeed using FileMove with overwrite: true
-        var result = await sut.UpdateBinaryAsync("https://example.com/dl.zip", "twig-win-x64.zip");
+        var result = await sut.UpdateBinaryAsync("https://example.com/dl.zip", "twig-win-x64.zip", null);
 
         // Assert
-        result.ShouldBe(currentExe);
+        result.MainBinaryPath.ShouldBe(currentExe);
         // Verify the move was called with overwrite: true
         fileSystem.Received().FileMove(currentExe, currentExe + ".old", true);
         fileSystem.Received().FileCopy(Arg.Any<string>(), currentExe, true);
@@ -434,7 +434,7 @@ public class SelfUpdaterTests : IDisposable
         var sut = new SelfUpdater(downloader, new DefaultFileSystem(), processPath: null);
 
         var ex = await Should.ThrowAsync<InvalidOperationException>(
-            () => sut.UpdateBinaryAsync("https://example.com/dl.zip", "twig-x64.zip"));
+            () => sut.UpdateBinaryAsync("https://example.com/dl.zip", "twig-x64.zip", null));
         ex.Message.ShouldContain("Cannot determine current executable path");
     }
 
@@ -448,8 +448,345 @@ public class SelfUpdaterTests : IDisposable
         var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
 
         var ex = await Should.ThrowAsync<InvalidOperationException>(
-            () => sut.UpdateBinaryAsync("https://example.com/dl.7z", "twig-win-x64.7z"));
+            () => sut.UpdateBinaryAsync("https://example.com/dl.7z", "twig-win-x64.7z", null));
         ex.Message.ShouldContain("Unsupported archive format");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Companion extraction — UpdateBinaryAsync with companions
+    // ═══════════════════════════════════════════════════════════════
+
+    private static readonly string CompanionExe = OperatingSystem.IsWindows() ? "twig-mcp.exe" : "twig-mcp";
+    private static readonly string CompanionExe2 = OperatingSystem.IsWindows() ? "twig-tui.exe" : "twig-tui";
+
+    [Fact]
+    public async Task UpdateBinaryAsync_WithCompanions_ExtractsMainAndCompanions()
+    {
+        var currentExe = Path.Combine(_tempDir, ExeName);
+        File.WriteAllText(currentExe, "old-main");
+
+        var mainContent = "new-main"u8.ToArray();
+        var companionContent = "new-companion"u8.ToArray();
+        var zipBytes = CreateZipArchive(
+            (ExeName, mainContent),
+            (CompanionExe, companionContent));
+
+        var downloader = new FakeDownloader(zipBytes);
+        var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
+
+        var result = await sut.UpdateBinaryAsync(
+            "https://example.com/dl.zip", "twig-win-x64.zip",
+            new[] { CompanionExe });
+
+        result.MainBinaryPath.ShouldBe(currentExe);
+        File.ReadAllBytes(currentExe).ShouldBe(mainContent);
+
+        result.Companions.Count.ShouldBe(1);
+        result.Companions[0].Name.ShouldBe(CompanionExe);
+        result.Companions[0].Found.ShouldBeTrue();
+        result.Companions[0].InstalledPath.ShouldNotBeNull();
+        File.ReadAllBytes(result.Companions[0].InstalledPath!).ShouldBe(companionContent);
+    }
+
+    [Fact]
+    public async Task UpdateBinaryAsync_MissingCompanionInArchive_RecordsFoundFalse()
+    {
+        var currentExe = Path.Combine(_tempDir, ExeName);
+        File.WriteAllText(currentExe, "old-main");
+
+        var mainContent = "new-main"u8.ToArray();
+        var zipBytes = CreateZipArchive((ExeName, mainContent));
+
+        var downloader = new FakeDownloader(zipBytes);
+        var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
+
+        var result = await sut.UpdateBinaryAsync(
+            "https://example.com/dl.zip", "twig-win-x64.zip",
+            new[] { CompanionExe });
+
+        result.MainBinaryPath.ShouldBe(currentExe);
+        result.Companions.Count.ShouldBe(1);
+        result.Companions[0].Found.ShouldBeFalse();
+        result.Companions[0].InstalledPath.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task UpdateBinaryAsync_NullCompanionList_ReturnsEmptyCompanions()
+    {
+        var currentExe = Path.Combine(_tempDir, ExeName);
+        File.WriteAllText(currentExe, "old-main");
+
+        var zipBytes = CreateZipArchive((ExeName, "new"u8.ToArray()));
+        var downloader = new FakeDownloader(zipBytes);
+        var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
+
+        var result = await sut.UpdateBinaryAsync(
+            "https://example.com/dl.zip", "twig-win-x64.zip", null);
+
+        result.Companions.Count.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task UpdateBinaryAsync_MultipleCompanions_SomeFoundSomeMissing()
+    {
+        var currentExe = Path.Combine(_tempDir, ExeName);
+        File.WriteAllText(currentExe, "old-main");
+
+        var mainContent = "new-main"u8.ToArray();
+        var companion1Content = "companion1"u8.ToArray();
+        // Only include one of two companions
+        var zipBytes = CreateZipArchive(
+            (ExeName, mainContent),
+            (CompanionExe, companion1Content));
+
+        var downloader = new FakeDownloader(zipBytes);
+        var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
+
+        var result = await sut.UpdateBinaryAsync(
+            "https://example.com/dl.zip", "twig-win-x64.zip",
+            new[] { CompanionExe, CompanionExe2 });
+
+        result.Companions.Count.ShouldBe(2);
+        result.Companions[0].Name.ShouldBe(CompanionExe);
+        result.Companions[0].Found.ShouldBeTrue();
+        result.Companions[1].Name.ShouldBe(CompanionExe2);
+        result.Companions[1].Found.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task UpdateBinaryAsync_CompanionFromTarGz_ExtractsCorrectly()
+    {
+        var currentExe = Path.Combine(_tempDir, ExeName);
+        File.WriteAllText(currentExe, "old-main");
+
+        var mainContent = "new-main"u8.ToArray();
+        var companionContent = "companion-tar"u8.ToArray();
+        var tarGzBytes = CreateTarGzArchive(
+            (ExeName, mainContent),
+            (CompanionExe, companionContent));
+
+        var downloader = new FakeDownloader(tarGzBytes);
+        var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
+
+        var result = await sut.UpdateBinaryAsync(
+            "https://example.com/dl.tar.gz", "twig-linux-x64.tar.gz",
+            new[] { CompanionExe });
+
+        result.MainBinaryPath.ShouldBe(currentExe);
+        result.Companions.Count.ShouldBe(1);
+        result.Companions[0].Found.ShouldBeTrue();
+        File.ReadAllBytes(result.Companions[0].InstalledPath!).ShouldBe(companionContent);
+    }
+
+    [Fact]
+    public async Task UpdateBinaryAsync_WindowsRenameTrickForCompanion_RenamesExistingToOld()
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        var currentExe = Path.Combine(_tempDir, ExeName);
+        File.WriteAllText(currentExe, "old-main");
+
+        // Pre-existing companion binary
+        var companionPath = Path.Combine(_tempDir, CompanionExe);
+        File.WriteAllText(companionPath, "old-companion");
+
+        var mainContent = "new-main"u8.ToArray();
+        var companionContent = "new-companion"u8.ToArray();
+        var zipBytes = CreateZipArchive(
+            (ExeName, mainContent),
+            (CompanionExe, companionContent));
+
+        var downloader = new FakeDownloader(zipBytes);
+        var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
+
+        var result = await sut.UpdateBinaryAsync(
+            "https://example.com/dl.zip", "twig-win-x64.zip",
+            new[] { CompanionExe });
+
+        // New companion installed
+        File.ReadAllBytes(companionPath).ShouldBe(companionContent);
+        // Old companion renamed
+        File.Exists(companionPath + ".old").ShouldBeTrue();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  InstallCompanionsOnlyAsync
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task InstallCompanionsOnlyAsync_InstallsOnlyCompanions()
+    {
+        var installDir = Path.Combine(_tempDir, "install");
+        Directory.CreateDirectory(installDir);
+
+        var mainContent = "main-binary"u8.ToArray();
+        var companionContent = "companion-binary"u8.ToArray();
+        var zipBytes = CreateZipArchive(
+            (ExeName, mainContent),
+            (CompanionExe, companionContent));
+
+        var downloader = new FakeDownloader(zipBytes);
+        var sut = new SelfUpdater(downloader, new DefaultFileSystem(), processPath: null);
+
+        var results = await sut.InstallCompanionsOnlyAsync(
+            "https://example.com/dl.zip", "twig-win-x64.zip",
+            new[] { CompanionExe },
+            installDir);
+
+        results.Count.ShouldBe(1);
+        results[0].Name.ShouldBe(CompanionExe);
+        results[0].Found.ShouldBeTrue();
+
+        // Companion installed
+        var installedPath = Path.Combine(installDir, CompanionExe);
+        File.Exists(installedPath).ShouldBeTrue();
+        File.ReadAllBytes(installedPath).ShouldBe(companionContent);
+
+        // Main binary NOT installed in installDir
+        File.Exists(Path.Combine(installDir, ExeName)).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task InstallCompanionsOnlyAsync_MissingCompanion_RecordsFoundFalse()
+    {
+        var installDir = Path.Combine(_tempDir, "install");
+        Directory.CreateDirectory(installDir);
+
+        var zipBytes = CreateZipArchive((ExeName, "main"u8.ToArray()));
+        var downloader = new FakeDownloader(zipBytes);
+        var sut = new SelfUpdater(downloader, new DefaultFileSystem(), processPath: null);
+
+        var results = await sut.InstallCompanionsOnlyAsync(
+            "https://example.com/dl.zip", "twig-win-x64.zip",
+            new[] { CompanionExe },
+            installDir);
+
+        results.Count.ShouldBe(1);
+        results[0].Found.ShouldBeFalse();
+        results[0].InstalledPath.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task InstallCompanionsOnlyAsync_FromTarGz_Works()
+    {
+        var installDir = Path.Combine(_tempDir, "install");
+        Directory.CreateDirectory(installDir);
+
+        var companionContent = "companion-tar"u8.ToArray();
+        var tarGzBytes = CreateTarGzArchive(
+            (ExeName, "main"u8.ToArray()),
+            (CompanionExe, companionContent));
+
+        var downloader = new FakeDownloader(tarGzBytes);
+        var sut = new SelfUpdater(downloader, new DefaultFileSystem(), processPath: null);
+
+        var results = await sut.InstallCompanionsOnlyAsync(
+            "https://example.com/dl.tar.gz", "twig-linux-x64.tar.gz",
+            new[] { CompanionExe },
+            installDir);
+
+        results.Count.ShouldBe(1);
+        results[0].Found.ShouldBeTrue();
+        File.ReadAllBytes(Path.Combine(installDir, CompanionExe)).ShouldBe(companionContent);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  CleanupOldBinaryCore — companion cleanup
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void CleanupOldBinaryCore_WithCompanions_CleansCompanionOldFiles()
+    {
+        var exePath = Path.Combine(_tempDir, ExeName);
+        var companionOld = Path.Combine(_tempDir, CompanionExe + ".old");
+        File.WriteAllText(companionOld, "old-companion");
+
+        SelfUpdater.CleanupOldBinaryCore(
+            new DefaultFileSystem(), exePath,
+            new[] { "twig-mcp" });
+
+        File.Exists(companionOld).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void CleanupOldBinaryCore_WithCompanions_NoOldFiles_DoesNotThrow()
+    {
+        var exePath = Path.Combine(_tempDir, ExeName);
+
+        Should.NotThrow(() => SelfUpdater.CleanupOldBinaryCore(
+            new DefaultFileSystem(), exePath,
+            new[] { "twig-mcp", "twig-tui" }));
+    }
+
+    [Fact]
+    public void CleanupOldBinaryCore_WithCompanions_NullProcessPath_DoesNotThrow()
+    {
+        Should.NotThrow(() => SelfUpdater.CleanupOldBinaryCore(
+            new DefaultFileSystem(), processPath: null,
+            new[] { "twig-mcp" }));
+    }
+
+    [Fact]
+    public void CleanupOldBinaryCore_WithCompanions_LockedOldFile_DoesNotThrow()
+    {
+        var fileSystem = Substitute.For<IFileSystem>();
+        fileSystem.FileExists(Arg.Any<string>()).Returns(true);
+        fileSystem.When(x => x.FileDelete(Arg.Any<string>()))
+            .Do(_ => throw new IOException("File is locked."));
+
+        Should.NotThrow(() => SelfUpdater.CleanupOldBinaryCore(
+            fileSystem, "/app/twig",
+            new[] { "twig-mcp" }));
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Companion atomic write verification (mock-based)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task UpdateBinaryAsync_CompanionExtraction_UsesAtomicWrites()
+    {
+        // Arrange: mock filesystem to verify the temp→move sequence
+        var currentExe = Path.Combine(_tempDir, ExeName);
+        File.WriteAllText(currentExe, "old-main");
+
+        var mainContent = "new-main"u8.ToArray();
+        var companionContent = "new-companion"u8.ToArray();
+        var zipBytes = CreateZipArchive(
+            (ExeName, mainContent),
+            (CompanionExe, companionContent));
+
+        var fileSystem = Substitute.For<IFileSystem>();
+        fileSystem.When(x => x.CreateDirectory(Arg.Any<string>()))
+            .Do(ci => Directory.CreateDirectory((string)ci[0]));
+        fileSystem.When(x => x.ExtractZipToDirectory(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<bool>()))
+            .Do(ci => ZipFile.ExtractToDirectory((string)ci[0], (string)ci[1], (bool)ci[2]));
+        fileSystem.EnumerateFiles(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<SearchOption>())
+            .Returns(ci => Directory.EnumerateFiles((string)ci[0], (string)ci[1], (SearchOption)ci[2]));
+        fileSystem.FileExists(Arg.Any<string>()).Returns(false);
+        fileSystem.When(x => x.FileDelete(Arg.Any<string>()))
+            .Do(_ => { });
+
+        var downloader = new FakeDownloader(zipBytes);
+        var sut = new SelfUpdater(downloader, fileSystem, currentExe);
+
+        // Act
+        await sut.UpdateBinaryAsync(
+            "https://example.com/dl.zip", "twig-win-x64.zip",
+            new[] { CompanionExe });
+
+        // Assert: companion was copied to .tmp first, then moved to final path
+        var expectedFinalPath = Path.Combine(_tempDir, CompanionExe);
+
+        fileSystem.Received().FileCopy(
+            Arg.Any<string>(),
+            Arg.Is<string>(s => s.EndsWith(".tmp")),
+            true);
+        fileSystem.Received().FileMove(
+            Arg.Is<string>(s => s.EndsWith(".tmp")),
+            expectedFinalPath,
+            true);
     }
 
     // ═══════════════════════════════════════════════════════════════

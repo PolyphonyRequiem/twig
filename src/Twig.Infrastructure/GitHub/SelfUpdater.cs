@@ -5,8 +5,9 @@ namespace Twig.Infrastructure.GitHub;
 /// <summary>
 /// Downloads and applies self-update binaries from GitHub Releases.
 /// Handles platform-specific file-lock strategies (Windows rename trick vs. Unix direct overwrite).
+/// Also supports companion binary extraction via <see cref="InstallCompanionsOnlyAsync"/>.
 /// </summary>
-public sealed class SelfUpdater
+public sealed class SelfUpdater : ICompanionInstaller
 {
     private readonly IHttpDownloader _downloader;
     private readonly IFileSystem _fileSystem;
@@ -27,94 +28,81 @@ public sealed class SelfUpdater
     }
 
     /// <summary>
-    /// Downloads the archive from <paramref name="downloadUrl"/>, extracts the binary,
-    /// and replaces the current executable.
+    /// Downloads the archive from <paramref name="downloadUrl"/>, extracts the main binary
+    /// and any companion binaries, and replaces the current executable.
     /// </summary>
-    /// <returns>The path to the new binary.</returns>
-    public async Task<string> UpdateBinaryAsync(string downloadUrl, string archiveName, CancellationToken ct = default)
+    /// <returns>An <see cref="UpdateResult"/> with the main binary path and per-companion status.</returns>
+    public async Task<UpdateResult> UpdateBinaryAsync(
+        string downloadUrl,
+        string archiveName,
+        IReadOnlyList<string>? companionExeNames,
+        CancellationToken ct = default)
     {
         var currentExe = _processPath
             ?? throw new InvalidOperationException("Cannot determine current executable path.");
         var currentDir = Path.GetDirectoryName(currentExe)
             ?? throw new InvalidOperationException("Cannot determine current executable directory.");
 
-        // Download archive to a temp file
-        var tempArchive = Path.Combine(Path.GetTempPath(), $"twig-update-{Guid.NewGuid():N}{Path.GetExtension(archiveName)}");
+        var tempArchive = await DownloadArchiveAsync(downloadUrl, archiveName, ct);
+        var tempExtractDir = ExtractArchive(tempArchive, archiveName);
         try
         {
-            await _downloader.DownloadFileAsync(downloadUrl, tempArchive, ct);
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException($"Failed to download update from {downloadUrl}: {ex.Message}", ex);
-        }
-
-        // Extract binary from archive
-        var exeName = OperatingSystem.IsWindows() ? "twig.exe" : "twig";
-        var tempExtractDir = Path.Combine(Path.GetTempPath(), $"twig-update-{Guid.NewGuid():N}");
-        try
-        {
-            _fileSystem.CreateDirectory(tempExtractDir);
-
-            if (archiveName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
-            {
-                _fileSystem.ExtractZipToDirectory(tempArchive, tempExtractDir, overwriteFiles: true);
-            }
-            else if (archiveName.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase))
-            {
-                ExtractTarGz(tempArchive, tempExtractDir);
-            }
-            else
-            {
-                throw new InvalidOperationException($"Unsupported archive format: {archiveName}");
-            }
-
-            var extractedBinary = _fileSystem.EnumerateFiles(tempExtractDir, exeName, SearchOption.AllDirectories).FirstOrDefault()
+            // Install main binary
+            var exeName = OperatingSystem.IsWindows() ? "twig.exe" : "twig";
+            var extractedBinary = FindBinary(tempExtractDir, exeName)
                 ?? throw new InvalidOperationException($"Could not find '{exeName}' in downloaded archive.");
 
-            // Apply update
-            if (OperatingSystem.IsWindows())
-            {
-                // Windows file-lock strategy: rename running exe → .old, copy new exe
-                var oldPath = currentExe + ".old";
-                _fileSystem.FileMove(currentExe, oldPath, overwrite: true);
-                _fileSystem.FileCopy(extractedBinary, currentExe, overwrite: true);
-            }
-            else
-            {
-                // Unix: direct overwrite (running binary is not locked)
-                _fileSystem.FileCopy(extractedBinary, currentExe, overwrite: true);
+            InstallBinaryToDir(extractedBinary, currentExe);
 
-                // chmod +x
-                _fileSystem.SetUnixFileMode(currentExe,
-                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
-                    UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
-                    UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
-            }
+            // Install companions
+            var companions = InstallCompanions(tempExtractDir, companionExeNames, currentDir);
 
-            return currentExe;
+            return new UpdateResult(currentExe, companions);
         }
         finally
         {
-            // Clean up temp files
-            try { _fileSystem.FileDelete(tempArchive); } catch (Exception) { }
-            try { _fileSystem.DeleteDirectory(tempExtractDir, recursive: true); } catch (Exception) { }
+            CleanupTempFiles(tempArchive, tempExtractDir);
         }
     }
 
     /// <summary>
-    /// Cleans up the <c>.old</c> binary left behind from a previous Windows update.
-    /// Safe to call on any platform — no-ops if no old binary exists.
+    /// Downloads the archive at <paramref name="archiveUrl"/> and extracts only the
+    /// companion executables whose names appear in <paramref name="companionExeNames"/>.
+    /// </summary>
+    public async Task<IReadOnlyList<CompanionUpdateResult>> InstallCompanionsOnlyAsync(
+        string archiveUrl,
+        string archiveName,
+        IReadOnlyList<string> companionExeNames,
+        string installDir,
+        CancellationToken ct = default)
+    {
+        var tempArchive = await DownloadArchiveAsync(archiveUrl, archiveName, ct);
+        var tempExtractDir = ExtractArchive(tempArchive, archiveName);
+        try
+        {
+            return InstallCompanions(tempExtractDir, companionExeNames, installDir);
+        }
+        finally
+        {
+            CleanupTempFiles(tempArchive, tempExtractDir);
+        }
+    }
+
+    /// <summary>
+    /// Cleans up <c>.old</c> binaries left behind from a previous Windows update,
+    /// including both the main binary and any companion <c>.old</c> files.
+    /// Safe to call on any platform — no-ops if no old binaries exist.
     /// </summary>
     public static void CleanupOldBinary()
     {
-        CleanupOldBinaryCore(new DefaultFileSystem(), Environment.ProcessPath);
+        CleanupOldBinaryCore(new DefaultFileSystem(), Environment.ProcessPath, CompanionTools.All);
     }
 
     /// <summary>
     /// Testable overload of <see cref="CleanupOldBinary"/> that accepts injected dependencies.
+    /// Pass an empty list for <paramref name="companionNames"/> to clean only the main binary.
     /// </summary>
-    internal static void CleanupOldBinaryCore(IFileSystem fileSystem, string? processPath)
+    internal static void CleanupOldBinaryCore(IFileSystem fileSystem, string? processPath, IReadOnlyList<string>? companionNames = null)
     {
         if (processPath is null) return;
 
@@ -128,6 +116,145 @@ public sealed class SelfUpdater
         {
             // Best-effort cleanup — ignore if the old binary is still locked.
         }
+
+        if (companionNames is null or { Count: 0 }) return;
+
+        var dir = Path.GetDirectoryName(processPath);
+        if (dir is null) return;
+
+        foreach (var companion in companionNames)
+        {
+            var companionOldPath = Path.Combine(dir, CompanionTools.GetExeName(companion) + ".old");
+            try
+            {
+                if (fileSystem.FileExists(companionOldPath))
+                    fileSystem.FileDelete(companionOldPath);
+            }
+            catch
+            {
+                // Best-effort cleanup
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Shared helpers
+    // ═══════════════════════════════════════════════════════════════
+
+    private async Task<string> DownloadArchiveAsync(string downloadUrl, string archiveName, CancellationToken ct)
+    {
+        var tempArchive = Path.Combine(Path.GetTempPath(), $"twig-update-{Guid.NewGuid():N}{Path.GetExtension(archiveName)}");
+        try
+        {
+            await _downloader.DownloadFileAsync(downloadUrl, tempArchive, ct);
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Failed to download update from {downloadUrl}: {ex.Message}", ex);
+        }
+
+        return tempArchive;
+    }
+
+    private string ExtractArchive(string tempArchive, string archiveName)
+    {
+        var tempExtractDir = Path.Combine(Path.GetTempPath(), $"twig-update-{Guid.NewGuid():N}");
+        _fileSystem.CreateDirectory(tempExtractDir);
+
+        if (archiveName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+        {
+            _fileSystem.ExtractZipToDirectory(tempArchive, tempExtractDir, overwriteFiles: true);
+        }
+        else if (archiveName.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase))
+        {
+            ExtractTarGz(tempArchive, tempExtractDir);
+        }
+        else
+        {
+            throw new InvalidOperationException($"Unsupported archive format: {archiveName}");
+        }
+
+        return tempExtractDir;
+    }
+
+    private string? FindBinary(string directory, string binaryName)
+    {
+        return _fileSystem.EnumerateFiles(directory, binaryName, SearchOption.AllDirectories).FirstOrDefault();
+    }
+
+    private void InstallBinaryToDir(string extractedBinary, string targetPath)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            // Windows file-lock strategy: rename running exe → .old, copy new exe
+            var oldPath = targetPath + ".old";
+            _fileSystem.FileMove(targetPath, oldPath, overwrite: true);
+            _fileSystem.FileCopy(extractedBinary, targetPath, overwrite: true);
+        }
+        else
+        {
+            // Unix: direct overwrite (running binary is not locked)
+            _fileSystem.FileCopy(extractedBinary, targetPath, overwrite: true);
+
+            // chmod +x
+            _fileSystem.SetUnixFileMode(targetPath,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+                UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+        }
+    }
+
+    private IReadOnlyList<CompanionUpdateResult> InstallCompanions(
+        string extractDir,
+        IReadOnlyList<string>? companionExeNames,
+        string installDir)
+    {
+        if (companionExeNames is null or { Count: 0 })
+            return [];
+
+        var results = new List<CompanionUpdateResult>(companionExeNames.Count);
+        foreach (var companionExe in companionExeNames)
+        {
+            var extracted = FindBinary(extractDir, companionExe);
+            if (extracted is null)
+            {
+                results.Add(new CompanionUpdateResult(companionExe, Found: false, InstalledPath: null));
+                continue;
+            }
+
+            var targetPath = Path.Combine(installDir, companionExe);
+            var tempTargetPath = targetPath + ".tmp";
+
+            // Copy to temp location first for atomic install
+            _fileSystem.FileCopy(extracted, tempTargetPath, overwrite: true);
+
+            if (OperatingSystem.IsWindows() && _fileSystem.FileExists(targetPath))
+            {
+                // Windows rename trick: companion may be running (e.g. twig-mcp as MCP server)
+                var oldPath = targetPath + ".old";
+                try { _fileSystem.FileMove(targetPath, oldPath, overwrite: true); } catch { }
+            }
+
+            _fileSystem.FileMove(tempTargetPath, targetPath, overwrite: true);
+
+            if (!OperatingSystem.IsWindows())
+            {
+                _fileSystem.SetUnixFileMode(targetPath,
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                    UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+                    UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+            }
+
+            results.Add(new CompanionUpdateResult(companionExe, Found: true, InstalledPath: targetPath));
+        }
+
+        return results;
+    }
+
+    private void CleanupTempFiles(string tempArchive, string tempExtractDir)
+    {
+        try { _fileSystem.FileDelete(tempArchive); } catch (Exception) { }
+        try { _fileSystem.DeleteDirectory(tempExtractDir, recursive: true); } catch (Exception) { }
     }
 
     private void ExtractTarGz(string archivePath, string extractDir)
@@ -224,12 +351,7 @@ public sealed class SelfUpdater
         return totalRead;
     }
 
-    private static bool IsAllZero(byte[] buffer)
-    {
-        foreach (var b in buffer)
-            if (b != 0) return false;
-        return true;
-    }
+    private static bool IsAllZero(byte[] buffer) => Array.TrueForAll(buffer, static b => b == 0);
 
     private static string ExtractString(byte[] buffer, int offset, int length)
     {

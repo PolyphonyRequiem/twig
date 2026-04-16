@@ -5,11 +5,15 @@ namespace Twig.Commands;
 
 /// <summary>
 /// Implements <c>twig upgrade</c>: checks GitHub Releases for a newer version and applies the update.
+/// When a newer version is available, downloads and installs the main binary and all companion
+/// tools. When already up to date, checks for missing companions and installs them.
 /// </summary>
 public sealed class SelfUpdateCommand(
     IGitHubReleaseService releaseService,
-    SelfUpdater selfUpdater)
+    SelfUpdater selfUpdater,
+    string? processPath = null)
 {
+    private readonly string? _processPath = processPath ?? Environment.ProcessPath;
     /// <summary>Check for and apply updates from GitHub Releases.</summary>
     public async Task<int> ExecuteAsync(CancellationToken ct = default)
     {
@@ -36,11 +40,14 @@ public sealed class SelfUpdateCommand(
 
         var latestTag = latest.Tag;
         var comparison = SemVerComparer.Compare(currentVersion, latestTag);
+        var companionExeNames = CompanionTools.All
+            .Select(CompanionTools.GetExeName)
+            .ToArray();
 
         if (comparison >= 0)
         {
             Console.WriteLine($"Already up to date ({latestTag})");
-            return 0;
+            return await InstallMissingCompanionsAsync(latest, companionExeNames, ct);
         }
 
         Console.WriteLine($"New version available: {latestTag}");
@@ -64,8 +71,10 @@ public sealed class SelfUpdateCommand(
 
         try
         {
-            await selfUpdater.UpdateBinaryAsync(asset.BrowserDownloadUrl, archiveName, ct);
+            var updateResult = await selfUpdater.UpdateBinaryAsync(asset.BrowserDownloadUrl, archiveName, companionExeNames, ct);
             Console.WriteLine();
+
+            ReportCompanionResults(updateResult.Companions);
 
             // Display changelog
             if (!string.IsNullOrWhiteSpace(latest.Body))
@@ -84,6 +93,69 @@ public sealed class SelfUpdateCommand(
         }
 
         return 0;
+    }
+
+    /// <summary>
+    /// When the main binary is already current, checks for missing companion binaries
+    /// and installs them from the current release archive.
+    /// </summary>
+    private async Task<int> InstallMissingCompanionsAsync(
+        GitHubReleaseInfo release,
+        IReadOnlyList<string> companionExeNames,
+        CancellationToken ct)
+    {
+        var installDir = Path.GetDirectoryName(_processPath);
+        if (installDir is null)
+            return 0;
+
+        var missing = companionExeNames
+            .Where(name => !File.Exists(Path.Combine(installDir, name)))
+            .ToArray();
+
+        if (missing.Length == 0)
+            return 0;
+
+        Console.WriteLine($"Installing {missing.Length} missing companion(s)...");
+
+        var rid = PlatformHelper.DetectRid();
+        if (rid is null)
+        {
+            Console.Error.WriteLine("warning: Could not determine platform. Companion install skipped.");
+            return 0;
+        }
+
+        var (asset, archiveName) = PlatformHelper.FindAsset(release, rid);
+        if (asset is null)
+        {
+            Console.Error.WriteLine($"warning: No binary found for platform '{rid}'. Companion install skipped.");
+            return 0;
+        }
+
+        try
+        {
+            var results = await selfUpdater.InstallCompanionsOnlyAsync(
+                asset.BrowserDownloadUrl, archiveName, missing, installDir, ct);
+
+            ReportCompanionResults(results);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"warning: Companion install failed: {ex.Message}");
+        }
+
+        return 0;
+    }
+
+    /// <summary>Reports per-companion upgrade/install results to the console.</summary>
+    private static void ReportCompanionResults(IReadOnlyList<CompanionUpdateResult> companions)
+    {
+        foreach (var companion in companions)
+        {
+            if (companion.Found)
+                Console.WriteLine($"  ✓ {companion.Name} installed");
+            else
+                Console.WriteLine($"  ⚠ {companion.Name} not found in archive");
+        }
     }
 }
 

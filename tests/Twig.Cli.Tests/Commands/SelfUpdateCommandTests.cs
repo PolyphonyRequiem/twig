@@ -1,3 +1,6 @@
+using System.IO.Compression;
+using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Interfaces;
@@ -6,11 +9,23 @@ using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
 
-/// <summary>
-/// Unit tests for <see cref="SemVerComparer"/> and <see cref="SelfUpdateCommand.ExecuteAsync"/> command flow.
-/// </summary>
-public class SelfUpdateCommandTests
+[Collection("Sequential")]
+public class SelfUpdateCommandTests : IDisposable
 {
+    private static readonly string ExeName = OperatingSystem.IsWindows() ? "twig.exe" : "twig";
+    private readonly string _tempDir;
+
+    public SelfUpdateCommandTests()
+    {
+        _tempDir = Path.Combine(Path.GetTempPath(), $"twig-cmd-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(_tempDir);
+    }
+
+    public void Dispose()
+    {
+        try { Directory.Delete(_tempDir, recursive: true); } catch { }
+    }
+
     // ── SemVerComparer: numeric comparison ─────────────────────────────
 
     [Theory]
@@ -51,13 +66,6 @@ public class SelfUpdateCommandTests
         result.ShouldBe(0);
     }
 
-    [Fact]
-    public void SemVerComparer_BothRelease_AreEqual()
-    {
-        var result = SemVerComparer.Compare("1.0.0", "1.0.0");
-        result.ShouldBe(0);
-    }
-
     // ── SemVerComparer: v prefix stripping ─────────────────────────────
 
     [Theory]
@@ -84,8 +92,8 @@ public class SelfUpdateCommandTests
     [Fact]
     public async Task ExecuteAsync_NoReleasesFound_Returns0()
     {
-        var stubService = new StubReleaseService(latestRelease: null);
-        var stubUpdater = new SelfUpdater(new HttpClient());
+        var stubService = Substitute.For<IGitHubReleaseService>();
+        var stubUpdater = new SelfUpdater(new ThrowingDownloader(), new DefaultFileSystem(), null);
         var command = new SelfUpdateCommand(stubService, stubUpdater);
 
         var exitCode = await command.ExecuteAsync();
@@ -101,15 +109,100 @@ public class SelfUpdateCommandTests
         var currentVersion = VersionHelper.GetVersion();
         var release = new GitHubReleaseInfo(
             currentVersion, $"Release {currentVersion}", "notes", null,
-            new[] { new GitHubReleaseAssetInfo("twig-win-x64.zip", "https://example.com/dl", 1024) });
+            new[] { new GitHubReleaseAssetInfo("twig-fake-platform.zip", "https://example.com/dl", 1024) });
 
-        var stubService = new StubReleaseService(latestRelease: release);
-        var stubUpdater = new SelfUpdater(new HttpClient());
+        var stubService = Substitute.For<IGitHubReleaseService>();
+        stubService.GetLatestReleaseAsync(Arg.Any<CancellationToken>()).Returns(release);
+        var stubUpdater = new SelfUpdater(new ThrowingDownloader(), new DefaultFileSystem(), null);
         var command = new SelfUpdateCommand(stubService, stubUpdater);
 
         var exitCode = await command.ExecuteAsync();
 
         exitCode.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AlreadyUpToDate_CompanionInstallFailure_Returns0()
+    {
+        // When up to date and companion install fails (download error),
+        // the command still returns 0 — companion install failures are non-fatal.
+        // Pin processPath to _tempDir so companions are always "missing",
+        // regardless of what exists alongside the test runner binary.
+        var currentExe = Path.Combine(_tempDir, ExeName);
+        File.WriteAllText(currentExe, "current");
+
+        var currentVersion = VersionHelper.GetVersion();
+        var rid = PlatformHelper.DetectRid() ?? "win-x64";
+        var ext = rid.StartsWith("win-", StringComparison.Ordinal) ? ".zip" : ".tar.gz";
+        var assetName = $"twig-{rid}{ext}";
+
+        var release = new GitHubReleaseInfo(
+            currentVersion, $"Release {currentVersion}", "notes", null,
+            new[] { new GitHubReleaseAssetInfo(assetName, "https://example.com/dl", 1024) });
+
+        var stubService = Substitute.For<IGitHubReleaseService>();
+        stubService.GetLatestReleaseAsync(Arg.Any<CancellationToken>()).Returns(release);
+        var stubUpdater = new SelfUpdater(
+            new ThrowingDownloader(), new DefaultFileSystem(), currentExe);
+        var command = new SelfUpdateCommand(stubService, stubUpdater, currentExe);
+
+        var exitCode = await command.ExecuteAsync();
+
+        // Non-fatal: companion install failure does not affect the exit code
+        exitCode.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_AlreadyUpToDate_InstallsMissingCompanions_ReportsResults()
+    {
+        // F3: when main binary is already current and companions are missing,
+        // they get installed and per-companion results appear in console output.
+        var currentExe = Path.Combine(_tempDir, ExeName);
+        File.WriteAllText(currentExe, "current");
+
+        var companionExeNames = CompanionTools.All
+            .Select(CompanionTools.GetExeName)
+            .ToArray();
+
+        // Build a zip archive containing companion binaries (no main binary needed)
+        var zipBytes = CreateZipArchive(
+            [.. companionExeNames.Select(c => (c, "companion"u8.ToArray()))]);
+
+        var currentVersion = VersionHelper.GetVersion();
+        var rid = PlatformHelper.DetectRid() ?? "win-x64";
+        var ext = rid.StartsWith("win-", StringComparison.Ordinal) ? ".zip" : ".tar.gz";
+        var assetName = $"twig-{rid}{ext}";
+
+        var release = new GitHubReleaseInfo(
+            currentVersion, $"Release {currentVersion}", "notes", null,
+            new[] { new GitHubReleaseAssetInfo(assetName, "https://example.com/dl", 1024) });
+
+        var stubService = Substitute.For<IGitHubReleaseService>();
+        stubService.GetLatestReleaseAsync(Arg.Any<CancellationToken>()).Returns(release);
+        var selfUpdater = new SelfUpdater(
+            new FakeDownloader(zipBytes), new DefaultFileSystem(), currentExe);
+        var command = new SelfUpdateCommand(stubService, selfUpdater, currentExe);
+
+        // Act: capture stdout to verify companion result output
+        var originalOut = Console.Out;
+        using var sw = new StringWriter();
+        Console.SetOut(sw);
+        try
+        {
+            var exitCode = await command.ExecuteAsync();
+
+            exitCode.ShouldBe(0);
+            var output = sw.ToString();
+
+            // ReportCompanionResults should have printed a line per companion
+            foreach (var c in companionExeNames)
+                output.ShouldContain(c);
+            output.ShouldContain("installed");
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+        }
     }
 
     [Fact]
@@ -120,8 +213,9 @@ public class SelfUpdateCommandTests
             "v99.99.99", "Release 99.99.99", "notes", null,
             new[] { new GitHubReleaseAssetInfo("twig-fake-platform.zip", "https://example.com/dl", 1024) });
 
-        var stubService = new StubReleaseService(latestRelease: release);
-        var stubUpdater = new SelfUpdater(new HttpClient());
+        var stubService = Substitute.For<IGitHubReleaseService>();
+        stubService.GetLatestReleaseAsync(Arg.Any<CancellationToken>()).Returns(release);
+        var stubUpdater = new SelfUpdater(new ThrowingDownloader(), new DefaultFileSystem(), null);
         var command = new SelfUpdateCommand(stubService, stubUpdater);
 
         var exitCode = await command.ExecuteAsync();
@@ -132,8 +226,9 @@ public class SelfUpdateCommandTests
     [Fact]
     public async Task ExecuteAsync_NetworkError_Returns1()
     {
-        var stubService = new StubReleaseService(throwOnGet: new HttpRequestException("Network error"));
-        var stubUpdater = new SelfUpdater(new HttpClient());
+        var stubService = Substitute.For<IGitHubReleaseService>();
+        stubService.GetLatestReleaseAsync(Arg.Any<CancellationToken>()).Throws(new HttpRequestException("Network error"));
+        var stubUpdater = new SelfUpdater(new ThrowingDownloader(), new DefaultFileSystem(), null);
         var command = new SelfUpdateCommand(stubService, stubUpdater);
 
         var exitCode = await command.ExecuteAsync();
@@ -141,38 +236,93 @@ public class SelfUpdateCommandTests
         exitCode.ShouldBe(1);
     }
 
-    // ── Stub implementation ────────────────────────────────────────────
+    // ── F2: companion results reported on upgrade ─────────────────────
 
-    private sealed class StubReleaseService : IGitHubReleaseService
+    [Fact]
+    public async Task ExecuteAsync_NewerVersion_ReportsCompanionResults()
     {
-        private readonly GitHubReleaseInfo? _latestRelease;
-        private readonly Exception? _throwOnGet;
+        // Arrange: create a fake "current" binary in a temp dir
+        var currentExe = Path.Combine(_tempDir, ExeName);
+        File.WriteAllText(currentExe, "old");
 
-        public StubReleaseService(GitHubReleaseInfo? latestRelease = null, Exception? throwOnGet = null)
-        {
-            _latestRelease = latestRelease;
-            _throwOnGet = throwOnGet;
-        }
+        var companionExeNames = CompanionTools.All
+            .Select(CompanionTools.GetExeName)
+            .ToArray();
 
-        public Task<GitHubReleaseInfo?> GetLatestReleaseAsync(CancellationToken ct = default)
-        {
-            if (_throwOnGet is not null) throw _throwOnGet;
-            return Task.FromResult(_latestRelease);
-        }
+        // Build a zip archive containing main binary + all companions
+        var zipBytes = CreateZipArchive(
+            [(ExeName, "new-binary"u8.ToArray()),
+             .. companionExeNames.Select(c => (c, "companion"u8.ToArray()))]);
 
-        public Task<IReadOnlyList<GitHubReleaseInfo>> GetReleasesAsync(int count, CancellationToken ct = default)
-        {
-            if (_throwOnGet is not null) throw _throwOnGet;
-            IReadOnlyList<GitHubReleaseInfo> list = _latestRelease is not null
-                ? new[] { _latestRelease }
-                : Array.Empty<GitHubReleaseInfo>();
-            return Task.FromResult(list);
-        }
+        var rid = PlatformHelper.DetectRid() ?? "win-x64";
+        var ext = rid.StartsWith("win-", StringComparison.Ordinal) ? ".zip" : ".tar.gz";
+        var assetName = $"twig-{rid}{ext}";
 
-        public Task<GitHubReleaseInfo?> GetReleaseByTagAsync(string tag, CancellationToken ct = default)
+        var selfUpdater = new SelfUpdater(
+            new FakeDownloader(zipBytes), new DefaultFileSystem(), currentExe);
+
+        var release = new GitHubReleaseInfo(
+            "v99.99.99", "Release 99.99.99", "Release notes body", null,
+            new[] { new GitHubReleaseAssetInfo(assetName, "https://example.com/dl", 1024) });
+
+        var stubService = Substitute.For<IGitHubReleaseService>();
+        stubService.GetLatestReleaseAsync(Arg.Any<CancellationToken>()).Returns(release);
+        var command = new SelfUpdateCommand(stubService, selfUpdater);
+
+        // Act: capture stdout to verify companion result output
+        var originalOut = Console.Out;
+        using var sw = new StringWriter();
+        Console.SetOut(sw);
+        try
         {
-            if (_throwOnGet is not null) throw _throwOnGet;
-            return Task.FromResult(_latestRelease?.Tag == tag ? _latestRelease : (GitHubReleaseInfo?)null);
+            var exitCode = await command.ExecuteAsync();
+
+            exitCode.ShouldBe(0);
+            var output = sw.ToString();
+
+            // ReportCompanionResults should have printed a line per companion
+            foreach (var c in companionExeNames)
+                output.ShouldContain(c);
+            output.ShouldContain("installed");
+
+            // Verify release notes were also printed (proves we reached past ReportCompanionResults)
+            output.ShouldContain("Release notes body");
         }
+        finally
+        {
+            Console.SetOut(originalOut);
+        }
+    }
+
+    // ── Test helpers ───────────────────────────────────────────────────
+
+    private sealed class FakeDownloader(byte[] archiveBytes) : IHttpDownloader
+    {
+        public Task DownloadFileAsync(string url, string destinationPath, CancellationToken ct)
+        {
+            File.WriteAllBytes(destinationPath, archiveBytes);
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class ThrowingDownloader : IHttpDownloader
+    {
+        public Task DownloadFileAsync(string url, string destinationPath, CancellationToken ct)
+            => throw new HttpRequestException("Simulated download failure");
+    }
+
+    private static byte[] CreateZipArchive(params (string entryName, byte[] content)[] entries)
+    {
+        using var ms = new MemoryStream();
+        using (var archive = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach (var (entryName, content) in entries)
+            {
+                var entry = archive.CreateEntry(entryName);
+                using var entryStream = entry.Open();
+                entryStream.Write(content);
+            }
+        }
+        return ms.ToArray();
     }
 }

@@ -213,6 +213,56 @@ public class GitHubReleaseClientTests
         handler.LastRequestUrl.ShouldContain("per_page=5");
     }
 
+    [Fact]
+    public async Task GetReleaseByTagAsync_Success_MapsToDomainRecord()
+    {
+        const string json = """
+        {
+            "tag_name": "v2.0.0",
+            "name": "Release 2.0.0",
+            "body": "Major release",
+            "published_at": "2026-03-15T10:00:00Z",
+            "assets": [
+                {
+                    "name": "twig-win-x64.zip",
+                    "browser_download_url": "https://example.com/twig-win-x64.zip",
+                    "size": 2048
+                }
+            ]
+        }
+        """;
+
+        var handler = new FakeHandler();
+        handler.Enqueue(HttpStatusCode.OK, json);
+
+        var client = new GitHubReleaseClient(new HttpClient(handler), "PolyphonyRequiem/twig");
+        var release = await client.GetReleaseByTagAsync("v2.0.0");
+
+        release.ShouldNotBeNull();
+        release.Tag.ShouldBe("v2.0.0");
+        release.Name.ShouldBe("Release 2.0.0");
+        release.Body.ShouldBe("Major release");
+        release.Assets.Count.ShouldBe(1);
+        release.Assets[0].Name.ShouldBe("twig-win-x64.zip");
+        release.Assets[0].Size.ShouldBe(2048);
+
+        handler.LastRequest.ShouldNotBeNull();
+        handler.LastRequestUrl.ShouldContain("/repos/PolyphonyRequiem/twig/releases/tags/v2.0.0");
+        handler.LastRequest.Headers.UserAgent.ToString().ShouldContain("twig-cli");
+    }
+
+    [Fact]
+    public async Task GetReleaseByTagAsync_NotFound_ReturnsNull()
+    {
+        var handler = new FakeHandler();
+        handler.Enqueue(HttpStatusCode.NotFound, "");
+
+        var client = new GitHubReleaseClient(new HttpClient(handler), "PolyphonyRequiem/twig");
+        var release = await client.GetReleaseByTagAsync("v99.0.0");
+
+        release.ShouldBeNull();
+    }
+
     // ── Test helpers ──────────────────────────────────────────────────
 
     private sealed class FakeHandler : HttpMessageHandler

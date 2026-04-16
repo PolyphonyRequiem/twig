@@ -22,21 +22,8 @@ internal sealed class GitHubReleaseClient : IGitHubReleaseService
         _repoSlug = repoSlug;
     }
 
-    public async Task<GitHubReleaseInfo?> GetLatestReleaseAsync(CancellationToken ct = default)
-    {
-        var url = $"https://api.github.com/repos/{_repoSlug}/releases/latest";
-        using var request = CreateRequest(url);
-        using var response = await _http.SendAsync(request, ct);
-
-        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-            return null;
-
-        response.EnsureSuccessStatusCode();
-
-        var json = await response.Content.ReadAsStringAsync(ct);
-        var dto = JsonSerializer.Deserialize(json, TwigJsonContext.Default.GitHubRelease);
-        return dto is null ? null : MapToInfo(dto);
-    }
+    public Task<GitHubReleaseInfo?> GetLatestReleaseAsync(CancellationToken ct = default) =>
+        FetchSingleReleaseAsync($"https://api.github.com/repos/{_repoSlug}/releases/latest", ct);
 
     public async Task<IReadOnlyList<GitHubReleaseInfo>> GetReleasesAsync(int count, CancellationToken ct = default)
     {
@@ -54,6 +41,27 @@ internal sealed class GitHubReleaseClient : IGitHubReleaseService
         foreach (var dto in dtos)
             results.Add(MapToInfo(dto));
         return results;
+    }
+
+    public Task<GitHubReleaseInfo?> GetReleaseByTagAsync(string tag, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(tag);
+        return FetchSingleReleaseAsync($"https://api.github.com/repos/{_repoSlug}/releases/tags/{tag}", ct);
+    }
+
+    private async Task<GitHubReleaseInfo?> FetchSingleReleaseAsync(string url, CancellationToken ct)
+    {
+        using var request = CreateRequest(url);
+        using var response = await _http.SendAsync(request, ct);
+
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            return null;
+
+        response.EnsureSuccessStatusCode();
+
+        var json = await response.Content.ReadAsStringAsync(ct);
+        var dto = JsonSerializer.Deserialize(json, TwigJsonContext.Default.GitHubRelease);
+        return dto is null ? null : MapToInfo(dto);
     }
 
     private static HttpRequestMessage CreateRequest(string url)

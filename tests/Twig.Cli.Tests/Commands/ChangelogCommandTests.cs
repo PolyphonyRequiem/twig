@@ -140,8 +140,6 @@ public class ChangelogCommandTests
         stub.LastRequestedCount.ShouldBe(100);
     }
 
-    // ── Helpers ─────────────────────────────────────────────────────────
-
     // ── Stub implementation────────────────────────────────────────────
 
     private sealed class StubReleaseService : IGitHubReleaseService
@@ -168,6 +166,12 @@ public class ChangelogCommandTests
             if (_throwOnGet is not null) throw _throwOnGet;
             LastRequestedCount = count;
             return Task.FromResult(_releases);
+        }
+
+        public Task<GitHubReleaseInfo?> GetReleaseByTagAsync(string tag, CancellationToken ct = default)
+        {
+            if (_throwOnGet is not null) throw _throwOnGet;
+            return Task.FromResult(_releases.FirstOrDefault(r => r.Tag == tag));
         }
     }
 }

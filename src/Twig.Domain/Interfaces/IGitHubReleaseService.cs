@@ -29,4 +29,9 @@ public interface IGitHubReleaseService
     /// Gets the most recent <paramref name="count"/> releases.
     /// </summary>
     Task<IReadOnlyList<GitHubReleaseInfo>> GetReleasesAsync(int count, CancellationToken ct = default);
+
+    /// <summary>
+    /// Gets the release with the specified tag, or null if not found.
+    /// </summary>
+    Task<GitHubReleaseInfo?> GetReleaseByTagAsync(string tag, CancellationToken ct = default);
 }

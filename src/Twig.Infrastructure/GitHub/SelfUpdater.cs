@@ -69,7 +69,7 @@ public sealed class SelfUpdater
                 throw new InvalidOperationException($"Unsupported archive format: {archiveName}");
             }
 
-            var extractedBinary = FindBinary(tempExtractDir, exeName)
+            var extractedBinary = _fileSystem.EnumerateFiles(tempExtractDir, exeName, SearchOption.AllDirectories).FirstOrDefault()
                 ?? throw new InvalidOperationException($"Could not find '{exeName}' in downloaded archive.");
 
             // Apply update
@@ -236,13 +236,5 @@ public sealed class SelfUpdater
         var end = offset;
         while (end < offset + length && buffer[end] != 0) end++;
         return System.Text.Encoding.ASCII.GetString(buffer, offset, end - offset);
-    }
-
-    private string? FindBinary(string directory, string binaryName)
-    {
-        // Search recursively (archive may have a top-level folder)
-        foreach (var file in _fileSystem.EnumerateFiles(directory, binaryName, SearchOption.AllDirectories))
-            return file;
-        return null;
     }
 }

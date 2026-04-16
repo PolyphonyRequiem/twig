@@ -1,4 +1,6 @@
 using System.IO.Compression;
+using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Interfaces;
@@ -7,6 +9,7 @@ using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
 
+[Collection("Sequential")]
 public class SelfUpdateCommandTests : IDisposable
 {
     private static readonly string ExeName = OperatingSystem.IsWindows() ? "twig.exe" : "twig";
@@ -89,8 +92,8 @@ public class SelfUpdateCommandTests : IDisposable
     [Fact]
     public async Task ExecuteAsync_NoReleasesFound_Returns0()
     {
-        var stubService = new StubReleaseService(latestRelease: null);
-        var stubUpdater = new SelfUpdater(new HttpClient());
+        var stubService = Substitute.For<IGitHubReleaseService>();
+        var stubUpdater = new SelfUpdater(new ThrowingDownloader(), new DefaultFileSystem(), null);
         var command = new SelfUpdateCommand(stubService, stubUpdater);
 
         var exitCode = await command.ExecuteAsync();
@@ -108,8 +111,9 @@ public class SelfUpdateCommandTests : IDisposable
             currentVersion, $"Release {currentVersion}", "notes", null,
             new[] { new GitHubReleaseAssetInfo("twig-fake-platform.zip", "https://example.com/dl", 1024) });
 
-        var stubService = new StubReleaseService(latestRelease: release);
-        var stubUpdater = new SelfUpdater(new HttpClient());
+        var stubService = Substitute.For<IGitHubReleaseService>();
+        stubService.GetLatestReleaseAsync(Arg.Any<CancellationToken>()).Returns(release);
+        var stubUpdater = new SelfUpdater(new ThrowingDownloader(), new DefaultFileSystem(), null);
         var command = new SelfUpdateCommand(stubService, stubUpdater);
 
         var exitCode = await command.ExecuteAsync();
@@ -122,7 +126,11 @@ public class SelfUpdateCommandTests : IDisposable
     {
         // When up to date and companion install fails (download error),
         // the command still returns 0 — companion install failures are non-fatal.
-        // Uses a ThrowingDownloader to avoid real HTTP calls in CI.
+        // Pin processPath to _tempDir so companions are always "missing",
+        // regardless of what exists alongside the test runner binary.
+        var currentExe = Path.Combine(_tempDir, ExeName);
+        File.WriteAllText(currentExe, "current");
+
         var currentVersion = VersionHelper.GetVersion();
         var rid = PlatformHelper.DetectRid() ?? "win-x64";
         var ext = rid.StartsWith("win-", StringComparison.Ordinal) ? ".zip" : ".tar.gz";
@@ -132,10 +140,11 @@ public class SelfUpdateCommandTests : IDisposable
             currentVersion, $"Release {currentVersion}", "notes", null,
             new[] { new GitHubReleaseAssetInfo(assetName, "https://example.com/dl", 1024) });
 
-        var stubService = new StubReleaseService(latestRelease: release);
+        var stubService = Substitute.For<IGitHubReleaseService>();
+        stubService.GetLatestReleaseAsync(Arg.Any<CancellationToken>()).Returns(release);
         var stubUpdater = new SelfUpdater(
-            new ThrowingDownloader(), new DefaultFileSystem(), Environment.ProcessPath);
-        var command = new SelfUpdateCommand(stubService, stubUpdater);
+            new ThrowingDownloader(), new DefaultFileSystem(), currentExe);
+        var command = new SelfUpdateCommand(stubService, stubUpdater, currentExe);
 
         var exitCode = await command.ExecuteAsync();
 
@@ -168,10 +177,11 @@ public class SelfUpdateCommandTests : IDisposable
             currentVersion, $"Release {currentVersion}", "notes", null,
             new[] { new GitHubReleaseAssetInfo(assetName, "https://example.com/dl", 1024) });
 
+        var stubService = Substitute.For<IGitHubReleaseService>();
+        stubService.GetLatestReleaseAsync(Arg.Any<CancellationToken>()).Returns(release);
         var selfUpdater = new SelfUpdater(
             new FakeDownloader(zipBytes), new DefaultFileSystem(), currentExe);
-        var command = new SelfUpdateCommand(
-            new StubReleaseService(latestRelease: release), selfUpdater, currentExe);
+        var command = new SelfUpdateCommand(stubService, selfUpdater, currentExe);
 
         // Act: capture stdout to verify companion result output
         var originalOut = Console.Out;
@@ -203,8 +213,9 @@ public class SelfUpdateCommandTests : IDisposable
             "v99.99.99", "Release 99.99.99", "notes", null,
             new[] { new GitHubReleaseAssetInfo("twig-fake-platform.zip", "https://example.com/dl", 1024) });
 
-        var stubService = new StubReleaseService(latestRelease: release);
-        var stubUpdater = new SelfUpdater(new HttpClient());
+        var stubService = Substitute.For<IGitHubReleaseService>();
+        stubService.GetLatestReleaseAsync(Arg.Any<CancellationToken>()).Returns(release);
+        var stubUpdater = new SelfUpdater(new ThrowingDownloader(), new DefaultFileSystem(), null);
         var command = new SelfUpdateCommand(stubService, stubUpdater);
 
         var exitCode = await command.ExecuteAsync();
@@ -215,8 +226,9 @@ public class SelfUpdateCommandTests : IDisposable
     [Fact]
     public async Task ExecuteAsync_NetworkError_Returns1()
     {
-        var stubService = new StubReleaseService(throwOnGet: new HttpRequestException("Network error"));
-        var stubUpdater = new SelfUpdater(new HttpClient());
+        var stubService = Substitute.For<IGitHubReleaseService>();
+        stubService.GetLatestReleaseAsync(Arg.Any<CancellationToken>()).Throws(new HttpRequestException("Network error"));
+        var stubUpdater = new SelfUpdater(new ThrowingDownloader(), new DefaultFileSystem(), null);
         var command = new SelfUpdateCommand(stubService, stubUpdater);
 
         var exitCode = await command.ExecuteAsync();
@@ -253,8 +265,9 @@ public class SelfUpdateCommandTests : IDisposable
             "v99.99.99", "Release 99.99.99", "Release notes body", null,
             new[] { new GitHubReleaseAssetInfo(assetName, "https://example.com/dl", 1024) });
 
-        var command = new SelfUpdateCommand(
-            new StubReleaseService(latestRelease: release), selfUpdater);
+        var stubService = Substitute.For<IGitHubReleaseService>();
+        stubService.GetLatestReleaseAsync(Arg.Any<CancellationToken>()).Returns(release);
+        var command = new SelfUpdateCommand(stubService, selfUpdater);
 
         // Act: capture stdout to verify companion result output
         var originalOut = Console.Out;
@@ -278,39 +291,6 @@ public class SelfUpdateCommandTests : IDisposable
         finally
         {
             Console.SetOut(originalOut);
-        }
-    }
-
-    // ── Stub implementation ────────────────────────────────────────────
-
-    private sealed class StubReleaseService : IGitHubReleaseService
-    {
-        private readonly GitHubReleaseInfo? _latestRelease;
-        private readonly Exception? _throwOnGet;
-
-        public StubReleaseService(GitHubReleaseInfo? latestRelease = null, Exception? throwOnGet = null)
-        {
-            _latestRelease = latestRelease;
-            _throwOnGet = throwOnGet;
-        }
-
-        public Task<GitHubReleaseInfo?> GetLatestReleaseAsync(CancellationToken ct = default)
-        {
-            if (_throwOnGet is not null) throw _throwOnGet;
-            return Task.FromResult(_latestRelease);
-        }
-
-        public Task<IReadOnlyList<GitHubReleaseInfo>> GetReleasesAsync(int count, CancellationToken ct = default)
-        {
-            if (_throwOnGet is not null) throw _throwOnGet;
-            return Task.FromResult<IReadOnlyList<GitHubReleaseInfo>>(
-                _latestRelease is not null ? [_latestRelease] : []);
-        }
-
-        public Task<GitHubReleaseInfo?> GetReleaseByTagAsync(string tag, CancellationToken ct = default)
-        {
-            if (_throwOnGet is not null) throw _throwOnGet;
-            return Task.FromResult(_latestRelease?.Tag == tag ? _latestRelease : (GitHubReleaseInfo?)null);
         }
     }
 

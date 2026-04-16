@@ -171,7 +171,7 @@ public class SelfUpdateCommandTests : IDisposable
         var selfUpdater = new SelfUpdater(
             new FakeDownloader(zipBytes), new DefaultFileSystem(), currentExe);
         var command = new SelfUpdateCommand(
-            new StubReleaseService(latestRelease: release), selfUpdater);
+            new StubReleaseService(latestRelease: release), selfUpdater, currentExe);
 
         // Act: capture stdout to verify companion result output
         var originalOut = Console.Out;

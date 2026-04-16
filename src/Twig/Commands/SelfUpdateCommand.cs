@@ -10,8 +10,10 @@ namespace Twig.Commands;
 /// </summary>
 public sealed class SelfUpdateCommand(
     IGitHubReleaseService releaseService,
-    SelfUpdater selfUpdater)
+    SelfUpdater selfUpdater,
+    string? processPath = null)
 {
+    private readonly string? _processPath = processPath ?? Environment.ProcessPath;
     /// <summary>Check for and apply updates from GitHub Releases.</summary>
     public async Task<int> ExecuteAsync(CancellationToken ct = default)
     {
@@ -102,7 +104,7 @@ public sealed class SelfUpdateCommand(
         IReadOnlyList<string> companionExeNames,
         CancellationToken ct)
     {
-        var installDir = Path.GetDirectoryName(Environment.ProcessPath);
+        var installDir = Path.GetDirectoryName(_processPath);
         if (installDir is null)
             return 0;
 

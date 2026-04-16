@@ -66,7 +66,7 @@ workflow:
 agents:
   - name: author
     description: Researches the topic deeply and produces a comprehensive, well-structured document tailored to the stated purpose
-    model: claude-opus-4.6-1m
+    model: claude-opus-4.7
     input:
       - workflow.input.purpose
       - workflow.input.output_path?
@@ -217,7 +217,7 @@ agents:
 
   - name: content_reviewer
     description: Reviews the document for accuracy, depth, completeness, and soundness of reasoning
-    model: claude-opus-4.6-1m
+    model: claude-opus-4.7
     input:
       - workflow.input.purpose
       - author.output.file_path

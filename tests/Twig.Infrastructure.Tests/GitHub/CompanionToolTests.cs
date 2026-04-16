@@ -14,14 +14,9 @@ public sealed class CompanionToolTests
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public void All_ContainsTwigMcp()
+    public void All_ContainsExpectedCompanions()
     {
         CompanionTools.All.ShouldContain("twig-mcp");
-    }
-
-    [Fact]
-    public void All_ContainsTwigTui()
-    {
         CompanionTools.All.ShouldContain("twig-tui");
     }
 
@@ -57,23 +52,9 @@ public sealed class CompanionToolTests
 
         result.MainBinaryPath.ShouldBe("/usr/local/bin/twig");
         result.Companions.Count.ShouldBe(2);
-    }
-
-    [Fact]
-    public void CompanionUpdateResult_InstalledPath_IsNullable()
-    {
-        var notFound = new CompanionUpdateResult("twig-tui", Found: false, InstalledPath: null);
-
-        notFound.Found.ShouldBeFalse();
-        notFound.InstalledPath.ShouldBeNull();
-    }
-
-    [Fact]
-    public void CompanionUpdateResult_Found_WithPath()
-    {
-        var found = new CompanionUpdateResult("twig-mcp", Found: true, InstalledPath: "/bin/twig-mcp");
-
-        found.Found.ShouldBeTrue();
-        found.InstalledPath.ShouldBe("/bin/twig-mcp");
+        result.Companions[0].Found.ShouldBeTrue();
+        result.Companions[0].InstalledPath.ShouldBe("/usr/local/bin/twig-mcp");
+        result.Companions[1].Found.ShouldBeFalse();
+        result.Companions[1].InstalledPath.ShouldBeNull();
     }
 }

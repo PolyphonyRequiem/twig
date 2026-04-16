@@ -166,19 +166,19 @@ to build and deploy both `twig` and `twig-mcp` binaries to `~/.twig/bin/`.
 
 | Tool | Description |
 |------|-------------|
-| `twig.set` | Set the active work item by ID or title pattern |
-| `twig.status` | Show the active work item status and pending changes |
-| `twig.tree` | Render the focused work item tree (parent chain + children) |
-| `twig.workspace` | Show the full workspace: sprint items, seeds, dirty count |
-| `twig.state` | Change the state of the active work item (supports `force` for backward transitions) |
-| `twig.update` | Update a field on the active work item (supports `format: "markdown"` for HTML conversion) |
-| `twig.note` | Add a comment/note to the active work item |
-| `twig.sync` | Flush pending local changes to ADO then refresh the local cache |
+| `twig_set` | Set the active work item by ID or title pattern |
+| `twig_status` | Show the active work item status and pending changes |
+| `twig_tree` | Render the focused work item tree (parent chain + children) |
+| `twig_workspace` | Show the full workspace: sprint items, seeds, dirty count |
+| `twig_state` | Change the state of the active work item (supports `force` for backward transitions) |
+| `twig_update` | Update a field on the active work item (supports `format: "markdown"` for HTML conversion) |
+| `twig_note` | Add a comment/note to the active work item |
+| `twig_sync` | Flush pending local changes to ADO then refresh the local cache |
 
 ### Key behaviours
 
-- All tools operate on the **active work item** (set via `twig.set`)
-- `twig.state` with `force: true` bypasses confirmation for backward/cut transitions
-- `twig.update` with `format: "markdown"` converts Markdown to HTML (use for `System.Description`)
-- `twig.note` falls back to local staging when ADO is unreachable (`isPending: true` in response)
-- `twig.sync` performs a two-phase push (pending changes) then pull (active context refresh)
+- All tools operate on the **active work item** (set via `twig_set`)
+- `twig_state` with `force: true` bypasses confirmation for backward/cut transitions
+- `twig_update` with `format: "markdown"` converts Markdown to HTML (use for `System.Description`)
+- `twig_note` falls back to local staging when ADO is unreachable (`isPending: true` in response)
+- `twig_sync` performs a two-phase push (pending changes) then pull (active context refresh)

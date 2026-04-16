@@ -12,7 +12,7 @@ using Twig.Mcp.Services;
 namespace Twig.Mcp.Tools;
 
 /// <summary>
-/// MCP tools for mutations: twig.state, twig.update, twig.note, twig.sync.
+/// MCP tools for mutations: twig_state, twig_update, twig_note, twig_sync.
 /// </summary>
 [McpServerToolType]
 public sealed class MutationTools(
@@ -25,18 +25,18 @@ public sealed class MutationTools(
     McpPendingChangeFlusher flusher,
     SyncCoordinator syncCoordinator)
 {
-    [McpServerTool(Name = "twig.state"), Description("Change the state of the active work item")]
+    [McpServerTool(Name = "twig_state"), Description("Change the state of the active work item")]
     public async Task<CallToolResult> State(
         [Description("Target state name (full or partial, case-insensitive)")] string stateName,
         [Description("Set to true to proceed with backward or cut (remove-type) transitions without interactive confirmation")] bool force = false,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(stateName))
-            return McpResultBuilder.ToError("Usage: twig.state requires a target state name (e.g. Active, Closed, Resolved).");
+            return McpResultBuilder.ToError("Usage: twig_state requires a target state name (e.g. Active, Closed, Resolved).");
 
         var resolved = await activeItemResolver.GetActiveItemAsync(ct);
         if (resolved is ActiveItemResult.NoContext)
-            return McpResultBuilder.ToError("No active work item. Use twig.set to set context.");
+            return McpResultBuilder.ToError("No active work item. Use twig_set to set context.");
         if (resolved is ActiveItemResult.Unreachable u)
             return McpResultBuilder.ToError($"Work item #{u.Id} not found in cache.");
 
@@ -90,7 +90,7 @@ public sealed class MutationTools(
         return McpResultBuilder.FormatStateChange(updated, previousState);
     }
 
-    [McpServerTool(Name = "twig.update"), Description("Update a field on the active work item and push to ADO")]
+    [McpServerTool(Name = "twig_update"), Description("Update a field on the active work item and push to ADO")]
     public async Task<CallToolResult> Update(
         [Description("Field reference name (e.g. System.Title, System.Description, Microsoft.VSTS.Scheduling.StoryPoints)")] string field,
         [Description("New field value")] string value,
@@ -98,7 +98,7 @@ public sealed class MutationTools(
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(field) || value is null)
-            return McpResultBuilder.ToError("Usage: twig.update requires a field name and value.");
+            return McpResultBuilder.ToError("Usage: twig_update requires a field name and value.");
 
         if (format is not null && !string.Equals(format, "markdown", StringComparison.OrdinalIgnoreCase))
             return McpResultBuilder.ToError($"Unknown format '{format}'. Supported formats: markdown");
@@ -109,7 +109,7 @@ public sealed class MutationTools(
 
         var resolved = await activeItemResolver.GetActiveItemAsync(ct);
         if (resolved is ActiveItemResult.NoContext)
-            return McpResultBuilder.ToError("No active work item. Use twig.set to set context.");
+            return McpResultBuilder.ToError("No active work item. Use twig_set to set context.");
         if (resolved is ActiveItemResult.Unreachable u)
             return McpResultBuilder.ToError($"Work item #{u.Id} not found in cache.");
 
@@ -125,7 +125,7 @@ public sealed class MutationTools(
         }
         catch (AdoConflictException)
         {
-            return McpResultBuilder.ToError("Concurrency conflict after retry. Use twig.sync to resync and retry.");
+            return McpResultBuilder.ToError("Concurrency conflict after retry. Use twig_sync to resync and retry.");
         }
 
         await AutoPushNotesHelper.PushAndClearAsync(item.Id, pendingChangeStore, adoService);
@@ -138,17 +138,17 @@ public sealed class MutationTools(
         return McpResultBuilder.FormatFieldUpdate(updated, field, value);
     }
 
-    [McpServerTool(Name = "twig.note"), Description("Add a comment/note to the active work item")]
+    [McpServerTool(Name = "twig_note"), Description("Add a comment/note to the active work item")]
     public async Task<CallToolResult> Note(
         [Description("Note text to add as a comment")] string text,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(text))
-            return McpResultBuilder.ToError("Usage: twig.note requires non-empty text.");
+            return McpResultBuilder.ToError("Usage: twig_note requires non-empty text.");
 
         var resolved = await activeItemResolver.GetActiveItemAsync(ct);
         if (resolved is ActiveItemResult.NoContext)
-            return McpResultBuilder.ToError("No active work item. Use twig.set to set context.");
+            return McpResultBuilder.ToError("No active work item. Use twig_set to set context.");
         if (resolved is ActiveItemResult.Unreachable u)
             return McpResultBuilder.ToError($"Work item #{u.Id} not found in cache.");
 
@@ -156,7 +156,7 @@ public sealed class MutationTools(
             ? f.WorkItem
             : ((ActiveItemResult.FetchedFromAdo)resolved).WorkItem;
 
-        // Push comment to ADO — fall back to local staging on failure
+        // Push comment to ADO— fall back to local staging on failure
         bool isPending;
         try
         {
@@ -190,7 +190,7 @@ public sealed class MutationTools(
         return McpResultBuilder.FormatNoteAdded(item.Id, item.Title, isPending);
     }
 
-    [McpServerTool(Name = "twig.sync"), Description("Flush pending local changes to ADO then refresh the local cache from ADO")]
+    [McpServerTool(Name = "twig_sync"), Description("Flush pending local changes to ADO then refresh the local cache from ADO")]
     public async Task<CallToolResult> Sync(CancellationToken ct = default)
     {
         // Phase 1 — Push: flush all pending changes to ADO

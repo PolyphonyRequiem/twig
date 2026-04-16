@@ -11,7 +11,7 @@ using Xunit;
 namespace Twig.Mcp.Tests.Tools;
 
 /// <summary>
-/// Unit tests for <see cref="ReadTools.Tree"/> (twig.tree MCP tool).
+/// Unit tests for <see cref="ReadTools.Tree"/> (twig_tree MCP tool).
 /// Covers happy path, no active item, unreachable item, children rendering,
 /// depth limiting, sibling counts, and best-effort link sync.
 /// </summary>

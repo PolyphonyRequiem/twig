@@ -11,7 +11,7 @@ using Xunit;
 namespace Twig.Mcp.Tests.Tools;
 
 /// <summary>
-/// Unit tests for <see cref="MutationTools.State"/> (twig.state MCP tool).
+/// Unit tests for <see cref="MutationTools.State"/> (twig_state MCP tool).
 /// </summary>
 public sealed class MutationToolsStateTests : MutationToolsTestBase
 {

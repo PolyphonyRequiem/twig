@@ -8,7 +8,7 @@ using Twig.Mcp.Services;
 namespace Twig.Mcp.Tools;
 
 /// <summary>
-/// MCP tools for context management: twig.set, twig.status.
+/// MCP tools for context management: twig_set, twig_status.
 /// </summary>
 [McpServerToolType]
 public sealed class ContextTools(
@@ -19,13 +19,13 @@ public sealed class ContextTools(
     IPromptStateWriter promptStateWriter,
     ContextChangeService contextChangeService)
 {
-    [McpServerTool(Name = "twig.set"), Description("Set the active work item by ID or title pattern")]
+    [McpServerTool(Name = "twig_set"), Description("Set the active work item by ID or title pattern")]
     public async Task<CallToolResult> Set(
         [Description("Work item ID (numeric) or title pattern (text)")] string idOrPattern,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(idOrPattern))
-            return McpResultBuilder.ToError("Usage: twig.set requires an ID or title pattern.");
+            return McpResultBuilder.ToError("Usage: twig_set requires an ID or title pattern.");
 
         Domain.Aggregates.WorkItem item;
 
@@ -81,13 +81,13 @@ public sealed class ContextTools(
         return McpResultBuilder.FormatWorkItemWithWorkingSet(item, parentChainCount, children.Count);
     }
 
-    [McpServerTool(Name = "twig.status"), Description("Show the active work item status")]
+    [McpServerTool(Name = "twig_status"), Description("Show the active work item status")]
     public async Task<CallToolResult> Status(CancellationToken ct = default)
     {
         var snapshot = await statusOrchestrator.GetSnapshotAsync(ct);
 
         if (!snapshot.HasContext)
-            return McpResultBuilder.ToError("No active work item. Use twig.set to set context.");
+            return McpResultBuilder.ToError("No active work item. Use twig_set to set context.");
 
         return McpResultBuilder.FormatStatus(snapshot);
     }

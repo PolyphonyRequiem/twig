@@ -12,7 +12,7 @@ using Twig.Mcp.Services;
 namespace Twig.Mcp.Tools;
 
 /// <summary>
-/// MCP tools for read-only queries: twig.tree, twig.workspace.
+/// MCP tools for read-only queries: twig_tree, twig_workspace.
 /// </summary>
 [McpServerToolType]
 public sealed class ReadTools(
@@ -23,7 +23,7 @@ public sealed class ReadTools(
     SyncCoordinator syncCoordinator,
     TwigConfiguration config)
 {
-    [McpServerTool(Name = "twig.tree"), Description("Display work item hierarchy as a tree")]
+    [McpServerTool(Name = "twig_tree"), Description("Display work item hierarchy as a tree")]
     public async Task<CallToolResult> Tree(
         [Description("Max child depth to display")] int? depth = null,
         CancellationToken ct = default)
@@ -31,7 +31,7 @@ public sealed class ReadTools(
         var resolveResult = await activeItemResolver.GetActiveItemAsync(ct);
 
         if (resolveResult is ActiveItemResult.NoContext)
-            return McpResultBuilder.ToError("No active work item. Use twig.set first.");
+            return McpResultBuilder.ToError("No active work item. Use twig_set first.");
         if (resolveResult is ActiveItemResult.Unreachable u)
             return McpResultBuilder.ToError($"Work item #{u.Id} unreachable: {u.Reason}");
 
@@ -71,7 +71,7 @@ public sealed class ReadTools(
         return McpResultBuilder.FormatTree(tree, totalChildCount);
     }
 
-    [McpServerTool(Name = "twig.workspace"), Description("Returns the current sprint workspace: active context item, sprint backlog items, and seeds.")]
+    [McpServerTool(Name = "twig_workspace"), Description("Returns the current sprint workspace: active context item, sprint backlog items, and seeds.")]
     public async Task<CallToolResult> Workspace(
         [Description("Show all team items instead of just the current user")] bool all = false,
         CancellationToken ct = default)

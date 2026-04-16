@@ -13,10 +13,13 @@ namespace Twig.Mcp.Tests.Tools;
 /// and that extension failures do not fail the tool call.
 /// Child/link hydration behavior is covered by <c>ContextChangeServiceTests</c>.
 /// </summary>
+/// <remarks>
+/// Tool name: twig_set
+/// </remarks>
 public sealed class ContextTools_ContextChangeTests : ContextToolsTestBase
 {
     // ═══════════════════════════════════════════════════════════════
-    //  Wiring — twig.set invokes ExtendWorkingSetAsync
+    //  Wiring — twig_set invokes ExtendWorkingSetAsync
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]

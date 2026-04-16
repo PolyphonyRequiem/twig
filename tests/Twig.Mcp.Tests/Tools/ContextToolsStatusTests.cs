@@ -11,7 +11,7 @@ using Xunit;
 namespace Twig.Mcp.Tests.Tools;
 
 /// <summary>
-/// Unit tests for <see cref="ContextTools.Status"/> (twig.status MCP tool).
+/// Unit tests for <see cref="ContextTools.Status"/> (twig_status MCP tool).
 /// Covers no-context error, success with item, unreachable item,
 /// pending changes, and seeds in the status snapshot.
 /// </summary>
@@ -33,7 +33,7 @@ public sealed class ContextToolsStatusTests : ContextToolsTestBase
         result.IsError.ShouldBe(true);
         var text = result.Content[0].ShouldBeOfType<TextContentBlock>().Text;
         text.ShouldContain("No active work item");
-        text.ShouldContain("twig.set");
+        text.ShouldContain("twig_set");
     }
 
     // ═══════════════════════════════════════════════════════════════

@@ -77,7 +77,7 @@
     "twig-mcp": {
       "type": "stdio",
       "command": "twig-mcp",
-      "description": "Twig MCP server — Azure DevOps work-item context and mutation tools for Copilot. Provides twig.set, twig.status, twig.tree, twig.workspace, twig.state, twig.update, twig.note, twig.sync."
+      "description": "Twig MCP server — Azure DevOps work-item context and mutation tools for Copilot. Provides twig_set, twig_status, twig_tree, twig_workspace, twig_state, twig_update, twig_note, twig_sync."
     },
     "work-iq": {
       "type": "stdio",

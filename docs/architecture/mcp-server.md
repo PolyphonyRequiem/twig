@@ -73,21 +73,21 @@ twig-mcp exposes **8 tools** across three tool classes:
 
 | Tool | Class | Description |
 |------|-------|-------------|
-| `twig.set` | `ContextTools` | Set active work item by ID or title pattern |
-| `twig.status` | `ContextTools` | Show active item status and pending changes |
-| `twig.tree` | `ReadTools` | Render focused item's parent chain + children |
-| `twig.workspace` | `ReadTools` | Sprint backlog, seeds, dirty count |
-| `twig.state` | `MutationTools` | Change active item state (with optional `force`) |
-| `twig.update` | `MutationTools` | Update a field and push to ADO |
-| `twig.note` | `MutationTools` | Add a comment (falls back to local staging) |
-| `twig.sync` | `MutationTools` | Flush pending changes, then refresh cache |
+| `twig_set` | `ContextTools` | Set active work item by ID or title pattern |
+| `twig_status` | `ContextTools` | Show active item status and pending changes |
+| `twig_tree` | `ReadTools` | Render focused item's parent chain + children |
+| `twig_workspace` | `ReadTools` | Sprint backlog, seeds, dirty count |
+| `twig_state` | `MutationTools` | Change active item state (with optional `force`) |
+| `twig_update` | `MutationTools` | Update a field and push to ADO |
+| `twig_note` | `MutationTools` | Add a comment (falls back to local staging) |
+| `twig_sync` | `MutationTools` | Flush pending changes, then refresh cache |
 
 All tool classes use the `[McpServerToolType]` attribute and primary
 constructors for dependency injection.
 
 ### Context tools
 
-**`twig.set(idOrPattern: string)`**
+**`twig_set(idOrPattern: string)`**
 
 Resolves by numeric ID (cache → ADO auto-fetch) or by title pattern match
 in the local cache. On success:
@@ -98,7 +98,7 @@ in the local cache. On success:
   never fail the tool.
 - Writes prompt state for shell integration.
 
-**`twig.status()`**
+**`twig_status()`**
 
 Delegates to `StatusOrchestrator.GetSnapshotAsync()` which gathers the
 active item, pending changes, and seeds into a single snapshot. Returns
@@ -106,7 +106,7 @@ an error if no context is set.
 
 ### Read tools
 
-**`twig.tree(depth?: int)`**
+**`twig_tree(depth?: int)`**
 
 Builds a hierarchical view:
 
@@ -117,7 +117,7 @@ Builds a hierarchical view:
 5. Best-effort link sync via `SyncCoordinator.SyncLinksAsync()`.
 6. Format via `WorkTree.Build()`.
 
-**`twig.workspace(all?: bool)`**
+**`twig_workspace(all?: bool)`**
 
 Returns the sprint workspace projection:
 
@@ -128,7 +128,7 @@ Returns the sprint workspace projection:
 
 ### Mutation tools
 
-**`twig.state(stateName: string, force?: bool)`**
+**`twig_state(stateName: string, force?: bool)`**
 
 1. Look up process configuration for the item's type.
 2. Resolve target state via `StateResolver.ResolveByName()` (supports
@@ -140,7 +140,7 @@ Returns the sprint workspace projection:
 6. Auto-push any staged notes via `AutoPushNotesHelper`.
 7. Resync cache (best-effort).
 
-**`twig.update(field: string, value: string, format?: string)`**
+**`twig_update(field: string, value: string, format?: string)`**
 
 - If `format == "markdown"`, the value is converted to HTML via
   `MarkdownConverter.ToHtml()` before patching.
@@ -148,14 +148,14 @@ Returns the sprint workspace projection:
   staged notes, and resyncs the cache.
 - On double conflict, returns an error suggesting `twig.sync`.
 
-**`twig.note(text: string)`**
+**`twig_note(text: string)`**
 
 Attempts to push the comment to ADO immediately. On any failure (network,
 auth, server error), the note is staged locally in `IPendingChangeStore`
 for later flushing. The response includes `isPending: boolean` so the
 caller knows whether the note reached ADO.
 
-**`twig.sync()`**
+**`twig_sync()`**
 
 Two-phase operation:
 
@@ -265,14 +265,14 @@ Key formatters:
 
 | Method | Used by |
 |--------|---------|
-| `FormatWorkItemWithWorkingSet` | `twig.set` |
-| `FormatStatus` | `twig.status` |
-| `FormatTree` | `twig.tree` |
-| `FormatWorkspace` | `twig.workspace` |
-| `FormatStateChange` | `twig.state` |
-| `FormatFieldUpdate` | `twig.update` |
-| `FormatNoteAdded` | `twig.note` |
-| `FormatFlushSummary` | `twig.sync` |
+| `FormatWorkItemWithWorkingSet` | `twig_set` |
+| `FormatStatus` | `twig_status` |
+| `FormatTree` | `twig_tree` |
+| `FormatWorkspace` | `twig_workspace` |
+| `FormatStateChange` | `twig_state` |
+| `FormatFieldUpdate` | `twig_update` |
+| `FormatNoteAdded` | `twig_note` |
+| `FormatFlushSummary` | `twig_sync` |
 
 ### Prompt state writer
 

@@ -10,7 +10,7 @@ using Xunit;
 namespace Twig.Mcp.Tests.Tools;
 
 /// <summary>
-/// Unit tests for <see cref="ReadTools.Workspace"/> (twig.workspace MCP tool).
+/// Unit tests for <see cref="ReadTools.Workspace"/> (twig_workspace MCP tool).
 /// Covers happy path, assignee filtering, no context item, null display name fallback,
 /// seeds, stale seeds, and dirty item counts.
 /// </summary>

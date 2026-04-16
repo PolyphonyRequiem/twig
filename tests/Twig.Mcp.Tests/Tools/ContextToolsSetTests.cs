@@ -9,7 +9,7 @@ using Xunit;
 namespace Twig.Mcp.Tests.Tools;
 
 /// <summary>
-/// Unit tests for <see cref="ContextTools.Set"/> (twig.set MCP tool).
+/// Unit tests for <see cref="ContextTools.Set"/> (twig_set MCP tool).
 /// Covers numeric ID resolution, pattern matching, disambiguation,
 /// error paths, best-effort sync, and prompt state writes.
 /// </summary>

@@ -10,7 +10,7 @@ using Xunit;
 namespace Twig.Mcp.Tests.Tools;
 
 /// <summary>
-/// Unit tests for <see cref="MutationTools.Sync"/> (twig.sync MCP tool).
+/// Unit tests for <see cref="MutationTools.Sync"/> (twig_sync MCP tool).
 /// </summary>
 public sealed class MutationToolsSyncTests : MutationToolsTestBase
 {

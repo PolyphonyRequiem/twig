@@ -9,7 +9,7 @@ using Xunit;
 namespace Twig.Mcp.Tests.Tools;
 
 /// <summary>
-/// Unit tests for <see cref="MutationTools.Note"/> (twig.note MCP tool).
+/// Unit tests for <see cref="MutationTools.Note"/> (twig_note MCP tool).
 /// </summary>
 public sealed class MutationToolsNoteTests : MutationToolsTestBase
 {

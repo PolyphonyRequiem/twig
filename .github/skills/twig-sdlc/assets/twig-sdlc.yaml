@@ -9,8 +9,9 @@
 #            Issue closure is gated on PR merge (structural enforcement via orchestrator split)
 #            Post-merge checkpoint: verify branch merged + deleted + Issue state matches before proceeding
 #   Phase 5: Close-out — meta-observations (reduction now integrated into PR stage)
+#   Phase 6: Closeout Filing — files observations as a tagged ADO Issue for review
 #
-# Agents: 24 agents + 3 human gates (pr_group_manager + task_manager + pr_finalizer gate)
+# Agents: 25 agents + 3 human gates (pr_group_manager + task_manager + pr_finalizer gate)
 # Models: Opus 1M for deep reasoning (architect, coder, pr_reviewer, close_out)
 #         Sonnet for focused tasks (everything else)
 #
@@ -825,6 +826,29 @@ agents:
         type: boolean
         description: Whether the Epic was transitioned to Done
     routes:
+      - to: closeout_filer
+  # ---------------------------------------------------------------------------
+  # PHASE 6: CLOSEOUT FILING — file observations as a tagged ADO Issue
+  # ---------------------------------------------------------------------------
+  - name: closeout_filer
+    description: Files closeout observations as a tagged ADO Issue for human review
+    model: claude-sonnet-4.6
+    input:
+      - intake.output
+      - close_out.output
+    system_prompt: !file prompts/closeout-filer.system.md
+    prompt: !file prompts/closeout-filer.prompt.md
+    output:
+      issue_id:
+        type: number
+        description: The newly created closeout Issue ID
+      issue_title:
+        type: string
+        description: The closeout Issue title
+      summary:
+        type: string
+        description: Human-readable summary of what was filed
+    routes:
       - to: $end
 # =============================================================================
 # WORKFLOW OUTPUT
@@ -832,3 +856,5 @@ agents:
 output:
   observations: "{{ close_out.output.observations }}"
   improvements: "{{ close_out.output.improvements | json }}"
+  closeout_issue_id: "{{ closeout_filer.output.issue_id }}"
+  closeout_summary: "{{ closeout_filer.output.summary }}"

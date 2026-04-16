@@ -126,6 +126,10 @@ pr_group_manager ──→ task_manager ──→ coder → reducer_code → tas
 
 - **close_out** (Opus 1M) — transitions the work item to Done, produces meta-observations on agent performance and workflow improvements
 
+### Phase 6: Closeout Filing (1 agent)
+
+- **closeout_filer** (Sonnet) — takes the close_out observations and improvement suggestions, creates a tagged ADO Issue for human review. The Issue is tagged `closeout-notes; Needs Review` for easy discovery and triage.
+
 ## Agent Summary
 
 | Agent | Model | Role |
@@ -154,6 +158,7 @@ pr_group_manager ──→ task_manager ──→ coder → reducer_code → tas
 | pr_fixer | Sonnet | PR fix cycle |
 | pr_merge | Sonnet | Merge + cleanup |
 | close_out | Opus 1M | Epic completion + observations |
+| closeout_filer | Sonnet | File observations as tagged ADO Issue |
 
 ## When to Use
 

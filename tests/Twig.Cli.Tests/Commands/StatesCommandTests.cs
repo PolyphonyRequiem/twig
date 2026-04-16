@@ -113,7 +113,7 @@ public sealed class StatesCommandTests : IDisposable
             new StateEntry("Closed", StateCategory.Completed, "339933"),
         ]);
 
-        var output = await CaptureStdout(() => _cmd.ExecuteAsync("json"));
+        var (_, output) = await StdoutCapture.RunAsync(() => _cmd.ExecuteAsync("json"));
 
         output.ShouldContain("\"type\": \"Task\"");
         output.ShouldContain("\"name\": \"New\"");
@@ -132,7 +132,7 @@ public sealed class StatesCommandTests : IDisposable
             new StateEntry("New", StateCategory.Proposed, null),
         ]);
 
-        var output = await CaptureStdout(() => _cmd.ExecuteAsync("json"));
+        var (_, output) = await StdoutCapture.RunAsync(() => _cmd.ExecuteAsync("json"));
 
         output.ShouldContain("\"color\": null");
     }
@@ -147,7 +147,7 @@ public sealed class StatesCommandTests : IDisposable
             new StateEntry("New", StateCategory.Proposed, "b2b2b2"),
         ]);
 
-        var output = await CaptureStdout(() => _cmd.ExecuteAsync(format));
+        var (_, output) = await StdoutCapture.RunAsync(() => _cmd.ExecuteAsync(format));
 
         output.ShouldContain("\"states\":");
     }
@@ -165,7 +165,7 @@ public sealed class StatesCommandTests : IDisposable
             new StateEntry("Active", StateCategory.InProgress, "007acc"),
         ]);
 
-        var output = await CaptureStdout(() => _cmd.ExecuteAsync("human"));
+        var (_, output) = await StdoutCapture.RunAsync(() => _cmd.ExecuteAsync("human"));
 
         output.ShouldContain("New");
         output.ShouldContain("Active");
@@ -222,19 +222,4 @@ public sealed class StatesCommandTests : IDisposable
         _processTypeStore.GetByNameAsync(typeName, Arg.Any<CancellationToken>()).Returns(record);
     }
 
-    private static async Task<string> CaptureStdout(Func<Task<int>> action)
-    {
-        var originalOut = Console.Out;
-        using var sw = new StringWriter();
-        Console.SetOut(sw);
-        try
-        {
-            await action();
-            return sw.ToString();
-        }
-        finally
-        {
-            Console.SetOut(originalOut);
-        }
-    }
 }

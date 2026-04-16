@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Text;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
@@ -164,14 +165,14 @@ public class SelfUpdateCommandTests : IDisposable
             .Select(CompanionTools.GetExeName)
             .ToArray();
 
-        // Build a zip archive containing companion binaries (no main binary needed)
-        var zipBytes = CreateZipArchive(
-            [.. companionExeNames.Select(c => (c, "companion"u8.ToArray()))]);
-
         var currentVersion = VersionHelper.GetVersion();
         var rid = PlatformHelper.DetectRid() ?? "win-x64";
         var ext = rid.StartsWith("win-", StringComparison.Ordinal) ? ".zip" : ".tar.gz";
         var assetName = $"twig-{rid}{ext}";
+
+        // Build archive in platform-appropriate format (zip on Windows, tar.gz on Unix)
+        var archiveBytes = CreateArchive(assetName,
+            [.. companionExeNames.Select(c => (c, "companion"u8.ToArray()))]);
 
         var release = new GitHubReleaseInfo(
             currentVersion, $"Release {currentVersion}", "notes", null,
@@ -180,7 +181,7 @@ public class SelfUpdateCommandTests : IDisposable
         var stubService = Substitute.For<IGitHubReleaseService>();
         stubService.GetLatestReleaseAsync(Arg.Any<CancellationToken>()).Returns(release);
         var selfUpdater = new SelfUpdater(
-            new FakeDownloader(zipBytes), new DefaultFileSystem(), currentExe);
+            new FakeDownloader(archiveBytes), new DefaultFileSystem(), currentExe);
         var command = new SelfUpdateCommand(stubService, selfUpdater, currentExe);
 
         // Act: capture stdout to verify companion result output
@@ -249,17 +250,17 @@ public class SelfUpdateCommandTests : IDisposable
             .Select(CompanionTools.GetExeName)
             .ToArray();
 
-        // Build a zip archive containing main binary + all companions
-        var zipBytes = CreateZipArchive(
-            [(ExeName, "new-binary"u8.ToArray()),
-             .. companionExeNames.Select(c => (c, "companion"u8.ToArray()))]);
-
         var rid = PlatformHelper.DetectRid() ?? "win-x64";
         var ext = rid.StartsWith("win-", StringComparison.Ordinal) ? ".zip" : ".tar.gz";
         var assetName = $"twig-{rid}{ext}";
 
+        // Build archive in platform-appropriate format (zip on Windows, tar.gz on Unix)
+        var archiveBytes = CreateArchive(assetName,
+            [(ExeName, "new-binary"u8.ToArray()),
+             .. companionExeNames.Select(c => (c, "companion"u8.ToArray()))]);
+
         var selfUpdater = new SelfUpdater(
-            new FakeDownloader(zipBytes), new DefaultFileSystem(), currentExe);
+            new FakeDownloader(archiveBytes), new DefaultFileSystem(), currentExe);
 
         var release = new GitHubReleaseInfo(
             "v99.99.99", "Release 99.99.99", "Release notes body", null,
@@ -324,5 +325,53 @@ public class SelfUpdateCommandTests : IDisposable
             }
         }
         return ms.ToArray();
+    }
+
+    /// <summary>Creates an archive in the format matching <paramref name="archiveName"/> extension.</summary>
+    private static byte[] CreateArchive(string archiveName, params (string entryName, byte[] content)[] entries)
+    {
+        if (archiveName.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase))
+            return CreateTarGzArchive(entries);
+        return CreateZipArchive(entries);
+    }
+
+    private static byte[] CreateTarGzArchive(params (string entryName, byte[] content)[] entries)
+    {
+        using var ms = new MemoryStream();
+        using (var gzip = new GZipStream(ms, CompressionLevel.Fastest, leaveOpen: true))
+        {
+            foreach (var (entryName, content) in entries)
+                WriteTarEntry(gzip, entryName, content);
+            // End-of-archive marker: two 512-byte blocks of zeros
+            gzip.Write(new byte[1024], 0, 1024);
+        }
+        return ms.ToArray();
+    }
+
+    private static void WriteTarEntry(Stream stream, string name, byte[] content)
+    {
+        var header = new byte[512];
+        Encoding.ASCII.GetBytes(name).AsSpan(0, Math.Min(Encoding.ASCII.GetByteCount(name), 100))
+            .CopyTo(header);
+        Encoding.ASCII.GetBytes("0000755\0").CopyTo(header.AsSpan(100)); // mode
+        Encoding.ASCII.GetBytes("0000000\0").CopyTo(header.AsSpan(108)); // uid
+        Encoding.ASCII.GetBytes("0000000\0").CopyTo(header.AsSpan(116)); // gid
+        Encoding.ASCII.GetBytes(
+            Convert.ToString(content.Length, 8).PadLeft(11, '0') + "\0")
+            .CopyTo(header.AsSpan(124)); // size
+        Encoding.ASCII.GetBytes("00000000000\0").CopyTo(header.AsSpan(136)); // mtime
+        header[156] = (byte)'0'; // type: regular file
+        // Checksum placeholder (spaces) for calculation
+        for (int i = 148; i < 156; i++) header[i] = (byte)' ';
+        int checksum = 0;
+        for (int i = 0; i < 512; i++) checksum += header[i];
+        Encoding.ASCII.GetBytes(
+            Convert.ToString(checksum, 8).PadLeft(6, '0') + "\0 ")
+            .CopyTo(header.AsSpan(148));
+
+        stream.Write(header, 0, 512);
+        stream.Write(content, 0, content.Length);
+        int pad = (512 - (content.Length % 512)) % 512;
+        if (pad > 0) stream.Write(new byte[pad], 0, pad);
     }
 }

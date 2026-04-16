@@ -79,10 +79,13 @@ public sealed class WorkspaceDiscoveryTests : IDisposable
     [Fact]
     public void FindTwigDir_NoTwigAnywhere_ReturnsNull()
     {
-        // Use a directory near the filesystem root to avoid inheriting a real
-        // .twig/ from an ancestor (e.g., the user's home directory).
-        var driveRoot = Path.GetPathRoot(Path.GetTempPath())!;
-        var testRoot = Path.Combine(driveRoot, $"twig-test-{Guid.NewGuid():N}");
+        // Ensure the walk-up search doesn't find a .twig/ from any ancestor.
+        // On Windows, %TEMP% is under the user profile which may contain .twig/,
+        // so use the drive root (e.g. C:\) which is writable on Windows.
+        // On Linux, /tmp is outside the user home and writable without root.
+        var testRoot = OperatingSystem.IsWindows()
+            ? Path.Combine(Path.GetPathRoot(Path.GetTempPath())!, $"twig-test-{Guid.NewGuid():N}")
+            : Path.Combine(Path.GetTempPath(), $"twig-test-{Guid.NewGuid():N}");
         var deep = Path.Combine(testRoot, "a", "b", "c");
         Directory.CreateDirectory(deep);
         try

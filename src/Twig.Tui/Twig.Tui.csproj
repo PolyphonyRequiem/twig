@@ -5,6 +5,10 @@
     <AssemblyName>twig-tui</AssemblyName>
     <!-- Terminal.Gui v2 beta does not support AOT — keep this project non-AOT. -->
     <IsAotCompatible>false</IsAotCompatible>
+    <!-- SingleFile bundle for companion distribution. Terminal.Gui relies on reflection;
+         trimming is intentionally not enabled. -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
   </PropertyGroup>
 
   <ItemGroup>

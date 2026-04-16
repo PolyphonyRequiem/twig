@@ -72,11 +72,20 @@ try {
     Remove-Item -Path $tempZip -Force -ErrorAction SilentlyContinue
 }
 
-# Verify binary exists
+# Verify primary binary exists
 $twigExe = Join-Path $installDir "twig.exe"
 if (-not (Test-Path $twigExe)) {
     Write-Host "Error: twig.exe not found after extraction." -ForegroundColor Red
     exit 1
+}
+
+# Verify companion binaries (warn only — older archives may not include them)
+foreach ($companion in @("twig-mcp.exe", "twig-tui.exe")) {
+    if (Test-Path (Join-Path $installDir $companion)) {
+        Write-Host "  Found $companion" -ForegroundColor Green
+    } else {
+        Write-Warning "$companion not found in archive. Some features may be unavailable. Run 'twig upgrade' after install to fetch companions."
+    }
 }
 
 # Add to user PATH if not already present

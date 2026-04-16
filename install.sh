@@ -119,6 +119,16 @@ fi
 # Make executable
 chmod +x "${INSTALL_DIR}/twig"
 
+# Verify companion binaries (warn only — older archives may not include them)
+for companion in twig-mcp twig-tui; do
+    if [ -f "${INSTALL_DIR}/${companion}" ]; then
+        chmod +x "${INSTALL_DIR}/${companion}"
+        echo "  Found $companion"
+    else
+        echo "Warning: $companion not found in archive. Some features may be unavailable. Run 'twig upgrade' after install to fetch companions." >&2
+    fi
+done
+
 # Add to PATH via shell profile if not already present
 PATH_EXPORT="export PATH=\"\$HOME/.twig/bin:\$PATH\""
 

@@ -46,6 +46,10 @@ jobs:
 
       - run: dotnet publish src/Twig/Twig.csproj -c Release -r ${{ matrix.rid }} --self-contained true -o ./publish/${{ matrix.rid }}
 
+      - run: dotnet publish src/Twig.Mcp/Twig.Mcp.csproj -c Release -r ${{ matrix.rid }} --self-contained true -o ./publish/${{ matrix.rid }}
+
+      - run: dotnet publish src/Twig.Tui/Twig.Tui.csproj -c Release -r ${{ matrix.rid }} --self-contained true /p:PublishTrimmed=false /p:PublishAot=false -o ./publish/${{ matrix.rid }}
+
       - name: Archive (zip)
         if: matrix.archive == 'zip'
         shell: pwsh

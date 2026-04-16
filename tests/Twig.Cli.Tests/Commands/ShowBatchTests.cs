@@ -20,7 +20,7 @@ public sealed class ShowBatchTests
     private readonly IWorkItemLinkRepository _linkRepo;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly ITelemetryClient _telemetryClient;
-    private readonly SyncCoordinator _syncCoordinator;
+    private readonly SyncCoordinatorFactory _syncCoordinatorFactory;
     private readonly TwigConfiguration _config;
     private readonly ShowCommand _cmd;
 
@@ -33,7 +33,7 @@ public sealed class ShowBatchTests
         var adoService = Substitute.For<IAdoWorkItemService>();
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, pendingChangeStore);
-        _syncCoordinator = new SyncCoordinator(_workItemRepo, adoService, protectedCacheWriter, pendingChangeStore, 30);
+        _syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, adoService, protectedCacheWriter, pendingChangeStore, _linkRepo, 30, 30);
         _config = new TwigConfiguration();
 
         _formatterFactory = new OutputFormatterFactory(
@@ -44,7 +44,7 @@ public sealed class ShowBatchTests
             _workItemRepo,
             _linkRepo,
             _formatterFactory,
-            _syncCoordinator,
+            _syncCoordinatorFactory,
             _config,
             telemetryClient: _telemetryClient);
     }

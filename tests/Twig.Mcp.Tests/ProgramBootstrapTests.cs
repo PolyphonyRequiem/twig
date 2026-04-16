@@ -207,10 +207,12 @@ public sealed class ProgramBootstrapTests
     {
         // Walk-up search: when no .twig/ exists anywhere up the ancestor chain,
         // return a clear error directing the user to run 'twig init'.
-        // Use a drive-root-level directory to avoid inheriting a real .twig/
-        // from an ancestor (e.g., the user's home directory).
-        var driveRoot = Path.GetPathRoot(Path.GetTempPath())!;
-        var rootDir = Path.Combine(driveRoot, $"twig-nows-{Guid.NewGuid():N}");
+        // On Windows, %TEMP% is under the user profile which may contain .twig/,
+        // so use the drive root (e.g. C:\) which is writable on Windows.
+        // On Linux, /tmp is outside the user home and writable without root.
+        var rootDir = OperatingSystem.IsWindows()
+            ? Path.Combine(Path.GetPathRoot(Path.GetTempPath())!, $"twig-nows-{Guid.NewGuid():N}")
+            : Path.Combine(Path.GetTempPath(), $"twig-nows-{Guid.NewGuid():N}");
         var tempDir = Path.Combine(rootDir, "deep", "nested");
         try
         {

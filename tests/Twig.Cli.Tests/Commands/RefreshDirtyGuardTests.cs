@@ -4,8 +4,6 @@ using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
-using Twig.Formatters;
-using Twig.Infrastructure.Config;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;

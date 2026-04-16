@@ -24,10 +24,6 @@ public sealed class SyncCommandTests : RefreshCommandTestBase
     public SyncCommandTests()
     {
         _flusher = Substitute.For<IPendingChangeFlusher>();
-        _iterationService.GetWorkItemTypeAppearancesAsync(Arg.Any<CancellationToken>())
-            .Returns(new List<WorkItemTypeAppearance>());
-        _iterationService.GetWorkItemTypesWithStatesAsync(Arg.Any<CancellationToken>())
-            .Returns(new List<WorkItemTypeWithStates>());
     }
 
     private SyncCommand CreateSyncCommand(TextWriter? stderr = null) =>

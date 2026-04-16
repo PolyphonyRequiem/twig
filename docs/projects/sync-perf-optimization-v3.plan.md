@@ -2,7 +2,7 @@
 
 **Epic:** #1611 — Sync Performance Optimization
 **Status:** In Progress (3 of 5 Issues completed)
-**Revision:** Rev 4 — Correcting auth token return format, TTL precision, alternatives section, structural fixes
+**Revision:** Rev 5 — Fixing JsonPropertyName for camelCase policy, adding thread safety, Security Considerations, Impact Analysis, alternatives for DD-18/DD-20/DD-21, surfacing 50-min TTL in FR-4/NFR-5, explaining 5-min expiry buffer, justifying #1673-T1 bundling
 
 ---
 
@@ -153,10 +153,16 @@ refresh optimizations:
 - **FR-3:** Read-only commands inject `SyncCoordinatorFactory` and use `.ReadOnly`.
   Mutating commands use `.ReadWrite`.
 - **FR-4:** `MsalCacheTokenProvider` wraps `AzCliAuthProvider` as a decorator. On
-  `GetAccessTokenAsync`, it reads `~/.azure/msal_token_cache.json`, filters for a
-  valid ADO-scoped token, and returns it directly. On miss/expiry, delegates to inner.
-  File-read is abstracted via injectable `Func<string, CancellationToken, Task<string?>>`
-  for testability (mirroring `AzCliAuthProvider`'s `Func<ProcessStartInfo, Process?>` pattern).
+  `GetAccessTokenAsync`, it first checks a **50-minute in-memory TTL cache** (matching
+  `AzCliAuthProvider`'s TTL to maintain consistent cache durations across the auth chain),
+  then reads `~/.azure/msal_token_cache.json`, filters for a valid ADO-scoped token with
+  `ExpiresOn > now + 5 minutes` (**5-minute expiry buffer** accounts for clock skew between
+  the local system and Azure AD's token server, plus network latency between token validation
+  and API call arrival — without this buffer, a token that expires during an in-flight request
+  would cause a 401 retry), and returns the raw token string directly. On miss/expiry/error,
+  delegates to inner. File-read is abstracted via injectable
+  `Func<string, CancellationToken, Task<string?>>` for testability (mirroring
+  `AzCliAuthProvider`'s `Func<ProcessStartInfo, Process?>` pattern).
 
 ### Non-Functional
 
@@ -167,6 +173,16 @@ refresh optimizations:
 - **NFR-3:** All existing tests pass after migration. New tests cover factory wiring,
   tiered TTL behavior, and MSAL cache parsing.
 - **NFR-4:** `TreatWarningsAsErrors` remains satisfied — no new warnings introduced.
+- **NFR-5:** `MsalCacheTokenProvider` uses a 50-minute in-memory TTL for cached tokens,
+  matching `AzCliAuthProvider`'s `TokenTtl` value. This ensures the decorator's cache
+  lifetime aligns with the inner provider — if the decorator's TTL were longer, it could
+  serve a token that the inner provider has already discarded, creating inconsistent behavior
+  on fallback paths. The 50-minute duration is intentionally shorter than Azure AD's default
+  60–75 minute token lifetime to provide a refresh buffer.
+- **NFR-6:** `MsalCacheTokenProvider.GetAccessTokenAsync` is serialized with a
+  `SemaphoreSlim(1, 1)` to prevent concurrent file reads and cache races in the MCP server
+  (which may invoke auth concurrently from multiple tool calls). The CLI is single-threaded,
+  so this adds negligible overhead there.
 
 ## Proposed Design
 
@@ -254,6 +270,17 @@ internal sealed class MsalCacheTokenProvider(
 - `fileReader` — defaults to `FileStream(FileShare.ReadWrite)` + `StreamReader`; injectable for test isolation
 - `clock` — defaults to `DateTimeOffset.UtcNow`; injectable for deterministic expiry tests
 
+**Thread safety:** `GetAccessTokenAsync` is serialized with a `SemaphoreSlim(1, 1)` to
+prevent concurrent file reads and torn in-memory cache updates. The existing
+`AzCliAuthProvider` documents its `_cachedToken`/`_tokenExpiry` fields as "intentionally
+not thread-safe" and "designed for single-threaded CLI usage." While the CLI is
+single-threaded, the MCP server processes tool calls on thread pool threads, making
+concurrent `GetAccessTokenAsync` invocations possible. The `SemaphoreSlim` in the
+decorator serializes access to both the decorator's own cache AND the inner
+`AzCliAuthProvider` call, preventing data races on either layer. The semaphore is
+acquired before the in-memory cache check and released after the token is cached or
+the fallback completes.
+
 Flow:
 
 ```
@@ -290,6 +317,17 @@ The MSAL cache JSON format is:
 DTOs (`MsalTokenCache`, `MsalAccessTokenEntry`) are added to `TwigJsonContext` for
 AOT-safe deserialization. No `Microsoft.Identity.Client` dependency is needed.
 
+> **Critical: `TwigJsonContext` camelCase naming policy.** `TwigJsonContext` uses
+> `PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase`, which means the source
+> generator maps C# `AccessToken` → JSON `"accessToken"` by default. But the MSAL cache
+> file uses PascalCase for top-level keys (`"AccessToken"`, not `"accessToken"`). Without
+> an explicit `[JsonPropertyName("AccessToken")]` attribute on the DTO property, the
+> deserializer will look for `"accessToken"` in the JSON, find nothing, and silently
+> produce `null` — making `MsalCacheTokenProvider` always fall back to `AzCliAuthProvider`
+> and defeating the entire optimization. The inner properties (`secret`, `target`) are
+> already lowercase in the MSAL file, which matches camelCase, so they don't need overrides.
+> Only the top-level `AccessToken` key requires `[JsonPropertyName]`.
+
 #### 3. DI Registration Changes
 
 In `CommandServiceModule.AddTwigCommandServices()`:
@@ -325,6 +363,8 @@ The standalone `SyncCoordinator` registration is removed. All consumers migrate 
 | DD-19 | Two tiers, not per-command | Two tiers (read-only/read-write) cover the essential use case without over-engineering. If a command is read-only, 15-min staleness is acceptable. |
 | DD-20 | Injectable `Func<>` for file-read in MsalCacheTokenProvider | Mirrors `AzCliAuthProvider`'s `Func<ProcessStartInfo, Process?>` testability pattern. Avoids filesystem coupling in tests; enables deterministic simulation of missing/corrupt files. |
 | DD-21 | Raw token return (not "Bearer"-prefixed) | `MsalCacheTokenProvider.GetAccessTokenAsync` returns the raw secret string, matching `AzCliAuthProvider`. `AdoErrorHandler.ApplyAuthHeader` adds the `Bearer` scheme. Returning a prefixed token would cause a double-prefix `Authorization: Bearer Bearer ...` header. |
+| DD-22 | `SemaphoreSlim` serialization in `MsalCacheTokenProvider` | MCP server invokes auth from thread pool threads. Without serialization, concurrent `GetAccessTokenAsync` calls race on the in-memory cache and file reads. `SemaphoreSlim(1,1)` is the lightest async-compatible lock; the semaphore wraps both the decorator's cache check and the inner provider fallback to prevent concurrent `az` process spawns. |
+| DD-23 | Explicit `[JsonPropertyName("AccessToken")]` on `MsalTokenCache` DTO | `TwigJsonContext` uses `CamelCase` naming policy. The MSAL cache file uses PascalCase `"AccessToken"` at the top level. Without `[JsonPropertyName]`, the source-generated deserializer looks for `"accessToken"` and silently produces `null`, defeating the optimization. Inner properties (`secret`, `target`) match camelCase naturally. |
 
 ## Alternatives Considered
 
@@ -398,6 +438,63 @@ effectively moot (items were just fetched). This is a conservative classificatio
 **Verdict:** Two tiers provide the right cost/benefit ratio. Per-command TTL is deferred
 as NG-3.
 
+### DD-18: Decorator Pattern vs Direct Integration
+
+**Option A: Modify `AzCliAuthProvider` directly (rejected)**
+Add MSAL cache reading logic directly into `AzCliAuthProvider.GetAccessTokenAsync`,
+checking the file before spawning the `az` process.
+
+*Pros:* No new class; simpler DI (no wrapping). Fewer moving parts.
+*Cons:* Violates single-responsibility — `AzCliAuthProvider` becomes responsible for both
+process spawning and file parsing. Testing becomes harder: the existing `Func<ProcessStartInfo,
+Process?>` test seam doesn't cover the file-read path, so a second seam would be needed.
+The class's documented "single-threaded" assumption would need revisiting since two distinct
+I/O paths (file + process) interact with the same cache fields. Making the class do both
+things also makes it harder to disable the MSAL optimization (e.g., via a feature flag or
+config option) without `if` branches in the hot path.
+
+**Option B: Decorator wrapping `AzCliAuthProvider` (selected)**
+`MsalCacheTokenProvider` implements `IAuthenticationProvider`, wraps `AzCliAuthProvider`,
+and adds the file-read path transparently.
+
+*Pros:* Clean separation — each class has one job. The decorator is independently testable
+with its own `fileReader` + `clock` seams. Disabling the optimization means simply not
+wrapping in DI. The existing `AzCliAuthProvider` is completely unchanged, preserving its
+well-tested behavior. The pattern is familiar from other .NET auth middleware.
+*Cons:* One additional class; the DI registration becomes slightly more complex (two `new`
+calls instead of one).
+
+**Verdict:** The decorator preserves `AzCliAuthProvider`'s stability and gives the MSAL
+optimization its own test surface. The single additional class is trivial overhead.
+
+### DD-20: Injectable `Func<>` vs `IFileSystem` Abstraction
+
+**Option A: Inject `IFileSystem` interface (rejected)**
+Define an `IFileSystem` interface with `ReadAllTextAsync(string path)` and inject it.
+
+*Pros:* Standard testability pattern; typed interface is self-documenting.
+*Cons:* Adds a new interface and implementation class for a single call site. Twig has no
+existing `IFileSystem` abstraction — introducing one for a single file-read operation is
+over-engineering. The interface would need to be registered in DI, adding ceremony. Future
+consumers might expect the abstraction to cover more file operations, leading to scope creep.
+
+**Option B: Injectable `Func<string, CancellationToken, Task<string?>>` (selected)**
+A delegate parameter on the constructor, with a default that uses `FileStream(FileShare.ReadWrite)`.
+
+*Pros:* Mirrors `AzCliAuthProvider`'s established `Func<ProcessStartInfo, Process?>`
+pattern — developers familiar with one immediately understand the other. Zero new types.
+The `Func` is concise and precise: it takes a path and returns content (or `null` for
+missing file). Default implementation handles the `FileShare.ReadWrite` concern internally.
+Tests inject a lambda returning hardcoded JSON or `null` or throwing — no mock setup.
+*Cons:* Less discoverable than a named interface. The delegate signature
+`Func<string, CancellationToken, Task<string?>>` is verbose, though the constructor
+parameter name `fileReader` clarifies intent.
+
+**Verdict:** Consistency with the existing `AzCliAuthProvider` pattern is more valuable
+than introducing a one-off interface. The `Func` is the established Twig convention for
+injectable I/O seams.
+
+
 ## Dependencies
 
 ### Internal
@@ -420,6 +517,78 @@ as NG-3.
 | 4 | #1664 (test migration) | #1662, #1663 | Requires all commands migrated first |
 | — | #1673 (MSAL cache) | — | Fully independent, any time |
 
+## Impact Analysis
+
+### Blast Radius
+
+This change touches **3 source projects**, **3 test projects**, and **~50 files total**:
+
+| Area | Files Changed | Risk Level | Notes |
+|------|--------------|------------|-------|
+| DI registration (CLI) | `CommandServiceModule.cs` | Medium | Central wiring file; incorrect factory builds break all commands |
+| DI registration (MCP) | `Twig.Mcp/Program.cs` | Medium | Parallel change to CLI; must stay in sync |
+| Domain services | 3 files (`StatusOrchestrator`, `RefreshOrchestrator`, `ContextChangeService`) | Low | Constructor signature change only; business logic unchanged |
+| CLI commands | 5 files (`Status`, `Tree`, `Show`, `Set`, `Link`) | Low | Mechanical: `SyncCoordinator` → `SyncCoordinatorFactory` + tier selection |
+| MCP tools | 3 files (`ReadTools`, `MutationTools`, `ContextTools`) | Low | Same mechanical change as CLI commands |
+| Auth infrastructure | 2 new files (`MsalCacheTokenProvider`, tests) | Medium | New decorator in auth chain; errors fall back silently |
+| JSON serialization | `TwigJsonContext.cs` | Low | Additive: new `[JsonSerializable]` attribute |
+| Test files | 34 files across 3 test projects | Low | Mechanical factory substitution; 4 base classes cover ~15 transitive consumers |
+
+### Backward Compatibility
+
+- **Wire-compatible:** No changes to SQLite schema, CLI argument surface, or MCP tool
+  signatures. Users see no behavioral difference except faster response times.
+- **DI-breaking:** The standalone `SyncCoordinator` singleton registration is removed.
+  Any out-of-tree code resolving `SyncCoordinator` directly will fail at runtime. This
+  is intentional — all consumers must migrate to `SyncCoordinatorFactory`.
+- **Auth-compatible:** `MsalCacheTokenProvider` is invisible to callers. The
+  `IAuthenticationProvider` contract is unchanged. PAT auth users are completely unaffected.
+
+### Performance Implications
+
+- **Read-only commands:** ~67% reduction in ADO API calls in typical usage patterns
+  (15-min TTL vs 5-min means 3x fewer sync cycles for `status`/`tree`/`show`).
+- **All commands (az CLI auth):** ~100–300ms latency reduction on first API call per
+  process when a valid MSAL cache entry exists (eliminates `az` process spawn).
+- **Thread serialization overhead:** The `SemaphoreSlim` in `MsalCacheTokenProvider`
+  adds <1μs per call in the uncontended case (CLI). Under MCP contention, concurrent
+  callers wait for the token acquisition to complete, which is correct behavior.
+
+## Security Considerations
+
+### MSAL Token Handling
+
+`MsalCacheTokenProvider` reads Azure AD bearer tokens from the MSAL cache file. These
+tokens grant full Azure DevOps API access scoped to the authenticated user. Security
+implications:
+
+1. **Raw token in-memory retention.** The decorator caches the raw bearer token string
+   in a private field (`_cachedToken`) for up to 50 minutes. This matches `AzCliAuthProvider`'s
+   existing behavior — the threat model is identical. The token is held in managed memory,
+   subject to GC collection after the reference is cleared. No additional exposure beyond
+   what `AzCliAuthProvider` already introduces.
+
+2. **File read permissions.** `~/.azure/msal_token_cache.json` is user-profile-scoped
+   and protected by OS file permissions (user-only read/write on both Windows and Unix).
+   `MsalCacheTokenProvider` reads the file with `FileShare.ReadWrite` to avoid locking
+   conflicts, but does not modify it. Twig does not alter the file's permissions.
+
+3. **Hardcoded ADO resource UUID.** The Azure DevOps resource ID
+   (`499b84ac-1321-427f-aa17-267ca6975798`) is a well-known public constant used by
+   all Azure DevOps clients (including `az devops` and the ADO REST API documentation).
+   It is not a secret and is safe to embed in source code. The same constant already
+   exists in `AzCliAuthProvider` (line 13) as the `--resource` argument to `az`.
+
+4. **No token refresh or write-back.** `MsalCacheTokenProvider` is strictly read-only.
+   It never writes to the MSAL cache, never initiates auth flows, and never calls Azure AD
+   endpoints. If the cached token is expired or invalid, it silently delegates to
+   `AzCliAuthProvider`, which handles the full auth lifecycle.
+
+5. **Telemetry safety.** No token content, MSAL cache paths, or auth-related identifiers
+   are emitted in telemetry. The only auth-related telemetry property is a boolean
+   indicating whether the MSAL cache was used (e.g., `msal_cache_hit: true`), which is
+   safe per the telemetry allowlist.
+
 ## Risks and Mitigations
 
 | Risk | Likelihood | Impact | Mitigation |
@@ -428,6 +597,8 @@ as NG-3.
 | Read-only 15-min TTL shows stale data confusing users | Low | Low | `CacheAgeFormatter` already displays "⚡ 2m ago" indicators. Stale hint at 15 min is still surfaced. |
 | Large test file migration introduces regressions | Medium | Medium | Mechanical change (find-replace `SyncCoordinator` → `SyncCoordinatorFactory`). Each test file compiled and run individually. |
 | MSAL cache file locked by `az` CLI during reads | Low | Low | Default `fileReader` uses `FileStream(FileShare.ReadWrite)`. JSON parse failure falls back to az CLI. |
+| `TwigJsonContext` naming policy breaks MSAL DTO deserialization | Medium | High | DD-23 mandates `[JsonPropertyName("AccessToken")]`. Test #1673-T2 explicitly verifies PascalCase key deserialization. CI catches via assertion on non-null `AccessToken` dictionary. |
+| MCP concurrent auth race condition | Low | Medium | DD-22 mandates `SemaphoreSlim(1,1)` serialization. Test verifies concurrent access pattern. |
 
 ## Open Questions
 
@@ -596,11 +767,20 @@ directly when a valid ADO-scoped token exists.
 
 **Task #1673-T1 Details:**
 
-This task bundles four concerns that should be implemented in the following order:
+This task bundles four concerns (DTOs, JSON registration, business logic, DI wiring) into
+a single task because they form an **atomic unit of functionality** — none of the four has
+value without the others, and each is small enough (10–50 LoC) that splitting into separate
+tasks would create artificial overhead without improving reviewability or parallelism. The
+PR for this task (#PG-4) is already classified as "deep" (few files, complex logic), and all
+four concerns modify only 3 files. Splitting would create 4 tasks that must be done
+sequentially by the same developer on the same PR, adding task management overhead without
+meaningful independence.
+
+Implementation order within this task:
 
 1. **Define DTOs** — `MsalTokenCache` and `MsalAccessTokenEntry` in `MsalCacheTokenProvider.cs`
 2. **Register DTOs** — Add `[JsonSerializable(typeof(MsalTokenCache))]` to `TwigJsonContext`
-3. **Implement business logic** — `MsalCacheTokenProvider` class with decorator pattern, in-memory cache, and fallback
+3. **Implement business logic** — `MsalCacheTokenProvider` class with decorator pattern, in-memory cache, semaphore, and fallback
 4. **Wire DI** — Update `NetworkServiceModule` to wrap `AzCliAuthProvider` in `MsalCacheTokenProvider`
 
 - New sealed class `MsalCacheTokenProvider : IAuthenticationProvider` in `Auth/MsalCacheTokenProvider.cs`.
@@ -608,6 +788,7 @@ This task bundles four concerns that should be implemented in the following orde
   ```csharp
   internal sealed class MsalTokenCache
   {
+      [JsonPropertyName("AccessToken")]
       public Dictionary<string, MsalAccessTokenEntry>? AccessToken { get; set; }
   }
 
@@ -619,8 +800,16 @@ This task bundles four concerns that should be implemented in the following orde
       public string? ExpiresOn { get; set; }
   }
   ```
+  > **Note on `[JsonPropertyName("AccessToken")]`:** Required because `TwigJsonContext`
+  > uses `PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase` (DD-23). Without this
+  > attribute, the source generator maps C# `AccessToken` → JSON `"accessToken"`, but the
+  > MSAL cache file uses PascalCase `"AccessToken"`. The explicit `[JsonPropertyName]`
+  > overrides the naming policy for this property. Inner properties (`Secret`, `Target`)
+  > are already lowercase in the MSAL file, matching the camelCase policy naturally.
+  > `ExpiresOn` uses `[JsonPropertyName("expires_on")]` for the snake_case key.
 - Add `[JsonSerializable(typeof(MsalTokenCache))]` to `TwigJsonContext`.
 - Constructor: `(IAuthenticationProvider inner, string? cacheFilePath = null, Func<string, CancellationToken, Task<string?>>? fileReader = null, Func<DateTimeOffset>? clock = null)`.
+- Private `SemaphoreSlim _semaphore = new(1, 1)` field for thread-safe token acquisition (DD-22).
 - Default cache path: `Path.Combine(Environment.GetFolderPath(SpecialFolder.UserProfile), ".azure", "msal_token_cache.json")`.
 - Default file reader: reads via `new FileStream(path, FileMode.Open, FileAccess.Read,
   FileShare.ReadWrite)` + `StreamReader` (not `File.ReadAllTextAsync`, which does not
@@ -629,12 +818,21 @@ This task bundles four concerns that should be implemented in the following orde
   for test isolation, mirroring `AzCliAuthProvider`'s `Func<ProcessStartInfo, Process?>`
   pattern.
 - `GetAccessTokenAsync`:
-  1. Check in-memory cache (50-min TTL matching AzCliAuthProvider).
-  2. Read + parse MSAL cache file.
-  3. Filter `AccessToken` entries where `Target` contains `499b84ac-1321-427f-aa17-267ca6975798`.
-  4. Find entry with `ExpiresOn` > `now + 5 minutes` (buffer for clock skew).
-  5. Valid → cache in-memory, return raw secret string (DD-21).
-  6. Any failure → delegate to `_inner.GetAccessTokenAsync(ct)`.
+  1. Acquire `_semaphore` (serializes concurrent MCP calls — DD-22).
+  2. Check in-memory cache (50-min TTL matching AzCliAuthProvider — NFR-5).
+  3. Read + parse MSAL cache file.
+  4. Filter `AccessToken` entries where `Target` contains `499b84ac-1321-427f-aa17-267ca6975798`.
+  5. Find entry with `ExpiresOn` > `now + 5 minutes`. The **5-minute expiry buffer** accounts
+     for two factors: (a) **clock skew** between the local system and Azure AD's token
+     server — the token's `ExpiresOn` is set by Azure AD, but the comparison uses the local
+     clock, which may lag by 1–3 minutes; (b) **network latency** — a token that expires in
+     4 minutes might be used in a request that takes 1–2 minutes to reach the server, arriving
+     after expiry and triggering a 401. The 5-minute buffer ensures the token is valid for the
+     duration of at least one API call round-trip. This matches the MSAL library's own
+     `DefaultAccessTokenExpirationBuffer` of 5 minutes.
+  6. Valid → cache in-memory, return raw secret string (DD-21).
+  7. Any failure → delegate to `_inner.GetAccessTokenAsync(ct)`.
+  8. Release `_semaphore` in `finally` block.
 - All exceptions caught and swallowed (delegate to fallback).
 - In `NetworkServiceModule`, change the azcli branch to wrap `AzCliAuthProvider`:
   ```csharp
@@ -648,11 +846,14 @@ This task bundles four concerns that should be implemented in the following orde
 **Task #1673-T2 Details:**
 - Test valid token in cache → returns raw token string without spawning process.
 - Test expired token → falls back to inner provider.
+- Test token within 5-minute expiry buffer → falls back to inner provider.
 - Test missing cache file → falls back to inner provider.
 - Test malformed JSON → falls back to inner provider.
 - Test no ADO-scoped token → falls back to inner provider.
 - Test multiple tokens → selects ADO-scoped entry.
 - Test in-memory cache → second call skips file read.
+- Test concurrent calls → `SemaphoreSlim` serializes access (verify via timing or mock assertions).
+- Test `AccessToken` deserialization with PascalCase key (verifies DD-23 `[JsonPropertyName]`).
 - Use injectable `fileReader`, `clock`, and `cacheFilePath` for deterministic testing.
   The `fileReader` func enables tests to provide cache content without touching the
   filesystem, and to simulate read failures by returning `null` or throwing.
@@ -660,7 +861,10 @@ This task bundles four concerns that should be implemented in the following orde
 **Acceptance Criteria:**
 - [ ] Valid MSAL cache token is returned without process spawn
 - [ ] Expired/missing/malformed cache silently falls back to `az` CLI
-- [ ] In-memory cache prevents repeated file reads
+- [ ] Token within 5-minute expiry buffer treated as expired (falls back)
+- [ ] In-memory cache (50-min TTL) prevents repeated file reads
+- [ ] Concurrent `GetAccessTokenAsync` calls serialized by `SemaphoreSlim`
+- [ ] `MsalTokenCache.AccessToken` has `[JsonPropertyName("AccessToken")]` for camelCase policy
 - [ ] No `Microsoft.Identity.Client` dependency added
 - [ ] DTOs registered in `TwigJsonContext` for AOT compatibility
 - [ ] `PatAuthProvider` path is completely unaffected

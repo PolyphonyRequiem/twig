@@ -5,7 +5,6 @@ using Twig.Commands;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
-using Twig.Infrastructure.Config;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
@@ -36,7 +35,6 @@ public class RefreshCommandProfileTests : RefreshCommandTestBase
 
     private RefreshCommand CreateCommand(TextWriter? stderr = null) =>
         CreateRefreshCommand(stderr, _globalProfileStore);
-
 
     [Fact]
     public async Task Refresh_HashUnchanged_UpdatesLastSyncedAtOnly()

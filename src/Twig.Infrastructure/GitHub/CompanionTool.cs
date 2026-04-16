@@ -41,7 +41,7 @@ internal interface ICompanionInstaller
     /// Downloads the archive at <paramref name="archiveUrl"/> and extracts only the
     /// companion executables whose names appear in <paramref name="companionExeNames"/>.
     /// </summary>
-    Task InstallCompanionsOnlyAsync(
+    Task<IReadOnlyList<CompanionUpdateResult>> InstallCompanionsOnlyAsync(
         string archiveUrl,
         string archiveName,
         string[] companionExeNames,

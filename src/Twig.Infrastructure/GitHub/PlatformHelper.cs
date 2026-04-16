@@ -53,12 +53,8 @@ internal static class PlatformHelper
         var ext = rid.StartsWith("win-", StringComparison.Ordinal) ? ".zip" : ".tar.gz";
         var expectedName = $"twig-{rid}{ext}";
 
-        foreach (var asset in release.Assets)
-        {
-            if (string.Equals(asset.Name, expectedName, StringComparison.OrdinalIgnoreCase))
-                return (asset, expectedName);
-        }
-
-        return (null, expectedName);
+        var asset = release.Assets.FirstOrDefault(a =>
+            string.Equals(a.Name, expectedName, StringComparison.OrdinalIgnoreCase));
+        return (asset, expectedName);
     }
 }

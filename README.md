@@ -4,100 +4,211 @@ A high-performance, opinionated CLI for Azure DevOps work item management. Twig 
 
 Built with C# .NET 10 Native AOT — single binary, sub-100ms cold start.
 
+> **[Full Documentation](docs/README.md)** — architecture, internals, and contributor guides
+
 ## Quick Start
 
 ```bash
 # Initialize (connects to your ADO org and project)
 twig init --org contoso --project MyProject
 
-# Refresh sprint data from ADO
-twig refresh
+# Sync data from ADO into local cache
+twig sync
 
-# View your work items
-twig ws                     # your assigned items
-twig sprint                 # full team sprint view
-twig tree                   # hierarchical tree from active context
-
-# Set active context and navigate
-twig set 12345              # by ID
-twig set "auth bug"         # by title substring match
-twig up                     # navigate to parent
-twig down "subtask"         # navigate to child
+# View your assigned work items
+twig ws
 ```
 
-## Developer Flow
+## Working with Items
 
-Twig provides an opinionated lifecycle for working on items:
+Twig uses an **active context** model — you set a work item as your focus, then all
+commands operate on it until you change context.
 
 ```bash
-# Start: set context → transition to InProgress → self-assign → create git branch
-twig flow-start 12345
-# Or pick interactively from the current sprint:
-twig flow-start
+# Set context by ID or title match
+twig set 12345
+twig set "auth bug"
 
-# Work on your code...
+# View the active item
+twig status                     # full detail view
+twig tree                       # hierarchical tree from active item
 
-# Done: save changes → transition to Resolved → offer PR creation
-twig flow-done
-
-# Close: guard open PRs → transition to Completed → delete branch → clear context
-twig flow-close
+# Navigate the hierarchy
+twig nav up                     # move to parent
+twig nav down "subtask"         # move to child by title match
 ```
 
-### Flow Command Options
+### Navigation
+
+`twig nav` opens an interactive tree navigator — browse the hierarchy with arrow keys,
+jump to linked items, and select a new context without knowing IDs. Subcommands let you
+move directly:
 
 ```bash
-# flow-start
-twig flow-start 12345 --no-branch      # skip branch creation
-twig flow-start 12345 --no-state       # skip state transition
-twig flow-start 12345 --no-assign      # skip self-assignment
-twig flow-start 12345 --force          # proceed with uncommitted changes
-twig flow-start 12345 --output json    # structured output for scripts
-
-# flow-done
-twig flow-done --no-save               # skip saving pending changes
-twig flow-done --no-pr                 # skip PR creation prompt
-twig flow-done --output minimal        # emit PR URL only (for shell capture)
-
-# flow-close
-twig flow-close --force                # bypass guards (unsaved changes, open PRs)
-twig flow-close --no-branch-cleanup    # keep branch after close
+twig nav                        # interactive tree navigator
+twig nav up                     # move to parent item
+twig nav down                   # pick a child interactively
+twig nav down "auth"            # jump to child matching "auth"
+twig nav next                   # move to next sibling
+twig nav prev                   # move to previous sibling
+twig nav back                   # go back to previous context
+twig nav fore                   # go forward (undo a back)
+twig nav history                # show recent navigation history
 ```
 
-## Commands
+> **Shorthand:** `up`, `down`, `next`, and `prev` also work without the `nav` prefix — e.g. `twig up` is the same as `twig nav up`.
 
-| Command | Description |
-|---------|-------------|
-| `init` | Initialize workspace (connect to ADO org/project) |
-| `refresh` | Sync sprint data from ADO (with dirty-item protection) |
-| `set` | Set active work item context (by ID or title match) |
-| `status` | Show active work item details |
-| `tree` | Display hierarchical work item tree |
-| `ws` | Personal workspace — your assigned items |
-| `sprint` | Full team sprint view |
-| `state` | Transition state (`p`roposed, a`c`tive, re`s`olved, `d`one, remo`x`ed) |
-| `save` | Push pending changes to ADO |
-| `note` | Add/view discussion comments |
-| `update` | Update a field value |
-| `edit` | Open work item in `$EDITOR` |
-| `seed` | Create a child work item stub |
-| `up` / `down` | Navigate parent/child hierarchy |
-| `config` | Read/write configuration values |
-| `branch` | Create a git branch named from the active work item |
-| `commit` | Commit with a work-item-enriched message and link to ADO |
-| `pr` | Create an ADO pull request linked to the active work item |
-| `hooks install` | Install Twig-managed git hooks into `.git/hooks/` |
-| `hooks uninstall` | Remove Twig-managed git hooks from `.git/hooks/` |
-| `stash` | Stash changes with work item context in the stash message |
-| `stash pop` | Pop the most recent stash and restore Twig context |
-| `log` | Show annotated git log with work item type/state badges |
-| `context` | Show current branch, active work item, and linked PRs |
-| `flow-start` | Start work: context + state + assign + branch |
-| `flow-done` | Finish work: save + resolve + PR offer |
-| `flow-close` | Close work: guard + complete + branch cleanup |
-| `ohmyposh init` | Generate Oh My Posh shell hook and segment config |
-| `tui` | Launch full-screen TUI mode |
-| `version` | Show version |
+### Mutating Work Items
+
+```bash
+# Change state (prefix matching — "act" matches "Active", "do" matches "Done")
+twig state active
+twig state done
+
+# Update fields — short names work for common fields
+twig update title "New title"
+twig update description "Rich content" --format markdown
+
+# Fully qualified names work too (better for scripts or disambiguation)
+twig update System.Title "New title"
+twig update Microsoft.VSTS.Scheduling.StoryPoints 5
+
+# Add a discussion note
+twig note "Investigated the issue, root cause is in auth middleware"
+```
+
+Changes are pushed to ADO immediately on `update`, `state`, and `note`. No manual save step.
+
+### Process-Agnostic Design
+
+Twig doesn't assume you're using Agile, Scrum, CMMI, or Basic. On first sync, it discovers your project's process template from ADO and learns the available work item types, states, and fields automatically. State prefix matching (`twig state do` → "Done") works regardless of your process — twig resolves against whatever states your process actually defines.
+
+## Views
+
+Twig has three views for different perspectives on your work:
+
+### `twig ws` — Your Working Set
+
+Shows items assigned to you in the current sprint. This is your daily driver — what's on your plate right now.
+
+```
+Workspace
+──────────────────────────────────────────────────────────────────
+  Active: #1618 □ Issue — MCP Server (Epic 1484) Closeout Findings [Done]
+
+ ID      Type      Title                                          State
+ #1645   □ Issue   Release pipeline and installer scripts         Doing
+ #1644   □ Issue   Self-updater companion extraction              Done
+ #1618   □ Issue   MCP Server closeout findings                   Done
+ #1603   ◆ Epic    Follow up on closeout findings                 To Do
+
+ Seeds (2):  #s1 Add TUI publish step  ·  #s2 Verify installer checksum
+ ✎ 1 dirty item
+```
+
+### `twig tree` — Hierarchy from Active Item
+
+Shows the parent chain above and children below the active item. Useful for understanding where a work item sits in the backlog structure.
+
+```
+◆ Follow Up on Closeout Findings [To Do]
+├── ● □ #1618 MCP Server (Epic 1484) Closeout Findings [Done]
+│   ├── │ □ #1633 Add explicit work-item ID flag to twig update command [Done]
+│   ├── │ □ #1620 Add pre-close-out sync step for pending notes [Done]
+│   ├── │ □ #1622 Add task-level state verification gate before Issue closure [Done]
+│   ├── │ □ #1621 Add worktree-aware close-out flow [Done]
+│   └── │ □ #1619 Enforce branch naming consistency in PR group manager [Done]
+└── ...10
+```
+
+The `●` marker indicates the active (focused) item. Parent items appear above, children below. The `...10` shows there are 10 sibling items collapsed.
+
+### `twig sprint` — Full Team Sprint
+
+Shows the entire sprint grouped by assignee — useful in standups or to see team workload at a glance.
+
+```
+Sprint
+──────────────────────────────────────────────────────────────────
+  Active: #1618 □ Issue — MCP Server (Epic 1484) Closeout Findings [Done]
+
+ Daniel Green (4 items)
+   #1645   □ Issue   Release pipeline and installer scripts   Doing
+   #1644   □ Issue   Self-updater companion extraction         Done
+   #1618   □ Issue   MCP Server closeout findings              Done
+   #1603   ◆ Epic    Follow up on closeout findings            To Do
+
+ Alex Kim (2 items)
+   #1650   □ Issue   Query command returns stale results       Doing
+   #1648   □ Issue   Cache invalidation on team change         New
+```
+
+All three views read from the local cache, so they render instantly even with hundreds of items.
+
+## Seeds — Local Work Item Drafts
+
+Seeds are work items that exist only in your local cache — they haven't been created in ADO yet. This lets you plan and structure work offline, then publish when you're ready.
+
+When you create a seed, twig assigns it a **negative ID** (e.g. `#-1`, `#-2`) to distinguish it from real ADO items. Seeds are children of the active item and appear in your workspace view alongside real items.
+
+```bash
+# Create a seed (child of the active item)
+twig seed new "Implement auth middleware"
+# → creates local-only item #-1 under the active work item
+
+# Edit a seed before publishing
+twig seed edit -1
+
+# View all seeds
+twig seed view
+```
+
+### Seed Chains — Ordered Task Sequences
+
+`twig seed chain` creates a sequence of seeds linked with **successor relationships**, so they form an ordered execution plan. This is useful when breaking an issue into tasks that should be done in a specific order.
+
+```bash
+# Create a chain of linked seeds interactively
+twig seed chain
+# → prompts for each title; each seed is linked as a successor of the previous one
+# → result: #-1 → #-2 → #-3 (successor chain)
+```
+
+### Publishing Seeds
+
+When you're happy with the plan, publish seeds to ADO. Twig creates real work items in dependency order, replacing negative IDs with real ADO IDs and preserving all links.
+
+```bash
+# Publish a single seed
+twig seed publish -1
+
+# Publish all seeds in dependency order
+twig seed publish --all
+```
+
+## How Data Stays in Sync
+
+Twig keeps a local SQLite cache of your sprint data so reads are instant (~1ms).
+Here's what to expect:
+
+- **Reads are local** — `status`, `tree`, `ws` never wait on the network. You always get a fast response from the cache.
+- **Writes go straight to ADO** — `update`, `state`, and `note` push immediately. The cache updates after ADO confirms.
+- **Stale data refreshes automatically** — when you `twig set` an item, twig checks if the cached copy is recent. If it's older than a few minutes, it quietly fetches the latest from ADO first.
+- **`twig sync` forces a full refresh** — pulls the latest sprint data from ADO, flushing any pending changes first.
+- **Your local edits are protected** — if you have unsaved local changes on an item, a sync will never overwrite them.
+- **Conflicts are handled** — if someone else edited the same item, twig re-fetches the latest version and retries your change automatically.
+
+For the full technical details on the sync pipeline, caching tiers, and conflict resolution, see the [Data Layer](docs/architecture/data-layer.md) architecture doc.
+
+## Shell Prompt Integration
+
+Twig writes a `.twig/prompt.json` file with the current context (active work item ID, title, type, state) after every context change. Your shell prompt can read this file for instant, zero-latency status display — no subprocess needed.
+
+This works with any prompt framework that can read a JSON file:
+
+- **[Oh My Posh](https://ohmyposh.dev/)** — use a `text` segment reading `$TWIG_PROMPT` (see `twig ohmyposh init`)
+- **[Starship](https://starship.rs/)** — use a `custom` command with `cat .twig/prompt.json | jq -r .title`
+- **[Powerlevel10k](https://github.com/romkatv/powerlevel10k)** — custom instant prompt segment
 
 ## Output Formats
 
@@ -106,126 +217,6 @@ All commands support `--output human|json|minimal`:
 - **human** — ANSI-colored with type badges, state colors, and contextual hints
 - **json** — machine-readable, no ANSI escapes (pipe to `jq` or AI agents)
 - **minimal** — plain text for scripting and `grep`
-
-## Git Integration
-
-Twig integrates with git to automate branch management and PR creation during the developer flow:
-
-```bash
-# flow-start creates a branch named from the active work item
-twig flow-start 12345
-# → creates branch: feature/12345-add-login (configurable template)
-
-# flow-done offers to create a PR when the branch is ahead of the target
-twig flow-done
-# → prompts: Branch 'feature/12345-add-login' is ahead of 'main'. Create PR? [y/N]
-
-# flow-close deletes the local branch after confirming
-twig flow-close
-# → prompts: Delete branch 'feature/12345-add-login'? [y/N]
-```
-
-Git commands are also available as standalone operations:
-
-```bash
-twig branch                        # create branch from active work item
-twig commit -m "add validation"    # commit with enriched message (e.g. feat(#12345): add validation)
-twig commit --amend -m "fix typo"  # amend with enriched message
-twig pr                            # create PR targeting git.defaultTarget
-twig pr --target develop           # create PR targeting a specific branch
-twig pr --draft                    # create a draft PR
-
-# Git hooks — auto-set context and prefix commit messages on every branch switch and commit
-twig hooks install                     # install prepare-commit-msg, commit-msg, post-checkout
-twig hooks uninstall                   # remove Twig-managed hook sections
-
-# Stash changes with work item context embedded in the stash message
-twig stash                             # stash → message: "[#12345 Implement auth]"
-twig stash -m "wip: half done"         # stash → "[#12345 Implement auth] wip: half done"
-twig stash pop                         # pop stash and restore Twig context from branch name
-
-# Annotated log — work item type/state badges alongside each commit
-twig log                               # last 20 commits, annotated with work item info
-twig log --count 10                    # limit to 10 commits
-twig log --work-item 12345             # filter to commits referencing #12345
-
-# Git context — shows current branch, active work item, and linked PRs
-twig context                           # show current git context summary
-twig context --output json             # machine-readable context
-```
-
-### Git Configuration
-
-All `git.*` settings live in `.twig/config`:
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `git.branchTemplate` | `feature/{id}-{title}` | Branch name template. Tokens: `{id}`, `{type}`, `{title}` |
-| `git.branchPattern` | `(?:^|/)(?<id>\d{3,})(?:-|/|$)` | Regex to extract work item ID from branch name |
-| `git.defaultTarget` | `main` | Target branch for PRs |
-| `git.project` | *(from `project`)* | ADO project containing the git repository (if different from backlog project) |
-| `git.repository` | *(auto-detected)* | Git repository name (auto-detected from `git remote get-url origin`) |
-
-The following settings are also active and used by the implemented `twig branch`, `twig commit`, and `twig pr` commands:
-
-| Setting | Default | Used by |
-|---------|---------|---------|
-| `git.committemplate` | `{type}(#{id}): {message}` | `twig commit` — commit message format. Tokens: `{type}` (conventional prefix), `#{id}` (work item), `{message}` (body) |
-| `git.autolink` | `true` | `twig branch`, `twig commit`, `twig pr` — automatically add ADO artifact links to the work item |
-| `git.autotransition` | `true` | `twig branch` — automatically transition Proposed items to Active on branch creation |
-
-```bash
-twig config git.branchtemplate "{type}/{id}-{title}"
-twig config git.defaulttarget develop
-twig config git.project BackendService
-twig config git.repository my-api-repo
-twig config git.committemplate "{type}(#{id}): {message}"
-twig config git.autolink false
-twig config git.autotransition false
-```
-
-### Hooks Configuration
-
-The three git hooks installed by `twig hooks install` are individually enabled by default and can be toggled:
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `git.hooks.preparecommitmsg` | `true` | Auto-prefix commit messages with `#{workItemId}` |
-| `git.hooks.commitmsg` | `true` | Warn when a commit message doesn't reference a work item |
-| `git.hooks.postcheckout` | `true` | Auto-set Twig context on branch switch |
-
-```bash
-twig config git.hooks.preparecommitmsg false   # disable commit message prefixing
-twig config git.hooks.commitmsg false           # disable work item reference warning
-twig config git.hooks.postcheckout false        # disable auto context on branch switch
-```
-
-### Flow Configuration
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `flow.autoassign` | `if-unassigned` | Assignment in `flow-start`: `if-unassigned`, `always`, `never` |
-| `flow.autosaveondone` | `true` | Auto-save pending changes in `flow-done` |
-| `flow.offerprondone` | `true` | Show PR creation prompt in `flow-done` |
-
-## Cross-Project Support
-
-Work items and git repos can live in different ADO projects:
-
-```bash
-twig init --org contoso --project MyProject          # backlog project
-twig config git.project BackendService               # code project (for PRs)
-twig config git.repository my-api-service            # repo name (auto-detected from git remote)
-```
-
-## Configuration
-
-```bash
-twig config display.icons nerd          # nerd font icons (default: unicode)
-twig config display.treedepth 5         # tree display depth
-twig config git.branchtemplate "feature/{id}-{title}"
-twig config flow.autoassign if-unassigned
-```
 
 ## Installation
 
@@ -263,22 +254,14 @@ dotnet test
 dotnet publish src/Twig -r win-x64 -c Release
 ```
 
-## Project Structure
+## Next Topics
 
-```
-src/
-  Twig/                 — CLI entry point (ConsoleAppFramework + Spectre.Console)
-  Twig.Domain/          — Pure domain model (zero NuGet dependencies)
-  Twig.Infrastructure/  — SQLite cache, ADO REST client, auth, git integration
-  Twig.Tui/             — Full-screen TUI (Terminal.Gui v2)
-tests/
-  Twig.Domain.Tests/
-  Twig.Infrastructure.Tests/
-  Twig.Cli.Tests/
-  Twig.Tui.Tests/
-docs/
-  projects/             — Design docs, plans, scenarios
-```
+- **[Architecture Overview](docs/architecture/overview.md)** — how twig is built: layered design, project structure, key constraints
+- **[Data Layer](docs/architecture/data-layer.md)** — sync mechanics, caching tiers, conflict resolution in depth
+- **[Commands](docs/architecture/commands.md)** — full command catalog, rendering pipeline, telemetry
+- **[ADO Integration](docs/architecture/ado-integration.md)** — REST client, authentication, link management
+- **[MCP Server](docs/architecture/mcp-server.md)** — AI agent integration via the twig-mcp tool server
+- **[Build & Release](docs/architecture/build-and-release.md)** — AOT compilation, versioning, release pipeline
 
 ## License
 

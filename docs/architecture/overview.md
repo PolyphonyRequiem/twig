@@ -98,7 +98,7 @@ Entry points compose the full object graph via dependency injection.
 | `Twig` | `twig` | CLI entry point. ConsoleAppFramework commands, Spectre.Console rendering, output formatters, hint engine. AOT-compiled. |
 | `Twig.Domain` | (class library) | Core business logic. Aggregates (`WorkItem`, `ProcessConfiguration`), domain services, interfaces, value objects, enums. No external dependencies. |
 | `Twig.Infrastructure` | (class library) | SQLite persistence, ADO REST clients, authentication providers, git CLI wrapper, JSON serialization (`TwigJsonContext`), configuration, telemetry. |
-| `Twig.Mcp` | `twig-mcp` | MCP server for AI agent integration. Stdio transport, 11 tools across 3 tool classes (`ContextTools`, `ReadTools`, `MutationTools`). AOT-compiled. |
+| `Twig.Mcp` | `twig-mcp` | MCP server for AI agent integration. Stdio transport, 8 tools across 3 tool classes (`ContextTools`, `ReadTools`, `MutationTools`). AOT-compiled. |
 | `Twig.Tui` | `twig-tui` | Terminal.Gui interactive viewer. Three-pane layout (menu, tree navigator, form). Published as self-contained single-file (non-AOT). |
 
 ### Test Projects (`tests/`)
@@ -188,7 +188,7 @@ Two authentication providers, selected via configuration:
 
 - **Azure CLI** (`azcli`, default): Delegates to `az account get-access-token`. No
   credentials stored.
-- **Personal Access Token** (`pat`): Read from `SYSTEM_ACCESSTOKEN` environment
+- **Personal Access Token** (`pat`): Read from `TWIG_PAT` environment
   variable. Used in CI/CD pipelines.
 
 ### Data Storage
@@ -196,8 +196,8 @@ Two authentication providers, selected via configuration:
 SQLite databases are stored per-workspace at `.twig/{org}/{project}/twig.db` with WAL
 mode enabled. Key tables:
 
-- `WorkItems` — cached work items with `LastSyncedAt` staleness tracking
-- `PendingChanges` — staged field mutations (flushed to ADO on save/sync)
+- `work_items` — cached work items with `LastSyncedAt` staleness tracking
+- `pending_changes` — staged field mutations (flushed to ADO on save/sync)
 - `ProcessTypes` — process configuration metadata (states, rules, backlog levels)
 - `FieldDefinitions` — custom field metadata synced from ADO
 - `WorkItemLinks`, `SeedLinks` — relationship tracking
@@ -266,7 +266,7 @@ request, providing:
 
 - **Transactional semantics**: All changes succeed or fail together.
 - **Minimal API calls**: One PATCH per flush, not one per field change.
-- **Rollback safety**: Pending state is persisted in the `PendingChanges` SQLite table,
+- **Rollback safety**: Pending state is persisted in the `pending_changes` SQLite table,
   surviving process crashes.
 
 ### Protected Cache Writer (Revision Safety)
@@ -274,7 +274,7 @@ request, providing:
 Writes to the local cache are guarded by revision checks via `ProtectedCacheWriter`. If
 the cached revision does not match the incoming revision, a `ConflictException` is
 raised. The `ConflictRetryHelper` handles this by re-fetching the latest revision from
-ADO and retrying the PATCH (up to 3 attempts). This prevents lost updates when multiple
+ADO and retrying the PATCH (up to 2 attempts). This prevents lost updates when multiple
 clients modify the same work item.
 
 ### Rendering Pipeline

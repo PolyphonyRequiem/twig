@@ -10,7 +10,8 @@ and local development workflow.
 ### Configuration
 
 All publishable projects target `net10.0` (set in `Directory.Build.props`).
-The two main binaries — `twig` and `twig-mcp` — are AOT-compiled:
+The two main binaries — `twig` and `twig-mcp` — are AOT-compiled, with
+AOT properties set in their respective `.csproj` files:
 
 | Property | Value | Purpose |
 |----------|-------|---------|
@@ -56,7 +57,7 @@ AOT (see §4).
 Version numbers are derived from Git tags via **MinVer 7.0.0**.
 
 ```xml
-<!-- Directory.Build.props -->
+<!-- src/Twig/Twig.csproj and src/Twig.Mcp/Twig.Mcp.csproj -->
 <MinVerTagPrefix>v</MinVerTagPrefix>
 ```
 

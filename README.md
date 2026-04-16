@@ -12,58 +12,18 @@ Built with C# .NET 10 Native AOT — single binary, sub-100ms cold start.
 # Initialize (connects to your ADO org and project)
 twig init --org contoso --project MyProject
 
-# Refresh sprint data from ADO
-twig refresh
+# Sync data from ADO
+twig sync
 
 # View your work items
 twig ws                     # your assigned items
-twig sprint                 # full team sprint view
 twig tree                   # hierarchical tree from active context
 
 # Set active context and navigate
 twig set 12345              # by ID
 twig set "auth bug"         # by title substring match
-twig up                     # navigate to parent
-twig down "subtask"         # navigate to child
-```
-
-## Developer Flow
-
-Twig provides an opinionated lifecycle for working on items:
-
-```bash
-# Start: set context → transition to InProgress → self-assign → create git branch
-twig flow-start 12345
-# Or pick interactively from the current sprint:
-twig flow-start
-
-# Work on your code...
-
-# Done: save changes → transition to Resolved → offer PR creation
-twig flow-done
-
-# Close: guard open PRs → transition to Completed → delete branch → clear context
-twig flow-close
-```
-
-### Flow Command Options
-
-```bash
-# flow-start
-twig flow-start 12345 --no-branch      # skip branch creation
-twig flow-start 12345 --no-state       # skip state transition
-twig flow-start 12345 --no-assign      # skip self-assignment
-twig flow-start 12345 --force          # proceed with uncommitted changes
-twig flow-start 12345 --output json    # structured output for scripts
-
-# flow-done
-twig flow-done --no-save               # skip saving pending changes
-twig flow-done --no-pr                 # skip PR creation prompt
-twig flow-done --output minimal        # emit PR URL only (for shell capture)
-
-# flow-close
-twig flow-close --force                # bypass guards (unsaved changes, open PRs)
-twig flow-close --no-branch-cleanup    # keep branch after close
+twig nav up                 # navigate to parent
+twig nav down "subtask"     # navigate to child
 ```
 
 ## Commands
@@ -71,35 +31,16 @@ twig flow-close --no-branch-cleanup    # keep branch after close
 | Command | Description |
 |---------|-------------|
 | `init` | Initialize workspace (connect to ADO org/project) |
-| `refresh` | Sync sprint data from ADO (with dirty-item protection) |
 | `set` | Set active work item context (by ID or title match) |
 | `status` | Show active work item details |
 | `tree` | Display hierarchical work item tree |
 | `ws` | Personal workspace — your assigned items |
-| `sprint` | Full team sprint view |
-| `state` | Transition state (`p`roposed, a`c`tive, re`s`olved, `d`one, remo`x`ed) |
-| `save` | Push pending changes to ADO |
-| `note` | Add/view discussion comments |
+| `sync` | Flush pending changes then refresh from ADO |
+| `state` | Change the state of the active work item |
 | `update` | Update a field value |
-| `edit` | Open work item in `$EDITOR` |
-| `seed` | Create a child work item stub |
-| `up` / `down` | Navigate parent/child hierarchy |
-| `config` | Read/write configuration values |
-| `branch` | Create a git branch named from the active work item |
-| `commit` | Commit with a work-item-enriched message and link to ADO |
-| `pr` | Create an ADO pull request linked to the active work item |
-| `hooks install` | Install Twig-managed git hooks into `.git/hooks/` |
-| `hooks uninstall` | Remove Twig-managed git hooks from `.git/hooks/` |
-| `stash` | Stash changes with work item context in the stash message |
-| `stash pop` | Pop the most recent stash and restore Twig context |
-| `log` | Show annotated git log with work item type/state badges |
-| `context` | Show current branch, active work item, and linked PRs |
-| `flow-start` | Start work: context + state + assign + branch |
-| `flow-done` | Finish work: save + resolve + PR offer |
-| `flow-close` | Close work: guard + complete + branch cleanup |
-| `ohmyposh init` | Generate Oh My Posh shell hook and segment config |
-| `tui` | Launch full-screen TUI mode |
-| `version` | Show version |
+| `note` | Add/view discussion comments |
+
+Run `twig --help` for the full command list.
 
 ## Output Formats
 
@@ -131,8 +72,8 @@ Git commands are also available as standalone operations:
 
 ```bash
 twig branch                        # create branch from active work item
-twig commit -m "add validation"    # commit with enriched message (e.g. feat(#12345): add validation)
-twig commit --amend -m "fix typo"  # amend with enriched message
+twig commit "add validation"    # commit with enriched message (e.g. feat(#12345): add validation)
+twig commit "fix typo" --amend  # amend with enriched message
 twig pr                            # create PR targeting git.defaultTarget
 twig pr --target develop           # create PR targeting a specific branch
 twig pr --draft                    # create a draft PR
@@ -143,7 +84,7 @@ twig hooks uninstall                   # remove Twig-managed hook sections
 
 # Stash changes with work item context embedded in the stash message
 twig stash                             # stash → message: "[#12345 Implement auth]"
-twig stash -m "wip: half done"         # stash → "[#12345 Implement auth] wip: half done"
+twig stash "wip: half done"         # stash → "[#12345 Implement auth] wip: half done"
 twig stash pop                         # pop stash and restore Twig context from branch name
 
 # Annotated log — work item type/state badges alongside each commit

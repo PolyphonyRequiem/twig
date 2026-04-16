@@ -32,8 +32,8 @@ Twig's sync pipeline sits between the local SQLite cache (WAL mode, per-workspac
 |-------|-------|--------|-------|
 | #1612 | Batch sync | ✅ Done | All 4 tasks merged |
 | #1616 | HTTP transport | ✅ Done | All 3 tasks merged |
-| #1613 | Parallel refresh | 🔄 Doing | 3/4 tasks done; #1658 (test updates) remaining |
-| #1614 | Tiered cache TTL | 📋 To Do | All 6 tasks pending — primary focus of this plan |
+| #1613 | Parallel refresh | ✅ Done | All 4 tasks merged (PR #42) |
+| #1614 | Tiered cache TTL | ✅ Done | All 7 tasks merged (PR #46) |
 
 ### Key Design Decisions Referenced
 
@@ -503,6 +503,21 @@ All design questions have been resolved. No blocking open questions remain.
 | `src/Twig/Commands/RefreshCommand.cs` | Confirmed: no direct `SyncCoordinator` usage — delegates entirely to `RefreshOrchestrator`. No changes needed for #1614. |
 | `tests/Twig.Domain.Tests/Services/RefreshOrchestratorTests.cs` | Update for factory injection + parallel fetch verification (#1658) |
 | `tests/Twig.Domain.Tests/Services/StatusOrchestratorTests.cs` | Update for factory injection |
+
+---
+
+## Completion
+
+**Completed:** 2026-04-16
+**PRs merged:** PR #42 (PG-3b: Refresh test updates), PR #46 (PG-4: Tiered cache TTL)
+
+All four issues under Epic #1611 are complete:
+- **#1612** — Batch sync: Replaced N+1 FetchAsync with FetchBatchAsync in SyncCoordinator
+- **#1616** — HTTP transport: Added compression, HTTP/2, ETags, and in-memory metadata caching
+- **#1613** — Parallel refresh: Parallelized network calls, deduplicated refresh logic, updated tests
+- **#1614** — Tiered cache TTL: Introduced SyncCoordinatorFactory with ReadOnly (15 min) and ReadWrite (5 min) tiers across all commands
+
+**Note:** Issue #1673 (Read MSAL token cache directly) was added to Epic #1611 after this plan was created and is not in scope for this workflow.
 | `tests/Twig.Cli.Tests/Commands/RefreshCommandTestBase.cs` | Update for factory injection |
 | `tests/Twig.Cli.Tests/Commands/SetCommandTests.cs` | Update for factory injection |
 | `tests/Twig.Cli.Tests/Commands/LinkCommandTests.cs` | Update for factory injection |

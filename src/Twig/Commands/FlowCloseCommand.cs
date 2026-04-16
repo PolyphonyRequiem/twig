@@ -3,6 +3,7 @@ using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Formatters;
+using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Config;
 
 namespace Twig.Commands;
@@ -46,7 +47,18 @@ public sealed class FlowCloseCommand(
         var item = resolveResult.Item!;
         int targetId = item.Id;
 
-        // 2. Guard: unsaved changes
+        // 2. Flush pending notes — always runs (notes are additive, cannot conflict)
+        try
+        {
+            await AutoPushNotesHelper.PushAndClearAsync(targetId, pendingChangeStore, adoService);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Console.Error.WriteLine(fmt.FormatInfo(
+                $"Could not flush pending notes for #{targetId}: {ex.Message}. Continuing with close-out."));
+        }
+
+        // 3. Guard: unsaved changes
         if (!force)
         {
             var dirtyIds = await pendingChangeStore.GetDirtyItemIdsAsync();
@@ -59,7 +71,7 @@ public sealed class FlowCloseCommand(
             }
         }
 
-        // 3. Guard: open PRs
+        // 4. Guard: open PRs
         bool isInWorkTree = false;
         string? currentBranch = null;
         if (gitService is not null)
@@ -104,7 +116,7 @@ public sealed class FlowCloseCommand(
             }
         }
 
-        // 4. Child-state verification gate
+        // 5. Child-state verification gate
         if (!force)
         {
             var children = await workItemRepo.GetChildrenAsync(targetId, ct);
@@ -148,7 +160,7 @@ public sealed class FlowCloseCommand(
                 $"Skipping child state verification for #{targetId} (--force)."));
         }
 
-        // 5. Transition to Completed via FlowTransitionService
+        // 6. Transition to Completed via FlowTransitionService
         string? newState = null;
         string originalState = item.State;
         var transitionResult = await flowTransitionService.TransitionStateAsync(
@@ -159,7 +171,7 @@ public sealed class FlowCloseCommand(
             originalState = transitionResult.OriginalState;
         }
 
-        // 6. Branch cleanup (prompt then delete)
+        // 7. Branch cleanup (prompt then delete)
         bool branchDeleted = false;
         if (!noBranchCleanup && isInWorkTree && gitService is not null)
         {
@@ -198,11 +210,11 @@ public sealed class FlowCloseCommand(
             }
         }
 
-        // 7. Clear context
+        // 8. Clear context
         await contextStore.ClearActiveWorkItemIdAsync();
         if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
-        // 8. Print summary
+        // 9. Print summary
         var actionStrings = new List<string>();
         if (newState is not null) actionStrings.Add($"State → {newState}");
         if (branchDeleted) actionStrings.Add($"Branch '{currentBranch}' deleted");

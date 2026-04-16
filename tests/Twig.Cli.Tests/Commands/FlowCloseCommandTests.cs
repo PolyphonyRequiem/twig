@@ -3,6 +3,7 @@ using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
@@ -56,6 +57,10 @@ public class FlowCloseCommandTests
 
         // Default: no dirty items
         _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());
+
+        // Default: no pending changes (so AutoPushNotesHelper is a no-op by default)
+        _pendingChangeStore.GetChangesAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
 
         // Default: no children (child verification gate passes)
         _workItemRepo.GetChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
@@ -600,6 +605,98 @@ public class FlowCloseCommandTests
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
+        await _contextStore.Received().ClearActiveWorkItemIdAsync(Arg.Any<CancellationToken>());
+    }
+
+    // ── Pre-close-out note flush (task #1620) ─────────────────────────
+
+    [Fact]
+    public async Task NoteFlush_Success_PushesNotesAndContinuesToCompletion()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        var item = CreateWorkItem(1, "Feature", "Resolved");
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+
+        var note = new PendingChangeRecord(1, "note", null, null, "my pending note");
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { note });
+
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync();
+
+        result.ShouldBe(0);
+        await _adoService.Received().AddCommentAsync(1, "my pending note", Arg.Any<CancellationToken>());
+        await _pendingChangeStore.Received().ClearChangesByTypeAsync(1, "note", Arg.Any<CancellationToken>());
+        await _contextStore.Received().ClearActiveWorkItemIdAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task NoteFlush_NetworkFailure_WarnsAndContinuesToCompletion()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        var item = CreateWorkItem(1, "Feature", "Resolved");
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+
+        var note = new PendingChangeRecord(1, "note", null, null, "my pending note");
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { note });
+        _adoService.AddCommentAsync(1, Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("Network error"));
+
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync();
+
+        // Flush failure is non-blocking — close-out completes successfully
+        result.ShouldBe(0);
+        await _contextStore.Received().ClearActiveWorkItemIdAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task NoteFlush_RunsEvenWithForceFlag()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        var item = CreateWorkItem(1, "Feature", "Resolved");
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+
+        var note = new PendingChangeRecord(1, "note", null, null, "pending note");
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { note });
+
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync(force: true);
+
+        result.ShouldBe(0);
+        // Flush ran even with --force
+        await _adoService.Received().AddCommentAsync(1, "pending note", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task NoteFlush_ItemWithOnlyPendingNotes_SucceedsAfterFlush()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        var item = CreateWorkItem(1, "Feature", "Resolved");
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+
+        // Item appears clean (notes already flushed before guard runs)
+        var note = new PendingChangeRecord(1, "note", null, null, "pending note");
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { note });
+        // After flush, dirty check returns empty (notes were cleared)
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());
+
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync();
+
+        result.ShouldBe(0);
+        await _adoService.Received().AddCommentAsync(1, "pending note", Arg.Any<CancellationToken>());
         await _contextStore.Received().ClearActiveWorkItemIdAsync(Arg.Any<CancellationToken>());
     }
 }

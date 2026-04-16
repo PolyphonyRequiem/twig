@@ -2,7 +2,7 @@
 
 **Issue:** #1618 — MCP Server (Epic 1484) Closeout Findings
 **Parent Epic:** #1484 — MCP Server
-> **Status**: ✅ Done
+> **Status**: ✅ Done (Note: #1620 was not implemented in the original PR — it was tracked separately in `mcp-server-closeout-remaining.plan.md` and addressed in a follow-up fix.)
 
 ---
 

@@ -82,8 +82,7 @@ if (-not (Test-Path $twigExe)) {
 # Verify companion binaries (warn only — older archives may not include them)
 $companions = @("twig-mcp.exe", "twig-tui.exe")
 foreach ($companion in $companions) {
-    $companionPath = Join-Path $installDir $companion
-    if (Test-Path $companionPath) {
+    if (Test-Path (Join-Path $installDir $companion)) {
         Write-Host "  Found $companion" -ForegroundColor Green
     } else {
         Write-Warning "$companion not found in archive. Some features may be unavailable. Run 'twig upgrade' after install to fetch companions."

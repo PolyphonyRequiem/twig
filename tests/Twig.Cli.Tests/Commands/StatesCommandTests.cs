@@ -221,6 +221,19 @@ public sealed class StatesCommandTests : IDisposable
         output.ShouldContain("\"states\":");
     }
 
+    [Fact]
+    public async Task Execute_JsoncOutput_ContainsStatesArray()
+    {
+        SetupActiveItem(42, "My Task", "Task");
+        SetupProcessType("Task", [
+            new StateEntry("New", StateCategory.Proposed, "b2b2b2"),
+        ]);
+
+        var output = await CaptureStdout(() => _cmd.ExecuteAsync("json-compact"));
+
+        output.ShouldContain("\"states\":");
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //  Human output — happy path
     // ═══════════════════════════════════════════════════════════════

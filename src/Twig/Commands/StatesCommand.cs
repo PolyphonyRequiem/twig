@@ -39,7 +39,7 @@ public sealed class StatesCommand(
             return 1;
         }
 
-        if (fmt is JsonOutputFormatter)
+        if (fmt is JsonOutputFormatter or JsonCompactOutputFormatter)
         {
             Console.WriteLine(FormatStatesJson(typeRecord.States, item.Type.Value));
         }

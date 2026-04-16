@@ -171,17 +171,17 @@ Fully backward compatible — no signature changes; the flush is a no-op when no
 
 | Task ID | Description | Traces To | Files | Effort | Status |
 |---------|-------------|-----------|-------|--------|--------|
-| #1620 | Add pre-close-out sync step for pending notes | FR-1, FR-2, FR-3, G-1, G-2 | `FlowCloseCommand.cs`, `FlowCloseCommandTests.cs` | ~30 LoC | TO DO |
+| #1620 | Add pre-close-out sync step for pending notes | FR-1, FR-2, FR-3, G-1, G-2 | `FlowCloseCommand.cs`, `FlowCloseCommandTests.cs` | ~30 LoC | DONE |
 
 #### Acceptance Criteria
 
-**Remaining:**
-- [ ] `twig flow-close` flushes pending notes before evaluating unsaved-changes guard
-- [ ] `twig flow-close` warns but continues if note flush fails (network error)
-- [ ] `twig flow-close` note flush runs even when `--force` is used
-- [ ] All new code paths (note flush) have unit tests
-- [ ] `dotnet build` succeeds with zero warnings
-- [ ] `dotnet test` passes
+**All Completed:**
+- [x] `twig flow-close` flushes pending notes before evaluating unsaved-changes guard
+- [x] `twig flow-close` warns but continues if note flush fails (network error)
+- [x] `twig flow-close` note flush runs even when `--force` is used
+- [x] All new code paths (note flush) have unit tests
+- [x] `dotnet build` succeeds with zero warnings
+- [x] `dotnet test` passes
 
 **Previously Completed:**
 - [x] `twig flow-start <id>` generates the same branch name as `twig branch` for the same work item (#1619)
@@ -189,6 +189,17 @@ Fully backward compatible — no signature changes; the flush is a no-op when no
 - [x] `twig flow-close` on an Issue with incomplete child Tasks returns exit 1 (unless `--force`) (#1622)
 - [x] `twig flow-close` with `--force` emits a warning about skipping child verification (#1622)
 - [x] `twig update --id 1234 System.Title "New title"` updates work item #1234 without changing active context (#1633)
+
+## Completion
+
+**Completed**: 2026-04-16
+
+All five closeout findings from MCP Server epic (#1484) have been addressed:
+- #1619 — Branch naming consistency enforced in PR group manager (previously completed)
+- #1620 — Pre-close-out note sync added to FlowCloseCommand (PR #43, merged 2026-04-16)
+- #1621 — Worktree-aware close-out flow implemented (previously completed)
+- #1622 — Child-state verification gate added before Issue closure (previously completed)
+- #1633 — Explicit `--id` flag added to `twig update` command (previously completed)
 
 ## References
 

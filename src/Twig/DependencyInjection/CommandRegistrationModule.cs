@@ -178,6 +178,9 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<TwigConfiguration>(),
             sp.GetRequiredService<Domain.Services.FlowTransitionService>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IProcessConfigurationProvider>(),
             sp.GetService<IGitService>(),
             sp.GetService<IAdoGitService>(),
             sp.GetRequiredService<IPromptStateWriter>()));

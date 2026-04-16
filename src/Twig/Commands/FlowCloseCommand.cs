@@ -1,14 +1,16 @@
+using Twig.Domain.Aggregates;
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Formatters;
+using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Config;
 
 namespace Twig.Commands;
 
 /// <summary>
-/// Implements <c>twig flow-close</c>: guards unsaved changes and open PRs, transitions to Completed,
-/// deletes the local branch, and clears the active context.
+/// Implements <c>twig flow-close</c>: guards unsaved changes, open PRs, and incomplete children,
+/// transitions to Completed, deletes the local branch, and clears the active context.
 /// </summary>
 public sealed class FlowCloseCommand(
     IContextStore contextStore,
@@ -17,6 +19,9 @@ public sealed class FlowCloseCommand(
     OutputFormatterFactory formatterFactory,
     TwigConfiguration config,
     FlowTransitionService flowTransitionService,
+    IWorkItemRepository workItemRepo,
+    IAdoWorkItemService adoService,
+    IProcessConfigurationProvider processConfigProvider,
     IGitService? gitService = null,
     IAdoGitService? adoGitService = null,
     IPromptStateWriter? promptStateWriter = null)
@@ -42,7 +47,18 @@ public sealed class FlowCloseCommand(
         var item = resolveResult.Item!;
         int targetId = item.Id;
 
-        // 2. Guard: unsaved changes
+        // 2. Flush pending notes — always runs (notes are additive, cannot conflict)
+        try
+        {
+            await AutoPushNotesHelper.PushAndClearAsync(targetId, pendingChangeStore, adoService);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Console.Error.WriteLine(fmt.FormatInfo(
+                $"Could not flush pending notes for #{targetId}: {ex.Message}. Continuing with close-out."));
+        }
+
+        // 3. Guard: unsaved changes
         if (!force)
         {
             var dirtyIds = await pendingChangeStore.GetDirtyItemIdsAsync();
@@ -55,39 +71,42 @@ public sealed class FlowCloseCommand(
             }
         }
 
-        // 3. Guard: open PRs
+        // 4. Guard: open PRs
+        bool isInWorkTree = false;
         string? currentBranch = null;
-        if (!force && gitService is not null && adoGitService is not null)
+        if (gitService is not null)
+        {
+            try { isInWorkTree = await gitService.IsInsideWorkTreeAsync(); }
+            catch (Exception ex) when (ex is not OutOfMemoryException) { }
+        }
+
+        if (!force && isInWorkTree && adoGitService is not null)
         {
             try
             {
-                var isInWorkTree = await gitService.IsInsideWorkTreeAsync();
-                if (isInWorkTree)
+                currentBranch = await gitService!.GetCurrentBranchAsync();
+                var prs = await adoGitService.GetPullRequestsForBranchAsync(currentBranch);
+                var activePrs = prs.Where(p =>
+                    string.Equals(p.Status, "active", StringComparison.OrdinalIgnoreCase)).ToList();
+
+                if (activePrs.Count > 0)
                 {
-                    currentBranch = await gitService.GetCurrentBranchAsync();
-                    var prs = await adoGitService.GetPullRequestsForBranchAsync(currentBranch);
-                    var activePrs = prs.Where(p =>
-                        string.Equals(p.Status, "active", StringComparison.OrdinalIgnoreCase)).ToList();
+                    var prList = string.Join(", ", activePrs.Select(p => $"PR #{p.PullRequestId}"));
 
-                    if (activePrs.Count > 0)
+                    if (consoleInput.IsOutputRedirected)
                     {
-                        var prList = string.Join(", ", activePrs.Select(p => $"PR #{p.PullRequestId}"));
+                        // Non-TTY: exit 2
+                        Console.Error.WriteLine(fmt.FormatError(
+                            $"Open pull request(s) detected: {prList}. Complete or abandon before closing."));
+                        return 2;
+                    }
 
-                        if (consoleInput.IsOutputRedirected)
-                        {
-                            // Non-TTY: exit 2
-                            Console.Error.WriteLine(fmt.FormatError(
-                                $"Open pull request(s) detected: {prList}. Complete or abandon before closing."));
-                            return 2;
-                        }
-
-                        Console.Write($"Open PR(s) detected: {prList}. Continue anyway? [y/N] ");
-                        var response = consoleInput.ReadLine()?.Trim();
-                        if (!string.Equals(response, "y", StringComparison.OrdinalIgnoreCase))
-                        {
-                            Console.WriteLine(fmt.FormatInfo("Cancelled."));
-                            return 0;
-                        }
+                    Console.Write($"Open PR(s) detected: {prList}. Continue anyway? [y/N] ");
+                    var response = consoleInput.ReadLine()?.Trim();
+                    if (!string.Equals(response, "y", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Console.WriteLine(fmt.FormatInfo("Cancelled."));
+                        return 0;
                     }
                 }
             }
@@ -97,7 +116,51 @@ public sealed class FlowCloseCommand(
             }
         }
 
-        // 4. Transition to Completed via FlowTransitionService
+        // 5. Child-state verification gate
+        if (!force)
+        {
+            var children = await workItemRepo.GetChildrenAsync(targetId, ct);
+            if (children.Count == 0)
+            {
+                try
+                {
+                    children = await adoService.FetchChildrenAsync(targetId, ct);
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
+                {
+                    Console.Error.WriteLine(fmt.FormatInfo(
+                        $"Could not fetch children for #{targetId}: {ex.Message}. "
+                        + "Use --force to skip child verification."));
+                    return 1;
+                }
+            }
+
+            if (children.Count > 0)
+            {
+                var processConfig = processConfigProvider.GetConfiguration();
+                var incomplete = children.Where(child =>
+                    !processConfig.TypeConfigs.TryGetValue(child.Type, out var cfg) ||
+                    StateCategoryResolver.Resolve(child.State, cfg.StateEntries)
+                        is not (StateCategory.Completed or StateCategory.Resolved or StateCategory.Removed))
+                    .ToList();
+
+                if (incomplete.Count > 0)
+                {
+                    Console.Error.WriteLine(fmt.FormatError(
+                        $"Cannot close #{targetId}: {incomplete.Count} child item(s) not in terminal state."));
+                    foreach (var c in incomplete)
+                        Console.Error.WriteLine(fmt.FormatInfo($"  #{c.Id} {c.Title} [{c.State}]"));
+                    return 1;
+                }
+            }
+        }
+        else
+        {
+            Console.Error.WriteLine(fmt.FormatInfo(
+                $"Skipping child state verification for #{targetId} (--force)."));
+        }
+
+        // 6. Transition to Completed via FlowTransitionService
         string? newState = null;
         string originalState = item.State;
         var transitionResult = await flowTransitionService.TransitionStateAsync(
@@ -108,14 +171,21 @@ public sealed class FlowCloseCommand(
             originalState = transitionResult.OriginalState;
         }
 
-        // 5. Branch cleanup (prompt then delete)
+        // 7. Branch cleanup (prompt then delete)
         bool branchDeleted = false;
-        if (!noBranchCleanup && gitService is not null)
+        if (!noBranchCleanup && isInWorkTree && gitService is not null)
         {
             try
             {
-                var isInWorkTree = await gitService.IsInsideWorkTreeAsync();
-                if (isInWorkTree)
+                var worktreeRoot = await gitService.GetWorktreeRootAsync();
+                if (worktreeRoot is not null)
+                {
+                    // Linked worktree — checkout+delete would orphan the directory
+                    Console.Error.WriteLine(fmt.FormatInfo(
+                        $"In a linked worktree at '{worktreeRoot}' — skipping branch cleanup. "
+                        + "Remove worktree manually: git worktree remove <path>"));
+                }
+                else
                 {
                     currentBranch ??= await gitService.GetCurrentBranchAsync();
                     var defaultTarget = config.Git.DefaultTarget;
@@ -140,11 +210,11 @@ public sealed class FlowCloseCommand(
             }
         }
 
-        // 6. Clear context
+        // 8. Clear context
         await contextStore.ClearActiveWorkItemIdAsync();
         if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
-        // 7. Print summary
+        // 9. Print summary
         var actionStrings = new List<string>();
         if (newState is not null) actionStrings.Add($"State → {newState}");
         if (branchDeleted) actionStrings.Add($"Branch '{currentBranch}' deleted");

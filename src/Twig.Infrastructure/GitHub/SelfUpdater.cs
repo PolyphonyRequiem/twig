@@ -7,7 +7,7 @@ namespace Twig.Infrastructure.GitHub;
 /// Handles platform-specific file-lock strategies (Windows rename trick vs. Unix direct overwrite).
 /// Also supports companion binary extraction via <see cref="InstallCompanionsOnlyAsync"/>.
 /// </summary>
-public sealed class SelfUpdater
+public sealed class SelfUpdater : ICompanionInstaller
 {
     private readonly IHttpDownloader _downloader;
     private readonly IFileSystem _fileSystem;

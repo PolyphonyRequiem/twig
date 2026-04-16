@@ -14,7 +14,7 @@ namespace Twig.Infrastructure.Tests.GitHub;
 /// Covers: happy-path update, path traversal defense, download failures,
 /// incomplete downloads, permission errors, file-lock scenarios, and cleanup.
 /// </summary>
-public class SelfUpdaterTests : IDisposable
+public sealed class SelfUpdaterTests : IDisposable
 {
     private static readonly string ExeName = OperatingSystem.IsWindows() ? "twig.exe" : "twig";
     private readonly string _tempDir;
@@ -738,6 +738,55 @@ public class SelfUpdaterTests : IDisposable
         Should.NotThrow(() => SelfUpdater.CleanupOldBinaryCore(
             fileSystem, "/app/twig",
             new[] { "twig-mcp" }));
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Companion atomic write verification (mock-based)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task UpdateBinaryAsync_CompanionExtraction_UsesAtomicWrites()
+    {
+        // Arrange: mock filesystem to verify the temp→move sequence
+        var currentExe = Path.Combine(_tempDir, ExeName);
+        File.WriteAllText(currentExe, "old-main");
+
+        var mainContent = "new-main"u8.ToArray();
+        var companionContent = "new-companion"u8.ToArray();
+        var zipBytes = CreateZipArchive(
+            (ExeName, mainContent),
+            (CompanionExe, companionContent));
+
+        var fileSystem = Substitute.For<IFileSystem>();
+        fileSystem.When(x => x.CreateDirectory(Arg.Any<string>()))
+            .Do(ci => Directory.CreateDirectory((string)ci[0]));
+        fileSystem.When(x => x.ExtractZipToDirectory(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<bool>()))
+            .Do(ci => ZipFile.ExtractToDirectory((string)ci[0], (string)ci[1], (bool)ci[2]));
+        fileSystem.EnumerateFiles(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<SearchOption>())
+            .Returns(ci => Directory.EnumerateFiles((string)ci[0], (string)ci[1], (SearchOption)ci[2]));
+        fileSystem.FileExists(Arg.Any<string>()).Returns(false);
+        fileSystem.When(x => x.FileDelete(Arg.Any<string>()))
+            .Do(_ => { });
+
+        var downloader = new FakeDownloader(zipBytes);
+        var sut = new SelfUpdater(downloader, fileSystem, currentExe);
+
+        // Act
+        await sut.UpdateBinaryAsync(
+            "https://example.com/dl.zip", "twig-win-x64.zip",
+            new[] { CompanionExe });
+
+        // Assert: companion was copied to .tmp first, then moved to final path
+        var expectedFinalPath = Path.Combine(_tempDir, CompanionExe);
+
+        fileSystem.Received().FileCopy(
+            Arg.Any<string>(),
+            Arg.Is<string>(s => s.EndsWith(".tmp")),
+            true);
+        fileSystem.Received().FileMove(
+            Arg.Is<string>(s => s.EndsWith(".tmp")),
+            expectedFinalPath,
+            true);
     }
 
     // ═══════════════════════════════════════════════════════════════

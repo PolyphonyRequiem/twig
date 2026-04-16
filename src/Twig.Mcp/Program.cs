@@ -73,9 +73,7 @@ builder.Services.AddSingleton(sp => new RefreshOrchestrator(
     sp.GetRequiredService<IPendingChangeStore>(),
     sp.GetRequiredService<ProtectedCacheWriter>(),
     sp.GetRequiredService<WorkingSetService>(),
-    sp.GetRequiredService<SyncCoordinator>(),
-    sp.GetRequiredService<IProcessTypeStore>(),
-    sp.GetRequiredService<IFieldDefinitionStore>()));
+    sp.GetRequiredService<SyncCoordinator>()));
 
 builder.Services.AddSingleton(sp => new StatusOrchestrator(
     sp.GetRequiredService<IContextStore>(),

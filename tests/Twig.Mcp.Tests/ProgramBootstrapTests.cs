@@ -83,9 +83,7 @@ public sealed class ProgramBootstrapTests
             sp.GetRequiredService<IPendingChangeStore>(),
             sp.GetRequiredService<ProtectedCacheWriter>(),
             sp.GetRequiredService<WorkingSetService>(),
-            sp.GetRequiredService<SyncCoordinator>(),
-            sp.GetRequiredService<IProcessTypeStore>(),
-            sp.GetRequiredService<IFieldDefinitionStore>()));
+            sp.GetRequiredService<SyncCoordinator>()));
 
         services.AddSingleton(sp => new StatusOrchestrator(
             sp.GetRequiredService<IContextStore>(),

@@ -20,8 +20,6 @@ public sealed class RefreshOrchestrator
     private readonly ProtectedCacheWriter _protectedCacheWriter;
     private readonly WorkingSetService _workingSetService;
     private readonly SyncCoordinator _syncCoordinator;
-    private readonly IProcessTypeStore _processTypeStore;
-    private readonly IFieldDefinitionStore _fieldDefinitionStore;
 
     public RefreshOrchestrator(
         IContextStore contextStore,
@@ -31,9 +29,7 @@ public sealed class RefreshOrchestrator
         IPendingChangeStore pendingChangeStore,
         ProtectedCacheWriter protectedCacheWriter,
         WorkingSetService workingSetService,
-        SyncCoordinator syncCoordinator,
-        IProcessTypeStore processTypeStore,
-        IFieldDefinitionStore fieldDefinitionStore)
+        SyncCoordinator syncCoordinator)
     {
         _contextStore = contextStore;
         _workItemRepo = workItemRepo;
@@ -43,8 +39,6 @@ public sealed class RefreshOrchestrator
         _protectedCacheWriter = protectedCacheWriter;
         _workingSetService = workingSetService;
         _syncCoordinator = syncCoordinator;
-        _processTypeStore = processTypeStore;
-        _fieldDefinitionStore = fieldDefinitionStore;
     }
 
     /// <summary>
@@ -144,18 +138,6 @@ public sealed class RefreshOrchestrator
     {
         var workingSet = await _workingSetService.ComputeAsync(iteration, ct);
         await _syncCoordinator.SyncWorkingSetAsync(workingSet, ct);
-    }
-
-    /// <summary>Syncs process types from ADO.</summary>
-    public async Task SyncProcessTypesAsync(CancellationToken ct = default)
-    {
-        await ProcessTypeSyncService.SyncAsync(_iterationService, _processTypeStore, ct);
-    }
-
-    /// <summary>Syncs field definitions from ADO.</summary>
-    public async Task SyncFieldDefinitionsAsync(CancellationToken ct = default)
-    {
-        await FieldDefinitionSyncService.SyncAsync(_iterationService, _fieldDefinitionStore, ct);
     }
 
     private async Task<IReadOnlyList<RefreshConflict>> FindConflictsAsync(

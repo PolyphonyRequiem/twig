@@ -19,8 +19,6 @@ public class RefreshOrchestratorTests
     private readonly ProtectedCacheWriter _protectedCacheWriter;
     private readonly WorkingSetService _workingSetService;
     private readonly SyncCoordinator _syncCoordinator;
-    private readonly IProcessTypeStore _processTypeStore;
-    private readonly IFieldDefinitionStore _fieldDefinitionStore;
     private readonly RefreshOrchestrator _orchestrator;
 
     public RefreshOrchestratorTests()
@@ -31,8 +29,6 @@ public class RefreshOrchestratorTests
         _iterationService = Substitute.For<IIterationService>();
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
         _protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        _processTypeStore = Substitute.For<IProcessTypeStore>();
-        _fieldDefinitionStore = Substitute.For<IFieldDefinitionStore>();
 
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
@@ -41,8 +37,7 @@ public class RefreshOrchestratorTests
 
         _orchestrator = new RefreshOrchestrator(
             _contextStore, _workItemRepo, _adoService, _iterationService,
-            _pendingChangeStore, _protectedCacheWriter, _workingSetService, _syncCoordinator,
-            _processTypeStore, _fieldDefinitionStore);
+            _pendingChangeStore, _protectedCacheWriter, _workingSetService, _syncCoordinator);
     }
 
     // ── FetchItemsAsync tests ──────────────────────────────────────
@@ -255,34 +250,6 @@ public class RefreshOrchestratorTests
         await _orchestrator.HydrateAncestorsAsync();
 
         await _workItemRepo.Received(5).GetOrphanParentIdsAsync(Arg.Any<CancellationToken>());
-    }
-
-    // ── SyncProcessTypesAsync ───────────────────────────────────────
-
-    [Fact]
-    public async Task SyncProcessTypes_DelegatesCorrectly()
-    {
-        _iterationService.GetWorkItemTypesWithStatesAsync(Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItemTypeWithStates>());
-        _iterationService.GetProcessConfigurationAsync(Arg.Any<CancellationToken>())
-            .Returns(new ProcessConfigurationData());
-
-        await _orchestrator.SyncProcessTypesAsync();
-
-        await _iterationService.Received().GetWorkItemTypesWithStatesAsync(Arg.Any<CancellationToken>());
-    }
-
-    // ── SyncFieldDefinitionsAsync ───────────────────────────────────
-
-    [Fact]
-    public async Task SyncFieldDefinitions_DelegatesCorrectly()
-    {
-        _iterationService.GetFieldDefinitionsAsync(Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<FieldDefinition>());
-
-        await _orchestrator.SyncFieldDefinitionsAsync();
-
-        await _iterationService.Received().GetFieldDefinitionsAsync(Arg.Any<CancellationToken>());
     }
 
     // ── Phantom dirty cleansing tests (#1335 / #1396) ───────────────

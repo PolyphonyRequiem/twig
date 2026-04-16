@@ -539,17 +539,4 @@ public class RefreshCommandTests : RefreshCommandTestBase
         stderr.ShouldContain("Could not fetch field definitions");
     }
 
-    private static WorkItem CreateWorkItem(int id, string title)
-    {
-        return new WorkItem
-        {
-            Id = id,
-            Type = WorkItemType.Task,
-            Title = title,
-            State = "New",
-            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
-            AreaPath = AreaPath.Parse("Project").Value,
-            LastSyncedAt = DateTimeOffset.UtcNow,
-        };
-    }
 }

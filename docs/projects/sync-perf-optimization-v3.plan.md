@@ -420,29 +420,6 @@ as NG-3.
 | 4 | #1664 (test migration) | #1662, #1663 | Requires all commands migrated first |
 | — | #1673 (MSAL cache) | — | Fully independent, any time |
 
-## Security Considerations
-
-### MSAL Token Cache File Access
-
-`MsalCacheTokenProvider` reads bearer tokens directly from the MSAL cache file on disk.
-This has security implications:
-
-- **File permissions:** The cache file at `~/.azure/msal_token_cache.json` is owned by the
-  user and protected by OS-level file permissions. Twig reads it with the same permissions
-  as `az` CLI — no privilege escalation occurs.
-- **Token in memory:** The bearer token string is held in an in-memory field (`_cachedToken`)
-  for up to 50 minutes. This matches the existing behavior of `AzCliAuthProvider`, which
-  also caches the token in memory. No new in-memory exposure is introduced.
-- **No token persistence:** Twig never writes tokens to disk, logs, telemetry, or any
-  external system. The token is used only for `Authorization: Bearer` headers on ADO API
-  calls via the existing `HttpClient` pipeline.
-- **Fallback isolation:** If the MSAL cache file is unreadable (permissions, corruption,
-  format change), the decorator swallows the exception and delegates to the inner provider.
-  No partial token data is exposed.
-- **No new attack surface:** The cache file is already readable by the current user process.
-  Twig adds no new file access patterns — it reads the same file that `az` CLI writes.
-  The optimization merely avoids spawning a subprocess to read it indirectly.
-
 ## Risks and Mitigations
 
 | Risk | Likelihood | Impact | Mitigation |
@@ -451,17 +428,6 @@ This has security implications:
 | Read-only 15-min TTL shows stale data confusing users | Low | Low | `CacheAgeFormatter` already displays "⚡ 2m ago" indicators. Stale hint at 15 min is still surfaced. |
 | Large test file migration introduces regressions | Medium | Medium | Mechanical change (find-replace `SyncCoordinator` → `SyncCoordinatorFactory`). Each test file compiled and run individually. |
 | MSAL cache file locked by `az` CLI during reads | Low | Low | Default `fileReader` uses `FileStream(FileShare.ReadWrite)`. JSON parse failure falls back to az CLI. |
-
-## Resolved Questions
-
-All design questions have been resolved through codebase analysis and design review:
-- **ReadOnlyCacheStaleMinutes location** → `internal const` in `SyncCoordinatorFactory`, not on `DisplayConfig` (the 15-min value is not user-configurable)
-- **MsalCacheTokenProvider testability** → Injectable `Func<>` for file-read, mirroring `AzCliAuthProvider`'s pattern (DD-20)
-- **File reading API** → `FileStream(FileShare.ReadWrite)` + `StreamReader` (not `File.ReadAllTextAsync`, which doesn't support `FileShare` parameters)
-- **Token return format** → Raw secret string, not "Bearer"-prefixed. `AdoErrorHandler.ApplyAuthHeader` adds the scheme (DD-21)
-- **Task #1658 scope** → Verified complete in codebase audit, removed from plan
-- **Test file count** → Audited at 34 files across 3 test projects
-- **#1673 task IDs** → Local suffixes (T1–T2) pending ADO seeding
 
 ## Open Questions
 
@@ -629,6 +595,14 @@ directly when a valid ADO-scoped token exists.
 > during implementation kickoff, at which point this table will be updated with real ADO IDs.
 
 **Task #1673-T1 Details:**
+
+This task bundles four concerns that should be implemented in the following order:
+
+1. **Define DTOs** — `MsalTokenCache` and `MsalAccessTokenEntry` in `MsalCacheTokenProvider.cs`
+2. **Register DTOs** — Add `[JsonSerializable(typeof(MsalTokenCache))]` to `TwigJsonContext`
+3. **Implement business logic** — `MsalCacheTokenProvider` class with decorator pattern, in-memory cache, and fallback
+4. **Wire DI** — Update `NetworkServiceModule` to wrap `AzCliAuthProvider` in `MsalCacheTokenProvider`
+
 - New sealed class `MsalCacheTokenProvider : IAuthenticationProvider` in `Auth/MsalCacheTokenProvider.cs`.
 - DTOs in the same file:
   ```csharp
@@ -659,7 +633,7 @@ directly when a valid ADO-scoped token exists.
   2. Read + parse MSAL cache file.
   3. Filter `AccessToken` entries where `Target` contains `499b84ac-1321-427f-aa17-267ca6975798`.
   4. Find entry with `ExpiresOn` > `now + 5 minutes` (buffer for clock skew).
-  5. Valid → cache in-memory, return `Bearer {secret}`.
+  5. Valid → cache in-memory, return raw secret string (DD-21).
   6. Any failure → delegate to `_inner.GetAccessTokenAsync(ct)`.
 - All exceptions caught and swallowed (delegate to fallback).
 - In `NetworkServiceModule`, change the azcli branch to wrap `AzCliAuthProvider`:
@@ -672,7 +646,7 @@ directly when a valid ADO-scoped token exists.
 - No config changes needed — optimization is transparent within `azcli` auth method.
 
 **Task #1673-T2 Details:**
-- Test valid token in cache → returns Bearer token without spawning process.
+- Test valid token in cache → returns raw token string without spawning process.
 - Test expired token → falls back to inner provider.
 - Test missing cache file → falls back to inner provider.
 - Test malformed JSON → falls back to inner provider.
@@ -697,6 +671,7 @@ directly when a valid ADO-scoped token exists.
 **Type:** Deep (few files, architectural change)
 **Tasks:** #1660, #1661
 **Estimated LoC:** ~150
+**Predecessor:** None
 **Successor:** PG-2
 **Files:** 2 source files (SyncCoordinatorFactory, CommandServiceModule + MCP Program)
 
@@ -713,13 +688,15 @@ directly when a valid ADO-scoped token exists.
 **Tasks:** #1664
 **Estimated LoC:** ~800
 **Predecessor:** PG-2
+**Successor:** None
 **Files:** 34 test files
 
 ### PG-4: MSAL token cache optimization (#1673)
 **Type:** Deep (few files, complex logic)
 **Tasks:** #1673-T1, #1673-T2
 **Estimated LoC:** ~350
-**Successor:** None (independent of PG-1–PG-3)
+**Predecessor:** None
+**Successor:** None
 **Files:** 3 source files + 1 test file
 
 ## References

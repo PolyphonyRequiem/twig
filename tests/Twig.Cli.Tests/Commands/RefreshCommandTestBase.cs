@@ -53,8 +53,7 @@ public abstract class RefreshCommandTestBase : IDisposable
         var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, _iterationService, null);
         _orchestrator = new RefreshOrchestrator(
             _contextStore, _workItemRepo, _adoService, _iterationService,
-            _pendingChangeStore, _protectedCacheWriter, workingSetService, syncCoordinator,
-            _processTypeStore, _fieldDefinitionStore);
+            _pendingChangeStore, _protectedCacheWriter, workingSetService, syncCoordinator);
 
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
@@ -84,6 +83,23 @@ public abstract class RefreshCommandTestBase : IDisposable
     protected RefreshCommand CreateRefreshCommand(TextWriter? stderr = null, IGlobalProfileStore? profileStore = null) =>
         new(_contextStore, _iterationService, _config, _paths, _processTypeStore, _fieldDefinitionStore,
             _formatterFactory, _orchestrator, profileStore, stderr: stderr);
+
+    protected static WorkItem CreateWorkItem(int id, string title, int revision = 0)
+    {
+        var item = new WorkItem
+        {
+            Id = id,
+            Type = WorkItemType.Task,
+            Title = title,
+            State = "New",
+            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
+            AreaPath = AreaPath.Parse("Project").Value,
+            LastSyncedAt = DateTimeOffset.UtcNow,
+        };
+        if (revision > 0)
+            item.MarkSynced(revision);
+        return item;
+    }
 
     public void Dispose()
     {

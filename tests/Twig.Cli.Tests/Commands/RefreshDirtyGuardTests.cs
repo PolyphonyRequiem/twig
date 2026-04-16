@@ -389,19 +389,4 @@ public class RefreshDirtyGuardTests : RefreshCommandTestBase
             Arg.Any<CancellationToken>());
     }
 
-    private static WorkItem CreateWorkItem(int id, string title, int revision = 0)
-    {
-        var item = new WorkItem
-        {
-            Id = id,
-            Type = WorkItemType.Task,
-            Title = title,
-            State = "New",
-            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
-            AreaPath = AreaPath.Parse("Project").Value,
-        };
-        if (revision > 0)
-            item.MarkSynced(revision);
-        return item;
-    }
 }

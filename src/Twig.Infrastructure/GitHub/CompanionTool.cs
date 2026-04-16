@@ -31,20 +31,4 @@ public sealed record UpdateResult(
 /// </summary>
 public sealed record CompanionUpdateResult(string Name, bool Found, string? InstalledPath);
 
-/// <summary>
-/// Narrow interface for installing companion binaries from a release archive.
-/// Implemented by <see cref="SelfUpdater"/> — kept internal to limit surface area.
-/// </summary>
-internal interface ICompanionInstaller
-{
-    /// <summary>
-    /// Downloads the archive at <paramref name="archiveUrl"/> and extracts only the
-    /// companion executables whose names appear in <paramref name="companionExeNames"/>.
-    /// </summary>
-    Task<IReadOnlyList<CompanionUpdateResult>> InstallCompanionsOnlyAsync(
-        string archiveUrl,
-        string archiveName,
-        IReadOnlyList<string> companionExeNames,
-        string installDir,
-        CancellationToken ct = default);
-}
+

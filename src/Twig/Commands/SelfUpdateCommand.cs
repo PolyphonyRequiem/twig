@@ -64,7 +64,10 @@ public sealed class SelfUpdateCommand(
 
         try
         {
-            await selfUpdater.UpdateBinaryAsync(asset.BrowserDownloadUrl, archiveName, ct);
+            var companionExeNames = CompanionTools.All
+                .Select(CompanionTools.GetExeName)
+                .ToArray();
+            var updateResult = await selfUpdater.UpdateBinaryAsync(asset.BrowserDownloadUrl, archiveName, companionExeNames, ct);
             Console.WriteLine();
 
             // Display changelog

@@ -1,6 +1,6 @@
 # Query Command (Epic 1302) Closeout Findings
 
-> **Status**: 🔨 In Progress
+> **Status**: ✅ Done
 > **Issue**: #1634 | **Parent Epic**: #1302
 > **Revision**: 17
 >

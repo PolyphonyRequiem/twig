@@ -80,8 +80,7 @@ if (-not (Test-Path $twigExe)) {
 }
 
 # Verify companion binaries (warn only — older archives may not include them)
-$companions = @("twig-mcp.exe", "twig-tui.exe")
-foreach ($companion in $companions) {
+foreach ($companion in @("twig-mcp.exe", "twig-tui.exe")) {
     if (Test-Path (Join-Path $installDir $companion)) {
         Write-Host "  Found $companion" -ForegroundColor Green
     } else {

@@ -6,8 +6,7 @@ Describe "install.ps1 companion verification" {
     BeforeAll {
         $script:RunVerification = {
             param([string]$installDir)
-            $companions = @("twig-mcp.exe", "twig-tui.exe")
-            foreach ($companion in $companions) {
+            foreach ($companion in @("twig-mcp.exe", "twig-tui.exe")) {
                 $companionPath = Join-Path $installDir $companion
                 if (Test-Path $companionPath) {
                     Write-Output "Found $companion"

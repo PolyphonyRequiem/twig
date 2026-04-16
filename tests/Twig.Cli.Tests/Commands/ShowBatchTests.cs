@@ -68,19 +68,12 @@ public sealed class ShowBatchTests : IDisposable
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task ShowBatch_EmptyString_ReturnsEmptyJsonArray()
+    public async Task ShowBatch_EmptyString_ReturnsExitCode0AndEmptyJsonArray()
     {
-        var output = await CaptureStdout(() => _cmd.ExecuteBatchAsync("", "json"));
-
-        output.Trim().ShouldBe("[]");
-    }
-
-    [Fact]
-    public async Task ShowBatch_EmptyString_ReturnsExitCode0()
-    {
-        var result = await _cmd.ExecuteBatchAsync("", "json");
+        var (result, output) = await StdoutCapture.RunAsync(() => _cmd.ExecuteBatchAsync("", "json"));
 
         result.ShouldBe(0);
+        output.Trim().ShouldBe("[]");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -93,7 +86,7 @@ public sealed class ShowBatchTests : IDisposable
         var item = new WorkItemBuilder(42, "Single Item").Build();
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        var output = await CaptureStdout(() => _cmd.ExecuteBatchAsync("42", "json"));
+        var (_, output) = await StdoutCapture.RunAsync(() => _cmd.ExecuteBatchAsync("42", "json"));
 
         output.ShouldContain("\"id\": 42");
         output.ShouldContain("\"title\": \"Single Item\"");
@@ -116,7 +109,7 @@ public sealed class ShowBatchTests : IDisposable
         _workItemRepo.GetByIdAsync(20, Arg.Any<CancellationToken>()).Returns(item2);
         _workItemRepo.GetByIdAsync(30, Arg.Any<CancellationToken>()).Returns(item3);
 
-        var output = await CaptureStdout(() => _cmd.ExecuteBatchAsync("10,20,30", "json"));
+        var (_, output) = await StdoutCapture.RunAsync(() => _cmd.ExecuteBatchAsync("10,20,30", "json"));
 
         output.ShouldContain("\"id\": 10");
         output.ShouldContain("\"id\": 20");
@@ -134,8 +127,7 @@ public sealed class ShowBatchTests : IDisposable
         _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(item);
         _workItemRepo.GetByIdAsync(99, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
 
-        var result = await _cmd.ExecuteBatchAsync("10,99", "json");
-        var output = await CaptureStdout(() => _cmd.ExecuteBatchAsync("10,99", "json"));
+        var (result, output) = await StdoutCapture.RunAsync(() => _cmd.ExecuteBatchAsync("10,99", "json"));
 
         result.ShouldBe(0);
         output.ShouldContain("\"id\": 10");
@@ -147,7 +139,7 @@ public sealed class ShowBatchTests : IDisposable
     {
         _workItemRepo.GetByIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
 
-        var output = await CaptureStdout(() => _cmd.ExecuteBatchAsync("1,2,3", "json"));
+        var (_, output) = await StdoutCapture.RunAsync(() => _cmd.ExecuteBatchAsync("1,2,3", "json"));
 
         output.Trim().ShouldBe("[]");
     }
@@ -165,7 +157,7 @@ public sealed class ShowBatchTests : IDisposable
             .Build();
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        var output = await CaptureStdout(() => _cmd.ExecuteBatchAsync("42", "json"));
+        var (_, output) = await StdoutCapture.RunAsync(() => _cmd.ExecuteBatchAsync("42", "json"));
 
         output.ShouldContain("\"id\": 42");
         output.ShouldContain("\"title\": \"Field Check\"");
@@ -188,7 +180,7 @@ public sealed class ShowBatchTests : IDisposable
         var item = new WorkItemBuilder(42, "Valid Item").Build();
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        var output = await CaptureStdout(() => _cmd.ExecuteBatchAsync("abc,42,xyz", "json"));
+        var (_, output) = await StdoutCapture.RunAsync(() => _cmd.ExecuteBatchAsync("abc,42,xyz", "json"));
 
         output.ShouldContain("\"id\": 42");
         await _workItemRepo.DidNotReceive().GetByIdAsync(0, Arg.Any<CancellationToken>());
@@ -204,7 +196,7 @@ public sealed class ShowBatchTests : IDisposable
         var item = new WorkItemBuilder(42, "Trimmed").Build();
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        var output = await CaptureStdout(() => _cmd.ExecuteBatchAsync(" 42 ", "json"));
+        var (_, output) = await StdoutCapture.RunAsync(() => _cmd.ExecuteBatchAsync(" 42 ", "json"));
 
         output.ShouldContain("\"id\": 42");
     }
@@ -215,7 +207,7 @@ public sealed class ShowBatchTests : IDisposable
         var item = new WorkItemBuilder(42, "Trailing").Build();
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        var output = await CaptureStdout(() => _cmd.ExecuteBatchAsync("42,", "json"));
+        var (_, output) = await StdoutCapture.RunAsync(() => _cmd.ExecuteBatchAsync("42,", "json"));
 
         output.ShouldContain("\"id\": 42");
     }
@@ -270,27 +262,10 @@ public sealed class ShowBatchTests : IDisposable
         _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(item1);
         _workItemRepo.GetByIdAsync(20, Arg.Any<CancellationToken>()).Returns(item2);
 
-        var output = await CaptureStdout(() => _cmd.ExecuteBatchAsync("10,20", "human"));
+        var (_, output) = await StdoutCapture.RunAsync(() => _cmd.ExecuteBatchAsync("10,20", "human"));
 
         output.ShouldContain("Human One");
         output.ShouldContain("Human Two");
     }
 
-    // ── Private helpers ─────────────────────────────────────────────
-
-    private static async Task<string> CaptureStdout(Func<Task<int>> action)
-    {
-        var originalOut = Console.Out;
-        using var sw = new StringWriter();
-        Console.SetOut(sw);
-        try
-        {
-            await action();
-            return sw.ToString();
-        }
-        finally
-        {
-            Console.SetOut(originalOut);
-        }
-    }
 }

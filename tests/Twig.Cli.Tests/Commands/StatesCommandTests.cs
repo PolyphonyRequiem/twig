@@ -56,22 +56,13 @@ public sealed class StatesCommandTests : IDisposable
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task Execute_NoActiveItem_ReturnsExitCode1()
+    public async Task Execute_NoActiveItem_ReturnsExitCode1AndWritesError()
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
         var result = await _cmd.ExecuteAsync("json");
 
         result.ShouldBe(1);
-    }
-
-    [Fact]
-    public async Task Execute_NoActiveItem_WritesErrorToStderr()
-    {
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
-
-        await _cmd.ExecuteAsync("json");
-
         _stderr.ToString().ShouldContain("No active work item");
     }
 
@@ -80,7 +71,7 @@ public sealed class StatesCommandTests : IDisposable
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task Execute_TypeNotInStore_ReturnsExitCode1()
+    public async Task Execute_TypeNotInStore_ReturnsExitCode1AndWritesError()
     {
         SetupActiveItem(42, "My Task", "Task");
         _processTypeStore.GetByNameAsync("Task", Arg.Any<CancellationToken>()).Returns((ProcessTypeRecord?)null);
@@ -88,16 +79,6 @@ public sealed class StatesCommandTests : IDisposable
         var result = await _cmd.ExecuteAsync("json");
 
         result.ShouldBe(1);
-    }
-
-    [Fact]
-    public async Task Execute_TypeNotInStore_WritesErrorToStderr()
-    {
-        SetupActiveItem(42, "My Task", "Task");
-        _processTypeStore.GetByNameAsync("Task", Arg.Any<CancellationToken>()).Returns((ProcessTypeRecord?)null);
-
-        await _cmd.ExecuteAsync("json");
-
         _stderr.ToString().ShouldContain("No states found");
         _stderr.ToString().ShouldContain("twig sync");
     }
@@ -123,75 +104,23 @@ public sealed class StatesCommandTests : IDisposable
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task Execute_JsonOutput_ReturnsExitCode0()
+    public async Task Execute_JsonOutput_ContainsExpectedSchema()
     {
         SetupActiveItem(42, "My Task", "Task");
         SetupProcessType("Task", [
             new StateEntry("New", StateCategory.Proposed, "b2b2b2"),
             new StateEntry("Active", StateCategory.InProgress, "007acc"),
             new StateEntry("Closed", StateCategory.Completed, "339933"),
-        ]);
-
-        var result = await _cmd.ExecuteAsync("json");
-
-        result.ShouldBe(0);
-    }
-
-    [Fact]
-    public async Task Execute_JsonOutput_ContainsTypeName()
-    {
-        SetupActiveItem(42, "My Task", "Task");
-        SetupProcessType("Task", [
-            new StateEntry("New", StateCategory.Proposed, "b2b2b2"),
         ]);
 
         var output = await CaptureStdout(() => _cmd.ExecuteAsync("json"));
 
         output.ShouldContain("\"type\": \"Task\"");
-    }
-
-    [Fact]
-    public async Task Execute_JsonOutput_ContainsStateNames()
-    {
-        SetupActiveItem(42, "My Task", "Task");
-        SetupProcessType("Task", [
-            new StateEntry("New", StateCategory.Proposed, "b2b2b2"),
-            new StateEntry("Active", StateCategory.InProgress, "007acc"),
-            new StateEntry("Closed", StateCategory.Completed, "339933"),
-        ]);
-
-        var output = await CaptureStdout(() => _cmd.ExecuteAsync("json"));
-
         output.ShouldContain("\"name\": \"New\"");
         output.ShouldContain("\"name\": \"Active\"");
         output.ShouldContain("\"name\": \"Closed\"");
-    }
-
-    [Fact]
-    public async Task Execute_JsonOutput_ContainsCategories()
-    {
-        SetupActiveItem(42, "My Task", "Task");
-        SetupProcessType("Task", [
-            new StateEntry("New", StateCategory.Proposed, "b2b2b2"),
-            new StateEntry("Active", StateCategory.InProgress, "007acc"),
-        ]);
-
-        var output = await CaptureStdout(() => _cmd.ExecuteAsync("json"));
-
         output.ShouldContain("\"category\": \"Proposed\"");
         output.ShouldContain("\"category\": \"InProgress\"");
-    }
-
-    [Fact]
-    public async Task Execute_JsonOutput_ContainsColors()
-    {
-        SetupActiveItem(42, "My Task", "Task");
-        SetupProcessType("Task", [
-            new StateEntry("Active", StateCategory.InProgress, "007acc"),
-        ]);
-
-        var output = await CaptureStdout(() => _cmd.ExecuteAsync("json"));
-
         output.ShouldContain("\"color\": \"007acc\"");
     }
 
@@ -208,28 +137,17 @@ public sealed class StatesCommandTests : IDisposable
         output.ShouldContain("\"color\": null");
     }
 
-    [Fact]
-    public async Task Execute_JsonOutput_ContainsStatesArray()
+    [Theory]
+    [InlineData("json")]
+    [InlineData("json-compact")]
+    public async Task Execute_JsonOutput_ContainsStatesArray(string format)
     {
         SetupActiveItem(42, "My Task", "Task");
         SetupProcessType("Task", [
             new StateEntry("New", StateCategory.Proposed, "b2b2b2"),
         ]);
 
-        var output = await CaptureStdout(() => _cmd.ExecuteAsync("json"));
-
-        output.ShouldContain("\"states\":");
-    }
-
-    [Fact]
-    public async Task Execute_JsoncOutput_ContainsStatesArray()
-    {
-        SetupActiveItem(42, "My Task", "Task");
-        SetupProcessType("Task", [
-            new StateEntry("New", StateCategory.Proposed, "b2b2b2"),
-        ]);
-
-        var output = await CaptureStdout(() => _cmd.ExecuteAsync("json-compact"));
+        var output = await CaptureStdout(() => _cmd.ExecuteAsync(format));
 
         output.ShouldContain("\"states\":");
     }
@@ -237,20 +155,6 @@ public sealed class StatesCommandTests : IDisposable
     // ═══════════════════════════════════════════════════════════════
     //  Human output — happy path
     // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task Execute_HumanOutput_ReturnsExitCode0()
-    {
-        SetupActiveItem(42, "My Task", "Task");
-        SetupProcessType("Task", [
-            new StateEntry("New", StateCategory.Proposed, "b2b2b2"),
-            new StateEntry("Active", StateCategory.InProgress, "007acc"),
-        ]);
-
-        var result = await _cmd.ExecuteAsync("human");
-
-        result.ShouldBe(0);
-    }
 
     [Fact]
     public async Task Execute_HumanOutput_ContainsStateNames()

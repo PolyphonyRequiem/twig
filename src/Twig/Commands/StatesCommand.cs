@@ -16,7 +16,6 @@ public sealed class StatesCommand(
     OutputFormatterFactory formatterFactory,
     TextWriter? stderr = null)
 {
-    private static readonly JsonWriterOptions WriterOptions = new() { Indented = true };
     private readonly TextWriter _stderr = stderr ?? Console.Error;
 
     public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
@@ -60,7 +59,7 @@ public sealed class StatesCommand(
         string typeName)
     {
         using var stream = new MemoryStream();
-        using var writer = new Utf8JsonWriter(stream, WriterOptions);
+        using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true });
 
         writer.WriteStartObject();
         writer.WriteString("type", typeName);

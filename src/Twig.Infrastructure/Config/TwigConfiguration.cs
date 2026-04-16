@@ -194,13 +194,6 @@ public sealed class TwigConfiguration
                     return true;
                 }
                 return false;
-            case "display.cachestaleminutesreadonly":
-                if (int.TryParse(value, out var staleMinutesReadOnly) && staleMinutesReadOnly > 0)
-                {
-                    Display.CacheStaleMinutesReadOnly = staleMinutesReadOnly;
-                    return true;
-                }
-                return false;
             case "user.name":
                 User.DisplayName = value;
                 return true;

@@ -876,25 +876,6 @@ public class TwigConfigurationTests : IDisposable
     }
 
     [Fact]
-    public void SetValue_DisplayCacheStaleMinutesReadOnly_ValidValue()
-    {
-        var config = new TwigConfiguration();
-        config.SetValue("display.cachestaleminutesreadonly", "10").ShouldBeTrue();
-        config.Display.CacheStaleMinutesReadOnly.ShouldBe(10);
-    }
-
-    [Theory]
-    [InlineData("0")]
-    [InlineData("-1")]
-    [InlineData("abc")]
-    public void SetValue_DisplayCacheStaleMinutesReadOnly_InvalidValue_ReturnsFalse(string value)
-    {
-        var config = new TwigConfiguration();
-        config.SetValue("display.cachestaleminutesreadonly", value).ShouldBeFalse();
-        config.Display.CacheStaleMinutesReadOnly.ShouldBe(15);
-    }
-
-    [Fact]
     public async Task SaveAndLoad_RoundTrip_IncludesCacheStaleMinutesReadOnly()
     {
         var configPath = Path.Combine(_tempDir, "config_ro_ttl.json");
@@ -904,9 +885,6 @@ public class TwigConfigurationTests : IDisposable
         var loaded = await TwigConfiguration.LoadAsync(configPath);
         loaded.Display.CacheStaleMinutesReadOnly.ShouldBe(30);
     }
-
-    // --- EPIC-004 continued ---
-
 
     [Fact]
     public void SetValue_DisplayFillRateThreshold_ValidValue()

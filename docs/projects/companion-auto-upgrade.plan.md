@@ -2,7 +2,7 @@
 
 **Work Item:** #1643 — Auto-upgrade twig-mcp and twig-tui alongside twig upgrade  
 **Type:** Issue  
-> **Status**: 🔨 In Progress
+> **Status**: 🔨 In Progress — 2/4 PR groups merged
 
 ---
 

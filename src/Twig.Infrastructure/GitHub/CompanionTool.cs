@@ -44,6 +44,7 @@ internal interface ICompanionInstaller
     Task<IReadOnlyList<CompanionUpdateResult>> InstallCompanionsOnlyAsync(
         string archiveUrl,
         string archiveName,
-        string[] companionExeNames,
+        IReadOnlyList<string> companionExeNames,
+        string installDir,
         CancellationToken ct = default);
 }

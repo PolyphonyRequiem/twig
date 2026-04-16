@@ -4,9 +4,7 @@ using Twig.Domain.Interfaces;
 namespace Twig.Infrastructure.GitHub;
 
 /// <summary>
-/// Shared platform-detection helpers used by both <c>SelfUpdateCommand</c> (CLI project)
-/// and <c>CompanionFirstRunCheck</c> (Infrastructure project).
-/// Extracted from <c>SelfUpdateCommand</c> to resolve the cross-project dependency direction.
+/// Shared platform-detection helpers used by <c>SelfUpdateCommand</c> and companion install logic.
 /// </summary>
 internal static class PlatformHelper
 {

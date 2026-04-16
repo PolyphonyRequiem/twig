@@ -35,26 +35,4 @@ public sealed class CompanionToolTests
             result.ShouldBe("twig-mcp");
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  UpdateResult / CompanionUpdateResult record construction
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public void UpdateResult_RoundTrips_Properties()
-    {
-        var companions = new List<CompanionUpdateResult>
-        {
-            new("twig-mcp", true, "/usr/local/bin/twig-mcp"),
-            new("twig-tui", false, null),
-        };
-
-        var result = new UpdateResult("/usr/local/bin/twig", companions);
-
-        result.MainBinaryPath.ShouldBe("/usr/local/bin/twig");
-        result.Companions.Count.ShouldBe(2);
-        result.Companions[0].Found.ShouldBeTrue();
-        result.Companions[0].InstalledPath.ShouldBe("/usr/local/bin/twig-mcp");
-        result.Companions[1].Found.ShouldBeFalse();
-        result.Companions[1].InstalledPath.ShouldBeNull();
-    }
 }

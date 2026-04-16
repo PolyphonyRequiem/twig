@@ -7,7 +7,7 @@ namespace Twig.Infrastructure.GitHub;
 /// Handles platform-specific file-lock strategies (Windows rename trick vs. Unix direct overwrite).
 /// Also supports companion binary extraction via <see cref="InstallCompanionsOnlyAsync"/>.
 /// </summary>
-public sealed class SelfUpdater
+public sealed class SelfUpdater : ICompanionInstaller
 {
     private readonly IHttpDownloader _downloader;
     private readonly IFileSystem _fileSystem;
@@ -100,8 +100,9 @@ public sealed class SelfUpdater
 
     /// <summary>
     /// Testable overload of <see cref="CleanupOldBinary"/> that accepts injected dependencies.
+    /// Pass an empty list for <paramref name="companionNames"/> to clean only the main binary.
     /// </summary>
-    internal static void CleanupOldBinaryCore(IFileSystem fileSystem, string? processPath)
+    internal static void CleanupOldBinaryCore(IFileSystem fileSystem, string? processPath, IReadOnlyList<string>? companionNames = null)
     {
         if (processPath is null) return;
 
@@ -115,27 +116,19 @@ public sealed class SelfUpdater
         {
             // Best-effort cleanup — ignore if the old binary is still locked.
         }
-    }
 
-    /// <summary>
-    /// Testable overload that also cleans companion <c>.old</c> files in the given directory.
-    /// </summary>
-    internal static void CleanupOldBinaryCore(IFileSystem fileSystem, string? processPath, IReadOnlyList<string> companionNames)
-    {
-        CleanupOldBinaryCore(fileSystem, processPath);
-
-        if (processPath is null) return;
+        if (companionNames is null or { Count: 0 }) return;
 
         var dir = Path.GetDirectoryName(processPath);
         if (dir is null) return;
 
         foreach (var companion in companionNames)
         {
-            var oldPath = Path.Combine(dir, CompanionTools.GetExeName(companion) + ".old");
+            var companionOldPath = Path.Combine(dir, CompanionTools.GetExeName(companion) + ".old");
             try
             {
-                if (fileSystem.FileExists(oldPath))
-                    fileSystem.FileDelete(oldPath);
+                if (fileSystem.FileExists(companionOldPath))
+                    fileSystem.FileDelete(companionOldPath);
             }
             catch
             {
@@ -358,12 +351,7 @@ public sealed class SelfUpdater
         return totalRead;
     }
 
-    private static bool IsAllZero(byte[] buffer)
-    {
-        foreach (var b in buffer)
-            if (b != 0) return false;
-        return true;
-    }
+    private static bool IsAllZero(byte[] buffer) => Array.TrueForAll(buffer, static b => b == 0);
 
     private static string ExtractString(byte[] buffer, int offset, int length)
     {

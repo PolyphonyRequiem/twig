@@ -18,6 +18,20 @@ internal static class CompanionTools
 }
 
 /// <summary>
+/// Abstraction for installing companion binaries from a release archive.
+/// Enables mocking of the sealed <see cref="SelfUpdater"/> in unit tests.
+/// </summary>
+internal interface ICompanionInstaller
+{
+    Task<IReadOnlyList<CompanionUpdateResult>> InstallCompanionsOnlyAsync(
+        string archiveUrl,
+        string archiveName,
+        IReadOnlyList<string> companionExeNames,
+        string installDir,
+        CancellationToken ct = default);
+}
+
+/// <summary>
 /// Result of a full self-update operation (main binary + companions).
 /// In-process only — never serialized to JSON.
 /// </summary>

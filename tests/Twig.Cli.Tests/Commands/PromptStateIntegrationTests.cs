@@ -179,6 +179,7 @@ public class PromptStateIntegrationTests : IDisposable
             _pendingChangeStore, _consoleInput,
             _formatterFactory, _config,
             flowTransitionService,
+            _workItemRepo, _adoService, _processConfigProvider,
             promptStateWriter: writer);
 
         var result = await cmd.ExecuteAsync(force: true);

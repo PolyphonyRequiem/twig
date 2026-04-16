@@ -1,3 +1,4 @@
+using Twig.Domain.Aggregates;
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
@@ -7,8 +8,8 @@ using Twig.Infrastructure.Config;
 namespace Twig.Commands;
 
 /// <summary>
-/// Implements <c>twig flow-close</c>: guards unsaved changes and open PRs, transitions to Completed,
-/// deletes the local branch, and clears the active context.
+/// Implements <c>twig flow-close</c>: guards unsaved changes, open PRs, and incomplete children,
+/// transitions to Completed, deletes the local branch, and clears the active context.
 /// </summary>
 public sealed class FlowCloseCommand(
     IContextStore contextStore,
@@ -17,6 +18,9 @@ public sealed class FlowCloseCommand(
     OutputFormatterFactory formatterFactory,
     TwigConfiguration config,
     FlowTransitionService flowTransitionService,
+    IWorkItemRepository workItemRepo,
+    IAdoWorkItemService adoService,
+    IProcessConfigurationProvider processConfigProvider,
     IGitService? gitService = null,
     IAdoGitService? adoGitService = null,
     IPromptStateWriter? promptStateWriter = null)
@@ -100,7 +104,51 @@ public sealed class FlowCloseCommand(
             }
         }
 
-        // 4. Transition to Completed via FlowTransitionService
+        // 4. Child-state verification gate
+        if (!force)
+        {
+            var children = await workItemRepo.GetChildrenAsync(targetId, ct);
+            if (children.Count == 0)
+            {
+                try
+                {
+                    children = await adoService.FetchChildrenAsync(targetId, ct);
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
+                {
+                    Console.Error.WriteLine(fmt.FormatInfo(
+                        $"Could not fetch children for #{targetId}: {ex.Message}. "
+                        + "Use --force to skip child verification."));
+                    return 1;
+                }
+            }
+
+            if (children.Count > 0)
+            {
+                var processConfig = processConfigProvider.GetConfiguration();
+                var incomplete = children.Where(child =>
+                    !processConfig.TypeConfigs.TryGetValue(child.Type, out var cfg) ||
+                    StateCategoryResolver.Resolve(child.State, cfg.StateEntries)
+                        is not (StateCategory.Completed or StateCategory.Resolved or StateCategory.Removed))
+                    .ToList();
+
+                if (incomplete.Count > 0)
+                {
+                    Console.Error.WriteLine(fmt.FormatError(
+                        $"Cannot close #{targetId}: {incomplete.Count} child item(s) not in terminal state."));
+                    foreach (var c in incomplete)
+                        Console.Error.WriteLine(fmt.FormatInfo($"  #{c.Id} {c.Title} [{c.State}]"));
+                    return 1;
+                }
+            }
+        }
+        else
+        {
+            Console.Error.WriteLine(fmt.FormatInfo(
+                $"Skipping child state verification for #{targetId} (--force)."));
+        }
+
+        // 5. Transition to Completed via FlowTransitionService
         string? newState = null;
         string originalState = item.State;
         var transitionResult = await flowTransitionService.TransitionStateAsync(
@@ -111,7 +159,7 @@ public sealed class FlowCloseCommand(
             originalState = transitionResult.OriginalState;
         }
 
-        // 5. Branch cleanup (prompt then delete)
+        // 6. Branch cleanup (prompt then delete)
         bool branchDeleted = false;
         if (!noBranchCleanup && isInWorkTree && gitService is not null)
         {
@@ -150,11 +198,11 @@ public sealed class FlowCloseCommand(
             }
         }
 
-        // 6. Clear context
+        // 7. Clear context
         await contextStore.ClearActiveWorkItemIdAsync();
         if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
-        // 7. Print summary
+        // 8. Print summary
         var actionStrings = new List<string>();
         if (newState is not null) actionStrings.Add($"State → {newState}");
         if (branchDeleted) actionStrings.Add($"Branch '{currentBranch}' deleted");

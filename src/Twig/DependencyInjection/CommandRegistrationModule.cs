@@ -71,6 +71,7 @@ public static class CommandRegistrationModule
         services.AddSingleton<ConfigCommand>();
         services.AddSingleton<ConfigStatusFieldsCommand>();
         services.AddSingleton<QueryCommand>();
+        services.AddSingleton<StatesCommand>();
     }
 
     private static void AddGitCommands(IServiceCollection services)

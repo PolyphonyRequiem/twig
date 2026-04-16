@@ -47,6 +47,11 @@ internal static class CommandExamples
             "twig state Active          Transition active item to Active",
             "twig state Done            Transition active item to Done",
         ],
+        ["states"] =
+        [
+            "twig states                List available states for the active item's type",
+            "twig states -o json        Output states as JSON (for automation/extensions)",
+        ],
         ["new"] =
         [
             "twig new task \"Write tests\"         Create a new Task under the active item",

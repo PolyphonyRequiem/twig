@@ -367,6 +367,11 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> State([Argument] string name, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<StateCommand>().ExecuteAsync(name, output, ct);
 
+    /// <summary>List available workflow states for the active work item's type.</summary>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    public async Task<int> States(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<StatesCommand>().ExecuteAsync(output, ct);
+
     /// <summary>Create a new work item in ADO.</summary>
     /// <param name="title">Title for the new work item.</param>
     /// <param name="type">Work item type (e.g., Task, Bug, User Story).</param>
@@ -897,6 +902,7 @@ internal static class GroupedHelp
 
         // Work Items
         "state",
+        "states",
         "note",
         "update",
         "edit",
@@ -1020,6 +1026,7 @@ Navigation:
 
 Work Items:
   state <name>         Change the state (e.g. Active, Closed).
+  states               List available states for the active item's type.
   note                 Add a note to the active work item.
   update <field> <v>   Update a field on the active work item.
   edit                 Edit work item fields in an external editor.

@@ -1,7 +1,7 @@
 # Twig VS Code Extension — Solution Design & Implementation Plan
 
 **Epic:** #1263 — Twig VSCode Extension
-**Status**: 🔨 In Progress
+> **Status**: 🔨 In Progress
 **Author:** Copilot (Principal Software Architect)
 **Created:** 2026-04-15
 **Revised:** 2026-04-15

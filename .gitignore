@@ -43,6 +43,9 @@ coverage/
 # Twig runtime files
 .twig/
 
+# Local dev builds (publish-local.ps1)
+.local/
+
 # Copilot agent infrastructure (user-level install)
 .github/agents/
 .github/docs/

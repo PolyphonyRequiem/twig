@@ -10,12 +10,23 @@ namespace Twig.Infrastructure.Tests.Auth;
 /// Tests for <see cref="AzCliAuthProvider"/>.
 /// Uses a fake process factory to avoid running real 'az' commands.
 /// </summary>
-public class AzCliAuthProviderTests
+public class AzCliAuthProviderTests : IDisposable
 {
+    private readonly string _cachePath = Path.Combine(
+        Path.GetTempPath(), $"twig-test-cache-{Guid.NewGuid()}");
+
+    public void Dispose()
+    {
+        if (File.Exists(_cachePath)) File.Delete(_cachePath);
+    }
+
     [Fact]
     public async Task GetAccessTokenAsync_SuccessfulProcess_ReturnsToken()
     {
-        var provider = new AzCliAuthProvider(psi => CreateFakeProcess("my-test-token\n", "", exitCode: 0));
+        var provider = new AzCliAuthProvider(
+            psi => CreateFakeProcess("my-test-token\n", "", exitCode: 0),
+            () => DateTimeOffset.UtcNow,
+            _cachePath);
 
         var token = await provider.GetAccessTokenAsync();
 
@@ -26,11 +37,14 @@ public class AzCliAuthProviderTests
     public async Task GetAccessTokenAsync_CachesToken_NoSecondProcessSpawn()
     {
         var callCount = 0;
-        var provider = new AzCliAuthProvider(psi =>
-        {
-            callCount++;
-            return CreateFakeProcess("cached-token\n", "", exitCode: 0);
-        });
+        var provider = new AzCliAuthProvider(
+            psi =>
+            {
+                callCount++;
+                return CreateFakeProcess("cached-token\n", "", exitCode: 0);
+            },
+            () => DateTimeOffset.UtcNow,
+            _cachePath);
 
         var token1 = await provider.GetAccessTokenAsync();
         var token2 = await provider.GetAccessTokenAsync();
@@ -53,7 +67,8 @@ public class AzCliAuthProviderTests
                 callCount++;
                 return CreateFakeProcess($"token-{callCount}\n", "", exitCode: 0);
             },
-            () => clock);
+            () => clock,
+            _cachePath);
 
         var token1 = await provider.GetAccessTokenAsync();
         token1.ShouldBe("token-1");
@@ -79,7 +94,8 @@ public class AzCliAuthProviderTests
                 callCount++;
                 return CreateFakeProcess("stable-token\n", "", exitCode: 0);
             },
-            () => clock);
+            () => clock,
+            _cachePath);
 
         await provider.GetAccessTokenAsync();
         callCount.ShouldBe(1);
@@ -94,7 +110,10 @@ public class AzCliAuthProviderTests
     [Fact]
     public async Task GetAccessTokenAsync_NonZeroExit_ThrowsAuthException()
     {
-        var provider = new AzCliAuthProvider(psi => CreateFakeProcess("", "ERROR: Not logged in", exitCode: 1));
+        var provider = new AzCliAuthProvider(
+            psi => CreateFakeProcess("", "ERROR: Not logged in", exitCode: 1),
+            () => DateTimeOffset.UtcNow,
+            _cachePath);
 
         var ex = await Should.ThrowAsync<AdoAuthenticationException>(
             () => provider.GetAccessTokenAsync());
@@ -105,7 +124,10 @@ public class AzCliAuthProviderTests
     [Fact]
     public async Task GetAccessTokenAsync_ProcessStartThrows_ThrowsAuthException()
     {
-        var provider = new AzCliAuthProvider(psi => throw new System.ComponentModel.Win32Exception("az not found"));
+        var provider = new AzCliAuthProvider(
+            psi => throw new System.ComponentModel.Win32Exception("az not found"),
+            () => DateTimeOffset.UtcNow,
+            _cachePath);
 
         var ex = await Should.ThrowAsync<AdoAuthenticationException>(
             () => provider.GetAccessTokenAsync());
@@ -116,7 +138,10 @@ public class AzCliAuthProviderTests
     [Fact]
     public async Task GetAccessTokenAsync_ProcessStartReturnsNull_ThrowsAuthException()
     {
-        var provider = new AzCliAuthProvider(psi => null);
+        var provider = new AzCliAuthProvider(
+            psi => null,
+            () => DateTimeOffset.UtcNow,
+            _cachePath);
 
         var ex = await Should.ThrowAsync<AdoAuthenticationException>(
             () => provider.GetAccessTokenAsync());
@@ -127,12 +152,130 @@ public class AzCliAuthProviderTests
     [Fact]
     public async Task GetAccessTokenAsync_EmptyOutput_ThrowsAuthException()
     {
-        var provider = new AzCliAuthProvider(psi => CreateFakeProcess("", "", exitCode: 0));
+        var provider = new AzCliAuthProvider(
+            psi => CreateFakeProcess("", "", exitCode: 0),
+            () => DateTimeOffset.UtcNow,
+            _cachePath);
 
         var ex = await Should.ThrowAsync<AdoAuthenticationException>(
             () => provider.GetAccessTokenAsync());
 
         ex.Message.ShouldContain("empty token");
+    }
+
+    [Fact]
+    public async Task GetAccessTokenAsync_WritesFileCache_AfterSuccessfulFetch()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var provider = new AzCliAuthProvider(
+            psi => CreateFakeProcess("fetched-token\n", "", exitCode: 0),
+            () => now,
+            _cachePath);
+
+        await provider.GetAccessTokenAsync();
+
+        File.Exists(_cachePath).ShouldBeTrue();
+        var lines = File.ReadAllLines(_cachePath);
+        lines.Length.ShouldBeGreaterThanOrEqualTo(2);
+        lines[1].ShouldBe("fetched-token");
+    }
+
+    [Fact]
+    public async Task GetAccessTokenAsync_ReadsFileCache_AvoidingProcessSpawn()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var expiry = now + TimeSpan.FromMinutes(30);
+        File.WriteAllText(_cachePath, $"{expiry.UtcTicks}\ncached-file-token\n");
+
+        var callCount = 0;
+        var provider = new AzCliAuthProvider(
+            psi =>
+            {
+                callCount++;
+                return CreateFakeProcess("should-not-be-used\n", "", exitCode: 0);
+            },
+            () => now,
+            _cachePath);
+
+        var token = await provider.GetAccessTokenAsync();
+
+        token.ShouldBe("cached-file-token");
+        callCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task GetAccessTokenAsync_IgnoresExpiredFileCache()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var expiry = now - TimeSpan.FromMinutes(5); // expired
+        File.WriteAllText(_cachePath, $"{expiry.UtcTicks}\nstale-token\n");
+
+        var provider = new AzCliAuthProvider(
+            psi => CreateFakeProcess("fresh-token\n", "", exitCode: 0),
+            () => now,
+            _cachePath);
+
+        var token = await provider.GetAccessTokenAsync();
+
+        token.ShouldBe("fresh-token");
+    }
+
+    [Fact]
+    public async Task GetAccessTokenAsync_IgnoresCorruptFileCache()
+    {
+        File.WriteAllText(_cachePath, "not-a-number\ngarbage\n");
+
+        var provider = new AzCliAuthProvider(
+            psi => CreateFakeProcess("recovered-token\n", "", exitCode: 0),
+            () => DateTimeOffset.UtcNow,
+            _cachePath);
+
+        var token = await provider.GetAccessTokenAsync();
+
+        token.ShouldBe("recovered-token");
+    }
+
+    [Fact]
+    public async Task GetAccessTokenAsync_CrossProcess_SecondProviderReadsFirstProvidersCache()
+    {
+        var now = DateTimeOffset.UtcNow;
+
+        // First "process" fetches and writes cache
+        var provider1 = new AzCliAuthProvider(
+            psi => CreateFakeProcess("shared-token\n", "", exitCode: 0),
+            () => now,
+            _cachePath);
+        await provider1.GetAccessTokenAsync();
+
+        // Second "process" should read from file, not spawn az
+        var callCount = 0;
+        var provider2 = new AzCliAuthProvider(
+            psi =>
+            {
+                callCount++;
+                return CreateFakeProcess("should-not-be-used\n", "", exitCode: 0);
+            },
+            () => now,
+            _cachePath);
+
+        var token = await provider2.GetAccessTokenAsync();
+
+        token.ShouldBe("shared-token");
+        callCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task GetAccessTokenAsync_MissingCacheFile_FallsThrough()
+    {
+        // _cachePath doesn't exist yet — provider should fall through to az CLI
+        var provider = new AzCliAuthProvider(
+            psi => CreateFakeProcess("fallback-token\n", "", exitCode: 0),
+            () => DateTimeOffset.UtcNow,
+            _cachePath);
+
+        var token = await provider.GetAccessTokenAsync();
+
+        token.ShouldBe("fallback-token");
     }
 
     /// <summary>

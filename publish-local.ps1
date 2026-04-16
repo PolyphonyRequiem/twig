@@ -1,8 +1,12 @@
 #!/usr/bin/env pwsh
-# Publish twig directly into ~/.twig/bin for local development.
+# Publish twig into a repo-local .local/bin directory for development.
+# A shim (twig.cmd) in ~/.twig/bin walks up from CWD to find the local
+# build, falling back to the release binary (twig-core.exe) when no
+# repo-local override exists.
+#
 # Usage:
-#   ./publish-local.ps1            # Build and deploy
-#   ./publish-local.ps1 -Restore   # Roll back to previous binary
+#   ./publish-local.ps1            # Build into .local/bin and install shims
+#   ./publish-local.ps1 -Restore   # Remove local build and shims
 
 param(
     [switch]$Restore
@@ -10,66 +14,119 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$installDir = Join-Path $HOME ".twig" "bin"
-$backupDir  = Join-Path $HOME ".twig" "bin.bak"
-$twigExe    = Join-Path $installDir "twig.exe"
+$globalDir  = Join-Path $HOME ".twig" "bin"
+$localDir   = Join-Path $PSScriptRoot ".local" "bin"
 $projectDir = $PSScriptRoot
+
+# --- Shim content ---
+
+$shimTemplate = @'
+@echo off
+setlocal
+rem Walk up from CWD to repo root looking for a local build.
+set "dir=%CD%"
+:loop
+if exist "%dir%\.local\bin\{0}" (
+    "%dir%\.local\bin\{0}" %*
+    exit /b %ERRORLEVEL%
+)
+if exist "%dir%\.git" goto fallback
+for %%I in ("%dir%\..") do set "parent=%%~fI"
+if "%parent%"=="%dir%" goto fallback
+set "dir=%parent%"
+goto loop
+:fallback
+"%~dp0{1}" %*
+exit /b %ERRORLEVEL%
+'@
+
+function Install-Shim($exeName, $coreName) {
+    $shimPath = Join-Path $globalDir "$([System.IO.Path]::GetFileNameWithoutExtension($exeName)).cmd"
+    $content  = $shimTemplate -f $exeName, $coreName
+    Set-Content -Path $shimPath -Value $content -Encoding ASCII
+    Write-Host "  Installed shim: $shimPath" -ForegroundColor DarkGray
+}
+
+function Enable-Shims {
+    # Rename release binaries so the .cmd shims take precedence via PATHEXT.
+    foreach ($name in @('twig', 'twig-mcp')) {
+        $exe  = Join-Path $globalDir "$name.exe"
+        $core = Join-Path $globalDir "$name-core.exe"
+        if ((Test-Path $exe) -and -not (Test-Path $core)) {
+            Rename-Item $exe $core
+            Write-Host "  Renamed $name.exe -> $name-core.exe" -ForegroundColor DarkGray
+        }
+        Install-Shim "$name.exe" "$name-core.exe"
+    }
+}
+
+function Disable-Shims {
+    foreach ($name in @('twig', 'twig-mcp')) {
+        $shim = Join-Path $globalDir "$name.cmd"
+        $core = Join-Path $globalDir "$name-core.exe"
+        $exe  = Join-Path $globalDir "$name.exe"
+        if (Test-Path $shim) {
+            Remove-Item $shim -Force
+            Write-Host "  Removed shim: $shim" -ForegroundColor DarkGray
+        }
+        if ((Test-Path $core) -and -not (Test-Path $exe)) {
+            Rename-Item $core $exe
+            Write-Host "  Restored $name-core.exe -> $name.exe" -ForegroundColor DarkGray
+        }
+    }
+}
 
 function Invoke-Publish($label, $csproj) {
     Write-Host ""
     Write-Host "Publishing $label (AOT, win-x64) ..." -ForegroundColor Cyan
-    dotnet publish "$projectDir\$csproj" -c Release -r win-x64 --self-contained true -o $installDir
+    dotnet publish "$projectDir\$csproj" -c Release -r win-x64 --self-contained true -o $localDir
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "$label publish failed. Restoring backup..." -ForegroundColor Red
-        if (Test-Path $backupDir) {
-            if (Test-Path $installDir) { Remove-Item $installDir -Recurse -Force }
-            Rename-Item $backupDir $installDir
-            Write-Host "Restored previous version from backup." -ForegroundColor Yellow
-        }
+        Write-Host "$label publish failed." -ForegroundColor Red
         exit 1
     }
 }
 
+# --- Restore ---
+
 if ($Restore) {
-    if (-not (Test-Path $backupDir)) {
-        Write-Host "No backup found at $backupDir — nothing to restore." -ForegroundColor Yellow
-        exit 1
+    if (Test-Path $localDir) {
+        Remove-Item $localDir -Recurse -Force
+        Write-Host "Removed local build at $localDir" -ForegroundColor Green
+    } else {
+        Write-Host "No local build found at $localDir" -ForegroundColor Yellow
     }
-    if (Test-Path $installDir) { Remove-Item $installDir -Recurse -Force }
-    Rename-Item $backupDir $installDir
-    Write-Host "Restored previous twig from backup." -ForegroundColor Green
+    Disable-Shims
+    $twigExe = Join-Path $globalDir "twig.exe"
     if (Test-Path $twigExe) {
         $v = & $twigExe --version 2>&1
-        Write-Host "  $v"
+        Write-Host "Restored to release version: $v" -ForegroundColor Green
     }
     exit 0
 }
 
-# --- Build & deploy ---
+# --- Build & deploy (repo-local) ---
 
-# Back up current install
-if (Test-Path $installDir) {
-    if (Test-Path $backupDir) { Remove-Item $backupDir -Recurse -Force }
-    Copy-Item $installDir $backupDir -Recurse
-    Write-Host "Backed up current install to $backupDir"
+if (-not (Test-Path $localDir)) {
+    New-Item -ItemType Directory -Path $localDir -Force | Out-Null
 }
 
-# Publish directly into the install directory
 Invoke-Publish "twig" "src\Twig\Twig.csproj"
-
-# --- Publish MCP server ---
-
 Invoke-Publish "twig-mcp" "src\Twig.Mcp\Twig.Mcp.csproj"
+
+# Install shims so 'twig' on PATH resolves to the local build
+Enable-Shims
 
 Write-Host ""
 Write-Host "Local publish complete!" -ForegroundColor Green
+$twigExe = Join-Path $localDir "twig.exe"
 if (Test-Path $twigExe) {
     $v = & $twigExe --version 2>&1
-    Write-Host "  $v"
+    Write-Host "  twig:     $v"
 }
-$mcpExe = Join-Path $installDir "twig-mcp.exe"
+$mcpExe = Join-Path $localDir "twig-mcp.exe"
 if (Test-Path $mcpExe) {
     $v = & $mcpExe --version 2>&1
-    Write-Host "  $v"
+    Write-Host "  twig-mcp: $v"
 }
-Write-Host "  Run './publish-local.ps1 -Restore' to roll back." -ForegroundColor DarkGray
+Write-Host "  Build at: $localDir" -ForegroundColor DarkGray
+Write-Host "  Run './publish-local.ps1 -Restore' to remove local build and shims." -ForegroundColor DarkGray

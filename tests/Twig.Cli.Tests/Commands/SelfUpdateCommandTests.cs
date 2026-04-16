@@ -168,5 +168,11 @@ public class SelfUpdateCommandTests
                 : Array.Empty<GitHubReleaseInfo>();
             return Task.FromResult(list);
         }
+
+        public Task<GitHubReleaseInfo?> GetReleaseByTagAsync(string tag, CancellationToken ct = default)
+        {
+            if (_throwOnGet is not null) throw _throwOnGet;
+            return Task.FromResult(_latestRelease?.Tag == tag ? _latestRelease : (GitHubReleaseInfo?)null);
+        }
     }
 }

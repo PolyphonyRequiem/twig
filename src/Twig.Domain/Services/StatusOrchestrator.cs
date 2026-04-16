@@ -9,49 +9,32 @@ namespace Twig.Domain.Services;
 /// and sync coordination into a single "status snapshot".
 /// <c>StatusCommand</c> delegates to this service for data gathering, then handles display.
 /// </summary>
-public sealed class StatusOrchestrator
+public sealed class StatusOrchestrator(
+    IContextStore contextStore,
+    IWorkItemRepository workItemRepo,
+    IPendingChangeStore pendingChangeStore,
+    ActiveItemResolver activeItemResolver,
+    WorkingSetService workingSetService,
+    SyncCoordinatorFactory syncCoordinatorFactory)
 {
-    private readonly IContextStore _contextStore;
-    private readonly IWorkItemRepository _workItemRepo;
-    private readonly IPendingChangeStore _pendingChangeStore;
-    private readonly ActiveItemResolver _activeItemResolver;
-    private readonly WorkingSetService _workingSetService;
-    private readonly SyncCoordinator _syncCoordinator;
-
-    public StatusOrchestrator(
-        IContextStore contextStore,
-        IWorkItemRepository workItemRepo,
-        IPendingChangeStore pendingChangeStore,
-        ActiveItemResolver activeItemResolver,
-        WorkingSetService workingSetService,
-        SyncCoordinator syncCoordinator)
-    {
-        _contextStore = contextStore;
-        _workItemRepo = workItemRepo;
-        _pendingChangeStore = pendingChangeStore;
-        _activeItemResolver = activeItemResolver;
-        _workingSetService = workingSetService;
-        _syncCoordinator = syncCoordinator;
-    }
-
     /// <summary>
     /// Gathers a complete status snapshot: active item, pending changes, seeds, and working set.
     /// Returns <c>null</c> active ID if no context is set.
     /// </summary>
     public async Task<StatusSnapshot> GetSnapshotAsync(CancellationToken ct = default)
     {
-        var activeId = await _contextStore.GetActiveWorkItemIdAsync(ct);
+        var activeId = await contextStore.GetActiveWorkItemIdAsync(ct);
         if (activeId is null)
             return StatusSnapshot.NoContext();
 
-        var resolveResult = await _activeItemResolver.GetActiveItemAsync(ct);
+        var resolveResult = await activeItemResolver.GetActiveItemAsync(ct);
         if (!resolveResult.TryGetWorkItem(out var item, out var unreachableId, out var unreachableReason))
         {
             return StatusSnapshot.Unreachable(activeId.Value, unreachableId, unreachableReason);
         }
 
-        var pending = await _pendingChangeStore.GetChangesAsync(item.Id, ct);
-        var seeds = await _workItemRepo.GetSeedsAsync(ct);
+        var pending = await pendingChangeStore.GetChangesAsync(item.Id, ct);
+        var seeds = await workItemRepo.GetSeedsAsync(ct);
 
         return new StatusSnapshot
         {
@@ -68,8 +51,8 @@ public sealed class StatusOrchestrator
     {
         try
         {
-            var workingSet = await _workingSetService.ComputeAsync(item.IterationPath, ct);
-            await _syncCoordinator.SyncWorkingSetAsync(workingSet, ct);
+            var workingSet = await workingSetService.ComputeAsync(item.IterationPath, ct);
+            await syncCoordinatorFactory.ReadOnly.SyncWorkingSetAsync(workingSet, ct);
         }
         catch (OperationCanceledException) { throw; }
         catch { /* sync is best-effort — don't fail the command */ }

@@ -23,6 +23,7 @@ public class TreeNavCommandTests
     private readonly ActiveItemResolver _activeItemResolver;
     private readonly WorkingSetService _workingSetService;
     private readonly SyncCoordinator _syncCoordinator;
+    private readonly SyncCoordinatorFactory _syncCoordinatorFactory;
     private readonly IProcessTypeStore _processTypeStore;
     private readonly SetCommand _setCommand;
     private readonly ISeedLinkRepository _seedLinkRepo;
@@ -50,6 +51,7 @@ public class TreeNavCommandTests
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, pendingChangeStore);
         var syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, protectedCacheWriter, pendingChangeStore, 30);
         _syncCoordinator = syncCoordinator;
+        _syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, protectedCacheWriter, pendingChangeStore, null, 30, 30);
         var iterationService = Substitute.For<IIterationService>();
         iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
@@ -75,7 +77,7 @@ public class TreeNavCommandTests
         _workItemRepo.GetChildrenAsync(2, Arg.Any<CancellationToken>())
             .Returns(new[] { child1, child2 });
 
-        var treeCmd = new TreeCommand(_contextStore, _workItemRepo, _config, _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator, _processTypeStore);
+        var treeCmd = new TreeCommand(_contextStore, _workItemRepo, _config, _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore);
         var result = await treeCmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -101,7 +103,7 @@ public class TreeNavCommandTests
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
             .Returns(new[] { seed });
 
-        var treeCmd = new TreeCommand(_contextStore, _workItemRepo, _config, _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator, _processTypeStore);
+        var treeCmd = new TreeCommand(_contextStore, _workItemRepo, _config, _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore);
         var result = await treeCmd.ExecuteAsync();
 
         result.ShouldBe(0);

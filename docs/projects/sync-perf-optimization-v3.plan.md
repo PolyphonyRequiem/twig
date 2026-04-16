@@ -2,24 +2,24 @@
 
 **Epic:** #1611 — Sync Performance Optimization
 **Status:** In Progress (3 of 5 Issues completed; #1614 in progress — 3 of 6 tasks done)
-**Revision:** Rev 9
+**Revision:** Rev 10
 
 ---
 
 ## Executive Summary
 
-This plan covers the remaining two work streams under Epic #1611 to reduce Azure DevOps
-API round-trips and improve Twig CLI responsiveness. Issues #1612 (batch fetch), #1616
-(HTTP transport), and #1613 (parallel refresh + delegated orchestrator) are all complete.
-The remaining work is: (1) completing the tiered cache TTL migration (#1614) — the
-`SyncCoordinatorFactory` class, its tests, `DisplayConfig.CacheStaleMinutesReadOnly`, and
-the DI registrations in both CLI and MCP are already implemented; what remains is migrating
-10 command/service consumers from direct `SyncCoordinator` injection to
-`SyncCoordinatorFactory` tier selection and updating 34 test files — and (2) reading the
-MSAL token cache file directly to eliminate per-command `az` process spawn overhead (#1673).
 Together these changes reduce median command latency by avoiding unnecessary ADO
 round-trips on read-heavy commands and eliminating ~100–300ms of process-creation overhead
-on every authenticated call.
+on every authenticated call. This plan covers the remaining two work streams under
+Epic #1611 to reduce Azure DevOps API round-trips and improve Twig CLI responsiveness.
+Issues #1612 (batch fetch), #1616 (HTTP transport), and #1613 (parallel refresh +
+delegated orchestrator) are all complete. The remaining work is: (1) completing the tiered
+cache TTL migration (#1614) — the `SyncCoordinatorFactory` class, its tests,
+`DisplayConfig.CacheStaleMinutesReadOnly`, and the DI registrations in both CLI and MCP
+are already implemented; what remains is migrating 10 command/service consumers from direct
+`SyncCoordinator` injection to `SyncCoordinatorFactory` tier selection and updating 34 test
+files — and (2) reading the MSAL token cache file directly to eliminate per-command `az`
+process spawn overhead (#1673).
 
 ## Background
 
@@ -206,6 +206,15 @@ refresh optimizations:
   matching `AzCliAuthProvider`'s `TokenTtl` value.
 - **NFR-6:** `MsalCacheTokenProvider.GetAccessTokenAsync` is serialized with a
   `SemaphoreSlim(1, 1)` to prevent concurrent file reads and cache races in the MCP server.
+
+### Requirement → Task Traceability
+
+| Requirement | Implementing Tasks | Notes |
+|-------------|-------------------|-------|
+| FR-1 (factory reads `CacheStaleMinutesReadOnly`) | #1659, #1660, #1661 | All Done — property, factory class, and DI registration |
+| FR-2 (factory holds two `SyncCoordinator` instances) | #1660 | Done — constructor creates ReadOnly + ReadWrite |
+| FR-3 (read-only commands use `.ReadOnly`; mutating use `.ReadWrite`) | #1662, #1663, #1664 | TO DO — consumer migration + test updates |
+| FR-4 (`MsalCacheTokenProvider` decorator chain) | #1673-T1, #1673-T2 | TO DO — implementation + tests |
 
 ## Proposed Design
 
@@ -401,6 +410,28 @@ data, no read-only distinction).
 | DD-24 | 50-minute in-memory TTL alignment with `AzCliAuthProvider` | The decorator's TTL must not exceed the inner provider's `TokenTtl` (50 minutes). If the decorator cached longer, it could serve a token that `AzCliAuthProvider` has already discarded, creating inconsistent behavior on fallback paths where the inner provider returns a different (newer) token. Matching TTLs ensures cache coherence across the decorator chain. |
 | DD-25 | Factory TTL values sourced from `DisplayConfig` at DI registration time | `CacheStaleMinutesReadOnly` (default: 15) and `CacheStaleMinutes` (default: 5) are both user-configurable via the twig config file. The factory clamps ReadOnly ≥ ReadWrite at construction time (line 23 of `SyncCoordinatorFactory.cs`) to prevent display commands from being more aggressive than mutating commands. This makes TTL thresholds adjustable without code changes, consistent with how other `DisplayConfig` settings (e.g., `TreeDepth`, `Hints`) are user-configurable. |
 
+> **Note:** DD-19 was assigned to a design decision in the v2 plan (sync-perf-optimization-v2.plan.md)
+> that was superseded during the parallel-refresh refactoring. The numbering gap is intentional to
+> maintain traceability across plan revisions.
+
+### Alternatives Considered
+
+**DD-16: Factory vs. Keyed Services for tiered SyncCoordinator injection**
+
+| Approach | Pros | Cons | Verdict |
+|----------|------|------|---------|
+| **SyncCoordinatorFactory** (chosen) | AOT-safe; no attributes; explicit tier selection in code; compatible with ConsoleAppFramework source-gen | Extra factory class; consumers must know which tier to use | **Selected** — AOT compatibility and source-gen framework constraints make this the only viable option |
+| .NET Keyed Services (`[FromKeyedServices("ReadOnly")]`) | Native DI pattern; no custom factory class; framework-supported | Requires `[FromKeyedServices]` attribute on constructor parameters, which is incompatible with ConsoleAppFramework's source-generated command binding. ConsoleAppFramework resolves parameters via its own source-gen pipeline and does not recognize `[FromKeyedServices]`. | Rejected |
+| Two separate `SyncCoordinator` registrations via marker interfaces | Type-safe; no factory class | Requires 2 new interfaces (`IReadOnlySyncCoordinator`, `IReadWriteSyncCoordinator`) wrapping the same concrete type — adds interface surface without value. `SyncCoordinator` is sealed and not abstracted behind an interface by design (DD-13). | Rejected |
+
+**DD-17: Direct MSAL cache file parsing vs. MSAL library dependency**
+
+| Approach | Pros | Cons | Verdict |
+|----------|------|------|---------|
+| **Direct JSON parsing** (chosen) | Zero new dependencies; ~50 lines of code; AOT-compatible via `TwigJsonContext`; no reflection | Coupled to MSAL cache file format (mitigated by silent fallback) | **Selected** — simplicity, AOT safety, and zero-dependency alignment with project constraints |
+| `Microsoft.Identity.Client` library | Official API; handles format changes; supports token refresh | ~2MB dependency; extensive reflection usage incompatible with `TrimMode=full`; requires `PublicClientApplication` builder pattern that pulls in interactive auth flows (violates NG-1); MSAL's `ITokenCache` serialization API requires callback registration that doesn't map to "just read the file" | Rejected |
+| `Microsoft.Identity.Client.Extensions.Msal` | Cross-platform cache access; handles encryption | Additional ~500KB dependency on top of MSAL core; same AOT/trim issues; designed for apps that own the cache, not for read-only access to another app's cache | Rejected |
+
 ## Dependencies
 
 ### Internal
@@ -514,21 +545,17 @@ permissions match `AzCliAuthProvider`'s existing threat model. Telemetry emits o
 
 None.
 
-## Open Questions
-
-| # | Question | Severity | Status |
-|---|----------|----------|--------|
-| OQ-1 | Should the backward-compat `SyncCoordinator` singleton registration be removed in this Epic, or deferred to a follow-up cleanup task? Removing it in Task #1664 makes the migration atomic but risks breaking any undiscovered transitive consumers. Keeping it indefinitely hides incomplete migration. | Low | **Resolved** — remove in Task #1664 after verifying all consumers migrated. Tests will catch any remaining direct `SyncCoordinator` consumers at compile time. |
-| OQ-2 | The MSAL cache file format (`~/.azure/msal_token_cache.json`) is an Azure CLI implementation detail. Should we add a version check or format fingerprint to detect breaking changes, or is the silent fallback sufficient? | Low | **Resolved** — silent fallback per NFR-2 is sufficient; format has been stable since MSAL 4.x. |
-| OQ-3 | Should the MCP server use tiered TTLs (ReadOnly for `twig.tree`/`twig.status`, ReadWrite for `twig.state`/`twig.update`) like the CLI, or continue using a uniform `CacheStaleMinutes` for both tiers? Current implementation uses uniform CacheStaleMinutes. | Low | **Resolved** — uniform approach per NG-4 is intentional; MCP tools are agent-driven and benefit from fresh data. |
-
 ## ADO Work Item Structure
 
 ### Issue #1614: Tiered cache TTL for read-only vs read-write commands
-**Status:** Doing (3 of 6 tasks done)
+**Status:** Doing (3 of 6 tasks done — infrastructure complete; consumer migration remaining)
 **Goal:** Read-only commands use 15-min TTL; mutating commands use 5-min TTL via
 `SyncCoordinatorFactory`.
 **Prerequisites:** None (independent of #1613)
+
+> **Progress note:** Tasks #1659–#1661 established the factory infrastructure (property,
+> class, DI registration). Acceptance criteria below track end-to-end outcomes that require
+> the remaining consumer migration tasks (#1662–#1664) to be completed.
 
 | Task ID | Description | Files | Status |
 |---------|-------------|-------|--------|
@@ -658,6 +685,12 @@ None.
 > **Note:** `ContextToolsSetTests.cs` is excluded from the direct migration count — it
 > references `SyncCoordinator` only transitively via `ContextToolsTestBase.cs` (row 32).
 > Updating the base class automatically covers `ContextToolsSetTests.cs`.
+>
+> **Note:** `SyncCoordinatorFactoryTests.cs` is excluded from the 34-file migration list
+> because it already constructs `SyncCoordinatorFactory` directly — it tests the factory
+> itself, not a consumer that needs to be migrated from `SyncCoordinator` to the factory.
+> Its 3 references to `SyncCoordinator` are within `SyncCoordinatorFactory` property
+> accesses (`.ReadOnly`, `.ReadWrite`), not direct `SyncCoordinator` injection.
 
 **Acceptance Criteria:**
 - [ ] Read-only commands use 15-min staleness threshold
@@ -688,7 +721,7 @@ directly when a valid ADO-scoped token exists.
 This task bundles DTOs, JSON registration, business logic, and DI wiring as a single
 atomic unit — none has value without the others, and all four modify only 3 files.
 
-- New sealed class`MsalCacheTokenProvider : IAuthenticationProvider` in `Auth/MsalCacheTokenProvider.cs`.
+- New sealed class `MsalCacheTokenProvider : IAuthenticationProvider` in `Auth/MsalCacheTokenProvider.cs`.
 - DTOs in the same file:
   ```csharp
   internal sealed class MsalTokenCache
@@ -729,7 +762,11 @@ atomic unit — none has value without the others, and all four modify only 3 fi
   5. Parse `ExpiresOn` from Unix epoch string to `DateTimeOffset` via
      `long.TryParse(entry.ExpiresOn, out var epoch)` →
      `DateTimeOffset.FromUnixTimeSeconds(epoch)`. If parsing fails, skip the entry
-     (treat as expired). Find entry where the parsed expiry > `now + 5 minutes`. The
+     (treat as expired). From all entries with parsed expiry > `now + 5 minutes`,
+     **select the entry with the maximum expiry** (`OrderByDescending(e => parsedExpiry)
+     .FirstOrDefault()`). This tie-breaking ensures the longest-lived token is used when
+     multiple valid ADO-scoped entries exist (e.g., tokens for different tenants or
+     accounts that both match the ADO resource scope). The
      **5-minute expiry buffer** accounts for two factors: (a) **clock skew** between
      the local system and Azure AD's token server — the token's `ExpiresOn` is set by
      Azure AD, but the comparison uses the local clock, which may lag by 1–3 minutes;
@@ -758,7 +795,10 @@ atomic unit — none has value without the others, and all four modify only 3 fi
 - Test missing cache file → falls back to inner provider.
 - Test malformed JSON → falls back to inner provider.
 - Test no ADO-scoped token → falls back to inner provider.
-- Test multiple tokens → selects ADO-scoped entry.
+- Test multiple tokens → selects ADO-scoped entry with maximum expiry.
+- Test multiple valid ADO-scoped tokens with different expiries → selects max-expiry entry
+  (tie-breaking verification: provide 2 entries both with `Target` containing the ADO resource
+  ID and expiry > now + 5 min; assert the returned token is the one with the later expiry).
 - Test in-memory cache → second call skips file read.
 - Test concurrent calls → `SemaphoreSlim` serializes access (verify via timing or mock assertions).
 - Test `AccessToken` deserialization with PascalCase key (verifies DD-23 `[JsonPropertyName]`).
@@ -772,6 +812,7 @@ atomic unit — none has value without the others, and all four modify only 3 fi
 - [ ] Token within 5-minute expiry buffer treated as expired (falls back)
 - [ ] In-memory cache (50-min TTL) prevents repeated file reads
 - [ ] Concurrent `GetAccessTokenAsync` calls serialized by `SemaphoreSlim`
+- [ ] Multiple valid ADO-scoped tokens resolved by selecting max-expiry entry
 - [ ] `MsalTokenCache.AccessToken` has `[JsonPropertyName("AccessToken")]` for camelCase policy
 - [ ] No `Microsoft.Identity.Client` dependency added
 - [ ] DTOs registered in `TwigJsonContext` for AOT compatibility
@@ -782,16 +823,13 @@ atomic unit — none has value without the others, and all four modify only 3 fi
 PR groups cluster tasks for reviewable PRs, sized for reviewability (≤2000 LoC, ≤50 files).
 These are independent of the ADO work-item hierarchy.
 
-| PR Group | Tasks | Type | Est. Files | Est. LoC | Successor | Description |
-|----------|-------|------|-----------|----------|-----------|-------------|
-| PG-1 | #1662, #1663 | **wide** | ~15 | ~300 | PG-2 | **Command/service migration to SyncCoordinatorFactory.** Migrates all 10 command and service consumers from direct `SyncCoordinator` injection to `SyncCoordinatorFactory` tier selection (`.ReadOnly` / `.ReadWrite`). Updates DI lambdas in `CommandServiceModule.cs` and `Twig.Mcp/Program.cs`. Mechanical pattern: change constructor parameter type, replace `syncCoordinator.` with `syncFactory.ReadOnly.` or `syncFactory.ReadWrite.`. |
-| PG-2 | #1664 | **wide** | ~34 | ~500 | — | **Test file migration.** Updates 34 test files to construct `SyncCoordinatorFactory` instead of `SyncCoordinator` directly. 4 base classes cover ~15 transitive consumers. Mechanical change; requires PG-1 to be merged first so test subjects have the new constructor signatures. |
-| PG-3 | #1673-T1, #1673-T2 | **deep** | ~4 | ~450 | — | **MSAL token cache provider.** Implements `MsalCacheTokenProvider` decorator, DTOs, `TwigJsonContext` registration, DI wiring, and comprehensive test suite. Fully independent of PG-1/PG-2 — can be developed and reviewed in parallel. |
+| PR Group | Tasks | Type | Est. Files | Est. LoC | Description |
+|----------|-------|------|-----------|----------|-------------|
+| PG-1 | #1662, #1663, #1664 | **wide** | ~49 | ~800 | **SyncCoordinatorFactory migration.** Migrates all 10 command/service consumers to `SyncCoordinatorFactory` tier selection (`.ReadOnly` / `.ReadWrite`), updates DI lambdas in `CommandServiceModule.cs` and `Twig.Mcp/Program.cs`, and updates all 34 test files in the same branch. 4 base classes cover ~15 transitive test consumers. Removes backward-compat `SyncCoordinator` registration after migration is verified. |
+| PG-2 | #1673-T1, #1673-T2 | **deep** | ~4 | ~450 | **MSAL token cache provider.** Implements `MsalCacheTokenProvider` decorator, DTOs, `TwigJsonContext` registration, DI wiring, and comprehensive test suite. Fully independent of PG-1 — can be developed and reviewed in parallel. |
 
 **Execution order:**
-- PG-1 and PG-3 can proceed in parallel (no dependencies between them).
-- PG-2 depends on PG-1 (test files need migrated constructor signatures).
-- PG-3 is fully independent and can be merged at any time.
+- PG-1 and PG-2 can proceed in parallel (no dependencies between them).
 
 ## References
 

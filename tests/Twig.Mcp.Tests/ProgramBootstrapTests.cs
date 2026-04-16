@@ -107,7 +107,7 @@ public sealed class ProgramBootstrapTests
             sp.GetRequiredService<IPendingChangeStore>(),
             sp.GetRequiredService<ActiveItemResolver>(),
             sp.GetRequiredService<WorkingSetService>(),
-            sp.GetRequiredService<SyncCoordinator>()));
+            sp.GetRequiredService<SyncCoordinatorFactory>()));
 
         services.AddSingleton(sp => new McpPendingChangeFlusher(
             sp.GetRequiredService<IWorkItemRepository>(),

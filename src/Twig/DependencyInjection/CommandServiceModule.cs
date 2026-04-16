@@ -108,7 +108,7 @@ public static class CommandServiceModule
             sp.GetRequiredService<IPendingChangeStore>(),
             sp.GetRequiredService<ActiveItemResolver>(),
             sp.GetRequiredService<WorkingSetService>(),
-            sp.GetRequiredService<SyncCoordinator>()));
+            sp.GetRequiredService<SyncCoordinatorFactory>()));
 
         // Context change extension — additively hydrates parent chain + downstream graph
         services.AddSingleton<ContextChangeService>(sp => new ContextChangeService(

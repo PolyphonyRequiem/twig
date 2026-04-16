@@ -27,6 +27,7 @@ public class CacheFirstReadCommandTests
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly ActiveItemResolver _activeItemResolver;
     private readonly SyncCoordinator _syncCoordinator;
+    private readonly SyncCoordinatorFactory _syncCoordinatorFactory;
     private readonly WorkingSetService _workingSetService;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
@@ -49,6 +50,7 @@ public class CacheFirstReadCommandTests
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
         _syncCoordinator = new SyncCoordinator(_workItemRepo, _adoService, protectedCacheWriter, _pendingChangeStore, 30);
+        _syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, protectedCacheWriter, _pendingChangeStore, null, 30, 30);
         var iterationService = Substitute.For<IIterationService>();
         iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
@@ -90,7 +92,7 @@ public class CacheFirstReadCommandTests
 
         var config = new TwigConfiguration { Seed = new SeedConfig { StaleDays = 14 } };
         var cmd = new StatusCommand(_contextStore, _workItemRepo, _pendingChangeStore,
-            config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinator,
+            config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinatorFactory,
             new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db")));
         var result = await cmd.ExecuteAsync();
 
@@ -204,7 +206,7 @@ public class CacheFirstReadCommandTests
 
         var config = new TwigConfiguration { Seed = new SeedConfig { StaleDays = 14 } };
         var cmd = new StatusCommand(_contextStore, _workItemRepo, _pendingChangeStore,
-            config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinator,
+            config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinatorFactory,
             new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db")));
 
         var result = await cmd.ExecuteAsync("json");
@@ -245,7 +247,7 @@ public class CacheFirstReadCommandTests
 
         var config = new TwigConfiguration { Seed = new SeedConfig { StaleDays = 14 } };
         var cmd = new StatusCommand(_contextStore, _workItemRepo, _pendingChangeStore,
-            config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinator,
+            config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinatorFactory,
             new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db")));
         var result = await cmd.ExecuteAsync();
 
@@ -268,7 +270,7 @@ public class CacheFirstReadCommandTests
 
         var config = new TwigConfiguration();
         var cmd = new TreeCommand(_contextStore, _workItemRepo, config,
-            _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator, _processTypeStore);
+            _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore);
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -285,7 +287,7 @@ public class CacheFirstReadCommandTests
 
         var config = new TwigConfiguration();
         var cmd = new TreeCommand(_contextStore, _workItemRepo, config,
-            _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinator, _processTypeStore);
+            _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore);
 
         var result = await cmd.ExecuteAsync();
         result.ShouldBe(1);
@@ -343,7 +345,7 @@ public class CacheFirstReadCommandTests
 
         var config = new TwigConfiguration { Seed = new SeedConfig { StaleDays = 14 } };
         var cmd = new StatusCommand(_contextStore, _workItemRepo, _pendingChangeStore,
-            config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinator,
+            config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinatorFactory,
             new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db")));
 
         var result = await cmd.ExecuteAsync();

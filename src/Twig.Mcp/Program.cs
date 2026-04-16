@@ -98,7 +98,7 @@ builder.Services.AddSingleton(sp => new StatusOrchestrator(
     sp.GetRequiredService<IPendingChangeStore>(),
     sp.GetRequiredService<ActiveItemResolver>(),
     sp.GetRequiredService<WorkingSetService>(),
-    sp.GetRequiredService<SyncCoordinator>()));
+    sp.GetRequiredService<SyncCoordinatorFactory>()));
 
 // MCP-specific services
 builder.Services.AddSingleton(sp => new McpPendingChangeFlusher(

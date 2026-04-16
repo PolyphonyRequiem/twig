@@ -11,7 +11,7 @@ namespace Twig.DependencyInjection;
 /// <summary>
 /// Registers command-support services: hint engine, editor launcher, console input,
 /// and shared domain services (<see cref="ActiveItemResolver"/>, <see cref="ProtectedCacheWriter"/>,
-/// <see cref="SyncCoordinator"/>).
+/// <see cref="SyncCoordinatorFactory"/>).
 /// </summary>
 /// <remarks>
 /// Shared services are registered here (CLI layer) rather than in

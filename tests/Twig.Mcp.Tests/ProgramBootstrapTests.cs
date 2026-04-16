@@ -60,13 +60,22 @@ public sealed class ProgramBootstrapTests
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IPendingChangeStore>()));
 
-        services.AddSingleton(sp => new SyncCoordinator(
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
-            sp.GetRequiredService<ProtectedCacheWriter>(),
-            sp.GetRequiredService<IPendingChangeStore>(),
-            sp.GetRequiredService<IWorkItemLinkRepository>(),
-            sp.GetRequiredService<TwigConfiguration>().Display.CacheStaleMinutes));
+        // #1614: SyncCoordinatorFactory — MCP uses CacheStaleMinutes for both tiers
+        services.AddSingleton(sp =>
+        {
+            var staleMinutes = sp.GetRequiredService<TwigConfiguration>().Display.CacheStaleMinutes;
+            return new SyncCoordinatorFactory(
+                sp.GetRequiredService<IWorkItemRepository>(),
+                sp.GetRequiredService<IAdoWorkItemService>(),
+                sp.GetRequiredService<ProtectedCacheWriter>(),
+                sp.GetRequiredService<IPendingChangeStore>(),
+                sp.GetRequiredService<IWorkItemLinkRepository>(),
+                readOnlyStaleMinutes: staleMinutes,
+                readWriteStaleMinutes: staleMinutes);
+        });
+
+        // Backward compat — MCP tool classes inject SyncCoordinator directly
+        services.AddSingleton(sp => sp.GetRequiredService<SyncCoordinatorFactory>().ReadWrite);
 
         services.AddSingleton(sp => new ContextChangeService(
             sp.GetRequiredService<IWorkItemRepository>(),
@@ -107,9 +116,10 @@ public sealed class ProgramBootstrapTests
 
         using var provider = services.BuildServiceProvider();
 
-        // All 7 domain services + McpPendingChangeFlusher must resolve
+        // All 7 domain services + McpPendingChangeFlusher + SyncCoordinatorFactory must resolve
         provider.GetRequiredService<ActiveItemResolver>().ShouldNotBeNull();
         provider.GetRequiredService<ProtectedCacheWriter>().ShouldNotBeNull();
+        provider.GetRequiredService<SyncCoordinatorFactory>().ShouldNotBeNull();
         provider.GetRequiredService<SyncCoordinator>().ShouldNotBeNull();
         provider.GetRequiredService<ContextChangeService>().ShouldNotBeNull();
         provider.GetRequiredService<WorkingSetService>().ShouldNotBeNull();

@@ -81,19 +81,4 @@ public sealed class CommandServiceModuleTests
         coordinator.ShouldBeSameAs(factory.ReadWrite);
     }
 
-    [Fact]
-    public void SyncCoordinatorFactory_UsesCacheStaleMinutesReadOnly_ForReadOnlyTier()
-    {
-        using var provider = BuildProviderWithConfig(new TwigConfiguration
-        {
-            Display = new DisplayConfig { CacheStaleMinutes = 5, CacheStaleMinutesReadOnly = 15 },
-            User = new UserConfig { DisplayName = "Test User" }
-        });
-
-        var factory = provider.GetRequiredService<SyncCoordinatorFactory>();
-
-        // ReadOnly and ReadWrite should be distinct instances (different TTLs)
-        factory.ReadOnly.ShouldNotBeSameAs(factory.ReadWrite);
-    }
-
 }

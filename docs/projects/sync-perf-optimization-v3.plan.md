@@ -1,8 +1,8 @@
 # Sync Performance Optimization v3
 
 **Epic:** #1611 — Sync Performance Optimization
-**Status:** In Progress (3 of 5 Issues completed)
-**Revision:** Rev 8
+**Status:** In Progress (3 of 5 Issues completed; #1614 in progress — 3 of 6 tasks done)
+**Revision:** Rev 9
 
 ---
 
@@ -11,12 +11,15 @@
 This plan covers the remaining two work streams under Epic #1611 to reduce Azure DevOps
 API round-trips and improve Twig CLI responsiveness. Issues #1612 (batch fetch), #1616
 (HTTP transport), and #1613 (parallel refresh + delegated orchestrator) are all complete.
-The remaining work is: (1) introducing tiered cache TTL via a `SyncCoordinatorFactory` so
-read-only commands tolerate 15-minute staleness while mutating commands keep a 5-minute
-threshold (#1614), and (2) reading the MSAL token cache file directly to eliminate
-per-command `az` process spawn overhead (#1673). Together these changes reduce median
-command latency by avoiding unnecessary ADO round-trips on read-heavy commands and
-eliminating ~100–300ms of process-creation overhead on every authenticated call.
+The remaining work is: (1) completing the tiered cache TTL migration (#1614) — the
+`SyncCoordinatorFactory` class, its tests, `DisplayConfig.CacheStaleMinutesReadOnly`, and
+the DI registrations in both CLI and MCP are already implemented; what remains is migrating
+10 command/service consumers from direct `SyncCoordinator` injection to
+`SyncCoordinatorFactory` tier selection and updating 34 test files — and (2) reading the
+MSAL token cache file directly to eliminate per-command `az` process spawn overhead (#1673).
+Together these changes reduce median command latency by avoiding unnecessary ADO
+round-trips on read-heavy commands and eliminating ~100–300ms of process-creation overhead
+on every authenticated call.
 
 ## Background
 
@@ -80,12 +83,11 @@ tiered cache TTL (#1614). The table below inventories all call sites:
 | 11 | `src/Twig/DependencyInjection/CommandServiceModule.cs` | DI factory | Singleton registration | **Both** |
 | 12 | `src/Twig.Mcp/Program.cs` | DI factory (SyncCoordinator) | Singleton registration | **Both** |
 | 13 | `src/Twig.Mcp/Program.cs` | ContextChangeService DI lambda | `sp.GetRequiredService<SyncCoordinator>()` passed to ctor | **ReadWrite** |
-
 > **Note:** `ContextTools.cs` does NOT directly consume `SyncCoordinator` — it accesses
 > sync functionality indirectly through `StatusOrchestrator` and `ContextChangeService`
 > (rows 6 and 8). No code change is required in `ContextTools.cs` for the factory migration.
 
-**Test files referencing SyncCoordinator:** 33 files across `Twig.Cli.Tests`, `Twig.Domain.Tests`,
+**Test files referencing SyncCoordinator:** 34 files across `Twig.Cli.Tests`, `Twig.Domain.Tests`,
 and `Twig.Mcp.Tests`. This includes 4 base classes (`RefreshCommandTestBase`,
 `ContextToolsTestBase`, `MutationToolsTestBase`, `ReadToolsTestBase`) that centralize
 `SyncCoordinator` setup — updating these base classes covers their transitive consumers.
@@ -98,20 +100,20 @@ Full list in Task #1664.
 > `RefreshOrchestrator` is part of a mutating command pipeline — the TTL has no practical
 > effect in this specific call path.
 
-> **Row 13 note:** The MCP `ContextChangeService` DI lambda (lines 59–64 of
-> `Twig.Mcp/Program.cs`) calls `sp.GetRequiredService<SyncCoordinator>()` at line 62 and
-> passes the resolved instance to the `ContextChangeService` constructor. Once the
-> standalone `SyncCoordinator` singleton is removed (Task #1661), this lambda will fail
-> at runtime with a DI resolution error unless migrated to resolve
-> `SyncCoordinatorFactory` instead. This site is distinct from row 12 (which covers the
-> `SyncCoordinator` registration itself) and from row 8 (which covers the
-> `ContextChangeService` class constructor in the Domain layer).
+> **Row 13 note:** The MCP `ContextChangeService` DI lambda (lines 69–74 of
+> `Twig.Mcp/Program.cs`) calls `sp.GetRequiredService<SyncCoordinator>()` and passes
+> the resolved instance to the `ContextChangeService` constructor. This resolves to
+> `factory.ReadWrite` via the backward-compat `SyncCoordinator` registration (line 67).
+> For the full tiered migration, this lambda should resolve `SyncCoordinatorFactory`
+> directly and pass `.ReadWrite` explicitly. This site is distinct from row 12 (which
+> covers the `SyncCoordinatorFactory` registration itself) and from row 8 (which covers
+> the `ContextChangeService` class constructor in the Domain layer).
 
 **Transitive consumer analysis:** Files like `CacheFirstReadCommandTests.cs`,
 `FlowStartCommand_ContextChangeTests.cs`, and `NewCommand_ContextChangeTests.cs` consume
 `SyncCoordinator` through base test classes or command constructors.
 `ContextToolsSetTests.cs` references `SyncCoordinator` only transitively via
-`ContextToolsTestBase` — it requires no direct code change. All 33 files with direct
+`ContextToolsTestBase` — it requires no direct code change. All 34 files with direct
 references are accounted for in the migration scope; no additional transitive consumers
 require direct changes.
 
@@ -246,26 +248,44 @@ refresh optimizations:
 
 ### Key Components
 
-#### 1. SyncCoordinatorFactory (new)
+#### 1. SyncCoordinatorFactory (implemented — `src/Twig.Domain/Services/SyncCoordinatorFactory.cs`)
 
-A simple sealed class holding two pre-built `SyncCoordinator` instances. The read-only TTL
-is sourced from `DisplayConfig.CacheStaleMinutesReadOnly` (default: 15 minutes) and the
-read-write TTL from `DisplayConfig.CacheStaleMinutes` (default: 5 minutes) — both are
-user-configurable via the twig config file:
+A sealed class that constructs two `SyncCoordinator` instances internally using shared
+dependencies and different TTL values. The read-only TTL is sourced from
+`DisplayConfig.CacheStaleMinutesReadOnly` (default: 15 minutes) and the read-write TTL from
+`DisplayConfig.CacheStaleMinutes` (default: 5 minutes) — both are user-configurable via
+the twig config file (DD-25):
 
 ```csharp
-public sealed class SyncCoordinatorFactory(
-    SyncCoordinator readOnly,
-    SyncCoordinator readWrite)
+public sealed class SyncCoordinatorFactory
 {
-    public SyncCoordinator ReadOnly { get; } = readOnly;
-    public SyncCoordinator ReadWrite { get; } = readWrite;
+    public SyncCoordinatorFactory(
+        IWorkItemRepository workItemRepo,
+        IAdoWorkItemService adoService,
+        ProtectedCacheWriter protectedCacheWriter,
+        IPendingChangeStore pendingChangeStore,
+        IWorkItemLinkRepository? linkRepo,
+        int readOnlyStaleMinutes,
+        int readWriteStaleMinutes)
+    {
+        if (readOnlyStaleMinutes < readWriteStaleMinutes)
+            readOnlyStaleMinutes = readWriteStaleMinutes;
+
+        ReadOnly = new SyncCoordinator(workItemRepo, adoService, protectedCacheWriter,
+            pendingChangeStore, linkRepo, readOnlyStaleMinutes);
+        ReadWrite = new SyncCoordinator(workItemRepo, adoService, protectedCacheWriter,
+            pendingChangeStore, linkRepo, readWriteStaleMinutes);
+    }
+
+    public SyncCoordinator ReadOnly { get; }
+    public SyncCoordinator ReadWrite { get; }
 }
 ```
 
-Registered as a singleton in DI. Commands inject the factory and select the appropriate
-tier. The `SyncCoordinator` class itself is unchanged — the factory is purely a DI-level
-concern.
+The constructor clamps `readOnlyStaleMinutes ≥ readWriteStaleMinutes` to prevent display
+commands from being more aggressive than mutating commands. Registered as a singleton in
+DI. Commands inject the factory and select the appropriate tier. The `SyncCoordinator`
+class itself is unchanged — the factory is purely a DI-level concern.
 
 #### 2. MsalCacheTokenProvider (new)
 
@@ -340,28 +360,32 @@ AOT-safe deserialization. No `Microsoft.Identity.Client` dependency is needed.
 
 #### 3. DI Registration Changes
 
-In `CommandServiceModule.AddTwigCommandServices()`:
+In `CommandServiceModule.AddTwigCommandServices()` (already implemented):
 
 ```csharp
-// Build both coordinators with different TTLs
-services.AddSingleton<SyncCoordinatorFactory>(sp =>
-{
-    var config = sp.GetRequiredService<TwigConfiguration>();
-    SyncCoordinator Build(int ttl) => new SyncCoordinator(
-        sp.GetRequiredService<IWorkItemRepository>(),
-        sp.GetRequiredService<IAdoWorkItemService>(),
-        sp.GetRequiredService<ProtectedCacheWriter>(),
-        sp.GetRequiredService<IPendingChangeStore>(),
-        sp.GetRequiredService<IWorkItemLinkRepository>(),
-        ttl);
-    return new SyncCoordinatorFactory(
-        readOnly:  Build(config.Display.CacheStaleMinutesReadOnly),
-        readWrite: Build(config.Display.CacheStaleMinutes));
-});
+// DD-13 + #1614: SyncCoordinatorFactory holds ReadOnly (longer TTL) and ReadWrite (shorter TTL)
+// tiers. Accepts int primitives to avoid Domain → Infrastructure circular reference.
+services.AddSingleton<SyncCoordinatorFactory>(sp => new SyncCoordinatorFactory(
+    sp.GetRequiredService<IWorkItemRepository>(),
+    sp.GetRequiredService<IAdoWorkItemService>(),
+    sp.GetRequiredService<ProtectedCacheWriter>(),
+    sp.GetRequiredService<IPendingChangeStore>(),
+    sp.GetRequiredService<IWorkItemLinkRepository>(),
+    sp.GetRequiredService<TwigConfiguration>().Display.CacheStaleMinutesReadOnly,
+    sp.GetRequiredService<TwigConfiguration>().Display.CacheStaleMinutes));
+
+// Backward compat — direct SyncCoordinator consumers resolve to factory.ReadWrite
+services.AddSingleton(sp => sp.GetRequiredService<SyncCoordinatorFactory>().ReadWrite);
 ```
 
-The standalone `SyncCoordinator` registration is removed. All consumers migrate to
-`SyncCoordinatorFactory`. Identical change in `Twig.Mcp/Program.cs`.
+The backward-compat `SyncCoordinator` registration allows existing consumers (e.g.,
+`RefreshOrchestrator`, `StatusOrchestrator`, `ContextChangeService`) to continue resolving
+`SyncCoordinator` directly, mapping to `factory.ReadWrite`. This acts as a transitional
+bridge during the consumer migration (Tasks #1662/#1663). Once all consumers inject
+`SyncCoordinatorFactory` directly and select their tier, the backward-compat registration
+can optionally be removed. Identical factory registration in `Twig.Mcp/Program.cs` (lines
+53–64), except MCP uses `CacheStaleMinutes` for both tiers (agent-driven tools need fresh
+data, no read-only distinction).
 
 ### Design Decisions
 
@@ -375,6 +399,7 @@ The standalone `SyncCoordinator` registration is removed. All consumers migrate 
 | DD-22 | `SemaphoreSlim` serialization in `MsalCacheTokenProvider` | MCP server invokes auth from thread pool threads. Without serialization, concurrent `GetAccessTokenAsync` calls race on the in-memory cache and file reads. `SemaphoreSlim(1,1)` is the lightest async-compatible lock; the semaphore wraps both the decorator's cache check and the inner provider fallback to prevent concurrent `az` process spawns. The CLI is single-threaded, so this adds negligible overhead there. |
 | DD-23 | Explicit `[JsonPropertyName("AccessToken")]` on `MsalTokenCache` DTO | `TwigJsonContext` uses `CamelCase` naming policy. The MSAL cache file uses PascalCase `"AccessToken"` at the top level. Without `[JsonPropertyName]`, the source-generated deserializer looks for `"accessToken"` and silently produces `null`, defeating the optimization. Inner properties (`secret`, `target`) match camelCase naturally. |
 | DD-24 | 50-minute in-memory TTL alignment with `AzCliAuthProvider` | The decorator's TTL must not exceed the inner provider's `TokenTtl` (50 minutes). If the decorator cached longer, it could serve a token that `AzCliAuthProvider` has already discarded, creating inconsistent behavior on fallback paths where the inner provider returns a different (newer) token. Matching TTLs ensures cache coherence across the decorator chain. |
+| DD-25 | Factory TTL values sourced from `DisplayConfig` at DI registration time | `CacheStaleMinutesReadOnly` (default: 15) and `CacheStaleMinutes` (default: 5) are both user-configurable via the twig config file. The factory clamps ReadOnly ≥ ReadWrite at construction time (line 23 of `SyncCoordinatorFactory.cs`) to prevent display commands from being more aggressive than mutating commands. This makes TTL thresholds adjustable without code changes, consistent with how other `DisplayConfig` settings (e.g., `TreeDepth`, `Hints`) are user-configurable. |
 
 ## Dependencies
 
@@ -389,14 +414,15 @@ The standalone `SyncCoordinator` registration is removed. All consumers migrate 
 
 ### Sequencing Constraints
 
-| Step | Tasks | Depends On | Notes |
-|------|-------|------------|-------|
-| 1 | #1660 (SyncCoordinatorFactory) | — | Defines factory class (no const — TTL comes from config) |
-| 2 | #1661 (DI registration) | #1660 | Registers factory in DI container (CLI + MCP) |
-| 3a | #1662 (read-only migration) | #1661 | Can run in parallel with #1663 |
-| 3b | #1663 (mutating migration) | #1661 | Can run in parallel with #1662 |
-| 4 | #1664 (test migration) | #1662, #1663 | Requires all commands migrated first |
-| — | #1673 (MSAL cache) | — | Fully independent, any time |
+| Step | Tasks | Depends On | Status | Notes |
+|------|-------|------------|--------|-------|
+| 1a | #1659 (DisplayConfig) | — | **Done** | `CacheStaleMinutesReadOnly` property already exists |
+| 1b | #1660 (SyncCoordinatorFactory) | — | **Done** | Class + tests implemented and passing |
+| 2 | #1661 (DI registration) | #1659, #1660 | **Done** | Factory + backward-compat registered in CLI + MCP |
+| 3a | #1662 (read-only migration) | #1661 | TO DO | Can run in parallel with #1663 |
+| 3b | #1663 (mutating migration) | #1661 | TO DO | Can run in parallel with #1662 |
+| 4 | #1664 (test migration) | #1662, #1663 | TO DO | Requires all commands migrated first |
+| — | #1673 (MSAL cache) | — | TO DO | Fully independent, any time |
 
 ## Impact Analysis
 
@@ -413,15 +439,18 @@ This change touches **3 source projects**, **3 test projects**, and **~47 files 
 | MCP tools | 2 files (`ReadTools`, `MutationTools`) | Low | Same mechanical change as CLI commands |
 | Auth infrastructure | 2 new files (`MsalCacheTokenProvider`, tests) | Medium | New decorator in auth chain; errors fall back silently |
 | JSON serialization | `TwigJsonContext.cs` | Low | Additive: new `[JsonSerializable]` attribute |
-| Test files | 33 files across 3 test projects | Low | Mechanical factory substitution; 4 base classes cover ~15 transitive consumers |
+| Test files | 34 files across 3 test projects | Low | Mechanical factory substitution; 4 base classes cover ~15 transitive consumers |
 
 ### Backward Compatibility
 
 - **Wire-compatible:** No changes to SQLite schema, CLI argument surface, or MCP tool
   signatures. Users see no behavioral difference except faster response times.
-- **DI-breaking:** The standalone `SyncCoordinator` singleton registration is removed.
-  Any out-of-tree code resolving `SyncCoordinator` directly will fail at runtime. This
-  is intentional — all consumers must migrate to `SyncCoordinatorFactory`.
+- **DI-transitional:** A backward-compat `SyncCoordinator` singleton registration
+  currently maps to `factory.ReadWrite`, allowing unmigrated consumers to continue
+  resolving `SyncCoordinator` directly. Once Tasks #1662/#1663 migrate all consumers to
+  inject `SyncCoordinatorFactory` directly, the backward-compat registration can be
+  removed. Any out-of-tree code that still resolves `SyncCoordinator` would then fail at
+  runtime — this is intentional.
 - **Auth-compatible:** `MsalCacheTokenProvider` is invisible to callers. The
   `IAuthenticationProvider` contract is unchanged. PAT auth users are completely unaffected.
 
@@ -458,15 +487,15 @@ permissions match `AzCliAuthProvider`'s existing threat model. Telemetry emits o
 ### New Files
 | File Path | Purpose |
 |-----------|---------|
-| `src/Twig.Domain/Services/SyncCoordinatorFactory.cs` | Holds ReadOnly and ReadWrite SyncCoordinator instances |
 | `src/Twig.Infrastructure/Auth/MsalCacheTokenProvider.cs` | Reads MSAL cache, decorates AzCliAuthProvider |
 | `tests/Twig.Infrastructure.Tests/Auth/MsalCacheTokenProviderTests.cs` | Tests for MSAL cache token provider |
 
 ### Modified Files
 | File Path | Changes |
 |-----------|---------|
-| `src/Twig/DependencyInjection/CommandServiceModule.cs` | Replace `SyncCoordinator` singleton with `SyncCoordinatorFactory` |
-| `src/Twig.Mcp/Program.cs` | Replace `SyncCoordinator` singleton with `SyncCoordinatorFactory`; update `ContextChangeService`, `RefreshOrchestrator`, `StatusOrchestrator` DI lambdas |
+| `src/Twig.Domain/Services/SyncCoordinatorFactory.cs` | Already implemented — no changes needed |
+| `src/Twig/DependencyInjection/CommandServiceModule.cs` | Already implemented — factory + backward-compat registered; DI lambdas for `StatusOrchestrator`, `RefreshOrchestrator`, `ContextChangeService` still resolve `SyncCoordinator` via backward-compat and will be updated in #1662/#1663 |
+| `src/Twig.Mcp/Program.cs` | Already implemented — factory + backward-compat registered; DI lambdas for domain services still resolve `SyncCoordinator` via backward-compat and will be updated in #1662/#1663 |
 | `src/Twig/Commands/StatusCommand.cs` | Inject `SyncCoordinatorFactory`, use `.ReadOnly` |
 | `src/Twig/Commands/TreeCommand.cs` | Inject `SyncCoordinatorFactory`, use `.ReadOnly` |
 | `src/Twig/Commands/ShowCommand.cs` | Inject `SyncCoordinatorFactory`, use `.ReadOnly` |
@@ -479,43 +508,65 @@ permissions match `AzCliAuthProvider`'s existing threat model. Telemetry emits o
 | `src/Twig.Mcp/Tools/MutationTools.cs` | Inject `SyncCoordinatorFactory`, use `.ReadWrite` |
 | `src/Twig.Infrastructure/DependencyInjection/NetworkServiceModule.cs` | Wrap `AzCliAuthProvider` in `MsalCacheTokenProvider` |
 | `src/Twig.Infrastructure/Serialization/TwigJsonContext.cs` | Add `MsalTokenCache` serialization |
-| 33 test files (see Task #1664 table) | Replace `SyncCoordinator` with `SyncCoordinatorFactory` in test setup |
+| 34 test files (see Task #1664 table) | Replace `SyncCoordinator` with `SyncCoordinatorFactory` in test setup |
 
 ### Deleted Files
 
 None.
 
+## Open Questions
+
+| # | Question | Severity | Status |
+|---|----------|----------|--------|
+| OQ-1 | Should the backward-compat `SyncCoordinator` singleton registration be removed in this Epic, or deferred to a follow-up cleanup task? Removing it in Task #1664 makes the migration atomic but risks breaking any undiscovered transitive consumers. Keeping it indefinitely hides incomplete migration. | Low | **Resolved** — remove in Task #1664 after verifying all consumers migrated. Tests will catch any remaining direct `SyncCoordinator` consumers at compile time. |
+| OQ-2 | The MSAL cache file format (`~/.azure/msal_token_cache.json`) is an Azure CLI implementation detail. Should we add a version check or format fingerprint to detect breaking changes, or is the silent fallback sufficient? | Low | **Resolved** — silent fallback per NFR-2 is sufficient; format has been stable since MSAL 4.x. |
+| OQ-3 | Should the MCP server use tiered TTLs (ReadOnly for `twig.tree`/`twig.status`, ReadWrite for `twig.state`/`twig.update`) like the CLI, or continue using a uniform `CacheStaleMinutes` for both tiers? Current implementation uses uniform CacheStaleMinutes. | Low | **Resolved** — uniform approach per NG-4 is intentional; MCP tools are agent-driven and benefit from fresh data. |
+
 ## ADO Work Item Structure
 
 ### Issue #1614: Tiered cache TTL for read-only vs read-write commands
-**Status:** To Do
+**Status:** Doing (3 of 6 tasks done)
 **Goal:** Read-only commands use 15-min TTL; mutating commands use 5-min TTL via
 `SyncCoordinatorFactory`.
 **Prerequisites:** None (independent of #1613)
 
 | Task ID | Description | Files | Status |
 |---------|-------------|-------|--------|
-| #1660 | Create `SyncCoordinatorFactory` class | `src/Twig.Domain/Services/SyncCoordinatorFactory.cs` (new) | TO DO |
-| #1661 | Update DI registration to use factory | `src/Twig/DependencyInjection/CommandServiceModule.cs`, `src/Twig.Mcp/Program.cs` | TO DO |
+| #1659 | Add `CacheStaleMinutesReadOnly` property to `DisplayConfig` | `src/Twig.Infrastructure/Config/TwigConfiguration.cs` | **DONE** |
+| #1660 | Implement `SyncCoordinatorFactory` class and tests | `src/Twig.Domain/Services/SyncCoordinatorFactory.cs`, `tests/Twig.Domain.Tests/Services/SyncCoordinatorFactoryTests.cs` | **DONE** |
+| #1661 | Register `SyncCoordinatorFactory` in DI (CLI + MCP) with backward-compat `SyncCoordinator` | `src/Twig/DependencyInjection/CommandServiceModule.cs`, `src/Twig.Mcp/Program.cs` | **DONE** |
 | #1662 | Migrate read-only commands to `factory.ReadOnly` | `StatusCommand.cs`, `TreeCommand.cs`, `ShowCommand.cs`, `StatusOrchestrator.cs`, `ReadTools.cs` (MCP); `StatusOrchestrator` DI lambdas in `CommandServiceModule.cs` and `Twig.Mcp/Program.cs` | TO DO |
 | #1663 | Migrate mutating commands to `factory.ReadWrite` | `SetCommand.cs`, `LinkCommand.cs`, `RefreshOrchestrator.cs`, `ContextChangeService.cs`, `MutationTools.cs` (MCP); `RefreshOrchestrator` and `ContextChangeService` DI lambdas in `CommandServiceModule.cs` and `Twig.Mcp/Program.cs` | TO DO |
-| #1664 | Update test files for factory injection | 33 test files across `Twig.Cli.Tests`, `Twig.Domain.Tests`, `Twig.Mcp.Tests` | TO DO |
+| #1664 | Update test files for factory injection | 34 test files across `Twig.Cli.Tests`, `Twig.Domain.Tests`, `Twig.Mcp.Tests` | TO DO |
+
+**Task #1659 Details:**
+- `DisplayConfig.CacheStaleMinutesReadOnly` already exists at `TwigConfiguration.cs:337`
+  with default value `15`. This property is user-configurable via the twig config file and
+  has round-trip serialization coverage via the existing `TwigConfiguration` tests. No
+  further work needed.
 
 **Task #1660 Details:**
-- New file `src/Twig.Domain/Services/SyncCoordinatorFactory.cs`.
-- Sealed class with primary constructor accepting two `SyncCoordinator` instances.
-- Properties: `ReadOnly`, `ReadWrite` (both `SyncCoordinator`).
-- No constants, no logic — purely a holder for DI. TTL values come from `DisplayConfig`
-  at registration time (see DD-25).
+- `SyncCoordinatorFactory` already exists at `src/Twig.Domain/Services/SyncCoordinatorFactory.cs`
+  with 6 passing tests in `SyncCoordinatorFactoryTests.cs`. The class is sealed, accepts
+  shared dependencies (`IWorkItemRepository`, `IAdoWorkItemService`, `ProtectedCacheWriter`,
+  `IPendingChangeStore`, `IWorkItemLinkRepository?`) plus two `int` TTL parameters
+  (`readOnlyStaleMinutes`, `readWriteStaleMinutes`), and constructs two internal
+  `SyncCoordinator` instances. The constructor clamps `readOnlyStaleMinutes ≥ readWriteStaleMinutes`
+  to prevent display commands from being more aggressive than mutating commands. No
+  further work needed — see DD-25 for the TTL sourcing rationale.
 
 **Task #1661 Details:**
-- In `CommandServiceModule.AddTwigCommandServices()`:
-  - Remove standalone `SyncCoordinator` singleton registration.
-  - Add `SyncCoordinatorFactory` singleton registration that builds two coordinators
-    with `config.Display.CacheStaleMinutesReadOnly` (ReadOnly) and
-    `config.Display.CacheStaleMinutes` (ReadWrite). Both values come from
-    `TwigConfiguration` — see DD-25.
-- In `Twig.Mcp/Program.cs`: identical DI change (remove `SyncCoordinator`, add factory).
+- Already implemented in both `CommandServiceModule.AddTwigCommandServices()` and
+  `Twig.Mcp/Program.cs`.
+- CLI registration (lines 47–57 of `CommandServiceModule.cs`): constructs
+  `SyncCoordinatorFactory` with `CacheStaleMinutesReadOnly` and `CacheStaleMinutes`
+  from `TwigConfiguration.Display`. Backward-compat `SyncCoordinator` singleton (line 57)
+  resolves to `factory.ReadWrite`.
+- MCP registration (lines 53–67 of `Twig.Mcp/Program.cs`): constructs
+  `SyncCoordinatorFactory` with `CacheStaleMinutes` for both tiers (agent-driven tools
+  need fresh data, no read-only distinction). Same backward-compat pattern.
+- `CommandServiceModuleTests.cs` already has tests for factory resolution, backward-compat
+  mapping, and TTL configuration. No further work needed — see DD-25.
 
 **Task #1662 Details (read-only commands):**
 - `StatusCommand`: change `SyncCoordinator syncCoordinator` → `SyncCoordinatorFactory syncFactory`,
@@ -544,21 +595,28 @@ None.
 - `Twig.Mcp/Program.cs`: same DI lambda update for the `RefreshOrchestrator` registration
   (`builder.Services.AddSingleton(sp => new RefreshOrchestrator(...))` block) and the
   `ContextChangeService` registration (`builder.Services.AddSingleton(sp => new
-  ContextChangeService(...))` block, lines 59–64) — both resolve `SyncCoordinator` today
-  and must be migrated to resolve `SyncCoordinatorFactory` (see call-site audit row 13).
+  ContextChangeService(...))` block, lines 69–74) — both resolve `SyncCoordinator` today
+  via the backward-compat registration and should be migrated to resolve
+  `SyncCoordinatorFactory` directly (see call-site audit row 13).
 
 **Task #1664 Details (test updates):**
-- All 33 test files that construct `SyncCoordinator` for command tests must:
-  - Create a `SyncCoordinatorFactory` wrapping the test `SyncCoordinator`.
+- All 34 test files that construct or reference `SyncCoordinator` for command tests must:
+  - Create a `SyncCoordinatorFactory` wrapping the test dependencies.
   - Pass the factory instead of the coordinator to the command/service under test.
-- Pattern: `var factory = new SyncCoordinatorFactory(syncCoordinator, syncCoordinator);`
-  (both tiers use the same mock in most tests).
+- Pattern:
+  ```csharp
+  var factory = new SyncCoordinatorFactory(
+      _workItemRepo, _adoService, _protectedWriter, _pendingStore, _linkRepo,
+      readOnlyStaleMinutes: 5, readWriteStaleMinutes: 5);
+  ```
+  (both tiers use the same TTL in most tests — only TTL-specific tests need different values).
 - 4 base classes (`RefreshCommandTestBase`, `ContextToolsTestBase`, `MutationToolsTestBase`,
   `ReadToolsTestBase`) centralize coordinator setup — updating these covers their transitive
   consumer tests automatically.
-- Tests that specifically verify TTL behavior should construct separate coordinators.
+- Tests that specifically verify TTL behavior should construct factories with different
+  `readOnlyStaleMinutes` and `readWriteStaleMinutes` values.
 
-**Full test file list (33 files):**
+**Full test file list (34 files):**
 
 | # | Directory | File |
 |---|-----------|------|
@@ -585,27 +643,28 @@ None.
 | 21 | | `TreeCommandTests.cs` |
 | 22 | | `TreeNavCommandTests.cs` |
 | 23 | | `WorkingSetCommandTests.cs` |
-| 24 | `Twig.Cli.Tests/Rendering` | `CacheRefreshTests.cs` |
-| 25 | `Twig.Domain.Tests/Services` | `ContextChangeServiceTests.cs` |
-| 26 | | `ProtectedCacheWriterTests.cs` |
-| 27 | | `RefreshOrchestratorTests.cs` |
-| 28 | | `StatusOrchestratorTests.cs` |
-| 29 | | `SyncCoordinatorTests.cs` |
-| 30 | `Twig.Mcp.Tests` | `ProgramBootstrapTests.cs` |
-| 31 | `Twig.Mcp.Tests/Tools` | `ContextToolsTestBase.cs` *(base class)* |
-| 32 | | `MutationToolsTestBase.cs` *(base class)* |
-| 33 | | `ReadToolsTestBase.cs` *(base class)* |
+| 24 | `Twig.Cli.Tests/DependencyInjection` | `CommandServiceModuleTests.cs` |
+| 25 | `Twig.Cli.Tests/Rendering` | `CacheRefreshTests.cs` |
+| 26 | `Twig.Domain.Tests/Services` | `ContextChangeServiceTests.cs` |
+| 27 | | `ProtectedCacheWriterTests.cs` |
+| 28 | | `RefreshOrchestratorTests.cs` |
+| 29 | | `StatusOrchestratorTests.cs` |
+| 30 | | `SyncCoordinatorTests.cs` |
+| 31 | `Twig.Mcp.Tests` | `ProgramBootstrapTests.cs` |
+| 32 | `Twig.Mcp.Tests/Tools` | `ContextToolsTestBase.cs` *(base class)* |
+| 33 | | `MutationToolsTestBase.cs` *(base class)* |
+| 34 | | `ReadToolsTestBase.cs` *(base class)* |
 
 > **Note:** `ContextToolsSetTests.cs` is excluded from the direct migration count — it
-> references `SyncCoordinator` only transitively via `ContextToolsTestBase.cs` (row 31).
+> references `SyncCoordinator` only transitively via `ContextToolsTestBase.cs` (row 32).
 > Updating the base class automatically covers `ContextToolsSetTests.cs`.
 
 **Acceptance Criteria:**
 - [ ] Read-only commands use 15-min staleness threshold
 - [ ] Mutating commands use 5-min staleness threshold
-- [ ] SyncCoordinatorFactory is registered in both CLI and MCP DI
-- [ ] All 33 test files compile and pass with factory injection
-- [ ] No standalone SyncCoordinator registration remains in DI
+- [x] SyncCoordinatorFactory is registered in both CLI and MCP DI
+- [ ] All 34 test files compile and pass with factory injection
+- [ ] Backward-compat `SyncCoordinator` registration removed after all consumers migrated
 
 ---
 
@@ -717,6 +776,22 @@ atomic unit — none has value without the others, and all four modify only 3 fi
 - [ ] No `Microsoft.Identity.Client` dependency added
 - [ ] DTOs registered in `TwigJsonContext` for AOT compatibility
 - [ ] `PatAuthProvider` path is completely unaffected
+
+## PR Groups
+
+PR groups cluster tasks for reviewable PRs, sized for reviewability (≤2000 LoC, ≤50 files).
+These are independent of the ADO work-item hierarchy.
+
+| PR Group | Tasks | Type | Est. Files | Est. LoC | Successor | Description |
+|----------|-------|------|-----------|----------|-----------|-------------|
+| PG-1 | #1662, #1663 | **wide** | ~15 | ~300 | PG-2 | **Command/service migration to SyncCoordinatorFactory.** Migrates all 10 command and service consumers from direct `SyncCoordinator` injection to `SyncCoordinatorFactory` tier selection (`.ReadOnly` / `.ReadWrite`). Updates DI lambdas in `CommandServiceModule.cs` and `Twig.Mcp/Program.cs`. Mechanical pattern: change constructor parameter type, replace `syncCoordinator.` with `syncFactory.ReadOnly.` or `syncFactory.ReadWrite.`. |
+| PG-2 | #1664 | **wide** | ~34 | ~500 | — | **Test file migration.** Updates 34 test files to construct `SyncCoordinatorFactory` instead of `SyncCoordinator` directly. 4 base classes cover ~15 transitive consumers. Mechanical change; requires PG-1 to be merged first so test subjects have the new constructor signatures. |
+| PG-3 | #1673-T1, #1673-T2 | **deep** | ~4 | ~450 | — | **MSAL token cache provider.** Implements `MsalCacheTokenProvider` decorator, DTOs, `TwigJsonContext` registration, DI wiring, and comprehensive test suite. Fully independent of PG-1/PG-2 — can be developed and reviewed in parallel. |
+
+**Execution order:**
+- PG-1 and PG-3 can proceed in parallel (no dependencies between them).
+- PG-2 depends on PG-1 (test files need migrated constructor signatures).
+- PG-3 is fully independent and can be merged at any time.
 
 ## References
 

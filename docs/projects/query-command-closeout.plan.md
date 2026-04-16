@@ -1,6 +1,6 @@
 # Query Command Closeout — Documentation Improvements
 
-> **Status**: ✅ Done — All PRs merged | **Issue**: #1634 | **Parent Epic**: #1302
+> **Status**: ✅ Done | **Issue**: #1634 | **Parent Epic**: #1302
 >
 > **Note**: This plan resides on the `feature/1634-query-closeout` branch alongside pre-implementation source files. The delivered artifacts (XML doc comments, template section, instructions file) were merged to `main` via PRs #38 and #41 on separate branches — see `main` for the final state of all modified files.
 
@@ -43,7 +43,7 @@ PR grouping guidance is distributed across individual plan documents (9 complete
 
 1. **Misleading note flushing documentation**: The note flushing subsystem spans three code paths and three flush mechanisms across `NoteCommand`, `AutoPushNotesHelper`, and `PendingChangeFlusher` (see *Background § Note Flushing Architecture* for the full architecture). The canonical behavior is correct, but the existing documentation is **actively misleading** — `NoteCommand`'s XML doc summary claims notes are "stored as pending" when non-seed items are pushed immediately via `AddCommentAsync()`. Beyond the incorrect summary, there are no `<remarks>` blocks explaining *why* the hybrid pattern exists or *when* each path activates. A developer encountering the code for the first time would be misled by the existing docs and could not determine the intended semantics without reading all three components together.
 
-2. **No close-out checklist in plan template**: The formal template at `.github/templates/implementation-plan.md` ends at "Notes" with no close-out guidance. While six completed plans have developed ad-hoc completion annotations organically (see *Background § Plan Template System*), the format varies and none use a dedicated section heading. Without a template section, epic close-out depends on tribal knowledge — agents and developers skip close-out steps or perform them inconsistently.
+2. **No close-out checklist in plan template**: The formal template at `.github/templates/implementation-plan.md` ends at "Notes" with no close-out guidance. While eight completed plans have developed ad-hoc completion annotations organically (see *Background § Plan Template System*), the format varies and none use a dedicated section heading. Without a template section, epic close-out depends on tribal knowledge — agents and developers skip close-out steps or perform them inconsistently.
 
 3. **Undocumented PR grouping strategy**: The "2-PR sweet spot, 3-PR threshold" insight exists only in verbal/session knowledge. Current plans use PR groups mechanically (Deep/Wide classification, LoC limits) but don't address the strategic question of *how many* PR groups an epic should target. This leads to plans that fragment work into 4+ PRs unnecessarily, increasing review overhead.
 
@@ -81,8 +81,10 @@ PR grouping guidance is distributed across individual plan documents (9 complete
 
 | ID | Requirement | Tasks |
 |----|-------------|-------|
-| NFR-1 | All XML doc comments must compile cleanly under `TreatWarningsAsErrors=true` — including `<see cref=""/>` references to private members (e.g., `StageLocallyAsync`) resolving without CS1574 warnings | T-1635-1, T-1635-2, T-1635-3 |
-| NFR-2 | PR grouping guidance must be advisory, not prescriptive — plans may deviate with documented rationale | T-1637-1 |
+| NFR-1 | All XML doc comments must compile cleanly under `TreatWarningsAsErrors=true` — no CS1570, CS1571, or CS1574 warnings introduced | T-1635-1, T-1635-2, T-1635-3 |
+| NFR-2 | No runtime behavior changes — all deliverables are documentation and process improvements only; existing code paths, error handling, and control flow remain unmodified | All |
+| NFR-3 | Existing tests must continue to pass without modification — `dotnet build` and `dotnet test` green after every commit | All |
+| NFR-4 | Markdown files must follow existing repository formatting conventions (heading hierarchy, table alignment, link style) | T-1636-1, T-1637-1, T-1637-2 |
 
 ## Proposed Design
 
@@ -90,11 +92,27 @@ PR grouping guidance is distributed across individual plan documents (9 complete
 
 This is a documentation-only effort — no runtime behavior changes. The approach is to add XML doc comments to three existing components (`NoteCommand`, `AutoPushNotesHelper`, `PendingChangeFlusher`) that together implement the note flushing subsystem, update the plan template with a formalized close-out checklist section, and create a centralized PR grouping strategy document cross-linked from `.github/copilot-instructions.md`. Each deliverable is independently committable and testable. The XML doc changes must compile cleanly under `TreatWarningsAsErrors=true`; the template and instructions changes are pure Markdown with no build validation. Note that `StageLocallyAsync()` is `private` in `NoteCommand`, but because XML doc `<see cref=""/>` references resolve within the same type, the docs use `<see cref="StageLocallyAsync"/>` to cross-reference the method.
 
+### Key Components
+
+The following components are touched by this plan — all changes are documentation-only (XML doc comments or Markdown content):
+
+| Component | File(s) | Role in This Plan |
+|-----------|---------|-------------------|
+| `NoteCommand` | `src/Twig/Commands/NoteCommand.cs` | Target of XML doc correction — replace factually incorrect summary and add `<remarks>` documenting three code paths |
+| `AutoPushNotesHelper` | `src/Twig.Infrastructure/Ado/AutoPushNotesHelper.cs` | Target of XML doc enhancement — document side-effect flusher role and error-handling gradient across three call sites |
+| `PendingChangeFlusher` / `IPendingChangeFlusher` | `src/Twig/Commands/PendingChangeFlusher.cs`, `src/Twig/Commands/IPendingChangeFlusher.cs` | Target of XML doc enrichment — `<inheritdoc/>` pattern on implementation, note-specific `<remarks>` on interface |
+| Plan template | `.github/templates/implementation-plan.md` | Target of structural addition — new `## Close-Out Checklist` section appended after `## Notes` |
+| Copilot instructions | `.github/copilot-instructions.md` | Target of cross-link addition (`### PR Grouping Strategy` subsection) and dangling file reference fix |
+| PR grouping instructions *(new)* | `.github/instructions/pr-grouping.instructions.md` | New file — centralized PR grouping strategy guidance with the "2-PR sweet spot, 3-PR threshold" heuristic |
+
 ### Design Decisions
 
 | ID | Decision | Rationale |
 |----|----------|-----------|
-| DD-1 | **Close-Out Checklist placement**: append after `## Notes` at the end of the plan template | Matches the organic convention established by completed plans, which placed inline `**Completion Notes**` / `**Completion Date**` annotations at the end of their task and epic blocks. The new `## Close-Out Checklist` heading formalizes and elevates this pattern into a dedicated, discoverable section. Preserves natural chronological flow — planning sections first, post-completion record last. |
+| DD-1 | Use XML doc `<remarks>` blocks rather than inline code comments for note flushing documentation | `<remarks>` renders in IDE tooltips and generated documentation; inline comments are invisible outside the source file and do not surface during code navigation |
+| DD-2 | Use `<inheritdoc/>` on `PendingChangeFlusher.FlushAsync` rather than duplicating the interface docs | Prevents documentation drift between interface and implementation — single source of truth for the method contract |
+| DD-3 | Create a standalone `.github/instructions/pr-grouping.instructions.md` file rather than embedding PR grouping guidance in `copilot-instructions.md` | The `.github/instructions/` system supports scoped, auto-attached context files; a dedicated file keeps `copilot-instructions.md` focused and allows PR grouping guidance to evolve independently |
+| DD-4 | Replace the dangling `.github/instructions/process-agnostic.instructions.md` reference with inline text rather than creating the missing file | The referenced file was never created; inlining the principle is simpler than creating a new file for a single sentence, and makes the bullet self-contained |
 
 ### Testing Strategy
 
@@ -142,9 +160,7 @@ No external dependencies. Internal sequencing constraints are minimal:
 - **Plan template**: The close-out checklist (Issue #1636) appends to `.github/templates/implementation-plan.md`, which must exist. No concurrent modifications to this file were in flight.
 - **Copilot instructions**: The PR grouping cross-link (T-1637-2) modifies `.github/copilot-instructions.md`. Concurrent edits to this file could create merge conflicts, mitigated by the short-lived branch strategy (see [Alternatives Considered](#alternatives-considered)).
 
-### Sequencing Constraints
-
-The three Issues are independent — no sequencing constraints between them. Within Issue #1637, T-1637-1 (create the instructions file) must precede T-1637-2 (cross-link from `copilot-instructions.md`) so the link target exists.
+Within Issue #1637, T-1637-1 must precede T-1637-2 so the link target exists before it is cross-referenced.
 
 ---
 
@@ -159,7 +175,13 @@ The three Issues are independent — no sequencing constraints between them. Wit
 
 ## Open Questions
 
-None — all design decisions were resolved during implementation. The three deliverables (XML doc comments, template section, instructions file) were straightforward documentation tasks with no ambiguous requirements or unresolved trade-offs.
+All questions were resolved during planning or implementation. Listed here for historical completeness.
+
+| # | Question | Severity | Resolution |
+|---|----------|----------|------------|
+| OQ-1 | Should the PR grouping instructions prescribe specific PR count targets, or frame them as advisory heuristics? | Low | Resolved — advisory framing adopted. The "2-PR sweet spot, 3-PR threshold" is presented with a sample-size caveat noting it derives from a limited, single-project dataset without controlled comparison. |
+| OQ-2 | Should the close-out checklist template include a "Lessons Learned" subsection for retrospective findings beyond operational steps? | Low | Resolved — deferred. The current checklist covers operational close-out mechanics (PR references, task status, ADO transitions). A retrospective subsection may be added in a future template revision if demand emerges from additional completed epics. |
+| OQ-3 | How should the dangling `.github/instructions/process-agnostic.instructions.md` reference be handled — create the missing file or inline the principle? | Low | Resolved — the reference was replaced with inline text (see DD-4), making the bullet self-contained without introducing a new file for a single sentence. |
 
 ---
 
@@ -237,7 +259,7 @@ None — all design decisions were resolved during implementation. The three del
 - [x] Template contains a `## Close-Out Checklist` section with all required subsections
 - [x] The checklist includes ADO state transition steps (`twig state Done` for tasks, issues, and parent epic)
 - [x] The checklist includes PR reference fields (PR number, title, status)
-- [x] The format is consistent with the organic completion annotation pattern established by six completed plans (inline `**Completion Notes**` / `**Completion Date**` bold text), now elevated to a dedicated section heading
+- [x] The format is consistent with the organic completion annotation pattern established by eight completed plans (inline `**Completion Notes**` / `**Completion Date**` bold text), now elevated to a dedicated section heading
 
 ---
 
@@ -281,7 +303,9 @@ None — all design decisions were resolved during implementation. The three del
 
 ## PR Groups
 
-This closeout effort is delivered as two PR groups, separating the code-touching XML doc changes and template update (PG-1) from the pure-Markdown strategy documentation (PG-2). Each is classified as **deep** (few files, complex or nuanced changes requiring careful review) or **wide** (many files, mechanical or formulaic changes that can be reviewed quickly) — see the individual tables below for classification rationale.
+This closeout effort is delivered as two PR groups, separating the code-touching XML doc changes and template update (PG-1) from the pure-Markdown strategy documentation (PG-2).
+
+> **Classification definitions**: A **wide** PR group spans many files with mechanical or formulaic changes that can be reviewed quickly (pattern recognition). A **deep** PR group touches few files but involves complex or nuanced content requiring careful, focused review (analytical reasoning). The distinction guides reviewer expectations and time allocation.
 
 ### PG-1: Note Flushing Documentation + Close-Out Template
 
@@ -289,7 +313,7 @@ This closeout effort is delivered as two PR groups, separating the code-touching
 |-----------|-------|
 | **Issues** | #1635, #1636 |
 | **Tasks** | T-1635-1, T-1635-2, T-1635-3, T-1636-1 |
-| **Classification** | Wide |
+| **Classification** | Wide — 5 files with formulaic XML doc comment additions and a template section append; changes follow established patterns and can be reviewed by scanning each file independently |
 | **Estimated LoC** | ~120 (XML doc comments + template section) |
 | **Files** | `src/Twig/Commands/NoteCommand.cs`, `src/Twig.Infrastructure/Ado/AutoPushNotesHelper.cs`, `src/Twig/Commands/PendingChangeFlusher.cs`, `src/Twig/Commands/IPendingChangeFlusher.cs`, `.github/templates/implementation-plan.md` |
 | **Rationale** | Both Issues #1635 and #1636 are documentation-only changes that share no code dependencies. Grouping them reduces PR overhead while keeping the review focused on documentation quality — 5 files with formulaic additions fit comfortably within the ≤50 file guardrail. |
@@ -300,7 +324,7 @@ This closeout effort is delivered as two PR groups, separating the code-touching
 |-----------|-------|
 | **Issues** | #1637 |
 | **Tasks** | T-1637-1, T-1637-2 |
-| **Classification** | Deep |
+| **Classification** | Deep — 2 files with nuanced strategic content (the PR grouping heuristic and its caveats) requiring analytical review to evaluate the guidance's accuracy and applicability |
 | **Estimated LoC** | ~150 (new instructions file + copilot-instructions update) |
 | **Files** | `.github/instructions/pr-grouping.instructions.md` (new), `.github/copilot-instructions.md` |
 | **Rationale** | The PR grouping instructions document is a standalone artifact that benefits from focused review. It introduces new strategic guidance (2-PR sweet spot, 3-PR threshold) that reviewers should evaluate holistically. Keeping it separate from the mechanical documentation changes in PG-1 ensures the strategic content gets appropriate attention. |
@@ -322,7 +346,7 @@ This closeout effort is delivered as two PR groups, separating the code-touching
 
 ### Completion Summary
 
-All three Issues delivered documentation and process improvements with no runtime code changes. Issue #1635 corrected the factually incorrect `NoteCommand` XML doc summary and added comprehensive `<remarks>` blocks to `NoteCommand`, `AutoPushNotesHelper`, and `PendingChangeFlusher`, documenting the push-on-write vs stage-and-batch semantics and the error-handling gradient across call sites. Issue #1636 added a structured `## Close-Out Checklist` section to the plan template at `.github/templates/implementation-plan.md`, formalizing the close-out pattern observed in 6 completed plans. Issue #1637 created `.github/instructions/pr-grouping.instructions.md` with the "2-PR sweet spot, 3-PR threshold" heuristic and cross-linked it from `.github/copilot-instructions.md`.
+All three Issues delivered documentation and process improvements with no runtime code changes. Issue #1635 corrected the factually incorrect `NoteCommand` XML doc summary and added comprehensive `<remarks>` blocks to `NoteCommand`, `AutoPushNotesHelper`, and `PendingChangeFlusher`, documenting the push-on-write vs stage-and-batch semantics and the error-handling gradient across call sites. Issue #1636 added a structured `## Close-Out Checklist` section to the plan template at `.github/templates/implementation-plan.md`, formalizing the close-out pattern observed in 8 completed plans. Issue #1637 created `.github/instructions/pr-grouping.instructions.md` with the "2-PR sweet spot, 3-PR threshold" heuristic and cross-linked it from `.github/copilot-instructions.md`.
 
 **Branch note**: Implementation was delivered across two separate branches rather than the originally planned single `feature/1634-query-closeout` branch — PG-1 was implemented on `users/dangreen/pg1-note-flushing-docs-closeout-template` and PG-2 on `feature/pg2-pr-grouping-instructions`. Both branches were merged to `main` independently (see [Alternatives Considered](#alternatives-considered)).
 

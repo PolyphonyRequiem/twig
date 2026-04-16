@@ -1,17 +1,15 @@
 # Query Command (Epic 1302) Closeout Findings
 
+## Executive Summary
+
+This plan addresses three closeout findings from the Query Command epic (#1302): (1) standardizing note flushing semantics by correcting misleading XML doc comments and documenting the push-on-write vs stage-and-batch dual-path model, (2) adding a close-out checklist section to the plan template for structured wrap-up guidance, and (3) documenting PR grouping strategy — the "2-PR sweet spot, 3-PR threshold" heuristic. All deliverables are documentation and process improvements: XML doc comments, a copilot instruction file, and a template update. Work was delivered across two PRs on separate branches and merged to `main`.
+
 > **Status**: ✅ Done — All PRs merged | **Issue**: #1634 | **Parent Epic**: #1302
 >
 > Issue #1634 is the parent work item for this closeout effort. It lives under
 > Epic #1302 (Query Command) and contains three child Tasks in ADO: #1635
 > (note flushing semantics), #1636 (close-out checklist template), and #1637
 > (PR grouping guidance). Each child Task maps to one Issue section in this plan.
-
----
-
-## Executive Summary
-
-This plan addresses three closeout findings from the Query Command epic (#1302): (1) standardizing note flushing semantics by correcting misleading XML doc comments and documenting the push-on-write vs stage-and-batch dual-path model, (2) adding a close-out checklist section to the plan template for structured wrap-up guidance, and (3) documenting PR grouping strategy — the "2-PR sweet spot, 3-PR threshold" heuristic. All deliverables are documentation and process improvements: XML doc comments, a copilot instruction file, and a template update. Work was delivered across two PRs on separate branches and merged to `main`.
 
 ---
 
@@ -66,7 +64,7 @@ PR grouping guidance is distributed across individual plan documents (10 plans c
 | ID | Non-Goal |
 |----|----------|
 | NG-1 | Refactoring the note flushing implementation — the current hybrid pattern is intentional and correct; only documentation is needed |
-| NG-2 | Changing the `AutoPushNotesHelper` error handling gradient (EditCommand catches both auto-push and resync; StateCommand propagates auto-push but catches resync; UpdateCommand propagates both) — this is a known design decision documented in Proposed Design (see *Note Flushing Error Handling Policy*) |
+| NG-2 | Changing the `AutoPushNotesHelper` error handling gradient (EditCommand catches both auto-push and resync; StateCommand propagates auto-push but catches resync; UpdateCommand propagates both) — this is a known design decision documented in Proposed Design (see DD-4) |
 | NG-3 | Migrating existing completed plans to the new close-out format — the template applies prospectively |
 | NG-4 | Creating automated tooling to enforce PR group count — guidance is advisory, not prescriptive |
 
@@ -132,30 +130,16 @@ A new `.github/instructions/pr-grouping.instructions.md` file will provide centr
 
 ## Alternatives Considered
 
-### DD-1: Close-Out Checklist Placement
-
-| Option | Pros | Cons |
-|--------|------|------|
-| **After `## Notes` (chosen)** | Matches the organic convention from 8 completed plans; preserves natural chronological flow (planning → execution → close-out) | Placed at very end of document; might be overlooked during active planning |
-| Before `## Notes` | Closer to the implementation sections; visible during planning phase | Breaks the temporal flow — close-out appears before the catch-all Notes section, contrary to established convention |
-| Separate file (e.g., `CLOSEOUT.md`) | Clean separation of planning vs retrospective content | Introduces a second file per plan; complicates archival; no precedent in existing plans |
-
-**Decision**: After `## Notes`, matching the convention already established organically by all 8 completed plans.
-
 ### DD-2: Dangling `process-agnostic.instructions.md` Reference
 
-| Option | Pros | Cons |
-|--------|------|------|
-| **Inline text replacement (chosen)** | Eliminates the dangling reference immediately; the principle is already stated three lines above the reference in `copilot-instructions.md` | Slightly more text in the copilot instructions file |
-| Create the missing `.instructions.md` file | Provides a dedicated, discoverable file for the principle | Adds a file containing a single sentence that duplicates existing inline text; introduces maintenance burden for zero incremental value |
+During T-1637-2, the `.github/copilot-instructions.md` file was found to contain a dangling reference to `.github/instructions/process-agnostic.instructions.md` — a file that does not exist. Two approaches were evaluated:
 
-**Decision**: Inline replacement — the principle is already stated in context, and a single-sentence instructions file adds unnecessary indirection.
+| Approach | Pros | Cons |
+|----------|------|------|
+| **A: Create the missing file** | Eliminates the dangling reference; provides a dedicated home for the process-agnostic principle | Adds a new file containing a single sentence already stated inline three lines above the reference; creates maintenance overhead for a file with minimal standalone value |
+| **B: Replace with inline text** *(chosen)* | Zero new files; eliminates the dangling reference; keeps the principle co-located with the surrounding context where it is already stated | Loses the potential for the instructions file to grow over time |
 
----
-
-## Open Questions
-
-None. All design decisions are documented and implementation is complete.
+**Decision**: Option B — replace the dangling reference with inline text. The process-agnostic principle is already stated in `copilot-instructions.md` immediately above the reference line. Creating a dedicated instructions file for a single sentence adds unnecessary indirection and maintenance burden without meaningful benefit. If the principle later warrants detailed elaboration, a dedicated file can be created at that time.
 
 ---
 
@@ -167,10 +151,18 @@ No external library, service, or infrastructure dependencies — all deliverable
 
 ## Risks and Mitigations
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| XML doc `<remarks>` and `<list>` elements produce CS1570/CS1571 warnings, breaking the build under `TreatWarningsAsErrors=true` (NFR-1) | Medium | High | Validate XML doc syntax by running `dotnet build` after each T-1635 task. Use only well-formed XML elements (`<para>`, `<list>`, `<item>`, `<c>`) and avoid bare angle brackets or unescaped ampersands in doc comments. Review compiler output for CS1570/CS1571 specifically before committing. **Outcome**: Did not materialize — all XML docs compiled cleanly. |
-| Branch `feature/1634-query-closeout` is 189 commits behind `main` — merge conflicts possible when creating PRs | Medium | Medium | Rebase or merge `main` into the feature branch before creating PRs. **Outcome**: Mitigated by delivering work on two separate branches (`users/dangreen/pg1-note-flushing-docs-closeout-template` for PG-1 and `feature/pg2-pr-grouping-instructions` for PG-2) rather than a single feature branch. Both merged cleanly to `main` as PRs #38 and #41. |
+| Risk | Likelihood | Impact | Mitigation | Outcome |
+|------|-----------|--------|------------|---------|
+| XML doc `<remarks>` and `<list>` elements produce CS1570/CS1571 warnings, breaking the build under `TreatWarningsAsErrors=true` (NFR-1) | Medium | High | Validate XML doc syntax by running `dotnet build` after each T-1635 task. Use only well-formed XML elements (`<para>`, `<list>`, `<item>`, `<c>`) and avoid bare angle brackets or unescaped ampersands in doc comments. Review compiler output for CS1570/CS1571 specifically before committing. | Did not materialize — all XML docs compiled cleanly. |
+| Branch `feature/1634-query-closeout` is 189 commits behind `main` — merge conflicts possible when creating PRs | Medium | Medium | Rebase or merge `main` into the feature branch before creating PRs. | Mitigated by delivering work on two separate branches (`users/dangreen/pg1-note-flushing-docs-closeout-template` for PG-1 and `feature/pg2-pr-grouping-instructions` for PG-2) rather than a single feature branch. Both merged cleanly to `main` as PRs #38 and #41. |
+
+---
+
+## Open Questions
+
+None. All design decisions are documented and implementation is complete.
+
+**Testing rationale**: No new tests are required. All changes are documentation-only: XML doc comments (validated by `dotnet build` under `TreatWarningsAsErrors=true`, which catches malformed XML via CS1570/CS1571 warnings), Markdown template updates, and Markdown instruction files. Existing tests in `AutoPushNotesHelperTests.cs` and `PendingChangeFlusherTests.cs` provide regression coverage for the documented components' runtime behavior.
 
 ---
 
@@ -307,7 +299,7 @@ No external library, service, or infrastructure dependencies — all deliverable
 
 ## PR Groups
 
-PR groups are classified as **deep** (few files, complex logic changes requiring careful review) or **wide** (many files, mechanical/repetitive changes that are straightforward to verify).
+This closeout effort is delivered as two PR groups, separating the code-touching XML doc changes and template update (PG-1, wide) from the pure-Markdown strategy documentation (PG-2, deep).
 
 ### PG-1: Note Flushing Documentation + Close-Out Template
 

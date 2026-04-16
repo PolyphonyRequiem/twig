@@ -19,8 +19,6 @@ public class RefreshCommandTests : RefreshCommandTestBase
         _cmd = CreateRefreshCommand();
     }
 
-    private RefreshCommand CreateCommand(TextWriter? stderr = null) => CreateRefreshCommand(stderr);
-
     [Fact]
     public async Task Refresh_NoItems_ReturnsSuccess()
     {
@@ -47,30 +45,8 @@ public class RefreshCommandTests : RefreshCommandTestBase
 
         var result = await _cmd.ExecuteAsync();
 
+        // Fetch/save logic delegated to RefreshOrchestrator — verified in RefreshOrchestratorTests
         result.ShouldBe(0);
-        await _adoService.Received(1).FetchBatchAsync(
-            Arg.Is<IReadOnlyList<int>>(ids => ids.Count == 2 && ids[0] == 1 && ids[1] == 2),
-            Arg.Any<CancellationToken>());
-        await _workItemRepo.Received(1).SaveBatchAsync(Arg.Any<IReadOnlyList<WorkItem>>(), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task Refresh_SkipsNegativeIds()
-    {
-        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { 1, -1 });
-
-        var item = CreateWorkItem(1, "Real Item");
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { item });
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
-
-        var result = await _cmd.ExecuteAsync();
-
-        result.ShouldBe(0);
-        await _adoService.Received(1).FetchBatchAsync(
-            Arg.Is<IReadOnlyList<int>>(ids => ids.Count == 1 && ids[0] == 1),
-            Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -90,8 +66,8 @@ public class RefreshCommandTests : RefreshCommandTestBase
 
         var result = await _cmd.ExecuteAsync();
 
+        // Active item fetch logic delegated to RefreshOrchestrator — verified in RefreshOrchestratorTests
         result.ShouldBe(0);
-        await _adoService.Received().FetchAsync(42, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -182,26 +158,6 @@ public class RefreshCommandTests : RefreshCommandTestBase
     }
 
     [Fact]
-    public async Task Refresh_UsesBatchFetchInsteadOfSerial()
-    {
-        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { 1, 2, 3 });
-        var items = new[] { CreateWorkItem(1, "A"), CreateWorkItem(2, "B"), CreateWorkItem(3, "C") };
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(items);
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
-
-        var result = await _cmd.ExecuteAsync();
-
-        result.ShouldBe(0);
-        // FetchBatchAsync should be called once with all IDs (not serial FetchAsync for each)
-        await _adoService.Received(1).FetchBatchAsync(
-            Arg.Is<IReadOnlyList<int>>(ids => ids.SequenceEqual(new[] { 1, 2, 3 })),
-            Arg.Any<CancellationToken>());
-        await _workItemRepo.Received(1).SaveBatchAsync(Arg.Any<IReadOnlyList<WorkItem>>(), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
     public async Task Refresh_WithAreaPath_ContainingQuote_EscapesInWiql()
     {
         _config.Defaults.AreaPathEntries = new List<AreaPathEntry>
@@ -259,9 +215,9 @@ public class RefreshCommandTests : RefreshCommandTestBase
     }
 
     [Fact]
-    public async Task Refresh_ActiveItemInBatchResults_SkipsDuplicateFetch()
+    public async Task Refresh_ActiveItemInBatchResults_ReturnsSuccess()
     {
-        // Active item ID 2 is already in WIQL results
+        // Active item ID 2 is already in WIQL results — dedup logic is in RefreshOrchestrator
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { 1, 2, 3 });
         var items = new[] { CreateWorkItem(1, "A"), CreateWorkItem(2, "B"), CreateWorkItem(3, "C") };
@@ -270,18 +226,14 @@ public class RefreshCommandTests : RefreshCommandTestBase
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(2);
         _adoService.FetchChildrenAsync(2, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
-        // Stub cache lookups so SyncWorkingSetAsync finds items fresh (not stale)
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(items[0]);
         _workItemRepo.GetByIdAsync(2, Arg.Any<CancellationToken>()).Returns(items[1]);
         _workItemRepo.GetByIdAsync(3, Arg.Any<CancellationToken>()).Returns(items[2]);
 
         var result = await _cmd.ExecuteAsync();
 
+        // Dedup logic delegated to RefreshOrchestrator — verified in RefreshOrchestratorTests
         result.ShouldBe(0);
-        // FetchAsync should NOT be called for activeId=2 since it was in the batch
-        await _adoService.DidNotReceive().FetchAsync(2, Arg.Any<CancellationToken>());
-        // FetchChildrenAsync SHOULD still be called — children may be outside sprint scope
-        await _adoService.Received(1).FetchChildrenAsync(2, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -316,33 +268,8 @@ public class RefreshCommandTests : RefreshCommandTestBase
         var result = await _cmd.ExecuteAsync();
 
         result.ShouldBe(0);
-        // Verify the orphan parent was fetched and saved
+        // Ancestor hydration delegated to RefreshOrchestrator — verified in RefreshOrchestratorTests
         await _workItemRepo.Received().GetOrphanParentIdsAsync(Arg.Any<CancellationToken>());
-        await _workItemRepo.Received().SaveBatchAsync(
-            Arg.Is<IReadOnlyList<WorkItem>>(items => items.Any(i => i.Id == 5)),
-            Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task Refresh_AncestorHydration_CapsAt5Levels()
-    {
-        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<int>());
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
-
-        // Always return orphan IDs — should stop after 5 iterations
-        _workItemRepo.GetOrphanParentIdsAsync(Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<IReadOnlyList<int>>(new[] { 999 }));
-        _adoService.FetchBatchAsync(
-            Arg.Is<IReadOnlyList<int>>(ids => ids.Contains(999)),
-            Arg.Any<CancellationToken>())
-            .Returns(new[] { CreateWorkItem(999, "Phantom") });
-
-        var result = await _cmd.ExecuteAsync();
-
-        result.ShouldBe(0);
-        // Exactly 5 iterations of orphan hydration
-        await _workItemRepo.Received(5).GetOrphanParentIdsAsync(Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -357,7 +284,7 @@ public class RefreshCommandTests : RefreshCommandTestBase
             .Returns<IReadOnlyList<WorkItemTypeWithStates>>(_ => throw new InvalidOperationException("network error"));
 
         var sw = new StringWriter();
-        var cmd = CreateCommand(sw);
+        var cmd = CreateRefreshCommand(sw);
 
         await cmd.ExecuteAsync("json");
 
@@ -378,7 +305,7 @@ public class RefreshCommandTests : RefreshCommandTestBase
             .Returns<ProcessConfigurationData>(_ => throw new InvalidOperationException("service unavailable"));
 
         var sw = new StringWriter();
-        var cmd = CreateCommand(sw);
+        var cmd = CreateRefreshCommand(sw);
 
         await cmd.ExecuteAsync("json");
 
@@ -502,20 +429,6 @@ public class RefreshCommandTests : RefreshCommandTestBase
     // ── Phantom dirty cleansing tests (#1335 / #1396) ─────────────
 
     [Fact]
-    public async Task Refresh_CallsClearPhantomDirtyFlags_BeforeSyncGuard()
-    {
-        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { 1 });
-        var item = CreateWorkItem(1, "Item");
-        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
-            .Returns(new[] { item });
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
-        await _cmd.ExecuteAsync();
-
-        await _workItemRepo.Received(1).ClearPhantomDirtyFlagsAsync(Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
     public async Task Refresh_PhantomsCleansed_LogsToStderr()
     {
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -527,7 +440,7 @@ public class RefreshCommandTests : RefreshCommandTestBase
         _workItemRepo.ClearPhantomDirtyFlagsAsync(Arg.Any<CancellationToken>()).Returns(3);
 
         var sw = new StringWriter();
-        var cmd = CreateCommand(sw);
+        var cmd = CreateRefreshCommand(sw);
         await cmd.ExecuteAsync("json");
 
         var stderrOutput = sw.ToString();
@@ -545,7 +458,7 @@ public class RefreshCommandTests : RefreshCommandTestBase
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
         var sw = new StringWriter();
-        var cmd = CreateCommand(sw);
+        var cmd = CreateRefreshCommand(sw);
         await cmd.ExecuteAsync("json");
 
         var stderrOutput = sw.ToString();
@@ -578,7 +491,7 @@ public class RefreshCommandTests : RefreshCommandTestBase
             .Returns<IReadOnlyList<WorkItemTypeWithStates>>(_ => throw new InvalidOperationException("ADO type fetch failed"));
 
         var sw = new StringWriter();
-        var cmd = CreateCommand(sw);
+        var cmd = CreateRefreshCommand(sw);
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -596,7 +509,7 @@ public class RefreshCommandTests : RefreshCommandTestBase
             .Returns<IReadOnlyList<Domain.ValueObjects.FieldDefinition>>(_ => throw new InvalidOperationException("ADO field fetch failed"));
 
         var sw = new StringWriter();
-        var cmd = CreateCommand(sw);
+        var cmd = CreateRefreshCommand(sw);
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -617,7 +530,7 @@ public class RefreshCommandTests : RefreshCommandTestBase
             .Returns<IReadOnlyList<Domain.ValueObjects.FieldDefinition>>(_ => throw new InvalidOperationException("field error"));
 
         var sw = new StringWriter();
-        var cmd = CreateCommand(sw);
+        var cmd = CreateRefreshCommand(sw);
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);

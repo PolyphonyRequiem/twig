@@ -158,10 +158,6 @@ public sealed class RefreshOrchestrator
         await FieldDefinitionSyncService.SyncAsync(_iterationService, _fieldDefinitionStore, ct);
     }
 
-    /// <summary>Gets the current iteration path.</summary>
-    public Task<IterationPath> GetCurrentIterationAsync(CancellationToken ct = default) =>
-        _iterationService.GetCurrentIterationAsync(ct);
-
     private async Task<IReadOnlyList<RefreshConflict>> FindConflictsAsync(
         IReadOnlyList<WorkItem> sprintItems, WorkItem? activeItem,
         IReadOnlyList<WorkItem> childItems, IReadOnlySet<int> protectedIds,

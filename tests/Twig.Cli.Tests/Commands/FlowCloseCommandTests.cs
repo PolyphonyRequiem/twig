@@ -493,7 +493,6 @@ public class FlowCloseCommandTests
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
         _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
-        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());
 
         // Incomplete child — would block without --force
         var children = new[] { CreateTaskItem(10, "Task A", "Active") };

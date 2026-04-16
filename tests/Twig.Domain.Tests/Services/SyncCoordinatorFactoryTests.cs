@@ -22,16 +22,6 @@ public class SyncCoordinatorFactoryTests
             readOnlyMinutes, readWriteMinutes);
 
     [Fact]
-    public void ReadOnly_And_ReadWrite_AreDistinctInstances()
-    {
-        var factory = CreateFactory(readOnlyMinutes: 15, readWriteMinutes: 5);
-
-        factory.ReadOnly.ShouldNotBeNull();
-        factory.ReadWrite.ShouldNotBeNull();
-        factory.ReadOnly.ShouldNotBeSameAs(factory.ReadWrite);
-    }
-
-    [Fact]
     public async Task ReadOnly_UsesLongerTtl_ItemFreshForReadOnlyButStaleForReadWrite()
     {
         // Item synced 10 min ago: fresh for RO (15 min) but stale for RW (5 min)

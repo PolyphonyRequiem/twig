@@ -38,15 +38,15 @@ public class ContextChangeServiceTests
 
         var protectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingStore);
 
-        var syncWithLinks = new SyncCoordinator(
-            _workItemRepo, _adoService, protectedWriter, _pendingStore, _linkRepo, CacheStaleMinutes);
-        var syncWithoutLinks = new SyncCoordinator(
-            _workItemRepo, _adoService, protectedWriter, _pendingStore, CacheStaleMinutes);
+        var syncFactoryWithLinks = new SyncCoordinatorFactory(
+            _workItemRepo, _adoService, protectedWriter, _pendingStore, _linkRepo, readOnlyStaleMinutes: CacheStaleMinutes, readWriteStaleMinutes: CacheStaleMinutes);
+        var syncFactoryWithoutLinks = new SyncCoordinatorFactory(
+            _workItemRepo, _adoService, protectedWriter, _pendingStore, null, readOnlyStaleMinutes: CacheStaleMinutes, readWriteStaleMinutes: CacheStaleMinutes);
 
         _sut = new ContextChangeService(
-            _workItemRepo, _adoService, syncWithLinks, protectedWriter, _linkRepo);
+            _workItemRepo, _adoService, syncFactoryWithLinks.ReadWrite, protectedWriter, _linkRepo);
         _sutWithoutLinks = new ContextChangeService(
-            _workItemRepo, _adoService, syncWithoutLinks, protectedWriter);
+            _workItemRepo, _adoService, syncFactoryWithoutLinks.ReadWrite, protectedWriter);
     }
 
     // ═══════════════════════════════════════════════════════════════

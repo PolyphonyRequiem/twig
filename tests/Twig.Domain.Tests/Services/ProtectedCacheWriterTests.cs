@@ -217,9 +217,11 @@ public class ProtectedCacheWriterTests
                 return new WorkItemBuilder(id, $"Item {id} REMOTE").InState("Active").Build();
             });
 
-        // 1. Start the sync (uses SyncCoordinator which calls ProtectedCacheWriter)
-        var syncCoordinator = new SyncCoordinator(
-            _workItemRepo, _adoService, _sut, _pendingStore, cacheStaleMinutes: 30);
+        // 1. Start the sync (uses SyncCoordinator via factory, which calls ProtectedCacheWriter)
+        var syncCoordinatorFactory = new SyncCoordinatorFactory(
+            _workItemRepo, _adoService, _sut, _pendingStore, null,
+            readOnlyStaleMinutes: 30, readWriteStaleMinutes: 30);
+        var syncCoordinator = syncCoordinatorFactory.ReadWrite;
 
         var stale = DateTimeOffset.UtcNow.AddMinutes(-60);
         for (var i = 1; i <= 5; i++)

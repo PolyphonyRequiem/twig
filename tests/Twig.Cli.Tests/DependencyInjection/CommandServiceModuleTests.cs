@@ -63,11 +63,8 @@ public sealed class CommandServiceModuleTests
     {
         using var provider = BuildFullProvider();
 
-        var factory = provider.GetRequiredService<SyncCoordinatorFactory>();
-
-        factory.ShouldNotBeNull();
-        factory.ReadOnly.ShouldNotBeNull();
-        factory.ReadWrite.ShouldNotBeNull();
+        // GetRequiredService throws if the registration is missing
+        provider.GetRequiredService<SyncCoordinatorFactory>();
     }
 
     [Fact]

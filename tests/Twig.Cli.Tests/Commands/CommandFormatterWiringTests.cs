@@ -176,9 +176,8 @@ public class CommandFormatterWiringTests
         var activeItemResolver = new ActiveItemResolver(contextStore, workItemRepo, adoService);
         services.AddSingleton(activeItemResolver);
         var pcw = new ProtectedCacheWriter(workItemRepo, pendingChangeStore);
-        var sc = new SyncCoordinator(workItemRepo, adoService, pcw, pendingChangeStore, 30);
         var scf = new SyncCoordinatorFactory(workItemRepo, adoService, pcw, pendingChangeStore, null, 30, 30);
-        services.AddSingleton(sc);
+        services.AddSingleton(scf.ReadWrite);
         services.AddSingleton(scf);
         var iterSvc = Substitute.For<IIterationService>();
         iterSvc.GetCurrentIterationAsync(Arg.Any<CancellationToken>())

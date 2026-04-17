@@ -2,7 +2,7 @@
 #
 # 5-phase workflow for implementing features in the twig codebase:
 #   Phase 1: Intake — read existing work item or create from prompt
-#   Phase 2: Planning — architect → reducer → technical review → readability review → approval gate
+#   Phase 2: Planning — architect → technical review → readability review → approval gate
 #            (BYPASS: if plan already approved or --input plan_path provided, skips to Phase 3 via plan_reader)
 #   Phase 3: Work Tree Seeding — create ADO Issues/Tasks via twig CLI (dupe guard reuses existing items)
 #   Phase 4: Implementation — pr_group_manager (outer) → task_manager (inner) → coder/reducer/reviewer loops with PR lifecycle
@@ -207,7 +207,7 @@ agents:
     routes:
       - to: open_questions_gate
         when: "{{ output.has_blocking_questions }}"
-      - to: reducer_plan
+      - to: technical_reviewer
   - name: open_questions_gate
     type: human_gate
     description: Pauses when the architect identifies blocking open questions that need user input
@@ -223,7 +223,7 @@ agents:
       # NOTE: first option is auto-selected by --skip-gates — keep safe defaults first
       - label: "Proceed Without Answering"
         value: proceed
-        route: reducer_plan
+        route: technical_reviewer
       - label: "Provide Input & Revise"
         value: provide_input
         route: architect
@@ -231,26 +231,6 @@ agents:
       - label: "Abort Planning"
         value: abort
         route: $end
-  - name: reducer_plan
-    description: Reviews the plan for scope creep, over-engineering, and unnecessary complexity
-    model: claude-sonnet-4.6
-    input:
-      - architect.output
-      - intake.output
-    system_prompt: !file prompts/reducer.system.md
-    prompt: !file prompts/reducer-plan.prompt.md
-    output:
-      findings:
-        type: array
-        description: List of reductions applied or recommended
-      plan_modified:
-        type: boolean
-        description: Whether the plan file was modified
-      reduction_summary:
-        type: string
-        description: Brief summary of what was simplified (or "no changes needed")
-    routes:
-      - to: technical_reviewer
   - name: technical_reviewer
     description: Validates technical accuracy, feasibility, and completeness of the plan
     model: claude-opus-4.6-1m

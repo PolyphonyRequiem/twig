@@ -54,14 +54,13 @@ Reads an existing ADO work item or creates a new Epic from a prompt. Gathers con
 ### Phase 2: Planning (4 agents + 1 parallel group + 2 human gates)
 
 ```
-architect → open_questions_gate (human gate, conditional) → reducer_plan
+architect → open_questions_gate (human gate, conditional)
   → parallel(technical_reviewer, readability_reviewer)
   → review_router → plan_approval (human gate)
 ```
 
 - **architect** (Opus 1M) — researches codebase, creates `.plan.md` with PR groupings
 - **open_questions_gate** — human gate triggered when architect has blocking open questions (moderate+ severity)
-- **reducer_plan** (Sonnet) — flags scope creep, over-engineering, unnecessary complexity
 - **technical_reviewer** (Opus 1M) + **readability_reviewer** (Sonnet) — parallel review, both must score ≥90
 - **review_router** — checks scores, loops to architect or skips approval for trivial plans
 - **plan_approval** — human gate with approve/revise/reject options
@@ -138,7 +137,6 @@ pr_group_manager ──→ task_manager ──→ coder → reducer_code → tas
 | plan_reader | Sonnet | Read existing approved plan (bypass planning) |
 | architect | Opus 1M | Design + implementation plan |
 | open_questions_gate | Human Gate | Blocking open questions during planning |
-| reducer_plan | Sonnet | Plan-level complexity reduction |
 | technical_reviewer | Opus 1M | Technical accuracy review |
 | readability_reviewer | Sonnet | Clarity and structure review |
 | review_router | Sonnet | Score checking + routing |

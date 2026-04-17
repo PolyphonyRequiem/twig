@@ -76,6 +76,17 @@ Do NOT assume implementing agents have already transitioned the Epic.
 7. **Record observations in ADO** — add a twig note summarizing key meta-observations:
    - `twig set {{ intake.output.epic_id }} --output json`
    - `twig note --text "Workflow observations: <2-3 sentence summary of what went well, what struggled, and top improvement>"`
+   - `twig sync --output json` — flush the note to ADO; capture the JSON output
+7b. **Verify note persistence** (guard against staged-but-not-flushed notes; see #1635):
+   - Inspect the `twig sync` JSON from Step 7 — it contains `flush.notesPushed` and `flush.failed` counters
+   - `flush.notesPushed` MUST be >= the number of notes you posted in Step 7 (usually 1)
+   - `flush.failed` MUST be 0
+   - If `notesPushed` is too low OR `failed > 0`:
+     1. Retry once: re-run `twig note --text "..."` → `twig sync --output json` and re-check counters
+     2. If counters still indicate the note did not land, **surface the failure explicitly**
+        in your output: set `note_verification_failed: true` and include the raw sync JSON
+        — do NOT silently continue. The Epic MUST NOT be transitioned to Done until the
+        observation note is confirmed flushed.
 8. **Ensure all work is upstream:**
    - `git push` — push any pending commits (e.g., reduction sweeps, plan status updates)
    - If push fails (nothing to push), that's fine — continue

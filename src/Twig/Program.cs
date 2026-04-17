@@ -26,6 +26,10 @@ catch (Exception)
 // EPIC-005: Clean up old binary left behind from a previous Windows self-update.
 SelfUpdater.CleanupOldBinary();
 
+// First-run companion check — installs missing companions after upgrade.
+// Must run before ConsoleApp.Create() — no SynchronizationContext, blocking is safe.
+CompanionStartup.RunFirstRunCheck();
+
 var app = ConsoleApp.Create()
     .ConfigureServices(services =>
     {
@@ -856,6 +860,75 @@ internal static class VersionHelper
         var plusIndex = version.IndexOf('+');
         if (plusIndex >= 0) version = version[..plusIndex];
         return version;
+    }
+}
+
+/// <summary>
+/// Pre-DI first-run companion check. Detects missing companion binaries after an
+/// upgrade and installs them from the matching GitHub release archive. Failures are
+/// silently swallowed so the check never blocks normal CLI startup.
+/// </summary>
+internal static class CompanionStartup
+{
+    /// <summary>
+    /// Runs the companion first-run check with manually-wired dependencies.
+    /// Safe to call synchronously — no <see cref="System.Threading.SynchronizationContext"/>
+    /// exists before <c>ConsoleApp.Create()</c>.
+    /// </summary>
+    internal static void RunFirstRunCheck()
+    {
+        try
+        {
+            RunFirstRunCheckCore(
+                Environment.ProcessPath,
+                VersionHelper.GetVersion(),
+                new DefaultFileSystem());
+        }
+        catch (Exception)
+        {
+            // First-run check must never block CLI startup.
+        }
+    }
+
+    /// <summary>
+    /// Testable core: accepts injectable dependencies for file I/O and process path.
+    /// </summary>
+    internal static void RunFirstRunCheckCore(
+        string? processPath,
+        string currentVersion,
+        IFileSystem fileSystem)
+    {
+        using var httpClient = NetworkServiceModule.CreateHttpClient();
+        var repoSlug = ResolveRepoSlug();
+        var releaseService = new GitHubReleaseClient(httpClient, repoSlug);
+        var selfUpdater = new SelfUpdater(httpClient);
+        var firstRunCheck = new CompanionFirstRunCheck(releaseService, selfUpdater, fileSystem);
+
+        firstRunCheck.EnsureCompanionsAsync(processPath, currentVersion)
+            .GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// Resolves the GitHub repository slug from assembly metadata, falling back to the
+    /// hardcoded default. Duplicates the logic in <c>CommandRegistrationModule.AddSelfUpdateCommands()</c>
+    /// intentionally — extracting a shared method would add coupling for a 4-line lookup.
+    /// </summary>
+    internal static string ResolveRepoSlug()
+    {
+        var repoSlug = "PolyphonyRequiem/twig";
+        var attrs = typeof(TwigCommands).Assembly
+            .GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false);
+        foreach (var attr in attrs)
+        {
+            if (attr is System.Reflection.AssemblyMetadataAttribute meta
+                && meta.Key == "GitHubRepo"
+                && meta.Value is not null)
+            {
+                repoSlug = meta.Value;
+                break;
+            }
+        }
+        return repoSlug;
     }
 }
 

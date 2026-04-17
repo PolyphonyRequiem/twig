@@ -24,15 +24,6 @@ public sealed class CompanionStartupTests
         slug.ShouldBe("PolyphonyRequiem/twig");
     }
 
-    [Fact]
-    public void ResolveRepoSlug_ReturnsNonEmptySlug()
-    {
-        var slug = CompanionStartup.ResolveRepoSlug();
-
-        slug.ShouldNotBeNullOrWhiteSpace();
-        slug.ShouldContain("/");
-    }
-
     // ═══════════════════════════════════════════════════════════════
     //  RunFirstRunCheck — error isolation
     // ═══════════════════════════════════════════════════════════════

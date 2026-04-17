@@ -99,7 +99,6 @@ public sealed class CompanionFirstRunCheckTests
     public async Task EnsureCompanionsAsync_SuccessfulDownload_InstallsCompanions()
     {
         SetupMissingCompanions("twig-mcp", "twig-tui");
-        SetupNoVersionFile();
         SetupSuccessfulDownload();
 
         var sut = CreateSut();
@@ -117,7 +116,6 @@ public sealed class CompanionFirstRunCheckTests
     public async Task EnsureCompanionsAsync_DownloadFails_WritesVersionMarkerAnyway()
     {
         SetupMissingCompanions("twig-mcp");
-        SetupNoVersionFile();
         SetupRelease();
 
         _companionInstaller.InstallCompanionsOnlyAsync(
@@ -136,7 +134,6 @@ public sealed class CompanionFirstRunCheckTests
     public async Task EnsureCompanionsAsync_OperationCanceled_WritesVersionMarker()
     {
         SetupMissingCompanions("twig-mcp");
-        SetupNoVersionFile();
         SetupRelease();
 
         _companionInstaller.InstallCompanionsOnlyAsync(
@@ -174,7 +171,6 @@ public sealed class CompanionFirstRunCheckTests
     public async Task EnsureCompanionsAsync_AfterSuccessfulDownload_WritesVersionMarker()
     {
         SetupMissingCompanions("twig-mcp");
-        SetupNoVersionFile();
         SetupSuccessfulDownload();
 
         var memStream = new MemoryStream();
@@ -239,11 +235,6 @@ public sealed class CompanionFirstRunCheckTests
         _fileSystem.FileExists(VersionFile).Returns(true);
         var ms = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(version));
         _fileSystem.FileOpenRead(VersionFile).Returns(ms);
-    }
-
-    private void SetupNoVersionFile()
-    {
-        _fileSystem.FileExists(VersionFile).Returns(false);
     }
 
     private void SetupRelease()

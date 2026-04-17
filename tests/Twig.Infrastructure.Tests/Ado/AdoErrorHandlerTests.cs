@@ -352,10 +352,13 @@ public class AdoErrorHandlerTests
 
     // ── Helpers ──────────────────────────────────────────────────────
 
-    private static HttpResponseMessage CreateResponse(HttpStatusCode statusCode, string? content = null)
+    private static HttpResponseMessage CreateResponse(
+        HttpStatusCode statusCode,
+        string? content = null,
+        string mediaType = "application/json")
     {
         var response = new HttpResponseMessage(statusCode);
-        response.Content = new StringContent(content ?? string.Empty);
+        response.Content = new StringContent(content ?? string.Empty, System.Text.Encoding.UTF8, mediaType);
         return response;
     }
 }

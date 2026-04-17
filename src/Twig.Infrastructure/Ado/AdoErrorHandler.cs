@@ -21,7 +21,28 @@ internal static partial class AdoErrorHandler
     public static async Task ThrowOnErrorAsync(HttpResponseMessage response, string requestUrl, CancellationToken ct)
     {
         if (response.IsSuccessStatusCode)
-            return;
+        {
+            var mediaType = response.Content.Headers.ContentType?.MediaType;
+
+            // Null (e.g. 204 No Content) or JSON — pass through
+            if (mediaType is null || mediaType.Equals("application/json", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            // Non-JSON Content-Type — read body to decide
+            var body = await response.Content.ReadAsStringAsync(ct);
+
+            // Empty body is harmless regardless of Content-Type
+            if (string.IsNullOrWhiteSpace(body))
+                return;
+
+            // Non-JSON, non-empty body (e.g. HTML auth challenge) — throw
+            var snippet = body.Length > 500 ? body[..500] : body;
+            throw new AdoUnexpectedResponseException(
+                (int)response.StatusCode,
+                mediaType,
+                requestUrl,
+                snippet);
+        }
 
         var statusCode = (int)response.StatusCode;
 

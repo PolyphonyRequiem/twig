@@ -72,6 +72,24 @@ public sealed class AdoRateLimitException : AdoException
     }
 }
 
+/// <summary>2xx with non-JSON Content-Type — unexpected response body (e.g. HTML auth challenge).</summary>
+public sealed class AdoUnexpectedResponseException : AdoException
+{
+    public int StatusCode { get; }
+    public string ContentType { get; }
+    public string RequestUrl { get; }
+    public string BodySnippet { get; }
+
+    public AdoUnexpectedResponseException(int statusCode, string contentType, string requestUrl, string bodySnippet)
+        : base($"ADO returned non-JSON response (HTTP {statusCode}, Content-Type: {contentType}). URL: {requestUrl}. Body: {bodySnippet}")
+    {
+        StatusCode = statusCode;
+        ContentType = contentType;
+        RequestUrl = requestUrl;
+        BodySnippet = bodySnippet;
+    }
+}
+
 /// <summary>5xx — Transient server error.</summary>
 public sealed class AdoServerException : AdoException
 {

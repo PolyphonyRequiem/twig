@@ -4,7 +4,7 @@ or whether a sibling git worktree already owns the `sdlc/<id>` branch.
 Run exactly one command (cross-platform via pwsh):
 
 ```
-pwsh -NoProfile -File .github/skills/twig-sdlc/assets/scripts/check-duplicate-session.ps1 -WorkItemId {{ workflow.input.work_item_id | default: 0 }}
+pwsh -NoProfile -File .github/skills/twig-sdlc/assets/scripts/check-duplicate-session.ps1 -WorkItemId {{ workflow.input.work_item_id | default(0) }}
 ```
 
 The script prints a single-line JSON object with three keys:

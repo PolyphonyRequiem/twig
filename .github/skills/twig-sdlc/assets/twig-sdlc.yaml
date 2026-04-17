@@ -142,7 +142,7 @@ agents:
   # ---------------------------------------------------------------------------
   - name: architect
     description: Researches the codebase and creates a solution design with implementation plan
-    model: claude-opus-4.7
+    model: claude-opus-4.6-1m
     input:
       - intake.output
       - workflow.input.prompt?
@@ -229,7 +229,7 @@ agents:
       - to: technical_reviewer
   - name: technical_reviewer
     description: Validates technical accuracy, feasibility, and completeness of the plan
-    model: claude-opus-4.7
+    model: claude-opus-4.6-1m
     input:
       - architect.output
       - intake.output
@@ -466,7 +466,7 @@ agents:
         when: "{{ output.action == 'pr_group_ready' }}"
   - name: coder
     description: Implements a single task — code changes, tests, incremental commits
-    model: claude-opus-4.7
+    model: claude-opus-4.6-1m
     input:
       - task_manager.output
       - pr_group_manager.output
@@ -604,7 +604,7 @@ agents:
       - to: issue_reviewer
   - name: issue_reviewer
     description: Reviews the complete issue implementation against acceptance criteria
-    model: claude-opus-4.7
+    model: claude-opus-4.6-1m
     input:
       - task_manager.output
       - architect.output?
@@ -655,7 +655,7 @@ agents:
       - to: pr_reviewer
   - name: pr_reviewer
     description: Reviews the full PR diff for architecture coherence and cross-cutting concerns
-    model: claude-opus-4.7
+    model: claude-opus-4.6-1m
     input:
       - pr_submit.output
       - architect.output?
@@ -810,7 +810,7 @@ agents:
   # ---------------------------------------------------------------------------
   - name: close_out
     description: Transitions the work item to Done and produces meta-observations
-    model: claude-opus-4.7
+    model: claude-opus-4.6-1m
     input:
       - intake.output
       - architect.output?

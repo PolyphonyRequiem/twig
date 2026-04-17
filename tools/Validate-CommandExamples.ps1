@@ -39,13 +39,7 @@ foreach ($line in $lines) {
     }
 
     if ($inCategory -and $trimmed -match $commandPattern) {
-        $raw = $Matches[1]
-
-        # Strip placeholder, optional-arg, and flag-variant tokens
-        $bare = $raw -replace '<[^>]+>', ''
-        $bare = $bare -replace '\[[^\]]+\]', ''
-        $bare = $bare -replace '--[a-z][a-z0-9-]*', ''
-        $bare = ($bare -replace '\s+', ' ').Trim()
+        $bare = ($Matches[1] -replace '<[^>]+>' -replace '\[[^\]]+\]' -replace '--[a-z][a-z0-9-]*' -replace '\s+', ' ').Trim()
         if ($bare -ne '') { [void]$commands.Add($bare) }
     }
     elseif ($inCategory -and $trimmed -match '^\S') {

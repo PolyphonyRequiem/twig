@@ -84,10 +84,7 @@ Describe "Command Discovery Parsing" {
         $line = "  seed new <title>     Create a new local seed."
         $line -match $script:commandPattern | Should -BeTrue
         $raw = $Matches[1]
-        $bare = $raw -replace $script:placeholderToken, ''
-        $bare = $bare -replace $script:optionalArgToken, ''
-        $bare = $bare -replace $script:flagVariantToken, ''
-        $bare = ($bare -replace '\s+', ' ').Trim()
+        $bare = ($raw -replace $script:placeholderToken -replace $script:optionalArgToken -replace $script:flagVariantToken -replace '\s+', ' ').Trim()
         $bare | Should -Be "seed new"
     }
 
@@ -105,11 +102,7 @@ Describe "Command Discovery Parsing" {
         )
         foreach ($line in $lines) {
             if ($line -match $script:commandPattern) {
-                $raw = $Matches[1]
-                $bare = $raw -replace $script:placeholderToken, ''
-                $bare = $bare -replace $script:optionalArgToken, ''
-                $bare = $bare -replace $script:flagVariantToken, ''
-                $bare = ($bare -replace '\s+', ' ').Trim()
+                $bare = ($Matches[1] -replace $script:placeholderToken -replace $script:optionalArgToken -replace $script:flagVariantToken -replace '\s+', ' ').Trim()
                 if ($bare -ne '') { [void]$commands.Add($bare) }
             }
         }
@@ -194,30 +187,14 @@ Examples:
     }
 
     It "Detects no mismatches when all example flags are in Options" {
-        $optionFlags = [System.Collections.Generic.HashSet[string]]::new()
-        @("--title", "--state", "--top", "--output") | ForEach-Object { [void]$optionFlags.Add($_) }
-
-        $exampleFlags = @("--state", "--top")
-        $mismatches = @()
-        foreach ($flag in $exampleFlags) {
-            if (-not $optionFlags.Contains($flag)) {
-                $mismatches += $flag
-            }
-        }
+        $optionFlags = [System.Collections.Generic.HashSet[string]]::new([string[]]@("--title", "--state", "--top", "--output"))
+        $mismatches = @("--state", "--top") | Where-Object { -not $optionFlags.Contains($_) }
         $mismatches.Count | Should -Be 0
     }
 
     It "Detects mismatches when example uses unlisted flag" {
-        $optionFlags = [System.Collections.Generic.HashSet[string]]::new()
-        @("--title", "--state") | ForEach-Object { [void]$optionFlags.Add($_) }
-
-        $exampleFlags = @("--state", "--bogus")
-        $mismatches = @()
-        foreach ($flag in $exampleFlags) {
-            if (-not $optionFlags.Contains($flag)) {
-                $mismatches += $flag
-            }
-        }
+        $optionFlags = [System.Collections.Generic.HashSet[string]]::new([string[]]@("--title", "--state"))
+        $mismatches = @("--state", "--bogus") | Where-Object { -not $optionFlags.Contains($_) }
         $mismatches.Count | Should -Be 1
         $mismatches[0] | Should -Be "--bogus"
     }

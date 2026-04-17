@@ -68,6 +68,24 @@ public sealed class GroupedHelpTests
     }
 
     [Fact]
+    public void AllExampleLines_StartWithTwigPrefix()
+    {
+        var violations = new List<string>();
+
+        foreach (var (command, examples) in CommandExamples.Examples)
+        {
+            foreach (var line in examples)
+            {
+                if (!line.StartsWith("twig ", StringComparison.Ordinal))
+                    violations.Add($"[{command}] \"{line}\"");
+            }
+        }
+
+        violations.ShouldBeEmpty(
+            $"Example lines not starting with 'twig ': {string.Join("; ", violations)}");
+    }
+
+    [Fact]
     public void AllExampleLines_ContainCommandVerb()
     {
         var violations = new List<string>();

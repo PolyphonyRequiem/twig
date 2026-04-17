@@ -24,12 +24,8 @@ internal static partial class AdoErrorHandler
         {
             var mediaType = response.Content.Headers.ContentType?.MediaType;
 
-            // No Content-Type header — pass through (e.g. 204 No Content)
-            if (mediaType is null)
-                return;
-
-            // JSON responses pass through for normal deserialization
-            if (mediaType.Equals("application/json", StringComparison.OrdinalIgnoreCase))
+            // Null (e.g. 204 No Content) or JSON — pass through
+            if (mediaType is null || mediaType.Equals("application/json", StringComparison.OrdinalIgnoreCase))
                 return;
 
             // Non-JSON Content-Type — read body to decide

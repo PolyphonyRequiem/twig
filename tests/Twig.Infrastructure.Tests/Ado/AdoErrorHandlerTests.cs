@@ -248,21 +248,14 @@ public class AdoErrorHandlerTests
         ex.BodySnippet.ShouldBe("<html><body>Sign in</body></html>");
     }
 
-    [Fact]
-    public async Task ThrowOnErrorAsync_200_ApplicationJson_DoesNotThrow()
+    [Theory]
+    [InlineData("application/json")]
+    [InlineData("application/json; charset=utf-8")]
+    [InlineData("Application/JSON")]
+    public async Task ThrowOnErrorAsync_200_JsonContentType_DoesNotThrow(string contentType)
     {
         var response = CreateResponse(HttpStatusCode.OK, """{"id": 1}""");
-        response.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
-
-        await AdoErrorHandler.ThrowOnErrorAsync(response, "https://example.com", CancellationToken.None);
-    }
-
-    [Fact]
-    public async Task ThrowOnErrorAsync_200_ApplicationJsonWithCharset_DoesNotThrow()
-    {
-        var response = CreateResponse(HttpStatusCode.OK, """{"id": 1}""");
-        response.Content.Headers.ContentType =
-            System.Net.Http.Headers.MediaTypeHeaderValue.Parse("application/json; charset=utf-8");
+        response.Content.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse(contentType);
 
         await AdoErrorHandler.ThrowOnErrorAsync(response, "https://example.com", CancellationToken.None);
     }
@@ -277,20 +270,13 @@ public class AdoErrorHandlerTests
         await AdoErrorHandler.ThrowOnErrorAsync(response, "https://example.com", CancellationToken.None);
     }
 
-    [Fact]
-    public async Task ThrowOnErrorAsync_200_NonJsonEmptyBody_DoesNotThrow()
+    [Theory]
+    [InlineData("", "text/html")]
+    [InlineData("   ", "text/plain")]
+    public async Task ThrowOnErrorAsync_200_NonJsonEmptyOrWhitespaceBody_DoesNotThrow(string body, string contentType)
     {
-        var response = CreateResponse(HttpStatusCode.OK, "");
-        response.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/html");
-
-        await AdoErrorHandler.ThrowOnErrorAsync(response, "https://example.com", CancellationToken.None);
-    }
-
-    [Fact]
-    public async Task ThrowOnErrorAsync_200_NonJsonWhitespaceBody_DoesNotThrow()
-    {
-        var response = CreateResponse(HttpStatusCode.OK, "   ");
-        response.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/plain");
+        var response = CreateResponse(HttpStatusCode.OK, body);
+        response.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
 
         await AdoErrorHandler.ThrowOnErrorAsync(response, "https://example.com", CancellationToken.None);
     }
@@ -320,15 +306,6 @@ public class AdoErrorHandlerTests
             () => AdoErrorHandler.ThrowOnErrorAsync(response, url, CancellationToken.None));
 
         ex.ContentType.ShouldBe("text/plain");
-    }
-
-    [Fact]
-    public async Task ThrowOnErrorAsync_200_ApplicationJsonCaseInsensitive_DoesNotThrow()
-    {
-        var response = CreateResponse(HttpStatusCode.OK, """{"ok": true}""");
-        response.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("Application/JSON");
-
-        await AdoErrorHandler.ThrowOnErrorAsync(response, "https://example.com", CancellationToken.None);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────

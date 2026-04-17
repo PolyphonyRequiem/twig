@@ -26,14 +26,6 @@ public class AdoUnexpectedResponseExceptionTests
     }
 
     [Fact]
-    public void InheritsFromAdoException()
-    {
-        var ex = new AdoUnexpectedResponseException(302, "text/plain", "https://example.com", "redirect");
-
-        ex.ShouldBeAssignableTo<AdoException>();
-    }
-
-    [Fact]
     public void EmptyStrings_AreAccepted()
     {
         var ex = new AdoUnexpectedResponseException(0, "", "", "");

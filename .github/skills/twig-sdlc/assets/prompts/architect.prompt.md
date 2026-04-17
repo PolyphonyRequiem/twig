@@ -11,9 +11,14 @@ Incorporate existing Issues into the plan. Define Tasks under each Issue
 even when the Issue already exists — Tasks are the unit of implementation.
 {% endif %}
 {% if review_router is defined and review_router.output and not review_router.output.both_pass %}
-**Review Feedback (tech={{ review_router.output.tech_score }}, read={{ review_router.output.read_score }}):**
+**Blocking issues flagged by reviewers** (tech={{ review_router.output.tech_score }}, read={{ review_router.output.read_score }}, blocking={{ review_router.output.blocking_issue_count }}, revision {{ (architect.output.plan_revision_count | default(0)) + 1 }} of 2 max):
 {{ review_router.output.combined_feedback }}
-Revise the existing plan at `{{ architect.output.plan_path }}` to address this feedback.
+
+Revise the plan at `{{ architect.output.plan_path }}` to address **only these blocking
+issues**. Do not make stylistic changes, restructure unaffected sections, or act on
+non-blocking suggestions — those are intentionally excluded upstream. Minimal, surgical
+edits only. If a blocking issue is based on a misreading of the plan, note that in
+`revision_notes` rather than changing the plan.
 {% endif %}
 {% if plan_approval is defined and plan_approval.output and plan_approval.output.selected == 'revise' %}
 **User Revision Request:**
@@ -181,8 +186,14 @@ in your `revision_notes` output. Structure as a bullet list, e.g.:
 - Rewrote Executive Summary for clarity per readability feedback
 - Added missing risk mitigation for database migration
 This helps reviewers understand what changed.
+
+Set `plan_revision_count` to {{ (architect.output.plan_revision_count | default(0)) + 1 }}
+(i.e. previous count plus one). The loop is capped at 2 revisions — after the second
+revision, routing will proceed to the human plan_approval gate regardless of remaining
+blocking issues.
 {% else %}
-This is the first draft. Set `revision_notes` to "Initial draft."
+This is the first draft. Set `revision_notes` to "Initial draft." and
+`plan_revision_count` to 0.
 {% endif %}
 
 ## Open Questions Evaluation

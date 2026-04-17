@@ -245,10 +245,23 @@ public sealed class GitHubReleaseClientTests
         release.Assets.Count.ShouldBe(1);
         release.Assets[0].Name.ShouldBe("twig-win-x64.zip");
         release.Assets[0].Size.ShouldBe(2048);
+        release.PublishedAt.ShouldBe(new DateTimeOffset(2026, 3, 15, 10, 0, 0, TimeSpan.Zero));
 
         handler.LastRequest.ShouldNotBeNull();
         handler.LastRequestUrl.ShouldContain("/repos/PolyphonyRequiem/twig/releases/tags/v2.0.0");
         handler.LastRequest.Headers.UserAgent.ToString().ShouldContain("twig-cli");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task GetReleaseByTagAsync_NullOrWhitespaceTag_ThrowsArgumentException(string? tag)
+    {
+        var handler = new FakeHandler();
+        var client = new GitHubReleaseClient(new HttpClient(handler), "PolyphonyRequiem/twig");
+
+        await Should.ThrowAsync<ArgumentException>(() => client.GetReleaseByTagAsync(tag!));
     }
 
     [Fact]

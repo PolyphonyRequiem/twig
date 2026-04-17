@@ -88,13 +88,8 @@ internal sealed class CompanionFirstRunCheck(
         }
 
         // Phase 4 — Write version marker (always, after download attempt)
-        WriteVersionMarker(fileSystem, versionFile, currentVersion);
-    }
-
-    private static void WriteVersionMarker(IFileSystem fs, string path, string version)
-    {
-        using var stream = fs.FileCreate(path);
+        using var stream = fileSystem.FileCreate(versionFile);
         using var writer = new StreamWriter(stream);
-        writer.Write(version);
+        writer.Write(currentVersion);
     }
 }

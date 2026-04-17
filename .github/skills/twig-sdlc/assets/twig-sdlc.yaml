@@ -25,7 +25,7 @@ workflow:
   name: twig-sdlc
   description: End-to-end SDLC workflow — intake through planning, implementation, PR lifecycle, and close-out
   version: "2.1.0"
-  entry_point: intake
+  entry_point: duplicate_check
   runtime:
     provider: copilot
     mcp_servers:
@@ -71,6 +71,30 @@ workflow:
 # AGENTS
 # =============================================================================
 agents:
+  # ---------------------------------------------------------------------------
+  # PHASE 0: DUPLICATE SESSION CHECK (preflight)
+  # ---------------------------------------------------------------------------
+  - name: duplicate_check
+    description: Preflight — abort if another conductor run or worktree already owns this work item
+    model: claude-sonnet-4.6
+    input:
+      - workflow.input.work_item_id?
+    system_prompt: !file prompts/duplicate-check.system.md
+    prompt: !file prompts/duplicate-check.prompt.md
+    output:
+      is_duplicate:
+        type: boolean
+        description: True if an active conductor run or conflicting worktree was found for this work item
+      details:
+        type: string
+        description: Description of the conflict (event file, worktree path) — empty if none
+      reason:
+        type: string
+        description: Human-readable summary of the check result
+    routes:
+      - to: $end
+        when: "{{ output.is_duplicate }}"
+      - to: intake
   # ---------------------------------------------------------------------------
   # PHASE 1: INTAKE
   # ---------------------------------------------------------------------------

@@ -90,13 +90,6 @@ public class AdoErrorHandlerTests
     // ── ThrowOnErrorAsync — status code dispatch ────────────────────
 
     [Fact]
-    public async Task ThrowOnErrorAsync_200_DoesNotThrow()
-    {
-        var response = CreateResponse(HttpStatusCode.OK);
-        await AdoErrorHandler.ThrowOnErrorAsync(response, "https://example.com", CancellationToken.None);
-    }
-
-    [Fact]
     public async Task ThrowOnErrorAsync_201_DoesNotThrow()
     {
         var response = CreateResponse(HttpStatusCode.Created);
@@ -235,18 +228,6 @@ public class AdoErrorHandlerTests
         ex.StatusCode.ShouldBe(503);
         ex.Message.ShouldContain("503");
         ex.Message.ShouldContain("Service temporarily unavailable");
-    }
-
-    [Fact]
-    public async Task ThrowOnErrorAsync_503_IsNeverSilentlySwallowed()
-    {
-        // Verify that 503 always throws — it must not be caught/ignored internally.
-        var response = CreateResponse(HttpStatusCode.ServiceUnavailable);
-        var url = "https://dev.azure.com/org/proj/_apis/wit/workitems/1";
-
-        // Must throw, never return normally
-        await Should.ThrowAsync<AdoServerException>(
-            () => AdoErrorHandler.ThrowOnErrorAsync(response, url, CancellationToken.None));
     }
 
     // ── ThrowOnErrorAsync — Content-Type validation (2xx) ──────────

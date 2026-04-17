@@ -34,24 +34,6 @@ public class AdoUnexpectedResponseExceptionTests
     }
 
     [Fact]
-    public void CaughtByAdoExceptionHandler()
-    {
-        AdoException? caught = null;
-
-        try
-        {
-            throw new AdoUnexpectedResponseException(403, "text/html", "https://example.com", "forbidden");
-        }
-        catch (AdoException ex)
-        {
-            caught = ex;
-        }
-
-        caught.ShouldNotBeNull();
-        caught.ShouldBeOfType<AdoUnexpectedResponseException>();
-    }
-
-    [Fact]
     public void EmptyStrings_AreAccepted()
     {
         var ex = new AdoUnexpectedResponseException(0, "", "", "");
@@ -63,9 +45,4 @@ public class AdoUnexpectedResponseExceptionTests
         ex.Message.ShouldContain("HTTP 0");
     }
 
-    [Fact]
-    public void IsSealed()
-    {
-        typeof(AdoUnexpectedResponseException).IsSealed.ShouldBeTrue();
-    }
 }

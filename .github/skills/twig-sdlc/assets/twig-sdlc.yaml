@@ -9,7 +9,6 @@
 #            Issue closure is gated on PR merge (structural enforcement via orchestrator split)
 #            Post-merge checkpoint: verify branch merged + deleted + Issue state matches before proceeding
 #   Phase 5: Close-out — meta-observations (reduction now integrated into PR stage)
-#   Phase 6: Closeout Filing — files observations as a tagged ADO Issue for review
 #
 # Agents: 25 agents + 3 human gates (pr_group_manager + task_manager + pr_finalizer gate)
 # Models: Opus 1M for deep reasoning (architect, coder, pr_reviewer, close_out)
@@ -26,7 +25,7 @@ workflow:
   name: twig-sdlc
   description: End-to-end SDLC workflow — intake through planning, implementation, PR lifecycle, and close-out
   version: "2.1.0"
-  entry_point: intake
+  entry_point: duplicate_check
   runtime:
     provider: copilot
     mcp_servers:
@@ -72,6 +71,30 @@ workflow:
 # AGENTS
 # =============================================================================
 agents:
+  # ---------------------------------------------------------------------------
+  # PHASE 0: DUPLICATE SESSION CHECK (preflight)
+  # ---------------------------------------------------------------------------
+  - name: duplicate_check
+    description: Preflight — abort if another conductor run or worktree already owns this work item
+    model: claude-sonnet-4.6
+    input:
+      - workflow.input.work_item_id?
+    system_prompt: !file prompts/duplicate-check.system.md
+    prompt: !file prompts/duplicate-check.prompt.md
+    output:
+      is_duplicate:
+        type: boolean
+        description: True if an active conductor run or conflicting worktree was found for this work item
+      details:
+        type: string
+        description: Description of the conflict (event file, worktree path) — empty if none
+      reason:
+        type: string
+        description: Human-readable summary of the check result
+    routes:
+      - to: $end
+        when: "{{ output.is_duplicate }}"
+      - to: intake
   # ---------------------------------------------------------------------------
   # PHASE 1: INTAKE
   # ---------------------------------------------------------------------------
@@ -143,7 +166,7 @@ agents:
   # ---------------------------------------------------------------------------
   - name: architect
     description: Researches the codebase and creates a solution design with implementation plan
-    model: claude-opus-4.7
+    model: claude-opus-4.6-1m
     input:
       - intake.output
       - workflow.input.prompt?
@@ -184,7 +207,7 @@ agents:
     routes:
       - to: open_questions_gate
         when: "{{ output.has_blocking_questions }}"
-      - to: technical_reviewer
+      - to: reducer_plan
   - name: open_questions_gate
     type: human_gate
     description: Pauses when the architect identifies blocking open questions that need user input
@@ -200,7 +223,7 @@ agents:
       # NOTE: first option is auto-selected by --skip-gates — keep safe defaults first
       - label: "Proceed Without Answering"
         value: proceed
-        route: technical_reviewer
+        route: reducer_plan
       - label: "Provide Input & Revise"
         value: provide_input
         route: architect
@@ -208,9 +231,29 @@ agents:
       - label: "Abort Planning"
         value: abort
         route: $end
+  - name: reducer_plan
+    description: Reviews the plan for scope creep, over-engineering, and unnecessary complexity
+    model: claude-sonnet-4.6
+    input:
+      - architect.output
+      - intake.output
+    system_prompt: !file prompts/reducer.system.md
+    prompt: !file prompts/reducer-plan.prompt.md
+    output:
+      findings:
+        type: array
+        description: List of reductions applied or recommended
+      plan_modified:
+        type: boolean
+        description: Whether the plan file was modified
+      reduction_summary:
+        type: string
+        description: Brief summary of what was simplified (or "no changes needed")
+    routes:
+      - to: technical_reviewer
   - name: technical_reviewer
     description: Validates technical accuracy, feasibility, and completeness of the plan
-    model: claude-opus-4.7
+    model: claude-opus-4.6-1m
     input:
       - architect.output
       - intake.output
@@ -447,7 +490,7 @@ agents:
         when: "{{ output.action == 'pr_group_ready' }}"
   - name: coder
     description: Implements a single task — code changes, tests, incremental commits
-    model: claude-opus-4.7
+    model: claude-opus-4.6-1m
     input:
       - task_manager.output
       - pr_group_manager.output
@@ -478,39 +521,12 @@ agents:
         type: array
         description: Edge cases explicitly handled (for reviewer visibility)
     routes:
-      - to: reducer_code
-  - name: reducer_code
-    description: Simplifies the implementation — removes dead code, unnecessary abstractions, verbosity
-    model: claude-sonnet-4.6
-    input:
-      - coder.output
-      - task_manager.output
-    system_prompt: !file prompts/reducer.system.md
-    prompt: !file prompts/reducer-code.prompt.md
-    output:
-      findings:
-        type: array
-        description: Reductions applied or recommended
-      changes_applied:
-        type: array
-        description: Specific changes made
-      lines_removed:
-        type: number
-        description: Net lines of code removed (0 if no changes)
-      balance_assessment:
-        type: string
-        description: Which vector was more out of balance (complexity or volume) and why
-      skipped_opportunities:
-        type: array
-        description: Reductions identified but skipped, with reasons
-    routes:
       - to: task_reviewer
   - name: task_reviewer
     description: Reviews the task implementation for quality, correctness, and completeness
     model: claude-sonnet-4.6
     input:
       - coder.output
-      - reducer_code.output
       - task_manager.output
       - architect.output?
       - plan_reader.output?
@@ -585,7 +601,7 @@ agents:
       - to: issue_reviewer
   - name: issue_reviewer
     description: Reviews the complete issue implementation against acceptance criteria
-    model: claude-opus-4.7
+    model: claude-opus-4.6-1m
     input:
       - task_manager.output
       - architect.output?
@@ -636,7 +652,7 @@ agents:
       - to: pr_reviewer
   - name: pr_reviewer
     description: Reviews the full PR diff for architecture coherence and cross-cutting concerns
-    model: claude-opus-4.7
+    model: claude-opus-4.6-1m
     input:
       - pr_submit.output
       - architect.output?
@@ -791,7 +807,7 @@ agents:
   # ---------------------------------------------------------------------------
   - name: close_out
     description: Transitions the work item to Done and produces meta-observations
-    model: claude-opus-4.7
+    model: claude-opus-4.6-1m
     input:
       - intake.output
       - architect.output?
@@ -815,7 +831,7 @@ agents:
         type: boolean
         description: Whether the Epic was transitioned to Done
     routes:
-      - to: $end  # A/B experiment: closeout_filer disabled to avoid dual filing against shared Epic 1603
+      - to: $end
 # =============================================================================
 # WORKFLOW OUTPUT
 # =============================================================================

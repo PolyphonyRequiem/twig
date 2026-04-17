@@ -19,6 +19,19 @@ Do NOT assume implementing agents have already transitioned the Epic.
    - `twig sync --output json` — flush pending changes and pull all remote state into local DB
    - This ensures issues/tasks transitioned by other agents are reflected locally
    - If sync fails with a transient ADO error, retry up to 3 times with 5-second delays
+0b. **Fast-path: Already-Done check** (skip redundant verification when re-running):
+   - `twig set {{ intake.output.epic_id }} --output json` — read the current state
+   - If the state is already "Done":
+     1. Record the fast-path decision:
+        `twig note --text "Fast-path: Epic/Issue is already Done — skipping PR/branch/child verification (Steps 1–4) and proceeding directly to observations."`
+     2. Set `epic_completed: false` (the agent did not perform the transition)
+     3. **SKIP directly to Step 5** — do NOT execute Steps 1, 1b, 1c, 2, 3, or 4
+   - If the state is NOT "Done": continue with Step 1 (normal flow)
+
+   > **Why safe:** Verification was already performed during the original close-out run that transitioned the item to Done.
+   > Additionally, the upstream `pr_finalizer` gate already confirmed PR merge state; re-running verification risks false-positive STOP conditions.
+   > **When this triggers:** Re-runs, retries, manual workflow restarts, or manual Done transitions.
+   > **What is NOT skipped:** Steps 5–10 always execute (observations, git push, tagging).
 1. **Verify all PRs are merged** (guard against premature close-out):
    - The pr_finalizer agent has already verified PR group completeness upstream.
      Review its `summary` and `state_violations` above.

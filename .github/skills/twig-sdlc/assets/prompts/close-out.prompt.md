@@ -101,9 +101,33 @@ worktree — use `git fetch origin main` instead (see Step 1).
    - Change the Status line from its current value to `> **Status**: ✅ Done`
    - Mark all Epics and Tasks as DONE in the plan file
    - Add a completion section with date and summary
-5. **Full workflow git log** — for richer observations, capture the entire commit history:
+5. **Full workflow git log and diff statistics** — capture commit history and aggregate change metrics:
    - `git log --oneline --all` (or scope to the workflow's branches/main)
    - Note commit cadence, rework patterns, time-to-completion indicators
+   - **Tag-based diff statistics** — summarize the scope of changes since the last release:
+     ```bash
+     # Get the most recent release tag (created by the previous close-out's Step 10)
+     prev_tag=$(git tag -l "v*" --sort=-version:refname | head -1)
+     if [ -n "$prev_tag" ]; then
+       # Capture aggregate diff stats from baseline to current HEAD
+       git diff --stat "$prev_tag"..HEAD
+       # Capture commit count
+       git rev-list --count "$prev_tag"..HEAD
+     fi
+     ```
+   - Format the results into a summary table:
+     | Metric | Value |
+     |--------|-------|
+     | Files changed | *(from `git diff --stat` last line)* |
+     | Lines added | *(insertions from `git diff --stat`)* |
+     | Lines removed | *(deletions from `git diff --stat`)* |
+     | Commit count | *(from `git rev-list --count`)* |
+   - **Fallback**: If no `v*` tags exist (first-ever close-out, new repository) or
+     `git diff` fails (shallow clone, detached HEAD), skip the statistics table and
+     note: **"diff stats unavailable — no baseline tag found"**
+   - **Important**: The diff range MUST use the previous release tag as baseline — NOT
+     `origin/main..HEAD` — because after Step 1's `git checkout main && git pull`,
+     HEAD equals `origin/main` and that range would be empty.
 6. **Produce meta-observations:**
    Reflect on the entire workflow execution:
    - What went well? Which agents performed effectively?

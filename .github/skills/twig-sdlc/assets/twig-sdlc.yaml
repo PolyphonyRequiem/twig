@@ -178,6 +178,9 @@ agents:
       revision_notes:
         type: string
         description: Summary of changes made in this revision ("Initial draft." on first pass)
+      plan_revision_count:
+        type: number
+        description: Number of revision passes performed so far. 0 for the initial draft, increments by 1 each time the architect revises in response to review or user feedback.
     routes:
       - to: open_questions_gate
         when: "{{ output.has_blocking_questions }}"
@@ -281,20 +284,26 @@ agents:
       read_score:
         type: number
         description: Readability reviewer score
+      blocking_issue_count:
+        type: number
+        description: Total number of critical issues across both reviewers
       both_pass:
         type: boolean
-        description: True if both scores ≥ 90
+        description: True when blocking_issue_count == 0 AND both scores >= 80 (safety floor). Scores are a backstop; the primary gate is blocking_issue_count == 0.
       skip_approval:
         type: boolean
         description: True if plan is trivial or skip_plan_review is true
       combined_feedback:
         type: string
-        description: Combined feedback from both reviewers
+        description: When looping back, contains ONLY the critical_issues arrays from both reviewers (verbatim). Non-critical feedback is intentionally excluded so the architect does not chase advisory notes.
+      plan_revision_count:
+        type: number
+        description: Mirrored from architect.output.plan_revision_count — used for the 2-revision cap.
     routes:
       - to: architect
-        when: "{{ not output.both_pass }}"
+        when: "{{ not output.both_pass and output.plan_revision_count < 2 }}"
       - to: work_tree_seeder
-        when: "{{ output.both_pass and output.skip_approval }}"
+        when: "{{ (output.both_pass or output.plan_revision_count >= 2) and output.skip_approval }}"
       - to: plan_approval
   - name: plan_approval
     type: human_gate

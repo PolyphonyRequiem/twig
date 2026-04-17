@@ -39,4 +39,34 @@ Focus exclusively on **structure and readability** — not technical accuracy:
 
 Do NOT evaluate technical correctness — a separate reviewer handles that.
 
-Score 0-100. Flag anything ambiguous or unclear.
+## Scoring rubric (calibration)
+
+- **95–100** — Document is clear and executable. `critical_issues = []`.
+- **90–94** — Minor phrasing or formatting suggestions. `critical_issues = []`.
+- **80–89** — Real structural problems (e.g., missing required section, confusing
+  flow) that do not prevent execution. `critical_issues = []` unless an agent
+  genuinely could not proceed.
+- **<80** — Ambiguity severe enough to block execution. Populate `critical_issues`.
+
+**The default expectation is 92–98.** A well-structured plan lands here even if
+prose could be tightened. Do not dock for stylistic preferences.
+
+## What counts as a CRITICAL issue
+
+Populate `critical_issues` ONLY when:
+
+- A required section is missing (sections 1–6, 8, 12–15 in the expected structure).
+- Ambiguity makes it impossible for a developer or AI agent to proceed.
+- Contradictory statements within the document.
+
+Do NOT populate `critical_issues` for:
+
+- Optional sections (7, 9, 10, 11, 16) being absent — they are explicitly optional.
+- Suggested rewording, tone preferences, or formatting polish.
+- "Could be clearer" or "would benefit from an example" — flag in `feedback`, not
+  `critical_issues`.
+- The absence of a section stating "No open questions" — if Open Questions section
+  exists and lists none, that is sufficient; do not demand affirmative phrasing.
+
+If no critical issues exist, set `critical_issues` to `[]`. That is the expected
+outcome.

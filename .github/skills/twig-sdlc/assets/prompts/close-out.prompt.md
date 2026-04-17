@@ -14,6 +14,23 @@ Implementing agents (coder, task_manager) own Task state transitions.
 pr_group_manager owns Issue closure (only after PR merge).
 The close_out agent owns the **Epic-level** transition to Done.
 Do NOT assume implementing agents have already transitioned the Epic.
+
+## Worktree Conventions
+
+When the SDLC workflow runs inside a git worktree (common for parallel PR group
+development), the following conventions enable deterministic branch discovery:
+
+**Branch naming**: Each PR group branch uses the `branch_name_suggestion` from
+`work_tree_seeder.output.pr_groups`. By convention, branches follow the pattern
+`feature/{slug}` or `feature/{work-item-id}-{slug}` (e.g.,
+`feature/validate-command-examples`, `feature/1744-closeout-skip-when-done`).
+
+**Linked worktree detection**: Compare `git rev-parse --git-common-dir` with
+`git rev-parse --git-dir`. If they differ (and common-dir ≠ `.git`), the
+current directory is a linked worktree. In a linked worktree,
+`git checkout main` will fail if main is already checked out in the primary
+worktree — use `git fetch origin main` instead (see Step 1).
+
 ## Steps
 0. **Sync local cache** (prevents stale-state conflicts from multi-agent workflows):
    - `twig sync --output json` — flush pending changes and pull all remote state into local DB
@@ -39,11 +56,33 @@ Do NOT assume implementing agents have already transitioned the Epic.
      For each PR in the completed list:
      `gh pr view <pr_number> --json state --jq '.state'` — must be "MERGED"
    - If any PR is not merged, STOP and report the issue — do not proceed
-   - Also verify main has the commits: `git checkout main && git pull`
+   - Verify main has the merged commits (worktree-aware):
+     ```bash
+     # Detect linked worktree
+     common_dir=$(git rev-parse --git-common-dir)
+     git_dir=$(git rev-parse --git-dir)
+     if [ "$common_dir" != "$git_dir" ] && [ "$common_dir" != ".git" ]; then
+       # Linked worktree — cannot checkout main (may be checked out elsewhere)
+       git fetch origin main
+       git log origin/main --oneline -5
+     else
+       # Standard clone — safe to checkout
+       git checkout main && git pull
+     fi
+     ```
 1b. **Verify no unmerged feature branches** (guard against orphaned work):
    - Run: `git branch --no-merged main`
    - Cross-reference against the work tree's PR groups (not just the plan):
      {{ work_tree_seeder.output.pr_groups | json }}
+   - Match unmerged branches to PR groups by naming convention: each PR group's
+     `branch_name_suggestion` (e.g., `feature/validate-command-examples`) should
+     appear in the unmerged list only if the PR group is still in progress. For
+     completed PR groups, the branch should be absent (deleted after merge) or
+     fully merged into main.
+   - Also check for worktree-associated branches: run `git worktree list` and
+     verify that any worktree branches correspond to known PR groups. A worktree
+     whose branch doesn't match any PR group's `branch_name_suggestion` is
+     outside this workflow's scope — note it but do not block on it.
    - If ANY branch matches a planned PR group that should be complete, STOP and
      report — code exists on a branch that was never PR'd or merged
 1c. **Verify all child items are Done** (guard against premature Epic closure):

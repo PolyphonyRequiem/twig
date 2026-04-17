@@ -497,39 +497,12 @@ agents:
         type: array
         description: Edge cases explicitly handled (for reviewer visibility)
     routes:
-      - to: reducer_code
-  - name: reducer_code
-    description: Simplifies the implementation — removes dead code, unnecessary abstractions, verbosity
-    model: claude-sonnet-4.6
-    input:
-      - coder.output
-      - task_manager.output
-    system_prompt: !file prompts/reducer.system.md
-    prompt: !file prompts/reducer-code.prompt.md
-    output:
-      findings:
-        type: array
-        description: Reductions applied or recommended
-      changes_applied:
-        type: array
-        description: Specific changes made
-      lines_removed:
-        type: number
-        description: Net lines of code removed (0 if no changes)
-      balance_assessment:
-        type: string
-        description: Which vector was more out of balance (complexity or volume) and why
-      skipped_opportunities:
-        type: array
-        description: Reductions identified but skipped, with reasons
-    routes:
       - to: task_reviewer
   - name: task_reviewer
     description: Reviews the task implementation for quality, correctness, and completeness
     model: claude-sonnet-4.6
     input:
       - coder.output
-      - reducer_code.output
       - task_manager.output
       - architect.output?
       - plan_reader.output?

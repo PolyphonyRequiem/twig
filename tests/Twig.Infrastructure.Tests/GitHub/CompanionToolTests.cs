@@ -9,20 +9,12 @@ namespace Twig.Infrastructure.Tests.GitHub;
 /// </summary>
 public sealed class CompanionToolTests
 {
-    // ═══════════════════════════════════════════════════════════════
-    //  CompanionTools.All
-    // ═══════════════════════════════════════════════════════════════
-
     [Fact]
     public void All_ContainsExpectedCompanions()
     {
         CompanionTools.All.ShouldContain("twig-mcp");
         CompanionTools.All.ShouldContain("twig-tui");
     }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  CompanionTools.GetExeName
-    // ═══════════════════════════════════════════════════════════════
 
     [Fact]
     public void GetExeName_ReturnsCorrectPlatformName()

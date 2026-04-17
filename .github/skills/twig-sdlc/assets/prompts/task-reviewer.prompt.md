@@ -7,7 +7,6 @@ Review the implementation of task #{{ task_manager.output.current_task_id }} —
 {% if coder.output.edge_cases_handled | length > 0 %}
 **Edge cases handled:** {{ coder.output.edge_cases_handled | join(", ") }}
 {% endif %}
-**Reducer changes:** {{ reducer_code.output.changes_applied | join(", ") }}
 
 ## Review Tasks
 

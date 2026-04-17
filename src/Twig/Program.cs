@@ -909,28 +909,13 @@ internal static class CompanionStartup
             .GetAwaiter().GetResult();
     }
 
-    /// <summary>
-    /// Resolves the GitHub repository slug from assembly metadata, falling back to the
-    /// hardcoded default. Duplicates the logic in <c>CommandRegistrationModule.AddSelfUpdateCommands()</c>
-    /// intentionally — extracting a shared method would add coupling for a 4-line lookup.
-    /// </summary>
-    internal static string ResolveRepoSlug()
-    {
-        var repoSlug = "PolyphonyRequiem/twig";
-        var attrs = typeof(TwigCommands).Assembly
-            .GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false);
-        foreach (var attr in attrs)
-        {
-            if (attr is System.Reflection.AssemblyMetadataAttribute meta
-                && meta.Key == "GitHubRepo"
-                && meta.Value is not null)
-            {
-                repoSlug = meta.Value;
-                break;
-            }
-        }
-        return repoSlug;
-    }
+    // Duplicates the lookup in CommandRegistrationModule.AddSelfUpdateCommands() intentionally.
+    internal static string ResolveRepoSlug() =>
+        typeof(TwigCommands).Assembly
+            .GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false)
+            .OfType<System.Reflection.AssemblyMetadataAttribute>()
+            .FirstOrDefault(a => a.Key == "GitHubRepo")?.Value
+        ?? "PolyphonyRequiem/twig";
 }
 
 /// <summary>

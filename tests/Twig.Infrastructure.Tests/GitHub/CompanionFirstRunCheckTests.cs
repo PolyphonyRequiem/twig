@@ -152,7 +152,6 @@ public sealed class CompanionFirstRunCheckTests
     public async Task EnsureCompanionsAsync_NoReleaseFound_WritesVersionMarker()
     {
         SetupMissingCompanions("twig-mcp");
-        SetupNoVersionFile();
         _releaseService.GetReleaseByTagAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns((GitHubReleaseInfo?)null);
 

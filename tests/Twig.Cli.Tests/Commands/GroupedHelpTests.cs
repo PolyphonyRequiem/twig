@@ -94,11 +94,8 @@ public sealed class GroupedHelpTests
         {
             foreach (var line in examples)
             {
-                // Each example line should have descriptive text after whitespace padding.
-                // Pattern: "twig <cmd> [args]    <description>" — at least 2 consecutive
-                // spaces separate the invocation from the description.
-                var match = Regex.Match(line, @"\s{2,}(\S.*)$");
-                if (!match.Success)
+                // At least 2 spaces must separate the invocation from a non-blank description.
+                if (!Regex.IsMatch(line, @"\s{2,}\S"))
                     violations.Add($"[{command}] \"{line}\"");
             }
         }

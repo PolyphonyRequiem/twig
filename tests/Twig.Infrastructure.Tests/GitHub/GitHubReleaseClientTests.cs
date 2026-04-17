@@ -258,8 +258,7 @@ public sealed class GitHubReleaseClientTests
     [InlineData("   ")]
     public async Task GetReleaseByTagAsync_NullOrWhitespaceTag_ThrowsArgumentException(string? tag)
     {
-        var handler = new FakeHandler();
-        var client = new GitHubReleaseClient(new HttpClient(handler), "PolyphonyRequiem/twig");
+        var client = new GitHubReleaseClient(new HttpClient(), "PolyphonyRequiem/twig");
 
         await Should.ThrowAsync<ArgumentException>(() => client.GetReleaseByTagAsync(tag!));
     }

@@ -463,6 +463,7 @@ public class FlowCloseCommandTests
             CreateTaskItem(11, "Task B", "Active"),
         };
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(children);
+        _adoService.FetchChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(children);
 
         var cmd = CreateCommand();
         var result = await cmd.ExecuteAsync();
@@ -573,6 +574,7 @@ public class FlowCloseCommandTests
             },
         };
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(children);
+        _adoService.FetchChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(children);
 
         var cmd = CreateCommand();
         var result = await cmd.ExecuteAsync();
@@ -604,6 +606,110 @@ public class FlowCloseCommandTests
         var cmd = CreateCommand();
         var result = await cmd.ExecuteAsync();
 
+        result.ShouldBe(0);
+        await _contextStore.Received().ClearActiveWorkItemIdAsync(Arg.Any<CancellationToken>());
+    }
+
+    // ── ADO-authoritative child fetch (task #1717) ──────────────────────
+
+    [Fact]
+    public async Task ChildVerification_SpawnedItemInAdo_BlocksClosure()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        var item = CreateWorkItem(1, "Feature", "Resolved");
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+
+        // Cache only knows about one completed child
+        var cachedChildren = new[] { CreateTaskItem(10, "Task A", "Closed") };
+        _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(cachedChildren);
+
+        // ADO has an additional spawned issue that is still active
+        var adoChildren = new[]
+        {
+            CreateTaskItem(10, "Task A", "Closed"),
+            CreateTaskItem(11, "Spawned Issue", "Active"),
+        };
+        _adoService.FetchChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(adoChildren);
+
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync();
+
+        result.ShouldBe(1);
+        await _contextStore.DidNotReceive().ClearActiveWorkItemIdAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ChildVerification_AdoFailure_WithCachedChildren_ProceedsWithCache()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        var item = CreateWorkItem(1, "Feature", "Resolved");
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+
+        // Cache has terminal children
+        var cachedChildren = new[]
+        {
+            CreateTaskItem(10, "Task A", "Closed"),
+            CreateTaskItem(11, "Task B", "Closed"),
+        };
+        _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(cachedChildren);
+
+        // ADO fails — should fall back to cached children
+        _adoService.FetchChildrenAsync(1, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("Network error"));
+
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync();
+
+        // Falls back to cached children, all terminal → succeeds
+        result.ShouldBe(0);
+        await _contextStore.Received().ClearActiveWorkItemIdAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ChildVerification_AdoFailure_NoCachedChildren_ReturnsExit1()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        var item = CreateWorkItem(1, "Feature", "Resolved");
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+
+        // Cache empty (default), ADO fails
+        _adoService.FetchChildrenAsync(1, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("Network error"));
+
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync();
+
+        result.ShouldBe(1);
+        await _contextStore.DidNotReceive().ClearActiveWorkItemIdAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ChildVerification_AdoFewerChildrenThanCache_AdoAuthoritativeSetWins()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        var item = CreateWorkItem(1, "Feature", "Resolved");
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+
+        // Cache has 2 children: one closed, one active (reparented away in ADO)
+        var cachedChildren = new[]
+        {
+            CreateTaskItem(10, "Task A", "Closed"),
+            CreateTaskItem(11, "Task B - reparented", "Active"),
+        };
+        _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(cachedChildren);
+
+        // ADO only has the closed child (Task B was reparented away)
+        var adoChildren = new[] { CreateTaskItem(10, "Task A", "Closed") };
+        _adoService.FetchChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(adoChildren);
+
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync();
+
+        // ADO's authoritative set wins — only Task A (closed) → succeeds
         result.ShouldBe(0);
         await _contextStore.Received().ClearActiveWorkItemIdAsync(Arg.Any<CancellationToken>());
     }

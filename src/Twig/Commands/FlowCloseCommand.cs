@@ -116,17 +116,25 @@ public sealed class FlowCloseCommand(
             }
         }
 
-        // 5. Child-state verification gate
+        // 5. Child-state verification gate (ADO-authoritative with cache fallback)
         if (!force)
         {
-            var children = await workItemRepo.GetChildrenAsync(targetId, ct);
-            if (children.Count == 0)
+            var cachedChildren = await workItemRepo.GetChildrenAsync(targetId, ct);
+            IReadOnlyList<WorkItem> children;
+            try
             {
-                try
+                children = await adoService.FetchChildrenAsync(targetId, ct);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
+            {
+                if (cachedChildren.Count > 0)
                 {
-                    children = await adoService.FetchChildrenAsync(targetId, ct);
+                    Console.Error.WriteLine(fmt.FormatInfo(
+                        $"Could not fetch children for #{targetId} from ADO: {ex.Message}. "
+                        + "Using cached children because ADO is unreachable."));
+                    children = cachedChildren;
                 }
-                catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
+                else
                 {
                     Console.Error.WriteLine(fmt.FormatInfo(
                         $"Could not fetch children for #{targetId}: {ex.Message}. "

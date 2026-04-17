@@ -143,7 +143,7 @@ agents:
   # ---------------------------------------------------------------------------
   - name: architect
     description: Researches the codebase and creates a solution design with implementation plan
-    model: claude-opus-4.6-1m
+    model: claude-opus-4.7
     input:
       - intake.output
       - workflow.input.prompt?
@@ -184,7 +184,7 @@ agents:
     routes:
       - to: open_questions_gate
         when: "{{ output.has_blocking_questions }}"
-      - to: reducer_plan
+      - to: technical_reviewer
   - name: open_questions_gate
     type: human_gate
     description: Pauses when the architect identifies blocking open questions that need user input
@@ -200,7 +200,7 @@ agents:
       # NOTE: first option is auto-selected by --skip-gates — keep safe defaults first
       - label: "Proceed Without Answering"
         value: proceed
-        route: reducer_plan
+        route: technical_reviewer
       - label: "Provide Input & Revise"
         value: provide_input
         route: architect
@@ -208,29 +208,9 @@ agents:
       - label: "Abort Planning"
         value: abort
         route: $end
-  - name: reducer_plan
-    description: Reviews the plan for scope creep, over-engineering, and unnecessary complexity
-    model: claude-sonnet-4.6
-    input:
-      - architect.output
-      - intake.output
-    system_prompt: !file prompts/reducer.system.md
-    prompt: !file prompts/reducer-plan.prompt.md
-    output:
-      findings:
-        type: array
-        description: List of reductions applied or recommended
-      plan_modified:
-        type: boolean
-        description: Whether the plan file was modified
-      reduction_summary:
-        type: string
-        description: Brief summary of what was simplified (or "no changes needed")
-    routes:
-      - to: technical_reviewer
   - name: technical_reviewer
     description: Validates technical accuracy, feasibility, and completeness of the plan
-    model: claude-opus-4.6-1m
+    model: claude-opus-4.7
     input:
       - architect.output
       - intake.output
@@ -467,7 +447,7 @@ agents:
         when: "{{ output.action == 'pr_group_ready' }}"
   - name: coder
     description: Implements a single task — code changes, tests, incremental commits
-    model: claude-opus-4.6-1m
+    model: claude-opus-4.7
     input:
       - task_manager.output
       - pr_group_manager.output
@@ -605,7 +585,7 @@ agents:
       - to: issue_reviewer
   - name: issue_reviewer
     description: Reviews the complete issue implementation against acceptance criteria
-    model: claude-opus-4.6-1m
+    model: claude-opus-4.7
     input:
       - task_manager.output
       - architect.output?
@@ -656,7 +636,7 @@ agents:
       - to: pr_reviewer
   - name: pr_reviewer
     description: Reviews the full PR diff for architecture coherence and cross-cutting concerns
-    model: claude-opus-4.6-1m
+    model: claude-opus-4.7
     input:
       - pr_submit.output
       - architect.output?
@@ -811,7 +791,7 @@ agents:
   # ---------------------------------------------------------------------------
   - name: close_out
     description: Transitions the work item to Done and produces meta-observations
-    model: claude-opus-4.6-1m
+    model: claude-opus-4.7
     input:
       - intake.output
       - architect.output?
@@ -835,35 +815,10 @@ agents:
         type: boolean
         description: Whether the Epic was transitioned to Done
     routes:
-      - to: closeout_filer
-  # ---------------------------------------------------------------------------
-  # PHASE 6: CLOSEOUT FILING — file observations as a tagged ADO Issue
-  # ---------------------------------------------------------------------------
-  - name: closeout_filer
-    description: Files closeout observations as a tagged ADO Issue for human review
-    model: claude-sonnet-4.6
-    input:
-      - intake.output
-      - close_out.output
-    system_prompt: !file prompts/closeout-filer.system.md
-    prompt: !file prompts/closeout-filer.prompt.md
-    output:
-      issue_id:
-        type: number
-        description: The newly created closeout Issue ID
-      issue_title:
-        type: string
-        description: The closeout Issue title
-      summary:
-        type: string
-        description: Human-readable summary of what was filed
-    routes:
-      - to: $end
+      - to: $end  # A/B experiment: closeout_filer disabled to avoid dual filing against shared Epic 1603
 # =============================================================================
 # WORKFLOW OUTPUT
 # =============================================================================
 output:
   observations: "{{ close_out.output.observations }}"
   improvements: "{{ close_out.output.improvements | json }}"
-  closeout_issue_id: "{{ closeout_filer.output.issue_id }}"
-  closeout_summary: "{{ closeout_filer.output.summary }}"

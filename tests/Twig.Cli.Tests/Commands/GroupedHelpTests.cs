@@ -68,6 +68,46 @@ public sealed class GroupedHelpTests
     }
 
     [Fact]
+    public void AllExampleLines_ContainCommandVerb()
+    {
+        var violations = new List<string>();
+
+        foreach (var (command, examples) in CommandExamples.Examples)
+        {
+            foreach (var line in examples)
+            {
+                if (!line.StartsWith("twig " + command, StringComparison.Ordinal))
+                    violations.Add($"[{command}] \"{line}\"");
+            }
+        }
+
+        violations.ShouldBeEmpty(
+            $"Example lines missing command verb after 'twig ': {string.Join("; ", violations)}");
+    }
+
+    [Fact]
+    public void AllExampleLines_HaveDescriptionSuffix()
+    {
+        var violations = new List<string>();
+
+        foreach (var (command, examples) in CommandExamples.Examples)
+        {
+            foreach (var line in examples)
+            {
+                // Each example line should have descriptive text after whitespace padding.
+                // Pattern: "twig <cmd> [args]    <description>" — at least 2 consecutive
+                // spaces separate the invocation from the description.
+                var match = Regex.Match(line, @"\s{2,}(\S.*)$");
+                if (!match.Success)
+                    violations.Add($"[{command}] \"{line}\"");
+            }
+        }
+
+        violations.ShouldBeEmpty(
+            $"Example lines missing description suffix: {string.Join("; ", violations)}");
+    }
+
+    [Fact]
     public void AllCommands_HaveExamples()
     {
         var (nonHidden, _) = GetCommands();

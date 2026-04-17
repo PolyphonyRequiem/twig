@@ -99,8 +99,14 @@ worktree — use `git fetch origin main` instead (see Step 1).
    - `twig state Done --output json`
 4. **Update the plan document** at `{{ (architect.output.plan_path if architect is defined and architect.output else plan_reader.output.plan_path) }}`:
    - Change the Status line from its current value to `> **Status**: ✅ Done`
-   - Mark all Epics and Tasks as DONE in the plan file
-   - Add a completion section with date and summary
+   - Mark all Issues and Tasks as DONE in the plan file (use "Epics and Tasks" for Epic-level close-outs)
+   - Add a **≤10-line** plan completion block containing ONLY:
+     1. Completion date
+     2. A 1–2 sentence summary of what was delivered
+     3. The ADO work item reference (e.g., `AB#<id>`)
+   - **Do NOT inline full observations into the plan document.** Full observations,
+     improvement suggestions, and detailed analysis belong exclusively in the ADO
+     note recorded in Step 7.
 5. **Full workflow git log and diff statistics** — capture commit history and aggregate change metrics:
    - `git log --oneline --all` (or scope to the workflow's branches/main)
    - Note commit cadence, rework patterns, time-to-completion indicators

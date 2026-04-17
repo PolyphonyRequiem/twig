@@ -1,5 +1,4 @@
 using NSubstitute;
-using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Infrastructure.GitHub;
 using Xunit;
@@ -64,16 +63,11 @@ public sealed class CompanionStartupTests
     [Fact]
     public void RunFirstRunCheck_OuterCatch_SwallowsExceptions()
     {
-        // RunFirstRunCheck (the outer wrapper) catches ALL exceptions
-        // so it never crashes the CLI. We can't easily inject a throwing
-        // IFileSystem into RunFirstRunCheck() (it creates DefaultFileSystem),
-        // but we verify the try-catch pattern works by exercising RunFirstRunCheckCore
-        // with a throwing file system. The outer wrapper adds its own try-catch.
-        var fs = Substitute.For<IFileSystem>();
-        fs.FileExists(Arg.Any<string>()).Throws(new IOException("disk error"));
-
-        // RunFirstRunCheckCore may throw (it's the inner method), but
-        // RunFirstRunCheck wraps it in try-catch. Verify the outer method never throws.
+        // RunFirstRunCheck() creates DefaultFileSystem internally, so we can't inject
+        // a throwing mock. This test verifies the outer try-catch wrapper never propagates
+        // exceptions to the caller — even with real dependencies (DefaultFileSystem,
+        // real HttpClient). The inner RunFirstRunCheckCore exits early (no companions
+        // found or processPath is null), but the catch block is the safety net.
         Should.NotThrow(() => CompanionStartup.RunFirstRunCheck());
     }
 }

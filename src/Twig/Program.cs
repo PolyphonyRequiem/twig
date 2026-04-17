@@ -904,6 +904,7 @@ internal static class CompanionStartup
         var selfUpdater = new SelfUpdater(httpClient);
         var firstRunCheck = new CompanionFirstRunCheck(releaseService, selfUpdater, fileSystem);
 
+        // Pre-ConsoleApp.Create(): no SynchronizationContext exists, blocking is safe.
         firstRunCheck.EnsureCompanionsAsync(processPath, currentVersion)
             .GetAwaiter().GetResult();
     }

@@ -3,6 +3,7 @@ using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Common;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado.Exceptions;
 using Twig.TestKit;
@@ -273,6 +274,10 @@ public sealed class MutationToolsUpdateTests : MutationToolsTestBase
         _adoService.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(),
             Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(2);
+        // Seed a pending note so AutoPushNotesHelper actually calls AddCommentAsync
+        var note = new PendingChangeRecord(42, "note", null, null, "staged note");
+        _pendingChangeStore.GetChangesAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new[] { note });
         // AddCommentAsync is called by AutoPushNotesHelper — simulate failure
         _adoService.AddCommentAsync(42, Arg.Any<string>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("push failed"));

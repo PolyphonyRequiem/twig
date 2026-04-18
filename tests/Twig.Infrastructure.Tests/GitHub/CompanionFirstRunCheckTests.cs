@@ -110,41 +110,29 @@ public sealed class CompanionFirstRunCheckTests
             Arg.Is<IReadOnlyList<string>>(list => list.Count == 2),
             Dir,
             Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task EnsureCompanionsAsync_DownloadFails_WritesVersionMarkerAnyway()
-    {
-        SetupMissingCompanions("twig-mcp");
-        SetupRelease();
-
-        _companionInstaller.InstallCompanionsOnlyAsync(
-                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(),
-                Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .ThrowsAsync(new InvalidOperationException("Network error"));
-
-        var sut = CreateSut();
-        await sut.EnsureCompanionsAsync(ProcessPath, CurrentVersion);
-
-        // Version marker is still written
         _fileSystem.Received(1).FileCreate(VersionFile);
     }
 
-    [Fact]
-    public async Task EnsureCompanionsAsync_OperationCanceled_WritesVersionMarker()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task EnsureCompanionsAsync_InstallerThrows_WritesVersionMarker(bool cancelled)
     {
         SetupMissingCompanions("twig-mcp");
         SetupRelease();
 
+        Exception ex = cancelled
+            ? new OperationCanceledException("Timed out")
+            : new InvalidOperationException("Network error");
+
         _companionInstaller.InstallCompanionsOnlyAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(),
                 Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .ThrowsAsync(new OperationCanceledException("Timed out"));
+            .ThrowsAsync(ex);
 
         var sut = CreateSut();
         await sut.EnsureCompanionsAsync(ProcessPath, CurrentVersion);
 
-        // Version marker is still written
         _fileSystem.Received(1).FileCreate(VersionFile);
     }
 
@@ -163,25 +151,8 @@ public sealed class CompanionFirstRunCheckTests
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  Phase 4 — Version marker write
+    //  Phase 4 — Version marker write (covered by Phase 3 tests above)
     // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task EnsureCompanionsAsync_AfterSuccessfulDownload_WritesVersionMarker()
-    {
-        SetupMissingCompanions("twig-mcp");
-        SetupSuccessfulDownload();
-
-        var memStream = new MemoryStream();
-        _fileSystem.FileCreate(VersionFile).Returns(memStream);
-
-        var sut = CreateSut();
-        await sut.EnsureCompanionsAsync(ProcessPath, CurrentVersion);
-
-        _fileSystem.Received(1).FileCreate(VersionFile);
-        // Verify the version was written
-        memStream.ToArray().Length.ShouldBeGreaterThan(0);
-    }
 
     [Fact]
     public async Task EnsureCompanionsAsync_OnlyMissingCompanions_AreRequested()

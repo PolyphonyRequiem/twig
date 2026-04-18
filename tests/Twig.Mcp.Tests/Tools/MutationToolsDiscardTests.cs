@@ -31,6 +31,27 @@ public sealed class MutationToolsDiscardTests : MutationToolsTestBase
     }
 
     // ═══════════════════════════════════════════════════════════════
+    //  Unreachable — item in context but not in cache or ADO
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Discard_ActiveItemUnreachable_ReturnsError()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>())
+            .Returns(55);
+        _workItemRepo.GetByIdAsync(55, Arg.Any<CancellationToken>())
+            .Returns((WorkItem?)null);
+        _adoService.FetchAsync(55, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("Not found"));
+
+        var result = await CreateMutationSut().Discard();
+
+        result.IsError.ShouldBe(true);
+        result.Content[0].ShouldBeOfType<TextContentBlock>()
+            .Text.ShouldContain("#55");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     //  Explicit ID not found in cache — returns error
     // ═══════════════════════════════════════════════════════════════
 

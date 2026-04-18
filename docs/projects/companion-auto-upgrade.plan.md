@@ -1191,3 +1191,20 @@ Total estimated LoC across all PR groups: **~1,400**
 - [Terminal.Gui v2 — GitHub repository](https://github.com/gui-cs/Terminal.Gui)
 - [.NET PublishSingleFile documentation](https://learn.microsoft.com/en-us/dotnet/core/deploying/single-file/overview)
 - [.NET Native AOT deployment](https://learn.microsoft.com/en-us/dotnet/core/deploying/native-aot/)
+
+---
+
+## Completion
+
+**Completed:** 2026-04-18
+
+All 4 PR groups merged successfully:
+
+| PR Group | PR | Branch | Merged |
+|----------|----|--------|--------|
+| PG-1a — Foundation types and platform helpers | #59 | `pg-1a/foundation-types-platform-helpers` | 2026-04-17 |
+| PG-1b — SelfUpdater companion extraction and command | #47 | `feat/companion-selfupdater-command` | 2026-04-16 |
+| PG-2 — Release pipeline and installer scripts | #48 | `feat/companion-release-pipeline` | 2026-04-16 |
+| PG-3 — First-run companion check | #60 | `feat/companion-first-run-check` | 2026-04-18 |
+
+All 18 child tasks across 3 issues (#1644, #1645, #1646) transitioned to Done. Issue #1643 closed.

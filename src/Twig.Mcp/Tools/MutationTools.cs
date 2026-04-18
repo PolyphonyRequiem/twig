@@ -12,7 +12,7 @@ using Twig.Mcp.Services;
 namespace Twig.Mcp.Tools;
 
 /// <summary>
-/// MCP tools for mutations: twig_state, twig_update, twig_note, twig_sync.
+/// MCP tools for mutations: twig_state, twig_update, twig_note, twig_discard, twig_sync.
 /// </summary>
 [McpServerToolType]
 public sealed class MutationTools(
@@ -211,6 +211,55 @@ public sealed class MutationTools(
 
         return McpResultBuilder.FormatNoteAdded(item.Id, item.Title, isPending);
     }
+
+    [McpServerTool(Name = "twig_discard"), Description("Discard pending changes for a work item")]
+    public async Task<CallToolResult> Discard(
+        [Description("Work item ID to discard changes for (defaults to active item)")] int? id = null,
+        CancellationToken ct = default)
+    {
+        // Resolve target: explicit ID or active item
+        int targetId;
+        if (id.HasValue)
+        {
+            targetId = id.Value;
+        }
+        else
+        {
+            var resolved = await activeItemResolver.GetActiveItemAsync(ct);
+            if (resolved is ActiveItemResult.NoContext)
+                return McpResultBuilder.ToError("No active work item. Use twig_set to set context, or pass an explicit id.");
+            if (resolved is ActiveItemResult.Unreachable u)
+                return McpResultBuilder.ToError($"Work item #{u.Id} not found in cache.");
+
+            var item = resolved is ActiveItemResult.Found f
+                ? f.WorkItem
+                : ((ActiveItemResult.FetchedFromAdo)resolved).WorkItem;
+            targetId = item.Id;
+        }
+
+        // Validate item exists in cache
+        var cached = await workItemRepo.GetByIdAsync(targetId, ct);
+        if (cached is null)
+            return McpResultBuilder.ToError($"Work item #{targetId} not found in cache.");
+
+        // Get change summary — return early if nothing to discard
+        var (notes, fieldEdits) = await pendingChangeStore.GetChangeSummaryAsync(targetId, ct);
+        if (notes == 0 && fieldEdits == 0)
+            return McpResultBuilder.ToResult($"{{\"id\":{targetId},\"title\":\"{EscapeJson(cached.Title)}\",\"discarded\":false,\"message\":\"No pending changes to discard.\"}}");
+
+        // Clear pending changes and dirty flag
+        await pendingChangeStore.ClearChangesAsync(targetId, ct);
+        await workItemRepo.ClearDirtyFlagAsync(targetId, ct);
+
+        // Update prompt state — best-effort
+        try { await promptStateWriter.WritePromptStateAsync(); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
+
+        return McpResultBuilder.FormatDiscard(targetId, cached.Title, notes, fieldEdits);
+    }
+
+    private static string EscapeJson(string value) =>
+        value.Replace("\\", "\\\\").Replace("\"", "\\\"");
 
     [McpServerTool(Name = "twig_sync"), Description("Flush pending local changes to ADO then refresh the local cache from ADO")]
     public async Task<CallToolResult> Sync(CancellationToken ct = default)

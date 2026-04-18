@@ -182,3 +182,30 @@ to build and deploy both `twig` and `twig-mcp` binaries to `~/.twig/bin/`.
 - `twig_update` with `format: "markdown"` converts Markdown to HTML (use for `System.Description`)
 - `twig_note` falls back to local staging when ADO is unreachable (`isPending: true` in response)
 - `twig_sync` performs a two-phase push (pending changes) then pull (active context refresh)
+
+## Cloud agent environment
+
+Copilot cloud-agent sessions for this repo boot from
+`.github/workflows/copilot-setup-steps.yml`. Before the agent starts you can assume:
+
+- `dotnet` matches `global.json` and the solution has been restored + built (`Release`, **not** AOT).
+- `twig` and `twig-mcp` are on `PATH` as thin wrappers around the Release-built DLLs in
+  `src/Twig/bin/Release/net10.0/` and `src/Twig.Mcp/bin/Release/net10.0/`. Do **not**
+  re-run `./publish-local.ps1` on the agent — it hard-codes `-r win-x64` and produces
+  AOT artifacts intended for local Windows development; the agent already has equivalent
+  Release-built DLLs on `PATH` via wrappers.
+- `conductor` is installed best-effort via `pipx`; check `command -v conductor` before relying on it.
+- The `.twig/dangreen_msft/twig/` workspace is initialized **only when** the `TWIG_PAT`
+  secret has been provisioned in the `copilot` GitHub Environment. If `twig workspace` reports
+  no workspace, `twig init` was skipped — surface this in the session summary rather than guessing
+  at credentials.
+
+Secrets/variables surfaced into the agent live in the `copilot` GitHub Environment:
+
+| Name | Kind | Purpose |
+|------|------|---------|
+| `TWIG_PAT` | secret | ADO PAT consumed by `twig` (read by `PatAuthProvider` via `$TWIG_PAT`) |
+
+When the bootstrap workflow needs to grow (new tool, new env var, new firewall host),
+update `copilot-setup-steps.yml` and this section together so the next agent session
+knows what's available without trial-and-error.

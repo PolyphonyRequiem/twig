@@ -1,0 +1,128 @@
+name: "Copilot Setup Steps"
+
+# Bootstraps the Copilot cloud-agent environment for the twig repo.
+#
+# What this provides every future agent session:
+#   - twig, twig-mcp on PATH (built from source, not AOT — fast iteration)
+#   - conductor on PATH (best-effort; agent-driven workflows)
+#   - .twig/ workspace initialized against dangreen_msft/twig when TWIG_PAT
+#     is configured in the `copilot` GitHub Environment
+#
+# Auto-runs as a normal Actions workflow when this file is changed so we get
+# a green/red signal in PRs that touch it. Also exposes workflow_dispatch so
+# we can re-run it on demand from the Actions tab.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+
+jobs:
+  # MUST be named `copilot-setup-steps` for Copilot cloud agent to pick it up.
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    permissions:
+      contents: read
+
+    env:
+      DOTNET_NOLOGO: "true"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+      DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "true"
+      # Surfaced from the `copilot` GitHub Environment (secrets/variables).
+      # TWIG_PAT will be empty until the repo owner provisions it; the workspace
+      # init step below is a no-op in that case rather than failing the job.
+      TWIG_PAT: ${{ secrets.TWIG_PAT }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET (from global.json)
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', 'global.json') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Restore + build (Release, no AOT)
+        # AOT publish is reserved for release artifacts. The agent runs the
+        # managed build via `dotnet <assembly>.dll` wrappers — much faster
+        # bootstrap and still exercises the same code paths.
+        run: |
+          dotnet restore
+          dotnet build --no-restore -c Release
+
+      - name: Install twig / twig-mcp wrappers on PATH
+        run: |
+          set -euo pipefail
+          BIN_DIR="$HOME/.local/bin"
+          mkdir -p "$BIN_DIR"
+          REPO_DIR="$GITHUB_WORKSPACE"
+
+          install_wrapper() {
+            local name="$1" project="$2"
+            local dll
+            dll="$(find "$REPO_DIR/src/$project/bin/Release" -maxdepth 3 -name "$name.dll" | head -n1)"
+            if [ -z "$dll" ]; then
+              echo "ERROR: built assembly $name.dll not found under src/$project/bin/Release" >&2
+              exit 1
+            fi
+            cat > "$BIN_DIR/$name" <<EOF
+          #!/usr/bin/env bash
+          exec dotnet "$dll" "\$@"
+          EOF
+            chmod +x "$BIN_DIR/$name"
+            echo "  installed: $BIN_DIR/$name -> $dll"
+          }
+
+          install_wrapper "twig"     "Twig"
+          install_wrapper "twig-mcp" "Twig.Mcp"
+
+          echo "$BIN_DIR" >> "$GITHUB_PATH"
+
+      - name: Install conductor (best-effort)
+        # The conductor CLI drives multi-agent workflows used by the twig-sdlc
+        # skill. Provider is Copilot (no extra API key needed). We mark this
+        # continue-on-error so a transient install failure or a future package
+        # rename doesn't block the rest of the bootstrap — the agent can still
+        # operate twig/twig-mcp without it.
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python3 -m pip install --user --upgrade pipx
+          python3 -m pipx ensurepath
+          # Update CONDUCTOR_PACKAGE here (or pin a git+https URL) once the
+          # canonical distribution is decided.
+          pipx install conductor || pipx install conductor-cli || true
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Initialize twig workspace (dangreen_msft/twig)
+        # Skipped automatically until TWIG_PAT is provisioned in the `copilot`
+        # GitHub Environment. `twig init` calls ADO to detect the process
+        # template, so it cannot run unauthenticated.
+        if: env.TWIG_PAT != ''
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          twig init dangreen_msft twig
+
+      - name: Sanity check (versions on PATH)
+        run: |
+          set -eu
+          export PATH="$HOME/.local/bin:$PATH"
+          echo "--- dotnet ---"; dotnet --version
+          echo "--- twig ---";     twig --version || true
+          echo "--- twig-mcp ---"; twig-mcp --version || true
+          echo "--- conductor ---"; conductor --version || echo "(conductor not installed)"

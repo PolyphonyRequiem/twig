@@ -149,6 +149,27 @@ public sealed class MutationToolsDiscardTests : MutationToolsTestBase
     }
 
     // ═══════════════════════════════════════════════════════════════
+    //  ClearChangesAsync throws — exception propagates
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Discard_ClearChangesAsyncThrows_ExceptionPropagates()
+    {
+        var item = new WorkItemBuilder(42, "My Task").AsTask().InState("Doing").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _pendingChangeStore.GetChangeSummaryAsync(42, Arg.Any<CancellationToken>())
+            .Returns((1, 2));
+        _pendingChangeStore.ClearChangesAsync(42, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("SQLite disk I/O error"));
+
+        var ex = await Should.ThrowAsync<InvalidOperationException>(
+            () => CreateMutationSut().Discard());
+
+        ex.Message.ShouldContain("SQLite disk I/O error");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     //  Prompt state writer called on success
     // ═══════════════════════════════════════════════════════════════
 

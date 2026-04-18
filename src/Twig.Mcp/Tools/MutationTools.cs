@@ -67,11 +67,20 @@ public sealed class MutationTools(
             return McpResultBuilder.ToError(
                 $"Transition from '{item.State}' to '{newState}' requires confirmation (kind: {transition.Kind}). Retry with force: true to proceed.");
 
-        var remote = await adoService.FetchAsync(item.Id, ct);
-        var changes = new[] { new FieldChange("System.State", item.State, newState) };
-        await ConflictRetryHelper.PatchWithRetryAsync(adoService, item.Id, changes, remote.Revision, ct);
+        Domain.Aggregates.WorkItem remote;
+        try
+        {
+            remote = await adoService.FetchAsync(item.Id, ct);
+            var changes = new[] { new FieldChange("System.State", item.State, newState) };
+            await ConflictRetryHelper.PatchWithRetryAsync(adoService, item.Id, changes, remote.Revision, ct);
+        }
+        catch (AdoException ex)
+        {
+            return McpResultBuilder.ToError(ex.Message);
+        }
 
-        await AutoPushNotesHelper.PushAndClearAsync(item.Id, pendingChangeStore, adoService);
+        try { await AutoPushNotesHelper.PushAndClearAsync(item.Id, pendingChangeStore, adoService); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
         // Resync cache — best-effort, non-fatal
         Domain.Aggregates.WorkItem updated;
@@ -85,7 +94,8 @@ public sealed class MutationTools(
             updated = item;
         }
 
-        await promptStateWriter.WritePromptStateAsync();
+        try { await promptStateWriter.WritePromptStateAsync(); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
         return McpResultBuilder.FormatStateChange(updated, previousState);
     }

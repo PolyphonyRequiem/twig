@@ -2,7 +2,7 @@
 
 **Work Item:** #1643 — Auto-upgrade twig-mcp and twig-tui alongside twig upgrade  
 **Type:** Issue  
-> **Status**: 🔨 In Progress
+> **Status**: ✅ Done
 
 ---
 
@@ -1191,3 +1191,17 @@ Total estimated LoC across all PR groups: **~1,400**
 - [Terminal.Gui v2 — GitHub repository](https://github.com/gui-cs/Terminal.Gui)
 - [.NET PublishSingleFile documentation](https://learn.microsoft.com/en-us/dotnet/core/deploying/single-file/overview)
 - [.NET Native AOT deployment](https://learn.microsoft.com/en-us/dotnet/core/deploying/native-aot/)
+
+---
+
+## Completion
+
+**Completed:** 2026-04-18
+
+All 4 PR groups merged successfully across 6 GitHub PRs (#44, #47, #48, #59, #60, #61). All 18 tasks and 3 child issues transitioned to Done. Epic #1643 closed.
+
+**PR Group Summary:**
+- **PG-1a** (Foundation types): PR #44 + PR #59 (patch) — MERGED
+- **PG-1b** (SelfUpdater + Command): PR #47 — MERGED
+- **PG-2** (Release pipeline + installers): PR #48 — MERGED
+- **PG-3** (First-run companion check): PR #60 + PR #61 (patch) — MERGED

@@ -150,10 +150,6 @@ public sealed class CompanionFirstRunCheckTests
         _fileSystem.Received(1).FileCreate(VersionFile);
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  Phase 4 — Version marker write (covered by Phase 3 tests above)
-    // ═══════════════════════════════════════════════════════════════
-
     [Fact]
     public async Task EnsureCompanionsAsync_OnlyMissingCompanions_AreRequested()
     {
@@ -231,11 +227,6 @@ public sealed class CompanionFirstRunCheckTests
         _companionInstaller.InstallCompanionsOnlyAsync(
                 Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(),
                 Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(callInfo =>
-            {
-                var companions = callInfo.Arg<IReadOnlyList<string>>();
-                return companions.Select(c => new CompanionUpdateResult(c, true, Path.Combine(Dir, c)))
-                    .ToList();
-            });
+            .Returns(Task.FromResult<IReadOnlyList<CompanionUpdateResult>>([]));
     }
 }

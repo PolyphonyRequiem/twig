@@ -3,6 +3,7 @@ using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Common;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado.Exceptions;
 using Twig.TestKit;
@@ -160,7 +161,7 @@ public sealed class MutationToolsUpdateTests : MutationToolsTestBase
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  ADO conflict exception — returns error
+    //  AdoConflictException on PatchAsync — returns structured error
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
@@ -171,7 +172,6 @@ public sealed class MutationToolsUpdateTests : MutationToolsTestBase
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
-        // ConflictRetryHelper retries once; both calls fail → AdoConflictException propagates
         _adoService.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(),
             Arg.Any<int>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new AdoConflictException(5, "conflict"));
@@ -180,7 +180,157 @@ public sealed class MutationToolsUpdateTests : MutationToolsTestBase
 
         result.IsError.ShouldBe(true);
         result.Content[0].ShouldBeOfType<TextContentBlock>()
-            .Text.ShouldContain("Concurrency conflict");
+            .Text.ShouldContain("conflict");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  AdoException on FetchAsync (pre-patch) — returns structured error
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Update_FetchThrowsAdoAuthException_ReturnsError()
+    {
+        var item = new WorkItemBuilder(42, "My Task").AsTask().InState("Doing").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoAuthenticationException());
+
+        var result = await CreateMutationSut().Update("System.Title", "Updated");
+
+        result.IsError.ShouldBe(true);
+        result.Content[0].ShouldBeOfType<TextContentBlock>()
+            .Text.ShouldContain("Authentication failed");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  AdoServerException on PatchAsync — returns structured error
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Update_PatchThrowsAdoServerException_ReturnsError()
+    {
+        var item = new WorkItemBuilder(42, "My Task").AsTask().InState("Doing").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoServerException(503));
+
+        var result = await CreateMutationSut().Update("System.Title", "Updated");
+
+        result.IsError.ShouldBe(true);
+        result.Content[0].ShouldBeOfType<TextContentBlock>()
+            .Text.ShouldContain("503");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  AdoUnexpectedResponseException on PatchAsync — returns error
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Update_PatchThrowsAdoUnexpectedResponseException_ReturnsError()
+    {
+        var item = new WorkItemBuilder(42, "My Task").AsTask().InState("Doing").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoUnexpectedResponseException(200, "text/html", "https://dev.azure.com/test", "<html>..."));
+
+        var result = await CreateMutationSut().Update("System.Title", "Updated");
+
+        result.IsError.ShouldBe(true);
+        result.Content[0].ShouldBeOfType<TextContentBlock>()
+            .Text.ShouldContain("non-JSON response");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Resync failure — non-fatal
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Update_ResyncFails_StillReturnsSuccess()
+    {
+        var item = new WorkItemBuilder(42, "My Task").AsTask().InState("Doing").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+
+        // First FetchAsync (pre-patch) succeeds, second (resync) fails
+        var callCount = 0;
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+            {
+                callCount++;
+                if (callCount == 1)
+                    return item;
+                throw new InvalidOperationException("Resync network failure");
+            });
+        _adoService.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+
+        var result = await CreateMutationSut().Update("System.Title", "Updated");
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+        root.GetProperty("updatedField").GetString().ShouldBe("System.Title");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  AutoPush failure — non-fatal
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Update_AutoPushFails_StillReturnsSuccess()
+    {
+        var item = new WorkItemBuilder(42, "My Task").AsTask().InState("Doing").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+        // Seed a pending note so AutoPushNotesHelper actually calls AddCommentAsync
+        var note = new PendingChangeRecord(42, "note", null, null, "staged note");
+        _pendingChangeStore.GetChangesAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new[] { note });
+        // AddCommentAsync is called by AutoPushNotesHelper — simulate failure
+        _adoService.AddCommentAsync(42, Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("push failed"));
+
+        var result = await CreateMutationSut().Update("System.Title", "Updated");
+
+        result.IsError.ShouldBeNull();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  PromptStateWriter failure — non-fatal
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Update_PromptStateWriterFails_StillReturnsSuccess()
+    {
+        var item = new WorkItemBuilder(42, "My Task").AsTask().InState("Doing").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+        _promptStateWriter.WritePromptStateAsync()
+            .ThrowsAsync(new IOException("disk full"));
+
+        var result = await CreateMutationSut().Update("System.Title", "Updated");
+
+        result.IsError.ShouldBeNull();
     }
 
     // ═══════════════════════════════════════════════════════════════

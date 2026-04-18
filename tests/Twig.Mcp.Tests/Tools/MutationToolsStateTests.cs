@@ -5,6 +5,7 @@ using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Enums;
 using Twig.Domain.ValueObjects;
+using Twig.Infrastructure.Ado.Exceptions;
 using Twig.TestKit;
 using Xunit;
 
@@ -314,5 +315,166 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
         await CreateMutationSut().State("Doing");
 
         await _promptStateWriter.Received(1).WritePromptStateAsync();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  AdoException on FetchAsync — returns structured error
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task State_FetchThrowsAdoAuthException_ReturnsError()
+    {
+        var item = new WorkItemBuilder(42, "My Task").AsTask().InState("To Do").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+
+        var config = BuildTaskProcessConfig();
+        _processConfigProvider.GetConfiguration().Returns(config);
+
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoAuthenticationException());
+
+        var result = await CreateMutationSut().State("Doing");
+
+        result.IsError.ShouldBe(true);
+        result.Content[0].ShouldBeOfType<TextContentBlock>()
+            .Text.ShouldContain("Authentication failed");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  AdoException on PatchAsync — returns structured error
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task State_PatchThrowsAdoServerException_ReturnsError()
+    {
+        var item = new WorkItemBuilder(42, "My Task").AsTask().InState("To Do").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+
+        var config = BuildTaskProcessConfig();
+        _processConfigProvider.GetConfiguration().Returns(config);
+
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoServerException(503));
+
+        var result = await CreateMutationSut().State("Doing");
+
+        result.IsError.ShouldBe(true);
+        result.Content[0].ShouldBeOfType<TextContentBlock>()
+            .Text.ShouldContain("503");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  AdoRateLimitException — returns structured error with detail
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task State_FetchThrowsAdoRateLimitException_ReturnsError()
+    {
+        var item = new WorkItemBuilder(42, "My Task").AsTask().InState("To Do").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+
+        var config = BuildTaskProcessConfig();
+        _processConfigProvider.GetConfiguration().Returns(config);
+
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoRateLimitException(TimeSpan.FromSeconds(30)));
+
+        var result = await CreateMutationSut().State("Doing");
+
+        result.IsError.ShouldBe(true);
+        result.Content[0].ShouldBeOfType<TextContentBlock>()
+            .Text.ShouldContain("Rate limited");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  AdoUnexpectedResponseException — returns structured error
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task State_FetchThrowsAdoUnexpectedResponseException_ReturnsError()
+    {
+        var item = new WorkItemBuilder(42, "My Task").AsTask().InState("To Do").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+
+        var config = BuildTaskProcessConfig();
+        _processConfigProvider.GetConfiguration().Returns(config);
+
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoUnexpectedResponseException(200, "text/html", "https://dev.azure.com/test", "<html>..."));
+
+        var result = await CreateMutationSut().State("Doing");
+
+        result.IsError.ShouldBe(true);
+        result.Content[0].ShouldBeOfType<TextContentBlock>()
+            .Text.ShouldContain("non-JSON response");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  AutoPushNotesHelper failure — non-fatal
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task State_AutoPushNotesFails_StillReturnsSuccess()
+    {
+        var item = new WorkItemBuilder(42, "My Task").AsTask().InState("To Do").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+
+        var config = BuildTaskProcessConfig();
+        _processConfigProvider.GetConfiguration().Returns(config);
+
+        var updatedItem = new WorkItemBuilder(42, "My Task").AsTask().InState("Doing").Build();
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
+            .Returns(item, updatedItem);
+        _adoService.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+
+        // AutoPushNotesHelper calls GetChangesAsync — make it throw
+        _pendingChangeStore.GetChangesAsync(42, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("Notes push failure"));
+
+        var result = await CreateMutationSut().State("Doing");
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+        root.GetProperty("state").GetString().ShouldBe("Doing");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Prompt state writer failure — non-fatal
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task State_PromptStateWriterFails_StillReturnsSuccess()
+    {
+        var item = new WorkItemBuilder(42, "My Task").AsTask().InState("To Do").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+
+        var config = BuildTaskProcessConfig();
+        _processConfigProvider.GetConfiguration().Returns(config);
+
+        var updatedItem = new WorkItemBuilder(42, "My Task").AsTask().InState("Doing").Build();
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
+            .Returns(item, updatedItem);
+        _adoService.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+
+        _promptStateWriter.WritePromptStateAsync()
+            .ThrowsAsync(new IOException("Disk full"));
+
+        var result = await CreateMutationSut().State("Doing");
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+        root.GetProperty("state").GetString().ShouldBe("Doing");
     }
 }

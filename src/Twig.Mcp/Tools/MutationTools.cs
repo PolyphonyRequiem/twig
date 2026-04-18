@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
+using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
@@ -12,7 +13,7 @@ using Twig.Mcp.Services;
 namespace Twig.Mcp.Tools;
 
 /// <summary>
-/// MCP tools for mutations: twig_state, twig_update, twig_note, twig_sync.
+/// MCP tools for mutations: twig_state, twig_update, twig_note, twig_discard, twig_sync.
 /// </summary>
 [McpServerToolType]
 public sealed class MutationTools(
@@ -67,14 +68,23 @@ public sealed class MutationTools(
             return McpResultBuilder.ToError(
                 $"Transition from '{item.State}' to '{newState}' requires confirmation (kind: {transition.Kind}). Retry with force: true to proceed.");
 
-        var remote = await adoService.FetchAsync(item.Id, ct);
-        var changes = new[] { new FieldChange("System.State", item.State, newState) };
-        await ConflictRetryHelper.PatchWithRetryAsync(adoService, item.Id, changes, remote.Revision, ct);
+        WorkItem remote;
+        try
+        {
+            remote = await adoService.FetchAsync(item.Id, ct);
+            var changes = new[] { new FieldChange("System.State", item.State, newState) };
+            await ConflictRetryHelper.PatchWithRetryAsync(adoService, item.Id, changes, remote.Revision, ct);
+        }
+        catch (AdoException ex)
+        {
+            return McpResultBuilder.ToError(ex.Message);
+        }
 
-        await AutoPushNotesHelper.PushAndClearAsync(item.Id, pendingChangeStore, adoService);
+        try { await AutoPushNotesHelper.PushAndClearAsync(item.Id, pendingChangeStore, adoService); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
         // Resync cache — best-effort, non-fatal
-        Domain.Aggregates.WorkItem updated;
+        WorkItem updated;
         try
         {
             updated = await adoService.FetchAsync(item.Id, ct);
@@ -85,7 +95,8 @@ public sealed class MutationTools(
             updated = item;
         }
 
-        await promptStateWriter.WritePromptStateAsync();
+        try { await promptStateWriter.WritePromptStateAsync(); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
         return McpResultBuilder.FormatStateChange(updated, previousState);
     }
@@ -117,23 +128,35 @@ public sealed class MutationTools(
             ? f.WorkItem
             : ((ActiveItemResult.FetchedFromAdo)resolved).WorkItem;
 
-        var remote = await adoService.FetchAsync(item.Id, ct);
-        var changes = new[] { new FieldChange(field, null, effectiveValue) };
+        WorkItem remote;
         try
         {
+            remote = await adoService.FetchAsync(item.Id, ct);
+            var changes = new[] { new FieldChange(field, null, effectiveValue) };
             await ConflictRetryHelper.PatchWithRetryAsync(adoService, item.Id, changes, remote.Revision, ct);
         }
-        catch (AdoConflictException)
+        catch (AdoException ex)
         {
-            return McpResultBuilder.ToError("Concurrency conflict after retry. Use twig_sync to resync and retry.");
+            return McpResultBuilder.ToError(ex.Message);
         }
 
-        await AutoPushNotesHelper.PushAndClearAsync(item.Id, pendingChangeStore, adoService);
+        try { await AutoPushNotesHelper.PushAndClearAsync(item.Id, pendingChangeStore, adoService); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
-        var updated = await adoService.FetchAsync(item.Id, ct);
-        await workItemRepo.SaveAsync(updated, ct);
+        // Resync cache — best-effort, non-fatal
+        WorkItem updated;
+        try
+        {
+            updated = await adoService.FetchAsync(item.Id, ct);
+            await workItemRepo.SaveAsync(updated, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            updated = item;
+        }
 
-        await promptStateWriter.WritePromptStateAsync();
+        try { await promptStateWriter.WritePromptStateAsync(); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
         return McpResultBuilder.FormatFieldUpdate(updated, field, value);
     }
@@ -188,6 +211,49 @@ public sealed class MutationTools(
         await promptStateWriter.WritePromptStateAsync();
 
         return McpResultBuilder.FormatNoteAdded(item.Id, item.Title, isPending);
+    }
+
+    [McpServerTool(Name = "twig_discard"), Description("Discard pending changes for a work item")]
+    public async Task<CallToolResult> Discard(
+        [Description("Work item ID to discard changes for (defaults to active item)")] int? id = null,
+        CancellationToken ct = default)
+    {
+        // Resolve target: explicit ID or active item
+        WorkItem cached;
+        if (id.HasValue)
+        {
+            var found = await workItemRepo.GetByIdAsync(id.Value, ct);
+            if (found is null)
+                return McpResultBuilder.ToError($"Work item #{id.Value} not found in cache.");
+            cached = found;
+        }
+        else
+        {
+            var resolved = await activeItemResolver.GetActiveItemAsync(ct);
+            if (resolved is ActiveItemResult.NoContext)
+                return McpResultBuilder.ToError("No active work item. Use twig_set to set context, or pass an explicit id.");
+            if (resolved is ActiveItemResult.Unreachable u)
+                return McpResultBuilder.ToError($"Work item #{u.Id} not found in cache.");
+
+            cached = resolved is ActiveItemResult.Found f
+                ? f.WorkItem
+                : ((ActiveItemResult.FetchedFromAdo)resolved).WorkItem;
+        }
+
+        // Get change summary — return early if nothing to discard
+        var (notes, fieldEdits) = await pendingChangeStore.GetChangeSummaryAsync(cached.Id, ct);
+        if (notes == 0 && fieldEdits == 0)
+            return McpResultBuilder.FormatDiscardNone(cached.Id, cached.Title);
+
+        // Clear pending changes and dirty flag
+        await pendingChangeStore.ClearChangesAsync(cached.Id, ct);
+        await workItemRepo.ClearDirtyFlagAsync(cached.Id, ct);
+
+        // Update prompt state — best-effort
+        try { await promptStateWriter.WritePromptStateAsync(); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
+
+        return McpResultBuilder.FormatDiscard(cached.Id, cached.Title, notes, fieldEdits);
     }
 
     [McpServerTool(Name = "twig_sync"), Description("Flush pending local changes to ADO then refresh the local cache from ADO")]

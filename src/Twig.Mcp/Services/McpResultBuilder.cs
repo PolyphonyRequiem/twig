@@ -177,6 +177,25 @@ internal static class McpResultBuilder
             writer.WriteBoolean("isPending", isPending);
         });
 
+    public static CallToolResult FormatDiscardNone(int id, string title) =>
+        BuildJson(writer =>
+        {
+            writer.WriteNumber("id", id);
+            writer.WriteString("title", title);
+            writer.WriteBoolean("discarded", false);
+            writer.WriteString("message", "No pending changes to discard.");
+        });
+
+    public static CallToolResult FormatDiscard(int id, string title, int notes, int fieldEdits) =>
+        BuildJson(writer =>
+        {
+            writer.WriteNumber("id", id);
+            writer.WriteString("title", title);
+            writer.WriteBoolean("discarded", true);
+            writer.WriteNumber("notesDiscarded", notes);
+            writer.WriteNumber("fieldEditsDiscarded", fieldEdits);
+        });
+
     public static CallToolResult FormatFlushSummary(McpFlushSummary summary) =>
         BuildJson(writer =>
         {

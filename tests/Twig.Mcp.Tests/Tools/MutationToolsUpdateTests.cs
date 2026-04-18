@@ -228,6 +228,29 @@ public sealed class MutationToolsUpdateTests : MutationToolsTestBase
     }
 
     // ═══════════════════════════════════════════════════════════════
+    //  AdoUnexpectedResponseException on PatchAsync — returns error
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Update_PatchThrowsAdoUnexpectedResponseException_ReturnsError()
+    {
+        var item = new WorkItemBuilder(42, "My Task").AsTask().InState("Doing").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoUnexpectedResponseException(200, "text/html", "https://dev.azure.com/test", "<html>..."));
+
+        var result = await CreateMutationSut().Update("System.Title", "Updated");
+
+        result.IsError.ShouldBe(true);
+        result.Content[0].ShouldBeOfType<TextContentBlock>()
+            .Text.ShouldContain("non-JSON response");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     //  Resync failure — non-fatal
     // ═══════════════════════════════════════════════════════════════
 

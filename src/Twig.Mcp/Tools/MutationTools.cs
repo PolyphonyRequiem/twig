@@ -127,23 +127,35 @@ public sealed class MutationTools(
             ? f.WorkItem
             : ((ActiveItemResult.FetchedFromAdo)resolved).WorkItem;
 
-        var remote = await adoService.FetchAsync(item.Id, ct);
-        var changes = new[] { new FieldChange(field, null, effectiveValue) };
+        Domain.Aggregates.WorkItem remote;
         try
         {
+            remote = await adoService.FetchAsync(item.Id, ct);
+            var changes = new[] { new FieldChange(field, null, effectiveValue) };
             await ConflictRetryHelper.PatchWithRetryAsync(adoService, item.Id, changes, remote.Revision, ct);
         }
-        catch (AdoConflictException)
+        catch (AdoException ex)
         {
-            return McpResultBuilder.ToError("Concurrency conflict after retry. Use twig_sync to resync and retry.");
+            return McpResultBuilder.ToError(ex.Message);
         }
 
-        await AutoPushNotesHelper.PushAndClearAsync(item.Id, pendingChangeStore, adoService);
+        try { await AutoPushNotesHelper.PushAndClearAsync(item.Id, pendingChangeStore, adoService); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
-        var updated = await adoService.FetchAsync(item.Id, ct);
-        await workItemRepo.SaveAsync(updated, ct);
+        // Resync cache — best-effort, non-fatal
+        Domain.Aggregates.WorkItem updated;
+        try
+        {
+            updated = await adoService.FetchAsync(item.Id, ct);
+            await workItemRepo.SaveAsync(updated, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            updated = item;
+        }
 
-        await promptStateWriter.WritePromptStateAsync();
+        try { await promptStateWriter.WritePromptStateAsync(); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
         return McpResultBuilder.FormatFieldUpdate(updated, field, value);
     }

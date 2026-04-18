@@ -68,7 +68,7 @@ public sealed class MutationTools(
             return McpResultBuilder.ToError(
                 $"Transition from '{item.State}' to '{newState}' requires confirmation (kind: {transition.Kind}). Retry with force: true to proceed.");
 
-        Domain.Aggregates.WorkItem remote;
+        WorkItem remote;
         try
         {
             remote = await adoService.FetchAsync(item.Id, ct);
@@ -84,7 +84,7 @@ public sealed class MutationTools(
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
         // Resync cache — best-effort, non-fatal
-        Domain.Aggregates.WorkItem updated;
+        WorkItem updated;
         try
         {
             updated = await adoService.FetchAsync(item.Id, ct);
@@ -128,7 +128,7 @@ public sealed class MutationTools(
             ? f.WorkItem
             : ((ActiveItemResult.FetchedFromAdo)resolved).WorkItem;
 
-        Domain.Aggregates.WorkItem remote;
+        WorkItem remote;
         try
         {
             remote = await adoService.FetchAsync(item.Id, ct);
@@ -144,7 +144,7 @@ public sealed class MutationTools(
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
         // Resync cache — best-effort, non-fatal
-        Domain.Aggregates.WorkItem updated;
+        WorkItem updated;
         try
         {
             updated = await adoService.FetchAsync(item.Id, ct);

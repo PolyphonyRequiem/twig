@@ -1,6 +1,6 @@
 # MCP Error Handling & ADO HTML Response Guard
 
-> **Status**: 🔨 In Progress
+> **Status**: ✅ Done
 > **Work Item**: [#1752](https://dev.azure.com/dangreen-msft/Twig/_workitems/edit/1752) — MCP swallows twig_state errors; ADO HTML response misparsed as JSON on sync/flush
 > **Type**: Issue
 > **Revision**: 0 (initial draft)

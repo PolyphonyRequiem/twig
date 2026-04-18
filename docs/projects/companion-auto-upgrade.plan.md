@@ -2,7 +2,7 @@
 
 **Work Item:** #1643 — Auto-upgrade twig-mcp and twig-tui alongside twig upgrade  
 **Type:** Issue  
-> **Status**: 🔨 In Progress — 3/4 PR groups merged
+> **Status**: ✅ Done
 
 ---
 
@@ -1191,4 +1191,3 @@ Total estimated LoC across all PR groups: **~1,400**
 - [Terminal.Gui v2 — GitHub repository](https://github.com/gui-cs/Terminal.Gui)
 - [.NET PublishSingleFile documentation](https://learn.microsoft.com/en-us/dotnet/core/deploying/single-file/overview)
 - [.NET Native AOT deployment](https://learn.microsoft.com/en-us/dotnet/core/deploying/native-aot/)
-

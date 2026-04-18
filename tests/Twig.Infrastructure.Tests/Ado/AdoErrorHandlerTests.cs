@@ -90,13 +90,6 @@ public class AdoErrorHandlerTests
     // ── ThrowOnErrorAsync — status code dispatch ────────────────────
 
     [Fact]
-    public async Task ThrowOnErrorAsync_200_DoesNotThrow()
-    {
-        var response = CreateResponse(HttpStatusCode.OK);
-        await AdoErrorHandler.ThrowOnErrorAsync(response, "https://example.com", CancellationToken.None);
-    }
-
-    [Fact]
     public async Task ThrowOnErrorAsync_201_DoesNotThrow()
     {
         var response = CreateResponse(HttpStatusCode.Created);
@@ -237,24 +230,93 @@ public class AdoErrorHandlerTests
         ex.Message.ShouldContain("Service temporarily unavailable");
     }
 
+    // ── ThrowOnErrorAsync — Content-Type validation (2xx) ──────────
+
     [Fact]
-    public async Task ThrowOnErrorAsync_503_IsNeverSilentlySwallowed()
+    public async Task ThrowOnErrorAsync_200_HtmlContentType_ThrowsUnexpectedResponse()
     {
-        // Verify that 503 always throws — it must not be caught/ignored internally.
-        var response = CreateResponse(HttpStatusCode.ServiceUnavailable);
+        var response = CreateResponse(HttpStatusCode.OK, "<html><body>Sign in</body></html>");
+        response.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/html");
+        var url = "https://dev.azure.com/org/proj/_apis/wit/workitems/42";
+
+        var ex = await Should.ThrowAsync<AdoUnexpectedResponseException>(
+            () => AdoErrorHandler.ThrowOnErrorAsync(response, url, CancellationToken.None));
+
+        ex.StatusCode.ShouldBe(200);
+        ex.ContentType.ShouldBe("text/html");
+        ex.RequestUrl.ShouldBe(url);
+        ex.BodySnippet.ShouldBe("<html><body>Sign in</body></html>");
+    }
+
+    [Theory]
+    [InlineData("application/json")]
+    [InlineData("application/json; charset=utf-8")]
+    [InlineData("Application/JSON")]
+    public async Task ThrowOnErrorAsync_200_JsonContentType_DoesNotThrow(string contentType)
+    {
+        var response = CreateResponse(HttpStatusCode.OK, """{"id": 1}""");
+        response.Content.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse(contentType);
+
+        await AdoErrorHandler.ThrowOnErrorAsync(response, "https://example.com", CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ThrowOnErrorAsync_200_MissingContentType_DoesNotThrow()
+    {
+        var response = new HttpResponseMessage(HttpStatusCode.OK);
+        response.Content = new ByteArrayContent([]);
+        response.Content.Headers.ContentType = null;
+
+        await AdoErrorHandler.ThrowOnErrorAsync(response, "https://example.com", CancellationToken.None);
+    }
+
+    [Theory]
+    [InlineData("", "text/html")]
+    [InlineData("   ", "text/plain")]
+    public async Task ThrowOnErrorAsync_200_NonJsonEmptyOrWhitespaceBody_DoesNotThrow(string body, string contentType)
+    {
+        var response = CreateResponse(HttpStatusCode.OK, body);
+        response.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
+
+        await AdoErrorHandler.ThrowOnErrorAsync(response, "https://example.com", CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ThrowOnErrorAsync_200_LargeHtmlBody_SnippetTruncatedTo500Chars()
+    {
+        var largeBody = new string('X', 1000);
+        var response = CreateResponse(HttpStatusCode.OK, largeBody);
+        response.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/html");
         var url = "https://dev.azure.com/org/proj/_apis/wit/workitems/1";
 
-        // Must throw, never return normally
-        await Should.ThrowAsync<AdoServerException>(
+        var ex = await Should.ThrowAsync<AdoUnexpectedResponseException>(
             () => AdoErrorHandler.ThrowOnErrorAsync(response, url, CancellationToken.None));
+
+        ex.BodySnippet.Length.ShouldBe(500);
+    }
+
+    [Fact]
+    public async Task ThrowOnErrorAsync_200_TextPlainWithBody_ThrowsUnexpectedResponse()
+    {
+        var response = CreateResponse(HttpStatusCode.OK, "Not JSON");
+        response.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("text/plain");
+        var url = "https://example.com/api";
+
+        var ex = await Should.ThrowAsync<AdoUnexpectedResponseException>(
+            () => AdoErrorHandler.ThrowOnErrorAsync(response, url, CancellationToken.None));
+
+        ex.ContentType.ShouldBe("text/plain");
     }
 
     // ── Helpers ──────────────────────────────────────────────────────
 
-    private static HttpResponseMessage CreateResponse(HttpStatusCode statusCode, string? content = null)
+    private static HttpResponseMessage CreateResponse(
+        HttpStatusCode statusCode,
+        string? content = null,
+        string mediaType = "application/json")
     {
         var response = new HttpResponseMessage(statusCode);
-        response.Content = new StringContent(content ?? string.Empty);
+        response.Content = new StringContent(content ?? string.Empty, System.Text.Encoding.UTF8, mediaType);
         return response;
     }
 }

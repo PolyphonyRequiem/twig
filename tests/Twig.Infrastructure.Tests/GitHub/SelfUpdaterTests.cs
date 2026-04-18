@@ -793,18 +793,11 @@ public sealed class SelfUpdaterTests : IDisposable
     //  Test helpers
     // ═══════════════════════════════════════════════════════════════
 
-    /// <summary>
-    /// Fake <see cref="IHttpDownloader"/> that writes predefined bytes to the destination file.
-    /// </summary>
-    private sealed class FakeDownloader : IHttpDownloader
+    private sealed class FakeDownloader(byte[] archiveBytes) : IHttpDownloader
     {
-        private readonly byte[] _archiveBytes;
-
-        public FakeDownloader(byte[] archiveBytes) => _archiveBytes = archiveBytes;
-
         public Task DownloadFileAsync(string url, string destinationPath, CancellationToken ct)
         {
-            File.WriteAllBytes(destinationPath, _archiveBytes);
+            File.WriteAllBytes(destinationPath, archiveBytes);
             return Task.CompletedTask;
         }
     }

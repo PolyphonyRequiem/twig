@@ -26,6 +26,10 @@ catch (Exception)
 // EPIC-005: Clean up old binary left behind from a previous Windows self-update.
 SelfUpdater.CleanupOldBinary();
 
+// First-run companion check — installs missing companions after upgrade.
+// Must run before ConsoleApp.Create() — no SynchronizationContext, blocking is safe.
+CompanionStartup.RunFirstRunCheck();
+
 var app = ConsoleApp.Create()
     .ConfigureServices(services =>
     {
@@ -857,6 +861,61 @@ internal static class VersionHelper
         if (plusIndex >= 0) version = version[..plusIndex];
         return version;
     }
+}
+
+/// <summary>
+/// Pre-DI first-run companion check. Detects missing companion binaries after an
+/// upgrade and installs them from the matching GitHub release archive. Failures are
+/// silently swallowed so the check never blocks normal CLI startup.
+/// </summary>
+internal static class CompanionStartup
+{
+    /// <summary>
+    /// Runs the companion first-run check with manually-wired dependencies.
+    /// Safe to call synchronously — no <see cref="System.Threading.SynchronizationContext"/>
+    /// exists before <c>ConsoleApp.Create()</c>.
+    /// </summary>
+    internal static void RunFirstRunCheck()
+    {
+        try
+        {
+            RunFirstRunCheckCore(
+                Environment.ProcessPath,
+                VersionHelper.GetVersion(),
+                new DefaultFileSystem());
+        }
+        catch (Exception)
+        {
+            // First-run check must never block CLI startup.
+        }
+    }
+
+    /// <summary>
+    /// Testable core: accepts injectable dependencies for file I/O and process path.
+    /// </summary>
+    internal static void RunFirstRunCheckCore(
+        string? processPath,
+        string currentVersion,
+        IFileSystem fileSystem)
+    {
+        using var httpClient = NetworkServiceModule.CreateHttpClient();
+        var repoSlug = ResolveRepoSlug();
+        var releaseService = new GitHubReleaseClient(httpClient, repoSlug);
+        var selfUpdater = new SelfUpdater(httpClient);
+        var firstRunCheck = new CompanionFirstRunCheck(releaseService, selfUpdater, fileSystem);
+
+        // Pre-ConsoleApp.Create(): no SynchronizationContext exists, blocking is safe.
+        firstRunCheck.EnsureCompanionsAsync(processPath, currentVersion)
+            .GetAwaiter().GetResult();
+    }
+
+    // Duplicates the lookup in CommandRegistrationModule.AddSelfUpdateCommands() intentionally.
+    internal static string ResolveRepoSlug() =>
+        typeof(TwigCommands).Assembly
+            .GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false)
+            .OfType<System.Reflection.AssemblyMetadataAttribute>()
+            .FirstOrDefault(a => a.Key == "GitHubRepo")?.Value
+        ?? "PolyphonyRequiem/twig";
 }
 
 /// <summary>

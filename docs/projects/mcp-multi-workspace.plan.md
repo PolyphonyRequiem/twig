@@ -1,6 +1,6 @@
 # MCP Multi-Workspace Support
 
-> **Status**: 🔨 In Progress
+> **Status**: ✅ Done
 > **Work Item**: [#1754](https://dev.azure.com/dangreen-msft/Twig/_workitems/edit/1754) — twig-mcp: support multiple workspaces per process
 > **Type**: Issue
 > **Revision**: 0 (initial draft)

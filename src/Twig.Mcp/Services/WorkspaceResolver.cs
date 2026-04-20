@@ -1,3 +1,5 @@
+using Twig.Infrastructure.Ado.Exceptions;
+
 namespace Twig.Mcp.Services;
 
 /// <summary>
@@ -151,7 +153,7 @@ public sealed class WorkspaceResolver(
                 await ctx.AdoService.FetchAsync(id, ct);
                 hits.Add(key);
             }
-            catch (Exception)
+            catch (AdoNotFoundException)
             {
                 // Work item not found in this workspace's ADO project — continue probing
             }

@@ -2,6 +2,7 @@ using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Domain.Interfaces;
+using Twig.Infrastructure.Ado.Exceptions;
 using Twig.Mcp.Services;
 using Twig.TestKit;
 using Xunit;
@@ -276,6 +277,32 @@ public sealed class WorkspaceResolverTests
         ex.SearchedWorkspaces.ShouldContain(KeyB);
     }
 
+    [Fact]
+    public async Task ResolveForSet_AdoProbe_NonNotFoundError_Propagates()
+    {
+        var (resolver, contexts) = CreateResolver(KeyA, KeyB);
+
+        // KeyA returns an auth error — should propagate, not be swallowed
+        contexts[KeyA].AdoService.FetchAsync(99, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoAuthenticationException());
+
+        await Should.ThrowAsync<AdoAuthenticationException>(
+            () => resolver.ResolveForSetAsync(99));
+    }
+
+    [Fact]
+    public async Task ResolveForSet_AdoProbe_OfflineError_Propagates()
+    {
+        var (resolver, contexts) = CreateResolver(KeyA, KeyB);
+
+        // ADO is unreachable — should propagate, not be misreported as "not found"
+        contexts[KeyA].AdoService.FetchAsync(99, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoOfflineException(new HttpRequestException("DNS failure")));
+
+        await Should.ThrowAsync<AdoOfflineException>(
+            () => resolver.ResolveForSetAsync(99));
+    }
+
     // ── ResolveForSetAsync — cache hit takes priority over ADO ──────
 
     [Fact]
@@ -460,6 +487,6 @@ public sealed class WorkspaceResolverTests
     private static void SetupAdoMiss(WorkspaceContext ctx, int id)
     {
         ctx.AdoService.FetchAsync(id, Arg.Any<CancellationToken>())
-            .ThrowsAsync(new HttpRequestException("Not found"));
+            .ThrowsAsync(new AdoNotFoundException(id));
     }
 }

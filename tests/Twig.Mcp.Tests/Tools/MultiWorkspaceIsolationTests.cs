@@ -2,7 +2,6 @@ using ModelContextProtocol.Protocol;
 using NSubstitute;
 using Shouldly;
 using Twig.Domain.Aggregates;
-using Twig.Infrastructure.Config;
 using Twig.Mcp.Services;
 using Twig.Mcp.Tools;
 using Twig.TestKit;
@@ -18,11 +17,6 @@ public sealed class MultiWorkspaceIsolationTests : ReadToolsTestBase
 {
     private static readonly WorkspaceKey WsAlpha = new("orgA", "projectA");
     private static readonly WorkspaceKey WsBeta = new("orgB", "projectB");
-
-    private static readonly TwigConfiguration DefaultConfig = new()
-    {
-        Display = new DisplayConfig { CacheStaleMinutes = 5 },
-    };
 
     // ═══════════════════════════════════════════════════════════════
     //  Active context: setting in A does not affect B

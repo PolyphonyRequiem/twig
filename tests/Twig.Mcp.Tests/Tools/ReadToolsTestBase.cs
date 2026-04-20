@@ -25,33 +25,16 @@ public abstract class ReadToolsTestBase
 
     protected static readonly WorkspaceKey TestWorkspaceKey = new("testorg", "testproject");
 
+    protected static readonly TwigConfiguration DefaultConfig = new()
+    {
+        Display = new DisplayConfig { CacheStaleMinutes = 5 },
+    };
+
     protected WorkspaceResolver BuildResolver(TwigConfiguration config)
     {
-        var activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        var protectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        var syncFactory = new SyncCoordinatorFactory(
-            _workItemRepo, _adoService, protectedWriter, _pendingChangeStore,
-            _linkRepo,
-            readOnlyStaleMinutes: config.Display.CacheStaleMinutes,
-            readWriteStaleMinutes: config.Display.CacheStaleMinutes);
-        var contextChange = new ContextChangeService(
-            _workItemRepo, _adoService, syncFactory.ReadWrite, protectedWriter, _linkRepo);
-        var workingSet = new WorkingSetService(
-            _contextStore, _workItemRepo, _pendingChangeStore, _iterationService,
-            config.User.DisplayName);
-        var statusOrch = new StatusOrchestrator(
-            _contextStore, _workItemRepo, _pendingChangeStore, activeItemResolver,
-            workingSet, syncFactory);
-        var flusher = new McpPendingChangeFlusher(_workItemRepo, _adoService, _pendingChangeStore);
-        var paths = TwigPaths.ForContext(Path.GetTempPath(), TestWorkspaceKey.Org, TestWorkspaceKey.Project);
-        var cacheStore = new SqliteCacheStore("Data Source=:memory:");
-
-        var ctx = new WorkspaceContext(
-            TestWorkspaceKey, config, paths, cacheStore,
-            _workItemRepo, _contextStore, _pendingChangeStore,
-            _adoService, _iterationService, _processConfigProvider,
-            activeItemResolver, syncFactory, contextChange,
-            statusOrch, workingSet, flusher, _promptStateWriter);
+        var ctx = BuildContext(TestWorkspaceKey, config,
+            _contextStore, _workItemRepo, _adoService, _pendingChangeStore,
+            _linkRepo, _iterationService, _processConfigProvider, _promptStateWriter);
 
         var registry = Substitute.For<IWorkspaceRegistry>();
         registry.Workspaces.Returns(new[] { TestWorkspaceKey });
@@ -104,37 +87,54 @@ public abstract class ReadToolsTestBase
                 Substitute.For<IPromptStateWriter>(),
                 Substitute.For<IProcessConfigurationProvider>());
 
-            var activeItemResolver = new ActiveItemResolver(m.ContextStore, m.WorkItemRepo, m.AdoService);
-            var protectedWriter = new ProtectedCacheWriter(m.WorkItemRepo, m.PendingChangeStore);
-            var syncFactory = new SyncCoordinatorFactory(
-                m.WorkItemRepo, m.AdoService, protectedWriter, m.PendingChangeStore,
-                m.LinkRepo,
-                readOnlyStaleMinutes: config.Display.CacheStaleMinutes,
-                readWriteStaleMinutes: config.Display.CacheStaleMinutes);
-            var contextChange = new ContextChangeService(
-                m.WorkItemRepo, m.AdoService, syncFactory.ReadWrite, protectedWriter, m.LinkRepo);
-            var workingSet = new WorkingSetService(
-                m.ContextStore, m.WorkItemRepo, m.PendingChangeStore, m.IterationService,
-                config.User.DisplayName);
-            var statusOrch = new StatusOrchestrator(
-                m.ContextStore, m.WorkItemRepo, m.PendingChangeStore, activeItemResolver,
-                workingSet, syncFactory);
-            var flusher = new McpPendingChangeFlusher(m.WorkItemRepo, m.AdoService, m.PendingChangeStore);
-            var paths = TwigPaths.ForContext(Path.GetTempPath(), key.Org, key.Project);
-            var cacheStore = new SqliteCacheStore("Data Source=:memory:");
-
-            var ctx = new WorkspaceContext(
-                key, config, paths, cacheStore,
-                m.WorkItemRepo, m.ContextStore, m.PendingChangeStore,
-                m.AdoService, m.IterationService, m.ProcessConfigProvider,
-                activeItemResolver, syncFactory, contextChange,
-                statusOrch, workingSet, flusher, m.PromptStateWriter);
+            var ctx = BuildContext(key, config,
+                m.ContextStore, m.WorkItemRepo, m.AdoService, m.PendingChangeStore,
+                m.LinkRepo, m.IterationService, m.ProcessConfigProvider, m.PromptStateWriter);
 
             factory.GetOrCreate(key).Returns(ctx);
             mocks[key] = m;
         }
 
         return (new WorkspaceResolver(registry, factory), mocks);
+    }
+
+    private static WorkspaceContext BuildContext(
+        WorkspaceKey key,
+        TwigConfiguration config,
+        IContextStore contextStore,
+        IWorkItemRepository workItemRepo,
+        IAdoWorkItemService adoService,
+        IPendingChangeStore pendingChangeStore,
+        IWorkItemLinkRepository linkRepo,
+        IIterationService iterationService,
+        IProcessConfigurationProvider processConfigProvider,
+        IPromptStateWriter promptStateWriter)
+    {
+        var activeItemResolver = new ActiveItemResolver(contextStore, workItemRepo, adoService);
+        var protectedWriter = new ProtectedCacheWriter(workItemRepo, pendingChangeStore);
+        var syncFactory = new SyncCoordinatorFactory(
+            workItemRepo, adoService, protectedWriter, pendingChangeStore,
+            linkRepo,
+            readOnlyStaleMinutes: config.Display.CacheStaleMinutes,
+            readWriteStaleMinutes: config.Display.CacheStaleMinutes);
+        var contextChange = new ContextChangeService(
+            workItemRepo, adoService, syncFactory.ReadWrite, protectedWriter, linkRepo);
+        var workingSet = new WorkingSetService(
+            contextStore, workItemRepo, pendingChangeStore, iterationService,
+            config.User.DisplayName);
+        var statusOrch = new StatusOrchestrator(
+            contextStore, workItemRepo, pendingChangeStore, activeItemResolver,
+            workingSet, syncFactory);
+        var flusher = new McpPendingChangeFlusher(workItemRepo, adoService, pendingChangeStore);
+        var paths = TwigPaths.ForContext(Path.GetTempPath(), key.Org, key.Project);
+        var cacheStore = new SqliteCacheStore("Data Source=:memory:");
+
+        return new WorkspaceContext(
+            key, config, paths, cacheStore,
+            workItemRepo, contextStore, pendingChangeStore,
+            adoService, iterationService, processConfigProvider,
+            activeItemResolver, syncFactory, contextChange,
+            statusOrch, workingSet, flusher, promptStateWriter);
     }
 
     protected ReadTools CreateSut(TwigConfiguration config)

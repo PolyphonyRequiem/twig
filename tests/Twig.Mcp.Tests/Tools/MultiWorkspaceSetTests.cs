@@ -4,7 +4,6 @@ using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Infrastructure.Ado.Exceptions;
-using Twig.Infrastructure.Config;
 using Twig.Mcp.Services;
 using Twig.Mcp.Tools;
 using Twig.TestKit;
@@ -21,11 +20,6 @@ public sealed class MultiWorkspaceSetTests : ReadToolsTestBase
 {
     private static readonly WorkspaceKey WsAlpha = new("orgA", "projectA");
     private static readonly WorkspaceKey WsBeta = new("orgB", "projectB");
-
-    private static readonly TwigConfiguration DefaultConfig = new()
-    {
-        Display = new DisplayConfig { CacheStaleMinutes = 5 },
-    };
 
     // ═══════════════════════════════════════════════════════════════
     //  Cross-workspace: item found in workspace A cache

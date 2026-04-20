@@ -43,9 +43,6 @@ builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
 
 // Register workspace infrastructure as singletons
 builder.Services.AddSingleton<IWorkspaceRegistry>(registry);
-builder.Services.AddSingleton(registry);
-builder.Services.AddSingleton<IWorkspaceContextFactory>(factory);
-builder.Services.AddSingleton(factory);
 builder.Services.AddSingleton(resolver);
 
 // MCP server — WithTools<T>() is the AOT-safe generic registration

@@ -22,8 +22,7 @@ public sealed class ProgramBootstrapTests
     public void WorkspaceInfrastructure_Registrations_ResolveCorrectTypes()
     {
         // Verify that the workspace infrastructure singletons registered in Program.cs
-        // (WorkspaceRegistry, WorkspaceContextFactory, WorkspaceResolver) are resolvable
-        // via both their concrete types and interfaces.
+        // (WorkspaceRegistry via IWorkspaceRegistry, WorkspaceResolver) are resolvable.
         var tempDir = Path.Combine(Path.GetTempPath(), $"twig-test-{Guid.NewGuid():N}");
         try
         {
@@ -44,23 +43,14 @@ public sealed class ProgramBootstrapTests
 
             var services = new ServiceCollection();
             services.AddSingleton<IWorkspaceRegistry>(registry);
-            services.AddSingleton(registry);
-            services.AddSingleton<IWorkspaceContextFactory>(factory);
-            services.AddSingleton(factory);
             services.AddSingleton(resolver);
 
             using var provider = services.BuildServiceProvider();
 
-            // All 5 registrations must resolve
             provider.GetRequiredService<IWorkspaceRegistry>().ShouldNotBeNull();
-            provider.GetRequiredService<WorkspaceRegistry>().ShouldNotBeNull();
-            provider.GetRequiredService<IWorkspaceContextFactory>().ShouldNotBeNull();
-            provider.GetRequiredService<WorkspaceContextFactory>().ShouldNotBeNull();
             provider.GetRequiredService<WorkspaceResolver>().ShouldNotBeNull();
-
-            // Interface and concrete registrations should return the same instance
-            provider.GetRequiredService<IWorkspaceRegistry>().ShouldBeSameAs(provider.GetRequiredService<WorkspaceRegistry>());
-            provider.GetRequiredService<IWorkspaceContextFactory>().ShouldBeSameAs(provider.GetRequiredService<WorkspaceContextFactory>());
+            provider.GetRequiredService<IWorkspaceRegistry>().ShouldBeSameAs(registry);
+            provider.GetRequiredService<WorkspaceResolver>().ShouldBeSameAs(resolver);
 
             factory.Dispose();
         }
@@ -88,8 +78,6 @@ public sealed class ProgramBootstrapTests
             var resolver = new WorkspaceResolver(registry, factory);
 
             services.AddSingleton<IWorkspaceRegistry>(registry);
-            services.AddSingleton(registry);
-            services.AddSingleton(factory);
             services.AddSingleton(resolver);
 
             services

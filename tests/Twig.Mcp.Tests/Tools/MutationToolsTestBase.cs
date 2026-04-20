@@ -1,22 +1,13 @@
-using NSubstitute;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Enums;
-using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
-using Twig.Infrastructure.Config;
-using Twig.Mcp.Services;
 using Twig.Mcp.Tools;
 
 namespace Twig.Mcp.Tests.Tools;
 
 public abstract class MutationToolsTestBase : ContextToolsTestBase
 {
-    private static readonly TwigConfiguration DefaultConfig = new()
-    {
-        Display = new DisplayConfig { CacheStaleMinutes = 5 },
-    };
-
     protected MutationTools CreateMutationSut()
     {
         return new MutationTools(BuildResolver(DefaultConfig));

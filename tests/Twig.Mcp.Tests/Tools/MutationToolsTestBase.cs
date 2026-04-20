@@ -4,6 +4,7 @@ using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
+using Twig.Infrastructure.Config;
 using Twig.Mcp.Services;
 using Twig.Mcp.Tools;
 
@@ -11,20 +12,14 @@ namespace Twig.Mcp.Tests.Tools;
 
 public abstract class MutationToolsTestBase : ContextToolsTestBase
 {
-    protected readonly IProcessConfigurationProvider _processConfigProvider =
-        Substitute.For<IProcessConfigurationProvider>();
+    private static readonly TwigConfiguration DefaultConfig = new()
+    {
+        Display = new DisplayConfig { CacheStaleMinutes = 5 },
+    };
 
     protected MutationTools CreateMutationSut()
     {
-        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        var flusher = new McpPendingChangeFlusher(_workItemRepo, _adoService, _pendingChangeStore);
-        var syncCoordFactory = new SyncCoordinatorFactory(
-            _workItemRepo, _adoService,
-            new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore),
-            _pendingChangeStore, _linkRepo, readOnlyStaleMinutes: 5, readWriteStaleMinutes: 5);
-        return new MutationTools(
-            resolver, _workItemRepo, _adoService, _pendingChangeStore,
-            _processConfigProvider, _promptStateWriter, flusher, syncCoordFactory.ReadWrite);
+        return new MutationTools(BuildResolver(DefaultConfig));
     }
 
     /// <summary>

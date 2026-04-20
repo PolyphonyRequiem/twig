@@ -2,33 +2,32 @@ using System.ComponentModel;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Twig.Domain.Aggregates;
-using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
-using Twig.Infrastructure.Config;
 using Twig.Mcp.Services;
 
 namespace Twig.Mcp.Tools;
 
 /// <summary>
 /// MCP tools for read-only queries: twig_tree, twig_workspace.
+/// Resolves per-workspace services via <see cref="WorkspaceResolver"/>.
 /// </summary>
 [McpServerToolType]
-public sealed class ReadTools(
-    IWorkItemRepository workItemRepo,
-    IContextStore contextStore,
-    IIterationService iterationService,
-    ActiveItemResolver activeItemResolver,
-    SyncCoordinator syncCoordinator,
-    TwigConfiguration config)
+public sealed class ReadTools(WorkspaceResolver resolver)
 {
     [McpServerTool(Name = "twig_tree"), Description("Display work item hierarchy as a tree")]
     public async Task<CallToolResult> Tree(
         [Description("Max child depth to display")] int? depth = null,
+        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
         CancellationToken ct = default)
     {
-        var resolveResult = await activeItemResolver.GetActiveItemAsync(ct);
+        WorkspaceContext ctx;
+        try { ctx = resolver.Resolve(workspace); }
+        catch (Exception ex) when (ex is FormatException or KeyNotFoundException or AmbiguousWorkspaceException)
+        { return McpResultBuilder.ToError(ex.Message); }
+
+        var resolveResult = await ctx.ActiveItemResolver.GetActiveItemAsync(ct);
 
         if (resolveResult is ActiveItemResult.NoContext)
             return McpResultBuilder.ToError("No active work item. Use twig_set first.");
@@ -41,11 +40,11 @@ public sealed class ReadTools(
 
         // Build parent chain
         var parentChain = item.ParentId.HasValue
-            ? await workItemRepo.GetParentChainAsync(item.ParentId.Value, ct)
+            ? await ctx.WorkItemRepo.GetParentChainAsync(item.ParentId.Value, ct)
             : Array.Empty<WorkItem>();
 
-        var maxChildren = depth ?? config.Display.TreeDepth;
-        var allChildren = await workItemRepo.GetChildrenAsync(item.Id, ct);
+        var maxChildren = depth ?? ctx.Config.Display.TreeDepth;
+        var allChildren = await ctx.WorkItemRepo.GetChildrenAsync(item.Id, ct);
         var totalChildCount = allChildren.Count;
         var children = allChildren.Count > maxChildren
             ? allChildren.Take(maxChildren).ToList()
@@ -55,14 +54,14 @@ public sealed class ReadTools(
         var siblingCounts = new Dictionary<int, int?>();
         foreach (var node in parentChain.Append(item))
             siblingCounts[node.Id] = node.ParentId.HasValue
-                ? (await workItemRepo.GetChildrenAsync(node.ParentId.Value, ct)).Count
+                ? (await ctx.WorkItemRepo.GetChildrenAsync(node.ParentId.Value, ct)).Count
                 : null;
 
         // Best-effort link sync
         IReadOnlyList<WorkItemLink> links = Array.Empty<WorkItemLink>();
         try
         {
-            links = await syncCoordinator.SyncLinksAsync(item.Id, ct);
+            links = await ctx.SyncCoordinatorFactory.ReadOnly.SyncLinksAsync(item.Id, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
@@ -74,29 +73,35 @@ public sealed class ReadTools(
     [McpServerTool(Name = "twig_workspace"), Description("Returns the current sprint workspace: active context item, sprint backlog items, and seeds.")]
     public async Task<CallToolResult> Workspace(
         [Description("Show all team items instead of just the current user")] bool all = false,
+        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
         CancellationToken ct = default)
     {
+        WorkspaceContext ctx;
+        try { ctx = resolver.Resolve(workspace); }
+        catch (Exception ex) when (ex is FormatException or KeyNotFoundException or AmbiguousWorkspaceException)
+        { return McpResultBuilder.ToError(ex.Message); }
+
         // 1. Context item (nullable — no error if absent)
-        var contextId = await contextStore.GetActiveWorkItemIdAsync(ct);
+        var contextId = await ctx.ContextStore.GetActiveWorkItemIdAsync(ct);
         WorkItem? contextItem = contextId.HasValue
-            ? await workItemRepo.GetByIdAsync(contextId.Value, ct)
+            ? await ctx.WorkItemRepo.GetByIdAsync(contextId.Value, ct)
             : null;
 
         // 2. Current iteration
-        var iteration = await iterationService.GetCurrentIterationAsync(ct);
+        var iteration = await ctx.IterationService.GetCurrentIterationAsync(ct);
 
         // 3. Sprint items — filter by user when all=false and display name is configured
-        var sprintItems = !all && config.User.DisplayName is not null
-            ? await workItemRepo.GetByIterationAndAssigneeAsync(iteration, config.User.DisplayName, ct)
-            : await workItemRepo.GetByIterationAsync(iteration, ct);
+        var sprintItems = !all && ctx.Config.User.DisplayName is not null
+            ? await ctx.WorkItemRepo.GetByIterationAndAssigneeAsync(iteration, ctx.Config.User.DisplayName, ct)
+            : await ctx.WorkItemRepo.GetByIterationAsync(iteration, ct);
 
         // 4. Seeds
-        var seeds = await workItemRepo.GetSeedsAsync(ct);
+        var seeds = await ctx.WorkItemRepo.GetSeedsAsync(ct);
 
         // 5. Build workspace
-        var workspace = Domain.ReadModels.Workspace.Build(contextItem, sprintItems, seeds);
+        var ws = Domain.ReadModels.Workspace.Build(contextItem, sprintItems, seeds);
 
         // 6. Format result
-        return McpResultBuilder.FormatWorkspace(workspace, config.Seed.StaleDays);
+        return McpResultBuilder.FormatWorkspace(ws, ctx.Config.Seed.StaleDays, ctx.Key.ToString());
     }
 }

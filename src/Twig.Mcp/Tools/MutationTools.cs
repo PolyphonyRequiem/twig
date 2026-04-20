@@ -2,7 +2,6 @@ using System.ComponentModel;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Twig.Domain.Aggregates;
-using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado;
@@ -14,28 +13,27 @@ namespace Twig.Mcp.Tools;
 
 /// <summary>
 /// MCP tools for mutations: twig_state, twig_update, twig_note, twig_discard, twig_sync.
+/// Resolves per-workspace services via <see cref="WorkspaceResolver"/>.
 /// </summary>
 [McpServerToolType]
-public sealed class MutationTools(
-    ActiveItemResolver activeItemResolver,
-    IWorkItemRepository workItemRepo,
-    IAdoWorkItemService adoService,
-    IPendingChangeStore pendingChangeStore,
-    IProcessConfigurationProvider processConfigProvider,
-    IPromptStateWriter promptStateWriter,
-    McpPendingChangeFlusher flusher,
-    SyncCoordinator syncCoordinator)
+public sealed class MutationTools(WorkspaceResolver resolver)
 {
     [McpServerTool(Name = "twig_state"), Description("Change the state of the active work item")]
     public async Task<CallToolResult> State(
         [Description("Target state name (full or partial, case-insensitive)")] string stateName,
         [Description("Set to true to proceed with backward or cut (remove-type) transitions without interactive confirmation")] bool force = false,
+        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(stateName))
             return McpResultBuilder.ToError("Usage: twig_state requires a target state name (e.g. Active, Closed, Resolved).");
 
-        var resolved = await activeItemResolver.GetActiveItemAsync(ct);
+        WorkspaceContext ctx;
+        try { ctx = resolver.Resolve(workspace); }
+        catch (Exception ex) when (ex is FormatException or KeyNotFoundException or AmbiguousWorkspaceException)
+        { return McpResultBuilder.ToError(ex.Message); }
+
+        var resolved = await ctx.ActiveItemResolver.GetActiveItemAsync(ct);
         if (resolved is ActiveItemResult.NoContext)
             return McpResultBuilder.ToError("No active work item. Use twig_set to set context.");
         if (resolved is ActiveItemResult.Unreachable u)
@@ -45,7 +43,7 @@ public sealed class MutationTools(
             ? f.WorkItem
             : ((ActiveItemResult.FetchedFromAdo)resolved).WorkItem;
 
-        var processConfig = processConfigProvider.GetConfiguration();
+        var processConfig = ctx.ProcessConfigProvider.GetConfiguration();
         if (!processConfig.TypeConfigs.TryGetValue(item.Type, out var typeConfig))
             return McpResultBuilder.ToError($"No process configuration found for type '{item.Type}'.");
 
@@ -71,31 +69,31 @@ public sealed class MutationTools(
         WorkItem remote;
         try
         {
-            remote = await adoService.FetchAsync(item.Id, ct);
+            remote = await ctx.AdoService.FetchAsync(item.Id, ct);
             var changes = new[] { new FieldChange("System.State", item.State, newState) };
-            await ConflictRetryHelper.PatchWithRetryAsync(adoService, item.Id, changes, remote.Revision, ct);
+            await ConflictRetryHelper.PatchWithRetryAsync(ctx.AdoService, item.Id, changes, remote.Revision, ct);
         }
         catch (AdoException ex)
         {
             return McpResultBuilder.ToError(ex.Message);
         }
 
-        try { await AutoPushNotesHelper.PushAndClearAsync(item.Id, pendingChangeStore, adoService); }
+        try { await AutoPushNotesHelper.PushAndClearAsync(item.Id, ctx.PendingChangeStore, ctx.AdoService); }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
         // Resync cache — best-effort, non-fatal
         WorkItem updated;
         try
         {
-            updated = await adoService.FetchAsync(item.Id, ct);
-            await workItemRepo.SaveAsync(updated, ct);
+            updated = await ctx.AdoService.FetchAsync(item.Id, ct);
+            await ctx.WorkItemRepo.SaveAsync(updated, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             updated = item;
         }
 
-        try { await promptStateWriter.WritePromptStateAsync(); }
+        try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
         return McpResultBuilder.FormatStateChange(updated, previousState);
@@ -106,6 +104,7 @@ public sealed class MutationTools(
         [Description("Field reference name (e.g. System.Title, System.Description, Microsoft.VSTS.Scheduling.StoryPoints)")] string field,
         [Description("New field value")] string value,
         [Description("Set to 'markdown' to convert the value from Markdown to HTML before storing (useful for System.Description)")] string? format = null,
+        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(field) || value is null)
@@ -118,7 +117,12 @@ public sealed class MutationTools(
             ? MarkdownConverter.ToHtml(value)
             : value;
 
-        var resolved = await activeItemResolver.GetActiveItemAsync(ct);
+        WorkspaceContext ctx;
+        try { ctx = resolver.Resolve(workspace); }
+        catch (Exception ex) when (ex is FormatException or KeyNotFoundException or AmbiguousWorkspaceException)
+        { return McpResultBuilder.ToError(ex.Message); }
+
+        var resolved = await ctx.ActiveItemResolver.GetActiveItemAsync(ct);
         if (resolved is ActiveItemResult.NoContext)
             return McpResultBuilder.ToError("No active work item. Use twig_set to set context.");
         if (resolved is ActiveItemResult.Unreachable u)
@@ -131,31 +135,31 @@ public sealed class MutationTools(
         WorkItem remote;
         try
         {
-            remote = await adoService.FetchAsync(item.Id, ct);
+            remote = await ctx.AdoService.FetchAsync(item.Id, ct);
             var changes = new[] { new FieldChange(field, null, effectiveValue) };
-            await ConflictRetryHelper.PatchWithRetryAsync(adoService, item.Id, changes, remote.Revision, ct);
+            await ConflictRetryHelper.PatchWithRetryAsync(ctx.AdoService, item.Id, changes, remote.Revision, ct);
         }
         catch (AdoException ex)
         {
             return McpResultBuilder.ToError(ex.Message);
         }
 
-        try { await AutoPushNotesHelper.PushAndClearAsync(item.Id, pendingChangeStore, adoService); }
+        try { await AutoPushNotesHelper.PushAndClearAsync(item.Id, ctx.PendingChangeStore, ctx.AdoService); }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
         // Resync cache — best-effort, non-fatal
         WorkItem updated;
         try
         {
-            updated = await adoService.FetchAsync(item.Id, ct);
-            await workItemRepo.SaveAsync(updated, ct);
+            updated = await ctx.AdoService.FetchAsync(item.Id, ct);
+            await ctx.WorkItemRepo.SaveAsync(updated, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             updated = item;
         }
 
-        try { await promptStateWriter.WritePromptStateAsync(); }
+        try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
         return McpResultBuilder.FormatFieldUpdate(updated, field, value);
@@ -164,12 +168,18 @@ public sealed class MutationTools(
     [McpServerTool(Name = "twig_note"), Description("Add a comment/note to the active work item")]
     public async Task<CallToolResult> Note(
         [Description("Note text to add as a comment")] string text,
+        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(text))
             return McpResultBuilder.ToError("Usage: twig_note requires non-empty text.");
 
-        var resolved = await activeItemResolver.GetActiveItemAsync(ct);
+        WorkspaceContext ctx;
+        try { ctx = resolver.Resolve(workspace); }
+        catch (Exception ex) when (ex is FormatException or KeyNotFoundException or AmbiguousWorkspaceException)
+        { return McpResultBuilder.ToError(ex.Message); }
+
+        var resolved = await ctx.ActiveItemResolver.GetActiveItemAsync(ct);
         if (resolved is ActiveItemResult.NoContext)
             return McpResultBuilder.ToError("No active work item. Use twig_set to set context.");
         if (resolved is ActiveItemResult.Unreachable u)
@@ -179,18 +189,18 @@ public sealed class MutationTools(
             ? f.WorkItem
             : ((ActiveItemResult.FetchedFromAdo)resolved).WorkItem;
 
-        // Push comment to ADO— fall back to local staging on failure
+        // Push comment to ADO — fall back to local staging on failure
         bool isPending;
         try
         {
-            await adoService.AddCommentAsync(item.Id, text, ct);
+            await ctx.AdoService.AddCommentAsync(item.Id, text, ct);
             isPending = false;
 
-            await pendingChangeStore.ClearChangesByTypeAsync(item.Id, "note", ct);
+            await ctx.PendingChangeStore.ClearChangesByTypeAsync(item.Id, "note", ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            await pendingChangeStore.AddChangeAsync(item.Id, "note", fieldName: null, oldValue: null, newValue: text, ct);
+            await ctx.PendingChangeStore.AddChangeAsync(item.Id, "note", fieldName: null, oldValue: null, newValue: text, ct);
             isPending = true;
         }
 
@@ -199,8 +209,8 @@ public sealed class MutationTools(
         {
             try
             {
-                var updated = await adoService.FetchAsync(item.Id, ct);
-                await workItemRepo.SaveAsync(updated, ct);
+                var updated = await ctx.AdoService.FetchAsync(item.Id, ct);
+                await ctx.WorkItemRepo.SaveAsync(updated, ct);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -208,7 +218,7 @@ public sealed class MutationTools(
             }
         }
 
-        await promptStateWriter.WritePromptStateAsync();
+        await ctx.PromptStateWriter.WritePromptStateAsync();
 
         return McpResultBuilder.FormatNoteAdded(item.Id, item.Title, isPending);
     }
@@ -216,20 +226,26 @@ public sealed class MutationTools(
     [McpServerTool(Name = "twig_discard"), Description("Discard pending changes for a work item")]
     public async Task<CallToolResult> Discard(
         [Description("Work item ID to discard changes for (defaults to active item)")] int? id = null,
+        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
         CancellationToken ct = default)
     {
+        WorkspaceContext ctx;
+        try { ctx = resolver.Resolve(workspace); }
+        catch (Exception ex) when (ex is FormatException or KeyNotFoundException or AmbiguousWorkspaceException)
+        { return McpResultBuilder.ToError(ex.Message); }
+
         // Resolve target: explicit ID or active item
         WorkItem cached;
         if (id.HasValue)
         {
-            var found = await workItemRepo.GetByIdAsync(id.Value, ct);
+            var found = await ctx.WorkItemRepo.GetByIdAsync(id.Value, ct);
             if (found is null)
                 return McpResultBuilder.ToError($"Work item #{id.Value} not found in cache.");
             cached = found;
         }
         else
         {
-            var resolved = await activeItemResolver.GetActiveItemAsync(ct);
+            var resolved = await ctx.ActiveItemResolver.GetActiveItemAsync(ct);
             if (resolved is ActiveItemResult.NoContext)
                 return McpResultBuilder.ToError("No active work item. Use twig_set to set context, or pass an explicit id.");
             if (resolved is ActiveItemResult.Unreachable u)
@@ -241,29 +257,36 @@ public sealed class MutationTools(
         }
 
         // Get change summary — return early if nothing to discard
-        var (notes, fieldEdits) = await pendingChangeStore.GetChangeSummaryAsync(cached.Id, ct);
+        var (notes, fieldEdits) = await ctx.PendingChangeStore.GetChangeSummaryAsync(cached.Id, ct);
         if (notes == 0 && fieldEdits == 0)
             return McpResultBuilder.FormatDiscardNone(cached.Id, cached.Title);
 
         // Clear pending changes and dirty flag
-        await pendingChangeStore.ClearChangesAsync(cached.Id, ct);
-        await workItemRepo.ClearDirtyFlagAsync(cached.Id, ct);
+        await ctx.PendingChangeStore.ClearChangesAsync(cached.Id, ct);
+        await ctx.WorkItemRepo.ClearDirtyFlagAsync(cached.Id, ct);
 
         // Update prompt state — best-effort
-        try { await promptStateWriter.WritePromptStateAsync(); }
+        try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
         return McpResultBuilder.FormatDiscard(cached.Id, cached.Title, notes, fieldEdits);
     }
 
     [McpServerTool(Name = "twig_sync"), Description("Flush pending local changes to ADO then refresh the local cache from ADO")]
-    public async Task<CallToolResult> Sync(CancellationToken ct = default)
+    public async Task<CallToolResult> Sync(
+        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        CancellationToken ct = default)
     {
+        WorkspaceContext ctx;
+        try { ctx = resolver.Resolve(workspace); }
+        catch (Exception ex) when (ex is FormatException or KeyNotFoundException or AmbiguousWorkspaceException)
+        { return McpResultBuilder.ToError(ex.Message); }
+
         // Phase 1 — Push: flush all pending changes to ADO
-        var flushSummary = await flusher.FlushAllAsync(ct);
+        var flushSummary = await ctx.Flusher.FlushAllAsync(ct);
 
         // Phase 2 — Pull: sync active item context from ADO
-        var resolved = await activeItemResolver.GetActiveItemAsync(ct);
+        var resolved = await ctx.ActiveItemResolver.GetActiveItemAsync(ct);
         if (resolved is ActiveItemResult.Found or ActiveItemResult.FetchedFromAdo)
         {
             var item = resolved is ActiveItemResult.Found f
@@ -274,22 +297,22 @@ public sealed class MutationTools(
 
             if (item.ParentId.HasValue)
             {
-                var chain = await workItemRepo.GetParentChainAsync(item.ParentId.Value, ct);
+                var chain = await ctx.WorkItemRepo.GetParentChainAsync(item.ParentId.Value, ct);
                 idsToSync.AddRange(chain.Select(p => p.Id));
             }
 
-            var children = await workItemRepo.GetChildrenAsync(item.Id, ct);
+            var children = await ctx.WorkItemRepo.GetChildrenAsync(item.Id, ct);
             idsToSync.AddRange(children.Select(c => c.Id));
 
             try
             {
-                await syncCoordinator.SyncItemSetAsync(idsToSync.Distinct().ToList(), ct);
+                await ctx.SyncCoordinatorFactory.ReadWrite.SyncItemSetAsync(idsToSync.Distinct().ToList(), ct);
             }
             catch (OperationCanceledException) { throw; }
             catch { /* best-effort */ }
         }
 
-        await promptStateWriter.WritePromptStateAsync();
+        await ctx.PromptStateWriter.WritePromptStateAsync();
 
         return McpResultBuilder.FormatFlushSummary(flushSummary);
     }

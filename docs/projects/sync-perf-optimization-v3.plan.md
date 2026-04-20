@@ -1,7 +1,7 @@
 # Sync Performance Optimization v3
 
 **Epic:** #1611 — Sync Performance Optimization
-**Status**: 🔨 In Progress
+**Status**: 🔨 In Progress — 1/2 PR groups merged
 **Revision:** Rev 12
 
 ---

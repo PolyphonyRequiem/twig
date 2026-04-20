@@ -1,6 +1,6 @@
 # Batch State Transitions and Field Updates
 
-> **Status**: 🔨 In Progress
+> **Status**: ✅ Done
 > **Work Item**: [#1782](https://dev.azure.com/) — Batch state transitions and field updates in twig CLI
 > **Revision**: 0 (initial draft)
 

@@ -488,6 +488,147 @@ public class MsalCacheTokenProviderTests
         inner.CallCount.ShouldBe(0);
     }
 
+    [Fact]
+    public async Task GetAccessTokenAsync_TokenExpiredHoursAgo_FallsToInner()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var expiredLongAgo = now.AddHours(-2).ToUnixTimeSeconds();
+        var json = CreateCacheJson("stale-token", AdoResourceId, expiredLongAgo);
+        var inner = CreateInnerProvider("fresh-from-cli");
+
+        var provider = new MsalCacheTokenProvider(
+            inner,
+            cacheFilePath: "fake-path",
+            fileReader: (_, _) => Task.FromResult<string?>(json),
+            clock: () => now);
+
+        var token = await provider.GetAccessTokenAsync();
+
+        token.ShouldBe("fresh-from-cli");
+        inner.CallCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task GetAccessTokenAsync_TargetContainsResourceIdAsUrlSubstring_Matches()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var expiresOn = now.AddMinutes(30).ToUnixTimeSeconds();
+        var scopeUrl = $"{AdoResourceId}/.default";
+        var json = CreateCacheJson("scope-url-token", scopeUrl, expiresOn);
+        var inner = CreateInnerProvider();
+
+        var provider = new MsalCacheTokenProvider(
+            inner,
+            cacheFilePath: "fake-path",
+            fileReader: (_, _) => Task.FromResult<string?>(json),
+            clock: () => now);
+
+        var token = await provider.GetAccessTokenAsync();
+
+        token.ShouldBe("scope-url-token");
+        inner.CallCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task GetAccessTokenAsync_MissingAccessTokenKeyInJson_FallsToInner()
+    {
+        var json = """{ "RefreshToken": {}, "Account": {} }""";
+        var inner = CreateInnerProvider("fallback-no-key");
+
+        var provider = new MsalCacheTokenProvider(
+            inner,
+            cacheFilePath: "fake-path",
+            fileReader: (_, _) => Task.FromResult<string?>(json),
+            clock: () => DateTimeOffset.UtcNow);
+
+        var token = await provider.GetAccessTokenAsync();
+
+        token.ShouldBe("fallback-no-key");
+        inner.CallCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task GetAccessTokenAsync_AllAdoEntriesExpired_FallsToInner()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var expired1 = now.AddMinutes(-10).ToUnixTimeSeconds();
+        var expired2 = now.AddMinutes(-5).ToUnixTimeSeconds();
+
+        var json = CreateMultiEntryCacheJson(
+            ("expired-a", AdoResourceId, expired1),
+            ("expired-b", AdoResourceId, expired2));
+
+        var inner = CreateInnerProvider("all-expired-fallback");
+
+        var provider = new MsalCacheTokenProvider(
+            inner,
+            cacheFilePath: "fake-path",
+            fileReader: (_, _) => Task.FromResult<string?>(json),
+            clock: () => now);
+
+        var token = await provider.GetAccessTokenAsync();
+
+        token.ShouldBe("all-expired-fallback");
+        inner.CallCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task GetAccessTokenAsync_CancellationAlreadyRequested_ThrowsOperationCanceled()
+    {
+        var inner = CreateInnerProvider();
+
+        var provider = new MsalCacheTokenProvider(
+            inner,
+            cacheFilePath: "fake-path",
+            fileReader: (_, _) => Task.FromResult<string?>(null),
+            clock: () => DateTimeOffset.UtcNow);
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        await Should.ThrowAsync<OperationCanceledException>(
+            () => provider.GetAccessTokenAsync(cts.Token));
+    }
+
+    [Fact]
+    public async Task GetAccessTokenAsync_EmptyStringSecret_ReturnsEmptyString()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var expiresOn = now.AddMinutes(30).ToUnixTimeSeconds();
+        var json = CreateCacheJson("", AdoResourceId, expiresOn);
+        var inner = CreateInnerProvider("inner-token");
+
+        var provider = new MsalCacheTokenProvider(
+            inner,
+            cacheFilePath: "fake-path",
+            fileReader: (_, _) => Task.FromResult<string?>(json),
+            clock: () => now);
+
+        var token = await provider.GetAccessTokenAsync();
+
+        // Empty string is non-null, so implementation accepts it
+        token.ShouldBe("");
+        inner.CallCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task GetAccessTokenAsync_EmptyJsonObject_FallsToInner()
+    {
+        var json = """{}""";
+        var inner = CreateInnerProvider("fallback-empty-obj");
+
+        var provider = new MsalCacheTokenProvider(
+            inner,
+            cacheFilePath: "fake-path",
+            fileReader: (_, _) => Task.FromResult<string?>(json),
+            clock: () => DateTimeOffset.UtcNow);
+
+        var token = await provider.GetAccessTokenAsync();
+
+        token.ShouldBe("fallback-empty-obj");
+        inner.CallCount.ShouldBe(1);
+    }
+
     /// <summary>
     /// Fake inner auth provider for test isolation.
     /// </summary>

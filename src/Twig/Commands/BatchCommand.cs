@@ -35,7 +35,8 @@ public sealed record BatchItemResult(
     string? Error,
     string? PreviousState,
     string? NewState,
-    int FieldChangeCount);
+    int FieldChangeCount,
+    bool NoteAdded = false);
 
 /// <summary>
 /// Implements <c>twig batch</c>: combines state transitions, field updates, and notes
@@ -139,10 +140,10 @@ public sealed class BatchCommand(
 
         // Multi-item mode (--ids)
         if (parsedIds is not null)
-            return await ExecuteMultiItemAsync(parsedIds, state, fieldUpdates, note, hasNote, fmt, outputFormat, ct);
+            return await ExecuteMultiItemAsync(parsedIds, state, fieldUpdates, note, fmt, outputFormat, ct);
 
         // Single-item mode (--id or active item)
-        return await ExecuteSingleItemAsync(id, state, fieldUpdates, note, hasNote, fmt, outputFormat, ct);
+        return await ExecuteSingleItemAsync(id, state, fieldUpdates, note, fmt, outputFormat, ct);
     }
 
     /// <summary>Parses comma-separated IDs; returns null if input is empty, empty list if malformed.</summary>
@@ -167,7 +168,6 @@ public sealed class BatchCommand(
         string? state,
         List<(string Key, string Value)>? fieldUpdates,
         string? note,
-        bool hasNote,
         IOutputFormatter fmt,
         string outputFormat,
         CancellationToken ct)
@@ -188,7 +188,8 @@ public sealed class BatchCommand(
 
         if (result.Success)
         {
-            RenderItemSuccess(result, hasNote, fmt);
+            if (result.NewState is not null || result.FieldChangeCount > 0 || result.NoteAdded)
+                RenderItemSuccess(result, fmt);
             RenderHints(item, outputFormat, result.NewState, fmt);
         }
         else
@@ -207,7 +208,6 @@ public sealed class BatchCommand(
         string? state,
         List<(string Key, string Value)>? fieldUpdates,
         string? note,
-        bool hasNote,
         IOutputFormatter fmt,
         string outputFormat,
         CancellationToken ct)
@@ -238,7 +238,7 @@ public sealed class BatchCommand(
         // FR-10: JSON output produces structured BatchResult
         if (string.Equals(outputFormat, "json", StringComparison.OrdinalIgnoreCase))
         {
-            _stdout.WriteLine(FormatBatchResultJson(results, hasNote));
+            _stdout.WriteLine(FormatBatchResultJson(results));
         }
         else
         {
@@ -246,7 +246,10 @@ public sealed class BatchCommand(
             foreach (var result in results)
             {
                 if (result.Success)
-                    RenderItemSuccess(result, hasNote, fmt);
+                {
+                    if (result.NewState is not null || result.FieldChangeCount > 0 || result.NoteAdded)
+                        RenderItemSuccess(result, fmt);
+                }
                 else
                     _stderr.WriteLine(fmt.FormatError($"#{result.ItemId} {(result.Title.Length > 0 ? result.Title + ": " : "")}{result.Error}"));
             }
@@ -267,14 +270,14 @@ public sealed class BatchCommand(
         return results.Any(r => !r.Success) ? 1 : 0;
     }
 
-    private void RenderItemSuccess(BatchItemResult result, bool hasNote, IOutputFormatter fmt)
+    private void RenderItemSuccess(BatchItemResult result, IOutputFormatter fmt)
     {
         var parts = new List<string>();
         if (result.NewState is not null)
             parts.Add($"{result.PreviousState} → {result.NewState}");
         if (result.FieldChangeCount > (result.NewState is not null ? 1 : 0))
             parts.Add($"{result.FieldChangeCount - (result.NewState is not null ? 1 : 0)} field(s) updated");
-        if (hasNote)
+        if (result.NoteAdded)
             parts.Add("note added");
 
         var summary = string.Join(", ", parts);
@@ -296,7 +299,7 @@ public sealed class BatchCommand(
     }
 
     /// <summary>Formats BatchResult as structured JSON using Utf8JsonWriter (AOT-safe).</summary>
-    private static string FormatBatchResultJson(List<BatchItemResult> items, bool hasNote)
+    private static string FormatBatchResultJson(List<BatchItemResult> items)
     {
         using var stream = new MemoryStream();
         using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true });
@@ -306,7 +309,7 @@ public sealed class BatchCommand(
         writer.WriteNumber("succeeded", items.Count(r => r.Success));
         writer.WriteNumber("failed", items.Count(r => !r.Success));
         writer.WriteNumber("totalFieldChanges", items.Where(r => r.Success).Sum(r => r.FieldChangeCount));
-        writer.WriteNumber("totalNotes", items.Count(r => r.Success && hasNote));
+        writer.WriteNumber("totalNotes", items.Count(r => r.NoteAdded));
 
         writer.WriteStartArray("items");
         foreach (var item in items)
@@ -441,8 +444,12 @@ public sealed class BatchCommand(
         }
 
         // 6. Add comment (if --note specified)
+        var noteAdded = false;
         if (!string.IsNullOrWhiteSpace(note))
+        {
             await adoService.AddCommentAsync(item.Id, note, ct);
+            noteAdded = true;
+        }
 
         // 7. Auto-push residual pending notes
         await AutoPushNotesHelper.PushAndClearAsync(item.Id, pendingChangeStore, adoService);
@@ -466,6 +473,7 @@ public sealed class BatchCommand(
             Error: null,
             PreviousState: previousState,
             NewState: resolvedState,
-            FieldChangeCount: changes.Count);
+            FieldChangeCount: changes.Count,
+            NoteAdded: noteAdded);
     }
 }

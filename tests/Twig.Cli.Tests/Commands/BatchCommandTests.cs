@@ -756,6 +756,72 @@ public class BatchCommandTests
             Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
+    // ── Single-item conflict outcome rendering ────────────────────
+
+    [Fact]
+    public async Task SingleItem_ConflictAborted_WithNote_DoesNotReportNoteAdded()
+    {
+        // Create conflicting local/remote pair (different titles + different revision)
+        var local = CreateWorkItem(1, "Local Title", "New", WorkItemType.UserStory);
+        var remote = CreateWorkItem(1, "Remote Title", "New", WorkItemType.UserStory);
+        remote.MarkSynced(5);
+
+        SetupActiveItem(local);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
+        _consoleInput.ReadLine().Returns("a"); // User aborts
+
+        var result = await _cmd.ExecuteAsync(
+            state: "Active",
+            note: "Should not be submitted");
+
+        // (a) exit code 0 — Aborted is a resolved non-error outcome
+        result.ShouldBe(0);
+        // (b) stdout does NOT contain "note added"
+        _stdout.ToString().ShouldNotContain("note added");
+        // (c) AddCommentAsync was NOT called
+        await _adoService.DidNotReceive().AddCommentAsync(
+            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SingleItem_ConflictAcceptedRemote_WithNote_DoesNotReportNoteAdded()
+    {
+        var local = CreateWorkItem(1, "Local Title", "New", WorkItemType.UserStory);
+        var remote = CreateWorkItem(1, "Remote Title", "New", WorkItemType.UserStory);
+        remote.MarkSynced(5);
+
+        SetupActiveItem(local);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
+        _consoleInput.ReadLine().Returns("r"); // User accepts remote
+
+        var result = await _cmd.ExecuteAsync(
+            state: "Active",
+            note: "Should not be submitted");
+
+        result.ShouldBe(0);
+        _stdout.ToString().ShouldNotContain("note added");
+        await _adoService.DidNotReceive().AddCommentAsync(
+            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SingleItem_ConflictAborted_NoRedundantSuccessLine()
+    {
+        var local = CreateWorkItem(1, "Local Title", "New", WorkItemType.UserStory);
+        var remote = CreateWorkItem(1, "Remote Title", "New", WorkItemType.UserStory);
+        remote.MarkSynced(5);
+
+        SetupActiveItem(local);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
+        _consoleInput.ReadLine().Returns("a");
+
+        var result = await _cmd.ExecuteAsync(state: "Active");
+
+        result.ShouldBe(0);
+        // No success render for a no-op Aborted outcome
+        _stdout.ToString().ShouldNotContain("#1");
+    }
+
     // ── No process config for type ──────────────────────────────────
 
     [Fact]

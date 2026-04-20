@@ -4,6 +4,7 @@ using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
+using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
@@ -160,16 +161,24 @@ public class BatchCommandTests
     [Fact]
     public async Task StateOnly_DisallowedTransition_ReturnsExitCode1()
     {
-        // Active → Closed is allowed for UserStory in Agile, but New → Closed is not direct
-        // Actually in Agile, all transitions are allowed. Let me use a custom config.
-        var item = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
+        // Use a restricted config where only "To Do" and "Done" are valid states.
+        // An item in state "Design" (not in the config's state list) trying to transition
+        // to "Done" (a valid target state) produces a disallowed transition because the
+        // (Design → Done) pair is not in the transition rules.
+        var restrictedConfig = new ProcessConfigBuilder()
+            .AddType("User Story",
+                ProcessConfigBuilder.S(("To Do", StateCategory.Proposed), ("Done", StateCategory.Completed)))
+            .Build();
+        _processConfigProvider.GetConfiguration().Returns(restrictedConfig);
+
+        var item = CreateWorkItem(1, "Test", "Design", WorkItemType.UserStory);
         SetupActiveItem(item);
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
 
-        // "Nonexistent" state → results in unknown state error
-        var result = await _cmd.ExecuteAsync(state: "Nonexistent");
+        var result = await _cmd.ExecuteAsync(state: "Done");
 
         result.ShouldBe(1);
+        _stderr.ToString().ShouldContain("not allowed");
     }
 
     [Fact]
@@ -494,6 +503,23 @@ public class BatchCommandTests
         await _adoService.Received().PatchAsync(42,
             Arg.Any<IReadOnlyList<FieldChange>>(),
             Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    // ── --ids warning ─────────────────────────────────────────────────
+
+    [Fact]
+    public async Task IdsParameter_EmitsWarningAndTargetsActiveItem()
+    {
+        var item = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
+        SetupActiveItem(item);
+        SetupSuccessfulPatch(item);
+
+        var result = await _cmd.ExecuteAsync(
+            state: "Active",
+            ids: "1,2,3");
+
+        result.ShouldBe(0);
+        _stderr.ToString().ShouldContain("--ids is not yet supported");
     }
 
     // ── No process config for type ──────────────────────────────────

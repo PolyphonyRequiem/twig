@@ -14,6 +14,7 @@ namespace Twig.Commands;
 /// <summary>
 /// Result of a batch operation across one or more work items.
 /// </summary>
+// TODO: Register [JsonSerializable(typeof(BatchResult))] in TwigJsonContext when T-4 JSON output lands.
 public sealed record BatchResult(
     IReadOnlyList<BatchItemResult> Items,
     int TotalFieldChanges,
@@ -22,6 +23,7 @@ public sealed record BatchResult(
 /// <summary>
 /// Per-item result within a batch operation.
 /// </summary>
+// TODO: Register [JsonSerializable(typeof(BatchItemResult))] in TwigJsonContext when T-4 JSON output lands.
 public sealed record BatchItemResult(
     int ItemId,
     string Title,
@@ -71,6 +73,10 @@ public sealed class BatchCommand(
         CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
+
+        // --ids is reserved for T-2 multi-item support; warn if passed
+        if (!string.IsNullOrWhiteSpace(ids))
+            _stderr.WriteLine("warning: --ids is not yet supported; targeting active item only.");
 
         // Validate: at least one operation must be specified
         var hasState = !string.IsNullOrWhiteSpace(state);
@@ -130,7 +136,7 @@ public sealed class BatchCommand(
         // Process single item
         var result = await ProcessItemAsync(item, state, fieldUpdates, note, fmt, outputFormat, ct);
 
-        // Build BatchResult
+        // Build BatchResult — used in T-4 JSON output path; currently only for aggregate tracking
         var batchResult = new BatchResult(
             new[] { result },
             result.FieldChangeCount,

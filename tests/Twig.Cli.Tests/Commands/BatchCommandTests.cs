@@ -669,6 +669,34 @@ public class BatchCommandTests
     }
 
     [Fact]
+    public async Task IdsParameter_JsonOutput_PartialFailure_ProducesPerItemErrorField()
+    {
+        var item1 = CreateWorkItem(10, "Item A", "New", WorkItemType.UserStory);
+        var item2 = CreateWorkItem(20, "Item B", "New", WorkItemType.UserStory);
+        _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(item1);
+        _workItemRepo.GetByIdAsync(20, Arg.Any<CancellationToken>()).Returns(item2);
+        // Item 10 succeeds
+        SetupSuccessfulPatch(item1);
+        // Item 20 fails at fetch
+        _adoService.FetchAsync(20, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("ADO service unavailable"));
+
+        var result = await _cmd.ExecuteAsync(
+            state: "Active",
+            ids: "10,20",
+            outputFormat: "json");
+
+        result.ShouldBe(1); // Partial failure → exit code 1
+        var output = _stdout.ToString();
+        output.ShouldContain("\"totalItems\": 2");
+        output.ShouldContain("\"succeeded\": 1");
+        output.ShouldContain("\"failed\": 1");
+        output.ShouldContain("\"success\": true");
+        output.ShouldContain("\"success\": false");
+        output.ShouldContain("\"error\": \"ADO service unavailable\"");
+    }
+
+    [Fact]
     public async Task IdsParameter_WithNote_AddsNoteToAllItems()
     {
         var item1 = CreateWorkItem(10, "Item A", "New", WorkItemType.UserStory);

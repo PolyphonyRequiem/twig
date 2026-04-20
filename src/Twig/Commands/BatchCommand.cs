@@ -159,7 +159,7 @@ public sealed class BatchCommand(
             result.Add(parsed);
         }
 
-        return result.Count > 0 ? result : new List<int>();
+        return result;
     }
 
     private async Task<int> ExecuteSingleItemAsync(
@@ -242,7 +242,7 @@ public sealed class BatchCommand(
         }
         else
         {
-            // Render per-item results (human/minimal/jsonc)
+            // Render per-item results (human/minimal/jsonc — jsonc intentionally uses human-readable output)
             foreach (var result in results)
             {
                 if (result.Success)
@@ -353,8 +353,10 @@ public sealed class BatchCommand(
 
             if (conflictOutcome == ConflictOutcome.ConflictJsonEmitted)
                 return new BatchItemResult(item.Id, item.Title, false, "Conflict detected (JSON emitted).", null, null, 0);
+            // AcceptedRemote and Aborted are resolved non-error outcomes (consistent with
+            // StateCommand/UpdateCommand returning exit 0 for these cases).
             if (conflictOutcome is ConflictOutcome.AcceptedRemote or ConflictOutcome.Aborted)
-                return new BatchItemResult(item.Id, item.Title, false, "Conflict resolution cancelled.", null, null, 0);
+                return new BatchItemResult(item.Id, item.Title, true, null, null, null, 0);
         }
         else
         {

@@ -816,5 +816,5 @@ agents:
 # WORKFLOW OUTPUT
 # =============================================================================
 output:
-  observations: "{{ close_out.output.observations }}"
-  improvements: "{{ close_out.output.improvements | json }}"
+  observations: "{{ close_out.output.observations if close_out is defined else duplicate_check.output.reason }}"
+  improvements: "{{ (close_out.output.improvements | json) if close_out is defined else '[]' }}"

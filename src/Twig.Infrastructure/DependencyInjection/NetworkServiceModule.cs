@@ -32,7 +32,8 @@ public static class NetworkServiceModule
             var cfg = sp.GetRequiredService<TwigConfiguration>();
             if (string.Equals(cfg.Auth.Method, "pat", StringComparison.OrdinalIgnoreCase))
                 return new PatAuthProvider();
-            return new AzCliAuthProvider();
+            var azCli = new AzCliAuthProvider();
+            return new MsalCacheTokenProvider(azCli);
         });
 
         // HTTP client — singleton backed by SocketsHttpHandler for automatic

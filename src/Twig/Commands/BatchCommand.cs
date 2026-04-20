@@ -16,7 +16,9 @@ namespace Twig.Commands;
 /// <summary>
 /// Result of a batch operation across one or more work items.
 /// </summary>
-// TODO: Register [JsonSerializable(typeof(BatchResult))] in TwigJsonContext when T-4 JSON output lands.
+// TODO(T-4): BatchResult is currently unused — FormatBatchResultJson builds JSON inline.
+// When T-4 adds [JsonSerializable], this record should become the serialization root and
+// FormatBatchResultJson should serialize it directly instead of recomputing fields.
 public sealed record BatchResult(
     IReadOnlyList<BatchItemResult> Items,
     int TotalFieldChanges,
@@ -25,7 +27,7 @@ public sealed record BatchResult(
 /// <summary>
 /// Per-item result within a batch operation.
 /// </summary>
-// TODO: Register [JsonSerializable(typeof(BatchItemResult))] in TwigJsonContext when T-4 JSON output lands.
+// TODO(T-4): Register [JsonSerializable(typeof(BatchItemResult))] in TwigJsonContext when T-4 JSON output lands.
 public sealed record BatchItemResult(
     int ItemId,
     string Title,
@@ -49,8 +51,10 @@ public sealed class BatchCommand(
     OutputFormatterFactory formatterFactory,
     HintEngine hintEngine,
     IPromptStateWriter? promptStateWriter = null,
+    TextWriter? stdout = null,
     TextWriter? stderr = null)
 {
+    private readonly TextWriter _stdout = stdout ?? Console.Out;
     private readonly TextWriter _stderr = stderr ?? Console.Error;
 
     /// <summary>
@@ -227,7 +231,7 @@ public sealed class BatchCommand(
         // FR-10: JSON output produces structured BatchResult
         if (string.Equals(outputFormat, "json", StringComparison.OrdinalIgnoreCase))
         {
-            Console.WriteLine(FormatBatchResultJson(results, hasNote));
+            _stdout.WriteLine(FormatBatchResultJson(results, hasNote));
         }
         else
         {
@@ -246,7 +250,7 @@ public sealed class BatchCommand(
             if (failed > 0)
                 _stderr.WriteLine(fmt.FormatError($"Batch complete: {succeeded}/{results.Count} succeeded, {failed} failed."));
             else
-                Console.WriteLine(fmt.FormatSuccess($"Batch complete: {succeeded}/{results.Count} succeeded."));
+                _stdout.WriteLine(fmt.FormatSuccess($"Batch complete: {succeeded}/{results.Count} succeeded."));
         }
 
         if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
@@ -265,7 +269,7 @@ public sealed class BatchCommand(
             parts.Add("note added");
 
         var summary = string.Join(", ", parts);
-        Console.WriteLine(fmt.FormatSuccess($"#{result.ItemId} {result.Title}: {summary}"));
+        _stdout.WriteLine(fmt.FormatSuccess($"#{result.ItemId} {result.Title}: {summary}"));
     }
 
     private void RenderHints(Domain.Aggregates.WorkItem item, string outputFormat, string? newStateName, IOutputFormatter fmt)
@@ -278,7 +282,7 @@ public sealed class BatchCommand(
         {
             var formatted = fmt.FormatHint(hint);
             if (!string.IsNullOrEmpty(formatted))
-                Console.WriteLine(formatted);
+                _stdout.WriteLine(formatted);
         }
     }
 
@@ -351,6 +355,7 @@ public sealed class BatchCommand(
             {
                 await workItemRepo.SaveAsync(remote, ct);
             }
+            // AutoMergeable: step-8 resync will update the cache
         }
 
         // 3. State validation (if --state specified)
@@ -383,22 +388,15 @@ public sealed class BatchCommand(
                     return new BatchItemResult(item.Id, item.Title, false,
                         $"Transition from '{item.State}' to '{resolvedState}' is not allowed.", null, null, 0);
 
-                if (transition.RequiresConfirmation)
+                if (interactive && transition.RequiresConfirmation)
                 {
-                    if (!interactive)
+                    var kind = transition.Kind == TransitionKind.Cut ? "REMOVE" : "move backward";
+                    _stdout.Write($"This will {kind} #{item.Id} from '{item.State}' to '{resolvedState}'. Continue? [y/N] ");
+                    var response = consoleInput.ReadLine()?.Trim();
+                    if (!string.Equals(response, "y", StringComparison.OrdinalIgnoreCase))
                     {
-                        // Multi-item: auto-proceed without confirmation
-                    }
-                    else
-                    {
-                        var kind = transition.Kind == TransitionKind.Cut ? "REMOVE" : "move backward";
-                        Console.Write($"This will {kind} #{item.Id} from '{item.State}' to '{resolvedState}'. Continue? [y/N] ");
-                        var response = consoleInput.ReadLine()?.Trim();
-                        if (!string.Equals(response, "y", StringComparison.OrdinalIgnoreCase))
-                        {
-                            Console.WriteLine(fmt.FormatInfo("Cancelled."));
-                            return new BatchItemResult(item.Id, item.Title, false, "Cancelled by user.", previousState, resolvedState, 0);
-                        }
+                        _stdout.WriteLine(fmt.FormatInfo("Cancelled."));
+                        return new BatchItemResult(item.Id, item.Title, false, "Cancelled by user.", previousState, resolvedState, 0);
                     }
                 }
             }

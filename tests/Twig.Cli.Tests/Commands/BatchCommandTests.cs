@@ -25,6 +25,7 @@ public class BatchCommandTests
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IProcessConfigurationProvider _processConfigProvider;
     private readonly IConsoleInput _consoleInput;
+    private readonly StringWriter _stdout;
     private readonly StringWriter _stderr;
     private readonly BatchCommand _cmd;
 
@@ -36,6 +37,7 @@ public class BatchCommandTests
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
         _processConfigProvider = Substitute.For<IProcessConfigurationProvider>();
         _consoleInput = Substitute.For<IConsoleInput>();
+        _stdout = new StringWriter();
         _stderr = new StringWriter();
 
         _processConfigProvider.GetConfiguration()
@@ -50,7 +52,7 @@ public class BatchCommandTests
         _cmd = new BatchCommand(
             resolver, _workItemRepo, _adoService,
             _pendingChangeStore, _processConfigProvider, _consoleInput,
-            formatterFactory, hintEngine, stderr: _stderr);
+            formatterFactory, hintEngine, stdout: _stdout, stderr: _stderr);
     }
 
     // ── Validation ──────────────────────────────────────────────────
@@ -493,7 +495,7 @@ public class BatchCommandTests
     {
         var item = CreateWorkItem(42, "Specific Item", "New", WorkItemType.UserStory);
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
-        SetupSuccessfulPatchForItem(item);
+        SetupSuccessfulPatch(item);
 
         var result = await _cmd.ExecuteAsync(
             state: "Active",
@@ -514,8 +516,8 @@ public class BatchCommandTests
         var item2 = CreateWorkItem(20, "Item B", "New", WorkItemType.UserStory);
         _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(item1);
         _workItemRepo.GetByIdAsync(20, Arg.Any<CancellationToken>()).Returns(item2);
-        SetupSuccessfulPatchForItem(item1);
-        SetupSuccessfulPatchForItem(item2);
+        SetupSuccessfulPatch(item1);
+        SetupSuccessfulPatch(item2);
 
         var result = await _cmd.ExecuteAsync(
             state: "Active",
@@ -561,7 +563,7 @@ public class BatchCommandTests
     {
         var item1 = CreateWorkItem(10, "Item A", "New", WorkItemType.UserStory);
         _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(item1);
-        SetupSuccessfulPatchForItem(item1);
+        SetupSuccessfulPatch(item1);
 
         var result = await _cmd.ExecuteAsync(
             state: "Active",
@@ -577,7 +579,7 @@ public class BatchCommandTests
     {
         var item = CreateWorkItem(10, "Item A", "Active", WorkItemType.UserStory);
         _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(item);
-        SetupSuccessfulPatchForItem(item);
+        SetupSuccessfulPatch(item);
 
         var result = await _cmd.ExecuteAsync(
             state: "New", // backward transition
@@ -621,32 +623,23 @@ public class BatchCommandTests
         var item2 = CreateWorkItem(20, "Item B", "New", WorkItemType.UserStory);
         _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(item1);
         _workItemRepo.GetByIdAsync(20, Arg.Any<CancellationToken>()).Returns(item2);
-        SetupSuccessfulPatchForItem(item1);
-        SetupSuccessfulPatchForItem(item2);
+        SetupSuccessfulPatch(item1);
+        SetupSuccessfulPatch(item2);
 
-        var stdOut = new StringWriter();
-        Console.SetOut(stdOut);
-        try
-        {
-            var result = await _cmd.ExecuteAsync(
-                state: "Active",
-                ids: "10,20",
-                outputFormat: "json");
+        var result = await _cmd.ExecuteAsync(
+            state: "Active",
+            ids: "10,20",
+            outputFormat: "json");
 
-            result.ShouldBe(0);
-            var output = stdOut.ToString();
-            output.ShouldContain("\"totalItems\": 2");
-            output.ShouldContain("\"succeeded\": 2");
-            output.ShouldContain("\"failed\": 0");
-            output.ShouldContain("\"items\"");
-            output.ShouldContain("\"itemId\": 10");
-            output.ShouldContain("\"itemId\": 20");
-            output.ShouldContain("\"success\": true");
-        }
-        finally
-        {
-            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
-        }
+        result.ShouldBe(0);
+        var output = _stdout.ToString();
+        output.ShouldContain("\"totalItems\": 2");
+        output.ShouldContain("\"succeeded\": 2");
+        output.ShouldContain("\"failed\": 0");
+        output.ShouldContain("\"items\"");
+        output.ShouldContain("\"itemId\": 10");
+        output.ShouldContain("\"itemId\": 20");
+        output.ShouldContain("\"success\": true");
     }
 
     [Fact]
@@ -675,7 +668,7 @@ public class BatchCommandTests
     {
         var item = CreateWorkItem(10, "Item A", "New", WorkItemType.UserStory);
         _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(item);
-        SetupSuccessfulPatchForItem(item);
+        SetupSuccessfulPatch(item);
 
         var result = await _cmd.ExecuteAsync(
             state: "Active",
@@ -693,8 +686,8 @@ public class BatchCommandTests
         var item2 = CreateWorkItem(20, "Item B", "New", WorkItemType.UserStory);
         _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(item1);
         _workItemRepo.GetByIdAsync(20, Arg.Any<CancellationToken>()).Returns(item2);
-        SetupSuccessfulPatchForItem(item1);
-        SetupSuccessfulPatchForItem(item2);
+        SetupSuccessfulPatch(item1);
+        SetupSuccessfulPatch(item2);
 
         var result = await _cmd.ExecuteAsync(
             state: "Active",
@@ -754,15 +747,6 @@ public class BatchCommandTests
     }
 
     private void SetupSuccessfulPatch(WorkItem item)
-    {
-        _adoService.FetchAsync(item.Id, Arg.Any<CancellationToken>()).Returns(item);
-        _adoService.PatchAsync(item.Id, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(2);
-        _pendingChangeStore.GetChangesAsync(item.Id, Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<PendingChangeRecord>());
-    }
-
-    private void SetupSuccessfulPatchForItem(WorkItem item)
     {
         _adoService.FetchAsync(item.Id, Arg.Any<CancellationToken>()).Returns(item);
         _adoService.PatchAsync(item.Id, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())

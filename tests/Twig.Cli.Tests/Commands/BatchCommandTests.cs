@@ -505,21 +505,208 @@ public class BatchCommandTests
             Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
-    // ── --ids warning ─────────────────────────────────────────────────
+    // ── --ids multi-item mode ──────────────────────────────────────────
 
     [Fact]
-    public async Task IdsParameter_EmitsWarningAndTargetsActiveItem()
+    public async Task IdsParameter_MultipleItems_AllSucceed()
     {
-        var item = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
-        SetupActiveItem(item);
-        SetupSuccessfulPatch(item);
+        var item1 = CreateWorkItem(10, "Item A", "New", WorkItemType.UserStory);
+        var item2 = CreateWorkItem(20, "Item B", "New", WorkItemType.UserStory);
+        _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(item1);
+        _workItemRepo.GetByIdAsync(20, Arg.Any<CancellationToken>()).Returns(item2);
+        SetupSuccessfulPatchForItem(item1);
+        SetupSuccessfulPatchForItem(item2);
 
         var result = await _cmd.ExecuteAsync(
             state: "Active",
-            ids: "1,2,3");
+            ids: "10,20");
 
         result.ShouldBe(0);
-        _stderr.ToString().ShouldContain("--ids is not yet supported");
+        await _adoService.Received().PatchAsync(10,
+            Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _adoService.Received().PatchAsync(20,
+            Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task IdsParameter_ContinuesOnFailure_ReportsPartialSuccess()
+    {
+        var item1 = CreateWorkItem(10, "Item A", "New", WorkItemType.UserStory);
+        // Item 20 not in cache and not fetchable
+        _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(item1);
+        _workItemRepo.GetByIdAsync(20, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        _adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(item1);
+        _adoService.FetchAsync(20, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("not found"));
+        _adoService.PatchAsync(10, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+        _pendingChangeStore.GetChangesAsync(10, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+
+        var result = await _cmd.ExecuteAsync(
+            state: "Active",
+            ids: "10,20");
+
+        result.ShouldBe(1); // Partial failure → exit code 1
+        // Item 10 should still have been patched
+        await _adoService.Received().PatchAsync(10,
+            Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task IdsParameter_SkipsInteractiveConflictResolution()
+    {
+        var item1 = CreateWorkItem(10, "Item A", "New", WorkItemType.UserStory);
+        _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(item1);
+        SetupSuccessfulPatchForItem(item1);
+
+        var result = await _cmd.ExecuteAsync(
+            state: "Active",
+            ids: "10");
+
+        result.ShouldBe(0);
+        // consoleInput should NOT have been called (no interactive prompts in multi-item)
+        _consoleInput.DidNotReceive().ReadLine();
+    }
+
+    [Fact]
+    public async Task IdsParameter_BackwardTransition_SkipsConfirmation()
+    {
+        var item = CreateWorkItem(10, "Item A", "Active", WorkItemType.UserStory);
+        _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(item);
+        SetupSuccessfulPatchForItem(item);
+
+        var result = await _cmd.ExecuteAsync(
+            state: "New", // backward transition
+            ids: "10");
+
+        result.ShouldBe(0);
+        // Should NOT prompt — multi-item auto-proceeds
+        _consoleInput.DidNotReceive().ReadLine();
+        await _adoService.Received().PatchAsync(10,
+            Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task IdsParameter_InvalidIds_ReturnsExitCode2()
+    {
+        var result = await _cmd.ExecuteAsync(
+            state: "Active",
+            ids: "abc,xyz");
+
+        result.ShouldBe(2);
+        _stderr.ToString().ShouldContain("valid comma-separated integer IDs");
+    }
+
+    [Fact]
+    public async Task IdsParameter_IdAndIdsMutuallyExclusive_ReturnsExitCode2()
+    {
+        var result = await _cmd.ExecuteAsync(
+            state: "Active",
+            id: 1,
+            ids: "2,3");
+
+        result.ShouldBe(2);
+        _stderr.ToString().ShouldContain("mutually exclusive");
+    }
+
+    [Fact]
+    public async Task IdsParameter_JsonOutput_ProducesStructuredBatchResult()
+    {
+        var item1 = CreateWorkItem(10, "Item A", "New", WorkItemType.UserStory);
+        var item2 = CreateWorkItem(20, "Item B", "New", WorkItemType.UserStory);
+        _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(item1);
+        _workItemRepo.GetByIdAsync(20, Arg.Any<CancellationToken>()).Returns(item2);
+        SetupSuccessfulPatchForItem(item1);
+        SetupSuccessfulPatchForItem(item2);
+
+        var stdOut = new StringWriter();
+        Console.SetOut(stdOut);
+        try
+        {
+            var result = await _cmd.ExecuteAsync(
+                state: "Active",
+                ids: "10,20",
+                outputFormat: "json");
+
+            result.ShouldBe(0);
+            var output = stdOut.ToString();
+            output.ShouldContain("\"totalItems\": 2");
+            output.ShouldContain("\"succeeded\": 2");
+            output.ShouldContain("\"failed\": 0");
+            output.ShouldContain("\"items\"");
+            output.ShouldContain("\"itemId\": 10");
+            output.ShouldContain("\"itemId\": 20");
+            output.ShouldContain("\"success\": true");
+        }
+        finally
+        {
+            Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+        }
+    }
+
+    [Fact]
+    public async Task IdsParameter_WithNote_AddsNoteToAllItems()
+    {
+        var item1 = CreateWorkItem(10, "Item A", "New", WorkItemType.UserStory);
+        var item2 = CreateWorkItem(20, "Item B", "New", WorkItemType.UserStory);
+        _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(item1);
+        _workItemRepo.GetByIdAsync(20, Arg.Any<CancellationToken>()).Returns(item2);
+        _adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(item1);
+        _adoService.FetchAsync(20, Arg.Any<CancellationToken>()).Returns(item2);
+        _pendingChangeStore.GetChangesAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+
+        var result = await _cmd.ExecuteAsync(
+            note: "Batch note",
+            ids: "10,20");
+
+        result.ShouldBe(0);
+        await _adoService.Received().AddCommentAsync(10, "Batch note", Arg.Any<CancellationToken>());
+        await _adoService.Received().AddCommentAsync(20, "Batch note", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task IdsParameter_SingleId_TreatedAsMultiItemMode()
+    {
+        var item = CreateWorkItem(10, "Item A", "New", WorkItemType.UserStory);
+        _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(item);
+        SetupSuccessfulPatchForItem(item);
+
+        var result = await _cmd.ExecuteAsync(
+            state: "Active",
+            ids: "10");
+
+        result.ShouldBe(0);
+        // Still multi-item mode (non-interactive)
+        _consoleInput.DidNotReceive().ReadLine();
+    }
+
+    [Fact]
+    public async Task IdsParameter_WhitespaceAroundIds_ParsesCorrectly()
+    {
+        var item1 = CreateWorkItem(10, "Item A", "New", WorkItemType.UserStory);
+        var item2 = CreateWorkItem(20, "Item B", "New", WorkItemType.UserStory);
+        _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(item1);
+        _workItemRepo.GetByIdAsync(20, Arg.Any<CancellationToken>()).Returns(item2);
+        SetupSuccessfulPatchForItem(item1);
+        SetupSuccessfulPatchForItem(item2);
+
+        var result = await _cmd.ExecuteAsync(
+            state: "Active",
+            ids: " 10 , 20 ");
+
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(10,
+            Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _adoService.Received().PatchAsync(20,
+            Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
     // ── No process config for type ──────────────────────────────────

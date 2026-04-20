@@ -1,3 +1,5 @@
+using System.Text;
+using System.Text.Json;
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
@@ -52,13 +54,13 @@ public sealed class BatchCommand(
     private readonly TextWriter _stderr = stderr ?? Console.Error;
 
     /// <summary>
-    /// Execute a batch of state transition, field updates, and/or note on a single work item.
+    /// Execute a batch of state transition, field updates, and/or note on one or more work items.
     /// </summary>
     /// <param name="state">Target state name (e.g., Active, Closed).</param>
     /// <param name="set">Field updates as key=value pairs. Repeatable.</param>
     /// <param name="note">Comment text to add after the PATCH.</param>
     /// <param name="id">Target a specific work item by ID instead of the active item.</param>
-    /// <param name="ids">Comma-separated IDs for multi-item batch (reserved for future use).</param>
+    /// <param name="ids">Comma-separated IDs for multi-item batch.</param>
     /// <param name="outputFormat">Output format: human, json, jsonc, minimal.</param>
     /// <param name="format">Convert --set values before sending. Supported: "markdown".</param>
     /// <param name="ct">Cancellation token.</param>
@@ -74,9 +76,12 @@ public sealed class BatchCommand(
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
-        // --ids is reserved for T-2 multi-item support; warn if passed
-        if (!string.IsNullOrWhiteSpace(ids))
-            _stderr.WriteLine("warning: --ids is not yet supported; targeting active item only.");
+        // Validate: --id and --ids are mutually exclusive
+        if (id.HasValue && !string.IsNullOrWhiteSpace(ids))
+        {
+            _stderr.WriteLine(fmt.FormatError("--id and --ids are mutually exclusive."));
+            return 2;
+        }
 
         // Validate: at least one operation must be specified
         var hasState = !string.IsNullOrWhiteSpace(state);
@@ -120,7 +125,49 @@ public sealed class BatchCommand(
             }
         }
 
-        // Resolve the target work item
+        // Parse --ids into list of target IDs
+        var parsedIds = ParseIds(ids);
+        if (parsedIds is not null && parsedIds.Count == 0)
+        {
+            _stderr.WriteLine(fmt.FormatError("--ids must contain valid comma-separated integer IDs."));
+            return 2;
+        }
+
+        // Multi-item mode (--ids)
+        if (parsedIds is not null)
+            return await ExecuteMultiItemAsync(parsedIds, state, fieldUpdates, note, hasNote, fmt, outputFormat, ct);
+
+        // Single-item mode (--id or active item)
+        return await ExecuteSingleItemAsync(id, state, fieldUpdates, note, hasNote, fmt, outputFormat, ct);
+    }
+
+    /// <summary>Parses comma-separated IDs; returns null if input is empty, empty list if malformed.</summary>
+    private static List<int>? ParseIds(string? ids)
+    {
+        if (string.IsNullOrWhiteSpace(ids))
+            return null;
+
+        var result = new List<int>();
+        foreach (var segment in ids.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (!int.TryParse(segment, out var parsed))
+                return new List<int>(); // Return empty to signal parse failure
+            result.Add(parsed);
+        }
+
+        return result.Count > 0 ? result : new List<int>();
+    }
+
+    private async Task<int> ExecuteSingleItemAsync(
+        int? id,
+        string? state,
+        List<(string Key, string Value)>? fieldUpdates,
+        string? note,
+        bool hasNote,
+        IOutputFormatter fmt,
+        string outputFormat,
+        CancellationToken ct)
+    {
         var resolved = id.HasValue
             ? await activeItemResolver.ResolveByIdAsync(id.Value, ct)
             : await activeItemResolver.GetActiveItemAsync(ct);
@@ -133,39 +180,12 @@ public sealed class BatchCommand(
             return 1;
         }
 
-        // Process single item
-        var result = await ProcessItemAsync(item, state, fieldUpdates, note, fmt, outputFormat, ct);
+        var result = await ProcessItemAsync(item, state, fieldUpdates, note, interactive: true, fmt, outputFormat, ct);
 
-        // Build BatchResult — used in T-4 JSON output path; currently only for aggregate tracking
-        var batchResult = new BatchResult(
-            new[] { result },
-            result.FieldChangeCount,
-            hasNote && result.Success ? 1 : 0);
-
-        // Output
         if (result.Success)
         {
-            var parts = new List<string>();
-            if (result.NewState is not null)
-                parts.Add($"{result.PreviousState} → {result.NewState}");
-            if (result.FieldChangeCount > (result.NewState is not null ? 1 : 0))
-                parts.Add($"{result.FieldChangeCount - (result.NewState is not null ? 1 : 0)} field(s) updated");
-            if (hasNote)
-                parts.Add("note added");
-
-            var summary = string.Join(", ", parts);
-            Console.WriteLine(fmt.FormatSuccess($"#{result.ItemId} {result.Title}: {summary}"));
-
-            var hints = hintEngine.GetHints("batch",
-                item: item,
-                outputFormat: outputFormat,
-                newStateName: result.NewState);
-            foreach (var hint in hints)
-            {
-                var formatted = fmt.FormatHint(hint);
-                if (!string.IsNullOrEmpty(formatted))
-                    Console.WriteLine(formatted);
-            }
+            RenderItemSuccess(result, hasNote, fmt);
+            RenderHints(item, outputFormat, result.NewState, fmt);
         }
         else
         {
@@ -178,11 +198,129 @@ public sealed class BatchCommand(
         return 0;
     }
 
+    private async Task<int> ExecuteMultiItemAsync(
+        List<int> itemIds,
+        string? state,
+        List<(string Key, string Value)>? fieldUpdates,
+        string? note,
+        bool hasNote,
+        IOutputFormatter fmt,
+        string outputFormat,
+        CancellationToken ct)
+    {
+        var results = new List<BatchItemResult>(itemIds.Count);
+
+        foreach (var itemId in itemIds)
+        {
+            var resolved = await activeItemResolver.ResolveByIdAsync(itemId, ct);
+            if (!resolved.TryGetWorkItem(out var item, out _, out _))
+            {
+                results.Add(new BatchItemResult(itemId, string.Empty, false,
+                    $"Work item #{itemId} not found.", null, null, 0));
+                continue;
+            }
+
+            var result = await ProcessItemAsync(item, state, fieldUpdates, note, interactive: false, fmt, outputFormat, ct);
+            results.Add(result);
+        }
+
+        // FR-10: JSON output produces structured BatchResult
+        if (string.Equals(outputFormat, "json", StringComparison.OrdinalIgnoreCase))
+        {
+            Console.WriteLine(FormatBatchResultJson(results, hasNote));
+        }
+        else
+        {
+            // Render per-item results (human/minimal/jsonc)
+            foreach (var result in results)
+            {
+                if (result.Success)
+                    RenderItemSuccess(result, hasNote, fmt);
+                else
+                    _stderr.WriteLine(fmt.FormatError($"#{result.ItemId} {(result.Title.Length > 0 ? result.Title + ": " : "")}{result.Error}"));
+            }
+
+            // Summary line for multi-item
+            var succeeded = results.Count(r => r.Success);
+            var failed = results.Count - succeeded;
+            if (failed > 0)
+                _stderr.WriteLine(fmt.FormatError($"Batch complete: {succeeded}/{results.Count} succeeded, {failed} failed."));
+            else
+                Console.WriteLine(fmt.FormatSuccess($"Batch complete: {succeeded}/{results.Count} succeeded."));
+        }
+
+        if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
+
+        return results.Any(r => !r.Success) ? 1 : 0;
+    }
+
+    private void RenderItemSuccess(BatchItemResult result, bool hasNote, IOutputFormatter fmt)
+    {
+        var parts = new List<string>();
+        if (result.NewState is not null)
+            parts.Add($"{result.PreviousState} → {result.NewState}");
+        if (result.FieldChangeCount > (result.NewState is not null ? 1 : 0))
+            parts.Add($"{result.FieldChangeCount - (result.NewState is not null ? 1 : 0)} field(s) updated");
+        if (hasNote)
+            parts.Add("note added");
+
+        var summary = string.Join(", ", parts);
+        Console.WriteLine(fmt.FormatSuccess($"#{result.ItemId} {result.Title}: {summary}"));
+    }
+
+    private void RenderHints(Domain.Aggregates.WorkItem item, string outputFormat, string? newStateName, IOutputFormatter fmt)
+    {
+        var hints = hintEngine.GetHints("batch",
+            item: item,
+            outputFormat: outputFormat,
+            newStateName: newStateName);
+        foreach (var hint in hints)
+        {
+            var formatted = fmt.FormatHint(hint);
+            if (!string.IsNullOrEmpty(formatted))
+                Console.WriteLine(formatted);
+        }
+    }
+
+    /// <summary>Formats BatchResult as structured JSON using Utf8JsonWriter (AOT-safe).</summary>
+    private static string FormatBatchResultJson(List<BatchItemResult> items, bool hasNote)
+    {
+        using var stream = new MemoryStream();
+        using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true });
+
+        writer.WriteStartObject();
+        writer.WriteNumber("totalItems", items.Count);
+        writer.WriteNumber("succeeded", items.Count(r => r.Success));
+        writer.WriteNumber("failed", items.Count(r => !r.Success));
+        writer.WriteNumber("totalFieldChanges", items.Where(r => r.Success).Sum(r => r.FieldChangeCount));
+        writer.WriteNumber("totalNotes", items.Count(r => r.Success && hasNote));
+
+        writer.WriteStartArray("items");
+        foreach (var item in items)
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("itemId", item.ItemId);
+            writer.WriteString("title", item.Title);
+            writer.WriteBoolean("success", item.Success);
+            if (item.Error is not null) writer.WriteString("error", item.Error);
+            if (item.PreviousState is not null) writer.WriteString("previousState", item.PreviousState);
+            if (item.NewState is not null) writer.WriteString("newState", item.NewState);
+            writer.WriteNumber("fieldChangeCount", item.FieldChangeCount);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+
+        writer.WriteEndObject();
+        writer.Flush();
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
     private async Task<BatchItemResult> ProcessItemAsync(
         Domain.Aggregates.WorkItem item,
         string? state,
         List<(string Key, string Value)>? fieldUpdates,
         string? note,
+        bool interactive,
         IOutputFormatter fmt,
         string outputFormat,
         CancellationToken ct)
@@ -192,15 +330,28 @@ public sealed class BatchCommand(
         // 1. Fetch remote
         var remote = await adoService.FetchAsync(item.Id, ct);
 
-        // 2. Conflict resolution (interactive for single-item)
-        var conflictOutcome = await ConflictResolutionFlow.ResolveAsync(
-            item, remote, fmt, outputFormat, consoleInput, workItemRepo,
-            $"#{item.Id} updated from remote.");
+        // 2. Conflict resolution
+        if (interactive)
+        {
+            // Single-item: interactive conflict resolution
+            var conflictOutcome = await ConflictResolutionFlow.ResolveAsync(
+                item, remote, fmt, outputFormat, consoleInput, workItemRepo,
+                $"#{item.Id} updated from remote.");
 
-        if (conflictOutcome == ConflictOutcome.ConflictJsonEmitted)
-            return new BatchItemResult(item.Id, item.Title, false, "Conflict detected (JSON emitted).", null, null, 0);
-        if (conflictOutcome is ConflictOutcome.AcceptedRemote or ConflictOutcome.Aborted)
-            return new BatchItemResult(item.Id, item.Title, false, "Conflict resolution cancelled.", null, null, 0);
+            if (conflictOutcome == ConflictOutcome.ConflictJsonEmitted)
+                return new BatchItemResult(item.Id, item.Title, false, "Conflict detected (JSON emitted).", null, null, 0);
+            if (conflictOutcome is ConflictOutcome.AcceptedRemote or ConflictOutcome.Aborted)
+                return new BatchItemResult(item.Id, item.Title, false, "Conflict resolution cancelled.", null, null, 0);
+        }
+        else
+        {
+            // Multi-item: auto-accept-remote on conflict (DD-3)
+            var mergeResult = ConflictResolver.Resolve(item, remote);
+            if (mergeResult is MergeResult.HasConflicts)
+            {
+                await workItemRepo.SaveAsync(remote, ct);
+            }
+        }
 
         // 3. State validation (if --state specified)
         string? resolvedState = null;
@@ -234,13 +385,20 @@ public sealed class BatchCommand(
 
                 if (transition.RequiresConfirmation)
                 {
-                    var kind = transition.Kind == TransitionKind.Cut ? "REMOVE" : "move backward";
-                    Console.Write($"This will {kind} #{item.Id} from '{item.State}' to '{resolvedState}'. Continue? [y/N] ");
-                    var response = consoleInput.ReadLine()?.Trim();
-                    if (!string.Equals(response, "y", StringComparison.OrdinalIgnoreCase))
+                    if (!interactive)
                     {
-                        Console.WriteLine(fmt.FormatInfo("Cancelled."));
-                        return new BatchItemResult(item.Id, item.Title, false, "Cancelled by user.", previousState, resolvedState, 0);
+                        // Multi-item: auto-proceed without confirmation
+                    }
+                    else
+                    {
+                        var kind = transition.Kind == TransitionKind.Cut ? "REMOVE" : "move backward";
+                        Console.Write($"This will {kind} #{item.Id} from '{item.State}' to '{resolvedState}'. Continue? [y/N] ");
+                        var response = consoleInput.ReadLine()?.Trim();
+                        if (!string.Equals(response, "y", StringComparison.OrdinalIgnoreCase))
+                        {
+                            Console.WriteLine(fmt.FormatInfo("Cancelled."));
+                            return new BatchItemResult(item.Id, item.Title, false, "Cancelled by user.", previousState, resolvedState, 0);
+                        }
                     }
                 }
             }

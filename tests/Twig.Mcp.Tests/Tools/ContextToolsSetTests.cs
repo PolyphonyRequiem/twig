@@ -198,6 +198,9 @@ public sealed class ContextToolsSetTests : ContextToolsTestBase
         root.GetProperty("isDirty").GetBoolean().ShouldBe(false);
         root.GetProperty("isSeed").GetBoolean().ShouldBe(false);
         root.TryGetProperty("workingSet", out _).ShouldBeTrue();
+
+        // Workspace field — validates FormatWorkItemWithWorkingSet emits workspace key
+        root.GetProperty("workspace").GetString().ShouldBe("testorg/testproject");
     }
 
     // ═══════════════════════════════════════════════════════════════

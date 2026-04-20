@@ -1,12 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
-using NSubstitute;
 using Shouldly;
 using Twig.Domain.Interfaces;
-using Twig.Domain.Services;
-using Twig.Infrastructure;
-using Twig.Infrastructure.Config;
 using Twig.Mcp.Services;
 using Twig.Mcp.Tools;
 using Xunit;
@@ -20,156 +16,40 @@ namespace Twig.Mcp.Tests;
 public sealed class ProgramBootstrapTests
 {
     [Fact]
-    public void DomainServices_FactoryRegistrations_ResolveCorrectTypes()
+    public void WorkspaceInfrastructure_Registrations_ResolveCorrectTypes()
     {
-        // Verify that the factory-based DI registrations (DD-10) register all
-        // 7 domain orchestration services with the correct concrete types.
-        var services = new ServiceCollection();
-
-        // Register mock infrastructure dependencies
-        var contextStore = Substitute.For<IContextStore>();
-        var workItemRepo = Substitute.For<IWorkItemRepository>();
-        var adoService = Substitute.For<IAdoWorkItemService>();
-        var pendingChangeStore = Substitute.For<IPendingChangeStore>();
-        var iterationService = Substitute.For<IIterationService>();
-        var processTypeStore = Substitute.For<IProcessTypeStore>();
-        var fieldDefStore = Substitute.For<IFieldDefinitionStore>();
-        var linkRepo = Substitute.For<IWorkItemLinkRepository>();
-
-        services.AddSingleton(contextStore);
-        services.AddSingleton(workItemRepo);
-        services.AddSingleton(adoService);
-        services.AddSingleton(pendingChangeStore);
-        services.AddSingleton(iterationService);
-        services.AddSingleton(processTypeStore);
-        services.AddSingleton(fieldDefStore);
-        services.AddSingleton(linkRepo);
-        services.AddSingleton(new TwigConfiguration
-        {
-            Display = new DisplayConfig { CacheStaleMinutes = 30 },
-            User = new UserConfig { DisplayName = "Test User" }
-        });
-
-        // Register domain services exactly as Program.cs does (factory lambdas)
-        services.AddSingleton(sp => new ActiveItemResolver(
-            sp.GetRequiredService<IContextStore>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>()));
-
-        services.AddSingleton(sp => new ProtectedCacheWriter(
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IPendingChangeStore>()));
-
-        // #1614: SyncCoordinatorFactory — MCP uses CacheStaleMinutes for both tiers
-        services.AddSingleton(sp =>
-        {
-            var staleMinutes = sp.GetRequiredService<TwigConfiguration>().Display.CacheStaleMinutes;
-            return new SyncCoordinatorFactory(
-                sp.GetRequiredService<IWorkItemRepository>(),
-                sp.GetRequiredService<IAdoWorkItemService>(),
-                sp.GetRequiredService<ProtectedCacheWriter>(),
-                sp.GetRequiredService<IPendingChangeStore>(),
-                sp.GetRequiredService<IWorkItemLinkRepository>(),
-                readOnlyStaleMinutes: staleMinutes,
-                readWriteStaleMinutes: staleMinutes);
-        });
-
-        // Backward compat — MCP tool classes inject SyncCoordinator directly
-        services.AddSingleton(sp => sp.GetRequiredService<SyncCoordinatorFactory>().ReadWrite);
-
-        services.AddSingleton(sp => new ContextChangeService(
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
-            sp.GetRequiredService<SyncCoordinator>(),
-            sp.GetRequiredService<ProtectedCacheWriter>(),
-            sp.GetService<IWorkItemLinkRepository>()));
-
-        services.AddSingleton(sp => new WorkingSetService(
-            sp.GetRequiredService<IContextStore>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IPendingChangeStore>(),
-            sp.GetRequiredService<IIterationService>(),
-            sp.GetRequiredService<TwigConfiguration>().User.DisplayName));
-
-        services.AddSingleton(sp => new RefreshOrchestrator(
-            sp.GetRequiredService<IContextStore>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
-            sp.GetRequiredService<IPendingChangeStore>(),
-            sp.GetRequiredService<ProtectedCacheWriter>(),
-            sp.GetRequiredService<WorkingSetService>(),
-            sp.GetRequiredService<SyncCoordinatorFactory>()));
-
-        services.AddSingleton(sp => new StatusOrchestrator(
-            sp.GetRequiredService<IContextStore>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IPendingChangeStore>(),
-            sp.GetRequiredService<ActiveItemResolver>(),
-            sp.GetRequiredService<WorkingSetService>(),
-            sp.GetRequiredService<SyncCoordinatorFactory>()));
-
-        services.AddSingleton(sp => new McpPendingChangeFlusher(
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
-            sp.GetRequiredService<IPendingChangeStore>()));
-
-        using var provider = services.BuildServiceProvider();
-
-        // All 7 domain services + McpPendingChangeFlusher + SyncCoordinatorFactory must resolve
-        provider.GetRequiredService<ActiveItemResolver>().ShouldNotBeNull();
-        provider.GetRequiredService<ProtectedCacheWriter>().ShouldNotBeNull();
-        provider.GetRequiredService<SyncCoordinatorFactory>().ShouldNotBeNull();
-        provider.GetRequiredService<SyncCoordinator>().ShouldNotBeNull();
-        provider.GetRequiredService<ContextChangeService>().ShouldNotBeNull();
-        provider.GetRequiredService<WorkingSetService>().ShouldNotBeNull();
-        provider.GetRequiredService<RefreshOrchestrator>().ShouldNotBeNull();
-        provider.GetRequiredService<StatusOrchestrator>().ShouldNotBeNull();
-        provider.GetRequiredService<McpPendingChangeFlusher>().ShouldNotBeNull();
-    }
-
-    [Fact]
-    public void McpServerRegistration_ConfiguresServerInfo()
-    {
-        var services = new ServiceCollection();
-        services.AddLogging();
-
-        services
-            .AddMcpServer(o =>
-            {
-                o.ServerInfo = new() { Name = "twig-mcp", Version = "1.0.0-test" };
-            })
-            .WithStdioServerTransport()
-            .WithTools<ContextTools>()
-            .WithTools<ReadTools>()
-            .WithTools<MutationTools>();
-
-        using var provider = services.BuildServiceProvider();
-
-        // The MCP server options should be resolvable after registration
-        var options = provider.GetService<Microsoft.Extensions.Options.IOptions<McpServerOptions>>();
-        options.ShouldNotBeNull();
-        options.Value.ServerInfo.ShouldNotBeNull();
-        options.Value.ServerInfo.Name.ShouldBe("twig-mcp");
-        options.Value.ServerInfo.Version.ShouldBe("1.0.0-test");
-    }
-
-    [Fact]
-    public void WorkspaceGuard_MissingConfigFile_ReturnsInvalidWithMessage()
-    {
-        // FR-11: When .twig/config is missing, the guard should return IsValid=false
-        // with a clear error message telling the user to run 'twig init'.
+        // Verify that the workspace infrastructure singletons registered in Program.cs
+        // (WorkspaceRegistry via IWorkspaceRegistry, WorkspaceResolver) are resolvable.
         var tempDir = Path.Combine(Path.GetTempPath(), $"twig-test-{Guid.NewGuid():N}");
         try
         {
-            Directory.CreateDirectory(tempDir);
-            // Create .twig/ dir without config so walk-up stops here
-            Directory.CreateDirectory(Path.Combine(tempDir, ".twig"));
+            // Create a per-workspace config: .twig/testorg/testproj/config
+            var wsConfigDir = Path.Combine(tempDir, ".twig", "testorg", "testproj");
+            Directory.CreateDirectory(wsConfigDir);
+            File.WriteAllText(Path.Combine(wsConfigDir, "config"),
+                """{"organization":"testorg","project":"testproj"}""");
 
-            var (isValid, error, _) = WorkspaceGuard.CheckWorkspace(tempDir);
+            var twigRoot = Path.Combine(tempDir, ".twig");
+            var registry = new WorkspaceRegistry(twigRoot);
 
-            isValid.ShouldBeFalse();
-            error.ShouldNotBeNull();
-            error.ShouldContain("twig init");
+            var httpClient = new HttpClient();
+            var authProvider = NSubstitute.Substitute.For<IAuthenticationProvider>();
+
+            var factory = new WorkspaceContextFactory(registry, httpClient, authProvider, twigRoot);
+            var resolver = new WorkspaceResolver(registry, factory);
+
+            var services = new ServiceCollection();
+            services.AddSingleton<IWorkspaceRegistry>(registry);
+            services.AddSingleton(resolver);
+
+            using var provider = services.BuildServiceProvider();
+
+            provider.GetRequiredService<IWorkspaceRegistry>().ShouldNotBeNull();
+            provider.GetRequiredService<WorkspaceResolver>().ShouldNotBeNull();
+            provider.GetRequiredService<IWorkspaceRegistry>().ShouldBeSameAs(registry);
+            provider.GetRequiredService<WorkspaceResolver>().ShouldBeSameAs(resolver);
+
+            factory.Dispose();
         }
         finally
         {
@@ -179,17 +59,69 @@ public sealed class ProgramBootstrapTests
     }
 
     [Fact]
-    public void WorkspaceGuard_ConfigFileExistsAtExactPath_ReturnsValid()
+    public void McpServerRegistration_ConfiguresServerInfoAndAllToolTypes()
     {
-        // FR-11: The guard checks for a .twig/config *file* — not just a .twig/ directory.
+        var services = new ServiceCollection();
+        services.AddLogging();
+
+        // Register workspace infrastructure stubs required by tool constructors
+        var tempDir = Path.Combine(Path.GetTempPath(), $"twig-test-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(tempDir, ".twig"));
+            var registry = new WorkspaceRegistry(Path.Combine(tempDir, ".twig"));
+            var authProvider = NSubstitute.Substitute.For<IAuthenticationProvider>();
+            var factory = new WorkspaceContextFactory(registry, new HttpClient(), authProvider, Path.Combine(tempDir, ".twig"));
+            var resolver = new WorkspaceResolver(registry, factory);
+
+            services.AddSingleton<IWorkspaceRegistry>(registry);
+            services.AddSingleton(resolver);
+
+            services
+                .AddMcpServer(o =>
+                {
+                    o.ServerInfo = new() { Name = "twig-mcp", Version = "1.0.0-test" };
+                })
+                .WithStdioServerTransport()
+                .WithTools<ContextTools>()
+                .WithTools<ReadTools>()
+                .WithTools<MutationTools>()
+                .WithTools<WorkspaceTools>();
+
+            using var provider = services.BuildServiceProvider();
+
+            var options = provider.GetService<Microsoft.Extensions.Options.IOptions<McpServerOptions>>();
+            options.ShouldNotBeNull();
+            options.Value.ServerInfo.ShouldNotBeNull();
+            options.Value.ServerInfo.Name.ShouldBe("twig-mcp");
+            options.Value.ServerInfo.Version.ShouldBe("1.0.0-test");
+
+            factory.Dispose();
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    // --- WorkspaceGuard.CheckWorkspaceAmbient (multi-workspace) ---
+
+    [Fact]
+    public void Ambient_WithPerWorkspaceConfig_ReturnsValid()
+    {
+        // FR-7: Ambient mode succeeds when .twig/{org}/{project}/config exists,
+        // even without top-level .twig/config.
         var tempDir = Path.Combine(Path.GetTempPath(), $"twig-test-{Guid.NewGuid():N}");
         try
         {
             var twigDir = Path.Combine(tempDir, ".twig");
-            Directory.CreateDirectory(twigDir);
-            File.WriteAllText(Path.Combine(twigDir, "config"), "{}");
+            var wsDir = Path.Combine(twigDir, "myorg", "myproject");
+            Directory.CreateDirectory(wsDir);
+            File.WriteAllText(Path.Combine(wsDir, "config"),
+                """{"organization":"myorg","project":"myproject"}""");
 
-            var (isValid, error, resultTwigDir) = WorkspaceGuard.CheckWorkspace(tempDir);
+            var (isValid, error, resultTwigDir) = WorkspaceGuard.CheckWorkspaceAmbient(tempDir);
 
             isValid.ShouldBeTrue();
             error.ShouldBeNull();
@@ -203,13 +135,55 @@ public sealed class ProgramBootstrapTests
     }
 
     [Fact]
-    public void WorkspaceGuard_NoTwigDirAnywhere_ReturnsNotFoundError()
+    public void Ambient_WithLegacyTopLevelConfig_ReturnsValid()
     {
-        // Walk-up search: when no .twig/ exists anywhere up the ancestor chain,
-        // return a clear error directing the user to run 'twig init'.
-        // On Windows, %TEMP% is under the user profile which may contain .twig/,
-        // so use the drive root (e.g. C:\) which is writable on Windows.
-        // On Linux, /tmp is outside the user home and writable without root.
+        // Backward compat: ambient mode also succeeds with .twig/config (single-workspace).
+        var tempDir = Path.Combine(Path.GetTempPath(), $"twig-test-{Guid.NewGuid():N}");
+        try
+        {
+            var twigDir = Path.Combine(tempDir, ".twig");
+            Directory.CreateDirectory(twigDir);
+            File.WriteAllText(Path.Combine(twigDir, "config"), "{}");
+
+            var (isValid, error, resultTwigDir) = WorkspaceGuard.CheckWorkspaceAmbient(tempDir);
+
+            isValid.ShouldBeTrue();
+            error.ShouldBeNull();
+            resultTwigDir.ShouldBe(twigDir);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Ambient_EmptyTwigDir_NoConfigs_ReturnsInvalid()
+    {
+        // When .twig/ exists but has no config files at any level, ambient mode fails.
+        var tempDir = Path.Combine(Path.GetTempPath(), $"twig-test-{Guid.NewGuid():N}");
+        try
+        {
+            var twigDir = Path.Combine(tempDir, ".twig");
+            Directory.CreateDirectory(twigDir);
+
+            var (isValid, error, _) = WorkspaceGuard.CheckWorkspaceAmbient(tempDir);
+
+            isValid.ShouldBeFalse();
+            error.ShouldNotBeNull();
+            error.ShouldContain("twig init");
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Ambient_NoTwigDirAnywhere_ReturnsNotFoundError()
+    {
         var rootDir = OperatingSystem.IsWindows()
             ? Path.Combine(Path.GetPathRoot(Path.GetTempPath())!, $"twig-nows-{Guid.NewGuid():N}")
             : Path.Combine(Path.GetTempPath(), $"twig-nows-{Guid.NewGuid():N}");
@@ -218,7 +192,7 @@ public sealed class ProgramBootstrapTests
         {
             Directory.CreateDirectory(tempDir);
 
-            var (isValid, error, twigDir) = WorkspaceGuard.CheckWorkspace(tempDir);
+            var (isValid, error, twigDir) = WorkspaceGuard.CheckWorkspaceAmbient(tempDir);
 
             isValid.ShouldBeFalse();
             error.ShouldBe("No twig workspace found. Run 'twig init' in your project root.");
@@ -232,36 +206,55 @@ public sealed class ProgramBootstrapTests
     }
 
     [Fact]
-    public void DiscoveredTwigDir_FromSubdirectory_ThreadedCorrectly()
+    public void Ambient_MultipleWorkspaceConfigs_ReturnsValid()
     {
-        // Walk-up integration: when started from a subdirectory, the guard discovers
-        // .twig/ in a parent, and that path is threaded to AddTwigCoreServices.
+        // Multiple per-workspace configs: ambient mode succeeds when two workspaces exist.
         var tempDir = Path.Combine(Path.GetTempPath(), $"twig-test-{Guid.NewGuid():N}");
         try
         {
             var twigDir = Path.Combine(tempDir, ".twig");
-            Directory.CreateDirectory(twigDir);
-            File.WriteAllText(Path.Combine(twigDir, "config"), "{}");
+            var ws1 = Path.Combine(twigDir, "org1", "proj1");
+            var ws2 = Path.Combine(twigDir, "org2", "proj2");
+            Directory.CreateDirectory(ws1);
+            Directory.CreateDirectory(ws2);
+            File.WriteAllText(Path.Combine(ws1, "config"),
+                """{"organization":"org1","project":"proj1"}""");
+            File.WriteAllText(Path.Combine(ws2, "config"),
+                """{"organization":"org2","project":"proj2"}""");
 
-            // Create a nested subdirectory to simulate running from src/MyProject/
+            var (isValid, error, resultTwigDir) = WorkspaceGuard.CheckWorkspaceAmbient(tempDir);
+
+            isValid.ShouldBeTrue();
+            error.ShouldBeNull();
+            resultTwigDir.ShouldBe(twigDir);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Ambient_FromSubdirectory_FindsTwigDir()
+    {
+        // Walk-up: ambient mode discovers .twig/ from a nested CWD.
+        var tempDir = Path.Combine(Path.GetTempPath(), $"twig-test-{Guid.NewGuid():N}");
+        try
+        {
+            var twigDir = Path.Combine(tempDir, ".twig");
+            var wsDir = Path.Combine(twigDir, "myorg", "myproject");
+            Directory.CreateDirectory(wsDir);
+            File.WriteAllText(Path.Combine(wsDir, "config"),
+                """{"organization":"myorg","project":"myproject"}""");
+
             var subDir = Path.Combine(tempDir, "src", "MyProject");
             Directory.CreateDirectory(subDir);
 
-            var (isValid, _, discoveredTwigDir) = WorkspaceGuard.CheckWorkspace(subDir);
+            var (isValid, _, resultTwigDir) = WorkspaceGuard.CheckWorkspaceAmbient(subDir);
+
             isValid.ShouldBeTrue();
-            discoveredTwigDir.ShouldBe(twigDir);
-
-            var configPath = Path.Combine(discoveredTwigDir!, "config");
-            var config = TwigConfiguration.Load(configPath);
-
-            var services = new ServiceCollection();
-            services.AddTwigCoreServices(config, discoveredTwigDir);
-
-            using var provider = services.BuildServiceProvider();
-            var paths = provider.GetRequiredService<TwigPaths>();
-
-            // TwigPaths should point at the parent's .twig/, not the subdirectory
-            paths.TwigDir.ShouldBe(twigDir);
+            resultTwigDir.ShouldBe(twigDir);
         }
         finally
         {

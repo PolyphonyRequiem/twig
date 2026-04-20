@@ -20,7 +20,7 @@ internal static class McpResultBuilder
         new() { Content = [new TextContentBlock { Text = message }], IsError = true };
 
     public static CallToolResult FormatWorkItemWithWorkingSet(
-        WorkItem item, int parentChainCount, int childCount) =>
+        WorkItem item, int parentChainCount, int childCount, string? workspace = null) =>
         BuildJson(writer =>
         {
             WriteWorkItemCore(writer, item);
@@ -30,9 +30,10 @@ internal static class McpResultBuilder
             writer.WriteNumber("parentChainCount", parentChainCount);
             writer.WriteNumber("childCount", childCount);
             writer.WriteEndObject();
+            WriteOptionalWorkspace(writer, workspace);
         });
 
-    public static CallToolResult FormatStatus(StatusSnapshot snapshot) =>
+    public static CallToolResult FormatStatus(StatusSnapshot snapshot, string? workspace = null) =>
         BuildJson(writer =>
         {
             writer.WriteBoolean("hasContext", snapshot.HasContext);
@@ -73,6 +74,8 @@ internal static class McpResultBuilder
                 writer.WriteNumber("unreachableId", snapshot.UnreachableId.Value);
                 writer.WriteString("unreachableReason", snapshot.UnreachableReason);
             }
+
+            WriteOptionalWorkspace(writer, workspace);
         });
 
     public static CallToolResult FormatTree(WorkTree tree, int totalChildren) =>
@@ -115,7 +118,7 @@ internal static class McpResultBuilder
             writer.WriteEndArray();
         });
 
-    public static CallToolResult FormatWorkspace(Workspace workspace, int staleDays) =>
+    public static CallToolResult FormatWorkspace(Workspace workspace, int staleDays, string? workspaceKey = null) =>
         BuildJson(writer =>
         {
             // Context
@@ -148,6 +151,8 @@ internal static class McpResultBuilder
             // Dirty count
             var dirtyItems = workspace.GetDirtyItems();
             writer.WriteNumber("dirtyCount", dirtyItems.Count);
+
+            WriteOptionalWorkspace(writer, workspaceKey);
         });
 
     public static CallToolResult FormatStateChange(WorkItem updated, string previousState) =>
@@ -248,6 +253,18 @@ internal static class McpResultBuilder
             writer.WriteNumber("parentId", item.ParentId.Value);
         else
             writer.WriteNull("parentId");
+    }
+
+    /// <summary>
+    /// Always writes the "workspace" key: string value when workspace is known,
+    /// JSON null when absent. Callers that check key presence will always find it.
+    /// </summary>
+    private static void WriteOptionalWorkspace(Utf8JsonWriter writer, string? workspace)
+    {
+        if (workspace is not null)
+            writer.WriteString("workspace", workspace);
+        else
+            writer.WriteNull("workspace");
     }
 
     private static void WriteLinkObject(Utf8JsonWriter writer, WorkItemLink link)

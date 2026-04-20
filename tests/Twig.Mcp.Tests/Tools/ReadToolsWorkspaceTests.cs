@@ -59,6 +59,10 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
         root.GetProperty("sprintItems").GetArrayLength().ShouldBe(1);
         root.GetProperty("sprintItems")[0].GetProperty("id").GetInt32().ShouldBe(100);
 
+        // Workspace field — validates acceptance criterion:
+        // "twig_workspace reports the workspace associated with the active context item"
+        root.GetProperty("workspace").GetString().ShouldBe("testorg/testproject");
+
         // Verify it called the assignee-filtered method
         await _workItemRepo.Received(1)
             .GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>());

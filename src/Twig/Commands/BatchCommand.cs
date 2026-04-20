@@ -8,7 +8,6 @@ using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Ado.Exceptions;
-using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Content;
 
 namespace Twig.Commands;

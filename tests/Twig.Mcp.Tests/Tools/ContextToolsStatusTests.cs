@@ -61,6 +61,10 @@ public sealed class ContextToolsStatusTests : ContextToolsTestBase
         root.GetProperty("pendingChanges").GetArrayLength().ShouldBe(0);
         root.GetProperty("seeds").GetArrayLength().ShouldBe(0);
         root.GetProperty("item").GetProperty("parentId").ValueKind.ShouldBe(JsonValueKind.Null);
+
+        // Workspace field — validates acceptance criterion:
+        // "twig_status reports the workspace associated with the active context item"
+        root.GetProperty("workspace").GetString().ShouldBe("testorg/testproject");
     }
 
     // ═══════════════════════════════════════════════════════════════

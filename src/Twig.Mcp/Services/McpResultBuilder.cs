@@ -255,6 +255,10 @@ internal static class McpResultBuilder
             writer.WriteNull("parentId");
     }
 
+    /// <summary>
+    /// Always writes the "workspace" key: string value when workspace is known,
+    /// JSON null when absent. Callers that check key presence will always find it.
+    /// </summary>
     private static void WriteOptionalWorkspace(Utf8JsonWriter writer, string? workspace)
     {
         if (workspace is not null)

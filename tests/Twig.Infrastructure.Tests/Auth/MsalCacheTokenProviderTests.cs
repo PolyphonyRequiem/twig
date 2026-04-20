@@ -413,6 +413,81 @@ public class MsalCacheTokenProviderTests
         inner.CallCount.ShouldBe(0);
     }
 
+    [Fact]
+    public async Task GetAccessTokenAsync_InnerProviderThrows_ExceptionPropagates_SemaphoreReleased()
+    {
+        var inner = new ThrowingInnerProvider();
+
+        var provider = new MsalCacheTokenProvider(
+            inner,
+            cacheFilePath: "fake-path",
+            fileReader: (_, _) => Task.FromResult<string?>(null),
+            clock: () => DateTimeOffset.UtcNow);
+
+        // First call — inner throws, exception propagates
+        await Should.ThrowAsync<InvalidOperationException>(
+            () => provider.GetAccessTokenAsync());
+
+        // Second call — proves semaphore was released (would deadlock otherwise)
+        await Should.ThrowAsync<InvalidOperationException>(
+            () => provider.GetAccessTokenAsync());
+
+        inner.CallCount.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task GetAccessTokenAsync_ConcurrentCalls_SemaphoreSerializesAccess()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var expiresOn = now.AddMinutes(30).ToUnixTimeSeconds();
+        var json = CreateCacheJson("concurrent-token", AdoResourceId, expiresOn);
+        var inner = CreateInnerProvider();
+        var concurrentReaders = 0;
+        var maxConcurrentReaders = 0;
+
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var provider = new MsalCacheTokenProvider(
+            inner,
+            cacheFilePath: "fake-path",
+            fileReader: async (_, ct) =>
+            {
+                var current = Interlocked.Increment(ref concurrentReaders);
+                // Track maximum concurrent readers
+                int snapshot;
+                do
+                {
+                    snapshot = Volatile.Read(ref maxConcurrentReaders);
+                } while (current > snapshot &&
+                         Interlocked.CompareExchange(ref maxConcurrentReaders, current, snapshot) != snapshot);
+
+                // Wait on gate to ensure all callers overlap
+                await gate.Task;
+                Interlocked.Decrement(ref concurrentReaders);
+                return json;
+            },
+            clock: () => now);
+
+        // Launch 5 concurrent calls
+        var tasks = Enumerable.Range(0, 5)
+            .Select(_ => provider.GetAccessTokenAsync())
+            .ToArray();
+
+        // Let the file reader complete after a short delay to let tasks queue up
+        await Task.Delay(100);
+        gate.SetResult();
+
+        var tokens = await Task.WhenAll(tasks);
+
+        // All should get the same token
+        foreach (var t in tokens)
+            t.ShouldBe("concurrent-token");
+
+        // SemaphoreSlim(1,1) ensures at most 1 concurrent file read
+        maxConcurrentReaders.ShouldBe(1);
+        inner.CallCount.ShouldBe(0);
+    }
+
     /// <summary>
     /// Fake inner auth provider for test isolation.
     /// </summary>
@@ -424,6 +499,20 @@ public class MsalCacheTokenProviderTests
         {
             CallCount++;
             return Task.FromResult(token);
+        }
+    }
+
+    /// <summary>
+    /// Inner provider that always throws, for testing exception propagation.
+    /// </summary>
+    private sealed class ThrowingInnerProvider : IAuthenticationProvider
+    {
+        public int CallCount { get; private set; }
+
+        public Task<string> GetAccessTokenAsync(CancellationToken ct = default)
+        {
+            CallCount++;
+            throw new InvalidOperationException("az CLI unavailable");
         }
     }
 }

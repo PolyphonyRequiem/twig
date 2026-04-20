@@ -102,12 +102,6 @@ internal sealed class MsalCacheTokenProvider : IAuthenticationProvider
             }
 
             // 3. Fallback to inner provider (az CLI)
-            var innerToken = await _inner.GetAccessTokenAsync(ct);
-            return innerToken;
-        }
-        catch
-        {
-            // Swallow all exceptions — delegate to inner as last resort
             return await _inner.GetAccessTokenAsync(ct);
         }
         finally

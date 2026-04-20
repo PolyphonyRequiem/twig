@@ -53,32 +53,14 @@ public sealed class WorkspaceResolverTests
         Should.Throw<FormatException>(() => resolver.Resolve("no-slash"));
     }
 
-    [Fact]
-    public void Resolve_SingleWorkspace_NoExplicitParam_ReturnsSoleWorkspace()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public void Resolve_SingleWorkspace_NullOrEmptyParam_ReturnsSoleWorkspace(string? workspace)
     {
         var (resolver, contexts) = CreateResolver(KeyA);
 
-        var result = resolver.Resolve();
-
-        result.ShouldBeSameAs(contexts[KeyA]);
-    }
-
-    [Fact]
-    public void Resolve_SingleWorkspace_NullParam_ReturnsSoleWorkspace()
-    {
-        var (resolver, contexts) = CreateResolver(KeyA);
-
-        var result = resolver.Resolve(null);
-
-        result.ShouldBeSameAs(contexts[KeyA]);
-    }
-
-    [Fact]
-    public void Resolve_SingleWorkspace_EmptyParam_ReturnsSoleWorkspace()
-    {
-        var (resolver, contexts) = CreateResolver(KeyA);
-
-        var result = resolver.Resolve("");
+        var result = resolver.Resolve(workspace);
 
         result.ShouldBeSameAs(contexts[KeyA]);
     }

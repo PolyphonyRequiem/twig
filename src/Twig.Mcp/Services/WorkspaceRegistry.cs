@@ -13,9 +13,6 @@ public interface IWorkspaceRegistry
 
     /// <summary>True when exactly one workspace is registered — enables backward-compat fast-path.</summary>
     bool IsSingleWorkspace { get; }
-
-    /// <summary>Gets the <see cref="TwigConfiguration"/> for a given workspace.</summary>
-    TwigConfiguration GetConfig(WorkspaceKey key);
 }
 
 /// <summary>

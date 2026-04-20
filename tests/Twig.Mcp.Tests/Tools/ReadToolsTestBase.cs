@@ -63,6 +63,80 @@ public abstract class ReadToolsTestBase
         return new WorkspaceResolver(registry, factory);
     }
 
+    /// <summary>
+    /// Per-workspace mock bundle for multi-workspace test scenarios.
+    /// </summary>
+    protected sealed record WorkspaceMocks(
+        IContextStore ContextStore,
+        IWorkItemRepository WorkItemRepo,
+        IAdoWorkItemService AdoService,
+        IPendingChangeStore PendingChangeStore,
+        IWorkItemLinkRepository LinkRepo,
+        IIterationService IterationService,
+        IPromptStateWriter PromptStateWriter,
+        IProcessConfigurationProvider ProcessConfigProvider);
+
+    /// <summary>
+    /// Builds a <see cref="WorkspaceResolver"/> with multiple workspaces, each backed by
+    /// independent mock sets. Returns the resolver and a dictionary of per-workspace mocks
+    /// for test setup.
+    /// </summary>
+    protected static (WorkspaceResolver Resolver, IReadOnlyDictionary<WorkspaceKey, WorkspaceMocks> Mocks)
+        BuildMultiResolver(TwigConfiguration config, params WorkspaceKey[] keys)
+    {
+        var mocks = new Dictionary<WorkspaceKey, WorkspaceMocks>();
+
+        var registry = Substitute.For<IWorkspaceRegistry>();
+        registry.Workspaces.Returns(keys.ToList().AsReadOnly());
+        registry.IsSingleWorkspace.Returns(keys.Length == 1);
+
+        var factory = Substitute.For<IWorkspaceContextFactory>();
+
+        foreach (var key in keys)
+        {
+            var m = new WorkspaceMocks(
+                Substitute.For<IContextStore>(),
+                Substitute.For<IWorkItemRepository>(),
+                Substitute.For<IAdoWorkItemService>(),
+                Substitute.For<IPendingChangeStore>(),
+                Substitute.For<IWorkItemLinkRepository>(),
+                Substitute.For<IIterationService>(),
+                Substitute.For<IPromptStateWriter>(),
+                Substitute.For<IProcessConfigurationProvider>());
+
+            var activeItemResolver = new ActiveItemResolver(m.ContextStore, m.WorkItemRepo, m.AdoService);
+            var protectedWriter = new ProtectedCacheWriter(m.WorkItemRepo, m.PendingChangeStore);
+            var syncFactory = new SyncCoordinatorFactory(
+                m.WorkItemRepo, m.AdoService, protectedWriter, m.PendingChangeStore,
+                m.LinkRepo,
+                readOnlyStaleMinutes: config.Display.CacheStaleMinutes,
+                readWriteStaleMinutes: config.Display.CacheStaleMinutes);
+            var contextChange = new ContextChangeService(
+                m.WorkItemRepo, m.AdoService, syncFactory.ReadWrite, protectedWriter, m.LinkRepo);
+            var workingSet = new WorkingSetService(
+                m.ContextStore, m.WorkItemRepo, m.PendingChangeStore, m.IterationService,
+                config.User.DisplayName);
+            var statusOrch = new StatusOrchestrator(
+                m.ContextStore, m.WorkItemRepo, m.PendingChangeStore, activeItemResolver,
+                workingSet, syncFactory);
+            var flusher = new McpPendingChangeFlusher(m.WorkItemRepo, m.AdoService, m.PendingChangeStore);
+            var paths = TwigPaths.ForContext(Path.GetTempPath(), key.Org, key.Project);
+            var cacheStore = new SqliteCacheStore("Data Source=:memory:");
+
+            var ctx = new WorkspaceContext(
+                key, config, paths, cacheStore,
+                m.WorkItemRepo, m.ContextStore, m.PendingChangeStore,
+                m.AdoService, m.IterationService, m.ProcessConfigProvider,
+                activeItemResolver, syncFactory, contextChange,
+                statusOrch, workingSet, flusher, m.PromptStateWriter);
+
+            factory.GetOrCreate(key).Returns(ctx);
+            mocks[key] = m;
+        }
+
+        return (new WorkspaceResolver(registry, factory), mocks);
+    }
+
     protected ReadTools CreateSut(TwigConfiguration config)
     {
         return new ReadTools(BuildResolver(config));

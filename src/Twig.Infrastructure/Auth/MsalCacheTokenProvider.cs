@@ -84,9 +84,9 @@ internal sealed class MsalCacheTokenProvider : IAuthenticationProvider
                 if (json is not null)
                 {
                     var cache = JsonSerializer.Deserialize(json, TwigJsonContext.Default.MsalTokenCache);
-                    if (cache?.AccessToken is not null)
+                    if (cache?.AccessToken is { } accessTokens)
                     {
-                        var token = FindBestToken(cache, now);
+                        var token = FindBestToken(accessTokens, now);
                         if (token is not null)
                         {
                             _cachedToken = token;
@@ -115,15 +115,12 @@ internal sealed class MsalCacheTokenProvider : IAuthenticationProvider
     /// with at least 5 minutes of remaining lifetime.
     /// Returns the raw secret string (NOT Bearer-prefixed — DD-21).
     /// </summary>
-    private string? FindBestToken(MsalTokenCache cache, DateTimeOffset now)
+    private string? FindBestToken(Dictionary<string, MsalAccessTokenEntry> accessTokens, DateTimeOffset now)
     {
-        if (cache.AccessToken is null)
-            return null;
-
         string? bestToken = null;
         DateTimeOffset bestExpiry = DateTimeOffset.MinValue;
 
-        foreach (var entry in cache.AccessToken.Values)
+        foreach (var entry in accessTokens.Values)
         {
             if (entry.Target is null || !entry.Target.Contains(AdoResourceId, StringComparison.OrdinalIgnoreCase))
                 continue;

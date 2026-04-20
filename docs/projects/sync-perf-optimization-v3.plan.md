@@ -1,7 +1,7 @@
 # Sync Performance Optimization v3
 
 **Epic:** #1611 — Sync Performance Optimization
-**Status:** In Progress (3 of 5 Issues completed; #1614 in progress — 4 of 6 tasks done, #1662 ~80% complete, #1663 ~65% complete)
+**Status**: 🔨 In Progress
 **Revision:** Rev 12
 
 ---

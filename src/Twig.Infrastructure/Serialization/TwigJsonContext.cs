@@ -2,6 +2,7 @@ using System.Text.Json.Serialization;
 using Twig.Domain.Enums;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado.Dtos;
+using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.GitHub;
 using Twig.Infrastructure.Telemetry;
@@ -89,6 +90,8 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(ProfileMetadata))]
 // Telemetry envelope types (Epic 6 — lightweight AI ingestion)
 [JsonSerializable(typeof(AppInsightsEnvelope))]
+// MSAL token cache DTOs (Epic — sync-perf-optimization)
+[JsonSerializable(typeof(MsalTokenCache))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]

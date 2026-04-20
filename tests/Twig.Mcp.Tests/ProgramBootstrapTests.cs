@@ -3,9 +3,6 @@ using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
 using Shouldly;
 using Twig.Domain.Interfaces;
-using Twig.Infrastructure;
-using Twig.Infrastructure.Config;
-using Twig.Infrastructure.DependencyInjection;
 using Twig.Mcp.Services;
 using Twig.Mcp.Tools;
 using Xunit;
@@ -100,111 +97,6 @@ public sealed class ProgramBootstrapTests
             options.Value.ServerInfo.Version.ShouldBe("1.0.0-test");
 
             factory.Dispose();
-        }
-        finally
-        {
-            if (Directory.Exists(tempDir))
-                Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    // --- WorkspaceGuard.CheckWorkspace (backward compat) ---
-
-    [Fact]
-    public void WorkspaceGuard_MissingConfigFile_ReturnsInvalidWithMessage()
-    {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"twig-test-{Guid.NewGuid():N}");
-        try
-        {
-            Directory.CreateDirectory(tempDir);
-            Directory.CreateDirectory(Path.Combine(tempDir, ".twig"));
-
-            var (isValid, error, _) = WorkspaceGuard.CheckWorkspace(tempDir);
-
-            isValid.ShouldBeFalse();
-            error.ShouldNotBeNull();
-            error.ShouldContain("twig init");
-        }
-        finally
-        {
-            if (Directory.Exists(tempDir))
-                Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public void WorkspaceGuard_ConfigFileExistsAtExactPath_ReturnsValid()
-    {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"twig-test-{Guid.NewGuid():N}");
-        try
-        {
-            var twigDir = Path.Combine(tempDir, ".twig");
-            Directory.CreateDirectory(twigDir);
-            File.WriteAllText(Path.Combine(twigDir, "config"), "{}");
-
-            var (isValid, error, resultTwigDir) = WorkspaceGuard.CheckWorkspace(tempDir);
-
-            isValid.ShouldBeTrue();
-            error.ShouldBeNull();
-            resultTwigDir.ShouldBe(twigDir);
-        }
-        finally
-        {
-            if (Directory.Exists(tempDir))
-                Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public void WorkspaceGuard_NoTwigDirAnywhere_ReturnsNotFoundError()
-    {
-        var rootDir = OperatingSystem.IsWindows()
-            ? Path.Combine(Path.GetPathRoot(Path.GetTempPath())!, $"twig-nows-{Guid.NewGuid():N}")
-            : Path.Combine(Path.GetTempPath(), $"twig-nows-{Guid.NewGuid():N}");
-        var tempDir = Path.Combine(rootDir, "deep", "nested");
-        try
-        {
-            Directory.CreateDirectory(tempDir);
-
-            var (isValid, error, twigDir) = WorkspaceGuard.CheckWorkspace(tempDir);
-
-            isValid.ShouldBeFalse();
-            error.ShouldBe("No twig workspace found. Run 'twig init' in your project root.");
-            twigDir.ShouldBeNull();
-        }
-        finally
-        {
-            if (Directory.Exists(rootDir))
-                Directory.Delete(rootDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public void DiscoveredTwigDir_FromSubdirectory_ThreadedCorrectly()
-    {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"twig-test-{Guid.NewGuid():N}");
-        try
-        {
-            var twigDir = Path.Combine(tempDir, ".twig");
-            Directory.CreateDirectory(twigDir);
-            File.WriteAllText(Path.Combine(twigDir, "config"), "{}");
-
-            var subDir = Path.Combine(tempDir, "src", "MyProject");
-            Directory.CreateDirectory(subDir);
-
-            var (isValid, _, discoveredTwigDir) = WorkspaceGuard.CheckWorkspace(subDir);
-            isValid.ShouldBeTrue();
-            discoveredTwigDir.ShouldBe(twigDir);
-
-            var configPath = Path.Combine(discoveredTwigDir!, "config");
-            var config = TwigConfiguration.Load(configPath);
-
-            var services = new ServiceCollection();
-            services.AddTwigCoreServices(config, discoveredTwigDir);
-
-            using var provider = services.BuildServiceProvider();
-            var paths = provider.GetRequiredService<TwigPaths>();
-            paths.TwigDir.ShouldBe(twigDir);
         }
         finally
         {

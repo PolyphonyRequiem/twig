@@ -6,21 +6,6 @@ namespace Twig.Mcp;
 internal static class WorkspaceGuard
 {
     /// <summary>
-    /// Single-workspace guard: walks up from <paramref name="cwd"/> to find <c>.twig/config</c>.
-    /// Used by CLI and TUI startup paths.
-    /// </summary>
-    internal static (bool IsValid, string? Error, string? TwigDir) CheckWorkspace(string cwd)
-    {
-        var twigDir = WorkspaceDiscovery.FindTwigDir(cwd);
-        if (twigDir is null)
-            return (false, "No twig workspace found. Run 'twig init' in your project root.", null);
-        var configPath = Path.Combine(twigDir, "config");
-        return File.Exists(configPath)
-            ? (true, null, twigDir)
-            : (false, "Twig workspace not initialized. Run 'twig init' first.", null);
-    }
-
-    /// <summary>
     /// Ambient-mode guard for MCP multi-workspace: walks up from <paramref name="cwd"/>
     /// to find <c>.twig/</c>, then succeeds if any <c>.twig/{org}/{project}/config</c>
     /// exists OR the legacy <c>.twig/config</c> exists. Does not require the top-level

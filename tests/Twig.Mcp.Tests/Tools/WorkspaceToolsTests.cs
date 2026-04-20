@@ -8,7 +8,7 @@ using Xunit;
 
 namespace Twig.Mcp.Tests.Tools;
 
-public sealed class WorkspaceToolsTests
+public sealed class WorkspaceToolsTests : ReadToolsTestBase
 {
     private static readonly WorkspaceKey Key1 = new("org1", "project1");
     private static readonly WorkspaceKey Key2 = new("org2", "project2");
@@ -114,12 +114,5 @@ public sealed class WorkspaceToolsTests
         var resolver = new WorkspaceResolver(registry, factory);
 
         return (registry, resolver);
-    }
-
-    private static JsonElement ParseResult(CallToolResult result)
-    {
-        var text = result.Content[0].ShouldBeOfType<TextContentBlock>().Text;
-        using var doc = JsonDocument.Parse(text);
-        return doc.RootElement.Clone();
     }
 }

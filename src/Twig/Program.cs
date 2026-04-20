@@ -607,6 +607,18 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> LinkReparent([Argument] int targetId, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<LinkCommand>().ReparentAsync(targetId, output, ct);
 
+    /// <summary>Batch state transitions, field updates, and notes in a single call.</summary>
+    /// <param name="state">Target state name (e.g. Active, Closed).</param>
+    /// <param name="set">Field updates as key=value pairs. Repeatable.</param>
+    /// <param name="note">Comment text to add after the update.</param>
+    /// <param name="id">Target a specific work item by ID instead of the active item.</param>
+    /// <param name="ids">Comma-separated IDs for multi-item batch (e.g. 1234,5678).</param>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="format">Convert --set values before sending. Supported: "markdown".</param>
+    [Command("batch")]
+    public async Task<int> Batch(string? state = null, string[]? set = null, string? note = null, int? id = null, string? ids = null, string output = OutputFormatterFactory.DefaultFormat, string? format = null, CancellationToken ct = default)
+        => await services.GetRequiredService<BatchCommand>().ExecuteAsync(state, set, note, id, ids, output, format, ct);
+
     /// <summary>Add a note to the active work item.</summary>
     /// <param name="text">Note text to add; omit to open an editor.</param>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
@@ -963,6 +975,7 @@ internal static class GroupedHelp
         // Work Items
         "state",
         "states",
+        "batch",
         "note",
         "update",
         "edit",
@@ -1087,6 +1100,7 @@ Navigation:
 Work Items:
   state <name>         Change the state (e.g. Active, Closed).
   states               List available states for the active item's type.
+  batch                Batch state, field, and note changes in one call.
   note                 Add a note to the active work item.
   update <field> <v>   Update a field on the active work item.
   edit                 Edit work item fields in an external editor.

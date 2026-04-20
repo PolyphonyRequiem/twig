@@ -47,6 +47,13 @@ internal static class CommandExamples
             "twig state Active          Transition active item to Active",
             "twig state Done            Transition active item to Done",
         ],
+        ["batch"] =
+        [
+            "twig batch --state Active                        Transition active item to Active",
+            "twig batch --state Done --note \"Completed work\"  Transition and add a note",
+            "twig batch --set Priority=1 --set Severity=High  Update multiple fields at once",
+            "twig batch --state Active --ids 1234,5678        Batch transition multiple items",
+        ],
         ["states"] =
         [
             "twig states                List available states for the active item's type",

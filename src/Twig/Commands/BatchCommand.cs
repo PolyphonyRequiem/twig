@@ -224,8 +224,15 @@ public sealed class BatchCommand(
                 continue;
             }
 
-            var result = await ProcessItemAsync(item, state, fieldUpdates, note, interactive: false, fmt, outputFormat, ct);
-            results.Add(result);
+            try
+            {
+                var result = await ProcessItemAsync(item, state, fieldUpdates, note, interactive: false, fmt, outputFormat, ct);
+                results.Add(result);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                results.Add(new BatchItemResult(itemId, item.Title, false, ex.Message, null, null, 0));
+            }
         }
 
         // FR-10: JSON output produces structured BatchResult
@@ -254,6 +261,8 @@ public sealed class BatchCommand(
         }
 
         if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
+
+        // TODO: Emit telemetry — operation count, item count, duration (NFR-3)
 
         return results.Any(r => !r.Success) ? 1 : 0;
     }

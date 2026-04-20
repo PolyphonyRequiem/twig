@@ -559,6 +559,32 @@ public class BatchCommandTests
     }
 
     [Fact]
+    public async Task IdsParameter_FetchThrowsDuringProcess_ContinuesToNextItem()
+    {
+        var item1 = CreateWorkItem(10, "Item A", "New", WorkItemType.UserStory);
+        var item2 = CreateWorkItem(20, "Item B", "New", WorkItemType.UserStory);
+        _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(item1);
+        _workItemRepo.GetByIdAsync(20, Arg.Any<CancellationToken>()).Returns(item2);
+        // Item 10: FetchAsync throws during ProcessItemAsync step 1
+        _adoService.FetchAsync(10, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("ADO service unavailable"));
+        // Item 20: succeeds normally
+        SetupSuccessfulPatch(item2);
+
+        var result = await _cmd.ExecuteAsync(
+            state: "Active",
+            ids: "10,20");
+
+        result.ShouldBe(1); // Partial failure → exit code 1
+        // Item 10 failed but item 20 should still succeed
+        await _adoService.Received().PatchAsync(20,
+            Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+        // Verify error message for item 10 was reported
+        _stderr.ToString().ShouldContain("ADO service unavailable");
+    }
+
+    [Fact]
     public async Task IdsParameter_SkipsInteractiveConflictResolution()
     {
         var item1 = CreateWorkItem(10, "Item A", "New", WorkItemType.UserStory);

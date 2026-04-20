@@ -44,8 +44,14 @@ if (Test-Path $conductorDir) {
     $threshold = (Get-Date).AddMinutes(-$StaleMinutes)
     $pattern = '"(work_item_id|epic_id)"\s*:\s*' + [regex]::Escape("$WorkItemId") + '\b'
 
+    # Our own conductor run advertises its events file via CONDUCTOR_EVENTS_FILE
+    # (set by conductor's EventLogSubscriber). Exclude it so we don't self-detect.
+    $ownEventsFile = $env:CONDUCTOR_EVENTS_FILE
+    $ownEventsName = if ($ownEventsFile) { Split-Path -Leaf $ownEventsFile } else { '' }
+
     Get-ChildItem $conductorDir -Filter '*.events.jsonl' -File -ErrorAction SilentlyContinue |
         Where-Object { $_.LastWriteTime -gt $threshold } |
+        Where-Object { -not $ownEventsName -or $_.Name -ne $ownEventsName } |
         ForEach-Object {
             $file = $_
             try {
@@ -75,15 +81,21 @@ $worktreeHits = @()
 try {
     $wtOutput = git worktree list --porcelain 2>$null
     if ($LASTEXITCODE -eq 0 -and $wtOutput) {
-        $currentPath = (Get-Location).Path.TrimEnd('\', '/')
+        # Use git to find OUR worktree root — robust regardless of cwd.
+        # Falls back to Get-Location if not inside a repo for some reason.
+        $selfRoot = (git rev-parse --show-toplevel 2>$null)
+        if (-not $selfRoot -or $LASTEXITCODE -ne 0) {
+            $selfRoot = (Get-Location).Path
+        }
+        $selfRoot = $selfRoot.Replace('/', '\').TrimEnd('\', '/')
         $branchPattern = "refs/heads/sdlc/$WorkItemId"
         $blocks = ($wtOutput -join "`n") -split "`n`n"
         foreach ($block in $blocks) {
             $pathMatch = [regex]::Match($block, '(?m)^worktree\s+(.+)$')
             $branchMatch = [regex]::Match($block, "(?m)^branch\s+$([regex]::Escape($branchPattern))\b")
             if ($pathMatch.Success -and $branchMatch.Success) {
-                $wtPath = $pathMatch.Groups[1].Value.Trim().TrimEnd('\', '/')
-                if ($wtPath -and $wtPath -ne $currentPath) {
+                $wtPath = $pathMatch.Groups[1].Value.Trim().Replace('/', '\').TrimEnd('\', '/')
+                if ($wtPath -and $wtPath -ne $selfRoot) {
                     $worktreeHits += $wtPath
                 }
             }

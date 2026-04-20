@@ -10,13 +10,25 @@ namespace Twig.Mcp.Services;
 
 /// <summary>
 /// Creates and caches <see cref="WorkspaceContext"/> instances per <see cref="WorkspaceKey"/>.
+/// Extracted for testability of <see cref="WorkspaceResolver"/>.
+/// </summary>
+public interface IWorkspaceContextFactory
+{
+    /// <summary>
+    /// Gets or creates a <see cref="WorkspaceContext"/> for the given workspace key.
+    /// </summary>
+    WorkspaceContext GetOrCreate(WorkspaceKey key);
+}
+
+/// <summary>
+/// Creates and caches <see cref="WorkspaceContext"/> instances per <see cref="WorkspaceKey"/>.
 /// Thread-safe via <see cref="ConcurrentDictionary{TKey,TValue}.GetOrAdd"/> with <see cref="Lazy{T}"/>.
 /// Shares global singletons (<see cref="HttpClient"/>, <see cref="IAuthenticationProvider"/>)
 /// across workspaces; constructs per-workspace instances of all repos, stores, ADO clients,
 /// and domain services — mirroring the wiring in <c>TwigServiceRegistration</c> +
 /// <c>NetworkServiceModule</c> + <c>Program.cs</c> but instantiating directly rather than via DI.
 /// </summary>
-public sealed class WorkspaceContextFactory : IDisposable
+public sealed class WorkspaceContextFactory : IWorkspaceContextFactory, IDisposable
 {
     private readonly WorkspaceRegistry _registry;
     private readonly HttpClient _httpClient;

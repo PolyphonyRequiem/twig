@@ -4,10 +4,25 @@ using Twig.Infrastructure.Config;
 namespace Twig.Mcp.Services;
 
 /// <summary>
+/// Read-only view of discovered workspaces. Extracted for testability of <see cref="WorkspaceResolver"/>.
+/// </summary>
+public interface IWorkspaceRegistry
+{
+    /// <summary>All discovered workspace keys.</summary>
+    IReadOnlyList<WorkspaceKey> Workspaces { get; }
+
+    /// <summary>True when exactly one workspace is registered — enables backward-compat fast-path.</summary>
+    bool IsSingleWorkspace { get; }
+
+    /// <summary>Gets the <see cref="TwigConfiguration"/> for a given workspace.</summary>
+    TwigConfiguration GetConfig(WorkspaceKey key);
+}
+
+/// <summary>
 /// Discovers available workspaces by scanning <c>.twig/{org}/{project}/config</c> on disk.
 /// Immutable after construction — scanned once at startup (DD-5).
 /// </summary>
-public sealed class WorkspaceRegistry
+public sealed class WorkspaceRegistry : IWorkspaceRegistry
 {
     private readonly ReadOnlyDictionary<WorkspaceKey, TwigConfiguration> _workspaces;
 

@@ -14,20 +14,8 @@ using Twig.Infrastructure.Content;
 namespace Twig.Commands;
 
 /// <summary>
-/// Result of a batch operation across one or more work items.
-/// </summary>
-// TODO(T-4): BatchResult is currently unused — FormatBatchResultJson builds JSON inline.
-// When T-4 adds [JsonSerializable], this record should become the serialization root and
-// FormatBatchResultJson should serialize it directly instead of recomputing fields.
-public sealed record BatchResult(
-    IReadOnlyList<BatchItemResult> Items,
-    int TotalFieldChanges,
-    int TotalNotes);
-
-/// <summary>
 /// Per-item result within a batch operation.
 /// </summary>
-// TODO(T-4): Register [JsonSerializable(typeof(BatchItemResult))] in TwigJsonContext when T-4 JSON output lands.
 public sealed record BatchItemResult(
     int ItemId,
     string Title,
@@ -235,10 +223,13 @@ public sealed class BatchCommand(
             }
         }
 
+        var succeeded = results.Count(r => r.Success);
+        var failed = results.Count - succeeded;
+
         // FR-10: JSON output produces structured BatchResult
         if (string.Equals(outputFormat, "json", StringComparison.OrdinalIgnoreCase))
         {
-            _stdout.WriteLine(FormatBatchResultJson(results));
+            _stdout.WriteLine(FormatBatchResultJson(results, succeeded, failed));
         }
         else
         {
@@ -254,9 +245,6 @@ public sealed class BatchCommand(
                     _stderr.WriteLine(fmt.FormatError($"#{result.ItemId} {(result.Title.Length > 0 ? result.Title + ": " : "")}{result.Error}"));
             }
 
-            // Summary line for multi-item
-            var succeeded = results.Count(r => r.Success);
-            var failed = results.Count - succeeded;
             if (failed > 0)
                 _stderr.WriteLine(fmt.FormatError($"Batch complete: {succeeded}/{results.Count} succeeded, {failed} failed."));
             else
@@ -267,7 +255,7 @@ public sealed class BatchCommand(
 
         // TODO: Emit telemetry — operation count, item count, duration (NFR-3)
 
-        return results.Any(r => !r.Success) ? 1 : 0;
+        return failed > 0 ? 1 : 0;
     }
 
     private void RenderItemSuccess(BatchItemResult result, IOutputFormatter fmt)
@@ -275,8 +263,9 @@ public sealed class BatchCommand(
         var parts = new List<string>();
         if (result.NewState is not null)
             parts.Add($"{result.PreviousState} → {result.NewState}");
-        if (result.FieldChangeCount > (result.NewState is not null ? 1 : 0))
-            parts.Add($"{result.FieldChangeCount - (result.NewState is not null ? 1 : 0)} field(s) updated");
+        var nonStateFields = result.FieldChangeCount - (result.NewState is not null ? 1 : 0);
+        if (nonStateFields > 0)
+            parts.Add($"{nonStateFields} field(s) updated");
         if (result.NoteAdded)
             parts.Add("note added");
 
@@ -299,15 +288,15 @@ public sealed class BatchCommand(
     }
 
     /// <summary>Formats BatchResult as structured JSON using Utf8JsonWriter (AOT-safe).</summary>
-    private static string FormatBatchResultJson(List<BatchItemResult> items)
+    private static string FormatBatchResultJson(List<BatchItemResult> items, int succeeded, int failed)
     {
         using var stream = new MemoryStream();
         using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true });
 
         writer.WriteStartObject();
         writer.WriteNumber("totalItems", items.Count);
-        writer.WriteNumber("succeeded", items.Count(r => r.Success));
-        writer.WriteNumber("failed", items.Count(r => !r.Success));
+        writer.WriteNumber("succeeded", succeeded);
+        writer.WriteNumber("failed", failed);
         writer.WriteNumber("totalFieldChanges", items.Where(r => r.Success).Sum(r => r.FieldChangeCount));
         writer.WriteNumber("totalNotes", items.Count(r => r.NoteAdded));
 

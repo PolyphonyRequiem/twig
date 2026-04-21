@@ -32,7 +32,11 @@ public sealed class CreationTools(WorkspaceResolver resolver)
         if (string.IsNullOrWhiteSpace(type))
             return McpResultBuilder.ToError("Type is required. Usage: twig_new requires a work item type (e.g. Epic, Issue, Task).");
 
-        var parsedType = WorkItemType.Parse(type).Value;
+        var parseResult = WorkItemType.Parse(type);
+        if (!parseResult.IsSuccess)
+            return McpResultBuilder.ToError(parseResult.Error);
+
+        var parsedType = parseResult.Value;
 
         if (parentId is <= 0)
             return McpResultBuilder.ToError($"parentId must be a positive work item ID (got {parentId.Value}).");
@@ -120,7 +124,8 @@ public sealed class CreationTools(WorkspaceResolver resolver)
         try { await ctx.WorkItemRepo.SaveAsync(created, ct); }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
-        return McpResultBuilder.FormatCreated(created, ctx.Key.ToString());
+        var url = $"https://dev.azure.com/{ctx.Key.Org}/{ctx.Key.Project}/_workitems/edit/{created.Id}";
+        return McpResultBuilder.FormatCreated(created, url, ctx.Key.ToString());
     }
 
     private CallToolResult? TryResolve(string? workspace, out WorkspaceContext ctx)

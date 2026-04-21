@@ -280,10 +280,11 @@ internal static class McpResultBuilder
             WriteOptionalWorkspace(writer, workspace);
         });
 
-    public static CallToolResult FormatCreated(WorkItem item, string? workspace = null) =>
+    public static CallToolResult FormatCreated(WorkItem item, string url, string? workspace = null) =>
         BuildJson(writer =>
         {
             WriteWorkItemWithPaths(writer, item);
+            writer.WriteString("url", url);
             WriteOptionalWorkspace(writer, workspace);
         });
 

@@ -42,7 +42,7 @@ public sealed class CreationTools(WorkspaceResolver resolver)
         if (parentId is <= 0)
             return McpResultBuilder.ToError($"parentId must be a positive work item ID (got {parentId.Value}).");
 
-        if (TryResolve(workspace, out var ctx) is { } resErr) return resErr;
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
 
         ProcessConfiguration processConfig;
         try { processConfig = ctx.ProcessConfigProvider.GetConfiguration(); }
@@ -154,7 +154,7 @@ public sealed class CreationTools(WorkspaceResolver resolver)
             return McpResultBuilder.ToError(
                 $"Unknown link type '{linkType}'. Supported types: {string.Join(", ", LinkTypeMapper.SupportedTypes)}.");
 
-        if (TryResolve(workspace, out var ctx) is { } resErr) return resErr;
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
 
         try
         {
@@ -178,13 +178,6 @@ public sealed class CreationTools(WorkspaceResolver resolver)
         }
 
         return McpResultBuilder.FormatLinked(sourceId, targetId, linkType, warning);
-    }
-
-    private CallToolResult? TryResolve(string? workspace, out WorkspaceContext ctx)
-    {
-        try { ctx = resolver.Resolve(workspace); return null; }
-        catch (Exception ex) when (ex is FormatException or KeyNotFoundException or AmbiguousWorkspaceException)
-        { ctx = null!; return McpResultBuilder.ToError(ex.Message); }
     }
 
     private static async Task<(WorkItem? Item, CallToolResult? Error)> FetchWithFallbackAsync(

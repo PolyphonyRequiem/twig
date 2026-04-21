@@ -1,0 +1,338 @@
+# twig-sdlc-planning.yaml — Recursive SDLC Planner
+#
+# Top-level orchestrator that plans an Epic end-to-end:
+#   1. Intake — read/create Epic from ADO
+#   2. Architect — full codebase research + plan document (same quality as twig-sdlc)
+#   3. Dual review — technical + readability reviewers with loop-back
+#   4. Plan approval — human gate
+#   5. Work tree seeder — create Issues in ADO from the plan
+#   6. For each Issue — fan out to plan-issue.yaml sub-workflow (creates Tasks)
+#
+# Uses all three composition features:
+#   - input_mapping: passes Issue context to plan-issue sub-workflow
+#   - for_each with sub-workflows: fans out to plan each Issue independently
+#   - Sub-workflow isolation: Issue planning is a black box with clean contract
+#
+# The Epic-level planning uses the SAME prompts as twig-sdlc (via ../prompts/).
+# The Issue-level planning uses lighter, purpose-built prompts.
+#
+# Usage:
+#   conductor run recursive-dispatcher@twig --input work_item_id=1234 --web
+#   conductor run recursive-dispatcher@twig --input prompt="Expand the twig MCP server" --web
+workflow:
+  name: twig-sdlc-planning
+  description: SDLC Planning — Epic/Issue planning with review, then fan-out to Issue-level task planning
+  entry_point: duplicate_check
+  runtime:
+    provider: copilot
+    mcp_servers:
+      context7:
+        command: npx
+        args: ["-y", "@upstash/context7-mcp@latest"]
+        tools: ["*"]
+      ms-learn:
+        type: http
+        url: https://learn.microsoft.com/api/mcp
+        tools: ["*"]
+      twig:
+        command: twig-mcp
+        tools: ["*"]
+  input:
+    work_item_id:
+      type: number
+      required: false
+      description: ADO work item ID (Epic or Issue) to plan.
+    prompt:
+      type: string
+      required: false
+      description: Natural language description of what to build. Creates a new Epic.
+    skip_plan_review:
+      type: boolean
+      required: false
+      default: false
+      description: Skip the human plan approval gate.
+    plan_path:
+      type: string
+      required: false
+      description: Path to an already-approved plan file; passed to intake to skip re-planning.
+  context:
+    mode: explicit
+  limits:
+    max_iterations: 100
+
+# =============================================================================
+# AGENTS — Epic-level planning reuses twig-sdlc prompts
+# =============================================================================
+agents:
+  # ── PHASE 0: DUPLICATE CHECK ──────────────────────────────────────
+  - name: duplicate_check
+    description: Preflight — abort if another conductor run already owns this work item
+    model: claude-sonnet-4.6
+    input:
+      - workflow.input.work_item_id?
+    system_prompt: !file ../prompts/duplicate-check.system.md
+    prompt: !file ../prompts/duplicate-check.prompt.md
+    output:
+      is_duplicate:
+        type: boolean
+        description: True if conflict found
+      details:
+        type: string
+      reason:
+        type: string
+    routes:
+      - to: $end
+        when: "{{ output.is_duplicate }}"
+      - to: intake
+
+  # ── PHASE 1: INTAKE ───────────────────────────────────────────────
+  - name: intake
+    description: Reads existing ADO work item or creates one from a prompt
+    model: claude-sonnet-4.6
+    input:
+      - workflow.input.work_item_id?
+      - workflow.input.prompt?
+      - workflow.input.plan_path?
+    system_prompt: !file ../prompts/intake.system.md
+    prompt: !file ../prompts/intake.prompt.md
+    output:
+      epic_id:
+        type: number
+        description: The ADO Epic or Issue ID
+      epic_title:
+        type: string
+      epic_description:
+        type: string
+      existing_issues:
+        type: array
+      item_type:
+        type: string
+      plan_already_approved:
+        type: boolean
+      existing_plan_path:
+        type: string
+    routes:
+      - to: architect
+
+  # ── PHASE 2: PLANNING (same agents as twig-sdlc) ─────────────────
+  - name: architect
+    description: Researches the codebase and creates a solution design with implementation plan
+    model: claude-opus-4.6-1m
+    input:
+      - intake.output
+      - workflow.input.prompt?
+      - architect.output?
+      - review_router.output?
+      - plan_approval.output?
+      - open_questions_gate.output?
+    system_prompt: !file ../prompts/architect.system.md
+    prompt: !file ../prompts/architect.prompt.md
+    output:
+      plan_path:
+        type: string
+      plan_summary:
+        type: string
+      issue_count:
+        type: number
+      pr_group_count:
+        type: number
+      total_estimated_loc:
+        type: number
+      has_blocking_questions:
+        type: boolean
+      open_questions_summary:
+        type: string
+      revision_notes:
+        type: string
+      plan_revision_count:
+        type: number
+    routes:
+      - to: open_questions_gate
+        when: "{{ output.has_blocking_questions }}"
+      - to: technical_reviewer
+
+  - name: open_questions_gate
+    type: human_gate
+    description: Pauses when the architect identifies blocking open questions
+    input:
+      - architect.output.plan_path
+      - architect.output.open_questions_summary
+    prompt: |
+      ## Open Questions Requiring Your Input
+      **Plan Document:** {{ architect.output.plan_path }}
+      {{ architect.output.open_questions_summary }}
+    options:
+      - label: "Proceed Without Answering"
+        value: proceed
+        route: technical_reviewer
+      - label: "Provide Input & Revise"
+        value: provide_input
+        route: architect
+        prompt_for: feedback
+      - label: "Abort Planning"
+        value: abort
+        route: $end
+
+  - name: technical_reviewer
+    description: Validates technical accuracy, feasibility, and completeness
+    model: claude-opus-4.6-1m
+    input:
+      - architect.output
+      - intake.output
+    system_prompt: !file ../prompts/technical-reviewer.system.md
+    prompt: !file ../prompts/technical-reviewer.prompt.md
+    output:
+      score:
+        type: number
+      feedback:
+        type: string
+      critical_issues:
+        type: array
+    routes:
+      - to: readability_reviewer
+
+  - name: readability_reviewer
+    description: Ensures the plan is clear, well-structured, and actionable
+    model: claude-sonnet-4.6
+    input:
+      - architect.output
+    system_prompt: !file ../prompts/readability-reviewer.system.md
+    prompt: !file ../prompts/readability-reviewer.prompt.md
+    output:
+      score:
+        type: number
+      feedback:
+        type: string
+      critical_issues:
+        type: array
+    routes:
+      - to: review_router
+
+  - name: review_router
+    description: Checks scores and decides whether to loop or proceed
+    model: claude-sonnet-4.6
+    input:
+      - technical_reviewer.output
+      - readability_reviewer.output
+      - workflow.input.skip_plan_review?
+      - architect.output
+    system_prompt: !file ../prompts/review-router.system.md
+    prompt: !file ../prompts/review-router.prompt.md
+    output:
+      tech_score:
+        type: number
+      read_score:
+        type: number
+      blocking_issue_count:
+        type: number
+      both_pass:
+        type: boolean
+      skip_approval:
+        type: boolean
+      combined_feedback:
+        type: string
+      plan_revision_count:
+        type: number
+    routes:
+      - to: architect
+        when: "{{ not output.both_pass and output.plan_revision_count < 2 }}"
+      - to: work_tree_seeder
+        when: "{{ (output.both_pass or output.plan_revision_count >= 2) and output.skip_approval }}"
+      - to: plan_approval
+
+  - name: plan_approval
+    type: human_gate
+    description: Human approval gate for the implementation plan
+    input:
+      - architect.output
+      - review_router.output
+    prompt: |
+      The implementation plan is ready for review.
+      **Plan:** {{ architect.output.plan_path }}
+      **Summary:** {{ architect.output.plan_summary }}
+      **Issues:** {{ architect.output.issue_count }} | **PR Groups:** {{ architect.output.pr_group_count }} | **Est. LoC:** {{ architect.output.total_estimated_loc }}
+      **Tech Score:** {{ review_router.output.tech_score }}/100
+      **Readability Score:** {{ review_router.output.read_score }}/100
+    options:
+      - label: "Approve — proceed to seeding"
+        value: approved
+        route: work_tree_seeder
+      - label: "Revise — send back to architect"
+        value: revise
+        route: architect
+        prompt_for: feedback
+      - label: "Reject — stop workflow"
+        value: rejected
+        route: $end
+
+  # ── PHASE 3: SEED WORK TREE ─────────────────────────────────────
+  - name: work_tree_seeder
+    description: Creates ADO Issues and Tasks from the plan
+    model: claude-sonnet-4.6
+    input:
+      - intake.output
+      - architect.output
+    system_prompt: !file ../prompts/work-tree-seeder.system.md
+    prompt: |
+      Create **Issues and Tasks** from the plan.
+
+      **Work Item:** #{{ intake.output.epic_id }} — {{ intake.output.epic_title }}
+      **Plan:** {{ architect.output.plan_path }}
+
+      Read the plan document and create the full ADO hierarchy:
+      - One Issue per planned Issue
+      - Tasks under each Issue as defined in the plan
+
+      Follow the standard seeding process from your system prompt.
+
+      Output each Issue with its ADO ID, title, description, and the count
+      of Tasks created under it (task_count). Issues where the plan didn't
+      define Tasks should have task_count=0.
+    output:
+      issues:
+        type: array
+        description: Array of created Issues [{id, title, description, task_count}]
+      total_issues:
+        type: number
+      total_tasks:
+        type: number
+      plan_path:
+        type: string
+        description: Path to the plan document (passed through for downstream)
+    routes:
+      - to: plan_issues
+
+# =============================================================================
+# FOR_EACH — Fan out to plan-issue.yaml for each Issue
+# =============================================================================
+for_each:
+  - name: plan_issues
+    type: for_each
+    source: work_tree_seeder.output.issues
+    as: issue
+    max_concurrent: 1
+    agent:
+      name: plan_single_issue
+      type: workflow
+      workflow: ./plan-issue.yaml
+      input:
+        - work_tree_seeder.output
+      input_mapping:
+        work_item_id: "{{ issue.id }}"
+        title: "{{ issue.title }}"
+        description: "{{ issue.description }}"
+        plan_path: "{{ work_tree_seeder.output.plan_path }}"
+        task_count: "{{ issue.task_count | default(0) }}"
+    routes:
+      - to: $end
+
+# =============================================================================
+# OUTPUT
+# =============================================================================
+output:
+  epic_id: "{{ intake.output.epic_id }}"
+  epic_title: "{{ intake.output.epic_title }}"
+  plan_path: "{{ architect.output.plan_path if architect is defined else '' }}"
+  plan_summary: "{{ architect.output.plan_summary if architect is defined else '' }}"
+  issues_created: "{{ work_tree_seeder.output.total_issues if work_tree_seeder is defined else 0 }}"
+  issue_plans: "{{ plan_issues.outputs | json if plan_issues is defined else '[]' }}"

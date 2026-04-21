@@ -14,6 +14,10 @@ Orchestrated SDLC pipeline powered by the `conductor` skill. Takes an ADO work i
 
 All workflows are registered in the `twig` conductor registry. Use short names — no absolute paths needed.
 
+> **Workflow source**: [PolyphonyRequiem/twig-conductor-workflows](https://github.com/PolyphonyRequiem/twig-conductor-workflows)
+> Install: `conductor registry add twig --source github://PolyphonyRequiem/twig-conductor-workflows`
+> Update: `conductor registry update twig`
+
 | Workflow | Registry Name | Purpose | Key Inputs |
 |----------|---------------|---------|------------|
 | Planning only | `twig-sdlc-planning@twig` | Recursive planner: architect + review + seed + per-issue task planning | `work_item_id` or `prompt` |
@@ -23,21 +27,28 @@ All workflows are registered in the `twig` conductor registry. Use short names �
 
 ## Quick Reference
 
+**Always run in a dedicated worktree** — never on `main` or your working tree. Name the
+worktree `twig2-<ID>` based on the work item ID.
+
 ```bash
-# Run the monolithic SDLC for a single work item
-conductor --silent run twig-sdlc@twig --input work_item_id=1273 --web
+# 1. Create a worktree for the work item
+git worktree add -b sdlc/<ID> ../twig2-<ID> main
+cd ../twig2-<ID>
+
+# 2. Run the full SDLC (planning → implementation) for a single work item
+conductor --silent run twig-sdlc-full@twig --input work_item_id=<ID> --web
 
 # Plan only (recursive planner — creates Epic/Issues/Tasks in ADO)
-conductor --silent run twig-sdlc-planning@twig --input work_item_id=1273 --web
+conductor --silent run twig-sdlc-planning@twig --input work_item_id=<ID> --web
 
 # Implement only (requires existing plan + seeded work items)
-conductor --silent run twig-sdlc-implement@twig --input work_item_id=1273 --input plan_path="docs/projects/foo.plan.md" --web
+conductor --silent run twig-sdlc-implement@twig --input work_item_id=<ID> --input plan_path="docs/projects/foo.plan.md" --web
 
-# Start from a natural language prompt
-conductor --silent run twig-sdlc@twig --input prompt="Add a twig export command" --web
+# Start from a natural language prompt (use a descriptive branch name instead of ID)
+conductor --silent run twig-sdlc-full@twig --input prompt="Add a twig export command" --web
 
 # Skip human approval gates
-conductor --silent run twig-sdlc@twig --input work_item_id=1273 --input skip_plan_review=true --web
+conductor --silent run twig-sdlc-full@twig --input work_item_id=<ID> --input skip_plan_review=true --web
 ```
 
 ## Launching Multiple Runs

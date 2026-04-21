@@ -15,6 +15,7 @@ actionable ADO work items. Deduplicates against existing items to avoid double-f
 ## Prerequisites
 
 - `conductor` skill — load `.github/skills/conductor/SKILL.md` for installation
+- `twig` conductor registry — `conductor registry add twig --source github://PolyphonyRequiem/twig-conductor-workflows`
 - `twig` CLI — configured with an ADO workspace
 - A completed SDLC run with closeout observations (the JSON blob from `close_out` agent)
 
@@ -22,19 +23,19 @@ actionable ADO work items. Deduplicates against existing items to avoid double-f
 
 | Workflow | Purpose | Key Inputs |
 |----------|---------|------------|
-| `closeout-filing.yaml` | Scan existing items, dedup, file new Issues/Tasks | `epic_id`, `observations`, `improvements` |
+| `closeout-filing@twig` | Scan existing items, dedup, file new Issues/Tasks | `epic_id`, `observations`, `improvements` |
 
 ## Quick Reference
 
 ```bash
 # File findings from a closeout JSON blob
-conductor run assets/closeout-filing.yaml --web \
+conductor run closeout-filing@twig --web \
   --input epic_id=1519 \
   --input observations="Feature delivered in ~4 hours..." \
   --input 'improvements=["Enforce PR-per-group discipline: ...", "Add twig flush command: ..."]'
 
 # Skip dedup (force-file all improvements as new tasks)
-conductor run assets/closeout-filing.yaml --web \
+conductor run closeout-filing@twig --web \
   --input epic_id=1519 \
   --input observations="..." \
   --input 'improvements=[...]' \
@@ -48,10 +49,10 @@ Pass these directly to this workflow:
 
 ```bash
 # 1. Run the SDLC workflow (long-running)
-conductor run .github/skills/twig-sdlc/assets/twig-sdlc.yaml --web --input work_item_id=1611
+conductor run twig-sdlc-full@twig --web --input work_item_id=1611
 
 # 2. When it completes, take the closeout JSON and file findings
-conductor run .github/skills/closeout-filing/assets/closeout-filing.yaml --web \
+conductor run closeout-filing@twig --web \
   --input epic_id=1611 \
   --input observations="<from closeout output>" \
   --input 'improvements=<from closeout output>'

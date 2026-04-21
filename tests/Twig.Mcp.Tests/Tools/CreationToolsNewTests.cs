@@ -1,4 +1,3 @@
-using ModelContextProtocol.Protocol;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
@@ -94,8 +93,7 @@ public sealed class CreationToolsNewTests : CreationToolsTestBase
         var result = await CreateCreationSut().New("Task", title!);
 
         result.IsError.ShouldBe(true);
-        var text = result.Content[0].ShouldBeOfType<TextContentBlock>().Text;
-        text.ShouldContain("Title is required");
+        GetErrorText(result).ShouldContain("Title is required");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -111,8 +109,7 @@ public sealed class CreationToolsNewTests : CreationToolsTestBase
         var result = await CreateCreationSut().New(type!, "Some Title");
 
         result.IsError.ShouldBe(true);
-        var text = result.Content[0].ShouldBeOfType<TextContentBlock>().Text;
-        text.ShouldContain("Type is required");
+        GetErrorText(result).ShouldContain("Type is required");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -127,8 +124,7 @@ public sealed class CreationToolsNewTests : CreationToolsTestBase
         var result = await CreateCreationSut().New("Task", "Title", parentId: parentId);
 
         result.IsError.ShouldBe(true);
-        var text = result.Content[0].ShouldBeOfType<TextContentBlock>().Text;
-        text.ShouldContain("parentId must be a positive");
+        GetErrorText(result).ShouldContain("parentId must be a positive");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -148,7 +144,7 @@ public sealed class CreationToolsNewTests : CreationToolsTestBase
         var result = await CreateCreationSut().New("Task", "Invalid Child", parentId: 100);
 
         result.IsError.ShouldBe(true);
-        var text = result.Content[0].ShouldBeOfType<TextContentBlock>().Text;
+        var text = GetErrorText(result);
         text.ShouldContain("not an allowed child");
         text.ShouldContain("Allowed child types for Epic");
         text.ShouldContain("Issue");
@@ -168,7 +164,7 @@ public sealed class CreationToolsNewTests : CreationToolsTestBase
         var result = await CreateCreationSut().New("Task", "Orphan Task", parentId: 999);
 
         result.IsError.ShouldBe(true);
-        var text = result.Content[0].ShouldBeOfType<TextContentBlock>().Text;
+        var text = GetErrorText(result);
         text.ShouldContain("#999");
         text.ShouldContain("not found");
     }
@@ -186,7 +182,7 @@ public sealed class CreationToolsNewTests : CreationToolsTestBase
         var result = await CreateCreationSut().New("Bug", "Will Fail");
 
         result.IsError.ShouldBe(true);
-        var text = result.Content[0].ShouldBeOfType<TextContentBlock>().Text;
+        var text = GetErrorText(result);
         text.ShouldContain("Create failed");
         text.ShouldContain("ADO is down");
     }
@@ -205,7 +201,7 @@ public sealed class CreationToolsNewTests : CreationToolsTestBase
         var result = await CreateCreationSut().New("Task", "Created But Not Fetched");
 
         result.IsError.ShouldBe(true);
-        var text = result.Content[0].ShouldBeOfType<TextContentBlock>().Text;
+        var text = GetErrorText(result);
         text.ShouldContain("#500");
         text.ShouldContain("fetch-back failed");
         text.ShouldContain("twig_sync");
@@ -404,7 +400,7 @@ public sealed class CreationToolsNewTests : CreationToolsTestBase
         var result = await CreateCreationSut().New("Gizmo", "Unknown Type Item");
 
         result.IsError.ShouldBe(true);
-        var text = result.Content[0].ShouldBeOfType<TextContentBlock>().Text;
+        var text = GetErrorText(result);
         text.ShouldContain("Unknown work item type");
         text.ShouldContain("Gizmo");
         text.ShouldContain("Valid types:");

@@ -94,10 +94,12 @@ public sealed class CreationToolsLinkTests : CreationToolsTestBase
             Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
-    [Fact]
-    public async Task Link_EmptyLinkType_ReturnsError()
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task Link_EmptyOrWhitespaceLinkType_ReturnsError(string linkType)
     {
-        var result = await CreateCreationSut().Link(1, 2, "");
+        var result = await CreateCreationSut().Link(1, 2, linkType);
 
         result.IsError.ShouldBe(true);
         var text = GetErrorText(result);
@@ -105,46 +107,23 @@ public sealed class CreationToolsLinkTests : CreationToolsTestBase
         text.ShouldContain("Supported types:");
     }
 
-    [Fact]
-    public async Task Link_WhitespaceLinkType_ReturnsError()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task Link_InvalidSourceId_ReturnsError(int id)
     {
-        var result = await CreateCreationSut().Link(1, 2, "   ");
-
-        result.IsError.ShouldBe(true);
-        GetErrorText(result).ShouldContain("linkType is required");
-    }
-
-    [Fact]
-    public async Task Link_ZeroSourceId_ReturnsError()
-    {
-        var result = await CreateCreationSut().Link(0, 200, "related");
+        var result = await CreateCreationSut().Link(id, 200, "related");
 
         result.IsError.ShouldBe(true);
         GetErrorText(result).ShouldContain("sourceId must be a positive");
     }
 
-    [Fact]
-    public async Task Link_NegativeSourceId_ReturnsError()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-5)]
+    public async Task Link_InvalidTargetId_ReturnsError(int id)
     {
-        var result = await CreateCreationSut().Link(-1, 200, "related");
-
-        result.IsError.ShouldBe(true);
-        GetErrorText(result).ShouldContain("sourceId must be a positive");
-    }
-
-    [Fact]
-    public async Task Link_ZeroTargetId_ReturnsError()
-    {
-        var result = await CreateCreationSut().Link(100, 0, "related");
-
-        result.IsError.ShouldBe(true);
-        GetErrorText(result).ShouldContain("targetId must be a positive");
-    }
-
-    [Fact]
-    public async Task Link_NegativeTargetId_ReturnsError()
-    {
-        var result = await CreateCreationSut().Link(100, -5, "related");
+        var result = await CreateCreationSut().Link(100, id, "related");
 
         result.IsError.ShouldBe(true);
         GetErrorText(result).ShouldContain("targetId must be a positive");
@@ -219,14 +198,5 @@ public sealed class CreationToolsLinkTests : CreationToolsTestBase
         // Verify SyncLinksAsync was called (which internally calls FetchWithLinksAsync)
         await _adoService.Received(1).FetchWithLinksAsync(100, Arg.Any<CancellationToken>());
         await _adoService.Received(1).FetchWithLinksAsync(200, Arg.Any<CancellationToken>());
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  Helpers
-    // ═══════════════════════════════════════════════════════════════
-
-    private static string GetErrorText(ModelContextProtocol.Protocol.CallToolResult result)
-    {
-        return result.Content[0].ShouldBeOfType<ModelContextProtocol.Protocol.TextContentBlock>().Text;
     }
 }

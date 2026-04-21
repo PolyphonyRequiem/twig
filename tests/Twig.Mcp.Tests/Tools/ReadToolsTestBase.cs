@@ -148,4 +148,7 @@ public abstract class ReadToolsTestBase
         using var doc = JsonDocument.Parse(text);
         return doc.RootElement.Clone();
     }
+
+    protected static string GetErrorText(CallToolResult result) =>
+        result.Content[0].ShouldBeOfType<TextContentBlock>().Text;
 }

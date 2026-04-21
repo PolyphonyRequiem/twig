@@ -2,6 +2,7 @@ using System.ComponentModel;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Common;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Content;
@@ -207,41 +208,24 @@ public sealed class CreationTools(WorkspaceResolver resolver)
         return (item, null);
     }
 
-    private static AreaPath ResolveDefaultAreaPath(WorkspaceContext ctx)
+    private static AreaPath ResolveDefaultAreaPath(WorkspaceContext ctx) =>
+        ResolveDefaultPath(ctx.Config.Defaults?.AreaPath, ctx.Config.Project, AreaPath.Parse);
+
+    private static IterationPath ResolveDefaultIterationPath(WorkspaceContext ctx) =>
+        ResolveDefaultPath(ctx.Config.Defaults?.IterationPath, ctx.Config.Project, IterationPath.Parse);
+
+    private static T ResolveDefaultPath<T>(string? configPath, string? projectName, Func<string?, Result<T>> parse) where T : struct
     {
-        var configPath = ctx.Config.Defaults?.AreaPath;
         if (!string.IsNullOrWhiteSpace(configPath))
         {
-            var result = AreaPath.Parse(configPath);
-            if (result.IsSuccess) return result.Value;
+            var r = parse(configPath);
+            if (r.IsSuccess) return r.Value;
         }
-
-        // Fallback to project name
-        if (!string.IsNullOrWhiteSpace(ctx.Config.Project))
+        if (!string.IsNullOrWhiteSpace(projectName))
         {
-            var result = AreaPath.Parse(ctx.Config.Project);
-            if (result.IsSuccess) return result.Value;
+            var r = parse(projectName);
+            if (r.IsSuccess) return r.Value;
         }
-
-        return default;
-    }
-
-    private static IterationPath ResolveDefaultIterationPath(WorkspaceContext ctx)
-    {
-        var configPath = ctx.Config.Defaults?.IterationPath;
-        if (!string.IsNullOrWhiteSpace(configPath))
-        {
-            var result = IterationPath.Parse(configPath);
-            if (result.IsSuccess) return result.Value;
-        }
-
-        // Fallback to project name
-        if (!string.IsNullOrWhiteSpace(ctx.Config.Project))
-        {
-            var result = IterationPath.Parse(ctx.Config.Project);
-            if (result.IsSuccess) return result.Value;
-        }
-
         return default;
     }
 }

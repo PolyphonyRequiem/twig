@@ -733,6 +733,7 @@ agents:
       - work_tree_seeder.output
       - pr_group_manager.output
       - intake.output
+      - pr_finalizer.output?
     system_prompt: !file prompts/pr-finalizer.system.md
     prompt: !file prompts/pr-finalizer.prompt.md
     output:
@@ -751,11 +752,14 @@ agents:
       summary:
         type: string
         description: Human-readable verification summary
+      verification_attempt:
+        type: number
+        description: Current verification attempt count (1-based)
     routes:
       - to: close_out
-        when: "{{ output.verified }}"
+        when: "{{ output.verified or output.verification_attempt >= 3 }}"
       - to: pr_group_manager
-        when: "{{ not output.verified }}"
+        when: "{{ not output.verified and output.verification_attempt < 3 }}"
   # ---------------------------------------------------------------------------
   # PR-STAGE REDUCTION (runs before PR submission, not post-merge)
   # ---------------------------------------------------------------------------

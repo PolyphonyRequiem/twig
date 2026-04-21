@@ -160,7 +160,6 @@ public sealed class CreationToolsNewTests : CreationToolsTestBase
     [Fact]
     public async Task New_ParentNotFound_ReturnsError()
     {
-        _workItemRepo.GetByIdAsync(999, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
         _adoService.FetchAsync(999, Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("Not found"));
 

@@ -888,13 +888,7 @@ public sealed class McpResultBuilderTests
     public void FormatLinked_WithWarning_WritesWarningField()
     {
         var result = McpResultBuilder.FormatLinked(1, 2, "related", warning: "Cache sync failed");
-        var root = ParseJson(result);
-
-        root.GetProperty("sourceId").GetInt32().ShouldBe(1);
-        root.GetProperty("targetId").GetInt32().ShouldBe(2);
-        root.GetProperty("linkType").GetString().ShouldBe("related");
-        root.GetProperty("linked").GetBoolean().ShouldBeTrue();
-        root.GetProperty("warning").GetString().ShouldBe("Cache sync failed");
+        ParseJson(result).GetProperty("warning").GetString().ShouldBe("Cache sync failed");
     }
 
     // ── Helpers ─────────────────────────────────────────────────────

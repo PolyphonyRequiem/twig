@@ -10,7 +10,7 @@ using Twig.Mcp.Services;
 namespace Twig.Mcp.Tools;
 
 /// <summary>
-/// MCP tools for work item creation: twig_new.
+/// MCP tools for work item creation: twig_new, twig_link.
 /// Resolves per-workspace services via <see cref="WorkspaceResolver"/>.
 /// </summary>
 [McpServerToolType]
@@ -126,6 +126,57 @@ public sealed class CreationTools(WorkspaceResolver resolver)
 
         var url = $"https://dev.azure.com/{ctx.Key.Org}/{ctx.Key.Project}/_workitems/edit/{created.Id}";
         return McpResultBuilder.FormatCreated(created, url, ctx.Key.ToString());
+    }
+
+    [McpServerTool(Name = "twig_link"), Description("Create a relationship between two work items")]
+    public async Task<CallToolResult> Link(
+        [Description("Source work item ID")] int sourceId,
+        [Description("Target work item ID")] int targetId,
+        [Description("Relationship type (parent, child, related, predecessor, successor)")] string linkType,
+        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        CancellationToken ct = default)
+    {
+        if (sourceId <= 0)
+            return McpResultBuilder.ToError($"sourceId must be a positive work item ID (got {sourceId}).");
+
+        if (targetId <= 0)
+            return McpResultBuilder.ToError($"targetId must be a positive work item ID (got {targetId}).");
+
+        if (sourceId == targetId)
+            return McpResultBuilder.ToError("sourceId and targetId must be different work items.");
+
+        if (string.IsNullOrWhiteSpace(linkType))
+            return McpResultBuilder.ToError(
+                $"linkType is required. Supported types: {string.Join(", ", LinkTypeMapper.SupportedTypes)}.");
+
+        if (!LinkTypeMapper.TryResolve(linkType, out var adoLinkType))
+            return McpResultBuilder.ToError(
+                $"Unknown link type '{linkType}'. Supported types: {string.Join(", ", LinkTypeMapper.SupportedTypes)}.");
+
+        if (TryResolve(workspace, out var ctx) is { } resErr) return resErr;
+
+        try
+        {
+            await ctx.AdoService.AddLinkAsync(sourceId, targetId, adoLinkType, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return McpResultBuilder.ToError($"Link failed: {ex.Message}");
+        }
+
+        // Best-effort: refresh local link cache for both items
+        string? warning = null;
+        try
+        {
+            await ctx.SyncCoordinatorFactory.ReadOnly.SyncLinksAsync(sourceId, ct);
+            await ctx.SyncCoordinatorFactory.ReadOnly.SyncLinksAsync(targetId, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            warning = $"Link created but cache sync failed: {ex.Message}. Run twig_sync to recover.";
+        }
+
+        return McpResultBuilder.FormatLinked(sourceId, targetId, linkType, warning);
     }
 
     private CallToolResult? TryResolve(string? workspace, out WorkspaceContext ctx)

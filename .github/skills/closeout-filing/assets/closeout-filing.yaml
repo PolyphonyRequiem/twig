@@ -72,7 +72,8 @@ agents:
         description: The completed epic's title
       existing_issue_id:
         type: number
-        description: Existing closeout Issue ID, or 0 if none exists
+        required: false
+        description: Existing closeout Issue ID (omitted when none exists)
       existing_task_ids:
         type: array
         description: IDs of existing tasks under the closeout Issue

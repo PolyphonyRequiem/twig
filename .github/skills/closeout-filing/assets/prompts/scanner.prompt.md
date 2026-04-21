@@ -46,13 +46,13 @@ Scan existing closeout findings and identify which improvements need to be filed
 
 Set your output fields:
 - `epic_title`: The completed epic's title (from step 1)
-- `existing_issue_id`: The closeout Issue ID if one already exists, or 0 if none exists
-- `existing_task_ids`: Array of existing task IDs under the closeout Issue
+- `existing_issue_id`: The closeout Issue ID if one already exists, or 0 if none exists. IMPORTANT: Return the integer 0, NOT null/None.
+- `existing_task_ids`: Array of existing task IDs under the closeout Issue (empty array [] if none)
 - `filing_plan`: Array of objects, each with:
   - `improvement`: The original improvement text
   - `status`: "new" or "duplicate"
-  - `duplicate_of_id`: Task ID if duplicate, null if new
-  - `duplicate_of_title`: Task title if duplicate, null if new
+  - `duplicate_of_id`: Task ID if duplicate, 0 if new
+  - `duplicate_of_title`: Task title if duplicate, empty string if new
   - `suggested_title`: Short actionable title for the task (if new)
 - `new_count`: Number of new findings to file
 - `duplicate_count`: Number of duplicates skipped

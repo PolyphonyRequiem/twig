@@ -33,7 +33,9 @@ Check if this issue needs user acceptance (user-facing changes or complex accept
 {% if issue_reviewer is defined and issue_reviewer.output and not issue_reviewer.output.approved %}
 **Issue review failed — changes needed:**
 {{ issue_reviewer.output.feedback | default('') }}
-Create a fix task for this issue and set action=implement_task.
+Identify which task needs fixing based on the feedback. Run `twig tree --output json`
+to find the task, then set action=implement_task with that task's ID and description
+updated to include the reviewer feedback.
 {% endif %}
 
 {% if user_acceptance is defined and user_acceptance.output %}
@@ -99,3 +101,10 @@ Before setting action=pr_group_ready, run a final state audit:
    - `twig tree --output json` — verify all child Tasks are in state "Done"
 2. Only after confirming: all Issues still "Doing", all Tasks "Done", and all
    issues in reviewed_issues — set action=pr_group_ready.
+
+## Output Field Rules (MANDATORY)
+
+- `current_task_id` MUST always be a number, never null:
+  - When action=implement_task: the ADO Task ID to implement
+  - When action=issue_review, needs_acceptance, or pr_group_ready: use 0
+- `current_task_title` and `current_task_description`: use empty string "" when not applicable

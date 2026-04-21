@@ -53,8 +53,8 @@ public sealed class CreationTools(WorkspaceResolver resolver)
         if (parentId.HasValue)
         {
             // Fetch parent for path inheritance and type validation
-            var (parent, fetchErr) = await FetchWithFallbackAsync(ctx, parentId.Value, ct);
-            if (fetchErr is not null) return fetchErr;
+            var (parent, fetchErr) = await ctx.FetchWithFallbackAsync(parentId.Value, ct);
+            if (fetchErr is not null) return McpResultBuilder.ToError(fetchErr);
 
             var seedResult = SeedFactory.Create(
                 title,
@@ -178,27 +178,6 @@ public sealed class CreationTools(WorkspaceResolver resolver)
         }
 
         return McpResultBuilder.FormatLinked(sourceId, targetId, linkType, warning);
-    }
-
-    private static async Task<(WorkItem? Item, CallToolResult? Error)> FetchWithFallbackAsync(
-        WorkspaceContext ctx, int id, CancellationToken ct)
-    {
-        var item = await ctx.WorkItemRepo.GetByIdAsync(id, ct);
-        if (item is not null) return (item, null);
-        try
-        {
-            item = await ctx.AdoService.FetchAsync(id, ct);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            return (null, McpResultBuilder.ToError($"Parent #{id} not found in cache or ADO: {ex.Message}"));
-        }
-
-        // Best-effort cache warm — do not fail if SQLite is unavailable
-        try { await ctx.WorkItemRepo.SaveAsync(item, ct); }
-        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
-
-        return (item, null);
     }
 
     private static T ResolveDefaultPath<T>(string? configPath, string? projectName, Func<string?, Result<T>> parse) where T : struct

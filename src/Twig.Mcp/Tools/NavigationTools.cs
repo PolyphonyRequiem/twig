@@ -23,8 +23,8 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
     {
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
 
-        var (item, fetchErr) = await FetchWithFallbackAsync(ctx, id, ct);
-        if (fetchErr is not null) return fetchErr;
+        var (item, fetchErr) = await ctx.FetchWithFallbackAsync(id, ct);
+        if (fetchErr is not null) return McpResultBuilder.ToError(fetchErr);
 
         return McpResultBuilder.FormatWorkItem(item!, ctx.Key.ToString());
     }
@@ -104,8 +104,8 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
     {
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
 
-        var (childResult, fetchErr) = await FetchWithFallbackAsync(ctx, id, ct);
-        if (fetchErr is not null) return fetchErr;
+        var (childResult, fetchErr) = await ctx.FetchWithFallbackAsync(id, ct);
+        if (fetchErr is not null) return McpResultBuilder.ToError(fetchErr);
         var child = childResult!;
 
         // Resolve parent — cache-first, ADO fallback (best-effort: null if fetch fails)
@@ -145,23 +145,6 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
             sprintItems = await ctx.WorkItemRepo.GetByIterationAsync(iterationPath, ct);
 
         return McpResultBuilder.FormatSprint(iterationPath, sprintItems, ctx.Key.ToString());
-    }
-
-    private static async Task<(WorkItem? Item, CallToolResult? Error)> FetchWithFallbackAsync(
-        WorkspaceContext ctx, int id, CancellationToken ct)
-    {
-        var item = await ctx.WorkItemRepo.GetByIdAsync(id, ct);
-        if (item is not null) return (item, null);
-        try { item = await ctx.AdoService.FetchAsync(id, ct); }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            return (null, McpResultBuilder.ToError($"Work item #{id} not found in cache or ADO: {ex.Message}"));
-        }
-
-        try { await ctx.WorkItemRepo.SaveAsync(item, ct); }
-        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
-
-        return (item, null);
     }
 
     private static IReadOnlyList<(string Path, bool IncludeChildren)>? ResolveDefaultAreaPaths(WorkspaceContext ctx)

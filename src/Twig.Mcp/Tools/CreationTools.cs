@@ -41,10 +41,7 @@ public sealed class CreationTools(WorkspaceResolver resolver)
 
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
 
-        ProcessConfiguration processConfig;
-        try { processConfig = ctx.ProcessConfigProvider.GetConfiguration(); }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        { return McpResultBuilder.ToError($"Failed to load process configuration: {ex.Message}"); }
+        var processConfig = ctx.ProcessConfigProvider.GetConfiguration();
 
         WorkItem seed;
         if (parentId.HasValue)

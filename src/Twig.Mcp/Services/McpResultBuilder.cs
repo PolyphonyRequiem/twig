@@ -23,9 +23,7 @@ internal static class McpResultBuilder
         WorkItem item, int parentChainCount, int childCount, string? workspace = null) =>
         BuildJson(writer =>
         {
-            WriteWorkItemCore(writer, item);
-            writer.WriteString("areaPath", item.AreaPath.ToString());
-            writer.WriteString("iterationPath", item.IterationPath.ToString());
+            WriteWorkItemWithPaths(writer, item);
             writer.WriteStartObject("workingSet");
             writer.WriteNumber("parentChainCount", parentChainCount);
             writer.WriteNumber("childCount", childCount);
@@ -42,9 +40,7 @@ internal static class McpResultBuilder
             {
                 writer.WritePropertyName("item");
                 writer.WriteStartObject();
-                WriteWorkItemCore(writer, snapshot.Item);
-                writer.WriteString("areaPath", snapshot.Item.AreaPath.ToString());
-                writer.WriteString("iterationPath", snapshot.Item.IterationPath.ToString());
+                WriteWorkItemWithPaths(writer, snapshot.Item);
                 writer.WriteEndObject();
             }
             else
@@ -201,6 +197,89 @@ internal static class McpResultBuilder
             writer.WriteNumber("fieldEditsDiscarded", fieldEdits);
         });
 
+    public static CallToolResult FormatWorkItem(WorkItem item, string? workspace = null) =>
+        BuildJson(writer =>
+        {
+            WriteWorkItemWithPaths(writer, item);
+
+            if (item.Fields.Count > 0)
+            {
+                writer.WriteStartObject("fields");
+                foreach (var (key, value) in item.Fields)
+                {
+                    if (value is not null)
+                        writer.WriteString(key, value);
+                    else
+                        writer.WriteNull(key);
+                }
+                writer.WriteEndObject();
+            }
+
+            WriteOptionalWorkspace(writer, workspace);
+        });
+
+    public static CallToolResult FormatQueryResults(
+        IReadOnlyList<WorkItem> items, bool isTruncated, string queryDescription, string? workspace = null) =>
+        BuildJson(writer =>
+        {
+            WriteWorkItemArray(writer, "items", items);
+            writer.WriteNumber("totalCount", items.Count);
+            writer.WriteBoolean("isTruncated", isTruncated);
+            writer.WriteString("queryDescription", queryDescription);
+            WriteOptionalWorkspace(writer, workspace);
+        });
+
+    public static CallToolResult FormatChildren(int parentId, IReadOnlyList<WorkItem> children, string? workspace = null) =>
+        BuildJson(writer =>
+        {
+            writer.WriteNumber("parentId", parentId);
+            WriteWorkItemArray(writer, "children", children);
+            writer.WriteNumber("count", children.Count);
+            WriteOptionalWorkspace(writer, workspace);
+        });
+
+    public static CallToolResult FormatParent(WorkItem child, WorkItem? parent, string? workspace = null) =>
+        BuildJson(writer =>
+        {
+            writer.WritePropertyName("child");
+            writer.WriteStartObject();
+            WriteWorkItemCore(writer, child);
+            writer.WriteEndObject();
+
+            if (parent is not null)
+            {
+                writer.WritePropertyName("parent");
+                writer.WriteStartObject();
+                WriteWorkItemWithPaths(writer, parent);
+                writer.WriteEndObject();
+            }
+            else
+            {
+                writer.WriteNull("parent");
+            }
+
+            WriteOptionalWorkspace(writer, workspace);
+        });
+
+    public static CallToolResult FormatSprint(
+        IterationPath iterationPath, IReadOnlyList<WorkItem>? items, string? workspace = null) =>
+        BuildJson(writer =>
+        {
+            writer.WriteString("iterationPath", iterationPath.ToString());
+
+            if (items is not null)
+            {
+                WriteWorkItemArray(writer, "items", items);
+                writer.WriteNumber("count", items.Count);
+            }
+            else
+            {
+                writer.WriteNull("items");
+            }
+
+            WriteOptionalWorkspace(writer, workspace);
+        });
+
     public static CallToolResult FormatFlushSummary(McpFlushSummary summary) =>
         BuildJson(writer =>
         {
@@ -238,6 +317,13 @@ internal static class McpResultBuilder
             writer.WriteEndObject();
         }
         writer.WriteEndArray();
+    }
+
+    private static void WriteWorkItemWithPaths(Utf8JsonWriter writer, WorkItem item)
+    {
+        WriteWorkItemCore(writer, item);
+        writer.WriteString("areaPath", item.AreaPath.ToString());
+        writer.WriteString("iterationPath", item.IterationPath.ToString());
     }
 
     private static void WriteWorkItemCore(Utf8JsonWriter writer, WorkItem item)

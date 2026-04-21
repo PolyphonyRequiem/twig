@@ -1,3 +1,4 @@
+using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Infrastructure.Config;
@@ -67,6 +68,24 @@ public sealed class WorkspaceContext : IDisposable
         WorkingSetService = workingSetService;
         Flusher = flusher;
         PromptStateWriter = promptStateWriter;
+    }
+
+    /// <summary>
+    /// Fetches a work item by ID: cache-first, ADO fallback, best-effort cache warm.
+    /// Returns an error string (not <c>null</c>) on failure; callers wrap with <c>McpResultBuilder.ToError</c>.
+    /// </summary>
+    internal async Task<(WorkItem? Item, string? Error)> FetchWithFallbackAsync(int id, CancellationToken ct)
+    {
+        var item = await WorkItemRepo.GetByIdAsync(id, ct);
+        if (item is not null) return (item, null);
+        try { item = await AdoService.FetchAsync(id, ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        { return (null, $"Work item #{id} not found in cache or ADO: {ex.Message}"); }
+
+        try { await WorkItemRepo.SaveAsync(item, ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
+
+        return (item, null);
     }
 
     public void Dispose()

@@ -57,6 +57,7 @@ builder.Services
     .WithTools<ReadTools>()
     .WithTools<MutationTools>()
     .WithTools<NavigationTools>()
+    .WithTools<CreationTools>()
     .WithTools<WorkspaceTools>();
 
 await builder.Build().RunAsync();

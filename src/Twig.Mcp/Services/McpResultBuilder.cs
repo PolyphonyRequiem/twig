@@ -280,6 +280,25 @@ internal static class McpResultBuilder
             WriteOptionalWorkspace(writer, workspace);
         });
 
+    public static CallToolResult FormatCreated(WorkItem item, string url, string? workspace = null) =>
+        BuildJson(writer =>
+        {
+            WriteWorkItemWithPaths(writer, item);
+            writer.WriteString("url", url);
+            WriteOptionalWorkspace(writer, workspace);
+        });
+
+    public static CallToolResult FormatLinked(int sourceId, int targetId, string linkType, string? warning = null) =>
+        BuildJson(writer =>
+        {
+            writer.WriteNumber("sourceId", sourceId);
+            writer.WriteNumber("targetId", targetId);
+            writer.WriteString("linkType", linkType);
+            writer.WriteBoolean("linked", true);
+            if (warning is not null)
+                writer.WriteString("warning", warning);
+        });
+
     public static CallToolResult FormatFlushSummary(McpFlushSummary summary) =>
         BuildJson(writer =>
         {

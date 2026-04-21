@@ -21,10 +21,10 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
         CancellationToken ct = default)
     {
-        if (TryResolve(workspace, out var ctx) is { } resErr) return resErr;
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
 
-        var (item, fetchErr) = await FetchWithFallbackAsync(ctx, id, ct);
-        if (fetchErr is not null) return fetchErr;
+        var (item, fetchErr) = await ctx.FetchWithFallbackAsync(id, ct);
+        if (fetchErr is not null) return McpResultBuilder.ToError(fetchErr);
 
         return McpResultBuilder.FormatWorkItem(item!, ctx.Key.ToString());
     }
@@ -42,7 +42,7 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
         CancellationToken ct = default)
     {
-        if (TryResolve(workspace, out var ctx) is { } resErr) return resErr;
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
 
         // Resolve default area paths from config when no explicit area path filter is given
         IReadOnlyList<(string Path, bool IncludeChildren)>? defaultAreaPaths = null;
@@ -90,7 +90,7 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
         CancellationToken ct = default)
     {
-        if (TryResolve(workspace, out var ctx) is { } resErr) return resErr;
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
 
         var children = await ctx.WorkItemRepo.GetChildrenAsync(id, ct);
         return McpResultBuilder.FormatChildren(id, children, ctx.Key.ToString());
@@ -102,26 +102,18 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
         CancellationToken ct = default)
     {
-        if (TryResolve(workspace, out var ctx) is { } resErr) return resErr;
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
 
-        var (childResult, fetchErr) = await FetchWithFallbackAsync(ctx, id, ct);
-        if (fetchErr is not null) return fetchErr;
+        var (childResult, fetchErr) = await ctx.FetchWithFallbackAsync(id, ct);
+        if (fetchErr is not null) return McpResultBuilder.ToError(fetchErr);
         var child = childResult!;
 
         // Resolve parent — cache-first, ADO fallback (best-effort: null if fetch fails)
         WorkItem? parent = null;
         if (child.ParentId.HasValue)
         {
-            parent = await ctx.WorkItemRepo.GetByIdAsync(child.ParentId.Value, ct);
-            if (parent is null)
-            {
-                try
-                {
-                    parent = await ctx.AdoService.FetchAsync(child.ParentId.Value, ct);
-                    await ctx.WorkItemRepo.SaveAsync(parent, ct);
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
-            }
+            var (p, _) = await ctx.FetchWithFallbackAsync(child.ParentId.Value, ct);
+            parent = p;
         }
 
         return McpResultBuilder.FormatParent(child, parent, ctx.Key.ToString());
@@ -133,7 +125,7 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
         CancellationToken ct = default)
     {
-        if (TryResolve(workspace, out var ctx) is { } resErr) return resErr;
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
 
         IterationPath iterationPath;
         try { iterationPath = await ctx.IterationService.GetCurrentIterationAsync(ct); }
@@ -145,30 +137,6 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
             sprintItems = await ctx.WorkItemRepo.GetByIterationAsync(iterationPath, ct);
 
         return McpResultBuilder.FormatSprint(iterationPath, sprintItems, ctx.Key.ToString());
-    }
-
-    private CallToolResult? TryResolve(string? workspace, out WorkspaceContext ctx)
-    {
-        try { ctx = resolver.Resolve(workspace); return null; }
-        catch (Exception ex) when (ex is FormatException or KeyNotFoundException or AmbiguousWorkspaceException)
-        { ctx = null!; return McpResultBuilder.ToError(ex.Message); }
-    }
-
-    private async Task<(WorkItem? Item, CallToolResult? Error)> FetchWithFallbackAsync(
-        WorkspaceContext ctx, int id, CancellationToken ct)
-    {
-        var item = await ctx.WorkItemRepo.GetByIdAsync(id, ct);
-        if (item is not null) return (item, null);
-        try
-        {
-            item = await ctx.AdoService.FetchAsync(id, ct);
-            await ctx.WorkItemRepo.SaveAsync(item, ct);
-            return (item, null);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            return (null, McpResultBuilder.ToError($"Work item #{id} not found in cache or ADO: {ex.Message}"));
-        }
     }
 
     private static IReadOnlyList<(string Path, bool IncludeChildren)>? ResolveDefaultAreaPaths(WorkspaceContext ctx)

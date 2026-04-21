@@ -28,10 +28,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         if (string.IsNullOrWhiteSpace(stateName))
             return McpResultBuilder.ToError("Usage: twig_state requires a target state name (e.g. Active, Closed, Resolved).");
 
-        WorkspaceContext ctx;
-        try { ctx = resolver.Resolve(workspace); }
-        catch (Exception ex) when (ex is FormatException or KeyNotFoundException or AmbiguousWorkspaceException)
-        { return McpResultBuilder.ToError(ex.Message); }
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
 
         var resolved = await ctx.ActiveItemResolver.GetActiveItemAsync(ct);
         if (resolved is ActiveItemResult.NoContext)
@@ -117,10 +114,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
             ? MarkdownConverter.ToHtml(value)
             : value;
 
-        WorkspaceContext ctx;
-        try { ctx = resolver.Resolve(workspace); }
-        catch (Exception ex) when (ex is FormatException or KeyNotFoundException or AmbiguousWorkspaceException)
-        { return McpResultBuilder.ToError(ex.Message); }
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
 
         var resolved = await ctx.ActiveItemResolver.GetActiveItemAsync(ct);
         if (resolved is ActiveItemResult.NoContext)
@@ -174,10 +168,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         if (string.IsNullOrWhiteSpace(text))
             return McpResultBuilder.ToError("Usage: twig_note requires non-empty text.");
 
-        WorkspaceContext ctx;
-        try { ctx = resolver.Resolve(workspace); }
-        catch (Exception ex) when (ex is FormatException or KeyNotFoundException or AmbiguousWorkspaceException)
-        { return McpResultBuilder.ToError(ex.Message); }
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
 
         var resolved = await ctx.ActiveItemResolver.GetActiveItemAsync(ct);
         if (resolved is ActiveItemResult.NoContext)
@@ -189,7 +180,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
             ? f.WorkItem
             : ((ActiveItemResult.FetchedFromAdo)resolved).WorkItem;
 
-        // Push comment to ADO — fall back to local staging on failure
+        // Push comment to ADO— fall back to local staging on failure
         bool isPending;
         try
         {
@@ -229,10 +220,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
         CancellationToken ct = default)
     {
-        WorkspaceContext ctx;
-        try { ctx = resolver.Resolve(workspace); }
-        catch (Exception ex) when (ex is FormatException or KeyNotFoundException or AmbiguousWorkspaceException)
-        { return McpResultBuilder.ToError(ex.Message); }
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
 
         // Resolve target: explicit ID or active item
         WorkItem cached;
@@ -277,12 +265,9 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
         CancellationToken ct = default)
     {
-        WorkspaceContext ctx;
-        try { ctx = resolver.Resolve(workspace); }
-        catch (Exception ex) when (ex is FormatException or KeyNotFoundException or AmbiguousWorkspaceException)
-        { return McpResultBuilder.ToError(ex.Message); }
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
 
-        // Phase 1 — Push: flush all pending changes to ADO
+        // Phase 1 — Push:flush all pending changes to ADO
         var flushSummary = await ctx.Flusher.FlushAllAsync(ct);
 
         // Phase 2 — Pull: sync active item context from ADO

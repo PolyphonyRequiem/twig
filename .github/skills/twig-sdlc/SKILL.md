@@ -16,10 +16,10 @@ All workflows are registered in the `twig` conductor registry. Use short names â
 
 | Workflow | Registry Name | Purpose | Key Inputs |
 |----------|---------------|---------|------------|
-| Monolithic SDLC | `twig-sdlc@twig` | Full pipeline (proven, battle-tested) | `work_item_id` or `prompt` |
 | Planning only | `twig-sdlc-planning@twig` | Recursive planner: architect + review + seed + per-issue task planning | `work_item_id` or `prompt` |
 | Implementation only | `twig-sdlc-implement@twig` | Coding, review, PR lifecycle, close-out | `work_item_id`, optional `plan_path` |
 | Full (composite) | `twig-sdlc-full@twig` | Planning â†’ implementation via sub-workflow composition | `work_item_id` or `prompt` |
+| Legacy | `twig-sdlc-legacy@twig` | Original monolithic pipeline (deprecated) | `work_item_id` or `prompt` |
 
 ## Quick Reference
 

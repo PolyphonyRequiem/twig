@@ -832,6 +832,43 @@ public sealed class McpResultBuilderTests
         root.GetProperty("workspace").GetString().ShouldBe("org/proj");
     }
 
+    // ── FormatCreated ────────────────────────────────────────────────
+
+    [Fact]
+    public void FormatCreated_WritesExpectedFields()
+    {
+        var item = new WorkItemBuilder(42, "New Feature")
+            .AsTask()
+            .InState("New")
+            .WithAreaPath(@"Project\Team")
+            .WithIterationPath(@"Project\Sprint 1")
+            .WithParent(10)
+            .Build();
+
+        var result = McpResultBuilder.FormatCreated(item, "https://dev.azure.com/org/proj/_workitems/edit/42", workspace: "org/proj");
+        var root = ParseJson(result);
+
+        root.GetProperty("id").GetInt32().ShouldBe(42);
+        root.GetProperty("title").GetString().ShouldBe("New Feature");
+        root.GetProperty("type").GetString().ShouldBe("Task");
+        root.GetProperty("state").GetString().ShouldBe("New");
+        root.GetProperty("areaPath").GetString().ShouldBe(@"Project\Team");
+        root.GetProperty("iterationPath").GetString().ShouldBe(@"Project\Sprint 1");
+        root.GetProperty("url").GetString().ShouldBe("https://dev.azure.com/org/proj/_workitems/edit/42");
+        root.GetProperty("workspace").GetString().ShouldBe("org/proj");
+    }
+
+    [Fact]
+    public void FormatCreated_NullWorkspace_WritesJsonNull()
+    {
+        var item = new WorkItemBuilder(99, "Solo Item").AsBug().InState("New").Build();
+
+        var result = McpResultBuilder.FormatCreated(item, "https://dev.azure.com/org/proj/_workitems/edit/99");
+        var root = ParseJson(result);
+
+        root.GetProperty("workspace").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────
 
     private static JsonElement ParseJson(CallToolResult result)

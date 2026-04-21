@@ -52,7 +52,11 @@ public sealed class CreationToolsNewTests : CreationToolsTestBase
         json.GetProperty("type").GetString().ShouldBe("Task");
         json.GetProperty("url").GetString()!.ShouldContain("200");
 
-        await _adoService.Received(1).CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+        await _adoService.Received(1).CreateAsync(
+            Arg.Is<WorkItem>(wi =>
+                wi.AreaPath.ToString() == "Project\\Team" &&
+                wi.IterationPath.ToString() == "Project\\Sprint 1"),
+            Arg.Any<CancellationToken>());
         await _workItemRepo.Received(1).SaveAsync(created, Arg.Any<CancellationToken>());
     }
 

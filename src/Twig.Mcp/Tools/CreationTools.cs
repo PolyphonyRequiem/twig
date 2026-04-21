@@ -143,13 +143,17 @@ public sealed class CreationTools(WorkspaceResolver resolver)
         try
         {
             item = await ctx.AdoService.FetchAsync(id, ct);
-            await ctx.WorkItemRepo.SaveAsync(item, ct);
-            return (item, null);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             return (null, McpResultBuilder.ToError($"Parent #{id} not found in cache or ADO: {ex.Message}"));
         }
+
+        // Best-effort cache warm — do not fail if SQLite is unavailable
+        try { await ctx.WorkItemRepo.SaveAsync(item, ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
+
+        return (item, null);
     }
 
     private static AreaPath ResolveDefaultAreaPath(WorkspaceContext ctx)

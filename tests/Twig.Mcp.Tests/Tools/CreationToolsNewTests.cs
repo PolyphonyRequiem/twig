@@ -327,6 +327,50 @@ public sealed class CreationToolsNewTests : CreationToolsTestBase
     }
 
     // ═══════════════════════════════════════════════════════════════
+    //  Parent found in ADO but cache save fails — still succeeds
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task New_ParentFoundInAdoButCacheSaveFails_ReturnsSuccess()
+    {
+        var parent = new WorkItemBuilder(100, "Parent Epic")
+            .AsEpic()
+            .WithAreaPath("Project\\Team")
+            .WithIterationPath("Project\\Sprint 1")
+            .Build();
+
+        var created = new WorkItemBuilder(201, "Child Task")
+            .AsTask()
+            .WithParent(100)
+            .Build();
+
+        var processConfig = BuildProcessConfigWithChildren(WorkItemType.Epic, WorkItemType.Task);
+
+        // Parent not in cache — triggers ADO fallback
+        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        _adoService.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
+
+        // Cache save throws for the parent warm-up (SQLite locked scenario)
+        _workItemRepo.SaveAsync(parent, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("SQLite is locked"));
+
+        _processConfigProvider.GetConfiguration().Returns(processConfig);
+        _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>()).Returns(201);
+        _adoService.FetchAsync(201, Arg.Any<CancellationToken>()).Returns(created);
+
+        // Post-create cache write also throws (both are best-effort)
+        _workItemRepo.SaveAsync(created, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("SQLite is locked"));
+
+        var result = await CreateCreationSut().New("Task", "Child Task", parentId: 100);
+
+        result.IsError.ShouldBeNull();
+        var json = ParseResult(result);
+        json.GetProperty("id").GetInt32().ShouldBe(201);
+        json.GetProperty("title").GetString().ShouldBe("Child Task");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     //  Case-insensitive type parsing
     // ═══════════════════════════════════════════════════════════════
 

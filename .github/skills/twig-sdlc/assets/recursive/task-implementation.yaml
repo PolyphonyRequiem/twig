@@ -1,0 +1,122 @@
+# task-implementation.yaml — Coder ↔ Task Reviewer loop
+#
+# Implements a single task: coder writes code, reviewer approves or sends back.
+# Loops until approved (max 2 revision cycles to prevent infinite loops).
+#
+# Called by the orchestrator (or for_each) with task details via input_mapping.
+# Same quality as twig-sdlc — same review rigor, same pre-review checklist.
+workflow:
+  name: task-implementation
+  description: Implement a single task with code review loop
+  entry_point: coder
+  runtime:
+    provider: copilot
+  input:
+    task_id:
+      type: number
+      required: true
+      description: ADO Task ID to implement
+    task_title:
+      type: string
+      required: true
+    task_description:
+      type: string
+      required: true
+    issue_id:
+      type: number
+      required: true
+      description: Parent Issue ID
+    issue_title:
+      type: string
+      required: true
+    branch_name:
+      type: string
+      required: true
+      description: Git branch to work on
+    plan_path:
+      type: string
+      required: true
+      description: Path to the .plan.md file
+  context:
+    mode: explicit
+  limits:
+    max_iterations: 20
+
+agents:
+  - name: coder
+    description: Implements a single task — code changes, tests, incremental commits
+    model: claude-opus-4.6-1m
+    input:
+      - workflow.input.task_id
+      - workflow.input.task_title
+      - workflow.input.task_description
+      - workflow.input.issue_id
+      - workflow.input.issue_title
+      - workflow.input.branch_name
+      - workflow.input.plan_path
+      - task_reviewer.output?
+    system_prompt: !file prompts/coder.system.md
+    prompt: !file prompts/coder.prompt.md
+    output:
+      task_id:
+        type: number
+        description: The task ID that was implemented
+      files_modified:
+        type: array
+        description: Files created or modified
+      changes_summary:
+        type: string
+        description: Summary of changes made
+      tests_added:
+        type: array
+        description: Test files and test names added
+      commit_hash:
+        type: string
+        description: Git commit hash
+      edge_cases_handled:
+        type: array
+        description: Edge cases explicitly handled
+    routes:
+      - to: task_reviewer
+
+  - name: task_reviewer
+    description: Reviews the task implementation for quality and correctness
+    model: claude-sonnet-4.6
+    input:
+      - coder.output
+      - workflow.input.task_id
+      - workflow.input.task_title
+      - workflow.input.task_description
+      - workflow.input.plan_path
+    system_prompt: !file ../prompts/task-reviewer.system.md
+    prompt: !file prompts/task-reviewer.prompt.md
+    output:
+      decision:
+        type: string
+        description: APPROVE or REQUEST_CHANGES
+      feedback:
+        type: string
+        description: Detailed review feedback
+      issues:
+        type: array
+        description: Specific issues to fix (empty if approved)
+      approved:
+        type: boolean
+        description: True if the implementation is approved
+      strengths:
+        type: array
+        description: Things done well
+    routes:
+      - to: $end
+        when: "{{ output.approved }}"
+      - to: coder
+        when: "{{ not output.approved }}"
+
+output:
+  task_id: "{{ coder.output.task_id }}"
+  files_modified: "{{ coder.output.files_modified | json }}"
+  changes_summary: "{{ coder.output.changes_summary }}"
+  tests_added: "{{ coder.output.tests_added | json }}"
+  commit_hash: "{{ coder.output.commit_hash }}"
+  approved: "{{ task_reviewer.output.approved }}"
+  review_feedback: "{{ task_reviewer.output.feedback }}"

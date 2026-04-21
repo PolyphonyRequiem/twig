@@ -1,0 +1,199 @@
+# integration-fix.yaml — Post-merge integration fix cycle
+#
+# Runs after pr_finalizer detects integration issues across merged PR groups.
+# Creates an integration branch, applies fixes, reviews, submits PR, merges.
+#
+# This is NOT the same shape as task-implementation — it includes the full
+# PR lifecycle (submit → review → fix → merge) because the integration
+# fix IS the PR. No separate orchestrator needed.
+workflow:
+  name: integration-fix
+  description: Fix cross-PR-group integration issues and merge
+  entry_point: integration_fixer
+  runtime:
+    provider: copilot
+  input:
+    epic_id:
+      type: number
+      required: true
+    epic_title:
+      type: string
+      required: true
+    branch_name:
+      type: string
+      required: true
+      description: Integration branch name (e.g. fix/integration-1234)
+    plan_path:
+      type: string
+      required: true
+    integration_findings:
+      type: string
+      required: true
+      description: Description of integration issues to fix
+  context:
+    mode: explicit
+  limits:
+    max_iterations: 30
+
+agents:
+  - name: integration_fixer
+    description: Fixes cross-cutting integration issues
+    model: claude-opus-4.6-1m
+    input:
+      - workflow.input.epic_id
+      - workflow.input.epic_title
+      - workflow.input.branch_name
+      - workflow.input.plan_path
+      - workflow.input.integration_findings
+      - integration_reviewer.output?
+    system_prompt: !file prompts/integration-fixer.system.md
+    prompt: !file prompts/integration-fixer.prompt.md
+    output:
+      files_modified:
+        type: array
+        description: Files modified
+      changes_summary:
+        type: string
+        description: Summary of integration fixes
+      commit_hash:
+        type: string
+        description: Git commit hash
+    routes:
+      - to: integration_reviewer
+
+  - name: integration_reviewer
+    description: Reviews integration fixes for correctness
+    model: claude-sonnet-4.6
+    input:
+      - integration_fixer.output
+      - workflow.input.plan_path
+      - workflow.input.integration_findings
+    system_prompt: |
+      You review integration fixes for a .NET 10 AOT CLI project.
+      Verify the fixes address the reported issues without introducing regressions.
+      Check that tests pass and no new cross-cutting problems were created.
+    prompt: |
+      Review the integration fixes.
+      **Reported issues:** {{ workflow.input.integration_findings }}
+      **Fixer's changes:** {{ integration_fixer.output.changes_summary }}
+      **Files modified:** {{ integration_fixer.output.files_modified | join(", ") }}
+
+      Run `dotnet test --settings test.runsettings` to verify.
+      Provide APPROVE or REQUEST_CHANGES.
+    output:
+      approved:
+        type: boolean
+      feedback:
+        type: string
+      issues:
+        type: array
+    routes:
+      - to: pr_submit
+        when: "{{ output.approved }}"
+      - to: integration_fixer
+        when: "{{ not output.approved }}"
+
+  - name: pr_submit
+    description: Creates GitHub PR for integration fixes
+    model: claude-sonnet-4.6
+    input:
+      - integration_fixer.output
+      - workflow.input.epic_id
+      - workflow.input.epic_title
+      - workflow.input.branch_name
+    system_prompt: !file ../prompts/pr-submit.system.md
+    prompt: |
+      Create a GitHub PR for the integration fixes.
+      **Epic:** #{{ workflow.input.epic_id }} — {{ workflow.input.epic_title }}
+      **Branch:** {{ workflow.input.branch_name }}
+      **Changes:** {{ integration_fixer.output.changes_summary }}
+
+      Use `gh pr create` with a clear title and description.
+      Verify the build passes before creating the PR.
+    output:
+      pr_url:
+        type: string
+      pr_number:
+        type: number
+      pr_title:
+        type: string
+    routes:
+      - to: pr_reviewer
+
+  - name: pr_reviewer
+    description: Reviews the integration PR
+    model: claude-opus-4.6-1m
+    input:
+      - pr_submit.output
+      - workflow.input.plan_path
+    system_prompt: !file ../prompts/pr-reviewer.system.md
+    prompt: |
+      Review the integration fix PR.
+      **PR:** {{ pr_submit.output.pr_url }}
+      **Plan:** Read `{{ workflow.input.plan_path }}` for context.
+
+      Review the diff for correctness and completeness.
+      Provide APPROVE or REQUEST_CHANGES.
+    output:
+      approved:
+        type: boolean
+      feedback:
+        type: string
+      issues:
+        type: array
+    routes:
+      - to: pr_merge
+        when: "{{ output.approved }}"
+      - to: pr_fixer
+        when: "{{ not output.approved }}"
+
+  - name: pr_fixer
+    description: Fixes PR-level issues
+    model: claude-sonnet-4.6
+    input:
+      - pr_reviewer.output
+      - pr_submit.output
+      - workflow.input.plan_path
+    system_prompt: !file ../prompts/pr-fixer.system.md
+    prompt: |
+      Fix the issues identified by the PR reviewer.
+      **PR:** {{ pr_submit.output.pr_url }}
+      **Feedback:** {{ pr_reviewer.output.feedback }}
+      {% for issue in pr_reviewer.output.issues %}
+      - {{ issue }}
+      {% endfor %}
+    output:
+      files_modified:
+        type: array
+      changes_summary:
+        type: string
+    routes:
+      - to: pr_submit
+
+  - name: pr_merge
+    description: Merges the approved PR
+    model: claude-sonnet-4.6
+    input:
+      - pr_submit.output
+      - workflow.input.branch_name
+    system_prompt: !file ../prompts/pr-merge.system.md
+    prompt: |
+      Merge the approved integration PR.
+      **PR:** {{ pr_submit.output.pr_url }} (#{{ pr_submit.output.pr_number }})
+      **Branch:** {{ workflow.input.branch_name }}
+
+      Use `gh pr merge` with squash merge. Delete the branch after merge.
+    output:
+      merged:
+        type: boolean
+      pr_url:
+        type: string
+      merge_commit:
+        type: string
+    routes:
+      - to: $end
+
+output:
+  merged: "{{ pr_merge.output.merged }}"
+  pr_url: "{{ pr_merge.output.pr_url }}"
+  changes_summary: "{{ integration_fixer.output.changes_summary }}"

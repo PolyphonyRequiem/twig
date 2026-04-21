@@ -1,0 +1,92 @@
+# issue-review.yaml — Post-issue reduction + review
+#
+# Runs after all tasks in an issue are complete. Performs a reduction sweep
+# (consolidation, dead code removal) then a holistic issue review against
+# acceptance criteria.
+#
+# Called by the orchestrator with issue context via input_mapping.
+workflow:
+  name: issue-review
+  description: Post-issue reduction sweep and acceptance criteria review
+  entry_point: reducer_issue
+  runtime:
+    provider: copilot
+  input:
+    issue_id:
+      type: number
+      required: true
+    issue_title:
+      type: string
+      required: true
+    completed_tasks:
+      type: string
+      required: true
+      description: JSON string of completed task IDs/titles
+    plan_path:
+      type: string
+      required: true
+  context:
+    mode: explicit
+  limits:
+    max_iterations: 10
+
+agents:
+  - name: reducer_issue
+    description: Post-issue code sweep — simplifies across all tasks
+    model: claude-sonnet-4.6
+    input:
+      - workflow.input.issue_id
+      - workflow.input.issue_title
+      - workflow.input.completed_tasks
+      - workflow.input.plan_path
+    system_prompt: !file ../prompts/reducer.system.md
+    prompt: !file prompts/reducer-issue.prompt.md
+    output:
+      findings:
+        type: array
+        description: Reductions applied or recommended
+      changes_applied:
+        type: array
+        description: Specific changes made
+      lines_removed:
+        type: number
+        description: Net lines removed
+    routes:
+      - to: issue_reviewer
+
+  - name: issue_reviewer
+    description: Reviews the complete issue against acceptance criteria
+    model: claude-opus-4.6-1m
+    input:
+      - workflow.input.issue_id
+      - workflow.input.issue_title
+      - workflow.input.completed_tasks
+      - workflow.input.plan_path
+      - reducer_issue.output
+    system_prompt: !file ../prompts/issue-reviewer.system.md
+    prompt: !file prompts/issue-reviewer.prompt.md
+    output:
+      decision:
+        type: string
+        description: APPROVE or REQUEST_CHANGES
+      feedback:
+        type: string
+        description: Detailed review feedback
+      issues:
+        type: array
+        description: Specific issues to fix
+      approved:
+        type: boolean
+        description: Whether the issue implementation is approved
+      strengths:
+        type: array
+        description: Things done well
+    routes:
+      - to: $end
+
+output:
+  approved: "{{ issue_reviewer.output.approved }}"
+  feedback: "{{ issue_reviewer.output.feedback }}"
+  issues: "{{ issue_reviewer.output.issues | json }}"
+  strengths: "{{ issue_reviewer.output.strengths | json }}"
+  reductions: "{{ reducer_issue.output.findings | json }}"

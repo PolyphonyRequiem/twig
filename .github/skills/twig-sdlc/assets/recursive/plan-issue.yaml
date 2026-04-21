@@ -1,0 +1,100 @@
+# plan-issue.yaml — Issue-level planner sub-workflow
+#
+# Called by the recursive dispatcher for each Issue. Breaks a single Issue
+# into Tasks via codebase research, creates ADO Task items, and runs a
+# single reviewer pass (no human gate at this level).
+#
+# Inputs (via input_mapping from parent):
+#   work_item_id: The Issue's ADO ID
+#   title: Issue title
+#   description: Issue description
+#   plan_path: Path to the Epic-level .plan.md (optional)
+workflow:
+  name: plan-issue
+  description: Break a single Issue into implementable Tasks
+  entry_point: issue_planner
+  runtime:
+    provider: copilot
+  input:
+    work_item_id:
+      type: number
+      required: true
+      description: The Issue ADO ID to break into Tasks
+    title:
+      type: string
+      required: true
+      description: Issue title
+    description:
+      type: string
+      required: false
+      default: ""
+      description: Issue description
+    plan_path:
+      type: string
+      required: false
+      default: ""
+      description: Path to the Epic-level plan document
+  context:
+    mode: explicit
+  limits:
+    max_iterations: 20
+
+agents:
+  - name: issue_planner
+    description: Researches codebase and creates Tasks under this Issue
+    model: claude-opus-4.6-1m
+    input:
+      - workflow.input.work_item_id
+      - workflow.input.title
+      - workflow.input.description
+      - workflow.input.plan_path?
+    system_prompt: !file prompts/issue-planner.system.md
+    prompt: !file prompts/issue-planner.prompt.md
+    output:
+      tasks:
+        type: array
+        description: Array of created Tasks [{id, title, description}]
+      task_count:
+        type: number
+        description: Number of Tasks created
+      planning_summary:
+        type: string
+        description: Summary of decomposition decisions
+    routes:
+      - to: issue_reviewer
+
+  - name: issue_reviewer
+    description: Reviews the task decomposition for completeness
+    model: claude-sonnet-4.6
+    input:
+      - issue_planner.output
+      - workflow.input.work_item_id
+      - workflow.input.title
+    system_prompt: |
+      You review Issue-level task decomposition plans.
+      Check completeness, granularity, descriptions, dependencies, and test coverage.
+    prompt: !file prompts/issue-reviewer.prompt.md
+    output:
+      score:
+        type: number
+        description: Review score 0-100
+      feedback:
+        type: string
+        description: Review feedback
+      critical_issues:
+        type: array
+        description: Issues that must be fixed
+      approved:
+        type: boolean
+        description: True if score >= 80 and no critical issues
+    routes:
+      - to: issue_planner
+        when: "{{ not output.approved }}"
+      - to: $end
+
+output:
+  work_item_id: "{{ workflow.input.work_item_id }}"
+  tasks: "{{ issue_planner.output.tasks | json }}"
+  task_count: "{{ issue_planner.output.task_count }}"
+  planning_summary: "{{ issue_planner.output.planning_summary }}"
+  review_score: "{{ issue_reviewer.output.score }}"

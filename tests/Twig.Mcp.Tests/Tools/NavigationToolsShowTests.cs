@@ -1,3 +1,4 @@
+using ModelContextProtocol.Protocol;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
@@ -74,7 +75,7 @@ public sealed class NavigationToolsShowTests : NavigationToolsTestBase
         var result = await CreateSut().Show(7);
 
         result.IsError.ShouldBe(true);
-        var text = result.Content[0].ShouldBeOfType<ModelContextProtocol.Protocol.TextContentBlock>().Text;
+        var text = result.Content[0].ShouldBeOfType<TextContentBlock>().Text;
         text.ShouldContain("#7");
         text.ShouldContain("not found");
     }

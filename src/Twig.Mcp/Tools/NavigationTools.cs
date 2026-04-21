@@ -69,9 +69,9 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
         catch (Exception ex) when (ex is not OperationCanceledException)
         { return McpResultBuilder.ToError($"Query failed: {ex.Message}"); }
 
-        var items = ids.Count > 0
+        IReadOnlyList<WorkItem> items = ids.Count > 0
             ? await ctx.AdoService.FetchBatchAsync(ids, ct)
-            : (IReadOnlyList<WorkItem>)Array.Empty<WorkItem>();
+            : [];
 
         // Best-effort cache write — ADO is the source of truth
         if (items.Count > 0)

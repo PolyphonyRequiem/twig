@@ -1,3 +1,4 @@
+using ModelContextProtocol.Protocol;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
@@ -90,7 +91,7 @@ public sealed class NavigationToolsParentTests : NavigationToolsTestBase
         var result = await CreateSut().Parent(99);
 
         result.IsError.ShouldBe(true);
-        result.Content[0].ShouldBeOfType<ModelContextProtocol.Protocol.TextContentBlock>()
+        result.Content[0].ShouldBeOfType<TextContentBlock>()
             .Text.ShouldContain("#99");
     }
 

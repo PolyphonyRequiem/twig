@@ -102,11 +102,9 @@ public sealed class CreationTools(WorkspaceResolver resolver)
             seed = seedResult.Value;
         }
 
-        // Apply description with markdown→HTML conversion
         if (!string.IsNullOrWhiteSpace(description))
             seed.SetField("System.Description", MarkdownConverter.ToHtml(description));
 
-        // Create in ADO
         int newId;
         try { newId = await ctx.AdoService.CreateAsync(seed, ct); }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -121,7 +119,6 @@ public sealed class CreationTools(WorkspaceResolver resolver)
                 $"Created #{newId} in ADO but fetch-back failed: {ex.Message}. Run twig_sync to recover.");
         }
 
-        // Best-effort cache write
         try { await ctx.WorkItemRepo.SaveAsync(created, ct); }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
@@ -146,13 +143,12 @@ public sealed class CreationTools(WorkspaceResolver resolver)
         if (sourceId == targetId)
             return McpResultBuilder.ToError("sourceId and targetId must be different work items.");
 
+        var supportedTypes = string.Join(", ", LinkTypeMapper.SupportedTypes);
         if (string.IsNullOrWhiteSpace(linkType))
-            return McpResultBuilder.ToError(
-                $"linkType is required. Supported types: {string.Join(", ", LinkTypeMapper.SupportedTypes)}.");
+            return McpResultBuilder.ToError($"linkType is required. Supported types: {supportedTypes}.");
 
         if (!LinkTypeMapper.TryResolve(linkType, out var adoLinkType))
-            return McpResultBuilder.ToError(
-                $"Unknown link type '{linkType}'. Supported types: {string.Join(", ", LinkTypeMapper.SupportedTypes)}.");
+            return McpResultBuilder.ToError($"Unknown link type '{linkType}'. Supported types: {supportedTypes}.");
 
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
 

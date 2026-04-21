@@ -131,7 +131,7 @@ public sealed class CreationToolsNewTests : CreationToolsTestBase
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task New_InvalidChildType_ReturnsError()
+    public async Task New_InvalidChildType_ReturnsErrorWithAllowedTypes()
     {
         var parent = new WorkItemBuilder(100, "Parent Epic").AsEpic().Build();
         // Only allow Issue children, not Task
@@ -145,6 +145,8 @@ public sealed class CreationToolsNewTests : CreationToolsTestBase
         result.IsError.ShouldBe(true);
         var text = result.Content[0].ShouldBeOfType<TextContentBlock>().Text;
         text.ShouldContain("not an allowed child");
+        text.ShouldContain("Allowed child types for Epic");
+        text.ShouldContain("Issue");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -320,5 +322,24 @@ public sealed class CreationToolsNewTests : CreationToolsTestBase
         var result = await CreateCreationSut().New(typeName, "Case Test");
 
         result.IsError.ShouldBeNull();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Unknown type (unparented) — returns error listing valid types
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task New_UnparentedUnknownType_ReturnsErrorWithValidTypes()
+    {
+        var result = await CreateCreationSut().New("Gizmo", "Unknown Type Item");
+
+        result.IsError.ShouldBe(true);
+        var text = result.Content[0].ShouldBeOfType<TextContentBlock>().Text;
+        text.ShouldContain("Unknown work item type");
+        text.ShouldContain("Gizmo");
+        text.ShouldContain("Valid types:");
+        // Default process config includes these types
+        text.ShouldContain("Epic");
+        text.ShouldContain("Task");
     }
 }

@@ -32,14 +32,17 @@ public sealed class CreationTools(WorkspaceResolver resolver)
         if (string.IsNullOrWhiteSpace(type))
             return McpResultBuilder.ToError("Type is required. Usage: twig_new requires a work item type (e.g. Epic, Issue, Task).");
 
-        var typeResult = WorkItemType.Parse(type);
-        if (!typeResult.IsSuccess)
-            return McpResultBuilder.ToError(typeResult.Error);
+        var parsedType = WorkItemType.Parse(type).Value;
 
         if (parentId is <= 0)
             return McpResultBuilder.ToError($"parentId must be a positive work item ID (got {parentId.Value}).");
 
         if (TryResolve(workspace, out var ctx) is { } resErr) return resErr;
+
+        ProcessConfiguration processConfig;
+        try { processConfig = ctx.ProcessConfigProvider.GetConfiguration(); }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        { return McpResultBuilder.ToError($"Failed to load process configuration: {ex.Message}"); }
 
         WorkItem seed;
         if (parentId.HasValue)
@@ -48,32 +51,42 @@ public sealed class CreationTools(WorkspaceResolver resolver)
             var (parent, fetchErr) = await FetchWithFallbackAsync(ctx, parentId.Value, ct);
             if (fetchErr is not null) return fetchErr;
 
-            ProcessConfiguration processConfig;
-            try { processConfig = ctx.ProcessConfigProvider.GetConfiguration(); }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            { return McpResultBuilder.ToError($"Failed to load process configuration: {ex.Message}"); }
-
             var seedResult = SeedFactory.Create(
                 title,
                 parent!,
                 processConfig,
-                typeResult.Value,
+                parsedType,
                 assignedTo);
 
             if (!seedResult.IsSuccess)
-                return McpResultBuilder.ToError(seedResult.Error);
+            {
+                var allowedChildren = processConfig.GetAllowedChildTypes(parent!.Type);
+                var allowedList = allowedChildren.Count > 0
+                    ? string.Join(", ", allowedChildren)
+                    : "(none)";
+                return McpResultBuilder.ToError(
+                    $"{seedResult.Error} Allowed child types for {parent!.Type}: {allowedList}.");
+            }
 
             seed = seedResult.Value;
         }
         else
         {
+            // Validate type is recognized in the process configuration
+            if (!processConfig.TypeConfigs.ContainsKey(parsedType))
+            {
+                var validTypes = string.Join(", ", processConfig.TypeConfigs.Keys);
+                return McpResultBuilder.ToError(
+                    $"Unknown work item type '{type}'. Valid types: {validTypes}.");
+            }
+
             // No parent — use workspace defaults for area/iteration paths
             var areaPath = ResolveDefaultAreaPath(ctx);
             var iterationPath = ResolveDefaultIterationPath(ctx);
 
             var seedResult = SeedFactory.CreateUnparented(
                 title,
-                typeResult.Value,
+                parsedType,
                 areaPath,
                 iterationPath,
                 assignedTo);

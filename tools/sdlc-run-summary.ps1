@@ -219,7 +219,8 @@ else {
 
     if ($failed) {
         Write-Host "`n── Error ──" -ForegroundColor Red
-        Write-Host "  $($failed.data.error_type): $($failed.data.message.Substring(0, [Math]::Min(200, $failed.data.message.Length)))"
+        $msg = $failed.data.message ?? ''
+        Write-Host "  $($failed.data.error_type): $($msg.Substring(0, [Math]::Min(200, $msg.Length)))"
     }
 
     Write-Host ""

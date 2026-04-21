@@ -86,6 +86,8 @@ public sealed class ProgramBootstrapTests
                 .WithTools<ContextTools>()
                 .WithTools<ReadTools>()
                 .WithTools<MutationTools>()
+                .WithTools<NavigationTools>()
+                .WithTools<CreationTools>()
                 .WithTools<WorkspaceTools>();
 
             using var provider = services.BuildServiceProvider();

@@ -3,9 +3,9 @@
 | Field | Value |
 |---|---|
 | **Epic** | #1814 — Expand twig-mcp with read and write tools |
-| **Status** | 🔨 In Progress — 2/3 PR groups merged |
-| **Revision** | 0 |
-| **Revision Notes** | Initial draft. |
+| **Status** | 🔨 In Progress — 2/3 PR groups merged (PG-3 in review) |
+| **Revision** | 1 |
+| **Revision Notes** | Updated PG-3 scope to reflect actual delivery: ~1,324 LoC / 7 files of workflow infrastructure vs. planned ~5 LoC / 1 file. |
 
 ---
 
@@ -507,20 +507,24 @@ integration with the tool discovery pipeline.
 
 **Successors:** PG-3
 
-### PG-3: Registration & Integration
+### PG-3: Registration, Workflow Infrastructure & SDLC Tooling
 
-**Type:** Wide (trivial)
-**Scope:** Program.cs registration (2 lines)
-**Estimated LoC:** ~5
-**Estimated Files:** 1
+**Type:** Wide
+**Scope:** Program.cs WithTools registration + decomposed SDLC workflow YAML files + sdlc-run-summary metrics script + load-work-tree script
+**Actual LoC:** ~1,324
+**Actual Files:** 7
 
 **Contents:**
-- Task 3.1: Program.cs WithTools registration
-- Task 3.2: Build + test verification
+- Task 3.1: Program.cs `WithTools<NavigationTools>()` + `WithTools<CreationTools>()` registration
+- Task 3.2: Decomposed workflows — `twig-sdlc-planning.yaml`, `twig-sdlc-implement.yaml`, `twig-sdlc-full.yaml`
+- Task 3.3: `load-work-tree.ps1` — deterministic work-tree loader for pr_group_manager
+- Task 3.4: `sdlc-run-summary.ps1` — conductor event-log metrics script
+- Task 3.5: twig-sdlc.yaml orchestrator update to wire twig-mcp
+- Task 3.6: Build + test verification
 
 **Predecessors:** PG-1, PG-2
 
-**Note:** PG-1 and PG-2 are independent and can be developed and reviewed in parallel.
-PG-3 is a trivial integration commit that merges after both are complete. In practice,
-PG-3 could be folded into whichever of PG-1/PG-2 lands second, reducing total PR count
-to 2.
+**Note:** PG-3 grew beyond the original trivial registration scope to include decomposed
+workflow infrastructure and SDLC tooling that arose as natural follow-on work during
+implementation. The original plan estimated ~5 LoC / 1 file; the actual delivery was
+~1,324 LoC across 7 files.

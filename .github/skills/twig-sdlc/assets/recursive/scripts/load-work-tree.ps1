@@ -42,22 +42,20 @@ $children = $tree.children
 $issues = @()
 $allTasks = @()
 foreach ($child in $children) {
-    if ($child.type -eq 'Issue') {
-        # Get tasks under this issue
-        $null = twig set $child.id --output json 2>$null
-        $issueTree = twig tree --output json 2>$null | ConvertFrom-Json
+    # Drill in to detect hierarchy level by presence of children, not by type name.
+    # This keeps the script process-agnostic (works with Agile, Scrum, Basic, CMMI, etc.)
+    $null = twig set $child.id --output json 2>$null
+    $childTree = twig tree --output json 2>$null | ConvertFrom-Json
+    if ($childTree.children -and $childTree.children.Count -gt 0) {
+        # Intermediate-level item (issue-like): has its own sub-items
         $tasks = @()
-        if ($issueTree.children) {
-            foreach ($t in $issueTree.children) {
-                if ($t.type -eq 'Task') {
-                    $tasks += [ordered]@{
-                        id    = $t.id
-                        title = $t.title
-                        state = $t.state
-                    }
-                    $allTasks += $t
-                }
+        foreach ($t in $childTree.children) {
+            $tasks += [ordered]@{
+                id    = $t.id
+                title = $t.title
+                state = $t.state
             }
+            $allTasks += $t
         }
         $issues += [ordered]@{
             id         = $child.id
@@ -67,8 +65,8 @@ foreach ($child in $children) {
             tasks      = $tasks
         }
     }
-    elseif ($child.type -eq 'Task') {
-        # Direct child tasks (Issue-level input)
+    else {
+        # Leaf-level item (task-like): direct child of focus with no sub-items
         $allTasks += $child
     }
 }

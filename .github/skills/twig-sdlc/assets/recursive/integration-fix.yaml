@@ -9,6 +9,8 @@
 workflow:
   name: integration-fix
   description: Fix cross-PR-group integration issues and merge
+  metadata:
+    dashboard_hidden: true
   entry_point: integration_fixer
   runtime:
     provider: copilot

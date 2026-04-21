@@ -27,6 +27,9 @@ workflow:
   name: closeout-filing
   description: File SDLC closeout observations as ADO work items with deduplication
   version: "1.0.0"
+  metadata:
+    tracker: ado
+    project_url: https://dev.azure.com/dangreen-msft/Twig
   entry_point: scanner
   runtime:
     provider: copilot

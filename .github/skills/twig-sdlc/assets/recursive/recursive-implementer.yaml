@@ -1,0 +1,472 @@
+# recursive-implementer.yaml — Implementation dispatcher
+#
+# Takes an Epic with an approved plan and seeded Issues/Tasks, then implements
+# everything using sub-workflow composition:
+#
+#   for_each Issue:
+#     for_each Task in Issue:
+#       → task-implementation.yaml (coder ↔ task_reviewer loop)
+#     → issue-review.yaml (reducer → issue_reviewer)
+#   → PR lifecycle (submit → review → merge) per PR group
+#   → pr_finalizer → integration-fix.yaml (if needed) → close_out
+#
+# Keeps pr_group_manager and task_manager as orchestrators (they need stateful
+# loops) but routes to sub-workflows for the actual work.
+workflow:
+  name: recursive-implementer
+  description: Implementation dispatcher — orchestrates coding, review, and PR lifecycle via sub-workflows
+  entry_point: intake
+  runtime:
+    provider: copilot
+  input:
+    work_item_id:
+      type: number
+      required: true
+      description: ADO Epic or Issue ID with approved plan and seeded work items
+    plan_path:
+      type: string
+      required: false
+      description: Path to the .plan.md file (auto-detected if not provided)
+  context:
+    mode: explicit
+  limits:
+    max_iterations: 200
+
+agents:
+  # ── INTAKE: Read the work item and find the plan ──────────────────
+  - name: intake
+    description: Reads the Epic/Issue and locates the approved plan
+    model: claude-sonnet-4.6
+    input:
+      - workflow.input.work_item_id
+      - workflow.input.plan_path?
+    system_prompt: !file ../prompts/intake.system.md
+    prompt: |
+      Read work item #{{ workflow.input.work_item_id }} and gather context for implementation.
+
+      {% if workflow.input.plan_path %}
+      Plan path provided: {{ workflow.input.plan_path }}
+      {% else %}
+      Search for an approved plan in docs/projects/ matching this work item.
+      {% endif %}
+
+      Use `twig set {{ workflow.input.work_item_id }} --output json` then `twig tree --output json`.
+      Output the Epic details and its child Issues.
+    output:
+      epic_id:
+        type: number
+      epic_title:
+        type: string
+      epic_description:
+        type: string
+      existing_issues:
+        type: array
+        description: Child Issues [{id, title, state}]
+      item_type:
+        type: string
+      plan_already_approved:
+        type: boolean
+      existing_plan_path:
+        type: string
+    routes:
+      - to: plan_reader
+
+  # ── PLAN READER: Extract plan metadata ────────────────────────────
+  - name: plan_reader
+    description: Reads the approved plan and extracts PR groups and metadata
+    model: claude-sonnet-4.6
+    input:
+      - intake.output
+    system_prompt: !file ../prompts/plan-reader.system.md
+    prompt: !file ../prompts/plan-reader.prompt.md
+    output:
+      plan_path:
+        type: string
+      plan_summary:
+        type: string
+      issue_count:
+        type: number
+      pr_group_count:
+        type: number
+      total_estimated_loc:
+        type: number
+    routes:
+      - to: work_tree_seeder
+
+  # ── WORK TREE SEEDER: Verify/create ADO hierarchy ────────────────
+  - name: work_tree_seeder
+    description: Verifies the ADO work tree exists (Issues + Tasks seeded), creates any missing items
+    model: claude-sonnet-4.6
+    input:
+      - intake.output
+      - plan_reader.output
+    system_prompt: !file ../prompts/work-tree-seeder.system.md
+    prompt: |
+      Verify and complete the ADO work tree for implementation.
+
+      **Work Item:** #{{ intake.output.epic_id }} — {{ intake.output.epic_title }}
+      **Plan:** {{ plan_reader.output.plan_path }}
+
+      The plan has already been approved and Issues may already be seeded.
+      Read the plan and the current ADO tree:
+      1. `twig set {{ intake.output.epic_id }} --output json`
+      2. `twig tree --output json`
+
+      For each Issue in the plan:
+      - If it already exists in ADO → reuse it, verify Tasks exist under it
+      - If missing → create it via twig seed
+
+      For each Task in the plan:
+      - If it already exists → reuse it
+      - If missing → create it under its Issue
+
+      Output the full work tree with PR group assignments.
+    output:
+      work_tree:
+        type: object
+        description: ADO hierarchy
+      pr_groups:
+        type: array
+        description: Ordered PR groups with task_ids, issue_ids, branch names
+      total_tasks:
+        type: number
+      total_issues:
+        type: number
+    routes:
+      - to: pr_group_manager
+
+  # ── PR GROUP MANAGER: Outer orchestrator ──────────────────────────
+  - name: pr_group_manager
+    description: Outer orchestrator — manages PR groups, branches, and issue closure after merge
+    model: claude-sonnet-4.6
+    input:
+      - work_tree_seeder.output
+      - intake.output
+      - plan_reader.output
+      - pr_group_manager.output?
+      - task_manager.output?
+      - pr_merge.output?
+    system_prompt: !file ../prompts/pr-group-manager.system.md
+    prompt: !file ../prompts/pr-group-manager.prompt.md
+    output:
+      action:
+        type: string
+        description: start_tasks, submit_pr, or all_complete
+      current_pr_group:
+        type: string
+      branch_name:
+        type: string
+      pr_group_issue_ids:
+        type: array
+      pr_group_task_ids:
+        type: array
+      completed_issues:
+        type: array
+      completed_prs:
+        type: array
+      progress_summary:
+        type: string
+    routes:
+      - to: task_manager
+        when: "{{ output.action == 'start_tasks' }}"
+      - to: reducer_pr
+        when: "{{ output.action == 'submit_pr' }}"
+      - to: pr_finalizer
+        when: "{{ output.action == 'all_complete' }}"
+
+  # ── TASK MANAGER: Inner orchestrator ──────────────────────────────
+  - name: task_manager
+    description: Inner orchestrator — routes tasks to implementation sub-workflow
+    model: claude-sonnet-4.6
+    input:
+      - pr_group_manager.output
+      - work_tree_seeder.output
+      - intake.output
+      - plan_reader.output
+      - task_manager.output?
+      - task_implementation.output?
+      - issue_review.output?
+      - user_acceptance.output?
+    system_prompt: !file ../prompts/task-manager.system.md
+    prompt: !file ../prompts/task-manager.prompt.md
+    output:
+      action:
+        type: string
+        description: implement_task, issue_review, needs_acceptance, or pr_group_ready
+      current_pr_group:
+        type: string
+      branch_name:
+        type: string
+      current_issue_id:
+        type: number
+      current_issue_title:
+        type: string
+      current_task_id:
+        type: number
+      current_task_title:
+        type: string
+      current_task_description:
+        type: string
+      completed_tasks:
+        type: array
+      reviewed_issues:
+        type: array
+      progress_summary:
+        type: string
+    routes:
+      - to: task_implementation
+        when: "{{ output.action == 'implement_task' }}"
+      - to: issue_review
+        when: "{{ output.action == 'issue_review' }}"
+      - to: user_acceptance
+        when: "{{ output.action == 'needs_acceptance' }}"
+      - to: pr_group_manager
+        when: "{{ output.action == 'pr_group_ready' }}"
+
+  # ── TASK IMPLEMENTATION: Sub-workflow ──────────────────────────────
+  - name: task_implementation
+    type: workflow
+    workflow: ./task-implementation.yaml
+    input:
+      - task_manager.output
+      - pr_group_manager.output
+      - plan_reader.output
+    input_mapping:
+      task_id: "{{ task_manager.output.current_task_id }}"
+      task_title: "{{ task_manager.output.current_task_title }}"
+      task_description: "{{ task_manager.output.current_task_description }}"
+      issue_id: "{{ task_manager.output.current_issue_id }}"
+      issue_title: "{{ task_manager.output.current_issue_title }}"
+      branch_name: "{{ pr_group_manager.output.branch_name }}"
+      plan_path: "{{ plan_reader.output.plan_path }}"
+    output:
+      task_id:
+        type: number
+      approved:
+        type: boolean
+      changes_summary:
+        type: string
+      commit_hash:
+        type: string
+    routes:
+      - to: task_manager
+
+  # ── ISSUE REVIEW: Sub-workflow ────────────────────────────────────
+  - name: issue_review
+    type: workflow
+    workflow: ./issue-review.yaml
+    input:
+      - task_manager.output
+      - plan_reader.output
+    input_mapping:
+      issue_id: "{{ task_manager.output.current_issue_id }}"
+      issue_title: "{{ task_manager.output.current_issue_title }}"
+      completed_tasks: "{{ task_manager.output.completed_tasks | json }}"
+      plan_path: "{{ plan_reader.output.plan_path }}"
+    output:
+      approved:
+        type: boolean
+      feedback:
+        type: string
+    routes:
+      - to: task_manager
+
+  # ── USER ACCEPTANCE: Human gate ───────────────────────────────────
+  - name: user_acceptance
+    type: human_gate
+    description: Conditional user acceptance gate for user-facing changes
+    input:
+      - task_manager.output
+      - plan_reader.output
+    prompt: |
+      ## User Acceptance Check
+      All tasks for issue #{{ task_manager.output.current_issue_id }} — {{ task_manager.output.current_issue_title }} are complete.
+      **Plan:** {{ plan_reader.output.plan_path }}
+      **Completed Tasks:** {{ task_manager.output.completed_tasks | json }}
+      **Progress:** {{ task_manager.output.progress_summary }}
+    options:
+      - label: "Accept — looks good"
+        value: accepted
+        route: task_manager
+      - label: "Request Changes"
+        value: changes
+        route: task_manager
+        prompt_for: feedback
+      - label: "Skip — no acceptance needed"
+        value: skipped
+        route: task_manager
+
+  # ── PR LIFECYCLE (kept inline — merge→closure gate) ───────────────
+  - name: reducer_pr
+    description: Pre-PR reduction sweep
+    model: claude-sonnet-4.6
+    input:
+      - pr_group_manager.output
+      - task_manager.output?
+      - plan_reader.output
+      - intake.output
+    system_prompt: !file ../prompts/reducer.system.md
+    prompt: !file ../prompts/reducer-pr.prompt.md
+    output:
+      findings:
+        type: array
+      changes_applied:
+        type: array
+      total_lines_removed:
+        type: number
+    routes:
+      - to: pr_submit
+
+  - name: pr_submit
+    description: Creates GitHub PR
+    model: claude-sonnet-4.6
+    input:
+      - pr_group_manager.output
+      - task_manager.output?
+      - plan_reader.output
+      - work_tree_seeder.output
+    system_prompt: !file ../prompts/pr-submit.system.md
+    prompt: !file ../prompts/pr-submit.prompt.md
+    output:
+      pr_url:
+        type: string
+      pr_number:
+        type: number
+      pr_title:
+        type: string
+    routes:
+      - to: pr_reviewer
+
+  - name: pr_reviewer
+    description: Reviews the full PR
+    model: claude-opus-4.6-1m
+    input:
+      - pr_submit.output
+      - plan_reader.output
+      - pr_group_manager.output
+    system_prompt: !file ../prompts/pr-reviewer.system.md
+    prompt: !file ../prompts/pr-reviewer.prompt.md
+    output:
+      decision:
+        type: string
+      feedback:
+        type: string
+      issues:
+        type: array
+      approved:
+        type: boolean
+      strengths:
+        type: array
+      architecture_issues:
+        type: array
+      code_issues:
+        type: array
+      test_gaps:
+        type: array
+    routes:
+      - to: pr_merge
+        when: "{{ output.approved }}"
+      - to: pr_fixer
+        when: "{{ not output.approved }}"
+
+  - name: pr_fixer
+    description: Fixes PR-level issues
+    model: claude-sonnet-4.6
+    input:
+      - pr_reviewer.output
+      - pr_submit.output
+      - plan_reader.output
+    system_prompt: !file ../prompts/pr-fixer.system.md
+    prompt: !file ../prompts/pr-fixer.prompt.md
+    output:
+      files_modified:
+        type: array
+      changes_summary:
+        type: string
+    routes:
+      - to: pr_submit
+
+  - name: pr_merge
+    description: Merges approved PR and cleans up branch
+    model: claude-sonnet-4.6
+    input:
+      - pr_submit.output
+      - pr_group_manager.output
+      - plan_reader.output
+    system_prompt: !file ../prompts/pr-merge.system.md
+    prompt: !file ../prompts/pr-merge.prompt.md
+    output:
+      merged:
+        type: boolean
+      pr_url:
+        type: string
+      pr_number:
+        type: number
+      pr_group_name:
+        type: string
+      branch_name:
+        type: string
+      merge_commit:
+        type: string
+      issue_ids:
+        type: array
+    routes:
+      - to: pr_group_manager
+
+  # ── PR FINALIZER ──────────────────────────────────────────────────
+  - name: pr_finalizer
+    description: Verifies all PR groups merged before close-out
+    model: claude-sonnet-4.6
+    input:
+      - work_tree_seeder.output
+      - pr_group_manager.output
+      - intake.output
+      - pr_finalizer.output?
+    system_prompt: !file ../prompts/pr-finalizer.system.md
+    prompt: !file ../prompts/pr-finalizer.prompt.md
+    output:
+      verified:
+        type: boolean
+      unmerged_pr_groups:
+        type: array
+      orphaned_branches:
+        type: array
+      state_violations:
+        type: array
+      summary:
+        type: string
+      verification_attempt:
+        type: number
+    routes:
+      - to: close_out
+        when: "{{ output.verified or output.verification_attempt >= 3 }}"
+      - to: pr_group_manager
+        when: "{{ not output.verified and output.verification_attempt < 3 }}"
+
+  # ── CLOSE-OUT ─────────────────────────────────────────────────────
+  - name: close_out
+    description: Transitions Epic to Done and produces observations
+    model: claude-opus-4.6-1m
+    input:
+      - intake.output
+      - plan_reader.output
+      - pr_group_manager.output
+      - pr_finalizer.output
+      - work_tree_seeder.output
+    system_prompt: !file ../prompts/close-out.system.md
+    prompt: !file ../prompts/close-out.prompt.md
+    output:
+      observations:
+        type: string
+      agent_struggles:
+        type: array
+      improvements:
+        type: array
+      epic_completed:
+        type: boolean
+    routes:
+      - to: $end
+
+output:
+  observations: "{{ close_out.output.observations if close_out is defined else 'Workflow did not reach close-out' }}"
+  improvements: "{{ (close_out.output.improvements | json) if close_out is defined else '[]' }}"

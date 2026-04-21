@@ -71,9 +71,7 @@ public sealed class McpResultBuilderTests
         var snapshot = StatusSnapshot.NoContext();
 
         var result = McpResultBuilder.FormatStatus(snapshot);
-        var json = GetJsonText(result);
-        using var doc = JsonDocument.Parse(json);
-        var root = doc.RootElement;
+        var root = ParseJson(result);
 
         root.GetProperty("hasContext").GetBoolean().ShouldBeFalse();
         root.GetProperty("item").ValueKind.ShouldBe(JsonValueKind.Null);
@@ -94,9 +92,7 @@ public sealed class McpResultBuilderTests
         };
 
         var result = McpResultBuilder.FormatStatus(snapshot);
-        var json = GetJsonText(result);
-        using var doc = JsonDocument.Parse(json);
-        var root = doc.RootElement;
+        var root = ParseJson(result);
 
         root.GetProperty("hasContext").GetBoolean().ShouldBeTrue();
         root.GetProperty("item").GetProperty("id").GetInt32().ShouldBe(7);
@@ -126,8 +122,7 @@ public sealed class McpResultBuilderTests
         };
 
         var result = McpResultBuilder.FormatStatus(snapshot);
-        using var doc = JsonDocument.Parse(GetJsonText(result));
-        var changes = doc.RootElement.GetProperty("pendingChanges");
+        var changes = ParseJson(result).GetProperty("pendingChanges");
 
         changes.GetArrayLength().ShouldBe(3);
         changes[0].GetProperty("oldValue").GetString().ShouldBe("A");
@@ -141,9 +136,7 @@ public sealed class McpResultBuilderTests
         var snapshot = StatusSnapshot.Unreachable(99, 99, "Not found");
 
         var result = McpResultBuilder.FormatStatus(snapshot);
-        var json = GetJsonText(result);
-        using var doc = JsonDocument.Parse(json);
-        var root = doc.RootElement;
+        var root = ParseJson(result);
 
         root.GetProperty("unreachableId").GetInt32().ShouldBe(99);
         root.GetProperty("unreachableReason").GetString().ShouldBe("Not found");
@@ -160,10 +153,10 @@ public sealed class McpResultBuilderTests
         };
 
         var result = McpResultBuilder.FormatStatus(snapshot);
-        using var doc = JsonDocument.Parse(GetJsonText(result));
+        var root = ParseJson(result);
 
-        doc.RootElement.TryGetProperty("unreachableId", out _).ShouldBeFalse();
-        doc.RootElement.TryGetProperty("unreachableReason", out _).ShouldBeFalse();
+        root.TryGetProperty("unreachableId", out _).ShouldBeFalse();
+        root.TryGetProperty("unreachableReason", out _).ShouldBeFalse();
     }
 
     [Fact]
@@ -179,11 +172,10 @@ public sealed class McpResultBuilderTests
         };
 
         var result = McpResultBuilder.FormatStatus(snapshot);
-        var json = GetJsonText(result);
-        using var doc = JsonDocument.Parse(json);
+        var root = ParseJson(result);
 
-        doc.RootElement.GetProperty("seeds").GetArrayLength().ShouldBe(1);
-        doc.RootElement.GetProperty("seeds")[0].GetProperty("isSeed").GetBoolean().ShouldBeTrue();
+        root.GetProperty("seeds").GetArrayLength().ShouldBe(1);
+        root.GetProperty("seeds")[0].GetProperty("isSeed").GetBoolean().ShouldBeTrue();
     }
 
     [Fact]
@@ -203,8 +195,7 @@ public sealed class McpResultBuilderTests
         };
 
         var result = McpResultBuilder.FormatStatus(snapshot);
-        using var doc = JsonDocument.Parse(GetJsonText(result));
-        var itemJson = doc.RootElement.GetProperty("item");
+        var itemJson = ParseJson(result).GetProperty("item");
 
         itemJson.TryGetProperty("areaPath", out _).ShouldBeTrue();
         itemJson.TryGetProperty("iterationPath", out _).ShouldBeTrue();
@@ -224,9 +215,7 @@ public sealed class McpResultBuilderTests
         var tree = WorkTree.Build(focus, [parent], [child1, child2], focusedItemLinks: [link]);
 
         var result = McpResultBuilder.FormatTree(tree, 2);
-        var json = GetJsonText(result);
-        using var doc = JsonDocument.Parse(json);
-        var root = doc.RootElement;
+        var root = ParseJson(result);
 
         root.GetProperty("focus").GetProperty("id").GetInt32().ShouldBe(10);
         root.GetProperty("parentChain").GetArrayLength().ShouldBe(1);
@@ -244,13 +233,12 @@ public sealed class McpResultBuilderTests
         var tree = WorkTree.Build(focus, [], []);
 
         var result = McpResultBuilder.FormatTree(tree, 0);
-        var json = GetJsonText(result);
-        using var doc = JsonDocument.Parse(json);
+        var root = ParseJson(result);
 
-        doc.RootElement.GetProperty("children").GetArrayLength().ShouldBe(0);
-        doc.RootElement.GetProperty("parentChain").GetArrayLength().ShouldBe(0);
-        doc.RootElement.GetProperty("links").GetArrayLength().ShouldBe(0);
-        doc.RootElement.GetProperty("totalChildren").GetInt32().ShouldBe(0);
+        root.GetProperty("children").GetArrayLength().ShouldBe(0);
+        root.GetProperty("parentChain").GetArrayLength().ShouldBe(0);
+        root.GetProperty("links").GetArrayLength().ShouldBe(0);
+        root.GetProperty("totalChildren").GetInt32().ShouldBe(0);
     }
 
     [Fact]
@@ -265,8 +253,7 @@ public sealed class McpResultBuilderTests
         var tree = WorkTree.Build(focus, [], [], focusedItemLinks: links);
 
         var result = McpResultBuilder.FormatTree(tree, 0);
-        using var doc = JsonDocument.Parse(GetJsonText(result));
-        var linksArr = doc.RootElement.GetProperty("links");
+        var linksArr = ParseJson(result).GetProperty("links");
 
         linksArr.GetArrayLength().ShouldBe(2);
         linksArr[0].GetProperty("sourceId").GetInt32().ShouldBe(10);
@@ -285,8 +272,7 @@ public sealed class McpResultBuilderTests
         var tree = WorkTree.Build(focus, [grandparent, parent], []);
 
         var result = McpResultBuilder.FormatTree(tree, 0);
-        using var doc = JsonDocument.Parse(GetJsonText(result));
-        var chain = doc.RootElement.GetProperty("parentChain");
+        var chain = ParseJson(result).GetProperty("parentChain");
 
         chain.GetArrayLength().ShouldBe(2);
         chain[0].GetProperty("id").GetInt32().ShouldBe(1);
@@ -303,10 +289,10 @@ public sealed class McpResultBuilderTests
         var tree = WorkTree.Build(focus, [], [child1, child2]);
 
         var result = McpResultBuilder.FormatTree(tree, 5);
-        using var doc = JsonDocument.Parse(GetJsonText(result));
+        var root = ParseJson(result);
 
-        doc.RootElement.GetProperty("children").GetArrayLength().ShouldBe(2);
-        doc.RootElement.GetProperty("totalChildren").GetInt32().ShouldBe(5);
+        root.GetProperty("children").GetArrayLength().ShouldBe(2);
+        root.GetProperty("totalChildren").GetInt32().ShouldBe(5);
     }
 
     [Fact]
@@ -318,8 +304,7 @@ public sealed class McpResultBuilderTests
         var tree = WorkTree.Build(focus, [parent], [], siblingCounts);
 
         var result = McpResultBuilder.FormatTree(tree, 0);
-        using var doc = JsonDocument.Parse(GetJsonText(result));
-        var counts = doc.RootElement.GetProperty("siblingCounts");
+        var counts = ParseJson(result).GetProperty("siblingCounts");
 
         counts.GetProperty("5").ValueKind.ShouldBe(JsonValueKind.Null);
         counts.GetProperty("10").GetInt32().ShouldBe(3);
@@ -332,9 +317,7 @@ public sealed class McpResultBuilderTests
         var tree = WorkTree.Build(focus, [], []);
 
         var result = McpResultBuilder.FormatTree(tree, 0);
-        using var doc = JsonDocument.Parse(GetJsonText(result));
-
-        doc.RootElement.TryGetProperty("siblingCounts", out _).ShouldBeFalse();
+        ParseJson(result).TryGetProperty("siblingCounts", out _).ShouldBeFalse();
     }
 
     // ── FormatWorkspace ─────────────────────────────────────────────
@@ -348,9 +331,7 @@ public sealed class McpResultBuilderTests
         var workspace = Workspace.Build(context, [sprint], [seed]);
 
         var result = McpResultBuilder.FormatWorkspace(workspace, staleDays: 7);
-        var json = GetJsonText(result);
-        using var doc = JsonDocument.Parse(json);
-        var root = doc.RootElement;
+        var root = ParseJson(result);
 
         root.GetProperty("context").GetProperty("id").GetInt32().ShouldBe(1);
         root.GetProperty("sprintItems").GetArrayLength().ShouldBe(1);
@@ -367,8 +348,7 @@ public sealed class McpResultBuilderTests
         var workspace = Workspace.Build(null, [], [staleSeed, freshSeed]);
 
         var result = McpResultBuilder.FormatWorkspace(workspace, staleDays: 7);
-        using var doc = JsonDocument.Parse(GetJsonText(result));
-        var staleIds = doc.RootElement.GetProperty("staleSeeds");
+        var staleIds = ParseJson(result).GetProperty("staleSeeds");
 
         staleIds.GetArrayLength().ShouldBe(1);
         staleIds[0].GetInt32().ShouldBe(-1);
@@ -383,9 +363,7 @@ public sealed class McpResultBuilderTests
         var workspace = Workspace.Build(null, [dirty1, dirty2, clean], []);
 
         var result = McpResultBuilder.FormatWorkspace(workspace, staleDays: 7);
-        using var doc = JsonDocument.Parse(GetJsonText(result));
-
-        doc.RootElement.GetProperty("dirtyCount").GetInt32().ShouldBe(2);
+        ParseJson(result).GetProperty("dirtyCount").GetInt32().ShouldBe(2);
     }
 
     [Fact]
@@ -394,8 +372,7 @@ public sealed class McpResultBuilderTests
         var workspace = Workspace.Build(null, [], []);
 
         var result = McpResultBuilder.FormatWorkspace(workspace, staleDays: 7);
-        using var doc = JsonDocument.Parse(GetJsonText(result));
-        var root = doc.RootElement;
+        var root = ParseJson(result);
 
         root.GetProperty("context").ValueKind.ShouldBe(JsonValueKind.Null);
         root.GetProperty("sprintItems").GetArrayLength().ShouldBe(0);
@@ -417,9 +394,7 @@ public sealed class McpResultBuilderTests
         };
 
         var result = McpResultBuilder.FormatFlushSummary(summary);
-        var json = GetJsonText(result);
-        using var doc = JsonDocument.Parse(json);
-        var root = doc.RootElement;
+        var root = ParseJson(result);
 
         root.GetProperty("flushed").GetInt32().ShouldBe(3);
         root.GetProperty("failed").GetInt32().ShouldBe(1);
@@ -434,10 +409,7 @@ public sealed class McpResultBuilderTests
         var summary = new McpFlushSummary { Flushed = 5, Failed = 0 };
 
         var result = McpResultBuilder.FormatFlushSummary(summary);
-        var json = GetJsonText(result);
-        using var doc = JsonDocument.Parse(json);
-
-        doc.RootElement.GetProperty("failures").GetArrayLength().ShouldBe(0);
+        ParseJson(result).GetProperty("failures").GetArrayLength().ShouldBe(0);
     }
 
     [Fact]
@@ -456,8 +428,7 @@ public sealed class McpResultBuilderTests
         };
 
         var result = McpResultBuilder.FormatFlushSummary(summary);
-        using var doc = JsonDocument.Parse(GetJsonText(result));
-        var failures = doc.RootElement.GetProperty("failures");
+        var failures = ParseJson(result).GetProperty("failures");
 
         failures.GetArrayLength().ShouldBe(3);
         failures[0].GetProperty("workItemId").GetInt32().ShouldBe(10);
@@ -471,9 +442,7 @@ public sealed class McpResultBuilderTests
         var summary = new McpFlushSummary { Flushed = 1 };
 
         var result = McpResultBuilder.FormatFlushSummary(summary);
-        var json = GetJsonText(result);
-        using var doc = JsonDocument.Parse(json);
-        var root = doc.RootElement;
+        var root = ParseJson(result);
 
         root.TryGetProperty("flushed", out _).ShouldBeTrue();
         root.TryGetProperty("failed", out _).ShouldBeTrue();
@@ -907,13 +876,8 @@ public sealed class McpResultBuilderTests
 
     private static JsonElement ParseJson(CallToolResult result)
     {
-        var text = GetJsonText(result);
+        var text = result.Content[0].ShouldBeOfType<TextContentBlock>().Text!;
         using var doc = JsonDocument.Parse(text);
         return doc.RootElement.Clone();
-    }
-
-    private static string GetJsonText(CallToolResult result)
-    {
-        return result.Content[0].ShouldBeOfType<TextContentBlock>().Text!;
     }
 }

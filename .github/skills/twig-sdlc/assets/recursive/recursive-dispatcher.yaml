@@ -262,38 +262,36 @@ agents:
         value: rejected
         route: $end
 
-  # ── PHASE 3: SEED ISSUES ──────────────────────────────────────────
+  # ── PHASE 3: SEED WORK TREE ─────────────────────────────────────
   - name: work_tree_seeder
-    description: Creates ADO Issues from the plan (Issues only — Tasks are created by plan-issue)
+    description: Creates ADO Issues and Tasks from the plan
     model: claude-sonnet-4.6
     input:
       - intake.output
       - architect.output
     system_prompt: !file ../prompts/work-tree-seeder.system.md
     prompt: |
-      Create **Issues only** (not Tasks) from the plan.
+      Create **Issues and Tasks** from the plan.
 
       **Work Item:** #{{ intake.output.epic_id }} — {{ intake.output.epic_title }}
       **Plan:** {{ architect.output.plan_path }}
 
-      Read the plan document and create one ADO Issue per planned Issue.
-      Do NOT create Tasks — those will be created by a downstream agent
-      that plans each Issue independently.
+      Read the plan document and create the full ADO hierarchy:
+      - One Issue per planned Issue
+      - Tasks under each Issue as defined in the plan
 
-      For each Issue:
-      1. `twig set {{ intake.output.epic_id }}`
-      2. `twig seed new --title "<issue title>" --type Issue`
-      3. `twig seed edit -1 System.Description "<rich description>" --format markdown`
-      4. After all Issues: `twig seed publish --all`
-      5. `Start-Sleep 3; twig sync --output json`
-      6. For each published Issue: `twig set <id>; twig update System.AssignedTo "Daniel Green"`
+      Follow the standard seeding process from your system prompt.
 
-      Output the created Issues with their ADO IDs and descriptions.
+      Output each Issue with its ADO ID, title, description, and the count
+      of Tasks created under it (task_count). Issues where the plan didn't
+      define Tasks should have task_count=0.
     output:
       issues:
         type: array
-        description: Array of created Issues [{id, title, description}]
+        description: Array of created Issues [{id, title, description, task_count}]
       total_issues:
+        type: number
+      total_tasks:
         type: number
       plan_path:
         type: string
@@ -321,6 +319,7 @@ for_each:
         title: "{{ issue.title }}"
         description: "{{ issue.description }}"
         plan_path: "{{ work_tree_seeder.output.plan_path }}"
+        task_count: "{{ issue.task_count | default(0) }}"
     routes:
       - to: $end
 

@@ -8,40 +8,58 @@ user-invokable: true
 
 Orchestrated SDLC pipeline powered by the `conductor` skill. Takes an ADO work item (Epic or Issue) or a natural language prompt and drives it through planning, implementation, code review, PR management, and close-out — all via multi-agent orchestration.
 
-> **This workflow is long-running** — typically 30-120+ minutes depending on scope. You MUST use `read_file` to load the full conductor skill instructions from `.github/skills/conductor/SKILL.md` and follow its execution procedure exactly. **Always launch with `conductor --silent run ... --web`** — this suppresses console noise and opens a real-time web dashboard. **Do NOT use `--web-bg`** — it does not work correctly; always use `--web`.
+> **This workflow is long-running** — typically 30-120+ minutes depending on scope. **Always launch with `conductor --silent run ... --web`** — this suppresses console noise and opens a real-time web dashboard. **Do NOT use `--web-bg`** — it does not work correctly; always use `--web`.
 
-## Prerequisites
+## Workflows
 
-- `conductor` skill — load `.github/skills/conductor/SKILL.md` for installation and execution details
-- `twig` CLI — configured with an ADO workspace (`twig workspace` shows current context)
-- `gh` CLI — authenticated for PR creation and merging
-- A work item ID or prompt describing what to build
+All workflows are registered in the `twig` conductor registry. Use short names — no absolute paths needed.
 
-## Workflow
-
-One workflow template is included in `assets/`:
-
-| Workflow | Purpose | Key Inputs |
-|----------|---------|------------|
-| `twig-sdlc.yaml` | Full SDLC pipeline: intake → plan → seed → implement → PR → close-out | `work_item_id` or `prompt`, optional `skip_plan_review`, optional `plan_path` |
+| Workflow | Registry Name | Purpose | Key Inputs |
+|----------|---------------|---------|------------|
+| Planning only | `twig-sdlc-planning@twig` | Recursive planner: architect + review + seed + per-issue task planning | `work_item_id` or `prompt` |
+| Implementation only | `twig-sdlc-implement@twig` | Coding, review, PR lifecycle, close-out | `work_item_id`, optional `plan_path` |
+| Full (composite) | `twig-sdlc-full@twig` | Planning → implementation via sub-workflow composition | `work_item_id` or `prompt` |
+| Legacy | `twig-sdlc-legacy@twig` | Original monolithic pipeline (deprecated) | `work_item_id` or `prompt` |
 
 ## Quick Reference
 
 ```bash
-# Implement an existing ADO work item end-to-end
-conductor --silent run assets/twig-sdlc.yaml --input work_item_id=1273 --web
+# Run the monolithic SDLC for a single work item
+conductor --silent run twig-sdlc@twig --input work_item_id=1273 --web
 
-# Start from a natural language prompt (creates new Epic)
-conductor --silent run assets/twig-sdlc.yaml --input prompt="Add a twig export command that outputs CSV" --web
+# Plan only (recursive planner — creates Epic/Issues/Tasks in ADO)
+conductor --silent run twig-sdlc-planning@twig --input work_item_id=1273 --web
 
-# Skip the human plan approval gate
-conductor --silent run assets/twig-sdlc.yaml --input work_item_id=1273 --input skip_plan_review=true --web
+# Implement only (requires existing plan + seeded work items)
+conductor --silent run twig-sdlc-implement@twig --input work_item_id=1273 --input plan_path="docs/projects/foo.plan.md" --web
 
-# Resume with an already-approved plan (bypass planning phase)
-conductor --silent run assets/twig-sdlc.yaml --input work_item_id=1281 --input plan_path="docs/projects/my-feature.plan.md" --web
+# Start from a natural language prompt
+conductor --silent run twig-sdlc@twig --input prompt="Add a twig export command" --web
+
+# Skip human approval gates
+conductor --silent run twig-sdlc@twig --input work_item_id=1273 --input skip_plan_review=true --web
 ```
 
-> **Always use absolute paths** for workflow templates — see the `conductor` skill's execution guidance.
+## Launching Multiple Runs
+
+When running multiple work items, use **discrete worktrees** and launch **10 seconds apart**:
+
+```bash
+# Create worktrees
+git worktree add -b sdlc/1673 ../twig2-1673 main
+git worktree add -b sdlc/1782 ../twig2-1782 main
+
+# Launch 10s apart in hidden windows (no new terminal windows)
+$ids = 1673, 1782
+foreach ($id in $ids) {
+    Start-Process -FilePath "pwsh" -ArgumentList "-NoProfile","-Command",
+        "cd C:\Users\dangreen\projects\twig2-$id; conductor --silent run twig-sdlc@twig --input work_item_id=$id --web" `
+        -WindowStyle Hidden
+    if ($id -ne $ids[-1]) { Start-Sleep -Seconds 10 }
+}
+```
+
+The 10-second stagger avoids MCP server port collisions and rate-limit spikes.
 
 > **Always share the dashboard URL** — after launching, provide the user the web dashboard URL from terminal output.
 

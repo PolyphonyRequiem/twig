@@ -12,6 +12,8 @@
 workflow:
   name: plan-issue
   description: Break a single Issue into implementable Tasks
+  metadata:
+    dashboard_hidden: true
   entry_point: task_check
   runtime:
     provider: copilot

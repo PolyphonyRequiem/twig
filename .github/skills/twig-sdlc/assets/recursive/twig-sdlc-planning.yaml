@@ -22,6 +22,11 @@
 workflow:
   name: twig-sdlc-planning
   description: SDLC Planning — Epic/Issue planning with review, then fan-out to Issue-level task planning
+  metadata:
+    tracker: ado
+    project_url: https://dev.azure.com/dangreen-msft/Twig
+    work_item_id_agent: intake
+    work_item_id_field: epic_id
   entry_point: duplicate_check
   runtime:
     provider: copilot

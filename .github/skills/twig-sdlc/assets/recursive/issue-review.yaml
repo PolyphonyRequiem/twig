@@ -8,6 +8,8 @@
 workflow:
   name: issue-review
   description: Post-issue reduction sweep and acceptance criteria review
+  metadata:
+    dashboard_hidden: true
   entry_point: reducer_issue
   runtime:
     provider: copilot

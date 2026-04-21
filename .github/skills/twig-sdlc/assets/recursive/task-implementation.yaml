@@ -8,6 +8,8 @@
 workflow:
   name: task-implementation
   description: Implement a single task with code review loop
+  metadata:
+    dashboard_hidden: true
   entry_point: coder
   runtime:
     provider: copilot

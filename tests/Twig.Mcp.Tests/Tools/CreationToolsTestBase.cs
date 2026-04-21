@@ -21,34 +21,18 @@ public abstract class CreationToolsTestBase : MutationToolsTestBase
         return new CreationTools(BuildResolver(DefaultConfig));
     }
 
-    /// <summary>
-    /// Builds a <see cref="ProcessConfiguration"/> with the given parent type and allowed child types.
-    /// </summary>
     protected static ProcessConfiguration BuildProcessConfigWithChildren(
-        WorkItemType parentType, params WorkItemType[] childTypes)
-    {
-        var record = new ProcessTypeRecord
+        WorkItemType parentType, params WorkItemType[] childTypes) =>
+        ProcessConfiguration.FromRecords([MakeTypeRecord(parentType, childTypes)]);
+
+    protected static ProcessConfiguration BuildProcessConfigWithTypes(params WorkItemType[] types) =>
+        ProcessConfiguration.FromRecords(types.Select(t => MakeTypeRecord(t)).ToArray());
+
+    private static ProcessTypeRecord MakeTypeRecord(WorkItemType type, params WorkItemType[] children) =>
+        new()
         {
-            TypeName = parentType.ToString(),
+            TypeName = type.ToString(),
             States = [new StateEntry("New", Domain.Enums.StateCategory.Proposed, null)],
-            ValidChildTypes = childTypes.Select(t => t.ToString()).ToArray(),
+            ValidChildTypes = children.Select(t => t.ToString()).ToArray(),
         };
-
-        return ProcessConfiguration.FromRecords([record]);
-    }
-
-    /// <summary>
-    /// Builds a <see cref="ProcessConfiguration"/> with the given types as top-level entries (no child relationships).
-    /// </summary>
-    protected static ProcessConfiguration BuildProcessConfigWithTypes(params WorkItemType[] types)
-    {
-        var records = types.Select(t => new ProcessTypeRecord
-        {
-            TypeName = t.ToString(),
-            States = [new StateEntry("New", Domain.Enums.StateCategory.Proposed, null)],
-            ValidChildTypes = [],
-        }).ToArray();
-
-        return ProcessConfiguration.FromRecords(records);
-    }
 }

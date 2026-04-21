@@ -23,9 +23,7 @@ internal static class McpResultBuilder
         WorkItem item, int parentChainCount, int childCount, string? workspace = null) =>
         BuildJson(writer =>
         {
-            WriteWorkItemCore(writer, item);
-            writer.WriteString("areaPath", item.AreaPath.ToString());
-            writer.WriteString("iterationPath", item.IterationPath.ToString());
+            WriteWorkItemWithPaths(writer, item);
             writer.WriteStartObject("workingSet");
             writer.WriteNumber("parentChainCount", parentChainCount);
             writer.WriteNumber("childCount", childCount);
@@ -42,9 +40,7 @@ internal static class McpResultBuilder
             {
                 writer.WritePropertyName("item");
                 writer.WriteStartObject();
-                WriteWorkItemCore(writer, snapshot.Item);
-                writer.WriteString("areaPath", snapshot.Item.AreaPath.ToString());
-                writer.WriteString("iterationPath", snapshot.Item.IterationPath.ToString());
+                WriteWorkItemWithPaths(writer, snapshot.Item);
                 writer.WriteEndObject();
             }
             else
@@ -204,9 +200,7 @@ internal static class McpResultBuilder
     public static CallToolResult FormatWorkItem(WorkItem item, string? workspace = null) =>
         BuildJson(writer =>
         {
-            WriteWorkItemCore(writer, item);
-            writer.WriteString("areaPath", item.AreaPath.ToString());
-            writer.WriteString("iterationPath", item.IterationPath.ToString());
+            WriteWorkItemWithPaths(writer, item);
 
             if (item.Fields.Count > 0)
             {
@@ -256,9 +250,7 @@ internal static class McpResultBuilder
             {
                 writer.WritePropertyName("parent");
                 writer.WriteStartObject();
-                WriteWorkItemCore(writer, parent);
-                writer.WriteString("areaPath", parent.AreaPath.ToString());
-                writer.WriteString("iterationPath", parent.IterationPath.ToString());
+                WriteWorkItemWithPaths(writer, parent);
                 writer.WriteEndObject();
             }
             else
@@ -325,6 +317,13 @@ internal static class McpResultBuilder
             writer.WriteEndObject();
         }
         writer.WriteEndArray();
+    }
+
+    private static void WriteWorkItemWithPaths(Utf8JsonWriter writer, WorkItem item)
+    {
+        WriteWorkItemCore(writer, item);
+        writer.WriteString("areaPath", item.AreaPath.ToString());
+        writer.WriteString("iterationPath", item.IterationPath.ToString());
     }
 
     private static void WriteWorkItemCore(Utf8JsonWriter writer, WorkItem item)

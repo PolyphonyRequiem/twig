@@ -524,3 +524,20 @@ integration with the tool discovery pipeline.
 PG-3 is a trivial integration commit that merges after both are complete. In practice,
 PG-3 could be folded into whichever of PG-1/PG-2 lands second, reducing total PR count
 to 2.
+
+---
+
+## Completion
+
+| Field | Value |
+|---|---|
+| **Date** | 2026-04-21 |
+| **PRs Merged** | #65 (PG-1a workspace), #66 (PG-1 navigation), #67 (PG-2 creation), #68 (PG-3 registration) |
+| **Issues Closed** | #1817, #1818, #1819 |
+| **Epic** | #1814 → Done |
+
+All seven MCP tools (`twig_show`, `twig_query`, `twig_children`, `twig_parent`,
+`twig_sprint`, `twig_new`, `twig_link`) are implemented with full test coverage.
+The plan was executed across 3 PR groups delivered as 4 merged GitHub PRs.
+Follow-on items #1851 and #1852 (added post-completion) remain open under the
+epic for future work.

@@ -1,5 +1,6 @@
 using NSubstitute;
 using Shouldly;
+using Twig.Domain.Aggregates;
 using Twig.TestKit;
 using Xunit;
 
@@ -43,7 +44,7 @@ public sealed class NavigationToolsChildrenTests : NavigationToolsTestBase
     public async Task Children_NoChildren_ReturnsEmptyArrayAndZeroCount()
     {
         _workItemRepo.GetChildrenAsync(99, Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<Domain.Aggregates.WorkItem>());
+            .Returns(Array.Empty<WorkItem>());
 
         var result = await CreateSut().Children(99);
 
@@ -62,7 +63,7 @@ public sealed class NavigationToolsChildrenTests : NavigationToolsTestBase
     public async Task Children_Response_IncludesWorkspaceKey()
     {
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<Domain.Aggregates.WorkItem>());
+            .Returns(Array.Empty<WorkItem>());
 
         var result = await CreateSut().Children(1);
 

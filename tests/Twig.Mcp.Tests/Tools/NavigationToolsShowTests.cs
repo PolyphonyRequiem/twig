@@ -1,6 +1,7 @@
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
+using Twig.Domain.Aggregates;
 using Twig.TestKit;
 using Xunit;
 
@@ -45,7 +46,7 @@ public sealed class NavigationToolsShowTests : NavigationToolsTestBase
         var item = new WorkItemBuilder(99, "ADO Item").AsEpic().InState("New").Build();
 
         _workItemRepo.GetByIdAsync(99, Arg.Any<CancellationToken>())
-            .Returns((Domain.Aggregates.WorkItem?)null);
+            .Returns((WorkItem?)null);
         _adoService.FetchAsync(99, Arg.Any<CancellationToken>())
             .Returns(item);
 
@@ -66,7 +67,7 @@ public sealed class NavigationToolsShowTests : NavigationToolsTestBase
     public async Task Show_CacheMissAdoFails_ReturnsError()
     {
         _workItemRepo.GetByIdAsync(7, Arg.Any<CancellationToken>())
-            .Returns((Domain.Aggregates.WorkItem?)null);
+            .Returns((WorkItem?)null);
         _adoService.FetchAsync(7, Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("Network error"));
 
@@ -165,7 +166,7 @@ public sealed class NavigationToolsShowTests : NavigationToolsTestBase
     public async Task Show_CancellationRequested_PropagatesException()
     {
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>())
-            .Returns((Domain.Aggregates.WorkItem?)null);
+            .Returns((WorkItem?)null);
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>())
             .ThrowsAsync(new OperationCanceledException());
 

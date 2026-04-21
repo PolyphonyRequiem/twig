@@ -2,6 +2,7 @@ using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using System.Text.Json;
+using Twig.Domain.Aggregates;
 using Twig.TestKit;
 using Xunit;
 
@@ -64,7 +65,7 @@ public sealed class NavigationToolsParentTests : NavigationToolsTestBase
         var child = new WorkItemBuilder(20, "ADO Child").AsTask().WithParent(3).Build();
         var parent = new WorkItemBuilder(3, "Parent Issue").AsIssue().Build();
 
-        _workItemRepo.GetByIdAsync(20, Arg.Any<CancellationToken>()).Returns((Domain.Aggregates.WorkItem?)null);
+        _workItemRepo.GetByIdAsync(20, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
         _adoService.FetchAsync(20, Arg.Any<CancellationToken>()).Returns(child);
         _workItemRepo.GetByIdAsync(3, Arg.Any<CancellationToken>()).Returns(parent);
 
@@ -82,7 +83,7 @@ public sealed class NavigationToolsParentTests : NavigationToolsTestBase
     [Fact]
     public async Task Parent_ChildCacheMissAndAdoFails_ReturnsError()
     {
-        _workItemRepo.GetByIdAsync(99, Arg.Any<CancellationToken>()).Returns((Domain.Aggregates.WorkItem?)null);
+        _workItemRepo.GetByIdAsync(99, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
         _adoService.FetchAsync(99, Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("Network error"));
 
@@ -104,7 +105,7 @@ public sealed class NavigationToolsParentTests : NavigationToolsTestBase
         var parent = new WorkItemBuilder(8, "ADO Parent").AsEpic().Build();
 
         _workItemRepo.GetByIdAsync(30, Arg.Any<CancellationToken>()).Returns(child);
-        _workItemRepo.GetByIdAsync(8, Arg.Any<CancellationToken>()).Returns((Domain.Aggregates.WorkItem?)null);
+        _workItemRepo.GetByIdAsync(8, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
         _adoService.FetchAsync(8, Arg.Any<CancellationToken>()).Returns(parent);
 
         var result = await CreateSut().Parent(30);
@@ -125,7 +126,7 @@ public sealed class NavigationToolsParentTests : NavigationToolsTestBase
         var child = new WorkItemBuilder(40, "Child").AsTask().WithParent(9).Build();
 
         _workItemRepo.GetByIdAsync(40, Arg.Any<CancellationToken>()).Returns(child);
-        _workItemRepo.GetByIdAsync(9, Arg.Any<CancellationToken>()).Returns((Domain.Aggregates.WorkItem?)null);
+        _workItemRepo.GetByIdAsync(9, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
         _adoService.FetchAsync(9, Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("ADO error"));
 
@@ -161,7 +162,7 @@ public sealed class NavigationToolsParentTests : NavigationToolsTestBase
     public async Task Parent_Cancelled_PropagatesException()
     {
         _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>())
-            .Returns((Domain.Aggregates.WorkItem?)null);
+            .Returns((WorkItem?)null);
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>())
             .ThrowsAsync(new OperationCanceledException());
 

@@ -2,6 +2,7 @@ using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using System.Text.Json;
+using Twig.Domain.Aggregates;
 using Twig.Domain.ValueObjects;
 using Twig.TestKit;
 using Xunit;
@@ -72,7 +73,7 @@ public sealed class NavigationToolsSprintTests : NavigationToolsTestBase
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(TestIteration);
         _workItemRepo.GetByIterationAsync(TestIteration, Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<Domain.Aggregates.WorkItem>());
+            .Returns(Array.Empty<WorkItem>());
 
         var result = await CreateSut().Sprint(items: true);
 

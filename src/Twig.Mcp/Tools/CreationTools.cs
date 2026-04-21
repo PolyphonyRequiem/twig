@@ -30,12 +30,9 @@ public sealed class CreationTools(WorkspaceResolver resolver)
         if (string.IsNullOrWhiteSpace(title))
             return McpResultBuilder.ToError("Title is required. Usage: twig_new requires a non-empty title.");
 
-        if (string.IsNullOrWhiteSpace(type))
-            return McpResultBuilder.ToError("Type is required. Usage: twig_new requires a work item type (e.g. Epic, Issue, Task).");
-
         var parseResult = WorkItemType.Parse(type);
         if (!parseResult.IsSuccess)
-            return McpResultBuilder.ToError(parseResult.Error);
+            return McpResultBuilder.ToError("Type is required. Provide a work item type (e.g. Epic, Issue, Task).");
 
         var parsedType = parseResult.Value;
 

@@ -1,0 +1,530 @@
+# twig-sdlc-implement — Implementation-only SDLC workflow
+#
+# Takes an Epic/Issue with an approved plan and seeded work items,
+# then implements everything: coding, review, PR lifecycle, close-out.
+#
+# This is the implementation phase extracted from twig-sdlc.yaml.
+# Same agents, same prompts, same quality — just skips planning.
+#
+# Usage:
+#   conductor run twig-sdlc-implement@twig --input work_item_id=1814 --input plan_path="docs/projects/foo.plan.md" --web
+#   conductor run twig-sdlc-implement@twig --input work_item_id=1814 --web
+workflow:
+  name: twig-sdlc-implement
+  description: Implementation-only SDLC — coding, review, PR lifecycle, and close-out
+  entry_point: duplicate_check
+  runtime:
+    provider: copilot
+    mcp_servers:
+      web-search:
+        command: npx
+        args: ["-y", "open-websearch@latest"]
+        env:
+          MODE: stdio
+          DEFAULT_SEARCH_ENGINE: duckduckgo
+          ALLOWED_SEARCH_ENGINES: duckduckgo,brave,exa
+        tools: ["*"]
+      context7:
+        command: npx
+        args: ["-y", "@upstash/context7-mcp@latest"]
+        tools: ["*"]
+      ms-learn:
+        type: http
+        url: https://learn.microsoft.com/api/mcp
+        tools: ["*"]
+  input:
+    work_item_id:
+      type: number
+      required: true
+      description: ADO work item ID (Epic or Issue) with approved plan and seeded work items.
+    plan_path:
+      type: string
+      required: false
+      description: Path to the approved .plan.md file. Auto-detected if not provided.
+    prompt:
+      type: string
+      required: false
+      description: Not used by implement workflow but required by shared intake prompt.
+    skip_plan_review:
+      type: boolean
+      required: false
+      default: false
+      description: Not used by implement workflow but required by shared prompts.
+  context:
+    mode: explicit
+  limits:
+    max_iterations: 200
+
+agents:
+  # ── PREFLIGHT ─────────────────────────────────────────────────────
+  - name: duplicate_check
+    description: Preflight — abort if another conductor run already owns this work item
+    model: claude-sonnet-4.6
+    input:
+      - workflow.input.work_item_id?
+    system_prompt: !file ../prompts/duplicate-check.system.md
+    prompt: !file ../prompts/duplicate-check.prompt.md
+    output:
+      is_duplicate:
+        type: boolean
+      details:
+        type: string
+      reason:
+        type: string
+    routes:
+      - to: $end
+        when: "{{ output.is_duplicate }}"
+      - to: intake
+
+  # ── INTAKE ────────────────────────────────────────────────────────
+  - name: intake
+    description: Reads the work item for implementation context
+    model: claude-sonnet-4.6
+    input:
+      - workflow.input.work_item_id
+      - workflow.input.plan_path?
+      - workflow.input.prompt?
+    system_prompt: !file ../prompts/intake.system.md
+    prompt: !file ../prompts/intake.prompt.md
+    output:
+      epic_id:
+        type: number
+      epic_title:
+        type: string
+      epic_description:
+        type: string
+      existing_issues:
+        type: array
+      item_type:
+        type: string
+      plan_already_approved:
+        type: boolean
+      existing_plan_path:
+        type: string
+    routes:
+      - to: plan_reader
+
+  # ── PLAN READER ───────────────────────────────────────────────────
+  - name: plan_reader
+    description: Reads the approved plan and extracts metadata
+    model: claude-sonnet-4.6
+    input:
+      - intake.output
+    system_prompt: !file ../prompts/plan-reader.system.md
+    prompt: !file ../prompts/plan-reader.prompt.md
+    output:
+      plan_path:
+        type: string
+      plan_summary:
+        type: string
+      issue_count:
+        type: number
+      pr_group_count:
+        type: number
+      total_estimated_loc:
+        type: number
+    routes:
+      - to: work_tree_seeder
+
+  # ── WORK TREE LOADER (deterministic — no LLM) ──────────────────────
+  - name: work_tree_seeder
+    type: script
+    description: Loads ADO work tree and PR group structure deterministically
+    command: pwsh
+    args:
+      - "-NoProfile"
+      - "-File"
+      - ".github/skills/twig-sdlc/assets/recursive/scripts/load-work-tree.ps1"
+      - "-WorkItemId"
+      - "{{ intake.output.epic_id }}"
+      - "-PlanPath"
+      - "{{ plan_reader.output.plan_path }}"
+    routes:
+      - to: pr_group_manager
+
+  # ── PR GROUP MANAGER ──────────────────────────────────────────────
+  - name: pr_group_manager
+    description: Outer orchestrator — PR groups, branches, issue closure after merge
+    model: claude-sonnet-4.6
+    input:
+      - work_tree_seeder.output
+      - intake.output
+      - plan_reader.output
+      - pr_group_manager.output?
+      - task_manager.output?
+      - pr_merge.output?
+    system_prompt: !file ../prompts/pr-group-manager.system.md
+    prompt: !file ../prompts/pr-group-manager.prompt.md
+    output:
+      action:
+        type: string
+        description: start_tasks, submit_pr, or all_complete
+      current_pr_group:
+        type: string
+      branch_name:
+        type: string
+      pr_group_issue_ids:
+        type: array
+      pr_group_task_ids:
+        type: array
+      completed_issues:
+        type: array
+      completed_prs:
+        type: array
+      progress_summary:
+        type: string
+    routes:
+      - to: task_manager
+        when: "{{ output.action == 'start_tasks' }}"
+      - to: reducer_pr
+        when: "{{ output.action == 'submit_pr' }}"
+      - to: pr_finalizer
+        when: "{{ output.action == 'all_complete' }}"
+
+  # ── TASK MANAGER ──────────────────────────────────────────────────
+  - name: task_manager
+    description: Inner orchestrator — task lifecycle within a PR group
+    model: claude-sonnet-4.6
+    input:
+      - pr_group_manager.output
+      - work_tree_seeder.output
+      - intake.output
+      - plan_reader.output
+      - task_manager.output?
+      - task_reviewer.output?
+      - issue_reviewer.output?
+      - user_acceptance.output?
+    system_prompt: !file ../prompts/task-manager.system.md
+    prompt: !file ../prompts/task-manager.prompt.md
+    output:
+      action:
+        type: string
+        description: implement_task, issue_review, needs_acceptance, or pr_group_ready
+      current_pr_group:
+        type: string
+      branch_name:
+        type: string
+      current_issue_id:
+        type: number
+      current_issue_title:
+        type: string
+      current_task_id:
+        type: number
+        description: Current task ADO ID (0 if action is not implement_task)
+      current_task_title:
+        type: string
+      current_task_description:
+        type: string
+      completed_tasks:
+        type: array
+      reviewed_issues:
+        type: array
+      progress_summary:
+        type: string
+    routes:
+      - to: coder
+        when: "{{ output.action == 'implement_task' }}"
+      - to: reducer_issue
+        when: "{{ output.action == 'issue_review' }}"
+      - to: user_acceptance
+        when: "{{ output.action == 'needs_acceptance' }}"
+      - to: pr_group_manager
+        when: "{{ output.action == 'pr_group_ready' }}"
+
+  # ── CODER ─────────────────────────────────────────────────────────
+  - name: coder
+    description: Implements a single task
+    model: claude-opus-4.6-1m
+    input:
+      - task_manager.output
+      - pr_group_manager.output
+      - plan_reader.output
+      - intake.output
+      - task_reviewer.output?
+      - pr_reviewer.output?
+    system_prompt: !file ../prompts/coder.system.md
+    prompt: !file ../prompts/coder.prompt.md
+    output:
+      task_id:
+        type: number
+      files_modified:
+        type: array
+      changes_summary:
+        type: string
+      tests_added:
+        type: array
+      commit_hash:
+        type: string
+      edge_cases_handled:
+        type: array
+    routes:
+      - to: task_reviewer
+
+  # ── TASK REVIEWER ─────────────────────────────────────────────────
+  - name: task_reviewer
+    description: Reviews task implementation
+    model: claude-sonnet-4.6
+    input:
+      - coder.output
+      - task_manager.output
+      - plan_reader.output
+    system_prompt: !file ../prompts/task-reviewer.system.md
+    prompt: !file ../prompts/task-reviewer.prompt.md
+    output:
+      decision:
+        type: string
+      feedback:
+        type: string
+      issues:
+        type: array
+      approved:
+        type: boolean
+      strengths:
+        type: array
+    routes:
+      - to: task_manager
+        when: "{{ output.approved }}"
+      - to: coder
+        when: "{{ not output.approved }}"
+
+  # ── USER ACCEPTANCE ───────────────────────────────────────────────
+  - name: user_acceptance
+    type: human_gate
+    description: Conditional user acceptance gate
+    input:
+      - task_manager.output
+      - plan_reader.output
+    prompt: |
+      ## User Acceptance Check
+      All tasks for issue #{{ task_manager.output.current_issue_id }} — {{ task_manager.output.current_issue_title }} are complete.
+      **Plan:** {{ plan_reader.output.plan_path }}
+      **Completed Tasks:** {{ task_manager.output.completed_tasks | json }}
+      **Progress:** {{ task_manager.output.progress_summary }}
+    options:
+      - label: "Accept — looks good"
+        value: accepted
+        route: task_manager
+      - label: "Request Changes"
+        value: changes
+        route: task_manager
+        prompt_for: feedback
+      - label: "Skip — no acceptance needed"
+        value: skipped
+        route: task_manager
+
+  # ── ISSUE REVIEW ──────────────────────────────────────────────────
+  - name: reducer_issue
+    description: Post-issue code sweep
+    model: claude-sonnet-4.6
+    input:
+      - task_manager.output
+      - plan_reader.output
+    system_prompt: !file ../prompts/reducer.system.md
+    prompt: !file ../prompts/reducer-issue.prompt.md
+    output:
+      findings:
+        type: array
+      changes_applied:
+        type: array
+      lines_removed:
+        type: number
+    routes:
+      - to: issue_reviewer
+
+  - name: issue_reviewer
+    description: Reviews complete issue against acceptance criteria
+    model: claude-opus-4.6-1m
+    input:
+      - task_manager.output
+      - plan_reader.output
+      - reducer_issue.output
+    system_prompt: !file ../prompts/issue-reviewer.system.md
+    prompt: !file ../prompts/issue-reviewer.prompt.md
+    output:
+      decision:
+        type: string
+      feedback:
+        type: string
+      issues:
+        type: array
+      approved:
+        type: boolean
+      strengths:
+        type: array
+    routes:
+      - to: task_manager
+
+  # ── PR LIFECYCLE ──────────────────────────────────────────────────
+  - name: reducer_pr
+    description: Pre-PR reduction sweep
+    model: claude-sonnet-4.6
+    input:
+      - pr_group_manager.output
+      - task_manager.output?
+      - plan_reader.output
+      - intake.output
+    system_prompt: !file ../prompts/reducer.system.md
+    prompt: !file ../prompts/reducer-pr.prompt.md
+    output:
+      findings:
+        type: array
+      changes_applied:
+        type: array
+      total_lines_removed:
+        type: number
+    routes:
+      - to: pr_submit
+
+  - name: pr_submit
+    description: Creates GitHub PR
+    model: claude-sonnet-4.6
+    input:
+      - pr_group_manager.output
+      - task_manager.output?
+      - plan_reader.output
+      - work_tree_seeder.output
+    system_prompt: !file ../prompts/pr-submit.system.md
+    prompt: !file ../prompts/pr-submit.prompt.md
+    output:
+      pr_url:
+        type: string
+      pr_number:
+        type: number
+      pr_title:
+        type: string
+    routes:
+      - to: pr_reviewer
+
+  - name: pr_reviewer
+    description: Reviews the full PR
+    model: claude-opus-4.6-1m
+    input:
+      - pr_submit.output
+      - plan_reader.output
+      - pr_group_manager.output
+    system_prompt: !file ../prompts/pr-reviewer.system.md
+    prompt: !file ../prompts/pr-reviewer.prompt.md
+    output:
+      decision:
+        type: string
+      feedback:
+        type: string
+      issues:
+        type: array
+      approved:
+        type: boolean
+      strengths:
+        type: array
+      architecture_issues:
+        type: array
+      code_issues:
+        type: array
+      test_gaps:
+        type: array
+    routes:
+      - to: pr_merge
+        when: "{{ output.approved }}"
+      - to: pr_fixer
+        when: "{{ not output.approved }}"
+
+  - name: pr_fixer
+    description: Fixes PR-level issues
+    model: claude-sonnet-4.6
+    input:
+      - pr_reviewer.output
+      - pr_submit.output
+      - plan_reader.output
+    system_prompt: !file ../prompts/pr-fixer.system.md
+    prompt: !file ../prompts/pr-fixer.prompt.md
+    output:
+      files_modified:
+        type: array
+      changes_summary:
+        type: string
+    routes:
+      - to: pr_submit
+
+  - name: pr_merge
+    description: Merges approved PR and cleans up branch
+    model: claude-sonnet-4.6
+    input:
+      - pr_submit.output
+      - pr_group_manager.output
+      - plan_reader.output
+    system_prompt: !file ../prompts/pr-merge.system.md
+    prompt: !file ../prompts/pr-merge.prompt.md
+    output:
+      merged:
+        type: boolean
+      pr_url:
+        type: string
+      pr_number:
+        type: number
+      pr_group_name:
+        type: string
+      branch_name:
+        type: string
+      merge_commit:
+        type: string
+      issue_ids:
+        type: array
+    routes:
+      - to: pr_group_manager
+
+  # ── PR FINALIZER ──────────────────────────────────────────────────
+  - name: pr_finalizer
+    description: Verifies all PR groups merged before close-out
+    model: claude-sonnet-4.6
+    input:
+      - work_tree_seeder.output
+      - pr_group_manager.output
+      - intake.output
+      - pr_finalizer.output?
+    system_prompt: !file ../prompts/pr-finalizer.system.md
+    prompt: !file ../prompts/pr-finalizer.prompt.md
+    output:
+      verified:
+        type: boolean
+      unmerged_pr_groups:
+        type: array
+      orphaned_branches:
+        type: array
+      state_violations:
+        type: array
+      summary:
+        type: string
+      verification_attempt:
+        type: number
+    routes:
+      - to: close_out
+        when: "{{ output.verified or output.verification_attempt >= 3 }}"
+      - to: pr_group_manager
+        when: "{{ not output.verified and output.verification_attempt < 3 }}"
+
+  # ── CLOSE-OUT ─────────────────────────────────────────────────────
+  - name: close_out
+    description: Transitions work item to Done, produces observations
+    model: claude-opus-4.6-1m
+    input:
+      - intake.output
+      - plan_reader.output
+      - pr_group_manager.output
+      - pr_finalizer.output
+      - work_tree_seeder.output
+    system_prompt: !file ../prompts/close-out.system.md
+    prompt: !file ../prompts/close-out.prompt.md
+    output:
+      observations:
+        type: string
+      agent_struggles:
+        type: array
+      improvements:
+        type: array
+      epic_completed:
+        type: boolean
+    routes:
+      - to: $end
+
+output:
+  observations: "{{ close_out.output.observations if close_out is defined else duplicate_check.output.reason }}"
+  improvements: "{{ (close_out.output.improvements | json) if close_out is defined else '[]' }}"

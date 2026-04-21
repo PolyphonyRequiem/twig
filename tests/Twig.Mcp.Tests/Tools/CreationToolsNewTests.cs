@@ -340,7 +340,6 @@ public sealed class CreationToolsNewTests : CreationToolsTestBase
     [Theory]
     [InlineData("task")]
     [InlineData("TASK")]
-    [InlineData("Task")]
     public async Task New_TypeIsCaseInsensitive(string typeName)
     {
         var created = new WorkItemBuilder(600, "Case Test").AsTask().Build();

@@ -153,8 +153,9 @@ public sealed class CreationToolsLinkTests : CreationToolsTestBase
         var result = await CreateCreationSut().Link(100, 200, "related");
 
         result.IsError.ShouldBe(true);
-        GetErrorText(result).ShouldContain("Link failed");
-        GetErrorText(result).ShouldContain("Network error");
+        var text = GetErrorText(result);
+        text.ShouldContain("Link failed");
+        text.ShouldContain("Network error");
     }
 
     // ═══════════════════════════════════════════════════════════════

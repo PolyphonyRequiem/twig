@@ -22,15 +22,8 @@ public sealed class CreationToolsLinkTests : CreationToolsTestBase
     [Fact]
     public async Task Link_HappyPath_CreatesLinkAndReturnsResult()
     {
-        var source = new WorkItemBuilder(100, "Source").AsTask().Build();
-        var target = new WorkItemBuilder(200, "Target").AsTask().Build();
-        var sourceLinks = new[] { new WorkItemLink(100, 200, "System.LinkTypes.Related") };
-        var targetLinks = new[] { new WorkItemLink(200, 100, "System.LinkTypes.Related") };
-
-        _adoService.FetchWithLinksAsync(100, Arg.Any<CancellationToken>())
-            .Returns((source, (IReadOnlyList<WorkItemLink>)sourceLinks));
-        _adoService.FetchWithLinksAsync(200, Arg.Any<CancellationToken>())
-            .Returns((target, (IReadOnlyList<WorkItemLink>)targetLinks));
+        _adoService.FetchWithLinksAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns((WorkItemBuilder.Simple(0, ""), (IReadOnlyList<WorkItemLink>)[]));
 
         var result = await CreateCreationSut().Link(100, 200, "related");
 

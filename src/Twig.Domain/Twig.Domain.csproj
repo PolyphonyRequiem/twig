@@ -14,6 +14,7 @@
     <InternalsVisibleTo Include="Twig.Tui.Tests" />
     <InternalsVisibleTo Include="twig" />
     <InternalsVisibleTo Include="Twig.Mcp" />
+    <InternalsVisibleTo Include="twig-mcp" />
     <InternalsVisibleTo Include="Twig.Mcp.Tests" />
   </ItemGroup>
 

@@ -42,18 +42,22 @@ conductor --silent run twig-sdlc@twig --input work_item_id=1273 --input skip_pla
 
 ## Launching Multiple Runs
 
-When running multiple work items, use **discrete worktrees** and launch **10 seconds apart**:
+When running multiple work items, use **discrete worktrees** and launch **10 seconds apart**.
+Use `tools/run-conductor.ps1` to ensure all child processes (MCP servers, test runners)
+are killed when conductor exits — prevents orphaned processes that lock worktree directories.
 
 ```bash
-# Create worktrees
+# Create worktrees (NEVER on main — always a dedicated branch)
 git worktree add -b sdlc/1673 ../twig2-1673 main
 git worktree add -b sdlc/1782 ../twig2-1782 main
 
-# Launch 10s apart in hidden windows (no new terminal windows)
+# Launch 10s apart using Job Object wrapper (kills all children on exit)
 $ids = 1673, 1782
 foreach ($id in $ids) {
-    Start-Process -FilePath "pwsh" -ArgumentList "-NoProfile","-Command",
-        "cd C:\Users\dangreen\projects\twig2-$id; conductor --silent run twig-sdlc@twig --input work_item_id=$id --web" `
+    Start-Process -FilePath "pwsh" -ArgumentList "-NoProfile","-File",
+        "tools\run-conductor.ps1",
+        "-WorkingDirectory", "C:\Users\dangreen\projects\twig2-$id",
+        "-Arguments", "--silent run twig-sdlc-implement@twig --input work_item_id=$id --web" `
         -WindowStyle Hidden
     if ($id -ne $ids[-1]) { Start-Sleep -Seconds 10 }
 }
@@ -62,6 +66,21 @@ foreach ($id in $ids) {
 The 10-second stagger avoids MCP server port collisions and rate-limit spikes.
 
 > **Always share the dashboard URL** — after launching, provide the user the web dashboard URL from terminal output.
+
+### Worktree Cleanup
+
+After runs complete, clean up worktrees:
+
+```bash
+# Remove worktrees and branches
+git worktree remove --force ../twig2-1673
+git branch -D sdlc/1673
+
+# If directories are locked, kill lingering processes first:
+dotnet build-server shutdown
+Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'twig2-\d+' } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+```
 
 ## Phases
 

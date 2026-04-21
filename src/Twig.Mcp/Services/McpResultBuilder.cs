@@ -280,6 +280,13 @@ internal static class McpResultBuilder
             WriteOptionalWorkspace(writer, workspace);
         });
 
+    public static CallToolResult FormatCreated(WorkItem item, string? workspace = null) =>
+        BuildJson(writer =>
+        {
+            WriteWorkItemWithPaths(writer, item);
+            WriteOptionalWorkspace(writer, workspace);
+        });
+
     public static CallToolResult FormatFlushSummary(McpFlushSummary summary) =>
         BuildJson(writer =>
         {

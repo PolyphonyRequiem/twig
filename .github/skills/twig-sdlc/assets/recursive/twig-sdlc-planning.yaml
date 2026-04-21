@@ -34,6 +34,9 @@ workflow:
         type: http
         url: https://learn.microsoft.com/api/mcp
         tools: ["*"]
+      twig:
+        command: twig-mcp
+        tools: ["*"]
   input:
     work_item_id:
       type: number

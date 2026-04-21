@@ -22,10 +22,7 @@ public sealed class ReadTools(WorkspaceResolver resolver)
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
         CancellationToken ct = default)
     {
-        WorkspaceContext ctx;
-        try { ctx = resolver.Resolve(workspace); }
-        catch (Exception ex) when (ex is FormatException or KeyNotFoundException or AmbiguousWorkspaceException)
-        { return McpResultBuilder.ToError(ex.Message); }
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
 
         var resolveResult = await ctx.ActiveItemResolver.GetActiveItemAsync(ct);
 
@@ -76,12 +73,9 @@ public sealed class ReadTools(WorkspaceResolver resolver)
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
         CancellationToken ct = default)
     {
-        WorkspaceContext ctx;
-        try { ctx = resolver.Resolve(workspace); }
-        catch (Exception ex) when (ex is FormatException or KeyNotFoundException or AmbiguousWorkspaceException)
-        { return McpResultBuilder.ToError(ex.Message); }
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
 
-        // 1. Context item (nullable — no error if absent)
+        // 1. Context item(nullable — no error if absent)
         var contextId = await ctx.ContextStore.GetActiveWorkItemIdAsync(ct);
         WorkItem? contextItem = contextId.HasValue
             ? await ctx.WorkItemRepo.GetByIdAsync(contextId.Value, ct)

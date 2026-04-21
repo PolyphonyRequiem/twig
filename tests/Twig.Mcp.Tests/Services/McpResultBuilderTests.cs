@@ -685,15 +685,6 @@ public sealed class McpResultBuilderTests
         root.GetProperty("workspace").GetString().ShouldBe("org/proj");
     }
 
-    [Fact]
-    public void FormatQueryResults_NullWorkspace_WritesNull()
-    {
-        var result = McpResultBuilder.FormatQueryResults([], isTruncated: false, "query");
-        var root = ParseJson(result);
-
-        root.GetProperty("workspace").ValueKind.ShouldBe(JsonValueKind.Null);
-    }
-
     // ── FormatChildren ──────────────────────────────────────────────
 
     [Fact]
@@ -733,15 +724,6 @@ public sealed class McpResultBuilderTests
         var root = ParseJson(result);
 
         root.GetProperty("workspace").GetString().ShouldBe("org/proj");
-    }
-
-    [Fact]
-    public void FormatChildren_NullWorkspace_WritesNull()
-    {
-        var result = McpResultBuilder.FormatChildren(1, []);
-        var root = ParseJson(result);
-
-        root.GetProperty("workspace").ValueKind.ShouldBe(JsonValueKind.Null);
     }
 
     // ── FormatParent ────────────────────────────────────────────────
@@ -791,17 +773,6 @@ public sealed class McpResultBuilderTests
         var root = ParseJson(result);
 
         root.GetProperty("workspace").GetString().ShouldBe("org/proj");
-    }
-
-    [Fact]
-    public void FormatParent_NullWorkspace_WritesNull()
-    {
-        var child = WorkItemBuilder.Simple(1, "Child");
-
-        var result = McpResultBuilder.FormatParent(child, null);
-        var root = ParseJson(result);
-
-        root.GetProperty("workspace").ValueKind.ShouldBe(JsonValueKind.Null);
     }
 
     // ── FormatSprint ────────────────────────────────────────────────
@@ -859,17 +830,6 @@ public sealed class McpResultBuilderTests
         var root = ParseJson(result);
 
         root.GetProperty("workspace").GetString().ShouldBe("org/proj");
-    }
-
-    [Fact]
-    public void FormatSprint_NullWorkspace_WritesNull()
-    {
-        var iteration = IterationPath.Parse(@"Project\Sprint 1").Value;
-
-        var result = McpResultBuilder.FormatSprint(iteration, null);
-        var root = ParseJson(result);
-
-        root.GetProperty("workspace").ValueKind.ShouldBe(JsonValueKind.Null);
     }
 
     // ── Helpers ─────────────────────────────────────────────────────

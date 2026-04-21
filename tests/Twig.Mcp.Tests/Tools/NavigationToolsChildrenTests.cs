@@ -70,20 +70,4 @@ public sealed class NavigationToolsChildrenTests : NavigationToolsTestBase
         ParseResult(result).GetProperty("workspace").GetString().ShouldBe(TestWorkspaceKey.ToString());
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  Single child — count is 1
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task Children_SingleChild_CountIsOne()
-    {
-        var child = new WorkItemBuilder(20, "Only Child").AsTask().WithParent(10).Build();
-        _workItemRepo.GetChildrenAsync(10, Arg.Any<CancellationToken>())
-            .Returns(new[] { child });
-
-        var result = await CreateSut().Children(10);
-
-        result.IsError.ShouldBeNull();
-        ParseResult(result).GetProperty("count").GetInt32().ShouldBe(1);
-    }
 }

@@ -112,16 +112,8 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
         WorkItem? parent = null;
         if (child.ParentId.HasValue)
         {
-            parent = await ctx.WorkItemRepo.GetByIdAsync(child.ParentId.Value, ct);
-            if (parent is null)
-            {
-                try
-                {
-                    parent = await ctx.AdoService.FetchAsync(child.ParentId.Value, ct);
-                    await ctx.WorkItemRepo.SaveAsync(parent, ct);
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
-            }
+            var (p, _) = await ctx.FetchWithFallbackAsync(child.ParentId.Value, ct);
+            parent = p;
         }
 
         return McpResultBuilder.FormatParent(child, parent, ctx.Key.ToString());

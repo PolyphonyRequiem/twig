@@ -65,12 +65,11 @@ public sealed class CreationTools(WorkspaceResolver resolver)
 
             if (!seedResult.IsSuccess)
             {
-                var allowedChildren = processConfig.GetAllowedChildTypes(parent!.Type);
-                var allowedList = allowedChildren.Count > 0
-                    ? string.Join(", ", allowedChildren)
-                    : "(none)";
+                var parentType = parent!.Type;
+                var allowed = processConfig.GetAllowedChildTypes(parentType);
                 return McpResultBuilder.ToError(
-                    $"{seedResult.Error} Allowed child types for {parent!.Type}: {allowedList}.");
+                    $"{seedResult.Error} Allowed child types for {parentType}: " +
+                    (allowed.Count > 0 ? string.Join(", ", allowed) : "(none)") + ".");
             }
 
             seed = seedResult.Value;

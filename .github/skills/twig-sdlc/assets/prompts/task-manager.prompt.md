@@ -25,14 +25,15 @@ Manage tasks within the current PR group.
 3. Determine next step (see below)
 {% endif %}
 
-{% if issue_reviewer is defined and issue_reviewer.output and issue_reviewer.output.approved %}
+{% set ir = issue_reviewer if issue_reviewer is defined else (issue_review if issue_review is defined else none) %}
+{% if ir is not none and ir.output and ir.output.approved %}
 **Issue review passed.** Add this issue to reviewed_issues.
 Check if this issue needs user acceptance (user-facing changes or complex acceptance criteria).
 {% endif %}
 
-{% if issue_reviewer is defined and issue_reviewer.output and not issue_reviewer.output.approved %}
+{% if ir is not none and ir.output and not ir.output.approved %}
 **Issue review failed — changes needed:**
-{{ issue_reviewer.output.feedback | default('') }}
+{{ ir.output.feedback | default('') }}
 Identify which task needs fixing based on the feedback. Run `twig tree --output json`
 to find the task, then set action=implement_task with that task's ID and description
 updated to include the reviewer feedback.
@@ -63,13 +64,13 @@ This prevents skipping tasks whose IDs may have shifted between workflow runs.
 
 1. If the current issue has Tasks NOT in state "Done" → pick the next undone
    task (by successor order), start it, set action=implement_task
-2. If ALL tasks in the current issue are Done AND issue_reviewer has NOT yet
-   reviewed this issue → set action=issue_review
-3. If issue_reviewer approved:
+2. If ALL tasks in the current issue are Done AND issue review has NOT yet
+   been done for this issue → set action=issue_review
+3. If issue review approved:
    a. Check if this issue has user-facing changes or complex acceptance criteria
    b. If yes and user_acceptance not yet received → set action=needs_acceptance
    c. If user_acceptance received or not needed → add issue to reviewed_issues
-4. If issue_reviewer rejected → create a fix approach and set action=implement_task
+4. If issue review rejected → create a fix approach and set action=implement_task
 5. If more issues in this PR group need work → start next issue's first task,
    set action=implement_task
 6. If ALL issues in this PR group are in reviewed_issues → set action=pr_group_ready

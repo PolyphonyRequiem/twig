@@ -869,6 +869,43 @@ public sealed class McpResultBuilderTests
         root.GetProperty("workspace").ValueKind.ShouldBe(JsonValueKind.Null);
     }
 
+    // ── FormatLinked ────────────────────────────────────────────────
+
+    [Fact]
+    public void FormatLinked_WritesExpectedFields()
+    {
+        var result = McpResultBuilder.FormatLinked(42, 99, "parent");
+        var root = ParseJson(result);
+
+        root.GetProperty("sourceId").GetInt32().ShouldBe(42);
+        root.GetProperty("targetId").GetInt32().ShouldBe(99);
+        root.GetProperty("linkType").GetString().ShouldBe("parent");
+        root.GetProperty("linked").GetBoolean().ShouldBeTrue();
+        root.TryGetProperty("warning", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void FormatLinked_WithWarning_WritesWarningField()
+    {
+        var result = McpResultBuilder.FormatLinked(1, 2, "related", warning: "Cache sync failed");
+        var root = ParseJson(result);
+
+        root.GetProperty("sourceId").GetInt32().ShouldBe(1);
+        root.GetProperty("targetId").GetInt32().ShouldBe(2);
+        root.GetProperty("linkType").GetString().ShouldBe("related");
+        root.GetProperty("linked").GetBoolean().ShouldBeTrue();
+        root.GetProperty("warning").GetString().ShouldBe("Cache sync failed");
+    }
+
+    [Fact]
+    public void FormatLinked_NullWarning_OmitsWarningField()
+    {
+        var result = McpResultBuilder.FormatLinked(10, 20, "child", warning: null);
+        var root = ParseJson(result);
+
+        root.TryGetProperty("warning", out _).ShouldBeFalse();
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────
 
     private static JsonElement ParseJson(CallToolResult result)

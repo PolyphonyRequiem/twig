@@ -545,6 +545,364 @@ public sealed class McpResultBuilderTests
         root.GetProperty("fieldEditsDiscarded").GetInt32().ShouldBe(3);
     }
 
+    // ── FormatWorkItem ─────────────────────────────────────────────
+
+    [Fact]
+    public void FormatWorkItem_ProducesFullWorkItemJson()
+    {
+        var item = new WorkItemBuilder(42, "My Feature")
+            .AsFeature()
+            .InState("Active")
+            .AssignedTo("Alice")
+            .WithAreaPath(@"Project\TeamA")
+            .WithIterationPath(@"Project\Sprint 1")
+            .WithParent(10)
+            .Build();
+
+        var result = McpResultBuilder.FormatWorkItem(item);
+        var root = ParseJson(result);
+
+        root.GetProperty("id").GetInt32().ShouldBe(42);
+        root.GetProperty("title").GetString().ShouldBe("My Feature");
+        root.GetProperty("type").GetString().ShouldBe("Feature");
+        root.GetProperty("state").GetString().ShouldBe("Active");
+        root.GetProperty("assignedTo").GetString().ShouldBe("Alice");
+        root.GetProperty("areaPath").GetString().ShouldBe(@"Project\TeamA");
+        root.GetProperty("iterationPath").GetString().ShouldBe(@"Project\Sprint 1");
+        root.GetProperty("parentId").GetInt32().ShouldBe(10);
+        root.GetProperty("isDirty").GetBoolean().ShouldBeFalse();
+        root.GetProperty("isSeed").GetBoolean().ShouldBeFalse();
+    }
+
+    [Fact]
+    public void FormatWorkItem_WithFields_IncludesFieldsObject()
+    {
+        var item = new WorkItemBuilder(1, "With Fields")
+            .AsTask()
+            .WithField("System.Description", "Some description")
+            .WithField("Custom.Priority", "High")
+            .Build();
+
+        var result = McpResultBuilder.FormatWorkItem(item);
+        var root = ParseJson(result);
+
+        root.TryGetProperty("fields", out var fields).ShouldBeTrue();
+        fields.GetProperty("System.Description").GetString().ShouldBe("Some description");
+        fields.GetProperty("Custom.Priority").GetString().ShouldBe("High");
+    }
+
+    [Fact]
+    public void FormatWorkItem_NoFields_OmitsFieldsObject()
+    {
+        var item = WorkItemBuilder.Simple(1, "No Fields");
+
+        var result = McpResultBuilder.FormatWorkItem(item);
+        var root = ParseJson(result);
+
+        root.TryGetProperty("fields", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void FormatWorkItem_NullParentId_WritesNull()
+    {
+        var item = WorkItemBuilder.Simple(5, "Root Item");
+
+        var result = McpResultBuilder.FormatWorkItem(item);
+        var root = ParseJson(result);
+
+        root.GetProperty("parentId").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public void FormatWorkItem_WithWorkspace_IncludesWorkspaceKey()
+    {
+        var item = WorkItemBuilder.Simple(1, "Item");
+
+        var result = McpResultBuilder.FormatWorkItem(item, workspace: "myorg/myproject");
+        var root = ParseJson(result);
+
+        root.GetProperty("workspace").GetString().ShouldBe("myorg/myproject");
+    }
+
+    [Fact]
+    public void FormatWorkItem_NullWorkspace_WritesNull()
+    {
+        var item = WorkItemBuilder.Simple(1, "Item");
+
+        var result = McpResultBuilder.FormatWorkItem(item);
+        var root = ParseJson(result);
+
+        root.GetProperty("workspace").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public void FormatWorkItem_NullFieldValue_WritesNullInFields()
+    {
+        var item = new WorkItemBuilder(1, "Null Field")
+            .AsTask()
+            .WithField("System.Description", null)
+            .Build();
+
+        var result = McpResultBuilder.FormatWorkItem(item);
+        var root = ParseJson(result);
+
+        root.GetProperty("fields").GetProperty("System.Description").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public void FormatWorkItem_SeedItem_ReflectsIsSeed()
+    {
+        var item = new WorkItemBuilder(-1, "My Seed").AsTask().AsSeed().Build();
+
+        var result = McpResultBuilder.FormatWorkItem(item);
+        var root = ParseJson(result);
+
+        root.GetProperty("isSeed").GetBoolean().ShouldBeTrue();
+    }
+
+    // ── FormatQueryResults ──────────────────────────────────────────
+
+    [Fact]
+    public void FormatQueryResults_HappyPath_ProducesExpectedStructure()
+    {
+        var items = new List<WorkItem>
+        {
+            new WorkItemBuilder(1, "Bug 1").AsBug().InState("Active").Build(),
+            new WorkItemBuilder(2, "Bug 2").AsBug().InState("Resolved").Build(),
+        };
+
+        var result = McpResultBuilder.FormatQueryResults(items, isTruncated: false, "type=Bug");
+        var root = ParseJson(result);
+
+        root.GetProperty("items").GetArrayLength().ShouldBe(2);
+        root.GetProperty("items")[0].GetProperty("id").GetInt32().ShouldBe(1);
+        root.GetProperty("items")[1].GetProperty("id").GetInt32().ShouldBe(2);
+        root.GetProperty("totalCount").GetInt32().ShouldBe(2);
+        root.GetProperty("isTruncated").GetBoolean().ShouldBeFalse();
+        root.GetProperty("queryDescription").GetString().ShouldBe("type=Bug");
+    }
+
+    [Fact]
+    public void FormatQueryResults_Truncated_SetsFlag()
+    {
+        var items = new List<WorkItem>
+        {
+            WorkItemBuilder.Simple(1, "Item 1"),
+        };
+
+        var result = McpResultBuilder.FormatQueryResults(items, isTruncated: true, "state=Active");
+        var root = ParseJson(result);
+
+        root.GetProperty("isTruncated").GetBoolean().ShouldBeTrue();
+    }
+
+    [Fact]
+    public void FormatQueryResults_EmptyResults_WritesEmptyArray()
+    {
+        var result = McpResultBuilder.FormatQueryResults([], isTruncated: false, "type=Epic");
+        var root = ParseJson(result);
+
+        root.GetProperty("items").GetArrayLength().ShouldBe(0);
+        root.GetProperty("totalCount").GetInt32().ShouldBe(0);
+        root.GetProperty("isTruncated").GetBoolean().ShouldBeFalse();
+    }
+
+    [Fact]
+    public void FormatQueryResults_WithWorkspace_IncludesWorkspace()
+    {
+        var result = McpResultBuilder.FormatQueryResults([], isTruncated: false, "query", workspace: "org/proj");
+        var root = ParseJson(result);
+
+        root.GetProperty("workspace").GetString().ShouldBe("org/proj");
+    }
+
+    [Fact]
+    public void FormatQueryResults_NullWorkspace_WritesNull()
+    {
+        var result = McpResultBuilder.FormatQueryResults([], isTruncated: false, "query");
+        var root = ParseJson(result);
+
+        root.GetProperty("workspace").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    // ── FormatChildren ──────────────────────────────────────────────
+
+    [Fact]
+    public void FormatChildren_ProducesExpectedStructure()
+    {
+        var children = new List<WorkItem>
+        {
+            new WorkItemBuilder(20, "Child 1").AsTask().InState("Active").Build(),
+            new WorkItemBuilder(21, "Child 2").AsTask().InState("New").Build(),
+        };
+
+        var result = McpResultBuilder.FormatChildren(10, children);
+        var root = ParseJson(result);
+
+        root.GetProperty("parentId").GetInt32().ShouldBe(10);
+        root.GetProperty("children").GetArrayLength().ShouldBe(2);
+        root.GetProperty("children")[0].GetProperty("id").GetInt32().ShouldBe(20);
+        root.GetProperty("children")[1].GetProperty("id").GetInt32().ShouldBe(21);
+        root.GetProperty("count").GetInt32().ShouldBe(2);
+    }
+
+    [Fact]
+    public void FormatChildren_NoChildren_WritesEmptyArray()
+    {
+        var result = McpResultBuilder.FormatChildren(5, []);
+        var root = ParseJson(result);
+
+        root.GetProperty("parentId").GetInt32().ShouldBe(5);
+        root.GetProperty("children").GetArrayLength().ShouldBe(0);
+        root.GetProperty("count").GetInt32().ShouldBe(0);
+    }
+
+    [Fact]
+    public void FormatChildren_WithWorkspace_IncludesWorkspace()
+    {
+        var result = McpResultBuilder.FormatChildren(1, [], workspace: "org/proj");
+        var root = ParseJson(result);
+
+        root.GetProperty("workspace").GetString().ShouldBe("org/proj");
+    }
+
+    [Fact]
+    public void FormatChildren_NullWorkspace_WritesNull()
+    {
+        var result = McpResultBuilder.FormatChildren(1, []);
+        var root = ParseJson(result);
+
+        root.GetProperty("workspace").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    // ── FormatParent ────────────────────────────────────────────────
+
+    [Fact]
+    public void FormatParent_WithParent_ProducesExpectedStructure()
+    {
+        var child = new WorkItemBuilder(20, "Child Task").AsTask().InState("Active").WithParent(10).Build();
+        var parent = new WorkItemBuilder(10, "Parent Feature")
+            .AsFeature()
+            .InState("Active")
+            .AssignedTo("Bob")
+            .WithAreaPath(@"Project\Team")
+            .WithIterationPath(@"Project\Sprint 1")
+            .Build();
+
+        var result = McpResultBuilder.FormatParent(child, parent);
+        var root = ParseJson(result);
+
+        root.GetProperty("child").GetProperty("id").GetInt32().ShouldBe(20);
+        root.GetProperty("child").GetProperty("title").GetString().ShouldBe("Child Task");
+
+        root.GetProperty("parent").GetProperty("id").GetInt32().ShouldBe(10);
+        root.GetProperty("parent").GetProperty("title").GetString().ShouldBe("Parent Feature");
+        root.GetProperty("parent").GetProperty("areaPath").GetString().ShouldBe(@"Project\Team");
+        root.GetProperty("parent").GetProperty("iterationPath").GetString().ShouldBe(@"Project\Sprint 1");
+    }
+
+    [Fact]
+    public void FormatParent_NullParent_WritesNull()
+    {
+        var child = new WorkItemBuilder(5, "Root Item").AsEpic().InState("New").Build();
+
+        var result = McpResultBuilder.FormatParent(child, null);
+        var root = ParseJson(result);
+
+        root.GetProperty("child").GetProperty("id").GetInt32().ShouldBe(5);
+        root.GetProperty("parent").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public void FormatParent_WithWorkspace_IncludesWorkspace()
+    {
+        var child = WorkItemBuilder.Simple(1, "Child");
+
+        var result = McpResultBuilder.FormatParent(child, null, workspace: "org/proj");
+        var root = ParseJson(result);
+
+        root.GetProperty("workspace").GetString().ShouldBe("org/proj");
+    }
+
+    [Fact]
+    public void FormatParent_NullWorkspace_WritesNull()
+    {
+        var child = WorkItemBuilder.Simple(1, "Child");
+
+        var result = McpResultBuilder.FormatParent(child, null);
+        var root = ParseJson(result);
+
+        root.GetProperty("workspace").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    // ── FormatSprint ────────────────────────────────────────────────
+
+    [Fact]
+    public void FormatSprint_WithItems_ProducesExpectedStructure()
+    {
+        var iteration = IterationPath.Parse(@"Project\Sprint 5").Value;
+        var items = new List<WorkItem>
+        {
+            new WorkItemBuilder(1, "Task 1").AsTask().InState("Active").Build(),
+            new WorkItemBuilder(2, "Task 2").AsTask().InState("New").Build(),
+        };
+
+        var result = McpResultBuilder.FormatSprint(iteration, items);
+        var root = ParseJson(result);
+
+        root.GetProperty("iterationPath").GetString().ShouldBe(@"Project\Sprint 5");
+        root.GetProperty("items").GetArrayLength().ShouldBe(2);
+        root.GetProperty("items")[0].GetProperty("id").GetInt32().ShouldBe(1);
+        root.GetProperty("count").GetInt32().ShouldBe(2);
+    }
+
+    [Fact]
+    public void FormatSprint_NullItems_WritesNullAndOmitsCount()
+    {
+        var iteration = IterationPath.Parse(@"Project\Sprint 1").Value;
+
+        var result = McpResultBuilder.FormatSprint(iteration, null);
+        var root = ParseJson(result);
+
+        root.GetProperty("iterationPath").GetString().ShouldBe(@"Project\Sprint 1");
+        root.GetProperty("items").ValueKind.ShouldBe(JsonValueKind.Null);
+        root.TryGetProperty("count", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void FormatSprint_EmptyItems_WritesEmptyArrayAndZeroCount()
+    {
+        var iteration = IterationPath.Parse(@"Project\Sprint 2").Value;
+
+        var result = McpResultBuilder.FormatSprint(iteration, []);
+        var root = ParseJson(result);
+
+        root.GetProperty("items").GetArrayLength().ShouldBe(0);
+        root.GetProperty("count").GetInt32().ShouldBe(0);
+    }
+
+    [Fact]
+    public void FormatSprint_WithWorkspace_IncludesWorkspace()
+    {
+        var iteration = IterationPath.Parse(@"Project\Sprint 1").Value;
+
+        var result = McpResultBuilder.FormatSprint(iteration, null, workspace: "org/proj");
+        var root = ParseJson(result);
+
+        root.GetProperty("workspace").GetString().ShouldBe("org/proj");
+    }
+
+    [Fact]
+    public void FormatSprint_NullWorkspace_WritesNull()
+    {
+        var iteration = IterationPath.Parse(@"Project\Sprint 1").Value;
+
+        var result = McpResultBuilder.FormatSprint(iteration, null);
+        var root = ParseJson(result);
+
+        root.GetProperty("workspace").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────
 
     private static JsonElement ParseJson(CallToolResult result)

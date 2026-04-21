@@ -5,7 +5,7 @@ using Twig.Mcp.Tools;
 
 namespace Twig.Mcp.Tests.Tools;
 
-public abstract class CreationToolsTestBase : ReadToolsTestBase
+public abstract class CreationToolsTestBase : MutationToolsTestBase
 {
     protected CreationToolsTestBase()
     {

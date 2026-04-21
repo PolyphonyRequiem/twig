@@ -24,6 +24,18 @@ public sealed class WorkspaceResolver(
     }
 
     /// <summary>
+    /// Tries to resolve a <see cref="WorkspaceContext"/>, returning <see langword="false"/>
+    /// and an error message on failure instead of throwing. Used by tool methods that need
+    /// a single-line guard without a try/catch block in each method.
+    /// </summary>
+    public bool TryResolve(string? workspace, out WorkspaceContext ctx, out string? error)
+    {
+        try { ctx = Resolve(workspace); error = null; return true; }
+        catch (Exception ex) when (ex is FormatException or KeyNotFoundException or AmbiguousWorkspaceException)
+        { ctx = null!; error = ex.Message; return false; }
+    }
+
+    /// <summary>
     /// Resolves a <see cref="WorkspaceContext"/> for a standard tool call (not <c>twig_set</c>).
     /// </summary>
     /// <param name="workspace">Optional explicit workspace string (<c>"org/project"</c>).</param>
@@ -37,18 +49,6 @@ public sealed class WorkspaceResolver(
     /// <exception cref="AmbiguousWorkspaceException">
     /// Thrown when no workspace can be inferred and multiple are registered.
     /// </exception>
-    /// <summary>
-    /// Tries to resolve a <see cref="WorkspaceContext"/>, returning <see langword="false"/>
-    /// and an error message on failure instead of throwing. Used by tool methods that need
-    /// a single-line guard without a try/catch block in each method.
-    /// </summary>
-    public bool TryResolve(string? workspace, out WorkspaceContext ctx, out string? error)
-    {
-        try { ctx = Resolve(workspace); error = null; return true; }
-        catch (Exception ex) when (ex is FormatException or KeyNotFoundException or AmbiguousWorkspaceException)
-        { ctx = null!; error = ex.Message; return false; }
-    }
-
     public WorkspaceContext Resolve(string? workspace = null)
     {
         // 1. Explicit workspace parameter

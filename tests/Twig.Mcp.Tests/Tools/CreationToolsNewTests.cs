@@ -78,6 +78,9 @@ public sealed class CreationToolsNewTests : CreationToolsTestBase
         json.GetProperty("id").GetInt32().ShouldBe(300);
         json.GetProperty("title").GetString().ShouldBe("Standalone Bug");
         json.GetProperty("type").GetString().ShouldBe("Bug");
+        json.GetProperty("workspace").GetString().ShouldBe(TestWorkspaceKey.ToString());
+        json.GetProperty("url").GetString()
+            .ShouldBe($"https://dev.azure.com/{TestWorkspaceKey.Org}/{TestWorkspaceKey.Project}/_workitems/edit/300");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -249,46 +252,6 @@ public sealed class CreationToolsNewTests : CreationToolsTestBase
         await _adoService.Received(1).CreateAsync(
             Arg.Is<WorkItem>(wi => wi.AssignedTo == "Jane Doe"),
             Arg.Any<CancellationToken>());
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  Response includes workspace field
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task New_ResponseIncludesWorkspace()
-    {
-        var created = new WorkItemBuilder(402, "Workspace Test").AsTask().Build();
-
-        _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>()).Returns(402);
-        _adoService.FetchAsync(402, Arg.Any<CancellationToken>()).Returns(created);
-
-        var result = await CreateCreationSut().New("Task", "Workspace Test");
-
-        result.IsError.ShouldBeNull();
-        var json = ParseResult(result);
-        json.GetProperty("workspace").GetString().ShouldBe(TestWorkspaceKey.ToString());
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  Response includes url field with ADO link
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task New_ResponseIncludesAdoUrl()
-    {
-        var created = new WorkItemBuilder(700, "URL Test").AsTask().Build();
-
-        _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>()).Returns(700);
-        _adoService.FetchAsync(700, Arg.Any<CancellationToken>()).Returns(created);
-
-        var result = await CreateCreationSut().New("Task", "URL Test");
-
-        result.IsError.ShouldBeNull();
-        var json = ParseResult(result);
-        var url = json.GetProperty("url").GetString();
-        url.ShouldNotBeNull();
-        url.ShouldBe($"https://dev.azure.com/{TestWorkspaceKey.Org}/{TestWorkspaceKey.Project}/_workitems/edit/700");
     }
 
     // ═══════════════════════════════════════════════════════════════

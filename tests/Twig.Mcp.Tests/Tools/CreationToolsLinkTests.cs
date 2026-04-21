@@ -44,6 +44,8 @@ public sealed class CreationToolsLinkTests : CreationToolsTestBase
 
         await _adoService.Received(1).AddLinkAsync(
             100, 200, "System.LinkTypes.Related", Arg.Any<CancellationToken>());
+        await _adoService.Received(1).FetchWithLinksAsync(100, Arg.Any<CancellationToken>());
+        await _adoService.Received(1).FetchWithLinksAsync(200, Arg.Any<CancellationToken>());
     }
 
     [Theory]
@@ -171,32 +173,5 @@ public sealed class CreationToolsLinkTests : CreationToolsTestBase
         var json = ParseResult(result);
         json.GetProperty("linked").GetBoolean().ShouldBeTrue();
         json.GetProperty("warning").GetString()!.ShouldContain("cache sync failed");
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  Cache sync — verifies SyncLinksAsync called for both items
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task Link_HappyPath_SyncsBothItems()
-    {
-        var sourceLinks = new[] { new WorkItemLink(100, 200, "System.LinkTypes.Related") };
-        var targetLinks = new[] { new WorkItemLink(200, 100, "System.LinkTypes.Related") };
-
-        var sourceItem = new WorkItemBuilder(100, "Source").AsTask().Build();
-        var targetItem = new WorkItemBuilder(200, "Target").AsTask().Build();
-
-        _adoService.FetchWithLinksAsync(100, Arg.Any<CancellationToken>())
-            .Returns((sourceItem, (IReadOnlyList<WorkItemLink>)sourceLinks));
-        _adoService.FetchWithLinksAsync(200, Arg.Any<CancellationToken>())
-            .Returns((targetItem, (IReadOnlyList<WorkItemLink>)targetLinks));
-
-        var result = await CreateCreationSut().Link(100, 200, "related");
-
-        result.IsError.ShouldBeNull();
-
-        // Verify SyncLinksAsync was called (which internally calls FetchWithLinksAsync)
-        await _adoService.Received(1).FetchWithLinksAsync(100, Arg.Any<CancellationToken>());
-        await _adoService.Received(1).FetchWithLinksAsync(200, Arg.Any<CancellationToken>());
     }
 }

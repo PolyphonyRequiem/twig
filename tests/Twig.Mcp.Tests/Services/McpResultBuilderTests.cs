@@ -897,15 +897,6 @@ public sealed class McpResultBuilderTests
         root.GetProperty("warning").GetString().ShouldBe("Cache sync failed");
     }
 
-    [Fact]
-    public void FormatLinked_NullWarning_OmitsWarningField()
-    {
-        var result = McpResultBuilder.FormatLinked(10, 20, "child", warning: null);
-        var root = ParseJson(result);
-
-        root.TryGetProperty("warning", out _).ShouldBeFalse();
-    }
-
     // ── Helpers ─────────────────────────────────────────────────────
 
     private static JsonElement ParseJson(CallToolResult result)

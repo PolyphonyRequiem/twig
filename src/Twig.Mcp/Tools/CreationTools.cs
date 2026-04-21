@@ -86,8 +86,8 @@ public sealed class CreationTools(WorkspaceResolver resolver)
             }
 
             // No parent — use workspace defaults for area/iteration paths
-            var areaPath = ResolveDefaultAreaPath(ctx);
-            var iterationPath = ResolveDefaultIterationPath(ctx);
+            var areaPath = ResolveDefaultPath(ctx.Config.Defaults?.AreaPath, ctx.Config.Project, AreaPath.Parse);
+            var iterationPath = ResolveDefaultPath(ctx.Config.Defaults?.IterationPath, ctx.Config.Project, IterationPath.Parse);
 
             var seedResult = SeedFactory.CreateUnparented(
                 title,
@@ -200,12 +200,6 @@ public sealed class CreationTools(WorkspaceResolver resolver)
 
         return (item, null);
     }
-
-    private static AreaPath ResolveDefaultAreaPath(WorkspaceContext ctx) =>
-        ResolveDefaultPath(ctx.Config.Defaults?.AreaPath, ctx.Config.Project, AreaPath.Parse);
-
-    private static IterationPath ResolveDefaultIterationPath(WorkspaceContext ctx) =>
-        ResolveDefaultPath(ctx.Config.Defaults?.IterationPath, ctx.Config.Project, IterationPath.Parse);
 
     private static T ResolveDefaultPath<T>(string? configPath, string? projectName, Func<string?, Result<T>> parse) where T : struct
     {

@@ -203,10 +203,13 @@ agents:
         type: string
       current_task_id:
         type: number
+        description: Current task ADO ID (0 if action is not implement_task)
       current_task_title:
         type: string
+        description: Current task title (empty if action is not implement_task)
       current_task_description:
         type: string
+        description: Current task description (empty if action is not implement_task)
       completed_tasks:
         type: array
       reviewed_issues:

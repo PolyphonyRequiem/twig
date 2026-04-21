@@ -5,7 +5,7 @@ Create a solution design and implementation plan.
 {% if intake.output.existing_issues | length > 0 %}
 **Existing child Issues (reuse these — do NOT create duplicates):**
 {% for issue in intake.output.existing_issues %}
-- #{{ issue.id }}: {{ issue.title }} — {{ issue.description }}
+- #{{ issue.id }}: {{ issue.title }}{% if issue.description is defined and issue.description %} — {{ issue.description }}{% endif %}
 {% endfor %}
 Incorporate existing Issues into the plan. Define Tasks under each Issue
 even when the Issue already exists — Tasks are the unit of implementation.

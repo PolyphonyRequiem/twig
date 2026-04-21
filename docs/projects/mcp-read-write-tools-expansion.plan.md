@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | **Epic** | #1814 — Expand twig-mcp with read and write tools |
-| **Status** | 🔨 In Progress — 1/3 PR groups merged |
+| **Status** | 🔨 In Progress — 2/3 PR groups merged |
 | **Revision** | 0 |
 | **Revision Notes** | Initial draft. |
 

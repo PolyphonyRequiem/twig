@@ -1,4 +1,4 @@
-# recursive-dispatcher.yaml — Recursive SDLC Planner
+# twig-sdlc-planning.yaml — Recursive SDLC Planner
 #
 # Top-level orchestrator that plans an Epic end-to-end:
 #   1. Intake — read/create Epic from ADO
@@ -51,7 +51,7 @@ workflow:
     plan_path:
       type: string
       required: false
-      description: Path to an already-approved plan file (not used by recursive dispatcher but required by shared intake prompt).
+      description: Path to an already-approved plan file; passed to intake to skip re-planning.
   context:
     mode: explicit
   limits:

@@ -45,11 +45,6 @@ workflow:
       type: string
       required: false
       description: Not used by implement workflow but required by shared intake prompt.
-    skip_plan_review:
-      type: boolean
-      required: false
-      default: false
-      description: Not used by implement workflow but required by shared prompts.
   context:
     mode: explicit
   limits:

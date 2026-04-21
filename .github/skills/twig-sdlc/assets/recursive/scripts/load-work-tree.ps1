@@ -88,12 +88,7 @@ if ($PlanPath -and (Test-Path $PlanPath)) {
         # Try to find task/issue IDs associated with this PG
         $startPos = $m.Index + $m.Length
         $endPos = if ($pgIndex -lt $pgMatches.Count) { $pgMatches[$pgIndex].Index } else { $planContent.Length }
-        $sectionLen = [Math]::Min($endPos - $startPos, 2000)
-        if ($sectionLen -gt 0) {
-            $section = $planContent.Substring($startPos, $sectionLen)
-        } else {
-            $section = ""
-        }
+        $section = $planContent.Substring($startPos, [Math]::Min($endPos - $startPos, 2000))
         $idMatches = [regex]::Matches($section, '#(\d{4,})')
         $taskIds = @()
         $issueIds = @()

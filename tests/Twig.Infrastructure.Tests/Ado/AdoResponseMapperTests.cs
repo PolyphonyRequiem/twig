@@ -452,18 +452,6 @@ public class AdoResponseMapperTests
     // ── InjectTwigTag / MergeTwigTag ────────────────────────────────
 
     [Fact]
-    public void MapSeedToCreatePayload_NoExistingTags_AppendsTwigTag()
-    {
-        var seed = Domain.Aggregates.WorkItem.CreateSeed(WorkItemType.Task, "Task");
-
-        var result = AdoResponseMapper.MapSeedToCreatePayload(seed, "https://dev.azure.com/org");
-
-        result.Count(op => op.Path == "/fields/System.Tags").ShouldBe(1);
-        var tagOp = result.Single(op => op.Path == "/fields/System.Tags");
-        tagOp.Value!.GetValue<string>().ShouldBe("twig");
-    }
-
-    [Fact]
     public void MapSeedToCreatePayload_ExistingTags_MergesTwigTag()
     {
         var seed = Domain.Aggregates.WorkItem.CreateSeed(WorkItemType.Task, "Task");

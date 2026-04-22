@@ -180,10 +180,6 @@ internal static class AdoResponseMapper
         return operations;
     }
 
-    /// <summary>
-    /// Ensures the operations list contains a <c>/fields/System.Tags</c> entry with the <c>twig</c> tag.
-    /// If an existing tags operation is found, merges <c>twig</c> into it; otherwise appends a new one.
-    /// </summary>
     private static void InjectTwigTag(List<AdoPatchOperation> operations)
     {
         const string tagPath = "/fields/System.Tags";

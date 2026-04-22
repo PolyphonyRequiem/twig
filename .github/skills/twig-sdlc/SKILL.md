@@ -33,10 +33,10 @@ All workflows include standardized metadata for dashboard integration and worktr
 |-------|-------|-------------|
 | `tracker` | `ado` | Work item tracking system |
 | `project_url` | `https://dev.azure.com/dangreen-msft/Twig` | ADO project URL |
-| `work_item_id_agent` | `intake` | Agent whose output contains the work item ID |
-| `work_item_id_field` | `epic_id` | Field on that agent's output |
+| `work_item_id` | `{work_item_id}` | Target work item ID (template variable) |
 | `worktree_name` | `twig2-{work_item_id}` | Git worktree directory naming pattern |
-| `worktree_description` | *(varies per workflow)* | Human-readable worktree purpose |
+| `git_repo` | `C:\Users\dangreen\projects\twig2` | Originating git repo path |
+| `cwd` | `C:\Users\dangreen\projects\twig2-{work_item_id}` | Worktree working directory |
 
 ## Quick Reference
 

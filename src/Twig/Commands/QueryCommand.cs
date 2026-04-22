@@ -99,7 +99,7 @@ public sealed partial class QueryCommand(
         IReadOnlyList<(string Path, bool IncludeChildren)>? defaultAreaPaths = null;
         if (string.IsNullOrWhiteSpace(areaPath))
         {
-            defaultAreaPaths = ResolveDefaultAreaPaths();
+            defaultAreaPaths = config.Defaults?.ResolveAreaPaths();
         }
 
         var parameters = new QueryParameters
@@ -213,7 +213,7 @@ public sealed partial class QueryCommand(
         sb.AppendLine();
 
         // Show configured default area paths if available
-        var defaultAreaPaths = ResolveDefaultAreaPaths();
+        var defaultAreaPaths = config.Defaults?.ResolveAreaPaths();
         sb.AppendLine("Defaults:");
         if (defaultAreaPaths is { Count: > 0 })
         {
@@ -235,30 +235,6 @@ public sealed partial class QueryCommand(
 
         Console.Write(sb.ToString());
         return (0, 0);
-    }
-
-    /// <summary>
-    /// Resolves default area paths from config, matching RefreshCommand's pattern (L77–105).
-    /// Maps <see cref="AreaPathEntry"/> values into (Path, IncludeChildren) tuples.
-    /// </summary>
-    private IReadOnlyList<(string Path, bool IncludeChildren)>? ResolveDefaultAreaPaths()
-    {
-        var entries = config.Defaults?.AreaPathEntries;
-        if (entries is { Count: > 0 })
-            return entries.Select(e => (e.Path, e.IncludeChildren)).ToList();
-
-        var areaPaths = config.Defaults?.AreaPaths;
-        if (areaPaths is null || areaPaths.Count == 0)
-        {
-            var singlePath = config.Defaults?.AreaPath;
-            if (!string.IsNullOrWhiteSpace(singlePath))
-                areaPaths = [singlePath];
-        }
-
-        if (areaPaths is { Count: > 0 })
-            return areaPaths.Select(p => (p, true)).ToList();
-
-        return null;
     }
 
     private bool TryParseDuration(string? input, out int? days)

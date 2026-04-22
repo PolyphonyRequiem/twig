@@ -1,4 +1,3 @@
-using ModelContextProtocol.Protocol;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
@@ -97,8 +96,7 @@ public sealed class NavigationToolsSprintTests : NavigationToolsTestBase
         var result = await CreateSut().Sprint();
 
         result.IsError.ShouldBe(true);
-        result.Content[0].ShouldBeOfType<TextContentBlock>()
-            .Text.ShouldContain("Failed to get current iteration");
+        GetErrorText(result).ShouldContain("Failed to get current iteration");
     }
 
     // ═══════════════════════════════════════════════════════════════

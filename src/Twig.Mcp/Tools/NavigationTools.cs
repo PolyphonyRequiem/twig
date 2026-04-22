@@ -47,7 +47,7 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
         // Resolve default area paths from config when no explicit area path filter is given
         IReadOnlyList<(string Path, bool IncludeChildren)>? defaultAreaPaths = null;
         if (string.IsNullOrWhiteSpace(areaPath))
-            defaultAreaPaths = ResolveDefaultAreaPaths(ctx);
+            defaultAreaPaths = ctx.Config.Defaults?.ResolveAreaPaths();
 
         var parameters = new QueryParameters
         {
@@ -137,26 +137,6 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
             sprintItems = await ctx.WorkItemRepo.GetByIterationAsync(iterationPath, ct);
 
         return McpResultBuilder.FormatSprint(iterationPath, sprintItems, ctx.Key.ToString());
-    }
-
-    private static IReadOnlyList<(string Path, bool IncludeChildren)>? ResolveDefaultAreaPaths(WorkspaceContext ctx)
-    {
-        var entries = ctx.Config.Defaults?.AreaPathEntries;
-        if (entries is { Count: > 0 })
-            return entries.Select(e => (e.Path, e.IncludeChildren)).ToList();
-
-        var areaPaths = ctx.Config.Defaults?.AreaPaths;
-        if (areaPaths is null || areaPaths.Count == 0)
-        {
-            var singlePath = ctx.Config.Defaults?.AreaPath;
-            if (!string.IsNullOrWhiteSpace(singlePath))
-                areaPaths = [singlePath];
-        }
-
-        if (areaPaths is { Count: > 0 })
-            return areaPaths.Select(p => (p, true)).ToList();
-
-        return null;
     }
 
     private static string BuildQueryDescription(QueryParameters parameters)

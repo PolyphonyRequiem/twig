@@ -175,7 +175,52 @@ internal static class AdoResponseMapper
             });
         }
 
+        InjectTwigTag(operations);
+
         return operations;
+    }
+
+    private static void InjectTwigTag(List<AdoPatchOperation> operations)
+    {
+        const string tagPath = "/fields/System.Tags";
+        const string twigTag = "twig";
+
+        var existingIndex = operations.FindIndex(op =>
+            string.Equals(op.Path, tagPath, StringComparison.OrdinalIgnoreCase));
+
+        if (existingIndex >= 0)
+        {
+            var current = operations[existingIndex].Value?.GetValue<string>() ?? "";
+            operations[existingIndex].Value = JsonValue.Create(MergeTwigTag(current, twigTag));
+        }
+        else
+        {
+            operations.Add(new AdoPatchOperation
+            {
+                Op = "add",
+                Path = tagPath,
+                Value = JsonValue.Create(twigTag),
+            });
+        }
+    }
+
+    /// <summary>
+    /// Merges a tag into a semicolon-separated tag string with case-insensitive deduplication.
+    /// Returns the original string unchanged if the tag is already present.
+    /// </summary>
+    internal static string MergeTwigTag(string existingTags, string tag)
+    {
+        if (string.IsNullOrWhiteSpace(existingTags))
+            return tag;
+
+        var tags = existingTags.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        foreach (var t in tags)
+        {
+            if (string.Equals(t, tag, StringComparison.OrdinalIgnoreCase))
+                return existingTags;
+        }
+
+        return $"{existingTags}; {tag}";
     }
 
     /// <summary>

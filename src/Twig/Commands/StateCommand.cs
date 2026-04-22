@@ -29,7 +29,7 @@ public sealed class StateCommand(
     private readonly TextWriter _stderr = stderr ?? Console.Error;
 
     /// <summary>Change the state of the active work item by full or partial state name.</summary>
-    public async Task<int> ExecuteAsync(string stateName, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    public async Task<int> ExecuteAsync(string stateName, int? id = null, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
@@ -39,12 +39,14 @@ public sealed class StateCommand(
             return 2;
         }
 
-        var resolved = await activeItemResolver.GetActiveItemAsync();
+        var resolved = id.HasValue
+            ? await activeItemResolver.ResolveByIdAsync(id.Value, ct)
+            : await activeItemResolver.GetActiveItemAsync();
         if (!resolved.TryGetWorkItem(out var item, out var errorId, out var errorReason))
         {
             _stderr.WriteLine(fmt.FormatError(errorId is not null
                 ? $"Work item #{errorId} not found in cache."
-                : "No active work item. Run 'twig set <id>' first."));
+                : "No active work item. Run 'twig set <id>' or pass --id."));
             return 1;
         }
 

@@ -75,7 +75,7 @@ public sealed class TreeCommand_CacheAwareTests
         SetupActiveItem(item);
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync("human", noRefresh: true);
+        var result = await cmd.ExecuteAsync(outputFormat: "human", noRefresh: true);
 
         result.ShouldBe(0);
 
@@ -94,7 +94,7 @@ public sealed class TreeCommand_CacheAwareTests
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync("human", noRefresh: true);
+        var result = await cmd.ExecuteAsync(outputFormat: "human", noRefresh: true);
 
         result.ShouldBe(1);
     }
@@ -112,7 +112,7 @@ public sealed class TreeCommand_CacheAwareTests
             .Returns(new[] { child1, child2 });
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync("human", noRefresh: true);
+        var result = await cmd.ExecuteAsync(outputFormat: "human", noRefresh: true);
 
         result.ShouldBe(0);
 
@@ -134,7 +134,7 @@ public sealed class TreeCommand_CacheAwareTests
 
         // Both flags set: noLive + noRefresh
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync("human", noLive: true, noRefresh: true);
+        var result = await cmd.ExecuteAsync(outputFormat: "human", noLive: true, noRefresh: true);
 
         result.ShouldBe(0);
     }
@@ -149,7 +149,7 @@ public sealed class TreeCommand_CacheAwareTests
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
         // noRefresh defaults to false — should use RenderWithSyncAsync
-        var result = await cmd.ExecuteAsync("human");
+        var result = await cmd.ExecuteAsync(outputFormat: "human");
 
         result.ShouldBe(0);
 
@@ -165,7 +165,7 @@ public sealed class TreeCommand_CacheAwareTests
         SetupActiveItem(item);
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync("human");
+        var result = await cmd.ExecuteAsync(outputFormat: "human");
 
         result.ShouldBe(0);
 
@@ -198,7 +198,7 @@ public sealed class TreeCommand_CacheAwareTests
             });
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync("human");
+        var result = await cmd.ExecuteAsync(outputFormat: "human");
 
         result.ShouldBe(0);
 
@@ -226,7 +226,7 @@ public sealed class TreeCommand_CacheAwareTests
         SetupActiveItem(staleItem);
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync("human");
+        var result = await cmd.ExecuteAsync(outputFormat: "human");
 
         result.ShouldBe(0);
 
@@ -252,7 +252,7 @@ public sealed class TreeCommand_CacheAwareTests
         SetupActiveItem(freshItem);
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync("human");
+        var result = await cmd.ExecuteAsync(outputFormat: "human");
 
         result.ShouldBe(0);
 
@@ -282,7 +282,7 @@ public sealed class TreeCommand_CacheAwareTests
             .Returns(new[] { staleChild });
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync("human");
+        var result = await cmd.ExecuteAsync(outputFormat: "human");
 
         result.ShouldBe(0);
 
@@ -494,7 +494,7 @@ public sealed class TreeCommand_CacheAwareTests
             });
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync("human");
+        var result = await cmd.ExecuteAsync(outputFormat: "human");
 
         result.ShouldBe(0);
 

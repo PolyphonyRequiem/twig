@@ -174,7 +174,7 @@ public class TreeCommandLinkTests
             .Returns((focus, (IReadOnlyList<WorkItemLink>)links));
 
         var cmd = CreateCommand();
-        var result = await cmd.ExecuteAsync("json");
+        var result = await cmd.ExecuteAsync(outputFormat: "json");
 
         result.ShouldBe(0);
         await _adoService.Received(1).FetchWithLinksAsync(1, Arg.Any<CancellationToken>());
@@ -193,7 +193,7 @@ public class TreeCommandLinkTests
                 _ => throw new HttpRequestException("Network error"));
 
         var cmd = CreateCommand();
-        var result = await cmd.ExecuteAsync("json");
+        var result = await cmd.ExecuteAsync(outputFormat: "json");
 
         result.ShouldBe(0); // Command succeeds despite link sync failure
     }
@@ -217,7 +217,7 @@ public class TreeCommandLinkTests
             .Returns((focus, (IReadOnlyList<WorkItemLink>)links));
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync("human");
+        var result = await cmd.ExecuteAsync(outputFormat: "human");
 
         result.ShouldBe(0);
 
@@ -239,7 +239,7 @@ public class TreeCommandLinkTests
             .Returns((focus, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync("human");
+        var result = await cmd.ExecuteAsync(outputFormat: "human");
 
         result.ShouldBe(0);
 
@@ -260,7 +260,7 @@ public class TreeCommandLinkTests
                 _ => throw new HttpRequestException("Network error"));
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync("human");
+        var result = await cmd.ExecuteAsync(outputFormat: "human");
 
         result.ShouldBe(0);
         _testConsole.Output.ShouldContain("Focus Item");

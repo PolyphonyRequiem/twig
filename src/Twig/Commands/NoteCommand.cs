@@ -65,16 +65,18 @@ public sealed class NoteCommand(
     private readonly IAdoWorkItemService _adoService = adoService;
 
     /// <summary>Add a note/comment to the active work item.</summary>
-    public async Task<int> ExecuteAsync(string? text = null, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    public async Task<int> ExecuteAsync(string? text = null, int? id = null, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
-        var resolved = await activeItemResolver.GetActiveItemAsync();
+        var resolved = id.HasValue
+            ? await activeItemResolver.ResolveByIdAsync(id.Value, ct)
+            : await activeItemResolver.GetActiveItemAsync();
         if (!resolved.TryGetWorkItem(out var item, out var errorId, out var errorReason))
         {
             Console.Error.WriteLine(fmt.FormatError(errorId is not null
                 ? $"Work item #{errorId} not found in cache."
-                : "No active work item. Run 'twig set <id>' first."));
+                : "No active work item. Run 'twig set <id>' or pass --id."));
             return 1;
         }
 

@@ -26,10 +26,10 @@ public sealed class TreeCommand(
     ITelemetryClient? telemetryClient = null)
 {
     /// <summary>Display the work item hierarchy as a tree.</summary>
-    public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, int? depth = null, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default)
+    public async Task<int> ExecuteAsync(int? id = null, string outputFormat = OutputFormatterFactory.DefaultFormat, int? depth = null, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
-        var exitCode = await ExecuteCoreAsync(outputFormat, depth, all, noLive, noRefresh, ct);
+        var exitCode = await ExecuteCoreAsync(id, outputFormat, depth, all, noLive, noRefresh, ct);
         telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
         {
             ["command"] = "tree",
@@ -44,16 +44,16 @@ public sealed class TreeCommand(
         return exitCode;
     }
 
-    private async Task<int> ExecuteCoreAsync(string outputFormat, int? depth, bool all, bool noLive, bool noRefresh, CancellationToken ct)
+    private async Task<int> ExecuteCoreAsync(int? id, string outputFormat, int? depth, bool all, bool noLive, bool noRefresh, CancellationToken ct)
     {
         var (fmt, renderer) = pipelineFactory is not null
             ? pipelineFactory.Resolve(outputFormat, noLive)
             : (formatterFactory.GetFormatter(outputFormat), null);
 
-        var activeId = await contextStore.GetActiveWorkItemIdAsync();
+        var activeId = id ?? await contextStore.GetActiveWorkItemIdAsync();
         if (activeId is null)
         {
-            Console.Error.WriteLine(fmt.FormatError("No active work item. Run 'twig set <id>' first."));
+            Console.Error.WriteLine(fmt.FormatError("No active work item. Run 'twig set <id>' or pass --id."));
             return 1;
         }
 

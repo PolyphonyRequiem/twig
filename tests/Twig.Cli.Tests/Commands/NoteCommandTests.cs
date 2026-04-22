@@ -196,4 +196,32 @@ public class NoteCommandTests
             AreaPath = AreaPath.Parse("Project").Value,
         };
     }
+
+    [Fact]
+    public async Task Note_WithExplicitId_AddsNoteToSpecificItem()
+    {
+        var item = CreateWorkItem(42, "Specific Item", isSeed: false);
+        // Explicit ID does NOT require active context
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        var serverItem = CreateWorkItem(42, "Specific Item", isSeed: false);
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(serverItem);
+
+        var result = await _cmd.ExecuteAsync("Note text", id: 42);
+
+        result.ShouldBe(0);
+        await _adoService.Received(1).AddCommentAsync(42, "Note text", Arg.Any<CancellationToken>());
+        await _contextStore.DidNotReceive().SetActiveWorkItemIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Note_WithExplicitId_NotFound_ReturnsError()
+    {
+        _workItemRepo.GetByIdAsync(99, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        _adoService.FetchAsync(99, Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<WorkItem>(new HttpRequestException("Not found")));
+
+        var result = await _cmd.ExecuteAsync("Some note", id: 99);
+
+        result.ShouldBe(1);
+    }
 }

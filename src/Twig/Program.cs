@@ -371,8 +371,9 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <summary>Change the state of the active work item by name.</summary>
     /// <param name="name">Target state name (e.g., Active, Resolved, Closed).</param>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
-    public async Task<int> State([Argument] string name, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<StateCommand>().ExecuteAsync(name, output, ct);
+    /// <param name="id">Work item ID to target; omit to use the active work item.</param>
+    public async Task<int> State([Argument] string name, string output = OutputFormatterFactory.DefaultFormat, int? id = null, CancellationToken ct = default)
+        => await services.GetRequiredService<StateCommand>().ExecuteAsync(name, id, output, ct);
 
     /// <summary>List available workflow states for the active work item's type.</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
@@ -401,8 +402,9 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="all">Show all items in the hierarchy, not just the active subtree.</param>
     /// <param name="noLive">Disable live-refresh and render a static snapshot.</param>
     /// <param name="noRefresh">Skip the sync and show cached data only.</param>
-    public async Task<int> Tree(string output = OutputFormatterFactory.DefaultFormat, int? depth = null, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default)
-        => await services.GetRequiredService<TreeCommand>().ExecuteAsync(output, depth, all, noLive, noRefresh, ct);
+    /// <param name="id">Work item ID to target; omit to use the active work item.</param>
+    public async Task<int> Tree(string output = OutputFormatterFactory.DefaultFormat, int? depth = null, bool all = false, bool noLive = false, bool noRefresh = false, int? id = null, CancellationToken ct = default)
+        => await services.GetRequiredService<TreeCommand>().ExecuteAsync(id, output, depth, all, noLive, noRefresh, ct);
 
     /// <summary>Navigate to the parent work item.</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
@@ -625,8 +627,9 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <summary>Add a note to the active work item.</summary>
     /// <param name="text">Note text to add; omit to open an editor.</param>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
-    public async Task<int> Note(string? text = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, params string[] textParts)
-        => await services.GetRequiredService<NoteCommand>().ExecuteAsync(JoinTrailingText(text, textParts), output, ct);
+    /// <param name="id">Work item ID to target; omit to use the active work item.</param>
+    public async Task<int> Note(string? text = null, string output = OutputFormatterFactory.DefaultFormat, int? id = null, CancellationToken ct = default, params string[] textParts)
+        => await services.GetRequiredService<NoteCommand>().ExecuteAsync(JoinTrailingText(text, textParts), id, output, ct);
 
     /// <summary>Update a field on the active work item.</summary>
     /// <param name="field">ADO field name or alias to update (e.g., System.Title, title).</param>

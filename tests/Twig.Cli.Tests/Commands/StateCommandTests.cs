@@ -377,4 +377,37 @@ public class StateCommandTests
             AreaPath = AreaPath.Parse("Project").Value,
         };
     }
+
+    [Fact]
+    public async Task State_WithExplicitId_TransitionsCorrectItem()
+    {
+        var item = CreateWorkItem(42, "Specific Item", "New", WorkItemType.UserStory);
+        // Explicit ID does NOT require active context to be set
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+        _pendingChangeStore.GetChangesAsync(42, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+
+        var result = await _cmd.ExecuteAsync("Active", id: 42);
+
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        // Active context in context store should NOT be changed
+        await _contextStore.DidNotReceive().SetActiveWorkItemIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task State_WithExplicitId_NotFound_ReturnsError()
+    {
+        _workItemRepo.GetByIdAsync(99, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        // ADO also doesn't have it
+        _adoService.FetchAsync(99, Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<WorkItem>(new HttpRequestException("Not found")));
+
+        var result = await _cmd.ExecuteAsync("Active", id: 99);
+
+        result.ShouldBe(1);
+    }
 }

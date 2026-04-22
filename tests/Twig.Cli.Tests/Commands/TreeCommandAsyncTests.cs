@@ -84,7 +84,7 @@ public class TreeCommandAsyncTests
         });
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync("human");
+        var result = await cmd.ExecuteAsync(outputFormat: "human");
 
         result.ShouldBe(0);
 
@@ -104,7 +104,7 @@ public class TreeCommandAsyncTests
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync("human");
+        var result = await cmd.ExecuteAsync(outputFormat: "human");
 
         result.ShouldBe(0);
 
@@ -133,7 +133,7 @@ public class TreeCommandAsyncTests
         });
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync("human");
+        var result = await cmd.ExecuteAsync(outputFormat: "human");
 
         result.ShouldBe(0);
 
@@ -243,7 +243,7 @@ public class TreeCommandAsyncTests
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(new[] { activeChild });
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync("human");
+        var result = await cmd.ExecuteAsync(outputFormat: "human");
 
         result.ShouldBe(0);
 
@@ -264,7 +264,7 @@ public class TreeCommandAsyncTests
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(new[] { closedChild });
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync("human");
+        var result = await cmd.ExecuteAsync(outputFormat: "human");
 
         result.ShouldBe(0);
 

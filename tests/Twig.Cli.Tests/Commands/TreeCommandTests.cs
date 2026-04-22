@@ -77,7 +77,7 @@ public class TreeCommandTests
 
         var cmd = CreateCommand();
 
-        var result = await cmd.ExecuteAsync("minimal", depth: 2);
+        var result = await cmd.ExecuteAsync(outputFormat: "minimal", depth: 2);
 
         result.ShouldBe(0);
     }
@@ -96,7 +96,7 @@ public class TreeCommandTests
 
         var cmd = CreateCommand();
 
-        var result = await cmd.ExecuteAsync("minimal", all: true);
+        var result = await cmd.ExecuteAsync(outputFormat: "minimal", all: true);
 
         result.ShouldBe(0);
     }
@@ -117,7 +117,7 @@ public class TreeCommandTests
 
         var cmd = CreateCommand();
 
-        var result = await cmd.ExecuteAsync("minimal", depth: 2);
+        var result = await cmd.ExecuteAsync(outputFormat: "minimal", depth: 2);
 
         result.ShouldBe(0);
     }
@@ -136,7 +136,7 @@ public class TreeCommandTests
 
         var cmd = CreateCommand();
 
-        var result = await cmd.ExecuteAsync("minimal", depth: 1, all: true);
+        var result = await cmd.ExecuteAsync(outputFormat: "minimal", depth: 1, all: true);
 
         result.ShouldBe(0);
     }
@@ -154,7 +154,7 @@ public class TreeCommandTests
 
         var cmd = CreateCommand();
 
-        var result = await cmd.ExecuteAsync("json");
+        var result = await cmd.ExecuteAsync(outputFormat: "json");
 
         result.ShouldBe(0);
     }
@@ -173,7 +173,7 @@ public class TreeCommandTests
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync("human");
+        var result = await cmd.ExecuteAsync(outputFormat: "human");
 
         result.ShouldBe(0);
 
@@ -193,7 +193,7 @@ public class TreeCommandTests
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync("human");
+        var result = await cmd.ExecuteAsync(outputFormat: "human");
 
         result.ShouldBe(0);
 
@@ -221,7 +221,7 @@ public class TreeCommandTests
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(children);
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync("human");
+        var result = await cmd.ExecuteAsync(outputFormat: "human");
 
         result.ShouldBe(0);
 
@@ -244,7 +244,7 @@ public class TreeCommandTests
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(children);
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync("human", depth: 2);
+        var result = await cmd.ExecuteAsync(outputFormat: "human", depth: 2);
 
         result.ShouldBe(0);
 
@@ -267,7 +267,7 @@ public class TreeCommandTests
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync("human");
+        var result = await cmd.ExecuteAsync(outputFormat: "human");
 
         result.ShouldBe(0);
 
@@ -284,7 +284,7 @@ public class TreeCommandTests
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
 
-        var result = await cmd.ExecuteAsync("human");
+        var result = await cmd.ExecuteAsync(outputFormat: "human");
 
         result.ShouldBe(1);
     }
@@ -300,7 +300,7 @@ public class TreeCommandTests
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync("human");
+        var result = await cmd.ExecuteAsync(outputFormat: "human");
 
         result.ShouldBe(0);
 
@@ -319,7 +319,7 @@ public class TreeCommandTests
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
 
-        var result = await cmd.ExecuteAsync("human");
+        var result = await cmd.ExecuteAsync(outputFormat: "human");
 
         result.ShouldBe(1);
     }
@@ -336,7 +336,7 @@ public class TreeCommandTests
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
 
         var cmd = CreateCommand(CreateRedirectedPipelineFactory());
-        var result = await cmd.ExecuteAsync("human");
+        var result = await cmd.ExecuteAsync(outputFormat: "human");
 
         result.ShouldBe(0);
     }
@@ -352,7 +352,7 @@ public class TreeCommandTests
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
 
-        var result = await cmd.ExecuteAsync("json");
+        var result = await cmd.ExecuteAsync(outputFormat: "json");
 
         result.ShouldBe(0);
     }
@@ -368,7 +368,7 @@ public class TreeCommandTests
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
 
-        var result = await cmd.ExecuteAsync("minimal");
+        var result = await cmd.ExecuteAsync(outputFormat: "minimal");
 
         result.ShouldBe(0);
     }
@@ -383,7 +383,7 @@ public class TreeCommandTests
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
 
         var cmd = CreateCommand(CreateTtyPipelineFactory());
-        var result = await cmd.ExecuteAsync("human", noLive: true);
+        var result = await cmd.ExecuteAsync(outputFormat: "human", noLive: true);
 
         result.ShouldBe(0);
     }
@@ -555,6 +555,35 @@ public class TreeCommandTests
 
         var output = _testConsole.Output;
         output.ShouldNotContain("pts");
+    }
+
+    // ── Explicit --id parameter tests ───────────────────────────────
+
+    [Fact]
+    public async Task Tree_WithExplicitId_RendersTreeForSpecificItem()
+    {
+        var item = CreateWorkItem(42, "Specific Item", parentId: null);
+        // Explicit ID does NOT require active context
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _workItemRepo.GetChildrenAsync(42, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
+
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync(id: 42, outputFormat: "minimal");
+
+        result.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Tree_WithExplicitId_NotFound_ReturnsError()
+    {
+        _workItemRepo.GetByIdAsync(99, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        _adoService.FetchAsync(99, Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<WorkItem>(new HttpRequestException("Not found")));
+
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync(id: 99, outputFormat: "minimal");
+
+        result.ShouldBe(1);
     }
 
 }

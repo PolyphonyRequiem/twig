@@ -35,7 +35,10 @@ worktree `twig2-<ID>` based on the work item ID.
 git worktree add -b sdlc/<ID> ../twig2-<ID> main
 cd ../twig2-<ID>
 
-# 2. Run the full SDLC (planning → implementation) for a single work item
+# 2. Restore dependencies (worktrees don't share NuGet packages)
+dotnet restore
+
+# 3. Run the full SDLC (planning → implementation) for a single work item
 conductor --silent run twig-sdlc-full@twig --input work_item_id=<ID> --web
 
 # Plan only (recursive planner — creates Epic/Issues/Tasks in ADO)

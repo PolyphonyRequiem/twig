@@ -4,7 +4,7 @@
 |---|---|
 | **Issue** | #1813 — Read-only lookup tools: twig_show, twig_children, twig_parent |
 | **Parent Epic** | #1812 — Expand twig-mcp with 7 new tools |
-| **Status** | Implementation Complete — Verification Only |
+| **Status** | ✅ Done |
 | **Revision** | 0 |
 | **Revision Notes** | Initial draft. |
 

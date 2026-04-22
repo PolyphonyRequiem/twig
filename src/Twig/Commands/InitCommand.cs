@@ -86,17 +86,22 @@ public sealed class InitCommand
         var telemetryHadGlobalProfile = false;
         var telemetryFieldCount = 0;
 
-        // Derive context-specific paths from the supplied org/project args
-        var contextPaths = TwigPaths.ForContext(_paths.TwigDir, org, project);
+        // init always targets CWD, not the walked-up .twig/ ancestor.
+        // This prevents ~/projects/repo from reusing ~/.twig when repos live under ~.
+        var twigDir = Path.Combine(_paths.StartDir, ".twig");
+        var configPath = Path.Combine(twigDir, "config");
 
-        if (Directory.Exists(_paths.TwigDir) && !force)
+        // Derive context-specific paths from the supplied org/project args
+        var contextPaths = TwigPaths.ForContext(twigDir, org, project, _paths.StartDir);
+
+        if (Directory.Exists(twigDir) && !force)
         {
             Console.Error.WriteLine(fmt.FormatError("Twig workspace already initialized. Use --force to reinitialize."));
             return (1, false, 0);
         }
 
         // FM-008: --force reinit — delete only the current context's DB, not the entire .twig/ tree
-        if (force && Directory.Exists(_paths.TwigDir))
+        if (force && Directory.Exists(twigDir))
         {
             if (File.Exists(contextPaths.DbPath))
             {
@@ -132,7 +137,7 @@ public sealed class InitCommand
         }
 
         // Create .twig/ root and nested context directory
-        Directory.CreateDirectory(_paths.TwigDir);
+        Directory.CreateDirectory(twigDir);
         var contextDir = Path.GetDirectoryName(contextPaths.DbPath)!;
         Directory.CreateDirectory(contextDir);
 
@@ -152,7 +157,7 @@ public sealed class InitCommand
         }
 
         // Write config early so iteration service can use it
-        await config.SaveAsync(_paths.ConfigPath);
+        await config.SaveAsync(configPath);
 
         // Build iteration service with the supplied org/project (not from DI config)
         var effectiveTeam = string.IsNullOrWhiteSpace(team) ? $"{project} Team" : team;
@@ -234,7 +239,7 @@ public sealed class InitCommand
             Console.WriteLine(fmt.FormatHint("You can set it later with: twig config user.name '<Your Name>'"));
         }
 
-        await config.SaveAsync(_paths.ConfigPath);
+        await config.SaveAsync(configPath);
 
         // Initialize SQLite cache in context-specific path and persist process type data
         using var cacheStore = new Infrastructure.Persistence.SqliteCacheStore($"Data Source={contextPaths.DbPath}");
@@ -385,7 +390,7 @@ public sealed class InitCommand
         if (!string.Equals(outputFormat, "json", StringComparison.OrdinalIgnoreCase) &&
             !string.Equals(outputFormat, "minimal", StringComparison.OrdinalIgnoreCase))
             Console.WriteLine();
-        Console.WriteLine(fmt.FormatSuccess($"Initialized Twig workspace in {_paths.TwigDir}"));
+        Console.WriteLine(fmt.FormatSuccess($"Initialized Twig workspace in {twigDir}"));
 
         var hints = _hintEngine.GetHints("init", outputFormat: outputFormat);
         foreach (var hint in hints)

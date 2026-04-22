@@ -9,6 +9,15 @@ public sealed class TwigPaths
     /// <summary>Root .twig directory (e.g., <c>/repo/.twig</c>).</summary>
     public string TwigDir { get; }
 
+    /// <summary>
+    /// The directory where twig was invoked (CWD at process start).
+    /// Unlike <see cref="TwigDir"/>, this is never walked-up — it always
+    /// reflects the user's actual working directory. Used by <c>twig init</c>
+    /// to create a workspace in the current directory rather than reusing
+    /// an ancestor's <c>.twig/</c>.
+    /// </summary>
+    public string StartDir { get; }
+
     /// <summary>Path to the config file: <c>.twig/config</c>.</summary>
     public string ConfigPath { get; }
 
@@ -18,11 +27,12 @@ public sealed class TwigPaths
     /// <summary>Path to the status-fields configuration file: <c>.twig/status-fields</c>.</summary>
     public string StatusFieldsPath => Path.Combine(TwigDir, "status-fields");
 
-    public TwigPaths(string twigDir, string configPath, string dbPath)
+    public TwigPaths(string twigDir, string configPath, string dbPath, string? startDir = null)
     {
         TwigDir = twigDir;
         ConfigPath = configPath;
         DbPath = dbPath;
+        StartDir = startDir ?? Directory.GetCurrentDirectory();
     }
 
     /// <summary>
@@ -62,11 +72,11 @@ public sealed class TwigPaths
     /// <summary>
     /// Creates a <see cref="TwigPaths"/> scoped to a specific org/project context.
     /// </summary>
-    public static TwigPaths ForContext(string twigDir, string org, string project)
+    public static TwigPaths ForContext(string twigDir, string org, string project, string? startDir = null)
     {
         var configPath = Path.Combine(twigDir, "config");
         var dbPath = GetContextDbPath(twigDir, org, project);
-        return new TwigPaths(twigDir, configPath, dbPath);
+        return new TwigPaths(twigDir, configPath, dbPath, startDir);
     }
 
     /// <summary>
@@ -77,11 +87,11 @@ public sealed class TwigPaths
     /// (<see cref="TwigServiceRegistration"/>) so the path-selection logic
     /// lives in exactly one place.
     /// </summary>
-    public static TwigPaths BuildPaths(string twigDir, TwigConfiguration config)
+    public static TwigPaths BuildPaths(string twigDir, TwigConfiguration config, string? startDir = null)
     {
         return (!string.IsNullOrWhiteSpace(config.Organization) && !string.IsNullOrWhiteSpace(config.Project))
-            ? ForContext(twigDir, config.Organization, config.Project)
-            : new TwigPaths(twigDir, Path.Combine(twigDir, "config"), Path.Combine(twigDir, "twig.db"));
+            ? ForContext(twigDir, config.Organization, config.Project, startDir)
+            : new TwigPaths(twigDir, Path.Combine(twigDir, "config"), Path.Combine(twigDir, "twig.db"), startDir);
     }
 
     /// <summary>

@@ -52,8 +52,9 @@ public class InitCommandTests : IDisposable
         _iterationService.GetProcessConfigurationAsync(Arg.Any<CancellationToken>())
             .Returns(new ProcessConfigurationData());
 
-        // TwigPaths with a flat dbPath — InitCommand derives its own context paths
-        _paths = new TwigPaths(_twigDir, _configPath, _dbPath);
+        // TwigPaths with a flat dbPath — InitCommand derives its own context paths.
+        // startDir is set explicitly so InitCommand targets _testDir, not the test runner's CWD.
+        _paths = new TwigPaths(_twigDir, _configPath, _dbPath, startDir: _testDir);
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
@@ -411,6 +412,48 @@ public class InitCommandTests : IDisposable
 
         // Should succeed despite process config API failure
         result.ShouldBe(0);
+    }
+
+    /// <summary>
+    /// Regression test: when a repo lives under a directory that already has a .twig/
+    /// ancestor (e.g., ~/projects/repo where ~/.twig exists), twig init should create
+    /// .twig/ in the current directory, not reuse the ancestor's workspace.
+    /// </summary>
+    [Fact]
+    public async Task Init_IgnoresAncestorTwigDir_CreatesInStartDir()
+    {
+        // Simulate: parent has .twig/ already (like ~/.twig)
+        var parentDir = Path.Combine(Path.GetTempPath(), $"twig-walkup-parent-{Guid.NewGuid():N}");
+        var childDir = Path.Combine(parentDir, "projects", "myrepo");
+        Directory.CreateDirectory(childDir);
+        var parentTwigDir = Path.Combine(parentDir, ".twig");
+        Directory.CreateDirectory(parentTwigDir);
+
+        try
+        {
+            // TwigPaths simulates what Program.cs would do after walk-up discovery:
+            // TwigDir points to the ancestor's .twig/, but StartDir is the child repo.
+            var childTwigDir = Path.Combine(childDir, ".twig");
+            var paths = new TwigPaths(
+                parentTwigDir,
+                Path.Combine(parentTwigDir, "config"),
+                Path.Combine(parentTwigDir, "twig.db"),
+                startDir: childDir);
+
+            var cmd = new InitCommand(_iterationService, paths, _formatterFactory, _hintEngine);
+            var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
+
+            result.ShouldBe(0);
+            // .twig/ should be created in the child dir, not reuse parent's
+            Directory.Exists(childTwigDir).ShouldBeTrue("Should create .twig in StartDir");
+            File.Exists(Path.Combine(childTwigDir, "config")).ShouldBeTrue("Config should be in child .twig");
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (Directory.Exists(parentDir))
+                Directory.Delete(parentDir, recursive: true);
+        }
     }
 }
 

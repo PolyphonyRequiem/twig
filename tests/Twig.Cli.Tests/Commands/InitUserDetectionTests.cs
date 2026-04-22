@@ -41,7 +41,7 @@ public class InitUserDetectionTests : IDisposable
         _iterationService.GetTeamAreaPathsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<(string Path, bool IncludeChildren)>());
 
-        _paths = new TwigPaths(_twigDir, _configPath, Path.Combine(_twigDir, "twig.db"));
+        _paths = new TwigPaths(_twigDir, _configPath, Path.Combine(_twigDir, "twig.db"), startDir: _testDir);
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });

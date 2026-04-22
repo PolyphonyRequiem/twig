@@ -74,7 +74,7 @@ public class InitCommandGlobalProfileTests : IDisposable
 
         _globalProfileStore = Substitute.For<IGlobalProfileStore>();
 
-        _paths = new TwigPaths(_twigDir, _configPath, _dbPath);
+        _paths = new TwigPaths(_twigDir, _configPath, _dbPath, startDir: _testDir);
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });

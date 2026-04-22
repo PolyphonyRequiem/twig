@@ -66,7 +66,7 @@ public class MultiContextInitTests : IDisposable
         try
         {
             // Init with Org A
-            var pathsA = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"));
+            var pathsA = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"), startDir: _testDir);
             var cmdA = new InitCommand(_iterationService, pathsA, _formatterFactory, _hintEngine);
             var resultA = await cmdA.ExecuteAsync("OrgA", "ProjectA");
             resultA.ShouldBe(0);
@@ -85,7 +85,7 @@ public class MultiContextInitTests : IDisposable
             }
 
             // Init with Org B (force since .twig/ already exists)
-            var pathsB = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"));
+            var pathsB = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"), startDir: _testDir);
             var cmdB = new InitCommand(_iterationService, pathsB, _formatterFactory, _hintEngine);
             var resultB = await cmdB.ExecuteAsync("OrgB", "ProjectB", force: true);
             resultB.ShouldBe(0);
@@ -121,13 +121,13 @@ public class MultiContextInitTests : IDisposable
         try
         {
             // Init with Org/ProjectA
-            var paths1 = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"));
+            var paths1 = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"), startDir: _testDir);
             var cmd1 = new InitCommand(_iterationService, paths1, _formatterFactory, _hintEngine);
             var result1 = await cmd1.ExecuteAsync("contoso", "MyProject");
             result1.ShouldBe(0);
 
             // Init with same Org/different Project
-            var paths2 = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"));
+            var paths2 = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"), startDir: _testDir);
             var cmd2 = new InitCommand(_iterationService, paths2, _formatterFactory, _hintEngine);
             var result2 = await cmd2.ExecuteAsync("contoso", "BackendService", force: true);
             result2.ShouldBe(0);
@@ -158,7 +158,7 @@ public class MultiContextInitTests : IDisposable
         try
         {
             // Init with Org A
-            var pathsA = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"));
+            var pathsA = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"), startDir: _testDir);
             var cmdA = new InitCommand(_iterationService, pathsA, _formatterFactory, _hintEngine);
             await cmdA.ExecuteAsync("OrgA", "ProjectA");
 
@@ -173,12 +173,12 @@ public class MultiContextInitTests : IDisposable
             }
 
             // Init Org B
-            var pathsB = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"));
+            var pathsB = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"), startDir: _testDir);
             var cmdB = new InitCommand(_iterationService, pathsB, _formatterFactory, _hintEngine);
             await cmdB.ExecuteAsync("OrgB", "ProjectB", force: true);
 
             // Force re-init Org B — should only delete Org B's DB
-            var pathsB2 = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"));
+            var pathsB2 = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"), startDir: _testDir);
             var cmdB2 = new InitCommand(_iterationService, pathsB2, _formatterFactory, _hintEngine);
             await cmdB2.ExecuteAsync("OrgB", "ProjectB", force: true);
 
@@ -207,7 +207,7 @@ public class MultiContextInitTests : IDisposable
         try
         {
             // Init Org A, insert data
-            var paths1 = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"));
+            var paths1 = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"), startDir: _testDir);
             var cmd1 = new InitCommand(_iterationService, paths1, _formatterFactory, _hintEngine);
             await cmd1.ExecuteAsync("OrgA", "ProjA");
 
@@ -221,12 +221,12 @@ public class MultiContextInitTests : IDisposable
             }
 
             // Switch to Org B
-            var paths2 = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"));
+            var paths2 = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"), startDir: _testDir);
             var cmd2 = new InitCommand(_iterationService, paths2, _formatterFactory, _hintEngine);
             await cmd2.ExecuteAsync("OrgB", "ProjB", force: true);
 
             // Force re-init Org A — this will delete Org A's DB, but Org B's must survive
-            var paths3 = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"));
+            var paths3 = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"), startDir: _testDir);
             var cmd3 = new InitCommand(_iterationService, paths3, _formatterFactory, _hintEngine);
             await cmd3.ExecuteAsync("OrgA", "ProjA", force: true);
 
@@ -248,7 +248,7 @@ public class MultiContextInitTests : IDisposable
         try
         {
             // Init Org A, insert data
-            var paths1 = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"));
+            var paths1 = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"), startDir: _testDir);
             var cmd1 = new InitCommand(_iterationService, paths1, _formatterFactory, _hintEngine);
             await cmd1.ExecuteAsync("OrgA", "ProjA");
 
@@ -262,7 +262,7 @@ public class MultiContextInitTests : IDisposable
             }
 
             // Switch to Org B (force needed because .twig/ exists)
-            var paths2 = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"));
+            var paths2 = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"), startDir: _testDir);
             var cmd2 = new InitCommand(_iterationService, paths2, _formatterFactory, _hintEngine);
             await cmd2.ExecuteAsync("OrgB", "ProjB", force: true);
 
@@ -291,7 +291,7 @@ public class MultiContextInitTests : IDisposable
         Directory.SetCurrentDirectory(_testDir);
         try
         {
-            var paths = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"));
+            var paths = new TwigPaths(_twigDir, Path.Combine(_twigDir, "config"), Path.Combine(_twigDir, "twig.db"), startDir: _testDir);
             var cmd = new InitCommand(_iterationService, paths, _formatterFactory, _hintEngine);
             await cmd.ExecuteAsync("dangreen-msft", "Twig");
 
@@ -314,7 +314,7 @@ public class MultiContextInitTests : IDisposable
         try
         {
             var configPath = Path.Combine(_twigDir, "config");
-            var paths = new TwigPaths(_twigDir, configPath, Path.Combine(_twigDir, "twig.db"));
+            var paths = new TwigPaths(_twigDir, configPath, Path.Combine(_twigDir, "twig.db"), startDir: _testDir);
             var cmd = new InitCommand(_iterationService, paths, _formatterFactory, _hintEngine);
             await cmd.ExecuteAsync("myorg", "myproj");
 

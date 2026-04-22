@@ -532,7 +532,7 @@ to 2.
 | Field | Value |
 |---|---|
 | **Date** | 2026-04-21 |
-| **PRs Merged** | #65 (PG-1a workspace), #66 (PG-1 navigation), #67 (PG-2 creation), #68 (PG-3 registration) |
+| **PRs Merged** | #65 (PG-1a workspace), #66 (PG-1 navigation), #67 (PG-2 creation), #68 (PG-3 registration), #76 (PG-1 navigation tools & read-only tools with tests) |
 | **Issues Closed** | #1817, #1818, #1819 |
 | **Epic** | #1814 → Done |
 

@@ -278,6 +278,90 @@ public class AzCliAuthProviderTests : IDisposable
         token.ShouldBe("fallback-token");
     }
 
+    [Fact]
+    public async Task GetAccessTokenAsync_Timeout_ErrorMessageContainsCustomValueAndGuidance()
+    {
+        var customTimeout = TimeSpan.FromMilliseconds(1);
+        var provider = new AzCliAuthProvider(
+            psi => CreateSlowProcess(),
+            () => DateTimeOffset.UtcNow,
+            _cachePath,
+            customTimeout);
+
+        var ex = await Should.ThrowAsync<AdoAuthenticationException>(
+            () => provider.GetAccessTokenAsync());
+
+        ex.Message.ShouldContain("TWIG_AZ_TIMEOUT=30");
+        ex.Message.ShouldContain($"{customTimeout.TotalSeconds}s");
+        ex.Message.ShouldNotContain("after 10s");
+    }
+
+    [Fact]
+    public async Task Constructor_WithExplicit30sTimeout_ProducesCorrectInstance()
+    {
+        var timeout = TimeSpan.FromSeconds(30);
+
+        var provider = new AzCliAuthProvider(
+            psi => CreateFakeProcess("thirty-sec-token\n", "", exitCode: 0),
+            () => DateTimeOffset.UtcNow,
+            _cachePath,
+            timeout);
+
+        // The 4-param ctor accepted the 30s timeout and produced a functional instance
+        var token = await provider.GetAccessTokenAsync();
+        token.ShouldBe("thirty-sec-token");
+    }
+
+    [Fact]
+    public async Task ResolveTimeout_ValidEnvVar_ReturnsOverride()
+    {
+        Environment.SetEnvironmentVariable("TWIG_AZ_TIMEOUT", "1");
+        try
+        {
+            // No explicit timeout — ResolveTimeout() should read the env var (1s)
+            var provider = new AzCliAuthProvider(
+                psi => CreateSlowProcess(),
+                () => DateTimeOffset.UtcNow,
+                _cachePath);
+
+            var ex = await Should.ThrowAsync<AdoAuthenticationException>(
+                () => provider.GetAccessTokenAsync());
+
+            ex.Message.ShouldContain("1s");
+            ex.Message.ShouldContain("TWIG_AZ_TIMEOUT=30");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("TWIG_AZ_TIMEOUT", null);
+        }
+    }
+
+    [Theory]
+    [InlineData("abc")]
+    [InlineData("0")]
+    [InlineData("-5")]
+    [InlineData("")]
+    public async Task ResolveTimeout_InvalidEnvVar_FallsBackToDefault(string invalidValue)
+    {
+        Environment.SetEnvironmentVariable("TWIG_AZ_TIMEOUT", invalidValue);
+        try
+        {
+            // No explicit timeout — ResolveTimeout() should fall back to 10s default
+            var provider = new AzCliAuthProvider(
+                psi => CreateFakeProcess("default-timeout-token\n", "", exitCode: 0),
+                () => DateTimeOffset.UtcNow,
+                _cachePath);
+
+            // Provider completes successfully, proving it uses the 10s default (not 0s)
+            var token = await provider.GetAccessTokenAsync();
+            token.ShouldBe("default-timeout-token");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("TWIG_AZ_TIMEOUT", null);
+        }
+    }
+
     /// <summary>
     /// Creates a fake Process that returns predetermined stdout/stderr.
     /// Uses a real process ('dotnet --version' or similar) but overrides streams.
@@ -319,6 +403,25 @@ public class AzCliAuthProviderTests : IDisposable
             var stderrEscaped = stderr.Trim().Replace("'", "'\\''");
             psi.Arguments = $"-c \"printf '%s' '{stdoutEscaped}'; printf '%s' '{stderrEscaped}' >&2; exit {exitCode}\"";
         }
+
+        return Process.Start(psi)!;
+    }
+
+    /// <summary>
+    /// Creates a process that sleeps long enough to trigger a timeout.
+    /// </summary>
+    private static Process CreateSlowProcess()
+    {
+        var isWindows = OperatingSystem.IsWindows();
+        var psi = new ProcessStartInfo
+        {
+            FileName = isWindows ? "cmd.exe" : "/bin/sh",
+            Arguments = isWindows ? "/c \"ping -n 10 127.0.0.1 >nul\"" : "-c \"sleep 10\"",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
 
         return Process.Start(psi)!;
     }

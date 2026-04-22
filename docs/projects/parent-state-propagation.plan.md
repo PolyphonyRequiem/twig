@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Draft |
+| **Status** | ✅ Done |
 | **Work Item** | #1855 |
 | **Parent Issue** | #1845 |
 | **Author** | Copilot |

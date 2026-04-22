@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | **Issue** | #1891 — Guard against duplicate work item creation across SDLC retries |
-| **Status** | 📋 Draft |
+| **Status** | ✅ Done |
 | **Revision** | 0 |
 | **Revision Notes** | Initial draft. |
 

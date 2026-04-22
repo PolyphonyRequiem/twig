@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using Twig.Domain.Interfaces;
 using Twig.Infrastructure.Ado.Exceptions;
 
@@ -13,7 +14,7 @@ namespace Twig.Infrastructure.Auth;
 internal sealed class AzCliAuthProvider : IAuthenticationProvider
 {
     private const string AzResource = "499b84ac-1321-427f-aa17-267ca6975798";
-    private static readonly TimeSpan ProcessTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan DefaultProcessTimeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan TokenTtl = TimeSpan.FromMinutes(50);
 
     private static readonly string DefaultCachePath = Path.Combine(
@@ -23,6 +24,7 @@ internal sealed class AzCliAuthProvider : IAuthenticationProvider
     private readonly Func<ProcessStartInfo, Process?> _processStarter;
     private readonly Func<DateTimeOffset> _clock;
     private readonly string _cachePath;
+    private readonly TimeSpan _processTimeout;
     // Note: _cachedToken/_tokenExpiry are intentionally not thread-safe.
     // AzCliAuthProvider is designed for single-threaded CLI usage where only one
     // logical caller invokes GetAccessTokenAsync at a time. If this provider is
@@ -34,7 +36,7 @@ internal sealed class AzCliAuthProvider : IAuthenticationProvider
     /// Creates an AzCliAuthProvider that uses <see cref="Process.Start"/> by default.
     /// </summary>
     public AzCliAuthProvider()
-        : this(psi => Process.Start(psi), () => DateTimeOffset.UtcNow, DefaultCachePath)
+        : this(psi => Process.Start(psi), () => DateTimeOffset.UtcNow, DefaultCachePath, null)
     {
     }
 
@@ -42,7 +44,7 @@ internal sealed class AzCliAuthProvider : IAuthenticationProvider
     /// Creates an AzCliAuthProvider with an injectable process factory (for testing).
     /// </summary>
     internal AzCliAuthProvider(Func<ProcessStartInfo, Process?> processStarter)
-        : this(processStarter, () => DateTimeOffset.UtcNow, DefaultCachePath)
+        : this(processStarter, () => DateTimeOffset.UtcNow, DefaultCachePath, null)
     {
     }
 
@@ -50,7 +52,7 @@ internal sealed class AzCliAuthProvider : IAuthenticationProvider
     /// Creates an AzCliAuthProvider with injectable process factory and clock (for testing).
     /// </summary>
     internal AzCliAuthProvider(Func<ProcessStartInfo, Process?> processStarter, Func<DateTimeOffset> clock)
-        : this(processStarter, clock, DefaultCachePath)
+        : this(processStarter, clock, DefaultCachePath, null)
     {
     }
 
@@ -58,10 +60,36 @@ internal sealed class AzCliAuthProvider : IAuthenticationProvider
     /// Creates an AzCliAuthProvider with injectable process factory, clock, and cache path (for testing).
     /// </summary>
     internal AzCliAuthProvider(Func<ProcessStartInfo, Process?> processStarter, Func<DateTimeOffset> clock, string cachePath)
+        : this(processStarter, clock, cachePath, null)
+    {
+    }
+
+    /// <summary>
+    /// Creates an AzCliAuthProvider with all dependencies injectable (for testing).
+    /// </summary>
+    internal AzCliAuthProvider(Func<ProcessStartInfo, Process?> processStarter, Func<DateTimeOffset> clock, string cachePath, TimeSpan? processTimeout)
     {
         _processStarter = processStarter;
         _clock = clock;
         _cachePath = cachePath;
+        _processTimeout = processTimeout ?? ResolveTimeout();
+    }
+
+    /// <summary>
+    /// Reads the <c>TWIG_AZ_TIMEOUT</c> environment variable and returns a <see cref="TimeSpan"/>
+    /// for valid positive integers, otherwise returns <see cref="DefaultProcessTimeout"/>.
+    /// </summary>
+    private static TimeSpan ResolveTimeout()
+    {
+        var value = Environment.GetEnvironmentVariable("TWIG_AZ_TIMEOUT");
+        if (value is not null
+            && int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var seconds)
+            && seconds > 0)
+        {
+            return TimeSpan.FromSeconds(seconds);
+        }
+
+        return DefaultProcessTimeout;
     }
 
     public async Task<string> GetAccessTokenAsync(CancellationToken ct = default)
@@ -113,7 +141,7 @@ internal sealed class AzCliAuthProvider : IAuthenticationProvider
         try
         {
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeoutCts.CancelAfter(ProcessTimeout);
+            timeoutCts.CancelAfter(_processTimeout);
 
             // Read both streams concurrently to avoid deadlock if the process fills
             // one pipe buffer while we're blocked reading the other.
@@ -149,7 +177,7 @@ internal sealed class AzCliAuthProvider : IAuthenticationProvider
         {
             try { process.Kill(); } catch (Exception) { /* best effort */ }
             throw new AdoAuthenticationException(
-                $"Azure CLI timed out after {ProcessTimeout.TotalSeconds}s. Ensure 'az' is responsive.");
+                $"Azure CLI timed out after {_processTimeout.TotalSeconds}s. Set TWIG_AZ_TIMEOUT=30 to increase the timeout.");
         }
         finally
         {

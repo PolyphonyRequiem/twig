@@ -278,6 +278,63 @@ public class AzCliAuthProviderTests : IDisposable
         token.ShouldBe("fallback-token");
     }
 
+    [Fact]
+    public async Task Constructor_ExplicitTimeout_UsesProvidedValue()
+    {
+        var provider = new AzCliAuthProvider(
+            psi => CreateFakeProcess("token\n", "", exitCode: 0),
+            () => DateTimeOffset.UtcNow,
+            _cachePath,
+            TimeSpan.FromSeconds(60));
+
+        // The provider should work normally with a custom timeout
+        var token = await provider.GetAccessTokenAsync();
+        token.ShouldBe("token");
+    }
+
+    [Fact]
+    public async Task Constructor_NullTimeout_FallsBackToResolveTimeout()
+    {
+        // When processTimeout is null, should use ResolveTimeout() (env var or default 10s)
+        var provider = new AzCliAuthProvider(
+            psi => CreateFakeProcess("token\n", "", exitCode: 0),
+            () => DateTimeOffset.UtcNow,
+            _cachePath,
+            null);
+
+        var token = await provider.GetAccessTokenAsync();
+        token.ShouldBe("token");
+    }
+
+    [Fact]
+    public async Task TimeoutErrorMessage_ContainsTWIG_AZ_TIMEOUT_Guidance()
+    {
+        // Use a tiny timeout to force a timeout on a slow fake process
+        var provider = new AzCliAuthProvider(
+            psi => CreateSlowProcess(),
+            () => DateTimeOffset.UtcNow,
+            _cachePath,
+            TimeSpan.FromMilliseconds(1));
+
+        var ex = await Should.ThrowAsync<AdoAuthenticationException>(
+            () => provider.GetAccessTokenAsync());
+
+        ex.Message.ShouldContain("TWIG_AZ_TIMEOUT=30");
+    }
+
+    [Fact]
+    public async Task Constructor_3ParamCtor_StillChainsProperly()
+    {
+        // Existing 3-param constructor should still work (chains to 4-param with null timeout)
+        var provider = new AzCliAuthProvider(
+            psi => CreateFakeProcess("three-param-token\n", "", exitCode: 0),
+            () => DateTimeOffset.UtcNow,
+            _cachePath);
+
+        var token = await provider.GetAccessTokenAsync();
+        token.ShouldBe("three-param-token");
+    }
+
     /// <summary>
     /// Creates a fake Process that returns predetermined stdout/stderr.
     /// Uses a real process ('dotnet --version' or similar) but overrides streams.
@@ -319,6 +376,25 @@ public class AzCliAuthProviderTests : IDisposable
             var stderrEscaped = stderr.Trim().Replace("'", "'\\''");
             psi.Arguments = $"-c \"printf '%s' '{stdoutEscaped}'; printf '%s' '{stderrEscaped}' >&2; exit {exitCode}\"";
         }
+
+        return Process.Start(psi)!;
+    }
+
+    /// <summary>
+    /// Creates a process that sleeps long enough to trigger a timeout.
+    /// </summary>
+    private static Process CreateSlowProcess()
+    {
+        var isWindows = OperatingSystem.IsWindows();
+        var psi = new ProcessStartInfo
+        {
+            FileName = isWindows ? "cmd.exe" : "/bin/sh",
+            Arguments = isWindows ? "/c \"ping -n 10 127.0.0.1 >nul\"" : "-c \"sleep 10\"",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
 
         return Process.Start(psi)!;
     }

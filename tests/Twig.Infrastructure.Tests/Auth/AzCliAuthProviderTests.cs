@@ -325,14 +325,20 @@ public class AzCliAuthProviderTests : IDisposable
     [Fact]
     public async Task GetAccessTokenAsync_CustomTimeout_UsesInjectedValue()
     {
+        var customTimeout = TimeSpan.FromMilliseconds(42);
         var provider = new AzCliAuthProvider(
             psi => CreateSlowProcess(),
             () => DateTimeOffset.UtcNow,
             _cachePath,
-            TimeSpan.FromMilliseconds(1));
+            customTimeout);
 
-        await Should.ThrowAsync<AdoAuthenticationException>(
+        var ex = await Should.ThrowAsync<AdoAuthenticationException>(
             () => provider.GetAccessTokenAsync());
+
+        // The error message should reflect the injected 42ms timeout (0.042s),
+        // not the default 10s — proving the custom value was actually used.
+        ex.Message.ShouldContain($"{customTimeout.TotalSeconds}s");
+        ex.Message.ShouldNotContain("after 10s");
     }
 
     [Fact]

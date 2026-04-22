@@ -25,6 +25,19 @@ All workflows are registered in the `twig` conductor registry. Use short names �
 | Full (composite) | `twig-sdlc-full@twig` | Planning → implementation via sub-workflow composition | `work_item_id` or `prompt` |
 | Legacy | `twig-sdlc-legacy@twig` | Original monolithic pipeline (deprecated) | `work_item_id` or `prompt` |
 
+## Workflow Metadata
+
+All workflows include standardized metadata for dashboard integration and worktree management:
+
+| Field | Value | Description |
+|-------|-------|-------------|
+| `tracker` | `ado` | Work item tracking system |
+| `project_url` | `https://dev.azure.com/dangreen-msft/Twig` | ADO project URL |
+| `work_item_id_agent` | `intake` | Agent whose output contains the work item ID |
+| `work_item_id_field` | `epic_id` | Field on that agent's output |
+| `worktree_name` | `twig2-{work_item_id}` | Git worktree directory naming pattern |
+| `worktree_description` | *(varies per workflow)* | Human-readable worktree purpose |
+
 ## Quick Reference
 
 **Always run in a dedicated worktree** — never on `main` or your working tree. Name the

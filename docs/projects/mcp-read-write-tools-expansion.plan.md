@@ -531,13 +531,14 @@ to 2.
 
 | Field | Value |
 |---|---|
-| **Date** | 2026-04-21 |
-| **PRs Merged** | #65 (PG-1a workspace), #66 (PG-1 navigation), #67 (PG-2 creation), #68 (PG-3 registration), #76 (PG-1 navigation tools & read-only tools with tests) |
-| **Issues Closed** | #1817, #1818, #1819 |
+| **Date** | 2026-04-22 |
+| **PRs Merged** | #65 (PG-1a workspace), #66 (PG-1 navigation), #67 (PG-2 creation), #68 (PG-3 registration), #76 (PG-1 navigation tools & tests), #77 (read-only lookup tools verification), #79 (navigation tools read-only tests), #80 (CLI --id parameter for state/note/tree) |
+| **Issues Closed** | #1817, #1818, #1819, #1851 |
 | **Epic** | #1814 → Done |
 
 All seven MCP tools (`twig_show`, `twig_query`, `twig_children`, `twig_parent`,
 `twig_sprint`, `twig_new`, `twig_link`) are implemented with full test coverage.
-The plan was executed across 3 PR groups delivered as 4 merged GitHub PRs.
-Follow-on items #1851 and #1852 (added post-completion) remain open under the
-epic for future work.
+The plan was executed across 3 PR groups delivered across multiple GitHub PRs, with
+follow-on work adding verification tests (AB#1851: CLI --id parameter for state, note,
+and tree commands) and expanded read-only test coverage.
+Follow-on item #1852 (added post-completion) remains open under the epic for future work.

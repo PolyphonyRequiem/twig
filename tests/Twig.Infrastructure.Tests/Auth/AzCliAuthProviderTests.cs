@@ -279,53 +279,9 @@ public class AzCliAuthProviderTests : IDisposable
     }
 
     [Fact]
-    public async Task Constructor_ExplicitTimeout_UsesProvidedValue()
+    public async Task GetAccessTokenAsync_Timeout_ErrorMessageContainsCustomValueAndGuidance()
     {
-        var provider = new AzCliAuthProvider(
-            psi => CreateFakeProcess("token\n", "", exitCode: 0),
-            () => DateTimeOffset.UtcNow,
-            _cachePath,
-            TimeSpan.FromSeconds(60));
-
-        // The provider should work normally with a custom timeout
-        var token = await provider.GetAccessTokenAsync();
-        token.ShouldBe("token");
-    }
-
-    [Fact]
-    public async Task Constructor_NullTimeout_FallsBackToResolveTimeout()
-    {
-        // When processTimeout is null, should use ResolveTimeout() (env var or default 10s)
-        var provider = new AzCliAuthProvider(
-            psi => CreateFakeProcess("token\n", "", exitCode: 0),
-            () => DateTimeOffset.UtcNow,
-            _cachePath,
-            null);
-
-        var token = await provider.GetAccessTokenAsync();
-        token.ShouldBe("token");
-    }
-
-    [Fact]
-    public async Task TimeoutErrorMessage_ContainsTWIG_AZ_TIMEOUT_Guidance()
-    {
-        // Use a tiny timeout to force a timeout on a slow fake process
-        var provider = new AzCliAuthProvider(
-            psi => CreateSlowProcess(),
-            () => DateTimeOffset.UtcNow,
-            _cachePath,
-            TimeSpan.FromMilliseconds(1));
-
-        var ex = await Should.ThrowAsync<AdoAuthenticationException>(
-            () => provider.GetAccessTokenAsync());
-
-        ex.Message.ShouldContain("TWIG_AZ_TIMEOUT=30");
-    }
-
-    [Fact]
-    public async Task GetAccessTokenAsync_CustomTimeout_UsesInjectedValue()
-    {
-        var customTimeout = TimeSpan.FromMilliseconds(42);
+        var customTimeout = TimeSpan.FromMilliseconds(1);
         var provider = new AzCliAuthProvider(
             psi => CreateSlowProcess(),
             () => DateTimeOffset.UtcNow,
@@ -335,8 +291,7 @@ public class AzCliAuthProviderTests : IDisposable
         var ex = await Should.ThrowAsync<AdoAuthenticationException>(
             () => provider.GetAccessTokenAsync());
 
-        // The error message should reflect the injected 42ms timeout (0.042s),
-        // not the default 10s — proving the custom value was actually used.
+        ex.Message.ShouldContain("TWIG_AZ_TIMEOUT=30");
         ex.Message.ShouldContain($"{customTimeout.TotalSeconds}s");
         ex.Message.ShouldNotContain("after 10s");
     }

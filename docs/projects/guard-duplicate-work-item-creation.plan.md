@@ -365,11 +365,11 @@ and providing a `twig_find_or_create` convenience tool.
 
 | Task ID | Description | Files | Effort Estimate | Status |
 |---------|-------------|-------|----------------|--------|
-| T1 | Create `DuplicateGuard` domain service with `FindExistingChildAsync` method. Includes WIQL query construction with proper escaping of title characters. | `src/Twig.Domain/Services/DuplicateGuard.cs` | ~50 LoC | TO DO |
-| T2 | Write unit tests for `DuplicateGuard`: match found, no match, special characters in title, cancellation token forwarding. | `tests/Twig.Domain.Tests/Services/DuplicateGuardTests.cs` | ~120 LoC | TO DO |
-| T3 | Update `twig_new` in `CreationTools.cs`: add `skipDuplicateCheck` parameter, integrate `DuplicateGuard` call before `CreateAsync` when `parentId` is provided. | `src/Twig.Mcp/Tools/CreationTools.cs` | ~30 LoC changed | TO DO |
-| T4 | Add `twig_find_or_create` tool to `CreationTools.cs`: new MCP tool method with mandatory dedup, delegates to shared creation logic. | `src/Twig.Mcp/Tools/CreationTools.cs` | ~60 LoC | TO DO |
-| T5 | Add `FormatFoundExisting` method to `McpResultBuilder.cs` for dedup response formatting with `"action": "found_existing"` field. Update `FormatCreated` to include `"action": "created"`. | `src/Twig.Mcp/Services/McpResultBuilder.cs` | ~40 LoC | TO DO |
+| T1 | Create `DuplicateGuard` domain service with `FindExistingChildAsync` method. Includes WIQL query construction with proper escaping of title characters. | `src/Twig.Domain/Services/DuplicateGuard.cs` | ~50 LoC | DONE |
+| T2 | Write unit tests for `DuplicateGuard`: match found, no match, special characters in title, cancellation token forwarding. | `tests/Twig.Domain.Tests/Services/DuplicateGuardTests.cs` | ~120 LoC | DONE |
+| T3 | Update `twig_new` in `CreationTools.cs`: add `skipDuplicateCheck` parameter, integrate `DuplicateGuard` call before `CreateAsync` when `parentId` is provided. | `src/Twig.Mcp/Tools/CreationTools.cs` | ~30 LoC changed | DONE |
+| T4 | Add `twig_find_or_create` tool to `CreationTools.cs`: new MCP tool method with mandatory dedup, delegates to shared creation logic. | `src/Twig.Mcp/Tools/CreationTools.cs` | ~60 LoC | DONE |
+| T5 | Add `FormatFoundExisting` method to `McpResultBuilder.cs` for dedup response formatting with `"action": "found_existing"` field. Update `FormatCreated` to include `"action": "created"`. | `src/Twig.Mcp/Services/McpResultBuilder.cs` | ~40 LoC | DONE |
 
 **Acceptance Criteria**:
 - [ ] `twig_new` with `parentId` checks for existing child with same title+type before creating
@@ -418,3 +418,11 @@ between the dedup logic and its integration.
 - Existing pattern: `ConflictRetryHelper.cs` (retry with re-fetch)
 - Existing pattern: `SeedPublishOrchestrator.cs` (positive-ID guard)
 - Existing pattern: `seed-from-plan.ps1` (plan-ado-map.json dedup)
+
+---
+
+## Completion
+
+**Completed**: 2026-04-22  
+**PR**: [#73](https://github.com/PolyphonyRequiem/twig/pull/73) — merged 2026-04-22T04:42:12Z  
+**Summary**: All 5 tasks (T1–T5) delivered in a single PR. DuplicateGuard domain service, twig_find_or_create MCP tool, skipDuplicateCheck parameter on twig_new, FormatFoundExisting response formatting, and comprehensive unit tests — all AOT-compatible and passing.

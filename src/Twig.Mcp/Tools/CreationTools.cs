@@ -42,9 +42,6 @@ public sealed class CreationTools(WorkspaceResolver resolver)
 
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
 
-        var processConfig = ctx.ProcessConfigProvider.GetConfiguration();
-
-        WorkItem seed;
         if (parentId.HasValue)
         {
             // Dedup check: look for an existing child with the same title and type
@@ -61,54 +58,34 @@ public sealed class CreationTools(WorkspaceResolver resolver)
                 }
             }
 
-            // Fetch parent for path inheritance and type validation
-            var (parent, fetchErr) = await ctx.FetchWithFallbackAsync(parentId.Value, ct);
-            if (fetchErr is not null) return McpResultBuilder.ToError(fetchErr);
-
-            var seedResult = SeedFactory.Create(
-                title,
-                parent!,
-                processConfig,
-                parsedType,
-                assignedTo);
-
-            if (!seedResult.IsSuccess)
-            {
-                var parentType = parent!.Type;
-                var allowed = processConfig.GetAllowedChildTypes(parentType);
-                return McpResultBuilder.ToError(
-                    $"{seedResult.Error} Allowed child types for {parentType}: " +
-                    (allowed.Count > 0 ? string.Join(", ", allowed) : "(none)") + ".");
-            }
-
-            seed = seedResult.Value;
+            return await CreateParentedAsync(ctx, parentId.Value, title, parsedType, description, assignedTo, ct);
         }
-        else
+
+        var processConfig = ctx.ProcessConfigProvider.GetConfiguration();
+
+        // Validate type is recognized in the process configuration
+        if (!processConfig.TypeConfigs.ContainsKey(parsedType))
         {
-            // Validate type is recognized in the process configuration
-            if (!processConfig.TypeConfigs.ContainsKey(parsedType))
-            {
-                var validTypes = string.Join(", ", processConfig.TypeConfigs.Keys);
-                return McpResultBuilder.ToError(
-                    $"Unknown work item type '{type}'. Valid types: {validTypes}.");
-            }
-
-            // No parent — use workspace defaults for area/iteration paths
-            var areaPath = ResolveDefaultPath(ctx.Config.Defaults?.AreaPath, ctx.Config.Project, AreaPath.Parse);
-            var iterationPath = ResolveDefaultPath(ctx.Config.Defaults?.IterationPath, ctx.Config.Project, IterationPath.Parse);
-
-            var seedResult = SeedFactory.CreateUnparented(
-                title,
-                parsedType,
-                areaPath,
-                iterationPath,
-                assignedTo);
-
-            if (!seedResult.IsSuccess)
-                return McpResultBuilder.ToError(seedResult.Error);
-
-            seed = seedResult.Value;
+            var validTypes = string.Join(", ", processConfig.TypeConfigs.Keys);
+            return McpResultBuilder.ToError(
+                $"Unknown work item type '{type}'. Valid types: {validTypes}.");
         }
+
+        // No parent — use workspace defaults for area/iteration paths
+        var areaPath = ResolveDefaultPath(ctx.Config.Defaults?.AreaPath, ctx.Config.Project, AreaPath.Parse);
+        var iterationPath = ResolveDefaultPath(ctx.Config.Defaults?.IterationPath, ctx.Config.Project, IterationPath.Parse);
+
+        var unparentedResult = SeedFactory.CreateUnparented(
+            title,
+            parsedType,
+            areaPath,
+            iterationPath,
+            assignedTo);
+
+        if (!unparentedResult.IsSuccess)
+            return McpResultBuilder.ToError(unparentedResult.Error);
+
+        var seed = unparentedResult.Value;
 
         if (!string.IsNullOrWhiteSpace(description))
             seed.SetField("System.Description", MarkdownConverter.ToHtml(description));
@@ -169,45 +146,7 @@ public sealed class CreationTools(WorkspaceResolver resolver)
             return McpResultBuilder.FormatFoundExisting(existing, existingUrl, ctx.Key.ToString());
         }
 
-        // Not found — create it
-        var processConfig = ctx.ProcessConfigProvider.GetConfiguration();
-
-        var (parent, fetchErr) = await ctx.FetchWithFallbackAsync(parentId, ct);
-        if (fetchErr is not null) return McpResultBuilder.ToError(fetchErr);
-
-        var seedResult = SeedFactory.Create(title, parent!, processConfig, parsedType, assignedTo);
-        if (!seedResult.IsSuccess)
-        {
-            var parentType = parent!.Type;
-            var allowed = processConfig.GetAllowedChildTypes(parentType);
-            return McpResultBuilder.ToError(
-                $"{seedResult.Error} Allowed child types for {parentType}: " +
-                (allowed.Count > 0 ? string.Join(", ", allowed) : "(none)") + ".");
-        }
-
-        var seed = seedResult.Value;
-
-        if (!string.IsNullOrWhiteSpace(description))
-            seed.SetField("System.Description", MarkdownConverter.ToHtml(description));
-
-        int newId;
-        try { newId = await ctx.AdoService.CreateAsync(seed, ct); }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        { return McpResultBuilder.ToError($"Create failed: {ex.Message}"); }
-
-        WorkItem created;
-        try { created = await ctx.AdoService.FetchAsync(newId, ct); }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            return McpResultBuilder.ToError(
-                $"Created #{newId} in ADO but fetch-back failed: {ex.Message}. Run twig_sync to recover.");
-        }
-
-        try { await ctx.WorkItemRepo.SaveAsync(created, ct); }
-        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
-
-        var url2 = $"https://dev.azure.com/{ctx.Key.Org}/{ctx.Key.Project}/_workitems/edit/{created.Id}";
-        return McpResultBuilder.FormatCreated(created, url2, ctx.Key.ToString());
+        return await CreateParentedAsync(ctx, parentId, title, parsedType, description, assignedTo, ct);
     }
 
     [McpServerTool(Name = "twig_link"), Description("Create a relationship between two work items")]
@@ -258,6 +197,55 @@ public sealed class CreationTools(WorkspaceResolver resolver)
         }
 
         return McpResultBuilder.FormatLinked(sourceId, targetId, linkType, warning);
+    }
+
+    private async Task<CallToolResult> CreateParentedAsync(
+        WorkspaceContext ctx,
+        int parentId,
+        string title,
+        WorkItemType parsedType,
+        string? description,
+        string? assignedTo,
+        CancellationToken ct)
+    {
+        var processConfig = ctx.ProcessConfigProvider.GetConfiguration();
+
+        var (parent, fetchErr) = await ctx.FetchWithFallbackAsync(parentId, ct);
+        if (fetchErr is not null) return McpResultBuilder.ToError(fetchErr);
+
+        var seedResult = SeedFactory.Create(title, parent!, processConfig, parsedType, assignedTo);
+        if (!seedResult.IsSuccess)
+        {
+            var parentType = parent!.Type;
+            var allowed = processConfig.GetAllowedChildTypes(parentType);
+            return McpResultBuilder.ToError(
+                $"{seedResult.Error} Allowed child types for {parentType}: " +
+                (allowed.Count > 0 ? string.Join(", ", allowed) : "(none)") + ".");
+        }
+
+        var seed = seedResult.Value;
+
+        if (!string.IsNullOrWhiteSpace(description))
+            seed.SetField("System.Description", MarkdownConverter.ToHtml(description));
+
+        int newId;
+        try { newId = await ctx.AdoService.CreateAsync(seed, ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        { return McpResultBuilder.ToError($"Create failed: {ex.Message}"); }
+
+        WorkItem created;
+        try { created = await ctx.AdoService.FetchAsync(newId, ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return McpResultBuilder.ToError(
+                $"Created #{newId} in ADO but fetch-back failed: {ex.Message}. Run twig_sync to recover.");
+        }
+
+        try { await ctx.WorkItemRepo.SaveAsync(created, ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
+
+        var url = $"https://dev.azure.com/{ctx.Key.Org}/{ctx.Key.Project}/_workitems/edit/{created.Id}";
+        return McpResultBuilder.FormatCreated(created, url, ctx.Key.ToString());
     }
 
     private static T ResolveDefaultPath<T>(string? configPath, string? projectName, Func<string?, Result<T>> parse) where T : struct

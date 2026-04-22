@@ -280,11 +280,11 @@ This is an Issue (#1890) — defining Tasks directly under it.
 | T3 | Update existing `MapSeedToCreatePayload` tests that assert exact operation counts | `tests/Twig.Infrastructure.Tests/Ado/AdoResponseMapperTests.cs` | ~10 LoC |
 
 **Acceptance Criteria**:
-- [ ] `MapSeedToCreatePayload` always produces a `/fields/System.Tags` op containing `twig`
-- [ ] Existing user-set tags are preserved and merged (semicolon-separated)
-- [ ] `twig` tag is not duplicated if already present
-- [ ] All existing tests pass
-- [ ] New tests cover: no tags → "twig"; existing tags → merged; already has "twig" → no dup
+- [x] `MapSeedToCreatePayload` always produces a `/fields/System.Tags` op containing `twig`
+- [x] Existing user-set tags are preserved and merged (semicolon-separated)
+- [x] `twig` tag is not duplicated if already present
+- [x] All existing tests pass
+- [x] New tests cover: no tags → "twig"; existing tags → merged; already has "twig" → no dup
 
 ## PR Groups
 
@@ -303,5 +303,16 @@ careful edge-case handling (tag merging, deduplication).
 |---|----------|----------|-------|
 | 1 | Should the tag name be configurable via `twig.yml`? | Low | The issue explicitly says `twig`; configurability can be added later if needed |
 | 2 | Should existing twig-created items be retroactively tagged? | Low | Explicitly a non-goal per this design; could be a separate utility command |
+
+## Completion
+
+**Completed**: 2026-04-22
+
+All three tasks were implemented in a single PR group (PG-1, PR #78):
+- **T1 (AB#1915)**: Added `MergeTwigTag` internal static helper and `InjectTwigTag` private static method to `AdoResponseMapper`; called from `MapSeedToCreatePayload` post-loop.
+- **T2 (AB#1916)**: Added comprehensive unit tests covering baseline tag injection, merge with existing tags, deduplication, and case-insensitive dedup.
+- **T3 (AB#1917)**: Updated existing `MapSeedToCreatePayload` tests to account for the new `System.Tags` operation in patch payloads.
+
+All acceptance criteria met. PR #78 merged to main.
 
 

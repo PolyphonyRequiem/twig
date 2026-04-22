@@ -113,9 +113,6 @@ public sealed class CreationTools(WorkspaceResolver resolver)
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
         CancellationToken ct = default)
     {
-        if (parentId <= 0)
-            return McpResultBuilder.ToError($"parentId must be a positive work item ID (got {parentId}).");
-
         return await New(type, title, parentId, description, assignedTo, workspace, skipDuplicateCheck: false, ct);
     }
 

@@ -11,12 +11,7 @@ namespace Twig.Domain.Tests.Services;
 
 public class DuplicateGuardTests
 {
-    private readonly IAdoWorkItemService _adoService;
-
-    public DuplicateGuardTests()
-    {
-        _adoService = Substitute.For<IAdoWorkItemService>();
-    }
+    private readonly IAdoWorkItemService _adoService = Substitute.For<IAdoWorkItemService>();
 
     // ═══════════════════════════════════════════════════════════════
     //  No match — returns null

@@ -82,6 +82,13 @@ public sealed class ParentStatePropagationService(
                 }
             }
 
+            if (parent is null)
+                return new ParentPropagationResult
+                {
+                    Outcome = ParentPropagationOutcome.NoParent,
+                    ParentId = child.ParentId,
+                };
+
             var processConfig = processConfigProvider.GetConfiguration();
             if (!processConfig.TypeConfigs.TryGetValue(parent.Type, out var typeConfig))
                 return new ParentPropagationResult

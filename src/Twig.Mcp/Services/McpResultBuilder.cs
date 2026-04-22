@@ -281,8 +281,15 @@ internal static class McpResultBuilder
         });
 
     public static CallToolResult FormatCreated(WorkItem item, string url, string? workspace = null) =>
+        FormatWithAction("created", item, url, workspace);
+
+    public static CallToolResult FormatFoundExisting(WorkItem item, string url, string? workspace = null) =>
+        FormatWithAction("found_existing", item, url, workspace);
+
+    private static CallToolResult FormatWithAction(string action, WorkItem item, string url, string? workspace) =>
         BuildJson(writer =>
         {
+            writer.WriteString("action", action);
             WriteWorkItemWithPaths(writer, item);
             writer.WriteString("url", url);
             WriteOptionalWorkspace(writer, workspace);

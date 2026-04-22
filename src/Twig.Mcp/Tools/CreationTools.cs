@@ -25,10 +25,11 @@ public sealed class CreationTools(WorkspaceResolver resolver)
         [Description("Description text (optional — treated as Markdown and converted to HTML)")] string? description = null,
         [Description("Assignee display name (optional)")] string? assignedTo = null,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true and parentId is provided, skips the duplicate title+type check. Default is false (dedup enabled).")] bool skipDuplicateCheck = false,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(title))
-            return McpResultBuilder.ToError("Title is required. Usage: twig_new requires a non-empty title.");
+            return McpResultBuilder.ToError("Title is required.");
 
         var parseResult = WorkItemType.Parse(type);
         if (!parseResult.IsSuccess)
@@ -41,59 +42,42 @@ public sealed class CreationTools(WorkspaceResolver resolver)
 
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
 
-        var processConfig = ctx.ProcessConfigProvider.GetConfiguration();
-
-        WorkItem seed;
         if (parentId.HasValue)
         {
-            // Fetch parent for path inheritance and type validation
-            var (parent, fetchErr) = await ctx.FetchWithFallbackAsync(parentId.Value, ct);
-            if (fetchErr is not null) return McpResultBuilder.ToError(fetchErr);
-
-            var seedResult = SeedFactory.Create(
-                title,
-                parent!,
-                processConfig,
-                parsedType,
-                assignedTo);
-
-            if (!seedResult.IsSuccess)
+            if (!skipDuplicateCheck)
             {
-                var parentType = parent!.Type;
-                var allowed = processConfig.GetAllowedChildTypes(parentType);
-                return McpResultBuilder.ToError(
-                    $"{seedResult.Error} Allowed child types for {parentType}: " +
-                    (allowed.Count > 0 ? string.Join(", ", allowed) : "(none)") + ".");
+                var dupeResult = await CheckForDuplicateAsync(ctx, parentId.Value, title, parsedType, ct);
+                if (dupeResult is not null) return dupeResult;
             }
 
-            seed = seedResult.Value;
+            return await CreateParentedAsync(ctx, parentId.Value, title, parsedType, description, assignedTo, ct);
         }
-        else
+
+        var processConfig = ctx.ProcessConfigProvider.GetConfiguration();
+
+        // Validate type is recognized in the process configuration
+        if (!processConfig.TypeConfigs.ContainsKey(parsedType))
         {
-            // Validate type is recognized in the process configuration
-            if (!processConfig.TypeConfigs.ContainsKey(parsedType))
-            {
-                var validTypes = string.Join(", ", processConfig.TypeConfigs.Keys);
-                return McpResultBuilder.ToError(
-                    $"Unknown work item type '{type}'. Valid types: {validTypes}.");
-            }
-
-            // No parent — use workspace defaults for area/iteration paths
-            var areaPath = ResolveDefaultPath(ctx.Config.Defaults?.AreaPath, ctx.Config.Project, AreaPath.Parse);
-            var iterationPath = ResolveDefaultPath(ctx.Config.Defaults?.IterationPath, ctx.Config.Project, IterationPath.Parse);
-
-            var seedResult = SeedFactory.CreateUnparented(
-                title,
-                parsedType,
-                areaPath,
-                iterationPath,
-                assignedTo);
-
-            if (!seedResult.IsSuccess)
-                return McpResultBuilder.ToError(seedResult.Error);
-
-            seed = seedResult.Value;
+            var validTypes = string.Join(", ", processConfig.TypeConfigs.Keys);
+            return McpResultBuilder.ToError(
+                $"Unknown work item type '{type}'. Valid types: {validTypes}.");
         }
+
+        // No parent — use workspace defaults for area/iteration paths
+        var areaPath = ResolveDefaultPath(ctx.Config.Defaults?.AreaPath, ctx.Config.Project, AreaPath.Parse);
+        var iterationPath = ResolveDefaultPath(ctx.Config.Defaults?.IterationPath, ctx.Config.Project, IterationPath.Parse);
+
+        var unparentedResult = SeedFactory.CreateUnparented(
+            title,
+            parsedType,
+            areaPath,
+            iterationPath,
+            assignedTo);
+
+        if (!unparentedResult.IsSuccess)
+            return McpResultBuilder.ToError(unparentedResult.Error);
+
+        var seed = unparentedResult.Value;
 
         if (!string.IsNullOrWhiteSpace(description))
             seed.SetField("System.Description", MarkdownConverter.ToHtml(description));
@@ -117,6 +101,22 @@ public sealed class CreationTools(WorkspaceResolver resolver)
 
         var url = $"https://dev.azure.com/{ctx.Key.Org}/{ctx.Key.Project}/_workitems/edit/{created.Id}";
         return McpResultBuilder.FormatCreated(created, url, ctx.Key.ToString());
+    }
+
+    [McpServerTool(Name = "twig_find_or_create"), Description("Find an existing work item by title and type under a parent, or create it if not found. Always performs a deduplication check — use this instead of twig_new when idempotent creation is required.")]
+    public async Task<CallToolResult> FindOrCreate(
+        [Description("Work item type (e.g. Epic, Issue, Task, Bug, User Story)")] string type,
+        [Description("Title for the work item to find or create")] string title,
+        [Description("Parent work item ID — required for scoped dedup check")] int parentId,
+        [Description("Description text (optional — treated as Markdown and converted to HTML)")] string? description = null,
+        [Description("Assignee display name (optional)")] string? assignedTo = null,
+        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        CancellationToken ct = default)
+    {
+        if (parentId <= 0)
+            return McpResultBuilder.ToError($"parentId must be a positive work item ID (got {parentId}).");
+
+        return await New(type, title, parentId, description, assignedTo, workspace, skipDuplicateCheck: false, ct);
     }
 
     [McpServerTool(Name = "twig_link"), Description("Create a relationship between two work items")]
@@ -167,6 +167,68 @@ public sealed class CreationTools(WorkspaceResolver resolver)
         }
 
         return McpResultBuilder.FormatLinked(sourceId, targetId, linkType, warning);
+    }
+
+    private async Task<CallToolResult?> CheckForDuplicateAsync(
+        WorkspaceContext ctx, int parentId, string title, WorkItemType type, CancellationToken ct)
+    {
+        WorkItem? existing;
+        try { existing = await DuplicateGuard.FindExistingChildAsync(ctx.AdoService, parentId, title, type, ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { existing = null; }
+
+        if (existing is null) return null;
+
+        var url = $"https://dev.azure.com/{ctx.Key.Org}/{ctx.Key.Project}/_workitems/edit/{existing.Id}";
+        return McpResultBuilder.FormatFoundExisting(existing, url, ctx.Key.ToString());
+    }
+
+    private async Task<CallToolResult> CreateParentedAsync(
+        WorkspaceContext ctx,
+        int parentId,
+        string title,
+        WorkItemType parsedType,
+        string? description,
+        string? assignedTo,
+        CancellationToken ct)
+    {
+        var processConfig = ctx.ProcessConfigProvider.GetConfiguration();
+
+        var (parent, fetchErr) = await ctx.FetchWithFallbackAsync(parentId, ct);
+        if (fetchErr is not null) return McpResultBuilder.ToError(fetchErr);
+
+        var seedResult = SeedFactory.Create(title, parent!, processConfig, parsedType, assignedTo);
+        if (!seedResult.IsSuccess)
+        {
+            var parentType = parent!.Type;
+            var allowed = processConfig.GetAllowedChildTypes(parentType);
+            return McpResultBuilder.ToError(
+                $"{seedResult.Error} Allowed child types for {parentType}: " +
+                (allowed.Count > 0 ? string.Join(", ", allowed) : "(none)") + ".");
+        }
+
+        var seed = seedResult.Value;
+
+        if (!string.IsNullOrWhiteSpace(description))
+            seed.SetField("System.Description", MarkdownConverter.ToHtml(description));
+
+        int newId;
+        try { newId = await ctx.AdoService.CreateAsync(seed, ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        { return McpResultBuilder.ToError($"Create failed: {ex.Message}"); }
+
+        WorkItem created;
+        try { created = await ctx.AdoService.FetchAsync(newId, ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return McpResultBuilder.ToError(
+                $"Created #{newId} in ADO but fetch-back failed: {ex.Message}. Run twig_sync to recover.");
+        }
+
+        try { await ctx.WorkItemRepo.SaveAsync(created, ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
+
+        var url = $"https://dev.azure.com/{ctx.Key.Org}/{ctx.Key.Project}/_workitems/edit/{created.Id}";
+        return McpResultBuilder.FormatCreated(created, url, ctx.Key.ToString());
     }
 
     private static T ResolveDefaultPath<T>(string? configPath, string? projectName, Func<string?, Result<T>> parse) where T : struct

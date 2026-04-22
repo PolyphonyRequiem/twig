@@ -440,6 +440,85 @@ public class AdoResponseMapperTests
         result.ShouldContain(op => op.Path == "/fields/Microsoft.VSTS.Common.Priority");
     }
 
+    // ── InjectTwigTag / MergeTwigTag ────────────────────────────────
+
+    [Fact]
+    public void MapSeedToCreatePayload_NoExistingTags_AppendsTwigTag()
+    {
+        var seed = Domain.Aggregates.WorkItem.CreateSeed(WorkItemType.Task, "Task");
+
+        var result = AdoResponseMapper.MapSeedToCreatePayload(seed, "https://dev.azure.com/org");
+
+        result.Count(op => op.Path == "/fields/System.Tags").ShouldBe(1);
+        var tagOp = result.Single(op => op.Path == "/fields/System.Tags");
+        tagOp.Value!.GetValue<string>().ShouldBe("twig");
+    }
+
+    [Fact]
+    public void MapSeedToCreatePayload_ExistingTags_MergesTwigTag()
+    {
+        var seed = Domain.Aggregates.WorkItem.CreateSeed(WorkItemType.Task, "Task");
+        seed.ImportFields(new Dictionary<string, string?>
+        {
+            ["System.Tags"] = "frontend; api",
+        });
+
+        var result = AdoResponseMapper.MapSeedToCreatePayload(seed, "https://dev.azure.com/org");
+
+        result.Count(op => op.Path == "/fields/System.Tags").ShouldBe(1);
+        var tagOp = result.Single(op => op.Path == "/fields/System.Tags");
+        tagOp.Value!.GetValue<string>().ShouldBe("frontend; api; twig");
+    }
+
+    [Fact]
+    public void MapSeedToCreatePayload_TwigTagAlreadyPresent_NoDuplicate()
+    {
+        var seed = Domain.Aggregates.WorkItem.CreateSeed(WorkItemType.Task, "Task");
+        seed.ImportFields(new Dictionary<string, string?>
+        {
+            ["System.Tags"] = "frontend; twig",
+        });
+
+        var result = AdoResponseMapper.MapSeedToCreatePayload(seed, "https://dev.azure.com/org");
+
+        result.Count(op => op.Path == "/fields/System.Tags").ShouldBe(1);
+        var tagOp = result.Single(op => op.Path == "/fields/System.Tags");
+        tagOp.Value!.GetValue<string>().ShouldBe("frontend; twig");
+    }
+
+    [Fact]
+    public void MapSeedToCreatePayload_TwigTagCaseInsensitive_NoDuplicate()
+    {
+        var seed = Domain.Aggregates.WorkItem.CreateSeed(WorkItemType.Task, "Task");
+        seed.ImportFields(new Dictionary<string, string?>
+        {
+            ["System.Tags"] = "Twig; backend",
+        });
+
+        var result = AdoResponseMapper.MapSeedToCreatePayload(seed, "https://dev.azure.com/org");
+
+        result.Count(op => op.Path == "/fields/System.Tags").ShouldBe(1);
+        var tagOp = result.Single(op => op.Path == "/fields/System.Tags");
+        tagOp.Value!.GetValue<string>().ShouldBe("Twig; backend");
+    }
+
+    [Theory]
+    [InlineData("", "twig", "twig")]
+    [InlineData("  ", "twig", "twig")]
+    [InlineData("frontend", "twig", "frontend; twig")]
+    [InlineData("frontend; api", "twig", "frontend; api; twig")]
+    [InlineData("twig", "twig", "twig")]
+    [InlineData("Twig", "twig", "Twig")]
+    [InlineData("TWIG", "twig", "TWIG")]
+    [InlineData("frontend; twig; api", "twig", "frontend; twig; api")]
+    [InlineData("frontend;twig", "twig", "frontend;twig")]
+    public void MergeTwigTag_MergesCorrectly(string existing, string tag, string expected)
+    {
+        var result = AdoResponseMapper.MergeTwigTag(existing, tag);
+
+        result.ShouldBe(expected);
+    }
+
     // ── Field Import Loop (MapWorkItem with field population) ────────
 
     [Fact]

@@ -119,7 +119,7 @@ public class ParentStatePropagationServiceTests
     // ── Parent type not in process config ──────────────────────────
 
     [Fact]
-    public async Task NoParent_WhenParentTypeNotInProcessConfig()
+    public async Task Failed_WhenParentTypeNotInProcessConfig()
     {
         var child = new WorkItemBuilder(1, "Child Task").AsTask().InState("Doing").WithParent(100).Build();
         // Use a type that's not in Basic config (Feature is not in Basic — Basic has Epic, Issue, Task)
@@ -129,8 +129,10 @@ public class ParentStatePropagationServiceTests
 
         var result = await _service.TryPropagateToParentAsync(child, StateCategory.InProgress);
 
-        result.Outcome.ShouldBe(ParentPropagationOutcome.NoParent);
+        result.Outcome.ShouldBe(ParentPropagationOutcome.Failed);
         result.ParentId.ShouldBe(100);
+        result.Error.ShouldNotBeNull();
+        result.Error.ShouldContain("not found in process configuration");
     }
 
     // ── Happy path: Propagated ─────────────────────────────────────

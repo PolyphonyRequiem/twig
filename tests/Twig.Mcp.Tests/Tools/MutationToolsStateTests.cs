@@ -2,6 +2,8 @@ using ModelContextProtocol.Protocol;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
+using System.IO;
+using System.Net.Http;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Enums;
 using Twig.Domain.ValueObjects;
@@ -473,6 +475,112 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
 
         var result = await CreateMutationSut().State("Doing");
 
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+        root.GetProperty("state").GetString().ShouldBe("Doing");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Parent propagation — transition to InProgress
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task State_ToInProgress_PropagatesParentFromProposedToInProgress()
+    {
+        // Use Basic process config: Task & Issue both have To Do (Proposed) / Doing (InProgress) / Done (Completed)
+        _processConfigProvider.GetConfiguration().Returns(ProcessConfigBuilder.Basic());
+
+        // Child Task in Proposed with parent Issue
+        var child = new WorkItemBuilder(42, "My Task").AsTask().InState("To Do").WithParent(100).Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(child);
+
+        // Parent Issue in Proposed (To Do)
+        var parent = new WorkItemBuilder(100, "Parent Issue").AsIssue().InState("To Do").Build();
+        parent.MarkSynced(5);
+
+        // Child: ADO fetch (conflict check) + patch + resync fetch
+        var updatedChild = new WorkItemBuilder(42, "My Task").AsTask().InState("Doing").WithParent(100).Build();
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(child, updatedChild);
+        _adoService.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+
+        // Parent: cache hit + ADO fetch for revision + patch
+        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
+        _adoService.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
+        _adoService.PatchAsync(100, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(6);
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());
+
+        var result = await CreateMutationSut().State("Doing");
+
+        result.IsError.ShouldBeNull();
+        // Parent Issue should have been patched to Doing
+        await _adoService.Received().PatchAsync(
+            100,
+            Arg.Is<IReadOnlyList<FieldChange>>(c =>
+                c.Count == 1 &&
+                c[0].FieldName == "System.State" &&
+                c[0].OldValue == "To Do" &&
+                c[0].NewValue == "Doing"),
+            Arg.Any<int>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task State_ToInProgress_ParentAlreadyActive_NoPropagationPatch()
+    {
+        _processConfigProvider.GetConfiguration().Returns(ProcessConfigBuilder.Basic());
+
+        var child = new WorkItemBuilder(42, "My Task").AsTask().InState("To Do").WithParent(100).Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(child);
+
+        // Parent already in InProgress (Doing) — propagation is a no-op
+        var parent = new WorkItemBuilder(100, "Parent Issue").AsIssue().InState("Doing").Build();
+
+        var updatedChild = new WorkItemBuilder(42, "My Task").AsTask().InState("Doing").WithParent(100).Build();
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(child, updatedChild);
+        _adoService.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
+
+        var result = await CreateMutationSut().State("Doing");
+
+        result.IsError.ShouldBeNull();
+        // No PatchAsync for parent — it is already in InProgress
+        await _adoService.DidNotReceive().PatchAsync(
+            100, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task State_PropagationFailure_DoesNotAffectToolResult()
+    {
+        _processConfigProvider.GetConfiguration().Returns(ProcessConfigBuilder.Basic());
+
+        // Child with parent
+        var child = new WorkItemBuilder(42, "My Task").AsTask().InState("To Do").WithParent(100).Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(child);
+
+        var parent = new WorkItemBuilder(100, "Parent Issue").AsIssue().InState("To Do").Build();
+        parent.MarkSynced(5);
+
+        // Child succeeds
+        var updatedChild = new WorkItemBuilder(42, "My Task").AsTask().InState("Doing").WithParent(100).Build();
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(child, updatedChild);
+        _adoService.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+
+        // Parent: cache hit + fetch succeeds, but patch fails
+        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
+        _adoService.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
+        _adoService.PatchAsync(100, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("Parent patch failed"));
+
+        var result = await CreateMutationSut().State("Doing");
+
+        // Tool still returns success — propagation is best-effort
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
         root.GetProperty("state").GetString().ShouldBe("Doing");

@@ -29,6 +29,7 @@ public sealed class WorkspaceContext : IDisposable
     public WorkingSetService WorkingSetService { get; }
     public McpPendingChangeFlusher Flusher { get; }
     public IPromptStateWriter PromptStateWriter { get; }
+    public ParentStatePropagationService ParentPropagationService { get; }
 
     internal SqliteCacheStore CacheStore { get; }
 
@@ -49,7 +50,8 @@ public sealed class WorkspaceContext : IDisposable
         StatusOrchestrator statusOrchestrator,
         WorkingSetService workingSetService,
         McpPendingChangeFlusher flusher,
-        IPromptStateWriter promptStateWriter)
+        IPromptStateWriter promptStateWriter,
+        ParentStatePropagationService parentPropagationService)
     {
         Key = key;
         Config = config;
@@ -68,6 +70,7 @@ public sealed class WorkspaceContext : IDisposable
         WorkingSetService = workingSetService;
         Flusher = flusher;
         PromptStateWriter = promptStateWriter;
+        ParentPropagationService = parentPropagationService;
     }
 
     /// <summary>

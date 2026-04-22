@@ -365,6 +365,121 @@ public class StateCommandTests
         _workItemRepo.GetByIdAsync(item.Id, Arg.Any<CancellationToken>()).Returns(item);
     }
 
+    private StateCommand CreateCommandWithPropagation()
+    {
+        var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
+        var propagationService = new ParentStatePropagationService(
+            _workItemRepo, _adoService, _processConfigProvider, protectedCacheWriter);
+
+        var formatterFactory = new OutputFormatterFactory(
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
+        var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
+        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+
+        return new StateCommand(
+            resolver, _workItemRepo, _adoService,
+            _pendingChangeStore, _processConfigProvider, _consoleInput,
+            formatterFactory, hintEngine,
+            parentPropagationService: propagationService,
+            stderr: _stderr);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Parent propagation — transition to InProgress
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task State_ToInProgress_PropagatesParentFromProposedToInProgress()
+    {
+        // Child UserStory with parent Epic
+        var child = new WorkItemBuilder(1, "My Story").AsUserStory().InState("New").WithParent(100).Build();
+        SetupActiveItem(child);
+
+        // Parent Epic in Proposed (New) state
+        var parent = new WorkItemBuilder(100, "Parent Epic").AsEpic().InState("New").Build();
+        parent.MarkSynced(5);
+
+        // Child: conflict check + resync
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(child);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+
+        // Parent: cache hit, ADO fetch for revision, patch
+        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
+        _adoService.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
+        _adoService.PatchAsync(100, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(6);
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());
+
+        var cmd = CreateCommandWithPropagation();
+        var result = await cmd.ExecuteAsync("Active"); // Active is InProgress for Agile UserStory
+
+        result.ShouldBe(0);
+        // Parent Epic should have been patched to Active
+        await _adoService.Received().PatchAsync(
+            100,
+            Arg.Is<IReadOnlyList<FieldChange>>(c =>
+                c.Count == 1 &&
+                c[0].FieldName == "System.State" &&
+                c[0].OldValue == "New" &&
+                c[0].NewValue == "Active"),
+            Arg.Any<int>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task State_ToInProgress_ParentAlreadyActive_NoPropagationPatch()
+    {
+        // Child with parent already in Active (InProgress)
+        var child = new WorkItemBuilder(1, "My Story").AsUserStory().InState("New").WithParent(100).Build();
+        SetupActiveItem(child);
+
+        var parent = new WorkItemBuilder(100, "Parent Epic").AsEpic().InState("Active").Build();
+
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(child);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());
+
+        var cmd = CreateCommandWithPropagation();
+        var result = await cmd.ExecuteAsync("Active");
+
+        result.ShouldBe(0);
+        // PatchAsync should NOT be called for parent (it's already active)
+        await _adoService.DidNotReceive().PatchAsync(
+            100, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task State_ToNonInProgress_NoPropagation()
+    {
+        // Child transitioning to Resolved (not InProgress) — propagation should NOT trigger
+        var child = new WorkItemBuilder(1, "My Story").AsUserStory().InState("Active").WithParent(100).Build();
+        SetupActiveItem(child);
+
+        var parent = new WorkItemBuilder(100, "Parent Epic").AsEpic().InState("New").Build();
+
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(child);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
+
+        var cmd = CreateCommandWithPropagation();
+        var result = await cmd.ExecuteAsync("Resolved"); // Resolved is not InProgress
+
+        result.ShouldBe(0);
+        // No patch call for parent
+        await _adoService.DidNotReceive().PatchAsync(
+            100, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
     private static WorkItem CreateWorkItem(int id, string title, string state, WorkItemType type)
     {
         return new WorkItem

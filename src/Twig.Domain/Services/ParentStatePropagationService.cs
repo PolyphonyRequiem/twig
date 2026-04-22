@@ -82,19 +82,24 @@ public sealed class ParentStatePropagationService(
                 }
             }
 
+            // Defensive: FetchAsync is non-nullable per IAdoWorkItemService contract, so this path
+            // is unreachable in production. Retained to satisfy the nullable checker.
+            System.Diagnostics.Debug.Assert(parent is not null, "IAdoWorkItemService.FetchAsync returned null despite non-nullable contract");
             if (parent is null)
                 return new ParentPropagationResult
                 {
-                    Outcome = ParentPropagationOutcome.NoParent,
+                    Outcome = ParentPropagationOutcome.Failed,
                     ParentId = child.ParentId,
+                    Error = "ADO fetch returned null for parent work item despite non-nullable contract",
                 };
 
             var processConfig = processConfigProvider.GetConfiguration();
             if (!processConfig.TypeConfigs.TryGetValue(parent.Type, out var typeConfig))
                 return new ParentPropagationResult
                 {
-                    Outcome = ParentPropagationOutcome.NoParent,
+                    Outcome = ParentPropagationOutcome.Failed,
                     ParentId = parent.Id,
+                    Error = $"Parent type \"{parent.Type}\" not found in process configuration",
                 };
 
             var parentCategory = StateCategoryResolver.Resolve(parent.State, typeConfig.StateEntries);

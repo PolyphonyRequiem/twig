@@ -449,7 +449,8 @@ public sealed class WorkspaceResolverTests
             statusOrchestrator: null!,
             workingSetService: null!,
             flusher: null!,
-            promptStateWriter: null!);
+            promptStateWriter: null!,
+            parentPropagationService: null!);
     }
 
     private static void SetupCacheHit(WorkspaceContext ctx, int id)

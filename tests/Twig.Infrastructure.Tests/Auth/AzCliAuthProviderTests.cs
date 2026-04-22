@@ -323,6 +323,19 @@ public class AzCliAuthProviderTests : IDisposable
     }
 
     [Fact]
+    public async Task GetAccessTokenAsync_CustomTimeout_UsesInjectedValue()
+    {
+        var provider = new AzCliAuthProvider(
+            psi => CreateSlowProcess(),
+            () => DateTimeOffset.UtcNow,
+            _cachePath,
+            TimeSpan.FromMilliseconds(1));
+
+        await Should.ThrowAsync<AdoAuthenticationException>(
+            () => provider.GetAccessTokenAsync());
+    }
+
+    [Fact]
     public async Task Constructor_3ParamCtor_StillChainsProperly()
     {
         // Existing 3-param constructor should still work (chains to 4-param with null timeout)

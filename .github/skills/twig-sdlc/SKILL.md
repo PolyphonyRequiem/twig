@@ -8,7 +8,7 @@ user-invokable: true
 
 Orchestrated SDLC pipeline powered by the `conductor` skill. Takes an ADO work item (Epic or Issue) or a natural language prompt and drives it through planning, implementation, code review, PR management, and close-out — all via multi-agent orchestration.
 
-> **This workflow is long-running** — typically 30-120+ minutes depending on scope. **Always launch with `conductor --silent run ... --web`** — this suppresses console noise and opens a real-time web dashboard. **Do NOT use `--web-bg`** — it does not work correctly; always use `--web`.
+> **This workflow is long-running** — typically 30-120+ minutes depending on scope. **Always launch with `conductor --silent run ... --web-bg`** — this suppresses console noise and starts a real-time web dashboard in the background, allowing the process to survive CLI session restarts.
 
 ## Workflows
 
@@ -39,19 +39,19 @@ cd ../twig2-<ID>
 dotnet restore
 
 # 3. Run the full SDLC (planning → implementation) for a single work item
-conductor --silent run twig-sdlc-full@twig --input work_item_id=<ID> --web
+conductor --silent run twig-sdlc-full@twig --input work_item_id=<ID> --web-bg
 
 # Plan only (recursive planner — creates Epic/Issues/Tasks in ADO)
-conductor --silent run twig-sdlc-planning@twig --input work_item_id=<ID> --web
+conductor --silent run twig-sdlc-planning@twig --input work_item_id=<ID> --web-bg
 
 # Implement only (requires existing plan + seeded work items)
-conductor --silent run twig-sdlc-implement@twig --input work_item_id=<ID> --input plan_path="docs/projects/foo.plan.md" --web
+conductor --silent run twig-sdlc-implement@twig --input work_item_id=<ID> --input plan_path="docs/projects/foo.plan.md" --web-bg
 
 # Start from a natural language prompt (use a descriptive branch name instead of ID)
-conductor --silent run twig-sdlc-full@twig --input prompt="Add a twig export command" --web
+conductor --silent run twig-sdlc-full@twig --input prompt="Add a twig export command" --web-bg
 
 # Skip human approval gates
-conductor --silent run twig-sdlc-full@twig --input work_item_id=<ID> --input skip_plan_review=true --web
+conductor --silent run twig-sdlc-full@twig --input work_item_id=<ID> --input skip_plan_review=true --web-bg
 ```
 
 ## Launching Multiple Runs
@@ -71,7 +71,7 @@ foreach ($id in $ids) {
     Start-Process -FilePath "pwsh" -ArgumentList "-NoProfile","-File",
         "tools\run-conductor.ps1",
         "-WorkingDirectory", "C:\Users\dangreen\projects\twig2-$id",
-        "-Arguments", "--silent run twig-sdlc-implement@twig --input work_item_id=$id --web" `
+        "-Arguments", "--silent run twig-sdlc-implement@twig --input work_item_id=$id --web-bg" `
         -WindowStyle Hidden
     if ($id -ne $ids[-1]) { Start-Sleep -Seconds 10 }
 }

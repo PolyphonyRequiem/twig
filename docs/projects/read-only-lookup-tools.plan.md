@@ -423,3 +423,18 @@ exists for tracking and formal acceptance. No additional PR is needed.
 - Implementation: `src/Twig.Mcp/Tools/NavigationTools.cs`
 - Registration: `src/Twig.Mcp/Program.cs` (line 59)
 - Test suite: `tests/Twig.Mcp.Tests/Tools/NavigationTools*.cs`
+
+---
+
+## Completion
+
+| Field | Value |
+|---|---|
+| **Completed** | 2026-04-22 |
+| **PR** | [#77](https://github.com/PolyphonyRequiem/twig/pull/77) — merged 2026-04-22T09:00:20Z |
+| **Final State** | ✅ Done |
+
+All three read-only lookup tools (`twig_show`, `twig_children`, `twig_parent`) were verified
+as fully implemented, tested (18+ unit tests, zero warnings), registered, and AOT-compatible.
+No code changes were required — the work was verification-only. Single PR group (PG-1) executed
+cleanly with no rework or revision cycles.

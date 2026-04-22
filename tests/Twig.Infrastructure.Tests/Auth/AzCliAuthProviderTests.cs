@@ -325,6 +325,56 @@ public class AzCliAuthProviderTests : IDisposable
         token.ShouldBe("three-param-token");
     }
 
+    [Fact]
+    public async Task ResolveTimeout_ValidEnvVar_ReturnsOverride()
+    {
+        Environment.SetEnvironmentVariable("TWIG_AZ_TIMEOUT", "1");
+        try
+        {
+            // No explicit timeout — ResolveTimeout() should read the env var (1s)
+            var provider = new AzCliAuthProvider(
+                psi => CreateSlowProcess(),
+                () => DateTimeOffset.UtcNow,
+                _cachePath);
+
+            var ex = await Should.ThrowAsync<AdoAuthenticationException>(
+                () => provider.GetAccessTokenAsync());
+
+            ex.Message.ShouldContain("1s");
+            ex.Message.ShouldContain("TWIG_AZ_TIMEOUT=30");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("TWIG_AZ_TIMEOUT", null);
+        }
+    }
+
+    [Theory]
+    [InlineData("abc")]
+    [InlineData("0")]
+    [InlineData("-5")]
+    [InlineData("")]
+    public async Task ResolveTimeout_InvalidEnvVar_FallsBackToDefault(string invalidValue)
+    {
+        Environment.SetEnvironmentVariable("TWIG_AZ_TIMEOUT", invalidValue);
+        try
+        {
+            // No explicit timeout — ResolveTimeout() should fall back to 10s default
+            var provider = new AzCliAuthProvider(
+                psi => CreateFakeProcess("default-timeout-token\n", "", exitCode: 0),
+                () => DateTimeOffset.UtcNow,
+                _cachePath);
+
+            // Provider completes successfully, proving it uses the 10s default (not 0s)
+            var token = await provider.GetAccessTokenAsync();
+            token.ShouldBe("default-timeout-token");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("TWIG_AZ_TIMEOUT", null);
+        }
+    }
+
     /// <summary>
     /// Creates a fake Process that returns predetermined stdout/stderr.
     /// Uses a real process ('dotnet --version' or similar) but overrides streams.

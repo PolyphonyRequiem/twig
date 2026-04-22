@@ -314,6 +314,28 @@ public sealed class DefaultsConfig
     public List<string>? AreaPaths { get; set; }
     public List<AreaPathEntry>? AreaPathEntries { get; set; }
     public string? IterationPath { get; set; }
+
+    /// <summary>
+    /// Resolves the configured area paths using a 3-tier fallback:
+    /// <c>AreaPathEntries</c> (structured) → <c>AreaPaths</c> (list) → <c>AreaPath</c> (single).
+    /// Returns <c>null</c> when no area paths are configured.
+    /// </summary>
+    public IReadOnlyList<(string Path, bool IncludeChildren)>? ResolveAreaPaths()
+    {
+        if (AreaPathEntries is { Count: > 0 })
+            return AreaPathEntries.Select(e => (e.Path, e.IncludeChildren)).ToList();
+
+        var paths = AreaPaths;
+        if (paths is null || paths.Count == 0)
+        {
+            if (!string.IsNullOrWhiteSpace(AreaPath))
+                paths = [AreaPath];
+        }
+
+        return paths is { Count: > 0 }
+            ? paths.Select(p => (p, true)).ToList()
+            : null;
+    }
 }
 
 public sealed class AreaPathEntry

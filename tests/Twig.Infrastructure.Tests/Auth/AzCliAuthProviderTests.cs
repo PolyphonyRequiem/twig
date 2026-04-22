@@ -336,6 +336,22 @@ public class AzCliAuthProviderTests : IDisposable
     }
 
     [Fact]
+    public async Task Constructor_WithExplicit30sTimeout_ProducesCorrectInstance()
+    {
+        var timeout = TimeSpan.FromSeconds(30);
+
+        var provider = new AzCliAuthProvider(
+            psi => CreateFakeProcess("thirty-sec-token\n", "", exitCode: 0),
+            () => DateTimeOffset.UtcNow,
+            _cachePath,
+            timeout);
+
+        // The 4-param ctor accepted the 30s timeout and produced a functional instance
+        var token = await provider.GetAccessTokenAsync();
+        token.ShouldBe("thirty-sec-token");
+    }
+
+    [Fact]
     public async Task Constructor_3ParamCtor_StillChainsProperly()
     {
         // Existing 3-param constructor should still work (chains to 4-param with null timeout)

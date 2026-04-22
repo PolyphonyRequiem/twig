@@ -200,8 +200,8 @@ internal sealed class AzCliAuthProvider : IAuthenticationProvider
             if (lines.Length < 2)
                 return (null, default);
 
-            if (!long.TryParse(lines[0], System.Globalization.NumberStyles.None,
-                    System.Globalization.CultureInfo.InvariantCulture, out var ticks))
+            if (!long.TryParse(lines[0], NumberStyles.None,
+                    CultureInfo.InvariantCulture, out var ticks))
                 return (null, default);
 
             var expiry = new DateTimeOffset(ticks, TimeSpan.Zero);
@@ -233,7 +233,7 @@ internal sealed class AzCliAuthProvider : IAuthenticationProvider
 
             var tmpPath = _cachePath + ".tmp";
             File.WriteAllText(tmpPath,
-                $"{expiry.UtcTicks.ToString(System.Globalization.CultureInfo.InvariantCulture)}\n{token}\n");
+                $"{expiry.UtcTicks.ToString(CultureInfo.InvariantCulture)}\n{token}\n");
             File.Move(tmpPath, _cachePath, overwrite: true);
 
             // Restrict permissions on Unix (Windows inherits user-directory ACLs)

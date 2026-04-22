@@ -51,7 +51,12 @@ cd ../twig2-<ID>
 # 2. Restore dependencies (worktrees don't share NuGet packages)
 dotnet restore
 
-# 3. Run the full SDLC (planning → implementation) for a single work item
+# 3. Copy .twig workspace and set context to the target work item
+Copy-Item -Recurse ../twig2/.twig .twig
+twig set <ID>
+twig sync
+
+# 4. Run the full SDLC (planning → implementation)
 conductor --silent run twig-sdlc-full@twig --input work_item_id=<ID> --web
 
 # Plan only (recursive planner — creates Epic/Issues/Tasks in ADO)

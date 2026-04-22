@@ -29,7 +29,7 @@ public sealed class CreationTools(WorkspaceResolver resolver)
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(title))
-            return McpResultBuilder.ToError("Title is required. Usage: twig_new requires a non-empty title.");
+            return McpResultBuilder.ToError("Title is required.");
 
         var parseResult = WorkItemType.Parse(type);
         if (!parseResult.IsSuccess)
@@ -44,18 +44,10 @@ public sealed class CreationTools(WorkspaceResolver resolver)
 
         if (parentId.HasValue)
         {
-            // Dedup check: look for an existing child with the same title and type
             if (!skipDuplicateCheck)
             {
-                WorkItem? existing;
-                try { existing = await DuplicateGuard.FindExistingChildAsync(ctx.AdoService, parentId.Value, title, parsedType, ct); }
-                catch (Exception ex) when (ex is not OperationCanceledException) { existing = null; }
-
-                if (existing is not null)
-                {
-                    var existingUrl = $"https://dev.azure.com/{ctx.Key.Org}/{ctx.Key.Project}/_workitems/edit/{existing.Id}";
-                    return McpResultBuilder.FormatFoundExisting(existing, existingUrl, ctx.Key.ToString());
-                }
+                var dupeResult = await CheckForDuplicateAsync(ctx, parentId.Value, title, parsedType, ct);
+                if (dupeResult is not null) return dupeResult;
             }
 
             return await CreateParentedAsync(ctx, parentId.Value, title, parsedType, description, assignedTo, ct);
@@ -121,32 +113,10 @@ public sealed class CreationTools(WorkspaceResolver resolver)
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
         CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(title))
-            return McpResultBuilder.ToError("Title is required.");
-
-        var parseResult = WorkItemType.Parse(type);
-        if (!parseResult.IsSuccess)
-            return McpResultBuilder.ToError("Type is required. Provide a work item type (e.g. Epic, Issue, Task).");
-
-        var parsedType = parseResult.Value;
-
         if (parentId <= 0)
             return McpResultBuilder.ToError($"parentId must be a positive work item ID (got {parentId}).");
 
-        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
-
-        // Always check for duplicates
-        WorkItem? existing;
-        try { existing = await DuplicateGuard.FindExistingChildAsync(ctx.AdoService, parentId, title, parsedType, ct); }
-        catch (Exception ex) when (ex is not OperationCanceledException) { existing = null; }
-
-        if (existing is not null)
-        {
-            var existingUrl = $"https://dev.azure.com/{ctx.Key.Org}/{ctx.Key.Project}/_workitems/edit/{existing.Id}";
-            return McpResultBuilder.FormatFoundExisting(existing, existingUrl, ctx.Key.ToString());
-        }
-
-        return await CreateParentedAsync(ctx, parentId, title, parsedType, description, assignedTo, ct);
+        return await New(type, title, parentId, description, assignedTo, workspace, skipDuplicateCheck: false, ct);
     }
 
     [McpServerTool(Name = "twig_link"), Description("Create a relationship between two work items")]
@@ -197,6 +167,19 @@ public sealed class CreationTools(WorkspaceResolver resolver)
         }
 
         return McpResultBuilder.FormatLinked(sourceId, targetId, linkType, warning);
+    }
+
+    private async Task<CallToolResult?> CheckForDuplicateAsync(
+        WorkspaceContext ctx, int parentId, string title, WorkItemType type, CancellationToken ct)
+    {
+        WorkItem? existing;
+        try { existing = await DuplicateGuard.FindExistingChildAsync(ctx.AdoService, parentId, title, type, ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { existing = null; }
+
+        if (existing is null) return null;
+
+        var url = $"https://dev.azure.com/{ctx.Key.Org}/{ctx.Key.Project}/_workitems/edit/{existing.Id}";
+        return McpResultBuilder.FormatFoundExisting(existing, url, ctx.Key.ToString());
     }
 
     private async Task<CallToolResult> CreateParentedAsync(

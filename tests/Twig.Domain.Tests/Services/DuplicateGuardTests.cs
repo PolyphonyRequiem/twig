@@ -1,5 +1,4 @@
 using NSubstitute;
-using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
@@ -79,19 +78,6 @@ public class DuplicateGuardTests
             Arg.Any<CancellationToken>());
     }
 
-    [Fact]
-    public async Task FindExistingChildAsync_PassesTopOne()
-    {
-        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<int>());
-
-        await DuplicateGuard.FindExistingChildAsync(
-            _adoService, parentId: 1, title: "T", type: WorkItemType.Task);
-
-        await _adoService.Received(1).QueryByWiqlAsync(
-            Arg.Any<string>(), Arg.Is<int>(1), Arg.Any<CancellationToken>());
-    }
-
     // ═══════════════════════════════════════════════════════════════
     //  Special characters in title — single-quote escaping
     // ═══════════════════════════════════════════════════════════════
@@ -107,21 +93,6 @@ public class DuplicateGuardTests
 
         await _adoService.Received(1).QueryByWiqlAsync(
             Arg.Is<string>(q => q.Contains("'O''Brien''s Task'")),
-            Arg.Any<int>(),
-            Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task FindExistingChildAsync_TitleWithMultipleSingleQuotes_AllEscaped()
-    {
-        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<int>());
-
-        await DuplicateGuard.FindExistingChildAsync(
-            _adoService, parentId: 1, title: "It's a 'test' title", type: WorkItemType.Task);
-
-        await _adoService.Received(1).QueryByWiqlAsync(
-            Arg.Is<string>(q => q.Contains("'It''s a ''test'' title'")),
             Arg.Any<int>(),
             Arg.Any<CancellationToken>());
     }

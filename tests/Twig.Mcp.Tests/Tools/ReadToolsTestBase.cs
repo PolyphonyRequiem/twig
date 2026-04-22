@@ -126,6 +126,8 @@ public abstract class ReadToolsTestBase
             contextStore, workItemRepo, pendingChangeStore, activeItemResolver,
             workingSet, syncFactory);
         var flusher = new McpPendingChangeFlusher(workItemRepo, adoService, pendingChangeStore);
+        var parentPropagation = new ParentStatePropagationService(
+            workItemRepo, adoService, processConfigProvider, protectedWriter);
         var paths = TwigPaths.ForContext(Path.GetTempPath(), key.Org, key.Project);
         var cacheStore = new SqliteCacheStore("Data Source=:memory:");
 
@@ -134,7 +136,7 @@ public abstract class ReadToolsTestBase
             workItemRepo, contextStore, pendingChangeStore,
             adoService, iterationService, processConfigProvider,
             activeItemResolver, syncFactory, contextChange,
-            statusOrch, workingSet, flusher, promptStateWriter);
+            statusOrch, workingSet, flusher, promptStateWriter, parentPropagation);
     }
 
     protected ReadTools CreateSut(TwigConfiguration config)

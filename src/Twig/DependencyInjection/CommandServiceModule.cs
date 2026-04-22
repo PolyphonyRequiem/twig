@@ -92,6 +92,12 @@ public static class CommandServiceModule
             sp.GetRequiredService<IProcessConfigurationProvider>(),
             sp.GetRequiredService<ProtectedCacheWriter>()));
 
+        services.AddSingleton<ParentStatePropagationService>(sp => new ParentStatePropagationService(
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IProcessConfigurationProvider>(),
+            sp.GetRequiredService<ProtectedCacheWriter>()));
+
         services.AddSingleton<RefreshOrchestrator>(sp => new RefreshOrchestrator(
             sp.GetRequiredService<IContextStore>(),
             sp.GetRequiredService<IWorkItemRepository>(),

@@ -147,6 +147,9 @@ public sealed class WorkspaceContextFactory : IWorkspaceContextFactory, IDisposa
 
         var flusher = new McpPendingChangeFlusher(workItemRepo, adoService, pendingChangeStore);
 
+        var parentPropagationService = new ParentStatePropagationService(
+            workItemRepo, adoService, processConfigProvider, protectedCacheWriter);
+
         var promptStateWriter = new PromptStateWriter(
             contextStore,
             workItemRepo,
@@ -171,7 +174,8 @@ public sealed class WorkspaceContextFactory : IWorkspaceContextFactory, IDisposa
             statusOrchestrator,
             workingSetService,
             flusher,
-            promptStateWriter);
+            promptStateWriter,
+            parentPropagationService);
     }
 
     public void Dispose()

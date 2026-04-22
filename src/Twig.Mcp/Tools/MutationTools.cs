@@ -2,6 +2,7 @@ using System.ComponentModel;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Enums;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado;
@@ -89,6 +90,12 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         {
             updated = item;
         }
+
+        // Parent propagation: if child moved to InProgress, activate parent if still Proposed.
+        // The service is best-effort and never throws (except OperationCanceledException).
+        var newCategory = StateCategoryResolver.Resolve(newState, typeConfig.StateEntries);
+        if (newCategory == StateCategory.InProgress)
+            _ = await ctx.ParentPropagationService.TryPropagateToParentAsync(updated, StateCategory.InProgress, ct);
 
         try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }

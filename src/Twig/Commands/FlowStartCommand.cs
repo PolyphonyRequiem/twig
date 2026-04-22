@@ -30,7 +30,8 @@ public sealed class FlowStartCommand(
     IIterationService? iterationService = null,
     IPromptStateWriter? promptStateWriter = null,
     INavigationHistoryStore? historyStore = null,
-    ContextChangeService? contextChangeService = null)
+    ContextChangeService? contextChangeService = null,
+    ParentStatePropagationService? parentPropagationService = null)
 {
     /// <summary>Begin working on a work item: set context, transition state, assign, create branch.</summary>
     public async Task<int> ExecuteAsync(
@@ -188,6 +189,11 @@ public sealed class FlowStartCommand(
                 }
             }
         }
+
+        // Parent propagation: child just moved to InProgress — activate parent if still Proposed.
+        // Best-effort: the service never throws; failures do not affect the child command.
+        if (newState is not null && parentPropagationService is not null)
+            _ = await parentPropagationService.TryPropagateToParentAsync(item, StateCategory.InProgress, ct);
 
         // 6. Assignment logic
         string? assignedDisplayName = null;

@@ -24,7 +24,8 @@ public sealed class StateCommand(
     OutputFormatterFactory formatterFactory,
     HintEngine hintEngine,
     IPromptStateWriter? promptStateWriter = null,
-    TextWriter? stderr = null)
+    TextWriter? stderr = null,
+    ParentStatePropagationService? parentPropagationService = null)
 {
     private readonly TextWriter _stderr = stderr ?? Console.Error;
 
@@ -120,6 +121,15 @@ public sealed class StateCommand(
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _stderr.WriteLine($"warning: State changed to '{newState}' but cache may be stale — run 'twig sync' to resync ({ex.Message})");
+        }
+
+        // Parent propagation: if child moved to InProgress, activate parent if still Proposed.
+        // Best-effort — failures are absorbed and never affect the child command's exit code.
+        if (parentPropagationService is not null)
+        {
+            var newCategory = StateCategoryResolver.Resolve(newState, typeConfig.StateEntries);
+            if (newCategory == StateCategory.InProgress)
+                _ = await parentPropagationService.TryPropagateToParentAsync(item, StateCategory.InProgress, ct);
         }
 
         if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();

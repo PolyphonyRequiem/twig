@@ -64,6 +64,13 @@ public class FlowStartCommandTests
             _processConfigProvider, _consoleInput, _formatterFactory, _hintEngine, _config,
             pipelineFactory: null, gitService: gitService, iterationService: iterationService);
 
+    private FlowStartCommand CreateCommandWithPropagation(IGitService? gitService = null) =>
+        new(_workItemRepo, _adoService, _contextStore, _activeItemResolver, _protectedCacheWriter,
+            _processConfigProvider, _consoleInput, _formatterFactory, _hintEngine, _config,
+            pipelineFactory: null, gitService: gitService,
+            parentPropagationService: new ParentStatePropagationService(
+                _workItemRepo, _adoService, _processConfigProvider, _protectedCacheWriter));
+
     private FlowStartCommand CreateCommandWithRenderer(
         IAsyncRenderer renderer, IGitService? gitService = null, IIterationService? iterationService = null)
     {
@@ -672,5 +679,93 @@ public class FlowStartCommandTests
         {
             Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
         }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Parent propagation
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task FlowStart_ToInProgress_PropagatesParentFromProposedToInProgress()
+    {
+        // Child UserStory in Proposed (New) with parent Epic
+        var child = new WorkItemBuilder(1, "My Story").AsUserStory().InState("New").WithParent(100).Build();
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(child);
+
+        // Parent Epic in Proposed (New) state
+        var parent = new WorkItemBuilder(100, "Parent Epic").AsEpic().InState("New").Build();
+        parent.MarkSynced(5);
+
+        // Child: conflict check fetch + assignment re-fetch
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(child);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+
+        // Parent: cache hit + ADO fetch for revision + patch
+        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
+        _adoService.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
+        _adoService.PatchAsync(100, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(6);
+
+        var cmd = CreateCommandWithPropagation();
+        var result = await cmd.ExecuteAsync("1", noAssign: true, noBranch: true);
+
+        result.ShouldBe(0);
+        // Parent Epic should have been patched to Active (first InProgress state in Agile)
+        await _adoService.Received().PatchAsync(
+            100,
+            Arg.Is<IReadOnlyList<FieldChange>>(c =>
+                c.Count == 1 &&
+                c[0].FieldName == "System.State" &&
+                c[0].OldValue == "New" &&
+                c[0].NewValue == "Active"),
+            Arg.Any<int>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task FlowStart_ToInProgress_ParentAlreadyActive_NoPropagationPatch()
+    {
+        var child = new WorkItemBuilder(1, "My Story").AsUserStory().InState("New").WithParent(100).Build();
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(child);
+
+        // Parent already in Active (InProgress) — propagation is a no-op
+        var parent = new WorkItemBuilder(100, "Parent Epic").AsEpic().InState("Active").Build();
+
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(child);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
+
+        var cmd = CreateCommandWithPropagation();
+        var result = await cmd.ExecuteAsync("1", noAssign: true, noBranch: true);
+
+        result.ShouldBe(0);
+        // No PatchAsync for parent — already active
+        await _adoService.DidNotReceive().PatchAsync(
+            100, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task FlowStart_NoStateTransition_NoPropagation()
+    {
+        // Item already in Active — flow-start skips state transition, so no propagation
+        var child = new WorkItemBuilder(1, "My Story").AsUserStory().InState("Active").WithParent(100).Build();
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(child);
+
+        var parent = new WorkItemBuilder(100, "Parent Epic").AsEpic().InState("New").Build();
+
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(child);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
+
+        var cmd = CreateCommandWithPropagation();
+        var result = await cmd.ExecuteAsync("1", noAssign: true, noBranch: true);
+
+        result.ShouldBe(0);
+        // No propagation patch — child wasn't transitioned to InProgress by this command
+        await _adoService.DidNotReceive().PatchAsync(
+            100, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 }

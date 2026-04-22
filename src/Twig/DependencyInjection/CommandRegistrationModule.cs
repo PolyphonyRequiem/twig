@@ -44,7 +44,17 @@ public static class CommandRegistrationModule
         services.AddSingleton<SetCommand>();
         services.AddSingleton<ShowCommand>();
         services.AddSingleton<StatusCommand>();
-        services.AddSingleton<StateCommand>();
+        services.AddSingleton<StateCommand>(sp => new StateCommand(
+            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IPendingChangeStore>(),
+            sp.GetRequiredService<IProcessConfigurationProvider>(),
+            sp.GetRequiredService<IConsoleInput>(),
+            sp.GetRequiredService<OutputFormatterFactory>(),
+            sp.GetRequiredService<HintEngine>(),
+            sp.GetRequiredService<IPromptStateWriter>(),
+            parentPropagationService: sp.GetRequiredService<Domain.Services.ParentStatePropagationService>()));
         services.AddSingleton<TreeCommand>();
         services.AddSingleton<NavigationCommands>();
         services.AddSingleton<NavigationHistoryCommands>();
@@ -160,7 +170,8 @@ public static class CommandRegistrationModule
             sp.GetService<IIterationService>(),
             sp.GetRequiredService<IPromptStateWriter>(),
             sp.GetService<INavigationHistoryStore>(),
-            sp.GetService<Domain.Services.ContextChangeService>()));
+            sp.GetService<Domain.Services.ContextChangeService>(),
+            sp.GetRequiredService<Domain.Services.ParentStatePropagationService>()));
         services.AddSingleton<FlowDoneCommand>(sp => new FlowDoneCommand(
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IPendingChangeStore>(),

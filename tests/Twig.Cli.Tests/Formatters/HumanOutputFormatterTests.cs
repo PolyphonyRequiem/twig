@@ -306,6 +306,21 @@ public class HumanOutputFormatterTests
     }
 
     [Fact]
+    public void FormatWorkspace_WithSections_SingleManualSection_UsesModeName()
+    {
+        var manualItems = new[] { CreateWorkItem(1, "Manual Task", "Active") };
+        var sections = WorkspaceSections.Build(
+            Array.Empty<WorkItem>(), manualItems: manualItems);
+        var ws = Workspace.Build(null, Array.Empty<WorkItem>(), Array.Empty<WorkItem>(), sections: sections);
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+
+        // Single section with Manual mode should show "Manual (1 items):", not "Sprint"
+        result.ShouldContain("Manual (1 items):");
+        result.ShouldNotContain("Sprint");
+    }
+
+    [Fact]
     public void FormatWorkspace_WithSections_MultipleSections_ShowsSectionHeaders()
     {
         var sprintItems = new[] { CreateWorkItem(1, "Sprint Task", "Active") };

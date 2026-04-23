@@ -244,6 +244,57 @@ public class JsonOutputFormatterTests
         root.GetProperty("staleSeeds")[0].GetInt32().ShouldBe(-2);
     }
 
+    [Fact]
+    public void FormatWorkspace_WithSections_IncludesSectionsMetadata()
+    {
+        var sprintItems = new[] { CreateWorkItem(1, "Sprint Task", "Active") };
+        var manualItems = new[] { CreateWorkItem(2, "Manual Task", "New") };
+        var sections = WorkspaceSections.Build(sprintItems, manualItems: manualItems);
+        var ws = Workspace.Build(null, sprintItems, Array.Empty<WorkItem>(), sections: sections);
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+        var root = JsonDocument.Parse(result).RootElement;
+
+        root.TryGetProperty("sections", out var sectionsEl).ShouldBeTrue();
+        sectionsEl.GetArrayLength().ShouldBe(2);
+
+        sectionsEl[0].GetProperty("modeName").GetString().ShouldBe("Sprint");
+        sectionsEl[0].GetProperty("itemCount").GetInt32().ShouldBe(1);
+        sectionsEl[0].GetProperty("itemIds")[0].GetInt32().ShouldBe(1);
+
+        sectionsEl[1].GetProperty("modeName").GetString().ShouldBe("Manual");
+        sectionsEl[1].GetProperty("itemCount").GetInt32().ShouldBe(1);
+        sectionsEl[1].GetProperty("itemIds")[0].GetInt32().ShouldBe(2);
+    }
+
+    [Fact]
+    public void FormatWorkspace_WithSections_IncludesExcludedItemIds()
+    {
+        var items = new[] { CreateWorkItem(1, "Task", "Active") };
+        var sections = WorkspaceSections.Build(items, excludedIds: new[] { 42, 99 });
+        var ws = Workspace.Build(null, items, Array.Empty<WorkItem>(), sections: sections);
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+        var root = JsonDocument.Parse(result).RootElement;
+
+        root.TryGetProperty("excludedItemIds", out var excluded).ShouldBeTrue();
+        excluded.GetArrayLength().ShouldBe(2);
+        excluded[0].GetInt32().ShouldBe(42);
+        excluded[1].GetInt32().ShouldBe(99);
+    }
+
+    [Fact]
+    public void FormatWorkspace_WithoutSections_OmitsSectionsProperty()
+    {
+        var ws = Workspace.Build(null, Array.Empty<WorkItem>(), Array.Empty<WorkItem>());
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+        var root = JsonDocument.Parse(result).RootElement;
+
+        root.TryGetProperty("sections", out _).ShouldBeFalse();
+        root.TryGetProperty("excludedItemIds", out _).ShouldBeFalse();
+    }
+
     // ── Disambiguation ──────────────────────────────────────────────
 
     [Fact]

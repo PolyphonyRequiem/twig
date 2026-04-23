@@ -354,7 +354,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         // Mode-sectioned output when WorkspaceSections is available
         if (ws.Sections is not null)
         {
-            RenderModeSections(sb, ws, staleDays);
+            RenderModeSections(sb, ws);
         }
         else
         {
@@ -439,7 +439,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
     /// Renders workspace items grouped by mode sections with optional section headers.
     /// Section headers are omitted when only one section is present.
     /// </summary>
-    private void RenderModeSections(StringBuilder sb, Workspace ws, int staleDays)
+    private void RenderModeSections(StringBuilder sb, Workspace ws)
     {
         var sections = ws.Sections!;
         var showHeaders = sections.Sections.Count > 1;
@@ -452,7 +452,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
             }
             else
             {
-                sb.AppendLine($"  {Bold}Sprint ({section.Items.Count} items):{Reset}");
+                sb.AppendLine($"  {Bold}{section.ModeName} ({section.Items.Count} items):{Reset}");
             }
 
             var wsLines = new List<AlignedLine>();
@@ -592,6 +592,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         {
             sb.AppendLine();
             sb.AppendLine($"  {Bold}Seeds ({ws.Seeds.Count}):{Reset}");
+            var seedIndicator = FormatSeedIndicator();
             var staleSeeds = ws.GetStaleSeeds(staleDays);
             var staleSeedIds = new HashSet<int>(staleSeeds.Count);
             foreach (var s in staleSeeds)
@@ -601,7 +602,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
                 var staleWarning = staleSeedIds.Contains(seed.Id) ? $" {Red}⚠ stale{Reset}" : "";
                 var seedTypeColor = GetTypeColor(seed.Type);
                 var seedBadge = GetTypeBadge(seed.Type);
-                sb.AppendLine($"    {seedTypeColor}{seedBadge}{Reset} #{seed.Id} {seed.Title} ({seed.Type}){staleWarning}");
+                sb.AppendLine($"    {seedIndicator} {seedTypeColor}{seedBadge}{Reset} #{seed.Id} {seed.Title} ({seed.Type}){staleWarning}");
             }
         }
 

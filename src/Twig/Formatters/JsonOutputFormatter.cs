@@ -193,6 +193,29 @@ public sealed class JsonOutputFormatter : IOutputFormatter
         }
         writer.WriteEndArray();
 
+        // Mode sections (when available)
+        if (ws.Sections is not null)
+        {
+            writer.WriteStartArray("sections");
+            foreach (var section in ws.Sections.Sections)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("modeName", section.ModeName);
+                writer.WriteNumber("itemCount", section.Items.Count);
+                writer.WriteStartArray("itemIds");
+                foreach (var item in section.Items)
+                    writer.WriteNumberValue(item.Id);
+                writer.WriteEndArray();
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+
+            writer.WriteStartArray("excludedItemIds");
+            foreach (var id in ws.Sections.ExcludedItemIds)
+                writer.WriteNumberValue(id);
+            writer.WriteEndArray();
+        }
+
         // Dirty items
         var dirtyItems = ws.GetDirtyItems();
         writer.WriteNumber("dirtyCount", dirtyItems.Count);

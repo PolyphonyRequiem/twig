@@ -70,21 +70,53 @@ conductor --silent run twig-sdlc-full@twig --input work_item_id=<ID> --input ski
 ## Launching Multiple Runs
 
 When running multiple work items, use **discrete worktrees** and launch **10 seconds apart**.
-Use `tools/run-conductor.ps1` to ensure all child processes (MCP servers, test runners)
-are killed when conductor exits — prevents orphaned processes that lock worktree directories.
 
-```bash
+### Option A: Direct launch with logging (recommended)
+
+Simpler approach — launches conductor directly with `Tee-Object` for log capture.
+Dashboard URLs are written to `conductor.log` in each worktree.
+
+```powershell
 # Create worktrees (NEVER on main — always a dedicated branch)
 git worktree add -b sdlc/1673 ../twig2-1673 main
 git worktree add -b sdlc/1782 ../twig2-1782 main
 
-# Launch 10s apart using Job Object wrapper (kills all children on exit)
+# Launch 10s apart with log capture
 $ids = 1673, 1782
 foreach ($id in $ids) {
-    Start-Process -FilePath "pwsh" -ArgumentList "-NoProfile","-File",
+    $wt = "C:\Users\dangreen\projects\twig2-$id"
+    Start-Process -FilePath "pwsh" -ArgumentList "-NoProfile", "-Command",
+        "cd $wt; conductor --silent run twig-sdlc-full@twig --input work_item_id=$id --input skip_plan_review=true -m tracker=ado -m project_url=https://dev.azure.com/dangreen-msft/Twig -m git_repo=C:\Users\dangreen\projects\twig2 -m workitem_id=$id -m worktree_name=twig2-$id -m cwd=$wt --web 2>&1 | Tee-Object -FilePath $wt\conductor.log" `
+        -PassThru | ForEach-Object { "Launched #$id — PID $($_.Id)" }
+    if ($id -ne $ids[-1]) { Start-Sleep -Seconds 10 }
+}
+
+# Retrieve dashboard URLs after ~15s
+Start-Sleep -Seconds 15
+foreach ($id in $ids) {
+    Get-Content "C:\Users\dangreen\projects\twig2-$id\conductor.log" |
+        Select-String "Dashboard:" | Select-Object -First 1
+}
+```
+
+### Option B: Job Object wrapper (orphan cleanup)
+
+Use `tools/run-conductor.ps1` when orphaned processes are a concern (MCP servers, test
+runners surviving after conductor exits). The wrapper creates a Windows Job Object that
+kills all child processes when conductor exits.
+
+> **⚠️ Argument quoting is critical** — the `-Arguments` value must be wrapped in escaped
+> quotes so `Start-Process` passes it as a single token to the script parameter.
+
+```powershell
+$ids = 1673, 1782
+foreach ($id in $ids) {
+    $wt = "C:\Users\dangreen\projects\twig2-$id"
+    $args = "--silent run twig-sdlc-full@twig --input work_item_id=$id --input skip_plan_review=true -m tracker=ado -m project_url=https://dev.azure.com/dangreen-msft/Twig -m git_repo=C:\Users\dangreen\projects\twig2 -m workitem_id=$id -m worktree_name=twig2-$id -m cwd=$wt --web"
+    Start-Process -FilePath "pwsh" -ArgumentList "-NoProfile", "-File",
         "tools\run-conductor.ps1",
-        "-WorkingDirectory", "C:\Users\dangreen\projects\twig2-$id",
-        "-Arguments", "--silent run twig-sdlc-implement@twig --input work_item_id=$id --web" `
+        "-WorkingDirectory", "`"$wt`"",
+        "-Arguments", "`"$args`"" `
         -WindowStyle Hidden
     if ($id -ne $ids[-1]) { Start-Sleep -Seconds 10 }
 }

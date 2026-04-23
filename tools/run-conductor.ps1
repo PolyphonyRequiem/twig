@@ -29,6 +29,19 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Validate inputs
+if (-not (Test-Path $WorkingDirectory)) {
+    Write-Error "WorkingDirectory does not exist: $WorkingDirectory"
+    exit 1
+}
+if ([string]::IsNullOrWhiteSpace($Arguments)) {
+    Write-Error "Arguments parameter is empty or whitespace. Ensure the value is quoted as a single string when passed via Start-Process."
+    exit 1
+}
+
+Write-Host "WorkingDirectory: $WorkingDirectory"
+Write-Host "Arguments: $Arguments"
+
 # Create a Job Object that kills all processes when closed
 Add-Type -TypeDefinition @"
 using System;

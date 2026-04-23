@@ -23,6 +23,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService
     private readonly string _orgUrl;
     private readonly string _project;
     private readonly IFieldDefinitionStore? _fieldDefStore;
+    private readonly AdoConcurrencyThrottle? _throttle;
     private IReadOnlyDictionary<string, FieldDefinition>? _fieldDefLookup;
 
     public AdoRestClient(
@@ -30,7 +31,8 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         IAuthenticationProvider authProvider,
         string orgUrl,
         string project,
-        IFieldDefinitionStore? fieldDefStore = null)
+        IFieldDefinitionStore? fieldDefStore = null,
+        AdoConcurrencyThrottle? throttle = null)
     {
         if (string.IsNullOrWhiteSpace(orgUrl))
             throw new InvalidOperationException("Organization is not configured. Run 'twig init --org <org> --project <project>' first.");
@@ -42,6 +44,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         _orgUrl = NormalizeOrgUrl(orgUrl);
         _project = project;
         _fieldDefStore = fieldDefStore;
+        _throttle = throttle;
     }
 
     /// <summary>
@@ -299,6 +302,11 @@ internal sealed class AdoRestClient : IAdoWorkItemService
             request.Headers.TryAddWithoutValidation("If-Match", ifMatch);
         }
 
+        // Acquire concurrency slot (no-op when throttle is not registered)
+        using var throttleSlot = _throttle is not null
+            ? await _throttle.AcquireAsync(ct)
+            : null;
+
         HttpResponseMessage response;
         try
         {
@@ -313,7 +321,16 @@ internal sealed class AdoRestClient : IAdoWorkItemService
             throw new AdoOfflineException(ex);
         }
 
-        await AdoErrorHandler.ThrowOnErrorAsync(response, url, ct);
+        try
+        {
+            await AdoErrorHandler.ThrowOnErrorAsync(response, url, ct);
+        }
+        catch (AdoRateLimitException ex)
+        {
+            _throttle?.SetPause(ex.RetryAfter);
+            throw;
+        }
+
         return response;
     }
 

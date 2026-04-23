@@ -5,7 +5,7 @@
 | **Work Item** | #1842 |
 | **Parent Epic** | #1673 — Read MSAL token cache directly instead of shelling out to az CLI |
 | **Type** | Issue (Closeout) |
-| **Status** | Draft |
+| **Status** | ✅ Done |
 | **Revision** | 0 |
 | **Revision Notes** | Initial draft. |
 

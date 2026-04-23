@@ -2,7 +2,7 @@
 work_item_id: 1918
 title: "Plan detector false positives: matches parent epic plans as child issue plans"
 type: Issue
-status: Draft
+status: Done
 revision: 0
 revision_notes: "Initial draft."
 ---
@@ -13,7 +13,7 @@ revision_notes: "Initial draft."
 |-------|-------|
 | **Work Item** | #1918 |
 | **Type** | Issue |
-| **Status** | Draft |
+| **Status** | ✅ Done |
 | **Revision** | 0 |
 | **Revision Notes** | Initial draft. |
 

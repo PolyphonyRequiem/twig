@@ -351,16 +351,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
 
         sb.AppendLine();
 
-        // Mode-sectioned output when WorkspaceSections is available
-        if (ws.Sections is not null)
-        {
-            RenderModeSections(sb, ws);
-        }
-        else
-        {
-            // Legacy flat rendering (fallback when no sections available)
-            RenderLegacySprintItems(sb, ws);
-        }
+        RenderModeSections(sb, ws, ws.Sections ?? WorkspaceSections.Build(ws.SprintItems));
 
         // Sprint progress summary (computed from all sprint items regardless of sectioning)
         if (ws.SprintItems.Count > 0)
@@ -438,10 +429,16 @@ public sealed class HumanOutputFormatter : IOutputFormatter
     /// <summary>
     /// Renders workspace items grouped by mode sections with optional section headers.
     /// Section headers are omitted when only one section is present.
+    /// When no sections exist (empty sprint), renders an empty Sprint header.
     /// </summary>
-    private void RenderModeSections(StringBuilder sb, Workspace ws)
+    private void RenderModeSections(StringBuilder sb, Workspace ws, WorkspaceSections sections)
     {
-        var sections = ws.Sections!;
+        if (sections.Sections.Count == 0)
+        {
+            sb.AppendLine($"  {Bold}Sprint (0 items):{Reset}");
+            return;
+        }
+
         var showHeaders = sections.Sections.Count > 1;
 
         foreach (var section in sections.Sections)
@@ -526,45 +523,6 @@ public sealed class HumanOutputFormatter : IOutputFormatter
                     CollectHierarchyChildrenForCategory(wsLines, ws, root, childIndent: "      ", category: category);
                 }
             }
-        }
-    }
-
-    /// <summary>
-    /// Legacy sprint items rendering (no mode sections). Used as fallback.
-    /// </summary>
-    private void RenderLegacySprintItems(StringBuilder sb, Workspace ws)
-    {
-        sb.AppendLine($"  {Bold}Sprint ({ws.SprintItems.Count} items):{Reset}");
-        var wsLines = new List<AlignedLine>();
-        var categoryGroups = GroupByStateCategory(ws.SprintItems);
-        var wsCatIndex = 0;
-        foreach (var (category, items) in categoryGroups)
-        {
-            if (wsCatIndex > 0)
-                sb.AppendLine($"    {Dim}────{Reset}");
-
-            sb.AppendLine($"    {Bold}{FormatCategoryHeader(category)}{Reset} ({items.Count})");
-            wsLines.Clear();
-            if (ws.Hierarchy is not null)
-            {
-                RenderHierarchicalCategory(sb, wsLines, ws, category);
-            }
-            else
-            {
-                foreach (var item in items)
-                {
-                    var marker = (ws.ContextItem is not null && item.Id == ws.ContextItem.Id) ? $"{Cyan}●{Reset}" : " ";
-                    var dirty = item.IsDirty ? $" {Yellow}✎{Reset}" : "";
-                    var stateColor = GetStateColor(item.State);
-                    var sprintTypeColor = GetTypeColor(item.Type);
-                    var sprintBadge = GetTypeBadge(item.Type);
-                    wsLines.Add(new AlignedLine(
-                        $"      {marker} {sprintTypeColor}{sprintBadge}{Reset} #{item.Id} {item.Title}",
-                        $"[{stateColor}{item.State}{Reset}]", dirty));
-                }
-            }
-            FlushAlignedLines(sb, wsLines);
-            wsCatIndex++;
         }
     }
 

@@ -221,20 +221,22 @@ public sealed class NavigationToolsQueryTests : NavigationToolsTestBase
     //  createdSince / changedSince wired into WIQL and description
     // ═══════════════════════════════════════════════════════════════
 
-    [Fact]
-    public async Task Query_CreatedSince_IncludedInWiqlAndDescription()
+    [Theory]
+    [InlineData(7)]
+    [InlineData(0)]
+    public async Task Query_CreatedSince_IncludedInWiqlAndDescription(int days)
     {
         string? capturedWiql = null;
         _adoService.QueryByWiqlAsync(Arg.Do<string>(w => capturedWiql = w), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<int>());
 
-        var result = await CreateSut().Query(createdSince: 7);
+        var result = await CreateSut().Query(createdSince: days);
 
         result.IsError.ShouldBeNull();
         capturedWiql.ShouldNotBeNull();
-        capturedWiql.ShouldContain("[System.CreatedDate] >= @Today - 7");
+        capturedWiql.ShouldContain($"[System.CreatedDate] >= @Today - {days}");
         var desc = ParseResult(result).GetProperty("queryDescription").GetString()!;
-        desc.ShouldContain("created within 7d");
+        desc.ShouldContain($"created within {days}d");
     }
 
     [Fact]
@@ -269,22 +271,6 @@ public sealed class NavigationToolsQueryTests : NavigationToolsTestBase
         var desc = ParseResult(result).GetProperty("queryDescription").GetString()!;
         desc.ShouldContain("created within 30d");
         desc.ShouldContain("changed within 7d");
-    }
-
-    [Fact]
-    public async Task Query_CreatedSinceZero_ProducesTodayMinusZero()
-    {
-        string? capturedWiql = null;
-        _adoService.QueryByWiqlAsync(Arg.Do<string>(w => capturedWiql = w), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<int>());
-
-        var result = await CreateSut().Query(createdSince: 0);
-
-        result.IsError.ShouldBeNull();
-        capturedWiql.ShouldNotBeNull();
-        capturedWiql.ShouldContain("[System.CreatedDate] >= @Today - 0");
-        var desc = ParseResult(result).GetProperty("queryDescription").GetString()!;
-        desc.ShouldContain("created within 0d");
     }
 
     [Fact]

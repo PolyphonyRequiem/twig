@@ -10,13 +10,8 @@ internal static class AuthProviderFactory
 {
     /// <summary>
     /// Creates an <see cref="IAuthenticationProvider"/> for the specified auth method.
+    /// Case-insensitive; any non-<c>"pat"</c> value returns the MSAL-cache-first AzCli chain.
     /// </summary>
-    /// <param name="authMethod">
-    /// The configured auth method (e.g. <c>"pat"</c>, <c>"azcli"</c>).
-    /// Case-insensitive. Any value other than <c>"pat"</c> falls through to the
-    /// MSAL-cache-first AzCli chain.
-    /// </param>
-    /// <returns>A fully-composed authentication provider.</returns>
     public static IAuthenticationProvider Create(string authMethod)
     {
         if (string.Equals(authMethod, "pat", StringComparison.OrdinalIgnoreCase))

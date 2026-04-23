@@ -28,10 +28,7 @@ public static class NetworkServiceModule
     {
         // Auth provider (resolve from config via centralized factory)
         services.AddSingleton<IAuthenticationProvider>(sp =>
-        {
-            var cfg = sp.GetRequiredService<TwigConfiguration>();
-            return AuthProviderFactory.Create(cfg.Auth.Method);
-        });
+            AuthProviderFactory.Create(sp.GetRequiredService<TwigConfiguration>().Auth.Method));
 
         // HTTP client — singleton backed by SocketsHttpHandler for automatic
         // gzip/Brotli decompression and HTTP/2 multiplexing with HTTP/1.1 fallback.

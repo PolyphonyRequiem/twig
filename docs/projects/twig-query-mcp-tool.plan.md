@@ -4,7 +4,7 @@
 |---|---|
 | **Issue** | #1820 — Query and search tool: twig_query |
 | **Parent Epic** | #1812 — Expand twig-mcp with 7 new tools |
-| **Status** | Draft |
+| **Status** | ✅ Done |
 | **Revision** | 0 |
 | **Revision Notes** | Initial draft. |
 

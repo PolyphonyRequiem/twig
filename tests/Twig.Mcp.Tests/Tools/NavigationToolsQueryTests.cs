@@ -232,7 +232,7 @@ public sealed class NavigationToolsQueryTests : NavigationToolsTestBase
 
         result.IsError.ShouldBeNull();
         capturedWiql.ShouldNotBeNull();
-        capturedWiql.ShouldContain("System.CreatedDate");
+        capturedWiql.ShouldContain("[System.CreatedDate] >= @Today - 7");
         var desc = ParseResult(result).GetProperty("queryDescription").GetString()!;
         desc.ShouldContain("created within 7d");
     }
@@ -248,7 +248,7 @@ public sealed class NavigationToolsQueryTests : NavigationToolsTestBase
 
         result.IsError.ShouldBeNull();
         capturedWiql.ShouldNotBeNull();
-        capturedWiql.ShouldContain("System.ChangedDate");
+        capturedWiql.ShouldContain("[System.ChangedDate] >= @Today - 14");
         var desc = ParseResult(result).GetProperty("queryDescription").GetString()!;
         desc.ShouldContain("changed within 14d");
     }
@@ -264,11 +264,60 @@ public sealed class NavigationToolsQueryTests : NavigationToolsTestBase
 
         result.IsError.ShouldBeNull();
         capturedWiql.ShouldNotBeNull();
-        capturedWiql.ShouldContain("System.CreatedDate");
-        capturedWiql.ShouldContain("System.ChangedDate");
+        capturedWiql.ShouldContain("[System.CreatedDate] >= @Today - 30");
+        capturedWiql.ShouldContain("[System.ChangedDate] >= @Today - 7");
         var desc = ParseResult(result).GetProperty("queryDescription").GetString()!;
         desc.ShouldContain("created within 30d");
         desc.ShouldContain("changed within 7d");
+    }
+
+    [Fact]
+    public async Task Query_CreatedSinceZero_ProducesTodayMinusZero()
+    {
+        string? capturedWiql = null;
+        _adoService.QueryByWiqlAsync(Arg.Do<string>(w => capturedWiql = w), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
+
+        var result = await CreateSut().Query(createdSince: 0);
+
+        result.IsError.ShouldBeNull();
+        capturedWiql.ShouldNotBeNull();
+        capturedWiql.ShouldContain("[System.CreatedDate] >= @Today - 0");
+        var desc = ParseResult(result).GetProperty("queryDescription").GetString()!;
+        desc.ShouldContain("created within 0d");
+    }
+
+    [Fact]
+    public async Task Query_DateFilterWithSearchText_ProducesCorrectWiqlAndDescription()
+    {
+        string? capturedWiql = null;
+        _adoService.QueryByWiqlAsync(Arg.Do<string>(w => capturedWiql = w), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
+
+        var result = await CreateSut().Query(searchText: "login bug", createdSince: 5);
+
+        result.IsError.ShouldBeNull();
+        capturedWiql.ShouldNotBeNull();
+        capturedWiql.ShouldContain("CONTAINS 'login bug'");
+        capturedWiql.ShouldContain("[System.CreatedDate] >= @Today - 5");
+        var desc = ParseResult(result).GetProperty("queryDescription").GetString()!;
+        desc.ShouldContain("title or description contains 'login bug'");
+        desc.ShouldContain("created within 5d");
+    }
+
+    [Fact]
+    public async Task Query_DateFilterWithTypeFilter_DescriptionContainsAndSeparator()
+    {
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
+
+        var result = await CreateSut().Query(type: "Bug", changedSince: 3);
+
+        result.IsError.ShouldBeNull();
+        var desc = ParseResult(result).GetProperty("queryDescription").GetString()!;
+        desc.ShouldContain("type = 'Bug'");
+        desc.ShouldContain("changed within 3d");
+        desc.ShouldContain(" AND ");
     }
 
     [Fact]

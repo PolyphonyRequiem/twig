@@ -35,18 +35,25 @@ $ErrorActionPreference = "Stop"
 function Get-PlanTitle {
     param([string]$Path)
     $lines = Get-Content $Path -Encoding UTF8
-    # Try YAML frontmatter 'goal:' field first
+    # Try YAML frontmatter: prefer 'title:' over 'goal:'
     $inFrontmatter = $false
+    $fmTitle = $null
+    $fmGoal = $null
     foreach ($line in $lines) {
         if ($line -match '^---\s*$') {
             if ($inFrontmatter) { break }
             $inFrontmatter = $true
             continue
         }
+        if ($inFrontmatter -and $line -match '^\s*title:\s*"?([^"]+)"?\s*$') {
+            $fmTitle = $Matches[1].Trim()
+        }
         if ($inFrontmatter -and $line -match '^\s*goal:\s*(.+)') {
-            return $Matches[1].Trim()
+            $fmGoal = $Matches[1].Trim()
         }
     }
+    if ($fmTitle) { return $fmTitle }
+    if ($fmGoal) { return $fmGoal }
     # Fall back to first H1 heading
     foreach ($line in $lines) {
         if ($line -match '^#\s+(.+)') {
@@ -54,6 +61,23 @@ function Get-PlanTitle {
         }
     }
     return [System.IO.Path]::GetFileNameWithoutExtension($Path)
+}
+
+function Get-PlanWorkItemId {
+    param([string]$Path)
+    $lines = Get-Content $Path -Encoding UTF8
+    $inFrontmatter = $false
+    foreach ($line in $lines) {
+        if ($line -match '^---\s*$') {
+            if ($inFrontmatter) { break }
+            $inFrontmatter = $true
+            continue
+        }
+        if ($inFrontmatter -and $line -match '^\s*work_item_id:\s*(\d+)') {
+            return [int]$Matches[1]
+        }
+    }
+    return $null
 }
 
 function Get-PlanEpics {

@@ -26,14 +26,11 @@ public static class NetworkServiceModule
         string? resolvedGitProject = null,
         string? resolvedRepository = null)
     {
-        // Auth provider (resolve from config)
+        // Auth provider (resolve from config via centralized factory)
         services.AddSingleton<IAuthenticationProvider>(sp =>
         {
             var cfg = sp.GetRequiredService<TwigConfiguration>();
-            if (string.Equals(cfg.Auth.Method, "pat", StringComparison.OrdinalIgnoreCase))
-                return new PatAuthProvider();
-            var azCli = new AzCliAuthProvider();
-            return new MsalCacheTokenProvider(azCli);
+            return AuthProviderFactory.Create(cfg.Auth.Method);
         });
 
         // HTTP client — singleton backed by SocketsHttpHandler for automatic

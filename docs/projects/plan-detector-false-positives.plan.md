@@ -2,7 +2,7 @@
 work_item_id: 1918
 title: "Plan detector false positives: matches parent epic plans as child issue plans"
 type: Issue
-status: Draft
+status: Done
 revision: 0
 revision_notes: "Initial draft."
 ---
@@ -13,7 +13,7 @@ revision_notes: "Initial draft."
 |-------|-------|
 | **Work Item** | #1918 |
 | **Type** | Issue |
-| **Status** | Draft |
+| **Status** | ✅ Done |
 | **Revision** | 0 |
 | **Revision Notes** | Initial draft. |
 
@@ -376,8 +376,8 @@ to all plan files and updating tooling to consume it.
 | Task ID | Description | Files | Effort | Status |
 |---------|-------------|-------|--------|--------|
 | #1919 | Retrofit all 16 existing `.plan.md` files with YAML frontmatter (`work_item_id`, `title`, `type`) | All 16 `docs/projects/*.plan.md` files | Small (~80 lines added across 16 files) | ✅ Done |
-| #1920 | Update `seed-from-plan.ps1`: add `Get-PlanWorkItemId` function, extend `Get-PlanTitle` to prefer frontmatter `title` field | `tools/seed-from-plan.ps1` | Small (~30 lines) | TO DO |
-| #1921 | Update `.github/skills/twig-sdlc/SKILL.md` to document plan file frontmatter requirements and detection behavior | `.github/skills/twig-sdlc/SKILL.md` | Small (~40 lines) | TO DO |
+| #1920 | Update `seed-from-plan.ps1`: add `Get-PlanWorkItemId` function, extend `Get-PlanTitle` to prefer frontmatter `title` field | `tools/seed-from-plan.ps1` | Small (~30 lines) | ✅ Done |
+| #1921 | Update `.github/skills/twig-sdlc/SKILL.md` to document plan file frontmatter requirements and detection behavior | `.github/skills/twig-sdlc/SKILL.md` | Small (~40 lines) | ✅ Done |
 
 **Acceptance Criteria**:
 - [ ] All 16 `.plan.md` files have valid YAML frontmatter with `work_item_id`, `title`, `type`
@@ -456,3 +456,14 @@ the SKILL.md documents.
 - [ADO Work Item #1918](https://dev.azure.com/dangreen-msft/Twig/_workitems/edit/1918)
 - [twig-conductor-workflows](https://github.com/PolyphonyRequiem/twig-conductor-workflows) — external repo containing `plan_detector` agent
 - [YAML Frontmatter specification](https://jekyllrb.com/docs/front-matter/) — de facto standard
+
+## Completion
+
+**Completed**: 2026-04-23
+
+All three tasks delivered via PR #87 (PG-1). YAML frontmatter with `work_item_id`, `title`,
+and `type` fields was added to all 16 existing plan files. `seed-from-plan.ps1` was updated
+with `Get-PlanWorkItemId` and extended `Get-PlanTitle` to prefer the frontmatter `title` field.
+`twig-sdlc/SKILL.md` was updated to document frontmatter requirements and plan detection behavior.
+The plan detector can now match plans by explicit work item ID rather than content heuristics,
+eliminating false positives from parent epic plans matching child issue IDs.

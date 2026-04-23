@@ -50,6 +50,10 @@ builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
 builder.Services.AddSingleton<IWorkspaceRegistry>(registry);
 builder.Services.AddSingleton(resolver);
 
+// Parent-process watchdog — self-terminates when the host process exits,
+// preventing orphaned twig-mcp instances on VS Code reload or CLI exit.
+builder.Services.AddHostedService<ParentProcessWatchdog>();
+
 // MCP server — WithTools<T>() is the AOT-safe generic registration
 // (not WithToolsFromAssembly which uses reflection-based discovery).
 builder.Services

@@ -38,6 +38,8 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
         [Description("Filter by assignee display name (exact match)")] string? assignedTo = null,
         [Description("Filter by area path (UNDER)")] string? areaPath = null,
         [Description("Filter by iteration path (UNDER)")] string? iterationPath = null,
+        [Description("Only items created within this many days")] int? createdSince = null,
+        [Description("Only items changed within this many days")] int? changedSince = null,
         [Description("Maximum results to return (default: 25)")] int top = 25,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
         CancellationToken ct = default)
@@ -58,6 +60,8 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
             AssignedToFilter = assignedTo,
             AreaPathFilter = areaPath,
             IterationPathFilter = iterationPath,
+            CreatedSinceDays = createdSince,
+            ChangedSinceDays = changedSince,
             Top = top,
             DefaultAreaPaths = defaultAreaPaths,
         };
@@ -157,6 +161,10 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
             parts.Add($"areaPath under '{parameters.AreaPathFilter}'");
         if (!string.IsNullOrEmpty(parameters.IterationPathFilter))
             parts.Add($"iterationPath under '{parameters.IterationPathFilter}'");
+        if (parameters.CreatedSinceDays.HasValue)
+            parts.Add($"created within {parameters.CreatedSinceDays.Value}d");
+        if (parameters.ChangedSinceDays.HasValue)
+            parts.Add($"changed within {parameters.ChangedSinceDays.Value}d");
 
         return parts.Count > 0 ? string.Join(" AND ", parts) : "all items";
     }

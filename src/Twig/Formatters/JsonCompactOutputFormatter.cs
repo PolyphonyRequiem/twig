@@ -85,6 +85,10 @@ public sealed class JsonCompactOutputFormatter(JsonOutputFormatter full) : IOutp
             WriteCompactItem(writer, seed);
         writer.WriteEndArray();
 
+        // Mode sections (when available)
+        if (ws.Sections is not null)
+            JsonOutputFormatter.WriteSectionsBlock(writer, ws.Sections);
+
         writer.WriteNumber("dirtyCount", ws.GetDirtyItems().Count);
         writer.WriteEndObject();
 

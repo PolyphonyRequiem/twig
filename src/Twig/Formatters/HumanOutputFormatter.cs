@@ -351,70 +351,9 @@ public sealed class HumanOutputFormatter : IOutputFormatter
 
         sb.AppendLine();
 
-        // Sprint items grouped by state category
-        sb.AppendLine($"  {Bold}Sprint ({ws.SprintItems.Count} items):{Reset}");
-        var wsLines = new List<AlignedLine>();
-        var categoryGroups = GroupByStateCategory(ws.SprintItems);
-        var wsCatIndex = 0;
-        foreach (var (category, items) in categoryGroups)
-        {
-            // Insert separator between category groups (not before the first)
-            if (wsCatIndex > 0)
-                sb.AppendLine($"    {Dim}────{Reset}");
+        RenderModeSections(sb, ws, ws.Sections ?? WorkspaceSections.Build(ws.SprintItems));
 
-            sb.AppendLine($"    {Bold}{FormatCategoryHeader(category)}{Reset} ({items.Count})");
-            wsLines.Clear();
-            if (ws.Hierarchy is not null)
-            {
-                // Render hierarchically — personal view has a single assignee, skip the assignee header
-                foreach (var kvp in ws.Hierarchy.AssigneeGroups)
-                {
-                    foreach (var root in kvp.Value)
-                    {
-                        if (root.IsVirtualGroup)
-                        {
-                            // Check if any child of the virtual group belongs to this category
-                            var hasVisibleChild = false;
-                            foreach (var child in root.Children)
-                            {
-                                if (NodeOrDescendantBelongsToCategory(child, category))
-                                {
-                                    hasVisibleChild = true;
-                                    break;
-                                }
-                            }
-                            if (hasVisibleChild)
-                            {
-                                RenderVirtualGroupForCategory(sb, wsLines, ws, root, category);
-                            }
-                        }
-                        else if (NodeOrDescendantBelongsToCategory(root, category))
-                        {
-                            CollectHierarchyNodeLine(wsLines, ws, root, indent: "      ", connector: "");
-                            CollectHierarchyChildrenForCategory(wsLines, ws, root, childIndent: "      ", category: category);
-                        }
-                    }
-                }
-            }
-            else
-            {
-                foreach (var item in items)
-                {
-                    var marker = (ws.ContextItem is not null && item.Id == ws.ContextItem.Id) ? $"{Cyan}●{Reset}" : " ";
-                    var dirty = item.IsDirty ? $" {Yellow}✎{Reset}" : "";
-                    var stateColor = GetStateColor(item.State);
-                    var sprintTypeColor = GetTypeColor(item.Type);
-                    var sprintBadge = GetTypeBadge(item.Type);
-                    wsLines.Add(new AlignedLine(
-                        $"      {marker} {sprintTypeColor}{sprintBadge}{Reset} #{item.Id} {item.Title}",
-                        $"[{stateColor}{item.State}{Reset}]", dirty));
-                }
-            }
-            FlushAlignedLines(sb, wsLines);
-            wsCatIndex++;
-        }
-
-        // Sprint progress summary
+        // Sprint progress summary (computed from all sprint items regardless of sectioning)
         if (ws.SprintItems.Count > 0)
         {
             var proposed = 0;
@@ -428,8 +367,8 @@ public sealed class HumanOutputFormatter : IOutputFormatter
                     case StateCategory.InProgress: inProgressCount++; break;
                     case StateCategory.Resolved:
                     case StateCategory.Completed: doneCount++; break;
-                    case StateCategory.Removed: proposed++; break; // Removed bucketed with Proposed
-                    case StateCategory.Unknown: proposed++; break; // Unknown bucketed with Proposed
+                    case StateCategory.Removed: proposed++; break;
+                    case StateCategory.Unknown: proposed++; break;
                 }
             }
             var total = ws.SprintItems.Count;
@@ -443,11 +382,12 @@ public sealed class HumanOutputFormatter : IOutputFormatter
             sb.AppendLine($"  Sprint: {string.Join(" · ", segments)}");
         }
 
-        // Seeds
+        // Seeds with seed indicators
         if (ws.Seeds.Count > 0)
         {
             sb.AppendLine();
             sb.AppendLine($"  {Bold}Seeds ({ws.Seeds.Count}):{Reset}");
+            var seedIndicator = FormatSeedIndicator();
             var staleSeeds = ws.GetStaleSeeds(staleDays);
             var staleSeedIds = new HashSet<int>(staleSeeds.Count);
             foreach (var s in staleSeeds)
@@ -457,8 +397,16 @@ public sealed class HumanOutputFormatter : IOutputFormatter
                 var staleWarning = staleSeedIds.Contains(seed.Id) ? $" {Red}⚠ stale{Reset}" : "";
                 var seedTypeColor = GetTypeColor(seed.Type);
                 var seedBadge = GetTypeBadge(seed.Type);
-                sb.AppendLine($"    {seedTypeColor}{seedBadge}{Reset} #{seed.Id} {seed.Title} ({seed.Type}){staleWarning}");
+                sb.AppendLine($"    {seedIndicator} {seedTypeColor}{seedBadge}{Reset} #{seed.Id} {seed.Title} ({seed.Type}){staleWarning}");
             }
+        }
+
+        // Exclusion footer
+        if (ws.Sections is not null && ws.Sections.ExcludedItemIds.Count > 0)
+        {
+            sb.AppendLine();
+            var ids = string.Join(", ", ws.Sections.ExcludedItemIds.Select(id => $"#{id}"));
+            sb.AppendLine($"  {Dim}{ws.Sections.ExcludedItemIds.Count} excluded: {ids}{Reset}");
         }
 
         // Dirty summary
@@ -476,6 +424,106 @@ public sealed class HumanOutputFormatter : IOutputFormatter
             sb.Length -= 1;
 
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Renders workspace items grouped by mode sections with optional section headers.
+    /// Section headers are omitted when only one section is present.
+    /// When no sections exist (empty sprint), renders an empty Sprint header.
+    /// </summary>
+    private void RenderModeSections(StringBuilder sb, Workspace ws, WorkspaceSections sections)
+    {
+        if (sections.Sections.Count == 0)
+        {
+            sb.AppendLine($"  {Bold}Sprint (0 items):{Reset}");
+            return;
+        }
+
+        var showHeaders = sections.Sections.Count > 1;
+
+        foreach (var section in sections.Sections)
+        {
+            if (showHeaders)
+            {
+                sb.AppendLine($"  {Bold}── {section.ModeName} ({section.Items.Count}) ──{Reset}");
+            }
+            else
+            {
+                sb.AppendLine($"  {Bold}{section.ModeName} ({section.Items.Count} items):{Reset}");
+            }
+
+            var wsLines = new List<AlignedLine>();
+            var categoryGroups = GroupByStateCategory(section.Items);
+            var catIndex = 0;
+            foreach (var (category, items) in categoryGroups)
+            {
+                if (catIndex > 0)
+                    sb.AppendLine($"    {Dim}────{Reset}");
+
+                sb.AppendLine($"    {Bold}{FormatCategoryHeader(category)}{Reset} ({items.Count})");
+                wsLines.Clear();
+
+                if (ws.Hierarchy is not null)
+                {
+                    // TODO: RenderHierarchicalCategory iterates ws.Hierarchy.AssigneeGroups (built from
+                    // ws.SprintItems), not section.Items. When Area/Manual mode infrastructure (#1946)
+                    // lands, items in those sections that don't appear in SprintItems will be silently
+                    // dropped from hierarchical rendering. Refactor to scope hierarchy to section items.
+                    RenderHierarchicalCategory(sb, wsLines, ws, category);
+                }
+                else
+                {
+                    foreach (var item in items)
+                    {
+                        var marker = (ws.ContextItem is not null && item.Id == ws.ContextItem.Id) ? $"{Cyan}●{Reset}" : " ";
+                        var dirty = item.IsDirty ? $" {Yellow}✎{Reset}" : "";
+                        var stateColor = GetStateColor(item.State);
+                        var sprintTypeColor = GetTypeColor(item.Type);
+                        var sprintBadge = GetTypeBadge(item.Type);
+                        wsLines.Add(new AlignedLine(
+                            $"      {marker} {sprintTypeColor}{sprintBadge}{Reset} #{item.Id} {item.Title}",
+                            $"[{stateColor}{item.State}{Reset}]", dirty));
+                    }
+                }
+                FlushAlignedLines(sb, wsLines);
+                catIndex++;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Renders hierarchical category items from the sprint hierarchy.
+    /// Extracted to share between legacy and mode-sectioned paths.
+    /// </summary>
+    private void RenderHierarchicalCategory(StringBuilder sb, List<AlignedLine> wsLines, Workspace ws, StateCategory category)
+    {
+        foreach (var kvp in ws.Hierarchy!.AssigneeGroups)
+        {
+            foreach (var root in kvp.Value)
+            {
+                if (root.IsVirtualGroup)
+                {
+                    var hasVisibleChild = false;
+                    foreach (var child in root.Children)
+                    {
+                        if (NodeOrDescendantBelongsToCategory(child, category))
+                        {
+                            hasVisibleChild = true;
+                            break;
+                        }
+                    }
+                    if (hasVisibleChild)
+                    {
+                        RenderVirtualGroupForCategory(sb, wsLines, ws, root, category);
+                    }
+                }
+                else if (NodeOrDescendantBelongsToCategory(root, category))
+                {
+                    CollectHierarchyNodeLine(wsLines, ws, root, indent: "      ", connector: "");
+                    CollectHierarchyChildrenForCategory(wsLines, ws, root, childIndent: "      ", category: category);
+                }
+            }
+        }
     }
 
     public string FormatSprintView(Workspace ws, int staleDays)
@@ -506,6 +554,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         {
             sb.AppendLine();
             sb.AppendLine($"  {Bold}Seeds ({ws.Seeds.Count}):{Reset}");
+            var seedIndicator = FormatSeedIndicator();
             var staleSeeds = ws.GetStaleSeeds(staleDays);
             var staleSeedIds = new HashSet<int>(staleSeeds.Count);
             foreach (var s in staleSeeds)
@@ -515,7 +564,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
                 var staleWarning = staleSeedIds.Contains(seed.Id) ? $" {Red}⚠ stale{Reset}" : "";
                 var seedTypeColor = GetTypeColor(seed.Type);
                 var seedBadge = GetTypeBadge(seed.Type);
-                sb.AppendLine($"    {seedTypeColor}{seedBadge}{Reset} #{seed.Id} {seed.Title} ({seed.Type}){staleWarning}");
+                sb.AppendLine($"    {seedIndicator} {seedTypeColor}{seedBadge}{Reset} #{seed.Id} {seed.Title} ({seed.Type}){staleWarning}");
             }
         }
 
@@ -1274,6 +1323,16 @@ public sealed class HumanOutputFormatter : IOutputFormatter
     private string GetTypeBadge(WorkItemType type)
     {
         return IconSet.ResolveTypeBadge(_iconMode, type.Value, _typeIconIds);
+    }
+
+    /// <summary>
+    /// Returns an ANSI-colored seed indicator glyph.
+    /// Unicode mode: green ●, Nerd Font mode: green  (seedling).
+    /// </summary>
+    internal string FormatSeedIndicator()
+    {
+        var glyph = _iconMode == "nerd" ? "\uf4d8" : "●";
+        return $"{Green}{glyph}{Reset}";
     }
 
     /// <summary>

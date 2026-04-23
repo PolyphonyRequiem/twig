@@ -257,6 +257,122 @@ public class HumanOutputFormatterTests
         result.ShouldContain("unsaved changes");
     }
 
+    // ── Seed indicators ─────────────────────────────────────────────
+
+    [Fact]
+    public void FormatWorkspace_SeedsShowSeedIndicator()
+    {
+        var seed = CreateSeed(-1, "My Seed");
+        var ws = Workspace.Build(null, Array.Empty<WorkItem>(), new[] { seed });
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+
+        // Unicode seed indicator ● should appear before each seed
+        result.ShouldContain("●");
+        result.ShouldContain("My Seed");
+    }
+
+    [Fact]
+    public void FormatSeedIndicator_UnicodeMode_ReturnsBullet()
+    {
+        var indicator = _formatter.FormatSeedIndicator();
+
+        indicator.ShouldContain("●");
+    }
+
+    [Fact]
+    public void FormatSeedIndicator_NerdMode_ReturnsSeedling()
+    {
+        var nerdFormatter = new HumanOutputFormatter(new DisplayConfig { Icons = "nerd" });
+        var indicator = nerdFormatter.FormatSeedIndicator();
+
+        indicator.ShouldContain("\uf4d8");
+    }
+
+    // ── Mode-sectioned output ───────────────────────────────────────
+
+    [Fact]
+    public void FormatWorkspace_WithSections_SingleSection_NoSectionHeader()
+    {
+        var items = new[] { CreateWorkItem(1, "Task A", "Active") };
+        var sections = WorkspaceSections.Build(items);
+        var ws = Workspace.Build(null, items, Array.Empty<WorkItem>(), sections: sections);
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+
+        // Single section should show "Sprint (1 items):" not "── Sprint (1) ──"
+        result.ShouldContain("Sprint (1 items):");
+        result.ShouldNotContain("── Sprint");
+    }
+
+    [Fact]
+    public void FormatWorkspace_WithSections_SingleManualSection_UsesModeName()
+    {
+        var manualItems = new[] { CreateWorkItem(1, "Manual Task", "Active") };
+        var sections = WorkspaceSections.Build(
+            Array.Empty<WorkItem>(), manualItems: manualItems);
+        var ws = Workspace.Build(null, Array.Empty<WorkItem>(), Array.Empty<WorkItem>(), sections: sections);
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+
+        // Single section with Manual mode should show "Manual (1 items):", not "Sprint"
+        result.ShouldContain("Manual (1 items):");
+        result.ShouldNotContain("Sprint");
+    }
+
+    [Fact]
+    public void FormatWorkspace_WithSections_MultipleSections_ShowsSectionHeaders()
+    {
+        var sprintItems = new[] { CreateWorkItem(1, "Sprint Task", "Active") };
+        var manualItems = new[] { CreateWorkItem(2, "Manual Task", "New") };
+        var sections = WorkspaceSections.Build(sprintItems, manualItems: manualItems);
+        var ws = Workspace.Build(null, sprintItems, Array.Empty<WorkItem>(), sections: sections);
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+
+        result.ShouldContain("── Sprint");
+        result.ShouldContain("── Manual");
+    }
+
+    [Fact]
+    public void FormatWorkspace_WithExclusions_ShowsExclusionFooter()
+    {
+        var items = new[] { CreateWorkItem(1, "Task", "Active") };
+        var sections = WorkspaceSections.Build(items, excludedIds: new[] { 42, 99 });
+        var ws = Workspace.Build(null, items, Array.Empty<WorkItem>(), sections: sections);
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+
+        result.ShouldContain("2 excluded");
+        result.ShouldContain("#42");
+        result.ShouldContain("#99");
+    }
+
+    [Fact]
+    public void FormatWorkspace_WithNoExclusions_NoExclusionFooter()
+    {
+        var items = new[] { CreateWorkItem(1, "Task", "Active") };
+        var sections = WorkspaceSections.Build(items);
+        var ws = Workspace.Build(null, items, Array.Empty<WorkItem>(), sections: sections);
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+
+        result.ShouldNotContain("excluded");
+    }
+
+    [Fact]
+    public void FormatWorkspace_WithoutSections_FallsBackToLegacy()
+    {
+        var items = new[] { CreateWorkItem(1, "Task", "Active") };
+        var ws = Workspace.Build(null, items, Array.Empty<WorkItem>());
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+
+        // Legacy path still works
+        result.ShouldContain("Sprint (1 items):");
+        result.ShouldContain("Task");
+    }
+
     // ── Disambiguation ──────────────────────────────────────────────
 
     [Fact]

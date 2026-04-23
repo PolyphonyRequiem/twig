@@ -111,7 +111,7 @@ public abstract record WorkspaceDataChunk
     private WorkspaceDataChunk() { }
 
     public sealed record ContextLoaded(WorkItem? ContextItem) : WorkspaceDataChunk;
-    public sealed record SprintItemsLoaded(IReadOnlyList<WorkItem> Items) : WorkspaceDataChunk;
+    public sealed record SprintItemsLoaded(IReadOnlyList<WorkItem> Items, WorkspaceSections? Sections = null) : WorkspaceDataChunk;
     public sealed record SeedsLoaded(IReadOnlyList<WorkItem> Seeds) : WorkspaceDataChunk;
     public sealed record RefreshStarted : WorkspaceDataChunk;
     public sealed record RefreshCompleted : WorkspaceDataChunk;

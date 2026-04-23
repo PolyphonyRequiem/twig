@@ -40,6 +40,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         string? savedCaption = null;
         var loadingCleared = false;
         int? activeContextId = null;
+        WorkspaceSections? currentSections = null;
         var dynamicCount = dynamicColumns?.Count ?? 0;
         var colCount = (isTeamView ? 5 : 4) + dynamicCount;
         var emptyRow = new string[colCount];
@@ -72,62 +73,41 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                             ctx.Refresh();
                             break;
 
-                        case WorkspaceDataChunk.SprintItemsLoaded(var items):
-                            // Group items by state category
-                            var categoryGroups = GroupByStateCategory(items);
-                            var catIndex = 0;
-                            foreach (var (category, catItems) in categoryGroups)
+                        case WorkspaceDataChunk.SprintItemsLoaded { Items: var items, Sections: var sections }:
+                            currentSections = sections;
+
+                            if (sections is not null && sections.Sections.Count > 0)
                             {
-                                // Insert separator between category groups (not before the first)
-                                if (catIndex > 0)
+                                // Mode-sectioned rendering with per-section category grouping
+                                var showSectionHeaders = sections.Sections.Count > 1;
+                                var sectionIndex = 0;
+                                foreach (var section in sections.Sections)
                                 {
-                                    var sepRow = new string[colCount];
-                                    for (var si = 0; si < colCount; si++) sepRow[si] = "[dim]────[/]";
-                                    table.AddRow(sepRow);
-                                }
-
-                                // Add category header row
-                                var headerRow = new string[colCount];
-                                headerRow[0] = $"[bold dim]{SpectreTheme.FormatCategoryHeader(category)}[/]";
-                                headerRow[1] = "";
-                                headerRow[2] = $"[dim]({catItems.Count})[/]";
-                                for (var ci = 3; ci < colCount; ci++) headerRow[ci] = "";
-                                table.AddRow(headerRow);
-
-                                foreach (var item in catItems)
-                                {
-                                    var isActive = activeContextId.HasValue && item.Id == activeContextId.Value;
-                                    var marker = isActive ? "[aqua]►[/] " : "";
-                                    var boldOpen = isActive ? "[bold]" : "";
-                                    var boldClose = isActive ? "[/]" : "";
-
-                                    var cacheAge = CacheAgeFormatter.Format(item.LastSyncedAt, cacheStaleMinutes);
-                                    var cacheAgeMarkup = cacheAge is not null ? $" [dim]{Markup.Escape(cacheAge)}[/]" : "";
-
-                                    var row = new List<string>
+                                    if (sectionIndex > 0)
                                     {
-                                        $"{marker}{boldOpen}{item.Id}{boldClose}",
-                                        _theme.FormatTypeBadge(item.Type),
-                                        $"{boldOpen}{Markup.Escape(item.Title)}{boldClose}{cacheAgeMarkup}",
-                                        _theme.FormatState(item.State),
-                                    };
-
-                                    if (isTeamView)
-                                        row.Add(Markup.Escape(item.AssignedTo ?? "(unassigned)"));
-
-                                    if (dynamicColumns is not null)
-                                    {
-                                        foreach (var col in dynamicColumns)
-                                        {
-                                            item.Fields.TryGetValue(col.ReferenceName, out var fieldVal);
-                                            var formatted = Formatters.FormatterHelpers.FormatFieldValue(fieldVal, col.DataType);
-                                            row.Add(Markup.Escape(formatted));
-                                        }
+                                        var sectionSepRow = new string[colCount];
+                                        for (var si = 0; si < colCount; si++) sectionSepRow[si] = "";
+                                        table.AddRow(sectionSepRow);
                                     }
 
-                                    table.AddRow(row.ToArray());
+                                    if (showSectionHeaders)
+                                    {
+                                        var sectionRow = new string[colCount];
+                                        sectionRow[0] = $"[bold]── {Markup.Escape(section.ModeName)} ({section.Items.Count}) ──[/]";
+                                        for (var si = 1; si < colCount; si++) sectionRow[si] = "";
+                                        table.AddRow(sectionRow);
+                                    }
+
+                                    var sectionCategories = GroupByStateCategory(section.Items);
+                                    AddCategoryGroupRows(table, sectionCategories, activeContextId, isTeamView, dynamicColumns, colCount, cacheStaleMinutes);
+                                    sectionIndex++;
                                 }
-                                catIndex++;
+                            }
+                            else
+                            {
+                                // Flat category rendering (backward compat when no sections available)
+                                var categoryGroups = GroupByStateCategory(items);
+                                AddCategoryGroupRows(table, categoryGroups, activeContextId, isTeamView, dynamicColumns, colCount, cacheStaleMinutes);
                             }
 
                             // Compute and set progress footer
@@ -180,6 +160,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                                 for (var si = 4; si < colCount; si++) seedSepRow[si] = "[dim]───[/]";
                                 table.AddRow(seedSepRow);
 
+                                var seedIndicator = _theme.FormatSeedIndicator();
+
                                 foreach (var seed in seeds)
                                 {
                                     var staleMarker = seed.SeedCreatedAt.HasValue
@@ -189,7 +171,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                                     var seedRow = new List<string>
                                     {
                                         seed.Id < 0 ? $"[dim]{seed.Id}[/]" : seed.Id.ToString(),
-                                        _theme.FormatTypeBadge(seed.Type),
+                                        $"{seedIndicator} {_theme.FormatTypeBadge(seed.Type)}",
                                         Markup.Escape(seed.Title) + staleMarker,
                                         _theme.FormatState(seed.State),
                                     };
@@ -210,6 +192,17 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                                     table.AddRow(seedRow.ToArray());
                                 }
                             }
+
+                            // Exclusion footer
+                            if (currentSections is { ExcludedItemIds.Count: > 0 })
+                            {
+                                var exclRow = new string[colCount];
+                                var ids = string.Join(", ", currentSections.ExcludedItemIds.Select(id => $"#{id}"));
+                                exclRow[0] = $"[dim]{currentSections.ExcludedItemIds.Count} excluded: {ids}[/]";
+                                for (var ei = 1; ei < colCount; ei++) exclRow[ei] = "";
+                                table.AddRow(exclRow);
+                            }
+
                             ctx.Refresh();
                             break;
 
@@ -264,6 +257,73 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                 result.Add((cat, groups[cat]));
         }
         return result;
+    }
+
+    /// <summary>
+    /// Adds category group rows (header + items) to the workspace table.
+    /// Shared by both flat and mode-sectioned rendering paths.
+    /// </summary>
+    private void AddCategoryGroupRows(
+        Table table,
+        IReadOnlyList<(StateCategory Category, IReadOnlyList<WorkItem> Items)> categoryGroups,
+        int? activeContextId,
+        bool isTeamView,
+        IReadOnlyList<ColumnSpec>? dynamicColumns,
+        int colCount,
+        int cacheStaleMinutes)
+    {
+        var catIndex = 0;
+        foreach (var (category, catItems) in categoryGroups)
+        {
+            if (catIndex > 0)
+            {
+                var sepRow = new string[colCount];
+                for (var si = 0; si < colCount; si++) sepRow[si] = "[dim]────[/]";
+                table.AddRow(sepRow);
+            }
+
+            var headerRow = new string[colCount];
+            headerRow[0] = $"[bold dim]{SpectreTheme.FormatCategoryHeader(category)}[/]";
+            headerRow[1] = "";
+            headerRow[2] = $"[dim]({catItems.Count})[/]";
+            for (var ci = 3; ci < colCount; ci++) headerRow[ci] = "";
+            table.AddRow(headerRow);
+
+            foreach (var item in catItems)
+            {
+                var isActive = activeContextId.HasValue && item.Id == activeContextId.Value;
+                var marker = isActive ? "[aqua]►[/] " : "";
+                var boldOpen = isActive ? "[bold]" : "";
+                var boldClose = isActive ? "[/]" : "";
+
+                var cacheAge = CacheAgeFormatter.Format(item.LastSyncedAt, cacheStaleMinutes);
+                var cacheAgeMarkup = cacheAge is not null ? $" [dim]{Markup.Escape(cacheAge)}[/]" : "";
+
+                var row = new List<string>
+                {
+                    $"{marker}{boldOpen}{item.Id}{boldClose}",
+                    _theme.FormatTypeBadge(item.Type),
+                    $"{boldOpen}{Markup.Escape(item.Title)}{boldClose}{cacheAgeMarkup}",
+                    _theme.FormatState(item.State),
+                };
+
+                if (isTeamView)
+                    row.Add(Markup.Escape(item.AssignedTo ?? "(unassigned)"));
+
+                if (dynamicColumns is not null)
+                {
+                    foreach (var col in dynamicColumns)
+                    {
+                        item.Fields.TryGetValue(col.ReferenceName, out var fieldVal);
+                        var formatted = Formatters.FormatterHelpers.FormatFieldValue(fieldVal, col.DataType);
+                        row.Add(Markup.Escape(formatted));
+                    }
+                }
+
+                table.AddRow(row.ToArray());
+            }
+            catIndex++;
+        }
     }
 
     public async Task RenderTreeAsync(

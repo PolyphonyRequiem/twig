@@ -189,4 +189,14 @@ internal sealed class SpectreTheme
     {
         return StateCategoryResolver.Resolve(state, _stateEntries);
     }
+
+    /// <summary>
+    /// Returns a Spectre-markup seed indicator based on the configured icon mode.
+    /// Unicode mode: green ●, Nerd Font mode: green  (seedling).
+    /// </summary>
+    internal string FormatSeedIndicator()
+    {
+        var glyph = _iconMode == "nerd" ? "\uf4d8" : "●";
+        return $"[green]{glyph}[/]";
+    }
 }

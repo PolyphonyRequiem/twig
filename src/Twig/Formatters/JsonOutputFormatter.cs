@@ -193,6 +193,10 @@ public sealed class JsonOutputFormatter : IOutputFormatter
         }
         writer.WriteEndArray();
 
+        // Mode sections (when available)
+        if (ws.Sections is not null)
+            WriteSectionsBlock(writer, ws.Sections);
+
         // Dirty items
         var dirtyItems = ws.GetDirtyItems();
         writer.WriteNumber("dirtyCount", dirtyItems.Count);
@@ -666,6 +670,28 @@ public sealed class JsonOutputFormatter : IOutputFormatter
             writer.WriteNumber("parentId", item.ParentId.Value);
         else
             writer.WriteNull("parentId");
+    }
+
+    internal static void WriteSectionsBlock(Utf8JsonWriter writer, WorkspaceSections sections)
+    {
+        writer.WriteStartArray("sections");
+        foreach (var section in sections.Sections)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("modeName", section.ModeName);
+            writer.WriteNumber("itemCount", section.Items.Count);
+            writer.WriteStartArray("itemIds");
+            foreach (var item in section.Items)
+                writer.WriteNumberValue(item.Id);
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+
+        writer.WriteStartArray("excludedItemIds");
+        foreach (var id in sections.ExcludedItemIds)
+            writer.WriteNumberValue(id);
+        writer.WriteEndArray();
     }
 
     private static void WriteWorkItemObject(Utf8JsonWriter writer, WorkItem item, IReadOnlyList<Domain.ValueObjects.ColumnSpec>? dynamicColumns = null)

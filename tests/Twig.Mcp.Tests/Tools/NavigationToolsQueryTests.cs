@@ -216,4 +216,74 @@ public sealed class NavigationToolsQueryTests : NavigationToolsTestBase
         result.IsError.ShouldBeNull();
         ParseResult(result).GetProperty("workspace").GetString().ShouldBe(TestWorkspaceKey.ToString());
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  createdSince / changedSince wired into WIQL and description
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Query_CreatedSince_IncludedInWiqlAndDescription()
+    {
+        string? capturedWiql = null;
+        _adoService.QueryByWiqlAsync(Arg.Do<string>(w => capturedWiql = w), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
+
+        var result = await CreateSut().Query(createdSince: 7);
+
+        result.IsError.ShouldBeNull();
+        capturedWiql.ShouldNotBeNull();
+        capturedWiql.ShouldContain("System.CreatedDate");
+        var desc = ParseResult(result).GetProperty("queryDescription").GetString()!;
+        desc.ShouldContain("created within 7d");
+    }
+
+    [Fact]
+    public async Task Query_ChangedSince_IncludedInWiqlAndDescription()
+    {
+        string? capturedWiql = null;
+        _adoService.QueryByWiqlAsync(Arg.Do<string>(w => capturedWiql = w), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
+
+        var result = await CreateSut().Query(changedSince: 14);
+
+        result.IsError.ShouldBeNull();
+        capturedWiql.ShouldNotBeNull();
+        capturedWiql.ShouldContain("System.ChangedDate");
+        var desc = ParseResult(result).GetProperty("queryDescription").GetString()!;
+        desc.ShouldContain("changed within 14d");
+    }
+
+    [Fact]
+    public async Task Query_BothDateFilters_IncludedInWiqlAndDescription()
+    {
+        string? capturedWiql = null;
+        _adoService.QueryByWiqlAsync(Arg.Do<string>(w => capturedWiql = w), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
+
+        var result = await CreateSut().Query(createdSince: 30, changedSince: 7);
+
+        result.IsError.ShouldBeNull();
+        capturedWiql.ShouldNotBeNull();
+        capturedWiql.ShouldContain("System.CreatedDate");
+        capturedWiql.ShouldContain("System.ChangedDate");
+        var desc = ParseResult(result).GetProperty("queryDescription").GetString()!;
+        desc.ShouldContain("created within 30d");
+        desc.ShouldContain("changed within 7d");
+    }
+
+    [Fact]
+    public async Task Query_NullDateFilters_NotIncludedInWiql()
+    {
+        string? capturedWiql = null;
+        _adoService.QueryByWiqlAsync(Arg.Do<string>(w => capturedWiql = w), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
+
+        var result = await CreateSut().Query(type: "Bug");
+
+        result.IsError.ShouldBeNull();
+        capturedWiql.ShouldNotBeNull();
+        // The ORDER BY clause uses System.ChangedDate, so check that no date *filter* clause exists
+        capturedWiql.ShouldNotContain("System.CreatedDate");
+        capturedWiql.ShouldNotContain("@Today");
+    }
 }

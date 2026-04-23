@@ -27,26 +27,19 @@ All workflows are registered in the `twig` conductor registry. Use short names �
 
 ## Workflow Metadata
 
-Metadata is split between **static** (in YAML) and **dynamic** (passed via `--metadata` at invocation):
-
-### Static (in workflow YAML)
-
-| Field | Value | Description |
-|-------|-------|-------------|
-| `tracker` | `ado` | Work item tracking system |
-| `project_url` | `https://dev.azure.com/dangreen-msft/Twig` | ADO project URL |
-| `git_repo` | `C:\Users\dangreen\projects\twig2` | Originating git repo path |
-
-### Dynamic (passed via `--metadata` / `-m` flags)
-
-These must be resolved to actual values at invocation — templates with `{braces}` are
-skipped by the dashboard. The invoking agent is responsible for resolving them.
+All metadata is passed dynamically via `--metadata` / `-m` flags at invocation time.
+The workflow YAMLs contain no metadata — the invoking agent resolves all values.
 
 | Field | Example | Description |
 |-------|---------|-------------|
+| `tracker` | `ado` | Work item tracking system |
+| `project_url` | `https://dev.azure.com/dangreen-msft/Twig` | ADO project URL |
+| `git_repo` | `C:\Users\dangreen\projects\twig2` | Originating git repo path |
 | `workitem_id` | `1842` | Target work item ID (numeric) |
 | `worktree_name` | `twig2-1842` | Git worktree directory name |
 | `cwd` | `C:\Users\dangreen\projects\twig2-1842` | Worktree working directory |
+
+> **All values must be resolved** — templates with `{braces}` are skipped by the dashboard.
 
 ## Quick Reference
 
@@ -66,14 +59,8 @@ Copy-Item -Recurse ../twig2/.twig .twig
 twig set <ID>
 twig sync
 
-# 4. Run the full SDLC — pass dynamic metadata via -m flags
-conductor --silent run twig-sdlc-full@twig --input work_item_id=<ID> --input skip_plan_review=true -m workitem_id=<ID> -m worktree_name=twig2-<ID> -m cwd=C:\Users\dangreen\projects\twig2-<ID> --web
-
-# Plan only
-conductor --silent run twig-sdlc-planning@twig --input work_item_id=<ID> -m workitem_id=<ID> -m worktree_name=twig2-<ID> -m cwd=C:\Users\dangreen\projects\twig2-<ID> --web
-
-# Implement only (requires existing plan + seeded work items)
-conductor --silent run twig-sdlc-implement@twig --input work_item_id=<ID> -m workitem_id=<ID> -m worktree_name=twig2-<ID> -m cwd=C:\Users\dangreen\projects\twig2-<ID> --web
+# 4. Run the full SDLC — pass ALL metadata via -m flags
+conductor --silent run twig-sdlc-full@twig --input work_item_id=<ID> --input skip_plan_review=true -m tracker=ado -m project_url=https://dev.azure.com/dangreen-msft/Twig -m git_repo=C:\Users\dangreen\projects\twig2 -m workitem_id=<ID> -m worktree_name=twig2-<ID> -m cwd=C:\Users\dangreen\projects\twig2-<ID> --web
 ```
 
 ## Launching Multiple Runs

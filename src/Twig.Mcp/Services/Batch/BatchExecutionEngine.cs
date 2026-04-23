@@ -107,7 +107,7 @@ internal sealed class BatchExecutionEngine(IToolDispatcher dispatcher)
                 step.GlobalIndex,
                 step.ToolName,
                 isError ? StepStatus.Failed : StepStatus.Succeeded,
-                outputJson,
+                isError ? null : outputJson,
                 isError ? outputJson : null,
                 stopwatch.ElapsedMilliseconds);
         }
@@ -239,6 +239,8 @@ internal sealed class BatchExecutionEngine(IToolDispatcher dispatcher)
 
     /// <summary>
     /// Extracts the text content from a <see cref="CallToolResult"/> as a JSON string.
+    /// Only the first content block is used; additional blocks are discarded.
+    /// Current MCP tools emit a single TextContentBlock, so this is safe.
     /// </summary>
     private static string? ExtractOutputJson(CallToolResult result)
     {

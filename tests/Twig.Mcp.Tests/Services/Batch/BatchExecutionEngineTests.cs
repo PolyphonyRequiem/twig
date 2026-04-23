@@ -173,6 +173,8 @@ public sealed class BatchExecutionEngineTests
         result.Steps.Count.ShouldBe(3);
         result.Steps[0].Status.ShouldBe(StepStatus.Succeeded);
         result.Steps[1].Status.ShouldBe(StepStatus.Failed);
+        result.Steps[1].OutputJson.ShouldBeNull();
+        result.Steps[1].Error.ShouldBe("State change failed");
         result.Steps[2].Status.ShouldBe(StepStatus.Skipped);
         result.Steps[2].Error!.ShouldContain("prior step failure");
     }

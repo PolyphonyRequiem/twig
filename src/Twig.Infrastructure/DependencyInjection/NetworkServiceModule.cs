@@ -26,15 +26,9 @@ public static class NetworkServiceModule
         string? resolvedGitProject = null,
         string? resolvedRepository = null)
     {
-        // Auth provider (resolve from config)
+        // Auth provider (resolve from config via centralized factory)
         services.AddSingleton<IAuthenticationProvider>(sp =>
-        {
-            var cfg = sp.GetRequiredService<TwigConfiguration>();
-            if (string.Equals(cfg.Auth.Method, "pat", StringComparison.OrdinalIgnoreCase))
-                return new PatAuthProvider();
-            var azCli = new AzCliAuthProvider();
-            return new MsalCacheTokenProvider(azCli);
-        });
+            AuthProviderFactory.Create(sp.GetRequiredService<TwigConfiguration>().Auth.Method));
 
         // HTTP client — singleton backed by SocketsHttpHandler for automatic
         // gzip/Brotli decompression and HTTP/2 multiplexing with HTTP/1.1 fallback.

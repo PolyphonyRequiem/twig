@@ -2,7 +2,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
-using Twig.Domain.Interfaces;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.DependencyInjection;
 using Twig.Mcp;
@@ -30,8 +29,14 @@ var twigRoot = discoveredTwigDir!;
 var registry = new WorkspaceRegistry(twigRoot);
 
 // Global singletons shared across all workspaces (auth is per-user, not per-workspace).
+// Determine auth method from workspace configs — if any workspace uses PAT, use PAT;
+// otherwise fall through to the MSAL-cache-first AzCli chain via the centralized factory.
 var httpClient = NetworkServiceModule.CreateHttpClient();
-var authProvider = CreateAuthProvider(registry);
+var authMethod = registry.Workspaces
+    .Select(key => registry.GetConfig(key).Auth.Method)
+    .FirstOrDefault(m => string.Equals(m, "pat", StringComparison.OrdinalIgnoreCase))
+    ?? "azcli";
+var authProvider = AuthProviderFactory.Create(authMethod);
 
 var factory = new WorkspaceContextFactory(registry, httpClient, authProvider, twigRoot);
 var resolver = new WorkspaceResolver(registry, factory);
@@ -73,18 +78,4 @@ static string GetVersion()
     var plusIndex = version.IndexOf('+');
     if (plusIndex >= 0) version = version[..plusIndex];
     return version;
-}
-
-static IAuthenticationProvider CreateAuthProvider(WorkspaceRegistry registry)
-{
-    // Auth method is per-user, not per-workspace. Check first workspace config
-    // for auth method preference; default to AzCli when no workspaces have PAT configured.
-    foreach (var key in registry.Workspaces)
-    {
-        var config = registry.GetConfig(key);
-        if (string.Equals(config.Auth.Method, "pat", StringComparison.OrdinalIgnoreCase))
-            return new PatAuthProvider();
-    }
-
-    return new AzCliAuthProvider();
 }

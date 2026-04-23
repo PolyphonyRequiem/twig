@@ -211,8 +211,8 @@ internal sealed class AdoRestClient : IAdoWorkItemService
     public async Task<bool> AddArtifactLinkAsync(int workItemId, string url, string? name = null, CancellationToken ct = default)
     {
         // 1. Fetch current revision for optimistic concurrency
-        var getUrl = $"{_orgUrl}/{_project}/_apis/wit/workitems/{workItemId}?api-version={ApiVersion}";
-        using var getResponse = await SendAsync(HttpMethod.Get, getUrl, content: null, ifMatch: null, ct);
+        var workItemUrl = $"{_orgUrl}/{_project}/_apis/wit/workitems/{workItemId}?api-version={ApiVersion}";
+        using var getResponse = await SendAsync(HttpMethod.Get, workItemUrl, content: null, ifMatch: null, ct);
         var dto = await DeserializeWorkItemAsync(getResponse, ct);
 
         // 2. Auto-detect relation type
@@ -248,9 +248,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService
 
         try
         {
-            using var _ = await SendAsync(HttpMethod.Patch,
-                $"{_orgUrl}/{_project}/_apis/wit/workitems/{workItemId}?api-version={ApiVersion}",
-                patchContent, ifMatch: dto.Rev.ToString(), ct);
+            using var _ = await SendAsync(HttpMethod.Patch, workItemUrl, patchContent, ifMatch: dto.Rev.ToString(), ct);
             return false; // newly created
         }
         catch (AdoDuplicateRelationException)

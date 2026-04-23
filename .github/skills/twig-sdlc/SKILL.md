@@ -27,23 +27,33 @@ All workflows are registered in the `twig` conductor registry. Use short names �
 
 ## Workflow Metadata
 
-All workflows include standardized metadata for dashboard integration and worktree management:
+Metadata is split between **static** (in YAML) and **dynamic** (passed via `--metadata` at invocation):
+
+### Static (in workflow YAML)
 
 | Field | Value | Description |
 |-------|-------|-------------|
 | `tracker` | `ado` | Work item tracking system |
 | `project_url` | `https://dev.azure.com/dangreen-msft/Twig` | ADO project URL |
-| `work_item_id` | `{work_item_id}` | Target work item ID (template variable) |
-| `worktree_name` | `twig2-{work_item_id}` | Git worktree directory naming pattern |
 | `git_repo` | `C:\Users\dangreen\projects\twig2` | Originating git repo path |
-| `cwd` | `C:\Users\dangreen\projects\twig2-{work_item_id}` | Worktree working directory |
+
+### Dynamic (passed via `--metadata` / `-m` flags)
+
+These must be resolved to actual values at invocation — templates with `{braces}` are
+skipped by the dashboard. The invoking agent is responsible for resolving them.
+
+| Field | Example | Description |
+|-------|---------|-------------|
+| `workitem_id` | `1842` | Target work item ID (numeric) |
+| `worktree_name` | `twig2-1842` | Git worktree directory name |
+| `cwd` | `C:\Users\dangreen\projects\twig2-1842` | Worktree working directory |
 
 ## Quick Reference
 
 **Always run in a dedicated worktree** — never on `main` or your working tree. Name the
 worktree `twig2-<ID>` based on the work item ID.
 
-```bash
+```powershell
 # 1. Create a worktree for the work item
 git worktree add -b sdlc/<ID> ../twig2-<ID> main
 cd ../twig2-<ID>
@@ -56,20 +66,14 @@ Copy-Item -Recurse ../twig2/.twig .twig
 twig set <ID>
 twig sync
 
-# 4. Run the full SDLC (planning → implementation)
-conductor --silent run twig-sdlc-full@twig --input work_item_id=<ID> --web
+# 4. Run the full SDLC — pass dynamic metadata via -m flags
+conductor --silent run twig-sdlc-full@twig --input work_item_id=<ID> --input skip_plan_review=true -m workitem_id=<ID> -m worktree_name=twig2-<ID> -m cwd=C:\Users\dangreen\projects\twig2-<ID> --web
 
-# Plan only (recursive planner — creates Epic/Issues/Tasks in ADO)
-conductor --silent run twig-sdlc-planning@twig --input work_item_id=<ID> --web
+# Plan only
+conductor --silent run twig-sdlc-planning@twig --input work_item_id=<ID> -m workitem_id=<ID> -m worktree_name=twig2-<ID> -m cwd=C:\Users\dangreen\projects\twig2-<ID> --web
 
 # Implement only (requires existing plan + seeded work items)
-conductor --silent run twig-sdlc-implement@twig --input work_item_id=<ID> --input plan_path="docs/projects/foo.plan.md" --web
-
-# Start from a natural language prompt (use a descriptive branch name instead of ID)
-conductor --silent run twig-sdlc-full@twig --input prompt="Add a twig export command" --web
-
-# Skip human approval gates
-conductor --silent run twig-sdlc-full@twig --input work_item_id=<ID> --input skip_plan_review=true --web
+conductor --silent run twig-sdlc-implement@twig --input work_item_id=<ID> -m workitem_id=<ID> -m worktree_name=twig2-<ID> -m cwd=C:\Users\dangreen\projects\twig2-<ID> --web
 ```
 
 ## Launching Multiple Runs

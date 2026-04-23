@@ -72,7 +72,7 @@ public sealed class WorkspaceCommand(
                     sprintItems = await workItemRepo.GetByIterationAndAssigneeAsync(iteration, userDisplayName, ct);
                 else
                     sprintItems = await workItemRepo.GetByIterationAsync(iteration, ct);
-                yield return new WorkspaceDataChunk.SprintItemsLoaded(sprintItems);
+                yield return new WorkspaceDataChunk.SprintItemsLoaded(sprintItems, WorkspaceSections.Build(sprintItems));
 
                 // Stage 3: Seeds
                 seeds = await workItemRepo.GetSeedsAsync(ct);
@@ -123,7 +123,7 @@ public sealed class WorkspaceCommand(
                         }
 
                         // Yield data rows (refreshed on success, original on failure)
-                        yield return new WorkspaceDataChunk.SprintItemsLoaded(sprintItems);
+                        yield return new WorkspaceDataChunk.SprintItemsLoaded(sprintItems, WorkspaceSections.Build(sprintItems));
                         yield return new WorkspaceDataChunk.SeedsLoaded(seeds);
                         yield return new WorkspaceDataChunk.RefreshCompleted();
                     }

@@ -468,6 +468,10 @@ public sealed class HumanOutputFormatter : IOutputFormatter
 
                 if (ws.Hierarchy is not null)
                 {
+                    // TODO: RenderHierarchicalCategory iterates ws.Hierarchy.AssigneeGroups (built from
+                    // ws.SprintItems), not section.Items. When Area/Manual mode infrastructure (#1946)
+                    // lands, items in those sections that don't appear in SprintItems will be silently
+                    // dropped from hierarchical rendering. Refactor to scope hierarchy to section items.
                     RenderHierarchicalCategory(sb, wsLines, ws, category);
                 }
                 else

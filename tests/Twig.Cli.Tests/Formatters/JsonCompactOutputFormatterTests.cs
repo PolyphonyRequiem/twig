@@ -136,6 +136,45 @@ public class JsonCompactOutputFormatterTests
         sprintElem.TryGetProperty("assignedTo", out _).ShouldBeFalse();
     }
 
+    [Fact]
+    public void FormatWorkspace_WithSections_IncludesSectionsAndExcludedIds()
+    {
+        var sprintItems = new[] { CreateWorkItem(1, "Sprint Task", "Active") };
+        var manualItems = new[] { CreateWorkItem(2, "Manual Task", "New") };
+        var sections = WorkspaceSections.Build(sprintItems, manualItems: manualItems, excludedIds: new[] { 42 });
+        var ws = Workspace.Build(null, sprintItems, Array.Empty<WorkItem>(), sections: sections);
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 7);
+        var root = JsonDocument.Parse(result).RootElement;
+
+        root.TryGetProperty("sections", out var sectionsEl).ShouldBeTrue();
+        sectionsEl.GetArrayLength().ShouldBe(2);
+
+        sectionsEl[0].GetProperty("modeName").GetString().ShouldBe("Sprint");
+        sectionsEl[0].GetProperty("itemCount").GetInt32().ShouldBe(1);
+        sectionsEl[0].GetProperty("itemIds")[0].GetInt32().ShouldBe(1);
+
+        sectionsEl[1].GetProperty("modeName").GetString().ShouldBe("Manual");
+        sectionsEl[1].GetProperty("itemCount").GetInt32().ShouldBe(1);
+        sectionsEl[1].GetProperty("itemIds")[0].GetInt32().ShouldBe(2);
+
+        root.TryGetProperty("excludedItemIds", out var excluded).ShouldBeTrue();
+        excluded.GetArrayLength().ShouldBe(1);
+        excluded[0].GetInt32().ShouldBe(42);
+    }
+
+    [Fact]
+    public void FormatWorkspace_WithoutSections_OmitsSectionsProperty()
+    {
+        var ws = Workspace.Build(null, Array.Empty<WorkItem>(), Array.Empty<WorkItem>());
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 7);
+        var root = JsonDocument.Parse(result).RootElement;
+
+        root.TryGetProperty("sections", out _).ShouldBeFalse();
+        root.TryGetProperty("excludedItemIds", out _).ShouldBeFalse();
+    }
+
     // ── Delegated methods ────────────────────────────────────────────
 
     [Fact]

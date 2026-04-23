@@ -180,6 +180,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                                 for (var si = 4; si < colCount; si++) seedSepRow[si] = "[dim]───[/]";
                                 table.AddRow(seedSepRow);
 
+                                var seedIndicator = _theme.FormatSeedIndicator();
+
                                 foreach (var seed in seeds)
                                 {
                                     var staleMarker = seed.SeedCreatedAt.HasValue
@@ -189,7 +191,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                                     var seedRow = new List<string>
                                     {
                                         seed.Id < 0 ? $"[dim]{seed.Id}[/]" : seed.Id.ToString(),
-                                        _theme.FormatTypeBadge(seed.Type),
+                                        $"{seedIndicator} {_theme.FormatTypeBadge(seed.Type)}",
                                         Markup.Escape(seed.Title) + staleMarker,
                                         _theme.FormatState(seed.State),
                                     };

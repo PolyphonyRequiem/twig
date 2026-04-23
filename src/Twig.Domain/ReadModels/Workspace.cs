@@ -20,20 +20,24 @@ public sealed class Workspace
     /// <summary>Optional sprint hierarchy for hierarchical rendering.</summary>
     public SprintHierarchy? Hierarchy { get; }
 
-    private Workspace(WorkItem? context, IReadOnlyList<WorkItem> sprintItems, IReadOnlyList<WorkItem> seeds, SprintHierarchy? hierarchy)
+    /// <summary>Optional mode-sectioned view of workspace items with dedup.</summary>
+    public WorkspaceSections? Sections { get; }
+
+    private Workspace(WorkItem? context, IReadOnlyList<WorkItem> sprintItems, IReadOnlyList<WorkItem> seeds, SprintHierarchy? hierarchy, WorkspaceSections? sections)
     {
         ContextItem = context;
         SprintItems = sprintItems;
         Seeds = seeds;
         Hierarchy = hierarchy;
+        Sections = sections;
     }
 
     /// <summary>
     /// Builds an immutable <see cref="Workspace"/> from context, sprint, and seed items.
     /// </summary>
-    public static Workspace Build(WorkItem? context, IReadOnlyList<WorkItem> sprintItems, IReadOnlyList<WorkItem> seeds, SprintHierarchy? hierarchy = null)
+    public static Workspace Build(WorkItem? context, IReadOnlyList<WorkItem> sprintItems, IReadOnlyList<WorkItem> seeds, SprintHierarchy? hierarchy = null, WorkspaceSections? sections = null)
     {
-        return new Workspace(context, sprintItems, seeds, hierarchy);
+        return new Workspace(context, sprintItems, seeds, hierarchy, sections);
     }
 
     /// <summary>

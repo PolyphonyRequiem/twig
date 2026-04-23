@@ -351,14 +351,191 @@ public sealed class HumanOutputFormatter : IOutputFormatter
 
         sb.AppendLine();
 
-        // Sprint items grouped by state category
+        // Mode-sectioned output when WorkspaceSections is available
+        if (ws.Sections is not null)
+        {
+            RenderModeSections(sb, ws, staleDays);
+        }
+        else
+        {
+            // Legacy flat rendering (fallback when no sections available)
+            RenderLegacySprintItems(sb, ws);
+        }
+
+        // Sprint progress summary (computed from all sprint items regardless of sectioning)
+        if (ws.SprintItems.Count > 0)
+        {
+            var proposed = 0;
+            var inProgressCount = 0;
+            var doneCount = 0;
+            foreach (var item in ws.SprintItems)
+            {
+                switch (StateCategoryResolver.Resolve(item.State, _stateEntries))
+                {
+                    case StateCategory.Proposed: proposed++; break;
+                    case StateCategory.InProgress: inProgressCount++; break;
+                    case StateCategory.Resolved:
+                    case StateCategory.Completed: doneCount++; break;
+                    case StateCategory.Removed: proposed++; break;
+                    case StateCategory.Unknown: proposed++; break;
+                }
+            }
+            var total = ws.SprintItems.Count;
+            var segments = new List<string>();
+            segments.Add($"{Green}{doneCount}/{total}{Reset} done");
+            if (inProgressCount > 0)
+                segments.Add($"{Blue}{inProgressCount}{Reset} in progress");
+            if (proposed > 0)
+                segments.Add($"{Dim}{proposed}{Reset} proposed");
+            sb.AppendLine();
+            sb.AppendLine($"  Sprint: {string.Join(" · ", segments)}");
+        }
+
+        // Seeds with seed indicators
+        if (ws.Seeds.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine($"  {Bold}Seeds ({ws.Seeds.Count}):{Reset}");
+            var seedIndicator = FormatSeedIndicator();
+            var staleSeeds = ws.GetStaleSeeds(staleDays);
+            var staleSeedIds = new HashSet<int>(staleSeeds.Count);
+            foreach (var s in staleSeeds)
+                staleSeedIds.Add(s.Id);
+            foreach (var seed in ws.Seeds)
+            {
+                var staleWarning = staleSeedIds.Contains(seed.Id) ? $" {Red}⚠ stale{Reset}" : "";
+                var seedTypeColor = GetTypeColor(seed.Type);
+                var seedBadge = GetTypeBadge(seed.Type);
+                sb.AppendLine($"    {seedIndicator} {seedTypeColor}{seedBadge}{Reset} #{seed.Id} {seed.Title} ({seed.Type}){staleWarning}");
+            }
+        }
+
+        // Exclusion footer
+        if (ws.Sections is not null && ws.Sections.ExcludedItemIds.Count > 0)
+        {
+            sb.AppendLine();
+            var ids = string.Join(", ", ws.Sections.ExcludedItemIds.Select(id => $"#{id}"));
+            sb.AppendLine($"  {Dim}{ws.Sections.ExcludedItemIds.Count} excluded: {ids}{Reset}");
+        }
+
+        // Dirty summary
+        var dirtyItems = ws.GetDirtyItems();
+        if (dirtyItems.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine($"  {Yellow}{dirtyItems.Count} item(s) with unsaved changes.{Reset}");
+        }
+
+        // Remove trailing newline
+        if (sb.Length > 0 && sb[sb.Length - 1] == '\n')
+            sb.Length -= 1;
+        if (sb.Length > 0 && sb[sb.Length - 1] == '\r')
+            sb.Length -= 1;
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Renders workspace items grouped by mode sections with optional section headers.
+    /// Section headers are omitted when only one section is present.
+    /// </summary>
+    private void RenderModeSections(StringBuilder sb, Workspace ws, int staleDays)
+    {
+        var sections = ws.Sections!;
+        var showHeaders = sections.Sections.Count > 1;
+
+        foreach (var section in sections.Sections)
+        {
+            if (showHeaders)
+            {
+                sb.AppendLine($"  {Bold}── {section.ModeName} ({section.Items.Count}) ──{Reset}");
+            }
+            else
+            {
+                sb.AppendLine($"  {Bold}Sprint ({section.Items.Count} items):{Reset}");
+            }
+
+            var wsLines = new List<AlignedLine>();
+            var categoryGroups = GroupByStateCategory(section.Items);
+            var catIndex = 0;
+            foreach (var (category, items) in categoryGroups)
+            {
+                if (catIndex > 0)
+                    sb.AppendLine($"    {Dim}────{Reset}");
+
+                sb.AppendLine($"    {Bold}{FormatCategoryHeader(category)}{Reset} ({items.Count})");
+                wsLines.Clear();
+
+                if (ws.Hierarchy is not null)
+                {
+                    RenderHierarchicalCategory(sb, wsLines, ws, category);
+                }
+                else
+                {
+                    foreach (var item in items)
+                    {
+                        var marker = (ws.ContextItem is not null && item.Id == ws.ContextItem.Id) ? $"{Cyan}●{Reset}" : " ";
+                        var dirty = item.IsDirty ? $" {Yellow}✎{Reset}" : "";
+                        var stateColor = GetStateColor(item.State);
+                        var sprintTypeColor = GetTypeColor(item.Type);
+                        var sprintBadge = GetTypeBadge(item.Type);
+                        wsLines.Add(new AlignedLine(
+                            $"      {marker} {sprintTypeColor}{sprintBadge}{Reset} #{item.Id} {item.Title}",
+                            $"[{stateColor}{item.State}{Reset}]", dirty));
+                    }
+                }
+                FlushAlignedLines(sb, wsLines);
+                catIndex++;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Renders hierarchical category items from the sprint hierarchy.
+    /// Extracted to share between legacy and mode-sectioned paths.
+    /// </summary>
+    private void RenderHierarchicalCategory(StringBuilder sb, List<AlignedLine> wsLines, Workspace ws, StateCategory category)
+    {
+        foreach (var kvp in ws.Hierarchy!.AssigneeGroups)
+        {
+            foreach (var root in kvp.Value)
+            {
+                if (root.IsVirtualGroup)
+                {
+                    var hasVisibleChild = false;
+                    foreach (var child in root.Children)
+                    {
+                        if (NodeOrDescendantBelongsToCategory(child, category))
+                        {
+                            hasVisibleChild = true;
+                            break;
+                        }
+                    }
+                    if (hasVisibleChild)
+                    {
+                        RenderVirtualGroupForCategory(sb, wsLines, ws, root, category);
+                    }
+                }
+                else if (NodeOrDescendantBelongsToCategory(root, category))
+                {
+                    CollectHierarchyNodeLine(wsLines, ws, root, indent: "      ", connector: "");
+                    CollectHierarchyChildrenForCategory(wsLines, ws, root, childIndent: "      ", category: category);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Legacy sprint items rendering (no mode sections). Used as fallback.
+    /// </summary>
+    private void RenderLegacySprintItems(StringBuilder sb, Workspace ws)
+    {
         sb.AppendLine($"  {Bold}Sprint ({ws.SprintItems.Count} items):{Reset}");
         var wsLines = new List<AlignedLine>();
         var categoryGroups = GroupByStateCategory(ws.SprintItems);
         var wsCatIndex = 0;
         foreach (var (category, items) in categoryGroups)
         {
-            // Insert separator between category groups (not before the first)
             if (wsCatIndex > 0)
                 sb.AppendLine($"    {Dim}────{Reset}");
 
@@ -366,35 +543,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
             wsLines.Clear();
             if (ws.Hierarchy is not null)
             {
-                // Render hierarchically — personal view has a single assignee, skip the assignee header
-                foreach (var kvp in ws.Hierarchy.AssigneeGroups)
-                {
-                    foreach (var root in kvp.Value)
-                    {
-                        if (root.IsVirtualGroup)
-                        {
-                            // Check if any child of the virtual group belongs to this category
-                            var hasVisibleChild = false;
-                            foreach (var child in root.Children)
-                            {
-                                if (NodeOrDescendantBelongsToCategory(child, category))
-                                {
-                                    hasVisibleChild = true;
-                                    break;
-                                }
-                            }
-                            if (hasVisibleChild)
-                            {
-                                RenderVirtualGroupForCategory(sb, wsLines, ws, root, category);
-                            }
-                        }
-                        else if (NodeOrDescendantBelongsToCategory(root, category))
-                        {
-                            CollectHierarchyNodeLine(wsLines, ws, root, indent: "      ", connector: "");
-                            CollectHierarchyChildrenForCategory(wsLines, ws, root, childIndent: "      ", category: category);
-                        }
-                    }
-                }
+                RenderHierarchicalCategory(sb, wsLines, ws, category);
             }
             else
             {
@@ -413,69 +562,6 @@ public sealed class HumanOutputFormatter : IOutputFormatter
             FlushAlignedLines(sb, wsLines);
             wsCatIndex++;
         }
-
-        // Sprint progress summary
-        if (ws.SprintItems.Count > 0)
-        {
-            var proposed = 0;
-            var inProgressCount = 0;
-            var doneCount = 0;
-            foreach (var item in ws.SprintItems)
-            {
-                switch (StateCategoryResolver.Resolve(item.State, _stateEntries))
-                {
-                    case StateCategory.Proposed: proposed++; break;
-                    case StateCategory.InProgress: inProgressCount++; break;
-                    case StateCategory.Resolved:
-                    case StateCategory.Completed: doneCount++; break;
-                    case StateCategory.Removed: proposed++; break; // Removed bucketed with Proposed
-                    case StateCategory.Unknown: proposed++; break; // Unknown bucketed with Proposed
-                }
-            }
-            var total = ws.SprintItems.Count;
-            var segments = new List<string>();
-            segments.Add($"{Green}{doneCount}/{total}{Reset} done");
-            if (inProgressCount > 0)
-                segments.Add($"{Blue}{inProgressCount}{Reset} in progress");
-            if (proposed > 0)
-                segments.Add($"{Dim}{proposed}{Reset} proposed");
-            sb.AppendLine();
-            sb.AppendLine($"  Sprint: {string.Join(" · ", segments)}");
-        }
-
-        // Seeds
-        if (ws.Seeds.Count > 0)
-        {
-            sb.AppendLine();
-            sb.AppendLine($"  {Bold}Seeds ({ws.Seeds.Count}):{Reset}");
-            var staleSeeds = ws.GetStaleSeeds(staleDays);
-            var staleSeedIds = new HashSet<int>(staleSeeds.Count);
-            foreach (var s in staleSeeds)
-                staleSeedIds.Add(s.Id);
-            foreach (var seed in ws.Seeds)
-            {
-                var staleWarning = staleSeedIds.Contains(seed.Id) ? $" {Red}⚠ stale{Reset}" : "";
-                var seedTypeColor = GetTypeColor(seed.Type);
-                var seedBadge = GetTypeBadge(seed.Type);
-                sb.AppendLine($"    {seedTypeColor}{seedBadge}{Reset} #{seed.Id} {seed.Title} ({seed.Type}){staleWarning}");
-            }
-        }
-
-        // Dirty summary
-        var dirtyItems = ws.GetDirtyItems();
-        if (dirtyItems.Count > 0)
-        {
-            sb.AppendLine();
-            sb.AppendLine($"  {Yellow}{dirtyItems.Count} item(s) with unsaved changes.{Reset}");
-        }
-
-        // Remove trailing newline
-        if (sb.Length > 0 && sb[sb.Length - 1] == '\n')
-            sb.Length -= 1;
-        if (sb.Length > 0 && sb[sb.Length - 1] == '\r')
-            sb.Length -= 1;
-
-        return sb.ToString();
     }
 
     public string FormatSprintView(Workspace ws, int staleDays)
@@ -1274,6 +1360,16 @@ public sealed class HumanOutputFormatter : IOutputFormatter
     private string GetTypeBadge(WorkItemType type)
     {
         return IconSet.ResolveTypeBadge(_iconMode, type.Value, _typeIconIds);
+    }
+
+    /// <summary>
+    /// Returns an ANSI-colored seed indicator glyph.
+    /// Unicode mode: green ●, Nerd Font mode: green  (seedling).
+    /// </summary>
+    internal string FormatSeedIndicator()
+    {
+        var glyph = _iconMode == "nerd" ? "\uf4d8" : "●";
+        return $"{Green}{glyph}{Reset}";
     }
 
     /// <summary>

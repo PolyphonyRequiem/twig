@@ -133,7 +133,8 @@ public sealed class WorkspaceCommand(
             await renderer.RenderWorkspaceAsync(StreamWorkspaceData(ct), config.Seed.StaleDays, all, ct, dynamicColumns, config.Display.CacheStaleMinutes);
 
             // Build Workspace from closure-populated variables for hint computation
-            var workspace = Workspace.Build(contextItem, sprintItems, seeds);
+            var workspace = Workspace.Build(contextItem, sprintItems, seeds,
+                sections: WorkspaceSections.Build(sprintItems));
 
             var hints = hintEngine.GetHints("workspace",
                 workspace: workspace,
@@ -218,7 +219,8 @@ public sealed class WorkspaceCommand(
             }
         }
 
-        var workspace = Workspace.Build(contextItem, sprintItems, seeds, hierarchy);
+        var workspace = Workspace.Build(contextItem, sprintItems, seeds, hierarchy,
+            sections: WorkspaceSections.Build(sprintItems));
 
         if (all || sprintLayout)
         {

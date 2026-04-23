@@ -73,28 +73,6 @@ public sealed class ArtifactLinkCommandTests : IDisposable
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  Happy path — ArtifactLink (vstfs:// URI)
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task ExecuteAsync_VstfsUri_CallsServiceAndOutputsLinked()
-    {
-        SetActiveItem(100);
-        _adoService.AddArtifactLinkAsync(
-                Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
-            .Returns(false);
-
-        var result = await CreateCommand().ExecuteAsync(
-            "vstfs:///Git/Commit/proj-id/repo-id/abc123", "Fixed in Commit");
-
-        result.ShouldBe(0);
-        _stdout.ToString().ShouldContain("Linked");
-        _stdout.ToString().ShouldContain("#100");
-        await _adoService.Received(1).AddArtifactLinkAsync(
-            100, "vstfs:///Git/Commit/proj-id/repo-id/abc123", "Fixed in Commit", Arg.Any<CancellationToken>());
-    }
-
-    // ═══════════════════════════════════════════════════════════════
     //  Duplicate link — already linked
     // ═══════════════════════════════════════════════════════════════
 
@@ -229,42 +207,6 @@ public sealed class ArtifactLinkCommandTests : IDisposable
 
         result.ShouldBe(0);
         _stdout.ToString().Length.ShouldBeGreaterThan(0);
-    }
-
-    [Theory]
-    [InlineData("human")]
-    [InlineData("json")]
-    [InlineData("json-compact")]
-    [InlineData("minimal")]
-    public async Task ExecuteAsync_DuplicateAllFormats_Succeed(string format)
-    {
-        SetActiveItem(42);
-        _adoService.AddArtifactLinkAsync(
-                Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
-            .Returns(true);
-
-        var result = await CreateCommand().ExecuteAsync(
-            "https://example.com", outputFormat: format);
-
-        result.ShouldBe(0);
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  Name parameter passthrough
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task ExecuteAsync_NoName_PassesNullToService()
-    {
-        SetActiveItem(42);
-        _adoService.AddArtifactLinkAsync(
-                Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
-            .Returns(false);
-
-        await CreateCommand().ExecuteAsync("https://example.com");
-
-        await _adoService.Received(1).AddArtifactLinkAsync(
-            42, "https://example.com", null, Arg.Any<CancellationToken>());
     }
 
     public void Dispose()

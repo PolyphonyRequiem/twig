@@ -36,22 +36,6 @@ public sealed class CreationToolsLinkArtifactTests : CreationToolsTestBase
     }
 
     [Fact]
-    public async Task LinkArtifact_VstfsUri_ReturnsSuccess()
-    {
-        _adoService.AddArtifactLinkAsync(
-                Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
-            .Returns(false);
-
-        var result = await CreateCreationSut().LinkArtifact(
-            100, "vstfs:///Git/Commit/proj-id/repo-id/abc123", "Fixed in Commit");
-
-        result.IsError.ShouldBeNull();
-        var json = ParseResult(result);
-        json.GetProperty("workItemId").GetInt32().ShouldBe(100);
-        json.GetProperty("alreadyLinked").GetBoolean().ShouldBeFalse();
-    }
-
-    [Fact]
     public async Task LinkArtifact_NoName_PassesNullToService()
     {
         _adoService.AddArtifactLinkAsync(

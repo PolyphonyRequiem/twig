@@ -222,7 +222,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         // 3. Build attributes — ArtifactLink uses Name, Hyperlink uses Comment
         var attributes = isArtifactLink
             ? new AdoArtifactLinkAttributes { Name = name ?? "Artifact" }
-            : new AdoArtifactLinkAttributes { Name = string.Empty, Comment = name };
+            : new AdoArtifactLinkAttributes { Comment = name };
 
         var relationValue = JsonSerializer.SerializeToNode(
             new AdoArtifactLinkRelation

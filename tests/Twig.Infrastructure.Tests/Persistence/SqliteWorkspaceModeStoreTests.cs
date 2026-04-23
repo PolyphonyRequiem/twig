@@ -267,7 +267,8 @@ public class SqliteWorkspaceModeStoreTests : IDisposable
         foreach (var table in tables)
         {
             using var cmd = conn.CreateCommand();
-            cmd.CommandText = $"SELECT name FROM sqlite_master WHERE type='table' AND name='{table}';";
+            cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name=@name;";
+            cmd.Parameters.AddWithValue("@name", table);
             cmd.ExecuteScalar().ShouldNotBeNull($"Table '{table}' should exist");
         }
     }

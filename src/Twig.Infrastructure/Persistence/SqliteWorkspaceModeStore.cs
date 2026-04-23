@@ -125,18 +125,30 @@ public sealed class SqliteWorkspaceModeStore(SqliteCacheStore store) : IWorkspac
     public Task SetSprintIterationsAsync(IReadOnlyList<SprintIterationEntry> entries, CancellationToken ct = default)
     {
         var conn = store.GetConnection();
-
-        using var deleteCmd = conn.CreateCommand();
-        deleteCmd.CommandText = "DELETE FROM sprint_iterations;";
-        deleteCmd.ExecuteNonQuery();
-
-        foreach (var entry in entries)
+        using var tx = conn.BeginTransaction();
+        try
         {
-            using var insertCmd = conn.CreateCommand();
-            insertCmd.CommandText = "INSERT INTO sprint_iterations (expression, type) VALUES (@expression, @type);";
-            insertCmd.Parameters.AddWithValue("@expression", entry.Expression);
-            insertCmd.Parameters.AddWithValue("@type", entry.Type);
-            insertCmd.ExecuteNonQuery();
+            using var deleteCmd = conn.CreateCommand();
+            deleteCmd.Transaction = tx;
+            deleteCmd.CommandText = "DELETE FROM sprint_iterations;";
+            deleteCmd.ExecuteNonQuery();
+
+            foreach (var entry in entries)
+            {
+                using var insertCmd = conn.CreateCommand();
+                insertCmd.Transaction = tx;
+                insertCmd.CommandText = "INSERT INTO sprint_iterations (expression, type) VALUES (@expression, @type);";
+                insertCmd.Parameters.AddWithValue("@expression", entry.Expression);
+                insertCmd.Parameters.AddWithValue("@type", entry.Type);
+                insertCmd.ExecuteNonQuery();
+            }
+
+            tx.Commit();
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
         }
 
         return Task.CompletedTask;
@@ -159,18 +171,30 @@ public sealed class SqliteWorkspaceModeStore(SqliteCacheStore store) : IWorkspac
     public Task SetAreaPathsAsync(IReadOnlyList<WorkspaceAreaPath> entries, CancellationToken ct = default)
     {
         var conn = store.GetConnection();
-
-        using var deleteCmd = conn.CreateCommand();
-        deleteCmd.CommandText = "DELETE FROM area_paths;";
-        deleteCmd.ExecuteNonQuery();
-
-        foreach (var entry in entries)
+        using var tx = conn.BeginTransaction();
+        try
         {
-            using var insertCmd = conn.CreateCommand();
-            insertCmd.CommandText = "INSERT INTO area_paths (path, semantics) VALUES (@path, @semantics);";
-            insertCmd.Parameters.AddWithValue("@path", entry.Path);
-            insertCmd.Parameters.AddWithValue("@semantics", entry.Semantics);
-            insertCmd.ExecuteNonQuery();
+            using var deleteCmd = conn.CreateCommand();
+            deleteCmd.Transaction = tx;
+            deleteCmd.CommandText = "DELETE FROM area_paths;";
+            deleteCmd.ExecuteNonQuery();
+
+            foreach (var entry in entries)
+            {
+                using var insertCmd = conn.CreateCommand();
+                insertCmd.Transaction = tx;
+                insertCmd.CommandText = "INSERT INTO area_paths (path, semantics) VALUES (@path, @semantics);";
+                insertCmd.Parameters.AddWithValue("@path", entry.Path);
+                insertCmd.Parameters.AddWithValue("@semantics", entry.Semantics);
+                insertCmd.ExecuteNonQuery();
+            }
+
+            tx.Commit();
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
         }
 
         return Task.CompletedTask;

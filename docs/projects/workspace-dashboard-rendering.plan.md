@@ -2,7 +2,7 @@
 
 > **Work Item:** #1951 — Workspace Dashboard Rendering
 > **Parent Epic:** #1945 — Workspace Modes & Tracking
-> **Status:** Draft
+> **Status**: ✅ Done
 > **Revision:** 0
 > **Revision Notes:** Initial draft.
 

@@ -166,6 +166,35 @@ public sealed class CreationTools(WorkspaceResolver resolver)
         return McpResultBuilder.FormatLinked(sourceId, targetId, linkType, warning);
     }
 
+    [McpServerTool(Name = "twig_link_artifact"), Description("Add an artifact link (URL or vstfs:// URI) to a work item")]
+    public async Task<CallToolResult> LinkArtifact(
+        [Description("Work item ID to link the artifact to")] int workItemId,
+        [Description("Artifact URL (http/https) or vstfs:// URI")] string url,
+        [Description("Display name for the link (optional)")] string? name = null,
+        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        CancellationToken ct = default)
+    {
+        if (workItemId <= 0)
+            return McpResultBuilder.ToError($"workItemId must be a positive work item ID (got {workItemId}).");
+
+        if (string.IsNullOrWhiteSpace(url))
+            return McpResultBuilder.ToError("url is required.");
+
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+
+        bool alreadyLinked;
+        try
+        {
+            alreadyLinked = await ctx.AdoService.AddArtifactLinkAsync(workItemId, url, name, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return McpResultBuilder.ToError($"Link failed: {ex.Message}");
+        }
+
+        return McpResultBuilder.FormatArtifactLinked(workItemId, url, alreadyLinked);
+    }
+
     private async Task<CallToolResult?> CheckForDuplicateAsync(
         WorkspaceContext ctx, int parentId, string title, WorkItemType type, CancellationToken ct)
     {

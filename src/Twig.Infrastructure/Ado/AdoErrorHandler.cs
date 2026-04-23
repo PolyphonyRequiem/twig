@@ -59,6 +59,10 @@ internal static partial class AdoErrorHandler
                 var notFoundId = TryExtractWorkItemIdFromUrl(requestUrl);
                 throw new AdoNotFoundException(notFoundId > 0 ? notFoundId : null);
 
+            case HttpStatusCode.Conflict:
+                var conflictMsg409 = await TryReadErrorMessageAsync(response, ct);
+                throw new AdoDuplicateRelationException(conflictMsg409);
+
             case HttpStatusCode.PreconditionFailed:
                 var conflictBody = await TryReadErrorMessageAsync(response, ct);
                 var serverRev = TryParseRevisionFromError(conflictBody);

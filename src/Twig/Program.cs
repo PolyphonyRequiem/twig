@@ -612,6 +612,15 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> LinkReparent([Argument] int targetId, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<LinkCommand>().ReparentAsync(targetId, output, ct);
 
+    /// <summary>Add an artifact link (URL or vstfs:// URI) to a work item.</summary>
+    /// <param name="url">Artifact URL (http/https) or vstfs:// URI.</param>
+    /// <param name="name">Display name for the link.</param>
+    /// <param name="id">Target a specific work item by ID instead of the active item.</param>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    [Command("link artifact")]
+    public async Task<int> LinkArtifact([Argument] string url, string? name = null, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<ArtifactLinkCommand>().ExecuteAsync(url, name, id, output, ct);
+
     /// <summary>Batch state transitions, field updates, and notes in a single call.</summary>
     /// <param name="state">Target state name (e.g. Active, Closed).</param>
     /// <param name="set">Field updates as key=value pairs. Repeatable.</param>
@@ -1001,6 +1010,7 @@ internal static class GroupedHelp
         "link parent",
         "link unparent",
         "link reparent",
+        "link artifact",
 
         // Git
         "branch",
@@ -1114,6 +1124,7 @@ Work Items:
   link parent <id>     Set the parent of the active work item.
   link unparent        Remove the parent link from the active item.
   link reparent <id>   Remove current parent and set a new one.
+  link artifact <url>  Add an artifact link (URL or vstfs://) to an item.
   seed new <title>     Create a new local seed (child work item).
   seed new --editor    Create a seed via editor with field template.
   seed edit <id>       Edit a local seed in an external editor.

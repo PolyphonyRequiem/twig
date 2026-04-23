@@ -20,4 +20,11 @@ public interface IAdoWorkItemService
     Task<IReadOnlyList<WorkItem>> FetchBatchAsync(IReadOnlyList<int> ids, CancellationToken ct = default);
     Task AddLinkAsync(int sourceId, int targetId, string adoLinkType, CancellationToken ct = default);
     Task RemoveLinkAsync(int sourceId, int targetId, string adoLinkType, CancellationToken ct = default);
+
+    /// <summary>
+    /// Adds an artifact link (ArtifactLink for vstfs:// URIs, Hyperlink for http/https URLs)
+    /// to the specified work item. Fetches the current revision internally for optimistic concurrency.
+    /// Returns <c>true</c> if the link already existed (HTTP 409), <c>false</c> if newly created.
+    /// </summary>
+    Task<bool> AddArtifactLinkAsync(int workItemId, string url, string? name = null, CancellationToken ct = default);
 }

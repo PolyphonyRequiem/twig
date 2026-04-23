@@ -56,12 +56,6 @@ public static class WorkItemExportFormat
         IReadOnlyList<FieldDefinition> fieldDefinitions)
     {
         var writableFields = GetOrderedWritableFields(fieldDefinitions);
-
-        // Build reference-name → display-name lookup for field headers
-        var refToDisplay = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var fd in writableFields)
-            refToDisplay[fd.ReferenceName] = fd.DisplayName;
-
         var sb = new StringBuilder();
         sb.AppendLine("<!-- twig-export: edit field values below, then run 'twig import' -->");
         sb.AppendLine();

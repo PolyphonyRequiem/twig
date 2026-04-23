@@ -196,35 +196,25 @@ public class WorkItemExportFormatTests
     [Fact]
     public void Generate_NullFieldValue_ProducesBlankContentAfterHeader()
     {
-        var item = BuildItem(1, "Item");
-        // No Description field set → should produce "## Description\n\n"
-        var result = WorkItemExportFormat.Generate([item], StandardFields);
-
-        // Description header should exist followed by an empty value (just newlines)
-        var descIdx = result.IndexOf("## Description");
-        descIdx.ShouldBeGreaterThan(-1);
-
-        // Next section header after Description should follow with no value in between
-        var afterDesc = result[(descIdx + "## Description".Length)..];
-        var nextHeaderIdx = afterDesc.IndexOf("## ");
-        var valueBetween = afterDesc[..nextHeaderIdx].Trim();
-        valueBetween.ShouldBeEmpty();
+        var result = WorkItemExportFormat.Generate([BuildItem(1, "Item")], StandardFields);
+        AssertFieldSectionIsEmpty(result, "Description");
     }
 
     [Fact]
     public void Generate_EmptyFieldValue_ProducesBlankContentAfterHeader()
     {
         var fields = new Dictionary<string, string?> { ["System.Description"] = "" };
-        var item = BuildItem(1, "Item", fields: fields);
-        var result = WorkItemExportFormat.Generate([item], StandardFields);
+        var result = WorkItemExportFormat.Generate([BuildItem(1, "Item", fields: fields)], StandardFields);
+        AssertFieldSectionIsEmpty(result, "Description");
+    }
 
-        var descIdx = result.IndexOf("## Description");
-        descIdx.ShouldBeGreaterThan(-1);
-
-        var afterDesc = result[(descIdx + "## Description".Length)..];
-        var nextHeaderIdx = afterDesc.IndexOf("## ");
-        var valueBetween = afterDesc[..nextHeaderIdx].Trim();
-        valueBetween.ShouldBeEmpty();
+    private static void AssertFieldSectionIsEmpty(string result, string fieldHeader)
+    {
+        var header = $"## {fieldHeader}";
+        var idx = result.IndexOf(header);
+        idx.ShouldBeGreaterThan(-1);
+        var after = result[(idx + header.Length)..];
+        after[..after.IndexOf("## ")].Trim().ShouldBeEmpty();
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -424,18 +414,12 @@ public class WorkItemExportFormatTests
         result.ShouldNotContain("##");
     }
 
-    [Fact]
-    public void Parse_EmptyString_ReturnsEmptyList()
+    [Theory]
+    [InlineData("")]
+    [InlineData("   \n\n  ")]
+    public void Parse_EmptyOrWhitespaceInput_ReturnsEmptyList(string input)
     {
-        var parsed = WorkItemExportFormat.Parse("", StandardFields);
-        parsed.Count.ShouldBe(0);
-    }
-
-    [Fact]
-    public void Parse_WhitespaceOnly_ReturnsEmptyList()
-    {
-        var parsed = WorkItemExportFormat.Parse("   \n\n  ", StandardFields);
-        parsed.Count.ShouldBe(0);
+        WorkItemExportFormat.Parse(input, StandardFields).Count.ShouldBe(0);
     }
 
     [Fact]

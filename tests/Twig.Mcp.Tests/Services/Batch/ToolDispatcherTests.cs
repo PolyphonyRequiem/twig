@@ -295,6 +295,27 @@ public sealed class ToolDispatcherTests
     }
 
     [Fact]
+    public void GetBool_LongOne_ReturnsTrue()
+    {
+        var args = Args(("key", (long)1));
+        ToolDispatcher.GetBool(args, "key").ShouldBe(true);
+    }
+
+    [Fact]
+    public void GetBool_LongZero_ReturnsFalse()
+    {
+        var args = Args(("key", (long)0));
+        ToolDispatcher.GetBool(args, "key").ShouldBe(false);
+    }
+
+    [Fact]
+    public void GetBool_LongNonZero_ReturnsTrue()
+    {
+        var args = Args(("key", (long)42));
+        ToolDispatcher.GetBool(args, "key").ShouldBe(true);
+    }
+
+    [Fact]
     public void GetInt_IntValue_ReturnsValue()
     {
         var args = Args(("key", 42));
@@ -525,6 +546,12 @@ public sealed class ToolDispatcherTests
     }
 
     // ── Int coercion edge cases in routing ──────────────────────────
+
+    [Fact]
+    public void ToolDispatcher_ImplementsIToolDispatcher()
+    {
+        _dispatcher.ShouldBeAssignableTo<IToolDispatcher>();
+    }
 
     [Fact]
     public async Task DispatchAsync_TwigShow_StringId_ParsesCorrectly()

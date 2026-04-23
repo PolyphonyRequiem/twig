@@ -1,4 +1,3 @@
-using System.Diagnostics.CodeAnalysis;
 using ModelContextProtocol.Protocol;
 using Twig.Mcp.Tools;
 
@@ -16,7 +15,7 @@ internal sealed class ToolDispatcher(
     MutationTools mutationTools,
     NavigationTools navigationTools,
     CreationTools creationTools,
-    WorkspaceTools workspaceTools)
+    WorkspaceTools workspaceTools) : IToolDispatcher
 {
     /// <summary>
     /// Dispatches a single tool call by name, extracting typed parameters from the args dictionary.
@@ -178,6 +177,7 @@ internal sealed class ToolDispatcher(
             string s when bool.TryParse(s, out var b) => b,
             // JSON numbers: 0 = false, non-zero = true
             int i => i != 0,
+            long l => l != 0,
             _ => defaultValue
         };
     }
@@ -224,7 +224,6 @@ internal sealed class ToolDispatcher(
         };
     }
 
-    [SuppressMessage("Style", "IDE0072:Add missing cases", Justification = "Default branch handles unknown tools")]
     private static string? GetStringOrDefault(IReadOnlyDictionary<string, object?> args, string key, string? fallback)
     {
         var value = GetString(args, key);

@@ -6,6 +6,7 @@ using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.DependencyInjection;
 using Twig.Mcp;
 using Twig.Mcp.Services;
+using Twig.Mcp.Services.Batch;
 using Twig.Mcp.Tools;
 
 SQLitePCL.Batteries.Init();
@@ -49,6 +50,9 @@ builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
 // Register workspace infrastructure as singletons
 builder.Services.AddSingleton<IWorkspaceRegistry>(registry);
 builder.Services.AddSingleton(resolver);
+
+// Batch dispatch — interface enables BatchExecutionEngine to be tested in isolation (NFR-7).
+builder.Services.AddSingleton<IToolDispatcher, ToolDispatcher>();
 
 // Parent-process watchdog — self-terminates when the host process exits,
 // preventing orphaned twig-mcp instances on VS Code reload or CLI exit.

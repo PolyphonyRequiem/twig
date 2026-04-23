@@ -40,6 +40,9 @@ public static class NetworkServiceModule
         // gzip/Brotli decompression and HTTP/2 multiplexing with HTTP/1.1 fallback.
         services.AddSingleton<HttpClient>(_ => CreateHttpClient());
 
+        // Process-wide ADO concurrency limiter — shared across all ADO HTTP call sites.
+        services.AddSingleton<AdoConcurrencyThrottle>();
+
         services.AddSingleton<IAdoWorkItemService>(sp =>
         {
             var cfg = sp.GetRequiredService<TwigConfiguration>();
@@ -48,7 +51,8 @@ public static class NetworkServiceModule
                 sp.GetRequiredService<IAuthenticationProvider>(),
                 cfg.Organization,
                 cfg.Project,
-                sp.GetService<IFieldDefinitionStore>());
+                sp.GetService<IFieldDefinitionStore>(),
+                sp.GetRequiredService<AdoConcurrencyThrottle>());
         });
 
         // IAdoGitService — conditional registration; only when git project and repository are resolved.

@@ -222,6 +222,50 @@ pr_group_manager ──→ task_manager ──→ coder → reducer_code → tas
 | close_out | Opus 1M | Epic completion + observations |
 | closeout_filer | Sonnet | File observations as tagged ADO Issue |
 
+## Plan File Frontmatter
+
+Every `.plan.md` file in `docs/projects/` **must** include YAML frontmatter with three required fields:
+
+```yaml
+---
+work_item_id: 1858
+title: "AzCliAuthProvider Timeout Override"
+type: Issue
+---
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `work_item_id` | integer | Yes | The ADO work item ID this plan targets. Primary key for plan detection. |
+| `title` | string | Yes | Human-readable plan title. Used by `Get-PlanTitle` and for display. |
+| `type` | string | Yes | ADO work item type — `Epic`, `Issue`, or `Task`. Indicates the plan's scope level. |
+
+The frontmatter block is placed before the first H1 heading. Existing metadata tables
+and blockquotes below the heading are preserved — they serve as human-readable context.
+
+### Plan Detection Behavior
+
+The `plan_detector` agent uses frontmatter to match plans to work items:
+
+1. **Primary (frontmatter match)**: Parses each `docs/projects/*.plan.md` file's YAML
+   frontmatter and compares `work_item_id` to the requested work item ID. An exact
+   numeric match is required — this eliminates false positives from content references.
+2. **Fallback (content search)**: If no frontmatter match is found, falls back to
+   searching file content for the work item ID. This is a legacy heuristic with lower
+   confidence and is subject to false positives (e.g., a parent Epic's plan listing
+   a child Issue ID).
+
+### Architect Agent Requirements
+
+When generating a new plan, the **architect** agent must:
+- Include the YAML frontmatter block as the very first content in the file
+- Set `work_item_id` to the target work item's numeric ID (no `#` prefix)
+- Set `title` to the plan's goal or title
+- Set `type` to the work item type (`Epic`, `Issue`, or `Task`)
+
+Plans without frontmatter will still be detected via content search fallback, but
+frontmatter is the canonical mechanism and must be included in all new plans.
+
 ## When to Use
 
 - **Full feature implementation** — "implement this Epic end-to-end"

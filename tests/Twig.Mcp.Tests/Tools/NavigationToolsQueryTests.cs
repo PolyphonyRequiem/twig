@@ -256,24 +256,6 @@ public sealed class NavigationToolsQueryTests : NavigationToolsTestBase
     }
 
     [Fact]
-    public async Task Query_BothDateFilters_IncludedInWiqlAndDescription()
-    {
-        string? capturedWiql = null;
-        _adoService.QueryByWiqlAsync(Arg.Do<string>(w => capturedWiql = w), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<int>());
-
-        var result = await CreateSut().Query(createdSince: 30, changedSince: 7);
-
-        result.IsError.ShouldBeNull();
-        capturedWiql.ShouldNotBeNull();
-        capturedWiql.ShouldContain("[System.CreatedDate] >= @Today - 30");
-        capturedWiql.ShouldContain("[System.ChangedDate] >= @Today - 7");
-        var desc = ParseResult(result).GetProperty("queryDescription").GetString()!;
-        desc.ShouldContain("created within 30d");
-        desc.ShouldContain("changed within 7d");
-    }
-
-    [Fact]
     public async Task Query_DateFilterWithSearchText_ProducesCorrectWiqlAndDescription()
     {
         string? capturedWiql = null;

@@ -10,6 +10,10 @@ Orchestrated SDLC pipeline powered by the `conductor` skill. Takes an ADO work i
 
 > **This workflow is long-running** — typically 30-120+ minutes depending on scope. **Always launch with `conductor --silent run ... --web`** — this suppresses console noise and opens a real-time web dashboard. **Do NOT use `--web-bg`** — it does not work correctly; always use `--web`.
 
+> **Always launch detached** — use `detach: true` (or `Start-Process`) so conductor
+> survives if the parent session drops. Non-detached async shells die when the Copilot
+> CLI session reconnects or terminates.
+
 ## Workflows
 
 All workflows are registered in the `twig` conductor registry. Use short names — no absolute paths needed.

@@ -391,6 +391,50 @@ public sealed class BatchExecutionEngineTests
             () => engine.ExecuteAsync(graph, DefaultTimeout, null, cts.Token));
     }
 
+    [Fact]
+    public async Task Execute_Timeout_InParallelBlock_SetsTimedOutTrue()
+    {
+        var dispatcher = CreateDelayedDispatcher(TimeSpan.FromSeconds(10));
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new ParallelNode([
+                new StepNode(0, "twig_show", new Dictionary<string, object?> { ["id"] = 1 }),
+                new StepNode(1, "twig_show", new Dictionary<string, object?> { ["id"] = 2 })
+            ]),
+            TotalStepCount: 2,
+            MaxDepth: 1);
+
+        var result = await engine.ExecuteAsync(
+            graph,
+            TimeSpan.FromMilliseconds(100),
+            null,
+            CancellationToken.None);
+
+        result.TimedOut.ShouldBeTrue();
+        result.Steps.ShouldAllBe(s => s.Status == StepStatus.Skipped);
+    }
+
+    [Fact]
+    public async Task Execute_ExternalCancellation_InParallelBlock_PropagatesException()
+    {
+        var dispatcher = CreateDelayedDispatcher(TimeSpan.FromSeconds(10));
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+
+        var graph = new BatchGraph(
+            new ParallelNode([
+                new StepNode(0, "twig_show", new Dictionary<string, object?> { ["id"] = 1 }),
+                new StepNode(1, "twig_show", new Dictionary<string, object?> { ["id"] = 2 })
+            ]),
+            TotalStepCount: 2,
+            MaxDepth: 1);
+
+        await Should.ThrowAsync<OperationCanceledException>(
+            () => engine.ExecuteAsync(graph, DefaultTimeout, null, cts.Token));
+    }
+
     // ── Workspace override passthrough ──────────────────────────────
 
     [Fact]

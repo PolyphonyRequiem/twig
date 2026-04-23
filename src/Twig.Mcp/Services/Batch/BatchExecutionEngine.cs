@@ -50,7 +50,7 @@ internal sealed class BatchExecutionEngine(IToolDispatcher dispatcher)
         batchStopwatch.Stop();
 
         // Fill any remaining null slots with Skipped results.
-        FillSkippedResults(graph.Root, results);
+        FillNullSlots(graph.Root, results, "Skipped due to timeout or prior failure.");
 
         return new BatchResult(
             results.Select(r => r!).ToList(),
@@ -149,7 +149,7 @@ internal sealed class BatchExecutionEngine(IToolDispatcher dispatcher)
             if (failed)
             {
                 // Skip remaining children after a failure.
-                MarkSkipped(child, results);
+                FillNullSlots(child, results, "Skipped due to prior step failure.");
                 continue;
             }
 
@@ -191,17 +191,14 @@ internal sealed class BatchExecutionEngine(IToolDispatcher dispatcher)
         {
             await Task.WhenAll(tasks).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
-            // Timeout: let the caller handle it. Results for completed steps are already
-            // captured; remaining slots will be filled with Skipped.
+            // Always propagate — timeout or external — let ExecuteAsync decide.
             throw;
         }
         catch
         {
-            // Individual step failures are already captured in results[].
-            // We don't propagate exceptions from parallel children — they are
-            // recorded as StepStatus.Failed in their respective result slots.
+            // Individual step failures are captured in results[].
         }
     }
 
@@ -217,52 +214,25 @@ internal sealed class BatchExecutionEngine(IToolDispatcher dispatcher)
     };
 
     /// <summary>
-    /// Marks all step nodes in the subtree as Skipped.
+    /// Fills any null slots in the subtree with Skipped results using the given reason.
     /// </summary>
-    private static void MarkSkipped(BatchNode node, StepResult?[] results)
+    private static void FillNullSlots(BatchNode node, StepResult?[] results, string reason)
     {
         switch (node)
         {
             case StepNode step:
                 results[step.GlobalIndex] ??= new StepResult(
-                    step.GlobalIndex, step.ToolName, StepStatus.Skipped, null,
-                    "Skipped due to prior step failure.", 0);
+                    step.GlobalIndex, step.ToolName, StepStatus.Skipped, null, reason, 0);
                 break;
 
             case SequenceNode seq:
                 foreach (var child in seq.Children)
-                    MarkSkipped(child, results);
+                    FillNullSlots(child, results, reason);
                 break;
 
             case ParallelNode par:
                 foreach (var child in par.Children)
-                    MarkSkipped(child, results);
-                break;
-        }
-    }
-
-    /// <summary>
-    /// Fills any null slots in the results array with Skipped results.
-    /// Called after execution completes (or times out) to ensure every step has a result.
-    /// </summary>
-    private static void FillSkippedResults(BatchNode node, StepResult?[] results)
-    {
-        switch (node)
-        {
-            case StepNode step:
-                results[step.GlobalIndex] ??= new StepResult(
-                    step.GlobalIndex, step.ToolName, StepStatus.Skipped, null,
-                    "Skipped due to timeout or prior failure.", 0);
-                break;
-
-            case SequenceNode seq:
-                foreach (var child in seq.Children)
-                    FillSkippedResults(child, results);
-                break;
-
-            case ParallelNode par:
-                foreach (var child in par.Children)
-                    FillSkippedResults(child, results);
+                    FillNullSlots(child, results, reason);
                 break;
         }
     }

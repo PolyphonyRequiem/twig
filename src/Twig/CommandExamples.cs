@@ -184,6 +184,12 @@ internal static class CommandExamples
             "twig link reparent 5678        Move the active item under parent #5678",
             "twig link reparent 5678 1234   Move item #1234 under parent #5678",
         ],
+        ["link artifact"] =
+        [
+            "twig link artifact https://example.com/doc --name \"Plan\"  Add a hyperlink",
+            "twig link artifact vstfs:///Git/Commit/p/r/abc123         Add an artifact link",
+            "twig link artifact https://example.com --id 42            Link to a specific item",
+        ],
         ["note"] =
         [
             "twig note --text \"Investigated root cause\"   Add a note to the active item",

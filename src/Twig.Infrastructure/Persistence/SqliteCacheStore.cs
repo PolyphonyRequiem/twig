@@ -12,7 +12,7 @@ public sealed class SqliteCacheStore : IDisposable
     /// Current schema version compiled into the binary.
     /// If the DB schema version differs, all tables are dropped and recreated.
     /// </summary>
-    internal const int SchemaVersion = 9;
+    internal const int SchemaVersion = 10;
 
     private readonly SqliteConnection _connection;
     private bool _schemaRebuilt;
@@ -105,7 +105,7 @@ public sealed class SqliteCacheStore : IDisposable
     {
         // Table names are compile-time constants — not user-supplied values — so
         // string interpolation is safe here. SQLite does not support parameterised DDL identifiers.
-        string[] tables = ["pending_changes", "work_items", "process_types", "context", "metadata", "field_definitions", "work_item_links", "seed_links", "publish_id_map", "navigation_history"];
+        string[] tables = ["pending_changes", "work_items", "process_types", "context", "metadata", "field_definitions", "work_item_links", "seed_links", "publish_id_map", "navigation_history", "tracked_items", "excluded_items", "sprint_iterations", "area_paths"];
         foreach (var table in tables)
         {
             using var cmd = _connection.CreateCommand();
@@ -119,6 +119,11 @@ public sealed class SqliteCacheStore : IDisposable
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = Ddl;
         cmd.ExecuteNonQuery();
+
+        // Default workspace mode to Sprint for new databases
+        using var defaultCmd = _connection.CreateCommand();
+        defaultCmd.CommandText = "INSERT OR IGNORE INTO context (key, value) VALUES ('workspace_mode', 'Sprint');";
+        defaultCmd.ExecuteNonQuery();
     }
 
     private void WriteSchemaVersion()
@@ -222,6 +227,29 @@ public sealed class SqliteCacheStore : IDisposable
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             work_item_id INTEGER NOT NULL,
             visited_at TEXT NOT NULL
+        );
+
+        CREATE TABLE tracked_items (
+            id INTEGER PRIMARY KEY,
+            mode TEXT NOT NULL DEFAULT 'single',
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE excluded_items (
+            id INTEGER PRIMARY KEY,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE sprint_iterations (
+            expression TEXT NOT NULL,
+            type TEXT NOT NULL DEFAULT 'relative',
+            PRIMARY KEY (expression, type)
+        );
+
+        CREATE TABLE area_paths (
+            path TEXT NOT NULL,
+            semantics TEXT NOT NULL DEFAULT 'under',
+            PRIMARY KEY (path, semantics)
         );
         """;
 

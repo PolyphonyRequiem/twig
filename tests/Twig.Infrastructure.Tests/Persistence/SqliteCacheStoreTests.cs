@@ -111,9 +111,9 @@ public class SqliteCacheStoreTests
     }
 
     [Fact]
-    public void SchemaVersion_IsNine()
+    public void SchemaVersion_IsTen()
     {
-        SqliteCacheStore.SchemaVersion.ShouldBe(9);
+        SqliteCacheStore.SchemaVersion.ShouldBe(10);
     }
 
     [Fact]
@@ -220,7 +220,7 @@ public class SqliteCacheStoreTests
         using (var cmd = conn.CreateCommand())
         {
             cmd.CommandText = "SELECT COUNT(*) FROM context;";
-            Convert.ToInt32(cmd.ExecuteScalar()).ShouldBe(0, "Old context data should be dropped");
+            Convert.ToInt32(cmd.ExecuteScalar()).ShouldBe(1, "Only default workspace_mode row should exist after rebuild");
         }
 
         // Verify all expected tables exist with correct schema

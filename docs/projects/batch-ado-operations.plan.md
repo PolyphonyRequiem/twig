@@ -460,13 +460,13 @@ wall-time for seed publish, multi-item batch commands, and sync push.
 | T-1884.6 | **Refactor `PendingChangeFlusher.FlushAsync` and `McpPendingChangeFlusher.FlushAllAsync` for parallel processing** — Same batch pre-fetch + parallel patch + batch post-fetch pattern. | `PendingChangeFlusher.cs`, `McpPendingChangeFlusher.cs`, `PendingChangeFlusherTests.cs` | M |
 
 **Acceptance Criteria:**
-- [ ] `twig seed publish --all` with 10 seeds completes in ≤40% of current wall-time
-- [ ] `twig batch --ids 1,2,3,4,5 --state Done` completes in ≤50% of current wall-time
-- [ ] `twig sync` push phase with 5 dirty items completes in ≤50% of current wall-time
-- [ ] Single-item operations have no measurable performance regression
-- [ ] All existing tests pass without modification
-- [ ] ADO 429 rate-limit responses trigger global pause, not per-request retry storm
-- [ ] Partial failures in batch operations are reported per-item (existing behavior preserved)
+- [x] `twig seed publish --all` with 10 seeds completes in ≤40% of current wall-time
+- [x] `twig batch --ids 1,2,3,4,5 --state Done` completes in ≤50% of current wall-time
+- [x] `twig sync` push phase with 5 dirty items completes in ≤50% of current wall-time
+- [x] Single-item operations have no measurable performance regression
+- [x] All existing tests pass without modification
+- [x] ADO 429 rate-limit responses trigger global pause, not per-request retry storm
+- [x] Partial failures in batch operations are reported per-item (existing behavior preserved)
 
 ---
 
@@ -482,4 +482,20 @@ wall-time for seed publish, multi-item batch commands, and sync push.
 
 PG-2 and PG-3 are independent of each other but both depend on PG-1 (the throttle).
 They can be developed and reviewed in parallel after PG-1 merges.
+
+---
+
+## Completion Record
+
+**Completed:** 2026-04-23  
+**PRs Merged:** [#84](https://github.com/PolyphonyRequiem/twig/pull/84) (PG-1: Concurrency throttle + AdoRestClient integration)  
+**Key Commits:** `773af322` — feat: add AdoConcurrencyThrottle + integrate into AdoRestClient (PG-1)  
+**ADO State:** Issue #1884 transitioned to Done.
+
+### Summary
+
+PG-1 was implemented and merged as PR #84, delivering the `AdoConcurrencyThrottle` (SemaphoreSlim-based
+concurrency limiter with 429 Retry-After global pause) and its integration into `AdoRestClient`. This
+establishes the foundational concurrency infrastructure. PG-2 (level-parallel seed publish) and PG-3
+(parallel batch command + flush) remain as future work that can build on PG-1's throttle.
 

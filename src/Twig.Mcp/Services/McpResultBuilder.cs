@@ -306,6 +306,17 @@ internal static class McpResultBuilder
                 writer.WriteString("warning", warning);
         });
 
+    public static CallToolResult FormatArtifactLinked(int workItemId, string url, bool alreadyLinked) =>
+        BuildJson(writer =>
+        {
+            writer.WriteNumber("workItemId", workItemId);
+            writer.WriteString("url", url);
+            writer.WriteBoolean("alreadyLinked", alreadyLinked);
+            writer.WriteString("message", alreadyLinked
+                ? $"Link already exists on #{workItemId}."
+                : $"Artifact link added to #{workItemId}.");
+        });
+
     public static CallToolResult FormatFlushSummary(McpFlushSummary summary) =>
         BuildJson(writer =>
         {

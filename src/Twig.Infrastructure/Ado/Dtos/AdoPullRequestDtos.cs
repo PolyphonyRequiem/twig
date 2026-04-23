@@ -151,4 +151,11 @@ internal sealed class AdoArtifactLinkAttributes
 {
     [JsonPropertyName("name")]
     public string Name { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Comment attribute used by Hyperlink relations. Null/absent for ArtifactLink relations.
+    /// </summary>
+    [JsonPropertyName("comment")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Comment { get; set; }
 }

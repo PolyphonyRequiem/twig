@@ -207,6 +207,58 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         using var _ = await SendAsync(HttpMethod.Patch, patchUrl, content, ifMatch: dto.Rev.ToString(), ct);
     }
 
+    /// <inheritdoc />
+    public async Task<bool> AddArtifactLinkAsync(int workItemId, string url, string? name = null, CancellationToken ct = default)
+    {
+        // 1. Fetch current revision for optimistic concurrency
+        var getUrl = $"{_orgUrl}/{_project}/_apis/wit/workitems/{workItemId}?api-version={ApiVersion}";
+        using var getResponse = await SendAsync(HttpMethod.Get, getUrl, content: null, ifMatch: null, ct);
+        var dto = await DeserializeWorkItemAsync(getResponse, ct);
+
+        // 2. Auto-detect relation type
+        var isArtifactLink = url.StartsWith("vstfs:///", StringComparison.OrdinalIgnoreCase);
+        var relType = isArtifactLink ? "ArtifactLink" : "Hyperlink";
+
+        // 3. Build attributes — ArtifactLink uses Name, Hyperlink uses Comment
+        var attributes = isArtifactLink
+            ? new AdoArtifactLinkAttributes { Name = name ?? "Artifact" }
+            : new AdoArtifactLinkAttributes { Name = string.Empty, Comment = name };
+
+        var relationValue = JsonSerializer.SerializeToNode(
+            new AdoArtifactLinkRelation
+            {
+                Rel = relType,
+                Url = url,
+                Attributes = attributes,
+            },
+            TwigJsonContext.Default.AdoArtifactLinkRelation);
+
+        var patchDoc = new List<AdoPatchOperation>
+        {
+            new()
+            {
+                Op = "add",
+                Path = "/relations/-",
+                Value = relationValue,
+            },
+        };
+
+        var json = JsonSerializer.Serialize(patchDoc, TwigJsonContext.Default.ListAdoPatchOperation);
+        var patchContent = new StringContent(json, Encoding.UTF8, JsonPatchMediaType);
+
+        try
+        {
+            using var _ = await SendAsync(HttpMethod.Patch,
+                $"{_orgUrl}/{_project}/_apis/wit/workitems/{workItemId}?api-version={ApiVersion}",
+                patchContent, ifMatch: dto.Rev.ToString(), ct);
+            return false; // newly created
+        }
+        catch (AdoDuplicateRelationException)
+        {
+            return true; // already linked
+        }
+    }
+
     // ── Batch fetch ─────────────────────────────────────────────────
 
     /// <summary>

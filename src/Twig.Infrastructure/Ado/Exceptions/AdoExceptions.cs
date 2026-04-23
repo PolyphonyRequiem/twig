@@ -90,6 +90,13 @@ public sealed class AdoUnexpectedResponseException : AdoException
     }
 }
 
+/// <summary>409 — Duplicate relation already exists on the work item.</summary>
+public sealed class AdoDuplicateRelationException : AdoException
+{
+    public AdoDuplicateRelationException(string? detail = null)
+        : base(detail ?? "A relation with the same target already exists.") { }
+}
+
 /// <summary>5xx — Transient server error.</summary>
 public sealed class AdoServerException : AdoException
 {

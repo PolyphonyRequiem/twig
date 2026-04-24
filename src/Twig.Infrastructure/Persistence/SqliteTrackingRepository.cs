@@ -14,7 +14,8 @@ public sealed class SqliteTrackingRepository(SqliteCacheStore store) : ITracking
     {
         var conn = store.GetConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT id, mode, created_at FROM tracked_items ORDER BY created_at;";
+        cmd.Transaction = store.ActiveTransaction;
+        cmd.CommandText = "SELECT id, mode, created_at FROM tracked_items ORDER BY created_at, id;";
         using var reader = cmd.ExecuteReader();
         var items = new List<TrackedItem>();
         while (reader.Read())
@@ -32,6 +33,7 @@ public sealed class SqliteTrackingRepository(SqliteCacheStore store) : ITracking
     {
         var conn = store.GetConnection();
         using var cmd = conn.CreateCommand();
+        cmd.Transaction = store.ActiveTransaction;
         cmd.CommandText = "SELECT id, mode, created_at FROM tracked_items WHERE id = @id;";
         cmd.Parameters.AddWithValue("@id", workItemId);
         using var reader = cmd.ExecuteReader();
@@ -49,7 +51,8 @@ public sealed class SqliteTrackingRepository(SqliteCacheStore store) : ITracking
     {
         var conn = store.GetConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "INSERT OR REPLACE INTO tracked_items (id, mode, created_at) VALUES (@id, @mode, @createdAt);";
+        cmd.Transaction = store.ActiveTransaction;
+        cmd.CommandText = "INSERT INTO tracked_items (id, mode, created_at) VALUES (@id, @mode, @createdAt) ON CONFLICT(id) DO UPDATE SET mode = excluded.mode;";
         cmd.Parameters.AddWithValue("@id", workItemId);
         cmd.Parameters.AddWithValue("@mode", mode.ToString());
         cmd.Parameters.AddWithValue("@createdAt", DateTimeOffset.UtcNow.ToString("O"));
@@ -61,6 +64,7 @@ public sealed class SqliteTrackingRepository(SqliteCacheStore store) : ITracking
     {
         var conn = store.GetConnection();
         using var cmd = conn.CreateCommand();
+        cmd.Transaction = store.ActiveTransaction;
         cmd.CommandText = "DELETE FROM tracked_items WHERE id = @id;";
         cmd.Parameters.AddWithValue("@id", workItemId);
         cmd.ExecuteNonQuery();
@@ -73,24 +77,32 @@ public sealed class SqliteTrackingRepository(SqliteCacheStore store) : ITracking
             return Task.CompletedTask;
 
         var conn = store.GetConnection();
-        using var tx = conn.BeginTransaction();
+        var ambientTx = store.ActiveTransaction;
+        var localTx = ambientTx ?? conn.BeginTransaction();
         try
         {
             foreach (var id in workItemIds)
             {
                 using var cmd = conn.CreateCommand();
-                cmd.Transaction = tx;
+                cmd.Transaction = localTx;
                 cmd.CommandText = "DELETE FROM tracked_items WHERE id = @id;";
                 cmd.Parameters.AddWithValue("@id", id);
                 cmd.ExecuteNonQuery();
             }
 
-            tx.Commit();
+            if (ambientTx is null)
+                localTx.Commit();
         }
         catch
         {
-            tx.Rollback();
+            if (ambientTx is null)
+                localTx.Rollback();
             throw;
+        }
+        finally
+        {
+            if (ambientTx is null)
+                localTx.Dispose();
         }
 
         return Task.CompletedTask;
@@ -100,7 +112,8 @@ public sealed class SqliteTrackingRepository(SqliteCacheStore store) : ITracking
     {
         var conn = store.GetConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT id, created_at FROM excluded_items ORDER BY created_at;";
+        cmd.Transaction = store.ActiveTransaction;
+        cmd.CommandText = "SELECT id, created_at FROM excluded_items ORDER BY created_at, id;";
         using var reader = cmd.ExecuteReader();
         var items = new List<ExcludedItem>();
         while (reader.Read())
@@ -118,6 +131,7 @@ public sealed class SqliteTrackingRepository(SqliteCacheStore store) : ITracking
     {
         var conn = store.GetConnection();
         using var cmd = conn.CreateCommand();
+        cmd.Transaction = store.ActiveTransaction;
         cmd.CommandText = "INSERT OR REPLACE INTO excluded_items (id, created_at) VALUES (@id, @createdAt);";
         cmd.Parameters.AddWithValue("@id", workItemId);
         cmd.Parameters.AddWithValue("@createdAt", DateTimeOffset.UtcNow.ToString("O"));
@@ -129,6 +143,7 @@ public sealed class SqliteTrackingRepository(SqliteCacheStore store) : ITracking
     {
         var conn = store.GetConnection();
         using var cmd = conn.CreateCommand();
+        cmd.Transaction = store.ActiveTransaction;
         cmd.CommandText = "DELETE FROM excluded_items WHERE id = @id;";
         cmd.Parameters.AddWithValue("@id", workItemId);
         cmd.ExecuteNonQuery();
@@ -139,6 +154,7 @@ public sealed class SqliteTrackingRepository(SqliteCacheStore store) : ITracking
     {
         var conn = store.GetConnection();
         using var cmd = conn.CreateCommand();
+        cmd.Transaction = store.ActiveTransaction;
         cmd.CommandText = "DELETE FROM excluded_items;";
         cmd.ExecuteNonQuery();
         return Task.CompletedTask;

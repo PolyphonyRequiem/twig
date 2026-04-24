@@ -85,11 +85,17 @@ public class SqliteTrackingRepositoryTests : IDisposable
     public async Task UpsertTrackedAsync_Update_OverwritesExistingMode()
     {
         await _repo.UpsertTrackedAsync(1, TrackingMode.Single);
+        var before = await _repo.GetTrackedByWorkItemIdAsync(1);
+
         await _repo.UpsertTrackedAsync(1, TrackingMode.Tree);
+        var after = await _repo.GetTrackedByWorkItemIdAsync(1);
 
         var items = await _repo.GetAllTrackedAsync();
         items.Count.ShouldBe(1);
         items[0].Mode.ShouldBe(TrackingMode.Tree);
+
+        // ON CONFLICT preserves original created_at
+        after!.TrackedAt.ShouldBe(before!.TrackedAt);
     }
 
     // --- RemoveTrackedAsync ---

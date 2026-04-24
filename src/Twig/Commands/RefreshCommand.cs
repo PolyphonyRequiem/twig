@@ -130,7 +130,11 @@ public sealed class RefreshCommand(
         // Apply cleanup policy after tree sync — parse kebab-case config string to enum
         var policyStr = config.Tracking.CleanupPolicy.Replace("-", "");
         if (Enum.TryParse<Twig.Domain.Enums.TrackingCleanupPolicy>(policyStr, ignoreCase: true, out var cleanupPolicy))
-            await orchestrator.ApplyCleanupPolicyAsync(cleanupPolicy, ct);
+        {
+            var removed = await orchestrator.ApplyCleanupPolicyAsync(cleanupPolicy, ct);
+            if (removed > 0)
+                _stderr.WriteLine(fmt.FormatInfo($"ℹ Auto-untracked {removed} item(s) per cleanup policy."));
+        }
 
         await orchestrator.HydrateAncestorsAsync(ct);
         await orchestrator.SyncWorkingSetAsync(iteration, ct);

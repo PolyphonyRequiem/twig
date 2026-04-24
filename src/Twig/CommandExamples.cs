@@ -247,6 +247,26 @@ internal static class CommandExamples
             "twig workspace exclusions --remove 42  Remove exclusion for #42",
             "twig workspace exclusions -o json      List exclusions as JSON",
         ],
+        ["area add"] =
+        [
+            "twig area add \"Project\\Team A\"           Add area path with subtree matching",
+            "twig area add \"Project\\Team A\" --exact   Add area path with exact matching only",
+        ],
+        ["area remove"] =
+        [
+            "twig area remove \"Project\\Team A\"        Remove a configured area path",
+            "twig area remove \"Project\\Team A\" -o json  Remove and output result as JSON",
+        ],
+        ["area list"] =
+        [
+            "twig area list                          List all configured area paths",
+            "twig area list -o json                  List area paths as JSON",
+        ],
+        ["area sync"] =
+        [
+            "twig area sync                          Fetch team area paths from ADO",
+            "twig area sync -o json                  Sync and output result as JSON",
+        ],
         ["sprint"] =
         [
             "twig sprint                Show the current sprint summary",

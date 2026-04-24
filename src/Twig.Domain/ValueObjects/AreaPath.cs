@@ -52,5 +52,17 @@ public readonly record struct AreaPath
         return Result.Ok(new AreaPath(trimmed));
     }
 
+    /// <summary>
+    /// Returns <c>true</c> when this area path is a descendant of (or equal to) <paramref name="ancestor"/>.
+    /// Uses case-insensitive ordinal comparison with backslash segment boundaries.
+    /// </summary>
+    public bool IsUnder(AreaPath ancestor)
+    {
+        if (string.Equals(Value, ancestor.Value, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return Value.StartsWith(ancestor.Value + "\\", StringComparison.OrdinalIgnoreCase);
+    }
+
     public override string ToString() => Value;
 }

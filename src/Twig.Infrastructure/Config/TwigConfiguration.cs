@@ -331,6 +331,17 @@ public sealed class TwigConfiguration
                     return true;
                 }
                 return false;
+            case "defaults.areapathentries":
+                Defaults.AreaPathEntries = value
+                    .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Select(entry =>
+                    {
+                        if (entry.EndsWith(":exact", StringComparison.OrdinalIgnoreCase))
+                            return new AreaPathEntry { Path = entry[..^":exact".Length], IncludeChildren = false };
+                        return new AreaPathEntry { Path = entry, IncludeChildren = true };
+                    })
+                    .ToList();
+                return true;
             default:
                 return false;
         }

@@ -85,6 +85,7 @@ public static class CommandRegistrationModule
         services.AddSingleton<StatesCommand>();
         services.AddSingleton<BatchCommand>();
         services.AddSingleton<TrackingCommand>();
+        services.AddSingleton<AreaCommand>();
     }
 
     private static void AddGitCommands(IServiceCollection services)

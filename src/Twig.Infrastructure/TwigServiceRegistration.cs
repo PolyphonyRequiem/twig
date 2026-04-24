@@ -94,6 +94,7 @@ public static class TwigServiceRegistration
         services.AddSingleton<IPublishIdMapRepository>(sp => new SqlitePublishIdMapRepository(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<IWorkspaceModeStore>(sp => new SqliteWorkspaceModeStore(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<ITrackingRepository>(sp => new SqliteTrackingRepository(sp.GetRequiredService<SqliteCacheStore>()));
+        services.AddSingleton<ITrackingService>(sp => new TrackingService(sp.GetRequiredService<ITrackingRepository>()));
 
         // Git service — registers the local git CLI service shared by CLI and TUI entry points.
         // IAdoGitService registration remains in the CLI Program.cs because it requires

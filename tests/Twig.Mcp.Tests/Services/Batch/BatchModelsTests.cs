@@ -79,6 +79,7 @@ public sealed class BatchModelsTests
 
     [Fact]
     public void ParallelNode_StoresChildren()
+    {
         var children = new BatchNode[]
         {
             new StepNode(0, "twig_update", new Dictionary<string, object?>()),

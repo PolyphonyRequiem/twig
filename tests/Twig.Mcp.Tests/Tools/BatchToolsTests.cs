@@ -2,6 +2,7 @@ using System.Text.Json;
 using ModelContextProtocol.Protocol;
 using Shouldly;
 using Twig.Mcp.Services.Batch;
+using Twig.Mcp.Tests.Services.Batch;
 using Twig.Mcp.Tools;
 using Xunit;
 using static Twig.Mcp.Tests.Services.Batch.BatchTestHelpers;

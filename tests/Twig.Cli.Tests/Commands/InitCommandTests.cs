@@ -455,6 +455,144 @@ public class InitCommandTests : IDisposable
                 Directory.Delete(parentDir, recursive: true);
         }
     }
+
+    // --- Workspace mode prompt tests ---
+
+    [Fact]
+    public async Task Init_ModePrompt_DefaultsToSprint_WhenEnterPressed()
+    {
+        Directory.CreateDirectory(Path.Combine(_testDir, ".git"));
+        var consoleInput = Substitute.For<IConsoleInput>();
+        consoleInput.IsOutputRedirected.Returns(false);
+        consoleInput.ReadLine().Returns(""); // empty = Enter
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        loaded.Defaults.Mode.ShouldBe("sprint");
+    }
+
+    [Fact]
+    public async Task Init_ModePrompt_ExplicitSprint()
+    {
+        Directory.CreateDirectory(Path.Combine(_testDir, ".git"));
+        var consoleInput = Substitute.For<IConsoleInput>();
+        consoleInput.IsOutputRedirected.Returns(false);
+        consoleInput.ReadLine().Returns("sprint");
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        loaded.Defaults.Mode.ShouldBe("sprint");
+    }
+
+    [Fact]
+    public async Task Init_ModePrompt_ExplicitWorkspace()
+    {
+        Directory.CreateDirectory(Path.Combine(_testDir, ".git"));
+        var consoleInput = Substitute.For<IConsoleInput>();
+        consoleInput.IsOutputRedirected.Returns(false);
+        consoleInput.ReadLine().Returns("workspace");
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        loaded.Defaults.Mode.ShouldBe("workspace");
+    }
+
+    [Fact]
+    public async Task Init_ModePrompt_NonTTY_DefaultsToSprint()
+    {
+        Directory.CreateDirectory(Path.Combine(_testDir, ".git"));
+        var consoleInput = Substitute.For<IConsoleInput>();
+        consoleInput.IsOutputRedirected.Returns(true); // non-TTY
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        loaded.Defaults.Mode.ShouldBe("sprint");
+    }
+
+    // --- .git warning tests ---
+
+    [Fact]
+    public async Task Init_GitWarning_Aborts_WhenUserDeclinesWithN()
+    {
+        // No .git directory in _testDir
+        var consoleInput = Substitute.For<IConsoleInput>();
+        consoleInput.IsOutputRedirected.Returns(false);
+        consoleInput.ReadLine().Returns("N");
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
+
+        result.ShouldBe(1);
+        Directory.Exists(_twigDir).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Init_GitWarning_Aborts_WhenUserPressesEnter()
+    {
+        // No .git directory in _testDir — Enter means default N
+        var consoleInput = Substitute.For<IConsoleInput>();
+        consoleInput.IsOutputRedirected.Returns(false);
+        consoleInput.ReadLine().Returns("");
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
+
+        result.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Init_GitWarning_Continues_WhenUserEntersY()
+    {
+        // No .git directory, but user confirms with 'y'
+        var consoleInput = Substitute.For<IConsoleInput>();
+        consoleInput.IsOutputRedirected.Returns(false);
+        // First ReadLine for git warning → "y", second for mode prompt → ""
+        consoleInput.ReadLine().Returns("y", "");
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
+
+        result.ShouldBe(0);
+        Directory.Exists(_twigDir).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Init_GitWarning_SkippedInNonTTY()
+    {
+        // No .git directory, but non-TTY — should skip warning and proceed
+        var consoleInput = Substitute.For<IConsoleInput>();
+        consoleInput.IsOutputRedirected.Returns(true);
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
+
+        result.ShouldBe(0);
+        Directory.Exists(_twigDir).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Init_GitWarning_SkippedWhenNoConsoleInput()
+    {
+        // No .git directory, no consoleInput (null) — should skip warning and proceed
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
+
+        result.ShouldBe(0);
+        Directory.Exists(_twigDir).ShouldBeTrue();
+    }
 }
 
 // InferParentChildMap tests moved to Twig.Domain.Tests/Services/BacklogHierarchyServiceTests.cs

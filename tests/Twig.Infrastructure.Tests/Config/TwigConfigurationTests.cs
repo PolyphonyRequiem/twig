@@ -1318,4 +1318,62 @@ public class TwigConfigurationTests : IDisposable
             ex.Message.ShouldContain("invalid JSON");
         }
     }
+
+    // --- defaults.mode SetValue tests ---
+
+    [Fact]
+    public void SetValue_DefaultsMode_Sprint_ReturnsTrue()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("defaults.mode", "sprint").ShouldBeTrue();
+        config.Defaults.Mode.ShouldBe("sprint");
+    }
+
+    [Fact]
+    public void SetValue_DefaultsMode_Workspace_ReturnsTrue()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("defaults.mode", "workspace").ShouldBeTrue();
+        config.Defaults.Mode.ShouldBe("workspace");
+    }
+
+    [Fact]
+    public void SetValue_DefaultsMode_Invalid_ReturnsFalse()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("defaults.mode", "kanban").ShouldBeFalse();
+        config.Defaults.Mode.ShouldBe("sprint"); // unchanged from default
+    }
+
+    [Fact]
+    public void SetValue_DefaultsMode_CaseInsensitive()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("defaults.mode", "WORKSPACE").ShouldBeTrue();
+        config.Defaults.Mode.ShouldBe("workspace");
+    }
+
+    [Fact]
+    public void DefaultsConfig_Mode_DefaultsToSprint()
+    {
+        var config = new TwigConfiguration();
+        config.Defaults.Mode.ShouldBe("sprint");
+    }
+
+    [Fact]
+    public async Task DefaultsConfig_Mode_SerializationRoundTrip()
+    {
+        var configPath = Path.Combine(_tempDir, "config_mode.json");
+        var config = new TwigConfiguration
+        {
+            Organization = "testorg",
+            Project = "testproj",
+            Defaults = new DefaultsConfig { Mode = "workspace" },
+        };
+
+        await config.SaveAsync(configPath);
+        var loaded = await TwigConfiguration.LoadAsync(configPath);
+
+        loaded.Defaults.Mode.ShouldBe("workspace");
+    }
 }

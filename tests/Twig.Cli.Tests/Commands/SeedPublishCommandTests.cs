@@ -429,11 +429,240 @@ public class SeedPublishCommandTests : IDisposable
             .Returns(new List<SeedLink>());
 
         var writer = new StringWriter();
+        var errWriter = new StringWriter();
         Console.SetOut(writer);
+        Console.SetError(errWriter);
 
         var result = await _cmd.ExecuteAsync(-5, linkBranch: "feature/xyz");
 
         result.ShouldBe(0);
         writer.ToString().ShouldContain("Published seed #-5 as #42");
+        errWriter.ToString().ShouldContain("git service configuration");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  --link-branch: actual linking with IAdoGitService
+    // ═══════════════════════════════════════════════════════════════
+
+    private SeedPublishCommand CreateCommandWithGitService(IAdoGitService gitService)
+    {
+        var backlogOrderer = new BacklogOrderer(_adoService, _fieldDefStore);
+        var orchestrator = new SeedPublishOrchestrator(
+            _workItemRepo, _adoService, _seedLinkRepo, _publishIdMapRepo,
+            _rulesProvider, _unitOfWork, backlogOrderer);
+        return new SeedPublishCommand(orchestrator, _contextStore, _formatterFactory, _adoService, gitService);
+    }
+
+    [Fact]
+    public async Task Execute_LinkBranch_SingleSeed_CallsAddArtifactLinkAsync()
+    {
+        var gitService = Substitute.For<IAdoGitService>();
+        gitService.GetProjectIdAsync(Arg.Any<CancellationToken>()).Returns("proj-id");
+        gitService.GetRepositoryIdAsync(Arg.Any<CancellationToken>()).Returns("repo-id");
+        var cmd = CreateCommandWithGitService(gitService);
+
+        var seed = new WorkItemBuilder(-5, "Link Seed").AsSeed().WithParent(100).Build();
+        _workItemRepo.GetByIdAsync(-5, Arg.Any<CancellationToken>()).Returns(seed);
+        _adoService.CreateAsync(seed, Arg.Any<CancellationToken>()).Returns(42);
+
+        var published = new WorkItemBuilder(42, "Link Seed").WithParent(100).Build();
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(published);
+        _seedLinkRepo.GetLinksForItemAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new List<SeedLink>());
+
+        Console.SetOut(new StringWriter());
+
+        var result = await cmd.ExecuteAsync(-5, linkBranch: "planning/abc");
+
+        result.ShouldBe(0);
+        await gitService.Received(1).AddArtifactLinkAsync(
+            42,
+            "vstfs:///Git/Ref/proj-id/repo-id/GBplanning%2Fabc",
+            "ArtifactLink",
+            Arg.Any<int>(),
+            "Branch",
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Execute_LinkBranch_All_LinksAllCreatedSeeds()
+    {
+        var gitService = Substitute.For<IAdoGitService>();
+        gitService.GetProjectIdAsync(Arg.Any<CancellationToken>()).Returns("proj-id");
+        gitService.GetRepositoryIdAsync(Arg.Any<CancellationToken>()).Returns("repo-id");
+        var cmd = CreateCommandWithGitService(gitService);
+
+        var seed1 = new WorkItemBuilder(-1, "Seed A").AsSeed().WithParent(100).Build();
+        var seed2 = new WorkItemBuilder(-2, "Seed B").AsSeed().WithParent(100).Build();
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<WorkItem> { seed1, seed2 });
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<SeedLink>());
+
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed1);
+        _adoService.CreateAsync(seed1, Arg.Any<CancellationToken>()).Returns(200);
+        var pub1 = new WorkItemBuilder(200, "Seed A").WithParent(100).Build();
+        _adoService.FetchAsync(200, Arg.Any<CancellationToken>()).Returns(pub1);
+        _seedLinkRepo.GetLinksForItemAsync(200, Arg.Any<CancellationToken>())
+            .Returns(new List<SeedLink>());
+
+        _workItemRepo.GetByIdAsync(-2, Arg.Any<CancellationToken>()).Returns(seed2);
+        _adoService.CreateAsync(seed2, Arg.Any<CancellationToken>()).Returns(201);
+        var pub2 = new WorkItemBuilder(201, "Seed B").WithParent(100).Build();
+        _adoService.FetchAsync(201, Arg.Any<CancellationToken>()).Returns(pub2);
+        _seedLinkRepo.GetLinksForItemAsync(201, Arg.Any<CancellationToken>())
+            .Returns(new List<SeedLink>());
+
+        Console.SetOut(new StringWriter());
+
+        var result = await cmd.ExecuteAsync(all: true, linkBranch: "feature/test");
+
+        result.ShouldBe(0);
+        await gitService.Received(2).AddArtifactLinkAsync(
+            Arg.Any<int>(),
+            Arg.Any<string>(),
+            "ArtifactLink",
+            Arg.Any<int>(),
+            "Branch",
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Execute_LinkBranch_LinkFailure_StillReturnsSuccess()
+    {
+        var gitService = Substitute.For<IAdoGitService>();
+        gitService.GetProjectIdAsync(Arg.Any<CancellationToken>()).Returns("proj-id");
+        gitService.GetRepositoryIdAsync(Arg.Any<CancellationToken>()).Returns("repo-id");
+        gitService.AddArtifactLinkAsync(
+            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns<Task>(_ => throw new InvalidOperationException("ADO error"));
+        var cmd = CreateCommandWithGitService(gitService);
+
+        var seed = new WorkItemBuilder(-5, "Fail Link Seed").AsSeed().WithParent(100).Build();
+        _workItemRepo.GetByIdAsync(-5, Arg.Any<CancellationToken>()).Returns(seed);
+        _adoService.CreateAsync(seed, Arg.Any<CancellationToken>()).Returns(42);
+
+        var published = new WorkItemBuilder(42, "Fail Link Seed").WithParent(100).Build();
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(published);
+        _seedLinkRepo.GetLinksForItemAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new List<SeedLink>());
+
+        var errWriter = new StringWriter();
+        Console.SetOut(new StringWriter());
+        Console.SetError(errWriter);
+
+        var result = await cmd.ExecuteAsync(-5, linkBranch: "planning/abc");
+
+        result.ShouldBe(0);
+        errWriter.ToString().ShouldContain("Failed to link branch to #42");
+    }
+
+    [Fact]
+    public async Task Execute_LinkBranch_DryRun_NoLinkingCalls()
+    {
+        var gitService = Substitute.For<IAdoGitService>();
+        var cmd = CreateCommandWithGitService(gitService);
+
+        var seed = new WorkItemBuilder(-5, "DryRun Link Seed").AsSeed().WithParent(100).Build();
+        _workItemRepo.GetByIdAsync(-5, Arg.Any<CancellationToken>()).Returns(seed);
+
+        Console.SetOut(new StringWriter());
+
+        var result = await cmd.ExecuteAsync(-5, dryRun: true, linkBranch: "planning/abc");
+
+        result.ShouldBe(0);
+        await gitService.DidNotReceive().GetProjectIdAsync(Arg.Any<CancellationToken>());
+        await gitService.DidNotReceive().AddArtifactLinkAsync(
+            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Execute_LinkBranch_NullProjectId_SkipsLinking()
+    {
+        var gitService = Substitute.For<IAdoGitService>();
+        gitService.GetProjectIdAsync(Arg.Any<CancellationToken>()).Returns((string?)null);
+        gitService.GetRepositoryIdAsync(Arg.Any<CancellationToken>()).Returns("repo-id");
+        var cmd = CreateCommandWithGitService(gitService);
+
+        var seed = new WorkItemBuilder(-5, "NullProj Seed").AsSeed().WithParent(100).Build();
+        _workItemRepo.GetByIdAsync(-5, Arg.Any<CancellationToken>()).Returns(seed);
+        _adoService.CreateAsync(seed, Arg.Any<CancellationToken>()).Returns(42);
+
+        var published = new WorkItemBuilder(42, "NullProj Seed").WithParent(100).Build();
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(published);
+        _seedLinkRepo.GetLinksForItemAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new List<SeedLink>());
+
+        var errWriter = new StringWriter();
+        Console.SetOut(new StringWriter());
+        Console.SetError(errWriter);
+
+        var result = await cmd.ExecuteAsync(-5, linkBranch: "planning/abc");
+
+        result.ShouldBe(0);
+        errWriter.ToString().ShouldContain("project/repository IDs");
+        await gitService.DidNotReceive().AddArtifactLinkAsync(
+            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Execute_LinkBranch_SkippedSeed_NotLinked()
+    {
+        var gitService = Substitute.For<IAdoGitService>();
+        gitService.GetProjectIdAsync(Arg.Any<CancellationToken>()).Returns("proj-id");
+        gitService.GetRepositoryIdAsync(Arg.Any<CancellationToken>()).Returns("repo-id");
+        var cmd = CreateCommandWithGitService(gitService);
+
+        // Positive ID is treated as already published => Skipped status
+        Console.SetOut(new StringWriter());
+
+        var result = await cmd.ExecuteAsync(42, linkBranch: "planning/abc");
+
+        result.ShouldBe(0);
+        await gitService.DidNotReceive().AddArtifactLinkAsync(
+            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Execute_LinkBranch_UpfrontValidation_ResolvesOnce()
+    {
+        var gitService = Substitute.For<IAdoGitService>();
+        gitService.GetProjectIdAsync(Arg.Any<CancellationToken>()).Returns("proj-id");
+        gitService.GetRepositoryIdAsync(Arg.Any<CancellationToken>()).Returns("repo-id");
+        var cmd = CreateCommandWithGitService(gitService);
+
+        var seed1 = new WorkItemBuilder(-1, "Seed 1").AsSeed().WithParent(100).Build();
+        var seed2 = new WorkItemBuilder(-2, "Seed 2").AsSeed().WithParent(100).Build();
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<WorkItem> { seed1, seed2 });
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<SeedLink>());
+
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed1);
+        _adoService.CreateAsync(seed1, Arg.Any<CancellationToken>()).Returns(200);
+        _adoService.FetchAsync(200, Arg.Any<CancellationToken>())
+            .Returns(new WorkItemBuilder(200, "Seed 1").WithParent(100).Build());
+        _seedLinkRepo.GetLinksForItemAsync(200, Arg.Any<CancellationToken>())
+            .Returns(new List<SeedLink>());
+
+        _workItemRepo.GetByIdAsync(-2, Arg.Any<CancellationToken>()).Returns(seed2);
+        _adoService.CreateAsync(seed2, Arg.Any<CancellationToken>()).Returns(201);
+        _adoService.FetchAsync(201, Arg.Any<CancellationToken>())
+            .Returns(new WorkItemBuilder(201, "Seed 2").WithParent(100).Build());
+        _seedLinkRepo.GetLinksForItemAsync(201, Arg.Any<CancellationToken>())
+            .Returns(new List<SeedLink>());
+
+        Console.SetOut(new StringWriter());
+
+        await cmd.ExecuteAsync(all: true, linkBranch: "planning/abc");
+
+        // ProjectId and RepoId should be resolved exactly once (upfront), not per-seed
+        await gitService.Received(1).GetProjectIdAsync(Arg.Any<CancellationToken>());
+        await gitService.Received(1).GetRepositoryIdAsync(Arg.Any<CancellationToken>());
     }
 }
+

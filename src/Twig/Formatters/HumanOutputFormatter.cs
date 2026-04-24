@@ -725,7 +725,9 @@ public sealed class HumanOutputFormatter : IOutputFormatter
 
         if (node.IsSprintItem)
         {
-            var marker = (ws.ContextItem is not null && node.Item.Id == ws.ContextItem.Id) ? $"{Cyan}●{Reset} " : "";
+            var isActive = ws.ContextItem is not null && node.Item.Id == ws.ContextItem.Id;
+            var isTracked = ws.IsTracked(node.Item.Id);
+            var marker = isActive ? $"{Cyan}●{Reset} " : isTracked ? $"{Yellow}📌{Reset} " : "";
             var dirty = node.Item.IsDirty ? $" {Yellow}✎{Reset}" : "";
             var assigneeSuffix = showAssignee ? $" {Dim}@{node.Item.AssignedTo ?? "(unassigned)"}{Reset}" : "";
             lines.Add(new AlignedLine(

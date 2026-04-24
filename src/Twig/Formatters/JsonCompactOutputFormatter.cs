@@ -89,7 +89,8 @@ public sealed class JsonCompactOutputFormatter(JsonOutputFormatter full) : IOutp
         if (ws.Sections is not null)
             JsonOutputFormatter.WriteSectionsBlock(writer, ws.Sections);
 
-        // Tracked items
+        // Tracked items (compact schema intentionally omits trackedAt for brevity;
+        // use -o json for the full schema including timestamps)
         if (ws.TrackedItems.Count > 0)
         {
             writer.WriteStartArray("trackedItems");

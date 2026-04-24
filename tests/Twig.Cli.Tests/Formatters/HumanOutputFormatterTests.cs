@@ -464,6 +464,27 @@ public class HumanOutputFormatterTests
         result.ShouldContain("#60");
     }
 
+    // ── FormatSprintView ────────────────────────────────────────────
+
+    [Fact]
+    public void FormatSprintView_WithTrackedItem_ShowsPinnedMarker()
+    {
+        var items = new[] { CreateWorkItem(1, "Pinned Task", "Active"), CreateWorkItem(2, "Normal Task", "Active") };
+        var tracked = new TrackedItem(1, Domain.Enums.TrackingMode.Single, DateTimeOffset.UtcNow);
+        var ws = Workspace.Build(null, items, Array.Empty<WorkItem>(),
+            trackedItems: new[] { tracked });
+
+        var result = _formatter.FormatSprintView(ws, staleDays: 14);
+
+        var lines = result.Replace("\r\n", "\n").Split('\n');
+        var item1Line = lines.FirstOrDefault(l => l.Contains("#1"));
+        item1Line.ShouldNotBeNull("Expected a line containing #1");
+        item1Line.ShouldContain("📌");
+        var item2Line = lines.FirstOrDefault(l => l.Contains("#2"));
+        item2Line.ShouldNotBeNull("Expected a line containing #2");
+        item2Line.ShouldNotContain("📌");
+    }
+
     // ── Disambiguation ──────────────────────────────────────────────
 
     [Fact]

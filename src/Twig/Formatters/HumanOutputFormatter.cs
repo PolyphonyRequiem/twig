@@ -631,7 +631,9 @@ public sealed class HumanOutputFormatter : IOutputFormatter
             lines.Clear();
             foreach (var item in kvp.Value)
             {
-                var marker = (ws.ContextItem is not null && item.Id == ws.ContextItem.Id) ? $"{Cyan}●{Reset}" : " ";
+                var isActive = ws.ContextItem is not null && item.Id == ws.ContextItem.Id;
+                var isTracked = ws.IsTracked(item.Id);
+                var marker = isActive ? $"{Cyan}●{Reset}" : isTracked ? $"{Yellow}📌{Reset}" : " ";
                 var dirty = item.IsDirty ? $" {Yellow}✎{Reset}" : "";
                 var stateColor = GetStateColor(item.State);
                 var sprintTypeColor = GetTypeColor(item.Type);

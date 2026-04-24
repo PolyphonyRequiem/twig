@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Shouldly;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Enums;
 using Twig.Domain.ReadModels;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
@@ -305,6 +306,42 @@ public class JsonCompactOutputFormatterTests
         root[0].GetProperty("id").GetInt32().ShouldBe(1);
         root[1].GetProperty("id").GetInt32().ShouldBe(2);
         root[2].GetProperty("id").GetInt32().ShouldBe(3);
+    }
+
+    [Fact]
+    public void FormatWorkspace_WithTrackedItems_IncludesCompactTrackedArray()
+    {
+        var items = new[] { CreateWorkItem(1, "Sprint Item", "Active") };
+        var tracked = new[] {
+            new TrackedItem(1, TrackingMode.Single, DateTimeOffset.UtcNow),
+            new TrackedItem(2, TrackingMode.Tree, DateTimeOffset.UtcNow),
+        };
+        var ws = Workspace.Build(null, items, Array.Empty<WorkItem>(),
+            trackedItems: tracked);
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 7);
+        var root = JsonDocument.Parse(result).RootElement;
+
+        root.TryGetProperty("trackedItems", out var arr).ShouldBeTrue();
+        arr.GetArrayLength().ShouldBe(2);
+        arr[0].GetProperty("workItemId").GetInt32().ShouldBe(1);
+        arr[0].GetProperty("mode").GetString().ShouldBe("Single");
+        arr[1].GetProperty("workItemId").GetInt32().ShouldBe(2);
+        arr[1].GetProperty("mode").GetString().ShouldBe("Tree");
+        // Compact schema omits trackedAt
+        arr[0].TryGetProperty("trackedAt", out _).ShouldBeFalse();
+        arr[1].TryGetProperty("trackedAt", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void FormatWorkspace_WithEmptyTrackedItems_OmitsTrackedItemsProperty()
+    {
+        var ws = Workspace.Build(null, Array.Empty<WorkItem>(), Array.Empty<WorkItem>());
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 7);
+        var root = JsonDocument.Parse(result).RootElement;
+
+        root.TryGetProperty("trackedItems", out _).ShouldBeFalse();
     }
 
     // ── Helpers ──────────────────────────────────────────────────────

@@ -189,7 +189,7 @@ rendering. When `null`, it falls back to synchronous `IOutputFormatter` string o
 | `seed link` / `seed unlink` | Manage virtual links between seeds |
 | `seed links [id]` | List virtual links |
 | `seed validate [id]` | Validate seeds against publish rules |
-| `seed publish [id]` | Publish seeds to ADO |
+| `seed publish [id] [--link-branch <name>]` | Publish seeds to ADO; optionally link to a branch |
 | `seed reconcile` | Fix links after partial publish |
 
 ### Links (Published Items)

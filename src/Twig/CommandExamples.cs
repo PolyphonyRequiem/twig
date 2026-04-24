@@ -161,7 +161,10 @@ internal static class CommandExamples
         ],
         ["seed publish"] =
         [
-            "twig seed publish          Publish the active seed to ADO",
+            "twig seed publish 42       Publish seed #42 to ADO",
+            "twig seed publish --all    Publish all seeds in dependency order",
+            "twig seed publish --all --link-branch feature/my-branch  Publish all and link to branch",
+            "twig seed publish 42 --link-branch feature/my-branch     Publish and link to branch",
             "twig seed publish --dry-run  Preview what would be published",
         ],
         ["seed reconcile"] =

@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Text.Json;
 using ModelContextProtocol.Protocol;
 
 namespace Twig.Mcp.Services.Batch;
@@ -29,7 +28,7 @@ internal sealed class BatchExecutionEngine(IToolDispatcher dispatcher)
         string? workspaceOverride,
         CancellationToken ct)
     {
-        var results = new StepResult?[graph.TotalStepCount];
+        var store = new StepOutputStore(graph.TotalStepCount);
         var batchStopwatch = Stopwatch.StartNew();
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -38,7 +37,7 @@ internal sealed class BatchExecutionEngine(IToolDispatcher dispatcher)
 
         try
         {
-            await ExecuteNodeAsync(graph.Root, results, workspaceOverride, timeoutCts.Token)
+            await ExecuteNodeAsync(graph.Root, store, workspaceOverride, timeoutCts.Token)
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
@@ -50,32 +49,32 @@ internal sealed class BatchExecutionEngine(IToolDispatcher dispatcher)
         batchStopwatch.Stop();
 
         // Fill any remaining null slots with Skipped results.
-        FillNullSlots(graph.Root, results, "Skipped due to timeout or prior failure.");
+        store.FillSkipped(graph.Root, "Skipped due to timeout or prior failure.");
 
         return new BatchResult(
-            results.Select(r => r!).ToList(),
+            store.ToResultList(),
             batchStopwatch.ElapsedMilliseconds,
             timedOut);
     }
 
     private async Task ExecuteNodeAsync(
         BatchNode node,
-        StepResult?[] results,
+        StepOutputStore store,
         string? workspaceOverride,
         CancellationToken ct)
     {
         switch (node)
         {
             case StepNode step:
-                await ExecuteStepAsync(step, results, workspaceOverride, ct).ConfigureAwait(false);
+                await ExecuteStepAsync(step, store, workspaceOverride, ct).ConfigureAwait(false);
                 break;
 
             case SequenceNode sequence:
-                await ExecuteSequenceAsync(sequence, results, workspaceOverride, ct).ConfigureAwait(false);
+                await ExecuteSequenceAsync(sequence, store, workspaceOverride, ct).ConfigureAwait(false);
                 break;
 
             case ParallelNode parallel:
-                await ExecuteParallelAsync(parallel, results, workspaceOverride, ct).ConfigureAwait(false);
+                await ExecuteParallelAsync(parallel, store, workspaceOverride, ct).ConfigureAwait(false);
                 break;
 
             default:
@@ -85,7 +84,7 @@ internal sealed class BatchExecutionEngine(IToolDispatcher dispatcher)
 
     private async Task ExecuteStepAsync(
         StepNode step,
-        StepResult?[] results,
+        StepOutputStore store,
         string? workspaceOverride,
         CancellationToken ct)
     {
@@ -95,50 +94,66 @@ internal sealed class BatchExecutionEngine(IToolDispatcher dispatcher)
 
         try
         {
+            // Resolve template expressions in arguments using prior step outputs.
+            var resolvedArgs = TemplateResolver.Resolve(step.Arguments, store.GetSnapshot());
+
             var callResult = await dispatcher.DispatchAsync(
-                step.ToolName, step.Arguments, workspaceOverride, ct).ConfigureAwait(false);
+                step.ToolName, resolvedArgs, workspaceOverride, ct).ConfigureAwait(false);
 
             stopwatch.Stop();
 
             var outputJson = ExtractOutputJson(callResult);
             var isError = callResult.IsError == true;
 
-            results[step.GlobalIndex] = new StepResult(
+            var result = new StepResult(
                 step.GlobalIndex,
                 step.ToolName,
                 isError ? StepStatus.Failed : StepStatus.Succeeded,
                 isError ? null : outputJson,
                 isError ? outputJson : null,
                 stopwatch.ElapsedMilliseconds);
+
+            store.Record(step.GlobalIndex, result);
         }
-        catch (OperationCanceledException)
+        catch (TemplateResolutionException ex)
         {
             stopwatch.Stop();
-            results[step.GlobalIndex] = new StepResult(
-                step.GlobalIndex,
-                step.ToolName,
-                StepStatus.Skipped,
-                null,
-                "Operation was cancelled.",
-                stopwatch.ElapsedMilliseconds);
-            throw;
-        }
-        catch (Exception ex)
-        {
-            stopwatch.Stop();
-            results[step.GlobalIndex] = new StepResult(
+            store.Record(step.GlobalIndex, new StepResult(
                 step.GlobalIndex,
                 step.ToolName,
                 StepStatus.Failed,
                 null,
                 ex.Message,
-                stopwatch.ElapsedMilliseconds);
+                stopwatch.ElapsedMilliseconds));
+        }
+        catch (OperationCanceledException)
+        {
+            stopwatch.Stop();
+            store.Record(step.GlobalIndex, new StepResult(
+                step.GlobalIndex,
+                step.ToolName,
+                StepStatus.Skipped,
+                null,
+                "Operation was cancelled.",
+                stopwatch.ElapsedMilliseconds));
+            throw;
+        }
+        catch (Exception ex)
+        {
+            stopwatch.Stop();
+            store.Record(step.GlobalIndex, new StepResult(
+                step.GlobalIndex,
+                step.ToolName,
+                StepStatus.Failed,
+                null,
+                ex.Message,
+                stopwatch.ElapsedMilliseconds));
         }
     }
 
     private async Task ExecuteSequenceAsync(
         SequenceNode sequence,
-        StepResult?[] results,
+        StepOutputStore store,
         string? workspaceOverride,
         CancellationToken ct)
     {
@@ -149,14 +164,14 @@ internal sealed class BatchExecutionEngine(IToolDispatcher dispatcher)
             if (failed)
             {
                 // Skip remaining children after a failure.
-                FillNullSlots(child, results, "Skipped due to prior step failure.");
+                store.FillSkipped(child, "Skipped due to prior step failure.");
                 continue;
             }
 
-            await ExecuteNodeAsync(child, results, workspaceOverride, ct).ConfigureAwait(false);
+            await ExecuteNodeAsync(child, store, workspaceOverride, ct).ConfigureAwait(false);
 
             // Check if any step in this child subtree failed → fail-fast.
-            if (HasFailure(child, results))
+            if (HasFailure(child, store))
             {
                 failed = true;
             }
@@ -165,7 +180,7 @@ internal sealed class BatchExecutionEngine(IToolDispatcher dispatcher)
 
     private async Task ExecuteParallelAsync(
         ParallelNode parallel,
-        StepResult?[] results,
+        StepOutputStore store,
         string? workspaceOverride,
         CancellationToken ct)
     {
@@ -174,7 +189,7 @@ internal sealed class BatchExecutionEngine(IToolDispatcher dispatcher)
         for (var i = 0; i < parallel.Children.Count; i++)
         {
             var child = parallel.Children[i];
-            tasks[i] = ExecuteNodeAsync(child, results, workspaceOverride, ct);
+            tasks[i] = ExecuteNodeAsync(child, store, workspaceOverride, ct);
         }
 
         // Await all tasks, collecting exceptions. We don't fail-fast for parallel blocks.
@@ -189,44 +204,20 @@ internal sealed class BatchExecutionEngine(IToolDispatcher dispatcher)
         }
         catch
         {
-            // Individual step failures are captured in results[].
+            // Individual step failures are captured in the store.
         }
     }
 
     /// <summary>
     /// Checks if any step node in the subtree has a Failed result.
     /// </summary>
-    private static bool HasFailure(BatchNode node, StepResult?[] results) => node switch
+    private static bool HasFailure(BatchNode node, StepOutputStore store) => node switch
     {
-        StepNode step => results[step.GlobalIndex]?.Status == StepStatus.Failed,
-        SequenceNode seq => seq.Children.Any(c => HasFailure(c, results)),
-        ParallelNode par => par.Children.Any(c => HasFailure(c, results)),
+        StepNode step => store.GetResult(step.GlobalIndex)?.Status == StepStatus.Failed,
+        SequenceNode seq => seq.Children.Any(c => HasFailure(c, store)),
+        ParallelNode par => par.Children.Any(c => HasFailure(c, store)),
         _ => false
     };
-
-    /// <summary>
-    /// Fills any null slots in the subtree with Skipped results using the given reason.
-    /// </summary>
-    private static void FillNullSlots(BatchNode node, StepResult?[] results, string reason)
-    {
-        switch (node)
-        {
-            case StepNode step:
-                results[step.GlobalIndex] ??= new StepResult(
-                    step.GlobalIndex, step.ToolName, StepStatus.Skipped, null, reason, 0);
-                break;
-
-            case SequenceNode seq:
-                foreach (var child in seq.Children)
-                    FillNullSlots(child, results, reason);
-                break;
-
-            case ParallelNode par:
-                foreach (var child in par.Children)
-                    FillNullSlots(child, results, reason);
-                break;
-        }
-    }
 
     /// <summary>
     /// Extracts the text content from a <see cref="CallToolResult"/> as a JSON string.

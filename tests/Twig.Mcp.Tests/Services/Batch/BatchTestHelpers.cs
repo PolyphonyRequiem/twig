@@ -25,6 +25,15 @@ internal sealed class TestToolDispatcher(
 
 internal static class BatchTestHelpers
 {
+    public static StepResult Succeeded(int index, string outputJson) =>
+        new(index, "test_tool", StepStatus.Succeeded, outputJson, null, 10);
+
+    public static StepResult Failed(int index) =>
+        new(index, "test_tool", StepStatus.Failed, null, "Something went wrong", 10);
+
+    public static StepResult Skipped(int index) =>
+        new(index, "test_tool", StepStatus.Skipped, null, "Skipped", 0);
+
     public static TestToolDispatcher CreateDispatcher(
         Func<string, IReadOnlyDictionary<string, object?>, CallToolResult>? handler = null) =>
         new((tool, args, _) =>

@@ -14,11 +14,8 @@ public readonly record struct AreaPathFilter(string Path, bool IncludeChildren)
     /// </summary>
     public bool Matches(AreaPath candidate)
     {
-        if (string.Equals(candidate.Value, Path, StringComparison.OrdinalIgnoreCase))
-            return true;
-
         if (!IncludeChildren)
-            return false;
+            return string.Equals(candidate.Value, Path, StringComparison.OrdinalIgnoreCase);
 
         var filterPath = AreaPath.Parse(Path);
         return filterPath.IsSuccess && candidate.IsUnder(filterPath.Value);

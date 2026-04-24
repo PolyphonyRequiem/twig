@@ -19,13 +19,7 @@ public static class AreaFilterService
         if (filters.Count == 0)
             return [];
 
-        var result = new List<WorkItem>();
-        foreach (var item in items)
-        {
-            if (IsInArea(item.AreaPath, filters))
-                result.Add(item);
-        }
-        return result;
+        return items.Where(i => IsInArea(i.AreaPath, filters)).ToList();
     }
 
     /// <summary>
@@ -34,12 +28,5 @@ public static class AreaFilterService
     public static bool IsInArea(
         AreaPath itemPath,
         IReadOnlyList<AreaPathFilter> filters)
-    {
-        for (var i = 0; i < filters.Count; i++)
-        {
-            if (filters[i].Matches(itemPath))
-                return true;
-        }
-        return false;
-    }
+        => filters.Any(f => f.Matches(itemPath));
 }

@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | **Epic** | #2023 — Batch MCP Operations |
-| **Status** | Draft |
+| **Status** | ✅ Done |
 | **Revision** | 0 |
 | **Revision Notes** | Initial draft. |
 

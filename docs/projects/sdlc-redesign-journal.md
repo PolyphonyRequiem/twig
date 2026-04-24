@@ -469,9 +469,55 @@ Updated to emphasize minimalism: "use as little text as needed to still be clear
 
 ### What's left (non-blocking, incremental)
 
-These are improvement opportunities, not violations:
-- Convert implementation `duplicate_check` from LLM to script (P8)
-- Add P11 rubrics to task_reviewer, issue_reviewer, pr_reviewer
-- Rename `work_tree_seeder` → `work_tree_loader` in implementation (P9)
-- Resume state discovery at implementation entry (P3 — conductor limitation)
-- Human escalation gate on pr_finalizer after max retries (P7 polish)
+~~These are improvement opportunities, not violations:~~
+~~- Convert implementation `duplicate_check` from LLM to script (P8)~~
+~~- Add P11 rubrics to task_reviewer, issue_reviewer, pr_reviewer~~
+~~- Rename `work_tree_seeder` → `work_tree_loader` in implementation (P9)~~
+~~- Resume state discovery at implementation entry (P3 — conductor limitation)~~
+~~- Human escalation gate on pr_finalizer after max retries (P7 polish)~~
+
+**All resolved** — see post-audit fixes below.
+
+---
+
+## Post-Audit Fixes (April 24, 2026)
+
+All five "non-blocking, incremental" items from the final audit were resolved:
+
+| Item | Principle | Fix | Commit |
+|------|-----------|-----|--------|
+| `duplicate_check` → script | P8 | Converted from LLM to script in implementation | `6c73ef5` |
+| P11 rubrics on reviewers | P11 | Added 5-dimension rubric to task_reviewer, issue_reviewer, pr_reviewer | `6c73ef5` |
+| `work_tree_seeder` → `work_tree_loader` | P9 | Renamed in implementation yaml + all references | `6c73ef5` |
+| Resume state discovery | P3 | `load-work-tree.ps1` detects completed PGs via merged PRs + task states. `pr_group_manager` reads `next_pg` to skip completed PGs on restart. | `4b8d60e` |
+| pr_finalizer escalation | P7 | Added `verification_failure_gate` — human gate after 10 failed attempts | `6c73ef5` |
+
+### P3 Resume Design
+
+The resume mechanism works as follows:
+1. `load-work-tree.ps1` queries `gh pr list --state merged` and cross-references
+   PG branch names. Also checks if all tasks in a PG are Done.
+2. Outputs `completed_pgs`, `pending_pgs`, and `next_pg` fields.
+3. `pr_group_manager` reads `next_pg` on first invocation and starts from there.
+4. If a run dies mid-PG-2 and is restarted, it skips PG-1 (already merged) and
+   resumes at PG-2.
+
+This was initially thought to be a conductor platform limitation. It's not — it's
+just deterministic state discovery in the work tree loader script, exactly per P3
+and P8.
+
+---
+
+## Final State
+
+All SDLC workflow redesign work is complete. The pipeline has been transformed from
+a plan-centric, monolithic design to a work-item-centric, modular architecture with:
+
+- **11 design principles** (P1-P11) governing all workflow decisions
+- **7 workflow files** (apex + 4 planning sub-workflows + implementation + plan-child)
+- **10 deterministic scripts** replacing LLM agents for routing/validation
+- **P11 rubrics** on all 5 reviewer agents (tech, readability, task, issue, PR)
+- **P10 invariants** on all 24 system prompts
+- **Resume support** via state discovery at every entry point
+- **No auto-approve** anywhere — honest failure with human escalation
+- **0 hard principle violations** in final audit

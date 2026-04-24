@@ -267,8 +267,6 @@ public sealed class InitCommand
             var modeResponse = _consoleInput.ReadLine()?.Trim().ToLowerInvariant();
             if (modeResponse is "workspace")
                 config.Defaults.Mode = "workspace";
-            else
-                config.Defaults.Mode = "sprint";
         }
 
         await config.SaveAsync(configPath);

@@ -1031,6 +1031,9 @@ internal static class GroupedHelp
         // Views
         "status",
         "tree",
+        "sprint",
+
+        // Workspace
         "workspace",
         "ws",
         "workspace track",
@@ -1042,7 +1045,6 @@ internal static class GroupedHelp
         "area remove",
         "area list",
         "area sync",
-        "sprint",
 
         // Context
         "set",
@@ -1070,6 +1072,12 @@ internal static class GroupedHelp
         "edit",
         "new",
         "discard",
+        "link parent",
+        "link unparent",
+        "link reparent",
+        "link artifact",
+
+        // Seeds
         "seed new",
         "seed edit",
         "seed discard",
@@ -1081,10 +1089,6 @@ internal static class GroupedHelp
         "seed validate",
         "seed publish",
         "seed reconcile",
-        "link parent",
-        "link unparent",
-        "link reparent",
-        "link artifact",
 
         // Git
         "branch",
@@ -1168,17 +1172,15 @@ Getting Started:
 Views:
   status               Active item detail and pending changes.
   tree                 Work item hierarchy (parent → active → children).
-  workspace            My sprint items.  (alias: ws)
   sprint               My sprint items, grouped by assignee.  (--all for team)
 
-Tracking:
+Workspace:
+  workspace            My sprint items.  (alias: ws)
   workspace track <id>       Pin a work item to the workspace.
   workspace track-tree <id>  Pin a work item and its subtree.
   workspace untrack <id>     Remove a pinned work item.
   workspace exclude <id>     Hide a work item from workspace view.
   workspace exclusions       List all excluded work items.  (--clear / --remove <id>)
-
-Area Paths:
   area add <path>            Add an area path to workspace config.  (--exact for exact match)
   area remove <path>         Remove a configured area path.
   area list                  List configured area paths with match semantics.
@@ -1213,6 +1215,11 @@ Work Items:
   link unparent        Remove the parent link from the active item.
   link reparent <id>   Remove current parent and set a new one.
   link artifact <url>  Add an artifact link (URL or vstfs://) to an item.
+  discard <id>         Drop pending changes for a work item.
+  discard --all        Drop all pending changes (excludes seeds).
+  sync                 Flush pending changes then refresh from ADO.
+
+Seeds:
   seed new <title>     Create a new local seed (child work item).
   seed new --editor    Create a seed via editor with field template.
   seed edit <id>       Edit a local seed in an external editor.
@@ -1226,9 +1233,6 @@ Work Items:
   seed publish <id>    Publish a seed to Azure DevOps.
   seed publish --all   Publish all seeds in dependency order.
   seed reconcile       Repair stale links after partial publishes.
-  discard <id>         Drop pending changes for a work item.
-  discard --all        Drop all pending changes (excludes seeds).
-  sync                 Flush pending changes then refresh from ADO.
 
 Git:
   branch               Create/checkout a branch and link it.

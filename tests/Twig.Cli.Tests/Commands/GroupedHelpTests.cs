@@ -197,8 +197,10 @@ public sealed class GroupedHelpTests
         stdout.ShouldContain("Usage: twig");
         stdout.ShouldContain("Getting Started:");
         stdout.ShouldContain("Views:");
+        stdout.ShouldContain("Workspace:");
         stdout.ShouldContain("Navigation:");
         stdout.ShouldContain("Work Items:");
+        stdout.ShouldContain("Seeds:");
         stdout.ShouldContain("Git:");
     }
 

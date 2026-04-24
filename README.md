@@ -184,6 +184,9 @@ twig seed publish -1
 
 # Publish all seeds in dependency order
 twig seed publish --all
+
+# Publish all and link each new work item to a branch (best-effort)
+twig seed publish --all --link-branch feature/my-branch
 ```
 
 ## How Data Stays in Sync

@@ -79,6 +79,16 @@ public sealed class CommandExamplesTests
     }
 
     [Fact]
+    public void SeedPublishExamples_ContainLinkBranchUsage()
+    {
+        CommandExamples.Examples.TryGetValue("seed publish", out var examples).ShouldBeTrue(
+            "seed publish should have registered examples");
+        examples.ShouldNotBeNull();
+        examples.Any(e => e.Contains("--link-branch")).ShouldBeTrue(
+            "seed publish examples should include a --link-branch example");
+    }
+
+    [Fact]
     public void ShowIfPresent_MultipleExamples_PrintsAll()
     {
         var output = CaptureShowIfPresent(["set"],

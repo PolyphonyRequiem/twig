@@ -525,7 +525,11 @@ public sealed class MutationToolsUpdateTests : MutationToolsTestBase
             Arg.Is<IReadOnlyList<FieldChange>>(c =>
                 c.Count == 1
                 // format=markdown triggers asHtml=true, so existing plain text gets HTML append
-                && c[0].NewValue!.Contains("plain existing")),
+                && c[0].NewValue!.Contains("plain existing")
+                // Markdig converts **bold** to <strong>bold</strong>
+                && c[0].NewValue!.Contains("<strong>")
+                // HTML mode must NOT use plain-text \n\n separator
+                && !c[0].NewValue!.Contains("\n\n")),
             Arg.Any<int>(),
             Arg.Any<CancellationToken>());
     }

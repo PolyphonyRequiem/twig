@@ -24,7 +24,7 @@ public sealed class BatchExecutionEngineTests
 
         var graph = new BatchGraph(
             new StepNode(0, "twig_status", new Dictionary<string, object?>()),
-            TotalStepCount: 1,);
+            TotalStepCount: 1);
 
         var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
 
@@ -46,7 +46,7 @@ public sealed class BatchExecutionEngineTests
 
         var graph = new BatchGraph(
             new StepNode(0, "twig_set", new Dictionary<string, object?> { ["idOrPattern"] = "999" }),
-            TotalStepCount: 1,);
+            TotalStepCount: 1);
 
         var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
 
@@ -64,7 +64,7 @@ public sealed class BatchExecutionEngineTests
 
         var graph = new BatchGraph(
             new StepNode(0, "twig_status", new Dictionary<string, object?>()),
-            TotalStepCount: 1,);
+            TotalStepCount: 1);
 
         var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
 
@@ -93,7 +93,7 @@ public sealed class BatchExecutionEngineTests
                 new StepNode(1, "twig_state", new Dictionary<string, object?> { ["stateName"] = "Doing" }),
                 new StepNode(2, "twig_note", new Dictionary<string, object?> { ["text"] = "hello" })
             ]),
-            TotalStepCount: 3,);
+            TotalStepCount: 3);
 
         var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
 
@@ -120,7 +120,7 @@ public sealed class BatchExecutionEngineTests
                 new StepNode(1, "twig_state", new Dictionary<string, object?> { ["stateName"] = "Doing" }),
                 new StepNode(2, "twig_note", new Dictionary<string, object?> { ["text"] = "hello" })
             ]),
-            TotalStepCount: 3,);
+            TotalStepCount: 3);
 
         var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
 
@@ -146,7 +146,7 @@ public sealed class BatchExecutionEngineTests
                 new StepNode(0, "twig_set", new Dictionary<string, object?>()),
                 new StepNode(1, "twig_status", new Dictionary<string, object?>()),
             ]),
-            TotalStepCount: 2,);
+            TotalStepCount: 2);
 
         var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
 
@@ -176,7 +176,7 @@ public sealed class BatchExecutionEngineTests
                 new StepNode(1, "twig_show", new Dictionary<string, object?> { ["id"] = 2 }),
                 new StepNode(2, "twig_show", new Dictionary<string, object?> { ["id"] = 3 })
             ]),
-            TotalStepCount: 3,);
+            TotalStepCount: 3);
 
         var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
 
@@ -204,7 +204,7 @@ public sealed class BatchExecutionEngineTests
                 new StepNode(1, "twig_show", new Dictionary<string, object?> { ["id"] = 2 }),
                 new StepNode(2, "twig_show", new Dictionary<string, object?> { ["id"] = 3 })
             ]),
-            TotalStepCount: 3,);
+            TotalStepCount: 3);
 
         var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
 
@@ -238,7 +238,7 @@ public sealed class BatchExecutionEngineTests
                 ]),
                 new StepNode(3, "twig_note", new Dictionary<string, object?> { ["id"] = 300 })
             ]),
-            TotalStepCount: 4,);
+            TotalStepCount: 4);
 
         var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
 
@@ -273,7 +273,7 @@ public sealed class BatchExecutionEngineTests
                 ]),
                 new StepNode(3, "twig_note", new Dictionary<string, object?> { ["id"] = 300 })
             ]),
-            TotalStepCount: 4,);
+            TotalStepCount: 4);
 
         var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
 
@@ -308,7 +308,7 @@ public sealed class BatchExecutionEngineTests
                 new StepNode(1, "twig_state", new Dictionary<string, object?>()),
                 new StepNode(2, "twig_note", new Dictionary<string, object?>())
             ]),
-            TotalStepCount: 3,);
+            TotalStepCount: 3);
 
         var result = await engine.ExecuteAsync(
             graph,
@@ -334,7 +334,7 @@ public sealed class BatchExecutionEngineTests
 
         var graph = new BatchGraph(
             new StepNode(0, "twig_status", new Dictionary<string, object?>()),
-            TotalStepCount: 1,);
+            TotalStepCount: 1);
 
         await Should.ThrowAsync<OperationCanceledException>(
             () => engine.ExecuteAsync(graph, DefaultTimeout, null, cts.Token));
@@ -351,7 +351,7 @@ public sealed class BatchExecutionEngineTests
                 new StepNode(0, "twig_show", new Dictionary<string, object?> { ["id"] = 1 }),
                 new StepNode(1, "twig_show", new Dictionary<string, object?> { ["id"] = 2 })
             ]),
-            TotalStepCount: 2,);
+            TotalStepCount: 2);
 
         var result = await engine.ExecuteAsync(
             graph,
@@ -376,7 +376,7 @@ public sealed class BatchExecutionEngineTests
                 new StepNode(0, "twig_show", new Dictionary<string, object?> { ["id"] = 1 }),
                 new StepNode(1, "twig_show", new Dictionary<string, object?> { ["id"] = 2 })
             ]),
-            TotalStepCount: 2,);
+            TotalStepCount: 2);
 
         await Should.ThrowAsync<OperationCanceledException>(
             () => engine.ExecuteAsync(graph, DefaultTimeout, null, cts.Token));
@@ -393,7 +393,7 @@ public sealed class BatchExecutionEngineTests
 
         var graph = new BatchGraph(
             new StepNode(0, "twig_status", new Dictionary<string, object?>()),
-            TotalStepCount: 1,);
+            TotalStepCount: 1);
 
         await engine.ExecuteAsync(graph, DefaultTimeout, "org/project", CancellationToken.None);
 
@@ -410,7 +410,7 @@ public sealed class BatchExecutionEngineTests
 
         var graph = new BatchGraph(
             new StepNode(0, "twig_status", new Dictionary<string, object?>()),
-            TotalStepCount: 1,);
+            TotalStepCount: 1);
 
         var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
 
@@ -428,7 +428,7 @@ public sealed class BatchExecutionEngineTests
 
         var graph = new BatchGraph(
             new SequenceNode([]),
-            TotalStepCount: 0,);
+            TotalStepCount: 0);
 
         var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
 
@@ -444,7 +444,7 @@ public sealed class BatchExecutionEngineTests
 
         var graph = new BatchGraph(
             new ParallelNode([]),
-            TotalStepCount: 0,);
+            TotalStepCount: 0);
 
         var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
 
@@ -463,7 +463,7 @@ public sealed class BatchExecutionEngineTests
 
         var graph = new BatchGraph(
             new StepNode(0, "twig_show", new Dictionary<string, object?> { ["id"] = 42 }),
-            TotalStepCount: 1,);
+            TotalStepCount: 1);
 
         var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
 
@@ -480,7 +480,7 @@ public sealed class BatchExecutionEngineTests
 
         var graph = new BatchGraph(
             new StepNode(0, "twig_status", new Dictionary<string, object?>()),
-            TotalStepCount: 1,);
+            TotalStepCount: 1);
 
         var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
 
@@ -517,7 +517,7 @@ public sealed class BatchExecutionEngineTests
                 ]),
                 new StepNode(4, "twig_note", new Dictionary<string, object?>())
             ]),
-            TotalStepCount: 5,);
+            TotalStepCount: 5);
 
         var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
 
@@ -558,7 +558,7 @@ public sealed class BatchExecutionEngineTests
                 ]),
                 new StepNode(5, "twig_note", new Dictionary<string, object?>())
             ]),
-            TotalStepCount: 6,);
+            TotalStepCount: 6);
 
         var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
 

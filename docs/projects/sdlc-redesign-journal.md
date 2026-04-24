@@ -521,3 +521,52 @@ a plan-centric, monolithic design to a work-item-centric, modular architecture w
 - **Resume support** via state discovery at every entry point
 - **No auto-approve** anywhere — honest failure with human escalation
 - **0 hard principle violations** in final audit
+
+---
+
+## Deployment Lessons (April 24, 2026 — first live test)
+
+### Errors encountered during first launch
+
+**Error 1: TemplateError — 'dict object' has no attribute 'work_item_id'**
+- **Cause**: Conductor script agents don't parse stdout JSON into typed fields.
+  `state_detector.output.work_item_id` doesn't exist — only `state_detector.output.stdout`
+  (raw string) and `state_detector.output.exit_code` are available.
+- **Fix**: Use `{{ state_detector.output.stdout }}` for prompt context (dumps the full
+  JSON). Use `workflow.input.*` for sub-workflow input_mapping (the canonical source).
+  Route via exit codes, not output field values.
+- **Lesson**: Conductor script agents have three output channels:
+  - `stdout` → available as `agent_name.output.stdout` (string)
+  - `stderr` → available as `agent_name.output.stderr` (string)
+  - `exit_code` → used for `when:` routing conditions
+- **Feature request filed**: [microsoft/conductor#118](https://github.com/microsoft/conductor/issues/118)
+  — allow script agents to declare output schemas for typed downstream access.
+
+**Error 2: Stale github registry cache serving version 0.1.0**
+- **Cause**: Conductor github registry mode resolved workflows by tag, not latest commit.
+  Tags `0.1.0`, `1.0.0`, `2.1.0` all pointed to an ancient commit. New tag `3.0.0` was
+  created but conductor still pulled the old cached version.
+- **Fix**: Switched to path registry mode (local clone). Cleared `~/.conductor/cache/`
+  globally. Path mode reads directly from the local clone — always current.
+- **Lesson**: Github registry mode + tags requires understanding conductor's version
+  resolution strategy. Path mode is simpler for development; github mode for distribution.
+
+**Error 3: Overly strict 'seeded but no plan' error**
+- **Cause**: `detect-state.ps1` treated "children exist but no discoverable plan file"
+  as a corrupted state error. For existing epics planned per-issue (not per-epic), this
+  is a legitimate state — children were created from per-issue plans that don't match
+  the parent epic's ID.
+- **Fix**: If children are seeded, route to implementation regardless of plan status.
+  The plan is context (P2), not required for implementation to proceed.
+- **Lesson**: P2 compliance means the system works WITHOUT plans. Plans enhance context
+  but must never be a gate for execution when work items already exist.
+
+**Error 4: TOML path escaping**
+- **Cause**: `conductor registry add` wrote Windows backslashes into `registries.toml`.
+  TOML interprets `\U`, `\t`, etc. as escape sequences.
+- **Fix**: Manually corrected to forward slashes in `registries.toml`.
+- **Lesson**: Always use forward slashes in conductor TOML config, even on Windows.
+
+### Commits
+- `1d00e46` — script output schema removal, exit code routing
+- `194e660` — stdout for context, workflow.input for mapping, relaxed plan gate

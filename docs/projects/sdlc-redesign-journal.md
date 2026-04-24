@@ -431,3 +431,47 @@ Comprehensive redesign of `twig-sdlc-implement.yaml` — all 7 hard violations r
 ### Design principles established: P1–P11
 ### Total files changed: ~50 across both repos
 ### Net result: plan-centric → work-item-centric SDLC pipeline
+
+---
+
+## Final Principles Audit (April 24, 2026)
+
+### Result: 0 hard violations, 2 soft P9 concerns
+
+Post-redesign audit across all 7 workflow files found zero hard violations.
+
+Two minor P9 soft concerns:
+- `branching` in planning orchestrator — does more than branch (also commits plans,
+  creates PR). Acceptable in context of the 3-step flow (design → branching → seeding).
+- `work_tree_seeder` in implementation — name says "seeder" but it loads/reads the tree.
+  Leftover from when it actually created items. Could be `work_tree_loader`.
+
+### Principles Evolution (final state)
+
+| # | Principle | Summary |
+|---|-----------|---------|
+| P1 | Work Items Are Source of Truth | ADO state over plan files |
+| P2 | Plans Are Context, Not Control Flow | Plans don't drive routing |
+| P2a | Plans Describe Solutions, Not Work Items | Architect designs, seeder creates |
+| P3 | Re-Entry by State Discovery | Resume via observable state |
+| P4 | Explicit Intent (new/redo/resume) | Replaces ad-hoc flags |
+| P5 | Type-Agnostic Workflow Structure | Same nodes for Epic/Issue/Task |
+| P6 | Human Gates for Genuine Decisions | ≤85% planning, ≥95% implementation |
+| P7 | Fail Honestly, Don't Auto-Approve | No force-pass after N attempts |
+| P8 | Prefer Scripts for Deterministic Logic | if/else → script, judgment → agent |
+| P9 | Clear, Minimal Naming | Clear in scope, minimal text, unambiguous at a glance |
+| P10 | Explicit Invariants | Pre/postconditions on all agents |
+| P11 | Rubric-Based Scoring | Weighted dimensions, academic grounding |
+
+**P9 was refined late in the process** — original wording ("Concise, Contextual Naming")
+led the audit agent to suggest overly verbose names like `"disambiguate_intent_conflict"`.
+Updated to emphasize minimalism: "use as little text as needed to still be clear."
+
+### What's left (non-blocking, incremental)
+
+These are improvement opportunities, not violations:
+- Convert implementation `duplicate_check` from LLM to script (P8)
+- Add P11 rubrics to task_reviewer, issue_reviewer, pr_reviewer
+- Rename `work_tree_seeder` → `work_tree_loader` in implementation (P9)
+- Resume state discovery at implementation entry (P3 — conductor limitation)
+- Human escalation gate on pr_finalizer after max retries (P7 polish)

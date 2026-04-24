@@ -179,6 +179,27 @@ public sealed class TwigConfiguration
                     return true;
                 }
                 return false;
+            case "display.treedepthup":
+                if (int.TryParse(value, out var depthUp) && depthUp >= 0)
+                {
+                    Display.TreeDepthUp = depthUp;
+                    return true;
+                }
+                return false;
+            case "display.treedepthdown":
+                if (int.TryParse(value, out var depthDown) && depthDown >= 0)
+                {
+                    Display.TreeDepthDown = depthDown;
+                    return true;
+                }
+                return false;
+            case "display.treedepthsideways":
+                if (int.TryParse(value, out var depthSideways) && depthSideways >= 0)
+                {
+                    Display.TreeDepthSideways = depthSideways;
+                    return true;
+                }
+                return false;
             case "display.icons":
                 var lower = value.ToLowerInvariant();
                 if (lower is "unicode" or "nerd")
@@ -354,6 +375,9 @@ public sealed class DisplayConfig
 {
     public bool Hints { get; set; } = true;
     public int TreeDepth { get; set; } = 10;
+    public int TreeDepthUp { get; set; } = 2;
+    public int TreeDepthDown { get; set; } = 10;
+    public int TreeDepthSideways { get; set; } = 1;
     public string Icons { get; set; } = "unicode";
     public int CacheStaleMinutes { get; set; } = 5;
     public int CacheStaleMinutesReadOnly { get; set; } = 15;

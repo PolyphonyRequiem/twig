@@ -1117,6 +1117,50 @@ public class TwigConfigurationTests : IDisposable
         config.Display.TreeDepthSideways.ShouldBe(1);
     }
 
+    // ── Workspace.WorkingLevel SetValue round-trip ──
+
+    [Fact]
+    public void SetValue_WorkspaceWorkingLevel_SetsAndReturnsTrue()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("workspace.working_level", "Task").ShouldBeTrue();
+        config.Workspace.WorkingLevel.ShouldBe("Task");
+    }
+
+    [Fact]
+    public void SetValue_WorkspaceWorkingLevel_EmptyString_ClearsToNull()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("workspace.working_level", "Task").ShouldBeTrue();
+        config.SetValue("workspace.working_level", "").ShouldBeTrue();
+        config.Workspace.WorkingLevel.ShouldBeNull();
+    }
+
+    [Fact]
+    public void SetValue_WorkspaceWorkingLevel_WhitespaceOnly_ClearsToNull()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("workspace.working_level", "   ").ShouldBeTrue();
+        config.Workspace.WorkingLevel.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task WorkspaceWorkingLevel_SerializationRoundTrip()
+    {
+        var configPath = Path.Combine(_tempDir, "config_working_level.json");
+        var config = new TwigConfiguration
+        {
+            Organization = "testorg",
+            Project = "testproj",
+        };
+        config.SetValue("workspace.working_level", "Issue");
+
+        await config.SaveAsync(configPath);
+        var loaded = await TwigConfiguration.LoadAsync(configPath);
+
+        loaded.Workspace.WorkingLevel.ShouldBe("Issue");
+    }
+
     // ── EPIC-003: Error resilience — malformed JSON and permission denied ──
 
     [Fact]

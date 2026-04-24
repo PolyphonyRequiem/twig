@@ -319,7 +319,7 @@ public sealed class TwigConfiguration
                 Display.Columns ??= new DisplayColumnsConfig();
                 Display.Columns.Sprint = value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
                 return true;
-            case "workspace.workinglevel":
+            case "workspace.working_level":
                 Workspace.WorkingLevel = string.IsNullOrWhiteSpace(value) ? null : value;
                 return true;
             default:

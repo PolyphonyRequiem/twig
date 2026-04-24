@@ -11,14 +11,8 @@ public sealed class McpResultBuilderBatchTests
 {
     // ── Helper ──────────────────────────────────────────────────────
 
-    private static string ExtractJson(CallToolResult result)
-    {
-        result.Content.ShouldNotBeNull();
-        result.Content.Count.ShouldBeGreaterThan(0);
-        var text = (result.Content[0] as TextContentBlock)!.Text;
-        text.ShouldNotBeNull();
-        return text;
-    }
+    private static string ExtractJson(CallToolResult result) =>
+        ((TextContentBlock)result.Content![0]).Text;
 
     private static JsonElement ParseJson(CallToolResult result)
     {

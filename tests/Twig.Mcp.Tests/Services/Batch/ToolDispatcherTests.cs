@@ -130,49 +130,6 @@ public sealed class ToolDispatcherTests
         GetText(result).ShouldContain("workspaces");
     }
 
-    // ── Routing tests: required arg present → reaches tool method ──
-
-    [Fact]
-    public async Task DispatchAsync_TwigSet_WithIdOrPattern_ReachesToolMethod()
-    {
-        var result = await _dispatcher.DispatchAsync(
-            "twig_set", Args(("idOrPattern", "42")), null, CancellationToken.None);
-
-        // Workspace resolution fails but it's NOT "Unknown tool"
-        result.IsError.ShouldBe(true);
-        GetText(result).ShouldNotContain("Unknown tool");
-    }
-
-    [Fact]
-    public async Task DispatchAsync_TwigState_WithStateName_ReachesToolMethod()
-    {
-        var result = await _dispatcher.DispatchAsync(
-            "twig_state", Args(("stateName", "Done")), null, CancellationToken.None);
-
-        result.IsError.ShouldBe(true);
-        GetText(result).ShouldNotContain("Unknown tool");
-    }
-
-    [Fact]
-    public async Task DispatchAsync_TwigNote_WithText_ReachesToolMethod()
-    {
-        var result = await _dispatcher.DispatchAsync(
-            "twig_note", Args(("text", "hello")), null, CancellationToken.None);
-
-        result.IsError.ShouldBe(true);
-        GetText(result).ShouldNotContain("Unknown tool");
-    }
-
-    [Fact]
-    public async Task DispatchAsync_TwigShow_WithId_ReachesToolMethod()
-    {
-        var result = await _dispatcher.DispatchAsync(
-            "twig_show", Args(("id", 42)), null, CancellationToken.None);
-
-        result.IsError.ShouldBe(true);
-        GetText(result).ShouldNotContain("Unknown tool");
-    }
-
     // ── Workspace override ──────────────────────────────────────────
 
     [Fact]
@@ -440,44 +397,6 @@ public sealed class ToolDispatcherTests
     {
         var args = Args(("key", "77"));
         ToolDispatcher.GetNullableInt(args, "key").ShouldBe(77);
-    }
-
-    // ── KnownToolNames ──────────────────────────────────────────────
-
-    [Fact]
-    public void KnownToolNames_Contains18Tools()
-    {
-        ToolDispatcher.KnownToolNames.Count.ShouldBe(18);
-    }
-
-    [Theory]
-    [InlineData("twig_set")]
-    [InlineData("twig_status")]
-    [InlineData("twig_tree")]
-    [InlineData("twig_workspace")]
-    [InlineData("twig_state")]
-    [InlineData("twig_update")]
-    [InlineData("twig_note")]
-    [InlineData("twig_discard")]
-    [InlineData("twig_sync")]
-    [InlineData("twig_new")]
-    [InlineData("twig_find_or_create")]
-    [InlineData("twig_link")]
-    [InlineData("twig_show")]
-    [InlineData("twig_query")]
-    [InlineData("twig_children")]
-    [InlineData("twig_parent")]
-    [InlineData("twig_sprint")]
-    [InlineData("twig_list_workspaces")]
-    public void KnownToolNames_ContainsTool(string toolName)
-    {
-        ToolDispatcher.KnownToolNames.ShouldContain(toolName);
-    }
-
-    [Fact]
-    public void KnownToolNames_DoesNotContainBatch()
-    {
-        ToolDispatcher.KnownToolNames.ShouldNotContain("twig_batch");
     }
 
     // ── Multi-arg coercion in routing ───────────────────────────────

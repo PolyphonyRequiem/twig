@@ -135,19 +135,6 @@ internal sealed class ToolDispatcher(
         };
     }
 
-    /// <summary>
-    /// Returns the set of tool names recognized by this dispatcher.
-    /// </summary>
-    internal static IReadOnlySet<string> KnownToolNames { get; } = new HashSet<string>(StringComparer.Ordinal)
-    {
-        "twig_set", "twig_status",
-        "twig_tree", "twig_workspace",
-        "twig_state", "twig_update", "twig_note", "twig_discard", "twig_sync",
-        "twig_new", "twig_find_or_create", "twig_link",
-        "twig_show", "twig_query", "twig_children", "twig_parent", "twig_sprint",
-        "twig_list_workspaces"
-    };
-
     // ── Arg extraction helpers ──────────────────────────────────────
 
     internal static string GetRequiredString(IReadOnlyDictionary<string, object?> args, string key)

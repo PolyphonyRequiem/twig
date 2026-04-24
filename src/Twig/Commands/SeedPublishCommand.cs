@@ -44,8 +44,8 @@ public sealed class SeedPublishCommand(
             // Link each created seed to the branch (best-effort)
             if (artifactUri is not null)
             {
-                foreach (var r in batchResult.Results)
-                    await TryLinkBranchAsync(r, artifactUri, fmt, ct);
+                var (linked, failed) = await LinkBatchAsync(batchResult.Results, artifactUri, fmt, ct);
+                EmitLinkSummary(linked, failed, linkBranch!, fmt);
             }
 
             // Update context if the active seed was published
@@ -71,7 +71,10 @@ public sealed class SeedPublishCommand(
 
         // Link the created seed to the branch (best-effort)
         if (artifactUri is not null)
-            await TryLinkBranchAsync(result, artifactUri, fmt, ct);
+        {
+            var (linked, failed) = await LinkBatchAsync([result], artifactUri, fmt, ct);
+            EmitLinkSummary(linked, failed, linkBranch!, fmt);
+        }
 
         // Update context if the published seed was the active item
         if (result.Status == SeedPublishStatus.Created && activeId == id.Value && result.NewId > 0)
@@ -112,25 +115,48 @@ public sealed class SeedPublishCommand(
     }
 
     /// <summary>
-    /// Attempts to link a published seed to the branch. Best-effort: logs warnings on failure.
-    /// Only links seeds with <see cref="SeedPublishStatus.Created"/> status and a valid NewId.
+    /// Links a batch of publish results to the branch. Returns (linkedCount, failureCount).
+    /// Best-effort: logs warnings on individual failures but continues linking remaining items.
     /// </summary>
-    private async Task TryLinkBranchAsync(
-        SeedPublishResult result, string artifactUri, IOutputFormatter fmt, CancellationToken ct)
+    private async Task<(int Linked, int Failed)> LinkBatchAsync(
+        IReadOnlyList<SeedPublishResult> results, string artifactUri, IOutputFormatter fmt, CancellationToken ct)
     {
-        if (result.Status != SeedPublishStatus.Created || result.NewId <= 0)
+        var linkedCount = 0;
+        var linkFailures = 0;
+
+        foreach (var result in results)
+        {
+            if (result.Status != SeedPublishStatus.Created || result.NewId <= 0)
+                continue;
+
+            try
+            {
+                var remote = await adoService.FetchAsync(result.NewId, ct);
+                await adoGitService!.AddArtifactLinkAsync(
+                    result.NewId, artifactUri, "ArtifactLink", remote.Revision, "Branch", ct);
+                linkedCount++;
+            }
+            catch (Exception ex)
+            {
+                linkFailures++;
+                Console.Error.WriteLine(fmt.FormatInfo(
+                    $"Failed to link branch to #{result.NewId}: {ex.Message}"));
+            }
+        }
+
+        return (linkedCount, linkFailures);
+    }
+
+    /// <summary>Emits a summary of branch linking results to stderr.</summary>
+    private static void EmitLinkSummary(int linked, int failed, string branch, IOutputFormatter fmt)
+    {
+        if (linked == 0 && failed == 0)
             return;
 
-        try
-        {
-            var remote = await adoService.FetchAsync(result.NewId, ct);
-            await adoGitService!.AddArtifactLinkAsync(
-                result.NewId, artifactUri, "ArtifactLink", remote.Revision, "Branch", ct);
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine(fmt.FormatInfo(
-                $"Failed to link branch to #{result.NewId}: {ex.Message}"));
-        }
+        var summary = failed > 0
+            ? $"Linked {linked}/{linked + failed} seeds to branch {branch} ({failed} failed)"
+            : $"Linked {linked} seeds to branch {branch}";
+
+        Console.Error.WriteLine(fmt.FormatInfo(summary));
     }
 }

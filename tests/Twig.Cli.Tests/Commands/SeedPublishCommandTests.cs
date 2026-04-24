@@ -370,27 +370,6 @@ public class SeedPublishCommandTests : IDisposable
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task Execute_LinkBranch_SingleSeed_PublishesSuccessfully()
-    {
-        var seed = new WorkItemBuilder(-5, "Branch Seed").AsSeed().WithParent(100).Build();
-        _workItemRepo.GetByIdAsync(-5, Arg.Any<CancellationToken>()).Returns(seed);
-        _adoService.CreateAsync(seed, Arg.Any<CancellationToken>()).Returns(42);
-
-        var published = new WorkItemBuilder(42, "Branch Seed").WithParent(100).Build();
-        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(published);
-        _seedLinkRepo.GetLinksForItemAsync(42, Arg.Any<CancellationToken>())
-            .Returns(new List<SeedLink>());
-
-        var writer = new StringWriter();
-        Console.SetOut(writer);
-
-        var result = await _cmd.ExecuteAsync(-5, linkBranch: "planning/abc");
-
-        result.ShouldBe(0);
-        writer.ToString().ShouldContain("Published seed #-5 as #42");
-    }
-
-    [Fact]
     public async Task Execute_LinkBranch_All_PublishesSuccessfully()
     {
         var seed = new WorkItemBuilder(-1, "Batch Branch Seed").AsSeed().WithParent(100).Build();

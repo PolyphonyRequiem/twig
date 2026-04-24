@@ -570,6 +570,183 @@ public sealed class BatchExecutionEngineTests
         result.Steps[5].Status.ShouldBe(StepStatus.Skipped); // Outer sequence fail-fast
     }
 
+    // ── Template resolution failure ────────────────────────────────
+
+    [Fact]
+    public async Task Execute_StepWithBadTemplate_RecordsFailureWithMessage()
+    {
+        // Step 0 succeeds with output that has no "id" property.
+        // Step 1 references {{steps.0.id}} which doesn't exist → TemplateResolutionException.
+        var dispatcher = CreateDispatcher((_, _) => SuccessResult("{\"name\":\"test\"}"));
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new SequenceNode([
+                new StepNode(0, "twig_show", new Dictionary<string, object?>()),
+                new StepNode(1, "twig_set", new Dictionary<string, object?>
+                {
+                    ["idOrPattern"] = "{{steps.0.id}}"
+                })
+            ]),
+            TotalStepCount: 2);
+
+        var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        result.Steps.Count.ShouldBe(2);
+        result.Steps[0].Status.ShouldBe(StepStatus.Succeeded);
+        result.Steps[1].Status.ShouldBe(StepStatus.Failed);
+        result.Steps[1].Error.ShouldNotBeNull();
+        result.Steps[1].Error!.ShouldContain("steps.0.id");
+        result.Steps[1].Error!.ShouldContain("not found");
+        result.TimedOut.ShouldBeFalse();
+    }
+
+    // ── Template resolution success ────────────────────────────────
+
+    [Fact]
+    public async Task Execute_TemplateChaining_ResolvesAcrossSequentialSteps()
+    {
+        var capturedArgs = new List<IReadOnlyDictionary<string, object?>>();
+        var dispatcher = new TestToolDispatcher((tool, args, _) =>
+        {
+            lock (capturedArgs) { capturedArgs.Add(new Dictionary<string, object?>(args)); }
+            return tool switch
+            {
+                "twig_new" => Task.FromResult(SuccessResult("{\"id\":100,\"title\":\"Created\"}")),
+                _ => Task.FromResult(SuccessResult("{\"ok\":true}"))
+            };
+        });
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new SequenceNode([
+                new StepNode(0, "twig_new", new Dictionary<string, object?>
+                {
+                    ["type"] = "Task",
+                    ["title"] = "Test"
+                }),
+                new StepNode(1, "twig_set", new Dictionary<string, object?>
+                {
+                    ["idOrPattern"] = "{{steps.0.id}}"
+                }),
+                new StepNode(2, "twig_note", new Dictionary<string, object?>
+                {
+                    ["text"] = "Set up item {{steps.0.id}}: {{steps.0.title}}"
+                })
+            ]),
+            TotalStepCount: 3);
+
+        var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        result.Steps.Count.ShouldBe(3);
+        result.Steps.ShouldAllBe(s => s.Status == StepStatus.Succeeded);
+
+        // Full expression: integer type preserved.
+        capturedArgs[1]["idOrPattern"].ShouldBeOfType<int>().ShouldBe(100);
+
+        // Partial expression: string interpolation.
+        capturedArgs[2]["text"].ShouldBeOfType<string>().ShouldBe("Set up item 100: Created");
+    }
+
+    [Fact]
+    public async Task Execute_TemplateChaining_NestedPath_ResolvesCorrectly()
+    {
+        object? resolved = null;
+        var dispatcher = new TestToolDispatcher((tool, args, _) =>
+        {
+            if (tool == "twig_set")
+                resolved = args["idOrPattern"];
+            return Task.FromResult(tool == "twig_show"
+                ? SuccessResult("{\"item\":{\"fields\":{\"id\":777}}}")
+                : SuccessResult("{\"ok\":true}"));
+        });
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new SequenceNode([
+                new StepNode(0, "twig_show", new Dictionary<string, object?>()),
+                new StepNode(1, "twig_set", new Dictionary<string, object?>
+                {
+                    ["idOrPattern"] = "{{steps.0.item.fields.id}}"
+                })
+            ]),
+            TotalStepCount: 2);
+
+        var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        result.Steps.ShouldAllBe(s => s.Status == StepStatus.Succeeded);
+        resolved.ShouldBeOfType<int>().ShouldBe(777);
+    }
+
+    [Fact]
+    public async Task Execute_TemplateResolutionFailure_CascadesSkipInSequence()
+    {
+        var dispatcher = CreateDispatcher((_, _) => SuccessResult("{\"name\":\"x\"}"));
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        // Step 1 fails template resolution → Step 2 is skipped (fail-fast).
+        var graph = new BatchGraph(
+            new SequenceNode([
+                new StepNode(0, "twig_show", new Dictionary<string, object?>()),
+                new StepNode(1, "twig_set", new Dictionary<string, object?>
+                {
+                    ["idOrPattern"] = "{{steps.0.missing}}"
+                }),
+                new StepNode(2, "twig_note", new Dictionary<string, object?>
+                {
+                    ["text"] = "should not run"
+                })
+            ]),
+            TotalStepCount: 3);
+
+        var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        result.Steps[0].Status.ShouldBe(StepStatus.Succeeded);
+        result.Steps[1].Status.ShouldBe(StepStatus.Failed);
+        result.Steps[2].Status.ShouldBe(StepStatus.Skipped);
+    }
+
+    [Fact]
+    public async Task Execute_TemplateWithNonStringArgs_PassedThrough()
+    {
+        var capturedArgs = new Dictionary<string, object?>();
+        var dispatcher = new TestToolDispatcher((tool, args, _) =>
+        {
+            if (tool == "twig_link")
+                lock (capturedArgs)
+                    foreach (var kv in args) capturedArgs[kv.Key] = kv.Value;
+            return Task.FromResult(tool == "twig_new"
+                ? SuccessResult("{\"id\":55}")
+                : SuccessResult("{\"ok\":true}"));
+        });
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        // sourceId is a non-string int — should pass through without template processing.
+        // targetId is a template — should resolve to int 55.
+        var graph = new BatchGraph(
+            new SequenceNode([
+                new StepNode(0, "twig_new", new Dictionary<string, object?>
+                {
+                    ["type"] = "Task",
+                    ["title"] = "Parent"
+                }),
+                new StepNode(1, "twig_link", new Dictionary<string, object?>
+                {
+                    ["sourceId"] = 1,
+                    ["targetId"] = "{{steps.0.id}}",
+                    ["linkType"] = "child"
+                })
+            ]),
+            TotalStepCount: 2);
+
+        var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        result.Steps.ShouldAllBe(s => s.Status == StepStatus.Succeeded);
+        capturedArgs["sourceId"].ShouldBe(1); // Non-string: passed through.
+        capturedArgs["targetId"].ShouldBeOfType<int>().ShouldBe(55); // Template: resolved.
+        capturedArgs["linkType"].ShouldBe("child"); // Non-template string: passed through.
+    }
+
     // ── Helper for tracking concurrent execution ────────────────────
 
     private sealed class ConcurrencyTracker

@@ -52,7 +52,17 @@ internal static class BatchGraphParser
                 return Result<BatchGraph>.Fail(result.Error);
             }
 
-            return Result<BatchGraph>.Ok(new BatchGraph(result.Value, stepIndex));
+            var graph = new BatchGraph(result.Value, stepIndex);
+
+            // Validate template references after graph construction.
+            var templateErrors = TemplateValidator.Validate(graph);
+            if (templateErrors.Count > 0)
+            {
+                return Result<BatchGraph>.Fail(
+                    $"Template validation failed: {templateErrors[0].Reason}");
+            }
+
+            return Result<BatchGraph>.Ok(graph);
         }
     }
 

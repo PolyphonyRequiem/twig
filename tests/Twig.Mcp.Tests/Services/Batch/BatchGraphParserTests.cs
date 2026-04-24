@@ -700,4 +700,96 @@ public sealed class BatchGraphParserTests
         BatchConstants.DefaultTimeoutSeconds.ShouldBe(120);
         BatchConstants.BatchToolName.ShouldBe("twig_batch");
     }
+
+    // ── Template validation at parse time ────────────────────────────
+
+    [Fact]
+    public void Parse_TemplateForwardRef_ReturnsFail()
+    {
+        var json = """
+        {
+            "type": "sequence",
+            "steps": [
+                { "type": "step", "tool": "twig_set", "args": { "idOrPattern": "{{steps.1.id}}" } },
+                { "type": "step", "tool": "twig_new", "args": { "type": "Task", "title": "Late" } }
+            ]
+        }
+        """;
+
+        var result = BatchGraphParser.Parse(json);
+
+        result.IsSuccess.ShouldBeFalse();
+        result.Error.ShouldContain("Forward reference");
+    }
+
+    [Fact]
+    public void Parse_TemplateSelfRef_ReturnsFail()
+    {
+        var json = """
+        {
+            "type": "step",
+            "tool": "twig_set",
+            "args": { "idOrPattern": "{{steps.0.id}}" }
+        }
+        """;
+
+        var result = BatchGraphParser.Parse(json);
+
+        result.IsSuccess.ShouldBeFalse();
+        result.Error.ShouldContain("Forward reference");
+    }
+
+    [Fact]
+    public void Parse_TemplateParallelSiblingRef_ReturnsFail()
+    {
+        var json = """
+        {
+            "type": "parallel",
+            "steps": [
+                { "type": "step", "tool": "twig_new", "args": { "type": "Task", "title": "A" } },
+                { "type": "step", "tool": "twig_set", "args": { "idOrPattern": "{{steps.0.id}}" } }
+            ]
+        }
+        """;
+
+        var result = BatchGraphParser.Parse(json);
+
+        result.IsSuccess.ShouldBeFalse();
+        result.Error.ShouldContain("Parallel sibling reference");
+    }
+
+    [Fact]
+    public void Parse_ValidBackwardRef_Succeeds()
+    {
+        var json = """
+        {
+            "type": "sequence",
+            "steps": [
+                { "type": "step", "tool": "twig_new", "args": { "type": "Task", "title": "First" } },
+                { "type": "step", "tool": "twig_set", "args": { "idOrPattern": "{{steps.0.id}}" } }
+            ]
+        }
+        """;
+
+        var result = BatchGraphParser.Parse(json);
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.TotalStepCount.ShouldBe(2);
+    }
+
+    [Fact]
+    public void Parse_NoTemplates_Succeeds()
+    {
+        var json = """
+        {
+            "type": "step",
+            "tool": "twig_status",
+            "args": {}
+        }
+        """;
+
+        var result = BatchGraphParser.Parse(json);
+
+        result.IsSuccess.ShouldBeTrue();
+    }
 }

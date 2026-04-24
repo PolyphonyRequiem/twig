@@ -4,7 +4,7 @@ using Xunit;
 
 namespace Twig.Domain.Tests.ValueObjects;
 
-public class AreaPathTests
+public sealed class AreaPathTests
 {
     [Theory]
     [InlineData("MyProject")]

@@ -332,15 +332,29 @@ public sealed class TwigConfiguration
                 }
                 return false;
             case "defaults.areapathentries":
-                Defaults.AreaPathEntries = value
-                    .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                    .Select(entry =>
+                var entries = new List<AreaPathEntry>();
+                foreach (var raw in value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    string pathPart;
+                    bool includeChildren;
+                    if (raw.EndsWith(":exact", StringComparison.OrdinalIgnoreCase))
                     {
-                        if (entry.EndsWith(":exact", StringComparison.OrdinalIgnoreCase))
-                            return new AreaPathEntry { Path = entry[..^":exact".Length], IncludeChildren = false };
-                        return new AreaPathEntry { Path = entry, IncludeChildren = true };
-                    })
-                    .ToList();
+                        pathPart = raw[..^":exact".Length];
+                        includeChildren = false;
+                    }
+                    else
+                    {
+                        pathPart = raw;
+                        includeChildren = true;
+                    }
+
+                    var parsed = AreaPath.Parse(pathPart);
+                    if (!parsed.IsSuccess)
+                        return false;
+
+                    entries.Add(new AreaPathEntry { Path = pathPart, IncludeChildren = includeChildren });
+                }
+                Defaults.AreaPathEntries = entries;
                 return true;
             default:
                 return false;

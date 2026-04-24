@@ -10,6 +10,7 @@ public readonly record struct AreaPathFilter(string Path, bool IncludeChildren)
     /// Returns <c>true</c> when <paramref name="candidate"/> matches this filter.
     /// Exact mode: only the exact path matches.
     /// Under mode: the exact path or any child path matches.
+    /// Delegates subtree logic to <see cref="AreaPath.IsUnder"/> to avoid duplication.
     /// </summary>
     public bool Matches(AreaPath candidate)
     {
@@ -19,8 +20,8 @@ public readonly record struct AreaPathFilter(string Path, bool IncludeChildren)
         if (!IncludeChildren)
             return false;
 
-        // Under semantics: candidate is a child if it starts with Path + backslash
-        return candidate.Value.StartsWith(Path + "\\", StringComparison.OrdinalIgnoreCase);
+        var filterPath = AreaPath.Parse(Path);
+        return filterPath.IsSuccess && candidate.IsUnder(filterPath.Value);
     }
 
     /// <summary>

@@ -66,7 +66,8 @@ public static class CommandServiceModule
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IPendingChangeStore>(),
             sp.GetRequiredService<IIterationService>(),
-            sp.GetRequiredService<TwigConfiguration>().User.DisplayName));
+            sp.GetRequiredService<TwigConfiguration>().User.DisplayName,
+            sp.GetRequiredService<ITrackingRepository>()));
 
         // EPIC-003: Seed publish orchestrator
         services.AddSingleton<BacklogOrderer>(sp => new BacklogOrderer(

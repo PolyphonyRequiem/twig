@@ -135,7 +135,8 @@ public sealed class WorkspaceContextFactory : IWorkspaceContextFactory, IDisposa
             workItemRepo,
             pendingChangeStore,
             iterationService,
-            config.User.DisplayName);
+            config.User.DisplayName,
+            new SqliteTrackingRepository(cacheStore));
 
         var statusOrchestrator = new StatusOrchestrator(
             contextStore,

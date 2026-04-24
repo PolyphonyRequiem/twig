@@ -59,10 +59,11 @@ public class WorkingSetAllIdsTests
             SprintItemIds = [50, 51],
             SeedIds = [-1, -2],
             DirtyItemIds = new HashSet<int> { 99 },
+            TrackedItemIds = [200, 201],
             IterationPath = TestIteration,
         };
 
-        ws.AllIds.ShouldBe(new HashSet<int> { 1, 100, 10, 11, 50, 51, -1, -2, 99 }, ignoreOrder: true);
+        ws.AllIds.ShouldBe(new HashSet<int> { 1, 100, 10, 11, 50, 51, -1, -2, 99, 200, 201 }, ignoreOrder: true);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -144,5 +145,60 @@ public class WorkingSetAllIdsTests
         };
 
         ws.IterationPath.ShouldBe(TestIteration);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  TrackedItemIds included in AllIds
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void AllIds_WithTrackedItemIds_ContainsTrackedIds()
+    {
+        var ws = new WorkingSet
+        {
+            TrackedItemIds = [300, 301],
+            IterationPath = TestIteration,
+        };
+
+        ws.AllIds.ShouldContain(300);
+        ws.AllIds.ShouldContain(301);
+    }
+
+    [Fact]
+    public void AllIds_EmptyTrackedItemIds_DoesNotAffectAllIds()
+    {
+        var ws = new WorkingSet
+        {
+            ActiveItemId = 1,
+            TrackedItemIds = [],
+            IterationPath = TestIteration,
+        };
+
+        ws.AllIds.ShouldBe(new HashSet<int> { 1 }, ignoreOrder: true);
+    }
+
+    [Fact]
+    public void AllIds_TrackedItemOverlapsWithSprint_NoDuplicates()
+    {
+        var ws = new WorkingSet
+        {
+            SprintItemIds = [50, 60],
+            TrackedItemIds = [50, 70],
+            IterationPath = TestIteration,
+        };
+
+        ws.AllIds.Count.ShouldBe(3); // {50, 60, 70}
+        ws.AllIds.ShouldBe(new HashSet<int> { 50, 60, 70 }, ignoreOrder: true);
+    }
+
+    [Fact]
+    public void TrackedItemIds_DefaultsToEmptyList()
+    {
+        var ws = new WorkingSet
+        {
+            IterationPath = TestIteration,
+        };
+
+        ws.TrackedItemIds.ShouldBeEmpty();
     }
 }

@@ -14,6 +14,7 @@ public sealed record WorkingSet
     public IReadOnlyList<int> SprintItemIds { get; init; } = [];
     public IReadOnlyList<int> SeedIds { get; init; } = [];
     public IReadOnlySet<int> DirtyItemIds { get; init; } = new HashSet<int>();
+    public IReadOnlyList<int> TrackedItemIds { get; init; } = [];
     public IterationPath IterationPath { get; init; }
 
     /// <summary>
@@ -33,6 +34,7 @@ public sealed record WorkingSet
         foreach (var id in SprintItemIds) set.Add(id);
         foreach (var id in SeedIds) set.Add(id);
         foreach (var id in DirtyItemIds) set.Add(id);
+        foreach (var id in TrackedItemIds) set.Add(id);
 
         return set;
     }

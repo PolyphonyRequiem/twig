@@ -1,6 +1,7 @@
 using NSubstitute;
 using Shouldly;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
@@ -15,6 +16,7 @@ public class WorkingSetServiceTests
     private readonly IWorkItemRepository _workItemRepo = Substitute.For<IWorkItemRepository>();
     private readonly IPendingChangeStore _pendingStore = Substitute.For<IPendingChangeStore>();
     private readonly IIterationService _iterationService = Substitute.For<IIterationService>();
+    private readonly ITrackingRepository _trackingRepo = Substitute.For<ITrackingRepository>();
 
     private static readonly IterationPath TestIteration = IterationPath.Parse(@"Project\Sprint1").Value;
 
@@ -22,8 +24,9 @@ public class WorkingSetServiceTests
     //  Helpers
     // ═══════════════════════════════════════════════════════════════
 
-    private WorkingSetService CreateSut(string? userDisplayName = null)
-        => new(_contextStore, _workItemRepo, _pendingStore, _iterationService, userDisplayName);
+    private WorkingSetService CreateSut(string? userDisplayName = null, bool withTracking = true)
+        => new(_contextStore, _workItemRepo, _pendingStore, _iterationService, userDisplayName,
+            withTracking ? _trackingRepo : null);
 
     private void SetupDefaults(int? activeId = null)
     {
@@ -36,6 +39,7 @@ public class WorkingSetServiceTests
         _workItemRepo.GetDirtyItemsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
         _pendingStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>()).Returns(TestIteration);
+        _trackingRepo.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<TrackedItem>());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -170,6 +174,7 @@ public class WorkingSetServiceTests
         ws.SprintItemIds.ShouldBeEmpty();
         ws.SeedIds.ShouldBeEmpty();
         ws.DirtyItemIds.ShouldBeEmpty();
+        ws.TrackedItemIds.ShouldBeEmpty();
         ws.AllIds.ShouldBeEmpty();
     }
 
@@ -313,10 +318,57 @@ public class WorkingSetServiceTests
         dirtyItem.SetDirty();
         _workItemRepo.GetDirtyItemsAsync(Arg.Any<CancellationToken>())
             .Returns(new[] { dirtyItem });
+        _trackingRepo.GetAllTrackedAsync(Arg.Any<CancellationToken>())
+            .Returns(new[] { new TrackedItem(200, TrackingMode.Single, DateTimeOffset.UtcNow) });
 
         var sut = CreateSut();
         var ws = await sut.ComputeAsync(TestIteration);
 
-        ws.AllIds.ShouldBe(new HashSet<int> { 1, 100, 10, 50, -1, 99 }, ignoreOrder: true);
+        ws.AllIds.ShouldBe(new HashSet<int> { 1, 100, 10, 50, -1, 99, 200 }, ignoreOrder: true);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  TrackedItemIds integration
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ComputeAsync_TrackedItems_IncludedInTrackedItemIds()
+    {
+        SetupDefaults(activeId: 10);
+        _trackingRepo.GetAllTrackedAsync(Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new TrackedItem(300, TrackingMode.Single, DateTimeOffset.UtcNow),
+                new TrackedItem(301, TrackingMode.Tree, DateTimeOffset.UtcNow),
+            });
+        var sut = CreateSut();
+
+        var ws = await sut.ComputeAsync(TestIteration);
+
+        ws.TrackedItemIds.ShouldBe(new[] { 300, 301 });
+        ws.AllIds.ShouldContain(300);
+        ws.AllIds.ShouldContain(301);
+    }
+
+    [Fact]
+    public async Task ComputeAsync_NoTrackedItems_ReturnsEmptyTrackedItemIds()
+    {
+        SetupDefaults(activeId: 10);
+        var sut = CreateSut();
+
+        var ws = await sut.ComputeAsync(TestIteration);
+
+        ws.TrackedItemIds.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task ComputeAsync_NoTrackingRepo_ReturnsEmptyTrackedItemIds()
+    {
+        SetupDefaults(activeId: 10);
+        var sut = CreateSut(withTracking: false);
+
+        var ws = await sut.ComputeAsync(TestIteration);
+
+        ws.TrackedItemIds.ShouldBeEmpty();
     }
 }

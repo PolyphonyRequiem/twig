@@ -16,6 +16,7 @@ public sealed class WorkingSetService
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IPendingChangeStore _pendingStore;
     private readonly IIterationService _iterationService;
+    private readonly ITrackingRepository? _trackingRepo;
     private readonly string? _userDisplayName;
 
     public WorkingSetService(
@@ -23,13 +24,15 @@ public sealed class WorkingSetService
         IWorkItemRepository workItemRepo,
         IPendingChangeStore pendingStore,
         IIterationService iterationService,
-        string? userDisplayName)
+        string? userDisplayName,
+        ITrackingRepository? trackingRepo = null)
     {
         _contextStore = contextStore;
         _workItemRepo = workItemRepo;
         _pendingStore = pendingStore;
         _iterationService = iterationService;
         _userDisplayName = userDisplayName;
+        _trackingRepo = trackingRepo;
     }
 
     /// <summary>
@@ -67,6 +70,11 @@ public sealed class WorkingSetService
         // 7. Query dirty IDs via SyncGuard
         var dirtyIds = await SyncGuard.GetProtectedItemIdsAsync(_workItemRepo, _pendingStore, ct);
 
+        // 8. Query tracked item IDs (when tracking repo is available)
+        var trackedItemIds = _trackingRepo is not null
+            ? (await _trackingRepo.GetAllTrackedAsync(ct)).Select(t => t.WorkItemId).ToList()
+            : (IReadOnlyList<int>)[];
+
         return new WorkingSet
         {
             ActiveItemId = activeId,
@@ -75,6 +83,7 @@ public sealed class WorkingSetService
             SprintItemIds = sprintItems.Select(w => w.Id).ToList(),
             SeedIds = seeds.Select(w => w.Id).ToList(),
             DirtyItemIds = dirtyIds,
+            TrackedItemIds = trackedItemIds,
             IterationPath = iteration,
         };
     }

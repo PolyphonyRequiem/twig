@@ -111,6 +111,19 @@ Human gates must **not** be used for:
 When a gate is presented, it should include enough context for the human to decide
 without investigating independently.
 
+### Confidence thresholds by phase
+
+The bar for triggering a human gate varies by lifecycle phase. Planning decisions
+are cheaper to revisit; implementation errors are expensive to undo.
+
+- **Planning phase** — trigger gates at **≤85% confidence**. Design decisions
+  benefit from human steering. Open questions, architectural trade-offs, and
+  scope ambiguity should surface early.
+- **Implementation and beyond** — trigger gates at **≥95% confidence only**.
+  By this phase, the plan is approved and the work is mechanical. Gates should
+  be reserved for genuine blockers: user acceptance testing, irreversible
+  destructive actions, or situations where the agent truly cannot proceed.
+
 ## P7: Fail Honestly, Don't Auto-Approve
 
 Verification agents must report actual state. If verification fails, the workflow
@@ -139,3 +152,101 @@ transformation that can be expressed as code.
 - Architectural decisions, code review, and user-facing content are agents
 - If you find yourself writing a prompt that says "output X if condition Y" with
   no ambiguity, it should be a script
+
+## P9: Concise, Contextual Naming
+
+Inputs, outputs, and fixed value sets should be named concisely without losing
+clarity within the existing context. Avoid redundant prefixes or overly verbose
+names when the workflow or agent scope already provides context.
+
+**Implications:**
+- Within a workflow about work items, `id` is clearer than `work_item_id` if
+  there's only one kind of ID in scope
+- Enum values like `new`, `redo`, `resume` are preferred over
+  `intent_new`, `intent_redo`, `intent_resume`
+- Output field names should be short when the agent name provides context:
+  `state_detector.output.phase` not `state_detector.output.detected_phase`
+- Cross-boundary names (workflow inputs, sub-workflow contracts) may need more
+  qualification to avoid ambiguity between contexts
+
+## P10: Explicit Invariants
+
+Each agent and script node must document its **invariants** — conditions that must
+be true before, during, and after execution. Invariants are non-negotiable contracts
+that the workflow enforces. Great effort should be taken to uphold them.
+
+**Types of invariants:**
+- **Preconditions** — what must be true before the node executes (inputs valid,
+  work item in expected state, branch exists, etc.)
+- **Postconditions** — what must be true after the node completes (items created,
+  tags written, state transitioned, etc.)
+- **Loop invariants** — what remains true across iterations in retry/revision loops
+
+**Implications:**
+- System prompts and prompt templates should state invariants explicitly
+- Downstream nodes may assert upstream postconditions as their preconditions
+- Violations of invariants should surface as errors, not silent degradation
+- Tests and verification steps should check invariants, not just outputs
+
+## P11: Rubric-Based Scoring
+
+All quality assessments — plan reviews, code reviews, acceptance checks — must use
+a **structured scoring rubric** with named dimensions and explicit weights. Prefer
+rubrics grounded in academic standards (IEEE 1016, ISO/IEC 25010) where applicable.
+
+**Rubric structure:**
+- **Dimensions** — named quality aspects (e.g., Correctness, Feasibility, Clarity)
+- **Weights** — percentage importance per dimension (must sum to 100%)
+- **Scale** — 1-5 per dimension (1=Poor, 2=Needs Improvement, 3=Satisfactory, 4=Strong, 5=Excellent)
+- **Composite score** — weighted sum mapped to 0-100
+- **Critical threshold** — any dimension scored ≤ 2 is a blocking issue
+
+**Why:**
+- Single 0-100 scores are opaque — reviewers can't explain what failed
+- Rubrics make feedback actionable (dimension X failed → fix X)
+- Weights encode organizational priorities explicitly
+- Academic grounding reduces subjective drift across agent sessions
+
+**Standard rubrics by review type:**
+
+### Plan Technical Review (IEEE 1016 / ISO 25010 informed)
+| Dimension | Weight | Measures |
+|-----------|--------|----------|
+| Correctness | 30% | Addresses requirements, no contradictions with codebase |
+| Feasibility | 25% | Implementable given project constraints |
+| Completeness | 20% | All affected components identified |
+| Testability | 15% | Clear test strategy, verifiable acceptance criteria |
+| Risk awareness | 10% | Breaking changes, edge cases surfaced |
+
+### Plan Readability Review
+| Dimension | Weight | Measures |
+|-----------|--------|----------|
+| Clarity | 30% | Unambiguous, no vague language |
+| Actionability | 25% | Concrete enough for agent execution |
+| Structure | 20% | Logical organization, consistent formatting |
+| Traceability | 15% | Requirements → Issues → Tasks → PGs mapping clear |
+| Scoping | 10% | Boundaries explicit — in/out/deferred |
+
+### Code Review (implementation phase)
+| Dimension | Weight | Measures |
+|-----------|--------|----------|
+| Correctness | 30% | Logic is right, handles edge cases |
+| Safety | 25% | No regressions, no broken invariants, AOT/trim safe |
+| Completeness | 20% | All acceptance criteria addressed, tests written |
+| Conventions | 15% | Follows project patterns, naming, structure |
+| Reviewability | 10% | Changes are minimal, well-scoped, clear commit messages |
+
+### User Acceptance (implementation phase, P6 ≥95% confidence)
+| Dimension | Weight | Measures |
+|-----------|--------|----------|
+| Functional correctness | 35% | Feature works as specified |
+| UX coherence | 25% | Output formatting, help text, error messages are clear |
+| Non-regression | 20% | Existing features still work |
+| Documentation | 10% | Help text, README, command examples updated |
+| Edge cases | 10% | Graceful handling of unusual inputs |
+
+**Implications:**
+- Reviewer prompts must include the rubric and instruct dimension-by-dimension scoring
+- Review router uses composite scores and critical issue counts for gating
+- Rubrics are versioned in the conductor-design skill and referenced by prompts
+- Custom rubrics can be added for specialized reviews (security, accessibility, etc.)

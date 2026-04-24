@@ -254,6 +254,69 @@ public class WorkspaceTests
     }
 
     // ═══════════════════════════════════════════════════════════════
+    //  TrackedItems + ExcludedIds
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void Build_WithTrackedItems_ExposesTrackedItems()
+    {
+        var tracked = new TrackedItem(42, Domain.Enums.TrackingMode.Single, DateTimeOffset.UtcNow);
+        var ws = Workspace.Build(null, Array.Empty<WorkItem>(), Array.Empty<WorkItem>(),
+            trackedItems: new[] { tracked });
+
+        ws.TrackedItems.Count.ShouldBe(1);
+        ws.TrackedItems[0].WorkItemId.ShouldBe(42);
+    }
+
+    [Fact]
+    public void Build_WithExcludedIds_ExposesExcludedIds()
+    {
+        var ws = Workspace.Build(null, Array.Empty<WorkItem>(), Array.Empty<WorkItem>(),
+            excludedIds: new[] { 10, 20 });
+
+        ws.ExcludedIds.Count.ShouldBe(2);
+        ws.ExcludedIds[0].ShouldBe(10);
+        ws.ExcludedIds[1].ShouldBe(20);
+    }
+
+    [Fact]
+    public void Build_DefaultTrackedItemsIsEmpty()
+    {
+        var ws = Workspace.Build(null, Array.Empty<WorkItem>(), Array.Empty<WorkItem>());
+
+        ws.TrackedItems.ShouldBeEmpty();
+        ws.ExcludedIds.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void IsTracked_ReturnsTrueForTrackedItem()
+    {
+        var tracked = new TrackedItem(42, Domain.Enums.TrackingMode.Single, DateTimeOffset.UtcNow);
+        var ws = Workspace.Build(null, Array.Empty<WorkItem>(), Array.Empty<WorkItem>(),
+            trackedItems: new[] { tracked });
+
+        ws.IsTracked(42).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void IsTracked_ReturnsFalseForUntrackedItem()
+    {
+        var tracked = new TrackedItem(42, Domain.Enums.TrackingMode.Single, DateTimeOffset.UtcNow);
+        var ws = Workspace.Build(null, Array.Empty<WorkItem>(), Array.Empty<WorkItem>(),
+            trackedItems: new[] { tracked });
+
+        ws.IsTracked(99).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void IsTracked_EmptyTrackedItems_ReturnsFalse()
+    {
+        var ws = Workspace.Build(null, Array.Empty<WorkItem>(), Array.Empty<WorkItem>());
+
+        ws.IsTracked(42).ShouldBeFalse();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     //  Helpers
     // ═══════════════════════════════════════════════════════════════
 

@@ -33,6 +33,11 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     /// </summary>
     internal string? WorkingLevelTypeName { get; set; }
 
+    /// <summary>
+    /// Optional set of tracked (pinned) work item IDs. When set, tracked items get a pinned marker.
+    /// </summary>
+    internal HashSet<int>? TrackedItemIds { get; set; }
+
     public async Task RenderWorkspaceAsync(
         IAsyncEnumerable<WorkspaceDataChunk> data,
         int staleDays,
@@ -297,7 +302,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             foreach (var item in catItems)
             {
                 var isActive = activeContextId.HasValue && item.Id == activeContextId.Value;
-                var marker = isActive ? "[aqua]►[/] " : "";
+                var isTracked = TrackedItemIds is not null && TrackedItemIds.Contains(item.Id);
+                var marker = isActive ? "[aqua]►[/] " : isTracked ? "[yellow]📌[/] " : "";
                 var boldOpen = isActive ? "[bold]" : "";
                 var boldClose = isActive ? "[/]" : "";
 

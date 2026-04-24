@@ -1,4 +1,5 @@
 using Twig.Domain.Aggregates;
+using Twig.Domain.ValueObjects;
 
 namespace Twig.Domain.ReadModels;
 
@@ -23,21 +24,56 @@ public sealed class Workspace
     /// <summary>Optional mode-sectioned view of workspace items with dedup.</summary>
     public WorkspaceSections? Sections { get; }
 
-    private Workspace(WorkItem? context, IReadOnlyList<WorkItem> sprintItems, IReadOnlyList<WorkItem> seeds, SprintHierarchy? hierarchy, WorkspaceSections? sections)
+    /// <summary>Manually tracked items (pinned to the workspace via track/track-tree).</summary>
+    public IReadOnlyList<TrackedItem> TrackedItems { get; }
+
+    /// <summary>IDs of items manually excluded from the workspace view.</summary>
+    public IReadOnlyList<int> ExcludedIds { get; }
+
+    private Workspace(
+        WorkItem? context,
+        IReadOnlyList<WorkItem> sprintItems,
+        IReadOnlyList<WorkItem> seeds,
+        SprintHierarchy? hierarchy,
+        WorkspaceSections? sections,
+        IReadOnlyList<TrackedItem>? trackedItems,
+        IReadOnlyList<int>? excludedIds)
     {
         ContextItem = context;
         SprintItems = sprintItems;
         Seeds = seeds;
         Hierarchy = hierarchy;
         Sections = sections;
+        TrackedItems = trackedItems ?? Array.Empty<TrackedItem>();
+        ExcludedIds = excludedIds ?? Array.Empty<int>();
     }
 
     /// <summary>
     /// Builds an immutable <see cref="Workspace"/> from context, sprint, and seed items.
     /// </summary>
-    public static Workspace Build(WorkItem? context, IReadOnlyList<WorkItem> sprintItems, IReadOnlyList<WorkItem> seeds, SprintHierarchy? hierarchy = null, WorkspaceSections? sections = null)
+    public static Workspace Build(
+        WorkItem? context,
+        IReadOnlyList<WorkItem> sprintItems,
+        IReadOnlyList<WorkItem> seeds,
+        SprintHierarchy? hierarchy = null,
+        WorkspaceSections? sections = null,
+        IReadOnlyList<TrackedItem>? trackedItems = null,
+        IReadOnlyList<int>? excludedIds = null)
     {
-        return new Workspace(context, sprintItems, seeds, hierarchy, sections);
+        return new Workspace(context, sprintItems, seeds, hierarchy, sections, trackedItems, excludedIds);
+    }
+
+    /// <summary>
+    /// Returns true if the given work item ID is in the tracked items collection.
+    /// </summary>
+    public bool IsTracked(int workItemId)
+    {
+        foreach (var t in TrackedItems)
+        {
+            if (t.WorkItemId == workItemId)
+                return true;
+        }
+        return false;
     }
 
     /// <summary>

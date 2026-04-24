@@ -207,6 +207,30 @@ public class MinimalOutputFormatterTests
         result.ShouldContain("STALE");
     }
 
+    [Fact]
+    public void FormatWorkspace_TrackedItem_ShowsTrackedSuffix()
+    {
+        var item = CreateWorkItem(1, "Pinned Task", "Active");
+        var tracked = new TrackedItem(1, Domain.Enums.TrackingMode.Single, DateTimeOffset.UtcNow);
+        var ws = Workspace.Build(null, new[] { item }, Array.Empty<WorkItem>(),
+            trackedItems: new[] { tracked });
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+
+        result.ShouldContain("TRACKED");
+    }
+
+    [Fact]
+    public void FormatWorkspace_UntrackedItem_NoTrackedSuffix()
+    {
+        var item = CreateWorkItem(1, "Normal Task", "Active");
+        var ws = Workspace.Build(null, new[] { item }, Array.Empty<WorkItem>());
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+
+        result.ShouldNotContain("TRACKED");
+    }
+
     // ── Disambiguation ──────────────────────────────────────────────
 
     [Fact]

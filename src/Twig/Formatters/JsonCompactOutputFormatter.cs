@@ -89,6 +89,29 @@ public sealed class JsonCompactOutputFormatter(JsonOutputFormatter full) : IOutp
         if (ws.Sections is not null)
             JsonOutputFormatter.WriteSectionsBlock(writer, ws.Sections);
 
+        // Tracked items
+        if (ws.TrackedItems.Count > 0)
+        {
+            writer.WriteStartArray("trackedItems");
+            foreach (var t in ws.TrackedItems)
+            {
+                writer.WriteStartObject();
+                writer.WriteNumber("workItemId", t.WorkItemId);
+                writer.WriteString("mode", t.Mode.ToString());
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+        }
+
+        // Excluded IDs
+        if (ws.ExcludedIds.Count > 0)
+        {
+            writer.WriteStartArray("excludedIds");
+            foreach (var id in ws.ExcludedIds)
+                writer.WriteNumberValue(id);
+            writer.WriteEndArray();
+        }
+
         writer.WriteNumber("dirtyCount", ws.GetDirtyItems().Count);
         writer.WriteEndObject();
 

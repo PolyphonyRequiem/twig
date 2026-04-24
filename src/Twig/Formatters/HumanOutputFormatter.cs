@@ -415,12 +415,20 @@ public sealed class HumanOutputFormatter : IOutputFormatter
             }
         }
 
-        // Exclusion footer
-        if (ws.Sections is not null && ws.Sections.ExcludedItemIds.Count > 0)
+        // Tracked items summary
+        if (ws.TrackedItems.Count > 0)
         {
             sb.AppendLine();
-            var ids = string.Join(", ", ws.Sections.ExcludedItemIds.Select(id => $"#{id}"));
-            sb.AppendLine($"  {Dim}{ws.Sections.ExcludedItemIds.Count} excluded: {ids}{Reset}");
+            var trackedIds = string.Join(", ", ws.TrackedItems.Select(t => $"#{t.WorkItemId}"));
+            sb.AppendLine($"  {Yellow}📌 {ws.TrackedItems.Count} tracked: {trackedIds}{Reset}");
+        }
+
+        // Exclusion footer
+        if (ws.ExcludedIds.Count > 0)
+        {
+            sb.AppendLine();
+            var ids = string.Join(", ", ws.ExcludedIds.Select(id => $"#{id}"));
+            sb.AppendLine($"  {Dim}{ws.ExcludedIds.Count} excluded: {ids}{Reset}");
         }
 
         // Dirty summary
@@ -489,7 +497,9 @@ public sealed class HumanOutputFormatter : IOutputFormatter
                 {
                     foreach (var item in items)
                     {
-                        var marker = (ws.ContextItem is not null && item.Id == ws.ContextItem.Id) ? $"{Cyan}●{Reset}" : " ";
+                        var isActive = ws.ContextItem is not null && item.Id == ws.ContextItem.Id;
+                        var isTracked = ws.IsTracked(item.Id);
+                        var marker = isActive ? $"{Cyan}●{Reset}" : isTracked ? $"{Yellow}📌{Reset}" : " ";
                         var dirty = item.IsDirty ? $" {Yellow}✎{Reset}" : "";
                         var stateColor = GetStateColor(item.State);
                         var sprintTypeColor = GetTypeColor(item.Type);

@@ -28,6 +28,7 @@ public class CacheFirstReadCommandTests
     private readonly ActiveItemResolver _activeItemResolver;
     private readonly SyncCoordinatorFactory _syncCoordinatorFactory;
     private readonly WorkingSetService _workingSetService;
+    private readonly ITrackingService _trackingService;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
     private readonly IProcessTypeStore _processTypeStore;
@@ -53,6 +54,11 @@ public class CacheFirstReadCommandTests
         iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
         _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, iterationService, null);
+        _trackingService = Substitute.For<ITrackingService>();
+        _trackingService.GetTrackedItemsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<TrackedItem>());
+        _trackingService.GetExcludedIdsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
@@ -395,7 +401,7 @@ public class CacheFirstReadCommandTests
         var fieldDefinitionStore = Substitute.For<IFieldDefinitionStore>();
         var config = new TwigConfiguration();
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, iterationService, config,
-            _formatterFactory, _hintEngine, processTypeStore, fieldDefinitionStore, _activeItemResolver, _workingSetService);
+            _formatterFactory, _hintEngine, processTypeStore, fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService);
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);

@@ -649,14 +649,14 @@ Template placeholders are treated as literal strings in this issue.
 | T-2024-6 | **BatchTools MCP tool and result formatting**: Create `BatchTools` class with `twig_batch` method. Wire parsing → engine → result formatting. Add `FormatBatchResult()` to `McpResultBuilder`. Register in `Program.cs` with `.WithTools<BatchTools>()` and `IToolDispatcher` as singleton. | `src/Twig.Mcp/Tools/BatchTools.cs`, `src/Twig.Mcp/Services/McpResultBuilder.cs`, `src/Twig.Mcp/Program.cs`, `tests/Twig.Mcp.Tests/Tools/BatchToolsTests.cs` | M |
 
 **Acceptance Criteria**:
-- [ ] `twig_batch` accepts a JSON graph with `sequence`, `parallel`, and `step` nodes
-- [ ] Parallel blocks execute concurrently and collect all results
-- [ ] Sequential blocks execute in order with fail-fast on error
-- [ ] Safety constraints validated at parse time: depth ≤ 3, ops ≤ 50, no recursive batch
-- [ ] Per-batch timeout aborts remaining steps gracefully
-- [ ] Per-step results include status, output, error, and timing
-- [ ] Batch result includes aggregate summary (total, succeeded, failed, skipped)
-- [ ] All new code has unit tests with ≥ 90% coverage
+- [x] `twig_batch` accepts a JSON graph with `sequence`, `parallel`, and `step` nodes
+- [x] Parallel blocks execute concurrently and collect all results
+- [x] Sequential blocks execute in order with fail-fast on error
+- [x] Safety constraints validated at parse time: depth ≤ 3, ops ≤ 50, no recursive batch
+- [x] Per-batch timeout aborts remaining steps gracefully
+- [x] Per-step results include status, output, error, and timing
+- [x] Batch result includes aggregate summary (total, succeeded, failed, skipped)
+- [x] All new code has unit tests with ≥ 90% coverage
 
 ---
 
@@ -678,14 +678,14 @@ steps, enabling output from one step to be used as input to subsequent steps.
 | T-2025-5 | **End-to-end template chaining tests**: Integration tests exercising real chaining scenarios: create → set → update, create → link, multi-step with nested paths. Validate type preservation, partial string interpolation, error cases. | `tests/Twig.Mcp.Tests/Tools/BatchToolsTests.cs` | S |
 
 **Acceptance Criteria**:
-- [ ] Sequential steps can reference outputs from prior steps via `{{steps.N.field}}`
-- [ ] Nested property paths work: `{{steps.0.item.id}}`, `{{steps.1.output.title}}`
-- [ ] Forward references rejected at parse time with clear error messages
-- [ ] Parallel step cross-references rejected at parse time
-- [ ] Missing field references produce clear error at execution time
-- [ ] Full-value templates preserve original JSON type (integers, booleans)
-- [ ] Partial templates produce string interpolation
-- [ ] Template resolution works for all JSON-serializable output fields
+- [x] Sequential steps can reference outputs from prior steps via `{{steps.N.field}}`
+- [x] Nested property paths work: `{{steps.0.item.id}}`, `{{steps.1.output.title}}`
+- [x] Forward references rejected at parse time with clear error messages
+- [x] Parallel step cross-references rejected at parse time
+- [x] Missing field references produce clear error at execution time
+- [x] Full-value templates preserve original JSON type (integers, booleans)
+- [x] Partial templates produce string interpolation
+- [x] Template resolution works for all JSON-serializable output fields
 
 ---
 
@@ -745,4 +745,17 @@ steps, enabling output from one step to be used as input to subsequent steps.
 - [ModelContextProtocol .NET SDK](https://github.com/modelcontextprotocol/csharp-sdk)
 - Existing batch pattern: `SeedPublishOrchestrator` in `src/Twig.Domain/Services/`
 - Existing concurrent fetch pattern: `SyncCoordinator.FetchStaleAndSaveAsync`
+
+---
+
+## Completion
+
+| Field | Value |
+|---|---|
+| **Completed** | 2026-04-24 |
+| **PRs** | [#91](https://github.com/PolyphonyRequiem/twig/pull/91) (PG-1: Batch Execution Engine), [#92](https://github.com/PolyphonyRequiem/twig/pull/92) (PG-2: Template Resolution) |
+| **Issues Closed** | #2024, #2025 |
+| **Epic** | #2023 — Done |
+
+All planned work was delivered across 2 PR groups. The batch execution engine (PG-1) provides parallel/sequence orchestration with safety bounds, and template resolution (PG-2) adds mustache-style `{{steps.N.path}}` chaining for sequential step output/input piping. Both issues and all 13 tasks are complete.
 

@@ -516,7 +516,9 @@ public class SeedPublishCommandTests : IDisposable
         _seedLinkRepo.GetLinksForItemAsync(201, Arg.Any<CancellationToken>())
             .Returns(new List<SeedLink>());
 
+        var errWriter = new StringWriter();
         Console.SetOut(new StringWriter());
+        Console.SetError(errWriter);
 
         var result = await cmd.ExecuteAsync(all: true, linkBranch: "feature/test");
 
@@ -528,6 +530,7 @@ public class SeedPublishCommandTests : IDisposable
             Arg.Any<int>(),
             "Branch",
             Arg.Any<CancellationToken>());
+        errWriter.ToString().ShouldContain("Linked 2 seeds to branch feature/test");
     }
 
     [Fact]
@@ -558,7 +561,9 @@ public class SeedPublishCommandTests : IDisposable
         var result = await cmd.ExecuteAsync(-5, linkBranch: "planning/abc");
 
         result.ShouldBe(0);
-        errWriter.ToString().ShouldContain("Failed to link branch to #42");
+        var errOutput = errWriter.ToString();
+        errOutput.ShouldContain("Failed to link branch to #42");
+        errOutput.ShouldContain("Linked 0/1 seeds to branch planning/abc (1 failed)");
     }
 
     [Fact]

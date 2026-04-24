@@ -2,6 +2,7 @@ using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
@@ -41,6 +42,7 @@ public class RefreshOrchestratorTests
         _orchestrator = new RefreshOrchestrator(
             _contextStore, _workItemRepo, _adoService,
             _pendingChangeStore, _protectedCacheWriter, _workingSetService, _syncCoordinatorFactory,
+            _iterationService,
             _trackingService);
     }
 
@@ -324,6 +326,7 @@ public class RefreshOrchestratorTests
         var orchestratorWithoutTracking = new RefreshOrchestrator(
             _contextStore, _workItemRepo, _adoService,
             _pendingChangeStore, _protectedCacheWriter, _workingSetService, _syncCoordinatorFactory,
+            _iterationService,
             trackingService: null);
 
         var result = await orchestratorWithoutTracking.SyncTrackedTreesAsync();
@@ -360,5 +363,94 @@ public class RefreshOrchestratorTests
 
         receivedCoordinator.ShouldNotBeNull();
         receivedCoordinator.ShouldBeSameAs(_syncCoordinatorFactory.ReadWrite);
+    }
+
+    // ── ApplyCleanupPolicyAsync tests ────────────────────────────────
+
+    [Fact]
+    public async Task ApplyCleanupPolicy_NonePolicy_ReturnsZeroWithoutCallingService()
+    {
+        var result = await _orchestrator.ApplyCleanupPolicyAsync(TrackingCleanupPolicy.None);
+
+        result.ShouldBe(0);
+        await _trackingService.DidNotReceive().ApplyCleanupPolicyAsync(
+            Arg.Any<TrackingCleanupPolicy>(), Arg.Any<IterationPath>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ApplyCleanupPolicy_NullTrackingService_ReturnsZero()
+    {
+        var orchestratorWithoutTracking = new RefreshOrchestrator(
+            _contextStore, _workItemRepo, _adoService,
+            _pendingChangeStore, _protectedCacheWriter, _workingSetService, _syncCoordinatorFactory,
+            _iterationService,
+            trackingService: null);
+
+        var result = await orchestratorWithoutTracking.ApplyCleanupPolicyAsync(TrackingCleanupPolicy.OnComplete);
+
+        result.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task ApplyCleanupPolicy_OnComplete_DelegatesToTrackingService()
+    {
+        var expectedIteration = IterationPath.Parse("Project\\Sprint 1").Value;
+        _trackingService.ApplyCleanupPolicyAsync(
+            TrackingCleanupPolicy.OnComplete, expectedIteration, Arg.Any<CancellationToken>())
+            .Returns(2);
+
+        var result = await _orchestrator.ApplyCleanupPolicyAsync(TrackingCleanupPolicy.OnComplete);
+
+        result.ShouldBe(2);
+        await _trackingService.Received(1).ApplyCleanupPolicyAsync(
+            TrackingCleanupPolicy.OnComplete, expectedIteration, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ApplyCleanupPolicy_OnCompleteAndPast_DelegatesToTrackingService()
+    {
+        var expectedIteration = IterationPath.Parse("Project\\Sprint 1").Value;
+        _trackingService.ApplyCleanupPolicyAsync(
+            TrackingCleanupPolicy.OnCompleteAndPast, expectedIteration, Arg.Any<CancellationToken>())
+            .Returns(5);
+
+        var result = await _orchestrator.ApplyCleanupPolicyAsync(TrackingCleanupPolicy.OnCompleteAndPast);
+
+        result.ShouldBe(5);
+        await _trackingService.Received(1).ApplyCleanupPolicyAsync(
+            TrackingCleanupPolicy.OnCompleteAndPast, expectedIteration, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ApplyCleanupPolicy_ResolvesCurrentIterationFromService()
+    {
+        var customIteration = IterationPath.Parse("MyProject\\Sprint 42").Value;
+        _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
+            .Returns(customIteration);
+        _trackingService.ApplyCleanupPolicyAsync(
+            Arg.Any<TrackingCleanupPolicy>(), customIteration, Arg.Any<CancellationToken>())
+            .Returns(1);
+
+        await _orchestrator.ApplyCleanupPolicyAsync(TrackingCleanupPolicy.OnComplete);
+
+        await _iterationService.Received(1).GetCurrentIterationAsync(Arg.Any<CancellationToken>());
+        await _trackingService.Received(1).ApplyCleanupPolicyAsync(
+            TrackingCleanupPolicy.OnComplete, customIteration, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ApplyCleanupPolicy_PropagatesCancellationToken()
+    {
+        using var cts = new CancellationTokenSource();
+        var token = cts.Token;
+        _trackingService.ApplyCleanupPolicyAsync(
+            Arg.Any<TrackingCleanupPolicy>(), Arg.Any<IterationPath>(), token)
+            .Returns(0);
+
+        await _orchestrator.ApplyCleanupPolicyAsync(TrackingCleanupPolicy.OnComplete, token);
+
+        await _iterationService.Received(1).GetCurrentIterationAsync(token);
+        await _trackingService.Received(1).ApplyCleanupPolicyAsync(
+            Arg.Any<TrackingCleanupPolicy>(), Arg.Any<IterationPath>(), token);
     }
 }

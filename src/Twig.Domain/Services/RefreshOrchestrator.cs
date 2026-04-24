@@ -1,4 +1,5 @@
 using Twig.Domain.Aggregates;
+using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
 
@@ -18,6 +19,7 @@ public sealed class RefreshOrchestrator(
     ProtectedCacheWriter protectedCacheWriter,
     WorkingSetService workingSetService,
     SyncCoordinatorFactory syncCoordinatorFactory,
+    IIterationService iterationService,
     ITrackingService? trackingService = null)
 {
 
@@ -123,6 +125,21 @@ public sealed class RefreshOrchestrator(
             return 0;
 
         return await trackingService.SyncTrackedTreesAsync(syncCoordinatorFactory.ReadWrite, ct);
+    }
+
+    /// <summary>
+    /// Applies the configured cleanup policy to tracked items.
+    /// Resolves the current iteration via <see cref="IIterationService"/> and delegates
+    /// to <see cref="ITrackingService.ApplyCleanupPolicyAsync"/>.
+    /// Returns the number of items removed, or 0 if tracking is not configured or policy is <see cref="TrackingCleanupPolicy.None"/>.
+    /// </summary>
+    public async Task<int> ApplyCleanupPolicyAsync(TrackingCleanupPolicy policy, CancellationToken ct = default)
+    {
+        if (trackingService is null || policy == TrackingCleanupPolicy.None)
+            return 0;
+
+        var currentIteration = await iterationService.GetCurrentIterationAsync(ct);
+        return await trackingService.ApplyCleanupPolicyAsync(policy, currentIteration, ct);
     }
 
     /// <summary>Syncs the working set after refresh (no eviction per FR-013).</summary>

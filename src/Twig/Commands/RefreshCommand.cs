@@ -126,6 +126,12 @@ public sealed class RefreshCommand(
 
         // Ancestor hydration and working set sync — delegated to orchestrator
         await orchestrator.SyncTrackedTreesAsync(ct);
+
+        // Apply cleanup policy after tree sync — parse kebab-case config string to enum
+        var policyStr = config.Tracking.CleanupPolicy.Replace("-", "");
+        if (Enum.TryParse<Twig.Domain.Enums.TrackingCleanupPolicy>(policyStr, ignoreCase: true, out var cleanupPolicy))
+            await orchestrator.ApplyCleanupPolicyAsync(cleanupPolicy, ct);
+
         await orchestrator.HydrateAncestorsAsync(ct);
         await orchestrator.SyncWorkingSetAsync(iteration, ct);
 

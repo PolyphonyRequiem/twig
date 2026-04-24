@@ -107,6 +107,7 @@ public static class CommandServiceModule
             sp.GetRequiredService<ProtectedCacheWriter>(),
             sp.GetRequiredService<WorkingSetService>(),
             sp.GetRequiredService<SyncCoordinatorFactory>(),
+            sp.GetRequiredService<IIterationService>(),
             sp.GetService<ITrackingService>()));
 
         // Context change extension — additively hydrates parent chain + downstream graph

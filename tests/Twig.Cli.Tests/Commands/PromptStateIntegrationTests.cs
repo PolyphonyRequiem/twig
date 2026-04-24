@@ -502,6 +502,7 @@ public class PromptStateIntegrationTests : IDisposable
         var refreshWorkingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, iterationService, null);
         var refreshOrchestrator = new RefreshOrchestrator(_contextStore, _workItemRepo, _adoService,
             _pendingChangeStore, refreshProtectedWriter, refreshWorkingSetService, refreshSyncCoordinatorFactory,
+            iterationService,
             Substitute.For<ITrackingService>());
         var cmd = new RefreshCommand(_contextStore, iterationService, _config, _paths, _processTypeStore, _fieldDefinitionStore,
             _formatterFactory, refreshOrchestrator, promptStateWriter: writer);

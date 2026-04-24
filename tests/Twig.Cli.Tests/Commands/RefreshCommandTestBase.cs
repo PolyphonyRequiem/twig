@@ -55,6 +55,7 @@ public abstract class RefreshCommandTestBase : IDisposable
         _orchestrator = new RefreshOrchestrator(
             _contextStore, _workItemRepo, _adoService,
             _pendingChangeStore, _protectedCacheWriter, workingSetService, syncCoordinatorFactory,
+            _iterationService,
             trackingService);
 
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())

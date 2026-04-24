@@ -614,6 +614,33 @@ public class UpdateCommandTests
     }
 
     [Fact]
+    public async Task Append_SuccessMessage_ShowsInlineValue()
+    {
+        var local = CreateWorkItem(1, "Test");
+        SetupActiveItem(local);
+
+        var remote = new WorkItemBuilder(1, "Test")
+            .WithField("System.Description", "existing text")
+            .Build();
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote, remote);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>()).Returns(Array.Empty<PendingChangeRecord>());
+
+        var stdout = new StringWriter();
+        var cmd = CreateCommand(stdout: stdout);
+
+        var result = await cmd.ExecuteAsync("System.Description", "appended text", append: true);
+
+        result.ShouldBe(0);
+        var output = stdout.ToString();
+        output.ShouldContain("#1");
+        output.ShouldContain("Test");
+        output.ShouldContain("updated:");
+        output.ShouldContain("System.Description");
+        output.ShouldContain("appended text");
+    }
+
+    [Fact]
     public async Task Update_WithExplicitId_ResolvesById()
     {
         var item = CreateWorkItem(42, "Explicit Item");

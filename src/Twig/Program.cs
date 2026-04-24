@@ -579,10 +579,11 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="all">Publish all seeds in dependency order.</param>
     /// <param name="force">Skip validation before publishing.</param>
     /// <param name="dryRun">Preview what would be published without making changes.</param>
+    /// <param name="linkBranch">Link published work items to this branch name.</param>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     [Command("seed publish")]
-    public async Task<int> SeedPublish([Argument] int? id = null, bool all = false, bool force = false, bool dryRun = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SeedPublishCommand>().ExecuteAsync(id, all, force, dryRun, output, ct);
+    public async Task<int> SeedPublish([Argument] int? id = null, bool all = false, bool force = false, bool dryRun = false, string? linkBranch = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<SeedPublishCommand>().ExecuteAsync(id, all, force, dryRun, output, linkBranch, ct);
 
     /// <summary>Reconcile stale seed links and parent references after partial publishes.</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>

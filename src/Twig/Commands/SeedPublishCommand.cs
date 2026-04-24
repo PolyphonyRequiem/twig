@@ -6,17 +6,25 @@ using Twig.Formatters;
 namespace Twig.Commands;
 
 /// <summary>
-/// Implements <c>twig seed publish [id] [--all] [--force] [--dry-run]</c>:
+/// Implements <c>twig seed publish [id] [--all] [--force] [--dry-run] [--link-branch]</c>:
 /// publishes seeds to Azure DevOps as real work items.
 /// With an ID, publishes a single seed.
 /// With --all, publishes all seeds in topological order.
 /// After publishing, updates active context if it pointed to a published seed.
+/// When --link-branch is specified, links published seeds to the given branch.
 /// </summary>
 public sealed class SeedPublishCommand(
     SeedPublishOrchestrator orchestrator,
     IContextStore contextStore,
-    OutputFormatterFactory formatterFactory)
+    OutputFormatterFactory formatterFactory,
+    IAdoWorkItemService adoService,
+    IAdoGitService? adoGitService = null)
 {
+    // Expression-body avoids CS9124 double-capture with primary constructor params.
+    // linkBranch linking implementation deferred to T2.
+    internal IAdoGitService? AdoGitService => adoGitService;
+    internal IAdoWorkItemService AdoService => adoService;
+
     /// <summary>Publish one or all seeds to Azure DevOps.</summary>
     public async Task<int> ExecuteAsync(
         int? id = null,
@@ -24,6 +32,7 @@ public sealed class SeedPublishCommand(
         bool force = false,
         bool dryRun = false,
         string outputFormat = OutputFormatterFactory.DefaultFormat,
+        string? linkBranch = null,
         CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);

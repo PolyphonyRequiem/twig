@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Twig.Commands;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
@@ -68,7 +69,12 @@ public static class CommandRegistrationModule
         services.AddSingleton<ArtifactLinkCommand>();
         services.AddSingleton<SeedChainCommand>();
         services.AddSingleton<SeedValidateCommand>();
-        services.AddSingleton<SeedPublishCommand>();
+        services.AddSingleton<SeedPublishCommand>(sp => new SeedPublishCommand(
+            sp.GetRequiredService<SeedPublishOrchestrator>(),
+            sp.GetRequiredService<IContextStore>(),
+            sp.GetRequiredService<OutputFormatterFactory>(),
+            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetService<IAdoGitService>()));
         services.AddSingleton<SeedReconcileCommand>();
         services.AddSingleton<WebCommand>();
         services.AddSingleton<NoteCommand>();

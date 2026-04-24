@@ -54,7 +54,7 @@ public class SeedPublishCommandTests : IDisposable
             _workItemRepo, _adoService, _seedLinkRepo, _publishIdMapRepo,
             _rulesProvider, _unitOfWork, backlogOrderer);
 
-        _cmd = new SeedPublishCommand(orchestrator, _contextStore, _formatterFactory);
+        _cmd = new SeedPublishCommand(orchestrator, _contextStore, _formatterFactory, _adoService);
     }
 
     public void Dispose()
@@ -363,5 +363,77 @@ public class SeedPublishCommandTests : IDisposable
 
         result.ShouldBe(0);
         writer.ToString().ShouldContain("PUBLISH #-5 => #42");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  --link-branch parameter wiring — does not break publish
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Execute_LinkBranch_SingleSeed_PublishesSuccessfully()
+    {
+        var seed = new WorkItemBuilder(-5, "Branch Seed").AsSeed().WithParent(100).Build();
+        _workItemRepo.GetByIdAsync(-5, Arg.Any<CancellationToken>()).Returns(seed);
+        _adoService.CreateAsync(seed, Arg.Any<CancellationToken>()).Returns(42);
+
+        var published = new WorkItemBuilder(42, "Branch Seed").WithParent(100).Build();
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(published);
+        _seedLinkRepo.GetLinksForItemAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new List<SeedLink>());
+
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+
+        var result = await _cmd.ExecuteAsync(-5, linkBranch: "planning/abc");
+
+        result.ShouldBe(0);
+        writer.ToString().ShouldContain("Published seed #-5 as #42");
+    }
+
+    [Fact]
+    public async Task Execute_LinkBranch_All_PublishesSuccessfully()
+    {
+        var seed = new WorkItemBuilder(-1, "Batch Branch Seed").AsSeed().WithParent(100).Build();
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<WorkItem> { seed });
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<SeedLink>());
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
+        _adoService.CreateAsync(seed, Arg.Any<CancellationToken>()).Returns(200);
+        var published = new WorkItemBuilder(200, "Batch Branch Seed").WithParent(100).Build();
+        _adoService.FetchAsync(200, Arg.Any<CancellationToken>()).Returns(published);
+        _seedLinkRepo.GetLinksForItemAsync(200, Arg.Any<CancellationToken>())
+            .Returns(new List<SeedLink>());
+
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+
+        var result = await _cmd.ExecuteAsync(all: true, linkBranch: "planning/abc");
+
+        result.ShouldBe(0);
+        writer.ToString().ShouldContain("Batch Branch Seed");
+    }
+
+    [Fact]
+    public async Task Execute_LinkBranch_NullAdoGitService_StillPublishes()
+    {
+        // SeedPublishCommand constructed with null adoGitService (default) should
+        // still publish seeds successfully when --link-branch is passed.
+        var seed = new WorkItemBuilder(-5, "No Git Seed").AsSeed().WithParent(100).Build();
+        _workItemRepo.GetByIdAsync(-5, Arg.Any<CancellationToken>()).Returns(seed);
+        _adoService.CreateAsync(seed, Arg.Any<CancellationToken>()).Returns(42);
+
+        var published = new WorkItemBuilder(42, "No Git Seed").WithParent(100).Build();
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(published);
+        _seedLinkRepo.GetLinksForItemAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new List<SeedLink>());
+
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+
+        var result = await _cmd.ExecuteAsync(-5, linkBranch: "feature/xyz");
+
+        result.ShouldBe(0);
+        writer.ToString().ShouldContain("Published seed #-5 as #42");
     }
 }

@@ -153,21 +153,20 @@ transformation that can be expressed as code.
 - If you find yourself writing a prompt that says "output X if condition Y" with
   no ambiguity, it should be a script
 
-## P9: Concise, Contextual Naming
+## P9: Clear, Minimal Naming
 
-Inputs, outputs, and fixed value sets should be named concisely without losing
-clarity within the existing context. Avoid redundant prefixes or overly verbose
-names when the workflow or agent scope already provides context.
+Names should be clear within the scope of their workflow and node. Use as little
+text as needed to be unambiguous at a glance. Avoid both cryptic abbreviations
+and unnecessarily verbose descriptions.
 
-**Implications:**
-- Within a workflow about work items, `id` is clearer than `work_item_id` if
-  there's only one kind of ID in scope
-- Enum values like `new`, `redo`, `resume` are preferred over
-  `intent_new`, `intent_redo`, `intent_resume`
-- Output field names should be short when the agent name provides context:
-  `state_detector.output.phase` not `state_detector.output.detected_phase`
+**Guidelines:**
+- A name is good if someone reading the workflow can understand the node's role
+  without reading its prompt
+- Short names are preferred when the workflow context disambiguates
+  (e.g., `cleanup` is fine in a workflow that only has one cleanup step)
 - Cross-boundary names (workflow inputs, sub-workflow contracts) may need more
   qualification to avoid ambiguity between contexts
+- Enum values should be plain words: `new`, `redo`, `resume` — not prefixed
 
 ## P10: Explicit Invariants
 

@@ -2,6 +2,8 @@
 name: conductor
 description: Validate, run, and execute workflows. Use when orchestrating AI agents via YAML workflow files, executing an existing workflow, debugging execution, configuring routing between agents, setting up human-in-the-loop gates, or understanding workflow YAML schema. Only create new workflows when explicitly asked.
 user-invokable: false
+related_skills:
+  - conductor-design
 ---
 
 # Conductor

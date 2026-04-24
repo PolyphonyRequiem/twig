@@ -295,6 +295,73 @@ internal static class McpResultBuilder
             WriteOptionalWorkspace(writer, workspace);
         });
 
+    public static CallToolResult FormatBatchResult(Batch.BatchResult batch) =>
+        BuildJson(writer =>
+        {
+            var succeeded = 0;
+            var failed = 0;
+            var skipped = 0;
+
+            writer.WriteStartArray("steps");
+            foreach (var step in batch.Steps)
+            {
+                switch (step.Status)
+                {
+                    case Batch.StepStatus.Succeeded: succeeded++; break;
+                    case Batch.StepStatus.Failed: failed++; break;
+                    case Batch.StepStatus.Skipped: skipped++; break;
+                }
+
+                writer.WriteStartObject();
+                writer.WriteNumber("index", step.StepIndex);
+                writer.WriteString("tool", step.ToolName);
+                writer.WriteString("status", step.Status switch
+                {
+                    Batch.StepStatus.Succeeded => "succeeded",
+                    Batch.StepStatus.Failed => "failed",
+                    Batch.StepStatus.Skipped => "skipped",
+                    _ => "unknown"
+                });
+
+                // Embed the tool's output JSON as a nested object when available.
+                if (step.OutputJson is not null)
+                {
+                    writer.WritePropertyName("output");
+                    try
+                    {
+                        using var doc = System.Text.Json.JsonDocument.Parse(step.OutputJson);
+                        doc.RootElement.WriteTo(writer);
+                    }
+                    catch (System.Text.Json.JsonException)
+                    {
+                        // If the output isn't valid JSON, emit it as a string.
+                        writer.WriteStringValue(step.OutputJson);
+                    }
+                }
+                else
+                {
+                    writer.WriteNull("output");
+                }
+
+                if (step.Error is not null)
+                    writer.WriteString("error", step.Error);
+
+                writer.WriteNumber("elapsedMs", step.ElapsedMs);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+
+            writer.WriteStartObject("summary");
+            writer.WriteNumber("total", batch.Steps.Count);
+            writer.WriteNumber("succeeded", succeeded);
+            writer.WriteNumber("failed", failed);
+            writer.WriteNumber("skipped", skipped);
+            writer.WriteEndObject();
+
+            writer.WriteNumber("totalElapsedMs", batch.TotalElapsedMs);
+            writer.WriteBoolean("timedOut", batch.TimedOut);
+        });
+
     public static CallToolResult FormatLinked(int sourceId, int targetId, string linkType, string? warning = null) =>
         BuildJson(writer =>
         {

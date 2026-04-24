@@ -45,33 +45,26 @@ internal static class BatchGraphParser
         using (doc)
         {
             var stepIndex = 0;
-            var maxDepthSeen = 0;
-            var result = ParseNode(doc.RootElement, depth: 0, ref stepIndex, ref maxDepthSeen);
+            var result = ParseNode(doc.RootElement, depth: 0, ref stepIndex);
 
             if (!result.IsSuccess)
             {
                 return Result<BatchGraph>.Fail(result.Error);
             }
 
-            return Result<BatchGraph>.Ok(new BatchGraph(result.Value, stepIndex, maxDepthSeen));
+            return Result<BatchGraph>.Ok(new BatchGraph(result.Value, stepIndex));
         }
     }
 
     private static Result<BatchNode> ParseNode(
         JsonElement element,
         int depth,
-        ref int stepIndex,
-        ref int maxDepthSeen)
+        ref int stepIndex)
     {
         if (depth > BatchConstants.MaxDepth)
         {
             return Result<BatchNode>.Fail(
                 $"Graph exceeds maximum nesting depth of {BatchConstants.MaxDepth}.");
-        }
-
-        if (depth > maxDepthSeen)
-        {
-            maxDepthSeen = depth;
         }
 
         if (element.ValueKind != JsonValueKind.Object)
@@ -92,8 +85,8 @@ internal static class BatchGraphParser
         return nodeType switch
         {
             StepType => ParseStepNode(element, ref stepIndex),
-            SequenceType => ParseContainerNode(element, depth, isParallel: false, ref stepIndex, ref maxDepthSeen),
-            ParallelType => ParseContainerNode(element, depth, isParallel: true, ref stepIndex, ref maxDepthSeen),
+            SequenceType => ParseContainerNode(element, depth, isParallel: false, ref stepIndex),
+            ParallelType => ParseContainerNode(element, depth, isParallel: true, ref stepIndex),
             _ => Result<BatchNode>.Fail(
                 $"Unknown node type '{nodeType}'. Valid types are: step, sequence, parallel.")
         };
@@ -155,8 +148,7 @@ internal static class BatchGraphParser
         JsonElement element,
         int depth,
         bool isParallel,
-        ref int stepIndex,
-        ref int maxDepthSeen)
+        ref int stepIndex)
     {
         if (!element.TryGetProperty(StepsProperty, out var stepsProp) ||
             stepsProp.ValueKind != JsonValueKind.Array)
@@ -170,7 +162,7 @@ internal static class BatchGraphParser
 
         foreach (var childElement in stepsProp.EnumerateArray())
         {
-            var childResult = ParseNode(childElement, depth + 1, ref stepIndex, ref maxDepthSeen);
+            var childResult = ParseNode(childElement, depth + 1, ref stepIndex);
 
             if (!childResult.IsSuccess)
             {

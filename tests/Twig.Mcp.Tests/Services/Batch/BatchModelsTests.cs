@@ -101,22 +101,20 @@ public sealed class BatchModelsTests
             new StepNode(1, "twig_set", new Dictionary<string, object?>())
         ]);
 
-        var graph = new BatchGraph(root, TotalStepCount: 2, MaxDepth: 1);
+        var graph = new BatchGraph(root, TotalStepCount: 2);
 
         graph.Root.ShouldBeSameAs(root);
         graph.TotalStepCount.ShouldBe(2);
-        graph.MaxDepth.ShouldBe(1);
     }
 
     [Fact]
     public void BatchGraph_SingleStep()
     {
         var step = new StepNode(0, "twig_status", new Dictionary<string, object?>());
-        var graph = new BatchGraph(step, TotalStepCount: 1, MaxDepth: 0);
+        var graph = new BatchGraph(step, TotalStepCount: 1);
 
         graph.Root.ShouldBeOfType<StepNode>();
         graph.TotalStepCount.ShouldBe(1);
-        graph.MaxDepth.ShouldBe(0);
     }
 
     // ── StepStatus ──────────────────────────────────────────────────
@@ -235,9 +233,7 @@ public sealed class BatchModelsTests
         var parallel = new ParallelNode([innerSeq]);
         var outerSeq = new SequenceNode([parallel]);
 
-        var graph = new BatchGraph(outerSeq, TotalStepCount: 1, MaxDepth: 3);
-
-        graph.MaxDepth.ShouldBe(3);
+        var graph = new BatchGraph(outerSeq, TotalStepCount: 1);
 
         // Navigate the nesting
         var outSeq = graph.Root.ShouldBeOfType<SequenceNode>();

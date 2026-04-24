@@ -32,8 +32,7 @@ internal sealed record ParallelNode(
 /// </summary>
 internal sealed record BatchGraph(
     BatchNode Root,
-    int TotalStepCount,
-    int MaxDepth);
+    int TotalStepCount);
 
 /// <summary>
 /// Execution status of an individual batch step.

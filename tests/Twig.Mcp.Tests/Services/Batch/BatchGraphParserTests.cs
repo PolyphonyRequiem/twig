@@ -23,7 +23,6 @@ public sealed class BatchGraphParserTests
 
         result.IsSuccess.ShouldBeTrue();
         result.Value.TotalStepCount.ShouldBe(1);
-        result.Value.MaxDepth.ShouldBe(0);
 
         var step = result.Value.Root.ShouldBeOfType<StepNode>();
         step.GlobalIndex.ShouldBe(0);
@@ -110,7 +109,6 @@ public sealed class BatchGraphParserTests
 
         result.IsSuccess.ShouldBeTrue();
         result.Value.TotalStepCount.ShouldBe(3);
-        result.Value.MaxDepth.ShouldBe(1);
 
         var seq = result.Value.Root.ShouldBeOfType<SequenceNode>();
         seq.Children.Count.ShouldBe(3);
@@ -137,7 +135,6 @@ public sealed class BatchGraphParserTests
 
         result.IsSuccess.ShouldBeTrue();
         result.Value.TotalStepCount.ShouldBe(2);
-        result.Value.MaxDepth.ShouldBe(1);
 
         var par = result.Value.Root.ShouldBeOfType<ParallelNode>();
         par.Children.Count.ShouldBe(2);
@@ -170,7 +167,6 @@ public sealed class BatchGraphParserTests
 
         result.IsSuccess.ShouldBeTrue();
         result.Value.TotalStepCount.ShouldBe(4);
-        result.Value.MaxDepth.ShouldBe(2);
 
         var seq = result.Value.Root.ShouldBeOfType<SequenceNode>();
         seq.Children[0].ShouldBeOfType<StepNode>().GlobalIndex.ShouldBe(0);
@@ -245,7 +241,6 @@ public sealed class BatchGraphParserTests
 
         result.IsSuccess.ShouldBeTrue();
         result.Value.TotalStepCount.ShouldBe(1);
-        result.Value.MaxDepth.ShouldBe(3);
     }
 
     // ── Argument type preservation ──────────────────────────────────
@@ -673,7 +668,6 @@ public sealed class BatchGraphParserTests
 
         result.IsSuccess.ShouldBeTrue();
         result.Value.TotalStepCount.ShouldBe(4);
-        result.Value.MaxDepth.ShouldBe(2);
 
         var seq = result.Value.Root.ShouldBeOfType<SequenceNode>();
         seq.Children.Count.ShouldBe(3);

@@ -11,7 +11,7 @@ type: Issue
 | **Work Item** | #1949 — Area Mode |
 | **Type** | Issue (under Epic #1945 — Workspace Modes & Tracking) |
 | **Author** | Generated via codebase analysis |
-| **Status** | Draft |
+| **Status** | 🔨 In Progress — 1/2 PR groups merged |
 | **Revision** | 0 |
 | **Revision Notes** | Initial draft. |
 

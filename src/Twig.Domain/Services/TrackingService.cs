@@ -69,4 +69,35 @@ public sealed class TrackingService(ITrackingRepository repository) : ITrackingS
 
         return count;
     }
+
+    /// <inheritdoc />
+    public async Task<int> SyncTrackedTreesAsync(SyncCoordinator syncCoordinator, CancellationToken ct = default)
+    {
+        var tracked = await repository.GetAllTrackedAsync(ct);
+        var treeItems = tracked.Where(t => t.Mode == TrackingMode.Tree).ToList();
+
+        if (treeItems.Count == 0)
+            return 0;
+
+        var untrackedIds = new List<int>();
+
+        foreach (var item in treeItems)
+        {
+            var rootResult = await syncCoordinator.SyncItemAsync(item.WorkItemId, ct);
+
+            if (rootResult is SyncResult.Failed { Reason: var reason } &&
+                reason.Contains("not found", StringComparison.OrdinalIgnoreCase))
+            {
+                untrackedIds.Add(item.WorkItemId);
+                continue;
+            }
+
+            await syncCoordinator.SyncChildrenAsync(item.WorkItemId, ct);
+        }
+
+        if (untrackedIds.Count > 0)
+            await repository.RemoveTrackedBatchAsync(untrackedIds, ct);
+
+        return untrackedIds.Count;
+    }
 }

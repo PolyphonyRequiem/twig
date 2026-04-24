@@ -1,9 +1,12 @@
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 using Shouldly;
+using Twig.Domain.Aggregates;
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Domain.Tests.Services;
@@ -295,5 +298,288 @@ public sealed class TrackingServiceTests
 
         result.ShouldBe(0);
         await _repository.DidNotReceive().ClearAllExcludedAsync(Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncTrackedTreesAsync — helpers
+    // ═══════════════════════════════════════════════════════════════
+
+    private static SyncCoordinator CreateSyncCoordinator(
+        IWorkItemRepository? workItemRepo = null,
+        IAdoWorkItemService? adoService = null,
+        IPendingChangeStore? pendingStore = null,
+        int cacheStaleMinutes = 0)
+    {
+        workItemRepo ??= Substitute.For<IWorkItemRepository>();
+        adoService ??= Substitute.For<IAdoWorkItemService>();
+        pendingStore ??= Substitute.For<IPendingChangeStore>();
+
+        // Default: no dirty items
+        workItemRepo.GetDirtyItemsAsync().Returns(Array.Empty<WorkItem>());
+        pendingStore.GetDirtyItemIdsAsync().Returns(Array.Empty<int>());
+
+        var protectedWriter = new ProtectedCacheWriter(workItemRepo, pendingStore);
+        return new SyncCoordinator(workItemRepo, adoService, protectedWriter, pendingStore, cacheStaleMinutes);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncTrackedTreesAsync — no tree items
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncTrackedTreesAsync_NoTrackedItems_ReturnsZero()
+    {
+        var sut = CreateSut();
+        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<TrackedItem>());
+
+        var coordinator = CreateSyncCoordinator();
+        var result = await sut.SyncTrackedTreesAsync(coordinator);
+
+        result.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task SyncTrackedTreesAsync_OnlySingleModeItems_ReturnsZero()
+    {
+        var sut = CreateSut();
+        var items = new List<TrackedItem>
+        {
+            new(10, TrackingMode.Single, DateTimeOffset.UtcNow),
+            new(20, TrackingMode.Single, DateTimeOffset.UtcNow),
+        };
+        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(items);
+
+        var adoService = Substitute.For<IAdoWorkItemService>();
+        var coordinator = CreateSyncCoordinator(adoService: adoService);
+
+        var result = await sut.SyncTrackedTreesAsync(coordinator);
+
+        result.ShouldBe(0);
+        await adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncTrackedTreesAsync — tree items synced successfully
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncTrackedTreesAsync_TreeItem_SyncsRootAndChildren()
+    {
+        var sut = CreateSut();
+        var items = new List<TrackedItem>
+        {
+            new(42, TrackingMode.Tree, DateTimeOffset.UtcNow),
+        };
+        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(items);
+
+        var workItemRepo = Substitute.For<IWorkItemRepository>();
+        var adoService = Substitute.For<IAdoWorkItemService>();
+
+        // SyncItemAsync path: item not in cache → fetch from ADO
+        workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        var fetched = new WorkItemBuilder(42, "Root").InState("Active").Build();
+        adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(fetched);
+
+        // SyncChildrenAsync path: return children
+        var children = new[] { new WorkItemBuilder(100, "Child").InState("Active").Build() };
+        adoService.FetchChildrenAsync(42, Arg.Any<CancellationToken>()).Returns(children);
+
+        var coordinator = CreateSyncCoordinator(workItemRepo, adoService);
+        var result = await sut.SyncTrackedTreesAsync(coordinator);
+
+        result.ShouldBe(0); // no items untracked
+        await adoService.Received(1).FetchAsync(42, Arg.Any<CancellationToken>());
+        await adoService.Received(1).FetchChildrenAsync(42, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SyncTrackedTreesAsync_MultipleTreeItems_SyncsEach()
+    {
+        var sut = CreateSut();
+        var items = new List<TrackedItem>
+        {
+            new(10, TrackingMode.Tree, DateTimeOffset.UtcNow),
+            new(20, TrackingMode.Tree, DateTimeOffset.UtcNow),
+        };
+        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(items);
+
+        var workItemRepo = Substitute.For<IWorkItemRepository>();
+        var adoService = Substitute.For<IAdoWorkItemService>();
+
+        workItemRepo.GetByIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        adoService.FetchAsync(10, Arg.Any<CancellationToken>())
+            .Returns(new WorkItemBuilder(10, "Root 10").InState("Active").Build());
+        adoService.FetchAsync(20, Arg.Any<CancellationToken>())
+            .Returns(new WorkItemBuilder(20, "Root 20").InState("Active").Build());
+        adoService.FetchChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var coordinator = CreateSyncCoordinator(workItemRepo, adoService);
+        var result = await sut.SyncTrackedTreesAsync(coordinator);
+
+        result.ShouldBe(0);
+        await adoService.Received(1).FetchAsync(10, Arg.Any<CancellationToken>());
+        await adoService.Received(1).FetchAsync(20, Arg.Any<CancellationToken>());
+        await adoService.Received(1).FetchChildrenAsync(10, Arg.Any<CancellationToken>());
+        await adoService.Received(1).FetchChildrenAsync(20, Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncTrackedTreesAsync — deleted item auto-untracked
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncTrackedTreesAsync_DeletedItem_AutoUntracksAndSkipsChildren()
+    {
+        var sut = CreateSut();
+        var items = new List<TrackedItem>
+        {
+            new(42, TrackingMode.Tree, DateTimeOffset.UtcNow),
+        };
+        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(items);
+
+        var workItemRepo = Substitute.For<IWorkItemRepository>();
+        var adoService = Substitute.For<IAdoWorkItemService>();
+
+        // SyncItemAsync returns Failed with "not found"
+        workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        adoService.FetchAsync(42, Arg.Any<CancellationToken>())
+            .Throws(new InvalidOperationException("Work item 42 not found."));
+
+        var coordinator = CreateSyncCoordinator(workItemRepo, adoService);
+        var result = await sut.SyncTrackedTreesAsync(coordinator);
+
+        result.ShouldBe(1);
+        await _repository.Received(1).RemoveTrackedBatchAsync(
+            Arg.Is<IReadOnlyList<int>>(ids => ids.Count == 1 && ids[0] == 42),
+            Arg.Any<CancellationToken>());
+        await adoService.DidNotReceive().FetchChildrenAsync(42, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SyncTrackedTreesAsync_MultipleDeleted_BatchUntracks()
+    {
+        var sut = CreateSut();
+        var items = new List<TrackedItem>
+        {
+            new(10, TrackingMode.Tree, DateTimeOffset.UtcNow),
+            new(20, TrackingMode.Tree, DateTimeOffset.UtcNow),
+        };
+        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(items);
+
+        var workItemRepo = Substitute.For<IWorkItemRepository>();
+        var adoService = Substitute.For<IAdoWorkItemService>();
+
+        workItemRepo.GetByIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        adoService.FetchAsync(10, Arg.Any<CancellationToken>())
+            .Throws(new InvalidOperationException("Work item 10 not found."));
+        adoService.FetchAsync(20, Arg.Any<CancellationToken>())
+            .Throws(new InvalidOperationException("Work item 20 not found."));
+
+        var coordinator = CreateSyncCoordinator(workItemRepo, adoService);
+        var result = await sut.SyncTrackedTreesAsync(coordinator);
+
+        result.ShouldBe(2);
+        await _repository.Received(1).RemoveTrackedBatchAsync(
+            Arg.Is<IReadOnlyList<int>>(ids => ids.Count == 2 && ids.Contains(10) && ids.Contains(20)),
+            Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncTrackedTreesAsync — mixed: some deleted, some ok
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncTrackedTreesAsync_MixedDeletedAndLive_UntracksOnlyDeleted()
+    {
+        var sut = CreateSut();
+        var items = new List<TrackedItem>
+        {
+            new(10, TrackingMode.Tree, DateTimeOffset.UtcNow),
+            new(20, TrackingMode.Tree, DateTimeOffset.UtcNow),
+            new(30, TrackingMode.Single, DateTimeOffset.UtcNow), // ignored
+        };
+        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(items);
+
+        var workItemRepo = Substitute.For<IWorkItemRepository>();
+        var adoService = Substitute.For<IAdoWorkItemService>();
+
+        workItemRepo.GetByIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+
+        // Item 10 exists
+        adoService.FetchAsync(10, Arg.Any<CancellationToken>())
+            .Returns(new WorkItemBuilder(10, "Root 10").InState("Active").Build());
+        adoService.FetchChildrenAsync(10, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        // Item 20 deleted
+        adoService.FetchAsync(20, Arg.Any<CancellationToken>())
+            .Throws(new InvalidOperationException("Work item 20 not found."));
+
+        var coordinator = CreateSyncCoordinator(workItemRepo, adoService);
+        var result = await sut.SyncTrackedTreesAsync(coordinator);
+
+        result.ShouldBe(1);
+        await _repository.Received(1).RemoveTrackedBatchAsync(
+            Arg.Is<IReadOnlyList<int>>(ids => ids.Count == 1 && ids[0] == 20),
+            Arg.Any<CancellationToken>());
+        // Item 10 should still get children synced
+        await adoService.Received(1).FetchChildrenAsync(10, Arg.Any<CancellationToken>());
+        // Item 20 should NOT get children synced
+        await adoService.DidNotReceive().FetchChildrenAsync(20, Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncTrackedTreesAsync — non-"not found" failure doesn't untrack
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncTrackedTreesAsync_NonNotFoundFailure_DoesNotUntrack()
+    {
+        var sut = CreateSut();
+        var items = new List<TrackedItem>
+        {
+            new(42, TrackingMode.Tree, DateTimeOffset.UtcNow),
+        };
+        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(items);
+
+        var workItemRepo = Substitute.For<IWorkItemRepository>();
+        var adoService = Substitute.For<IAdoWorkItemService>();
+
+        // SyncItemAsync fails with a network error (not "not found")
+        workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        adoService.FetchAsync(42, Arg.Any<CancellationToken>())
+            .Throws(new HttpRequestException("Connection refused"));
+
+        // Children should still be attempted since item isn't deleted
+        adoService.FetchChildrenAsync(42, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var coordinator = CreateSyncCoordinator(workItemRepo, adoService);
+        var result = await sut.SyncTrackedTreesAsync(coordinator);
+
+        result.ShouldBe(0);
+        await _repository.DidNotReceive().RemoveTrackedBatchAsync(
+            Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncTrackedTreesAsync — cancellation token propagation
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncTrackedTreesAsync_PropagatesCancellationToken()
+    {
+        var sut = CreateSut();
+        using var cts = new CancellationTokenSource();
+        var token = cts.Token;
+
+        _repository.GetAllTrackedAsync(token).Returns(Array.Empty<TrackedItem>());
+
+        var coordinator = CreateSyncCoordinator();
+        await sut.SyncTrackedTreesAsync(coordinator, token);
+
+        await _repository.Received(1).GetAllTrackedAsync(token);
     }
 }

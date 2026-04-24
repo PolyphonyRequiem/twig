@@ -1,4 +1,5 @@
 using Twig.Domain.Enums;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 
 namespace Twig.Domain.Interfaces;
@@ -35,4 +36,13 @@ public interface ITrackingService
 
     /// <summary>Removes all exclusions. Returns the count of exclusions removed.</summary>
     Task<int> ClearExclusionsAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Syncs all Tree-mode tracked items: re-explores each root via
+    /// <see cref="SyncCoordinator.SyncItemAsync"/> and
+    /// <see cref="SyncCoordinator.SyncChildrenAsync"/>, auto-untracks
+    /// items that no longer exist in ADO.
+    /// Returns the number of items that were auto-untracked.
+    /// </summary>
+    Task<int> SyncTrackedTreesAsync(SyncCoordinator syncCoordinator, CancellationToken ct = default);
 }

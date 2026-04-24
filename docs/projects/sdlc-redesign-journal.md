@@ -156,12 +156,45 @@ state_detector → intent_correction_gate? → cleanup? → planning → impleme
 - *No human gate for "use existing plan":* The `replan_gate` is removed. If `intent=resume`
   and plans exist, we skip planning automatically. The user already told us their intent.
 
-### Phase 2: Planning Workflow (`twig-sdlc-planning.yaml`) — NOT YET STARTED
+### Phase 2: Planning Workflow (`twig-sdlc-planning.yaml`) — IN PROGRESS
 
-Planned approach: interleaved architect → exec_planner → seeder at each hierarchy level.
-The architect says WHAT (design), the exec_planner says HOW (PGs, decomposition),
-the seeder creates work items with PG tags. This replaces the current model where the
-architect writes one big plan, then seeding happens in bulk.
+**Audit findings:** 8 hard violations, 8 soft. See `files/planning-audit.md` and
+`files/planning-node-report.md` for full details.
+
+**Hard violations fixed (commit `d8c1e28`):**
+- P4: Removed `skip_plan_review`, replaced with `intent` input
+- P2: Removed plan detection from intake (state_detector handles upstream)
+- P9: Renamed `epic_id`/`epic_title` → `work_item_id`/`title` across all prompts
+- P1: Updated work_tree_seeder prompt to tag items with PG-N and link plan artifact
+
+**Structural redesign (in progress):**
+
+Modular sub-workflow architecture inspired by cloudvault SDLC:
+- `plan-design.yaml` — architect → reviewers → execution planner (NEW agent)
+- `planning-pr.yaml` — commit plans to branch, push, link artifact, create PR (NEW)
+- `plan-seeding.yaml` — create work items with PG tags, fan-out to child planners
+- `plan-child.yaml` — replaces `plan-issue.yaml` with complexity-based routing
+
+Agent/script split (P8): 8 scripts, 9 agents, 3 human gates. Key conversions:
+- `duplicate_check`, `plan_check`, `review_router`, `plan_status_updater`,
+  `branch_check`, `planning_branch_pusher`, `seeding_check`, `complexity_assessor`
+  all converted from agents to deterministic scripts.
+
+Scoring rubrics (P11): Technical and readability reviewers use dimension-by-dimension
+scoring with 5 weighted dimensions each. Any dimension ≤ 2 = blocking issue.
+
+Human gate confidence thresholds (P6 update): ≤85% during planning (surface early),
+≥95% during implementation (only genuine blockers).
+
+**Key design decisions:**
+- Execution planner is separate from architect (cloudvault pattern). Architect designs
+  WHAT, execution planner determines HOW (PG grouping). Exec planner can loop back
+  to architect if PGs can't be self-contained.
+- Planning PR is mandatory — plans committed to `planning/<id>` branch, linked to
+  work item, PR created for design governance.
+- Complexity threshold for child plans — ≥3 tasks or significant scope gets a plan
+  doc; simple items get enriched work item descriptions instead.
+- Idempotency checks at every sub-workflow entry (P3).
 
 ### Phase 3: Implementation Workflow (`twig-sdlc-implement.yaml`) — NOT YET STARTED
 
@@ -173,32 +206,79 @@ Key changes needed:
 
 ## Implementation Progress
 
-### Completed
+### Completed (Apex Workflow — Phase 1)
 - `detect-state.ps1` — deterministic state detector script, tested against 4 scenarios
-- `pr-finalizer.prompt.md` — removed auto-approve, increased retry logic, P7 compliance
-- `close-out.prompt.md` — Step 1c failure path, Step 1e rollback, Steps 9/10 guarded (earlier commit `e996e5b`)
-- `conductor-design/SKILL.md` — 8 design principles documented and cross-referenced
-- Unused workflow files deleted (recursive-implementer, task-implementation, issue-review, integration-fix)
+- `twig-sdlc-full.yaml` — fully rewritten with 6 nodes: state_detector, intent_correction_gate,
+  cleanup, planning, implementation, close_out, retrospective
+- `cleanup.prompt.md` + `cleanup.system.md` — cleanup agent for intent=redo
+- `retrospective.prompt.md` + `retrospective.system.md` — postmortem review agent
+- `pr-finalizer.prompt.md` — removed auto-approve (P7)
+- `close-out.prompt.md` — Step 1c failure path, Step 1e rollback, Steps 9/10 guarded
+- `planning_or_implementation` LLM router removed — replaced with Jinja `when` clause (P8)
+- `implementation` input_mapping simplified — 2-way ternary, no `workflow.input` fallback
+- Unused workflow files deleted (4 files, 898 lines removed)
 
-### Remaining
-- `redesign-full-yaml` — rewrite `twig-sdlc-full.yaml` with new nodes and routing
-- `cleanup-agent-prompt` — create cleanup agent prompt for intent=redo
-- `pg-tag-seeder-update` — update seeder prompts to tag items with PG-N
-- `load-work-tree-tags` — update load-work-tree.ps1 to read PG tags
-- `update-skills` — update SKILL.md launch instructions
+### Completed (Planning Workflow — Phase 2, partial)
+- `conductor-design/SKILL.md` — 11 design principles (P1-P11) documented
+- Planning workflow: `skip_plan_review` removed, `intent` added, `epic_*` renamed
+- `work-tree-seeder.prompt.md` — PG tagging and plan artifact linking added
+- `intake.prompt.md` — plan detection removed (P2 fix)
+- All prompts: `epic_id` → `work_item_id` bulk rename across 9 files
+- `twig-sdlc/SKILL.md` — updated with new inputs (intent replaces skip_plan_review)
+
+### Remaining (Planning Workflow — Phase 2)
+- Create 4 sub-workflow YAML files (plan-design, planning-pr, plan-seeding, plan-child)
+- Create execution_planner agent prompt
+- Write 6 deterministic scripts (idempotency checks, review router, branch pusher)
+- Update reviewer prompts with P11 rubrics
+- Rewrite twig-sdlc-planning.yaml as modular orchestrator
+
+### Remaining (Implementation Workflow — Phase 3)
+- `load-work-tree.ps1` → read PG tags instead of parsing plan text
+- Close-out extraction (already moved to apex level)
+- Principle audit + redesign
 
 ### Dependencies
-- **Issue #2059** (artifact link sync to local cache) — dispatched as SDLC run, in progress.
+- **Issue #2059** (artifact link sync) — SDLC run dispatched, in progress.
   Soft dependency: state_detector uses filesystem fallback until this lands.
+
+## Design Principles Evolution
+
+Principles were established iteratively through discussion:
+
+| # | Principle | When Added | Trigger |
+|---|-----------|------------|---------|
+| P1 | Work Items Are Source of Truth | Initial | Bug 2 (empty PG task_ids) |
+| P2 | Plans Are Context, Not Control Flow | Initial | plan_detector violations |
+| P2a | Plans Describe Solutions, Not Work Items | Mid-session | User correction on plan vs. work item scope |
+| P3 | Re-Entry by State Discovery | Initial | No resume capability |
+| P4 | Explicit Intent (new/redo/resume) | Initial | replan_gate as workaround |
+| P5 | Type-Agnostic Workflow Structure | Initial | Epic-only naming |
+| P6 | Human Gates for Genuine Decisions | Initial | Unnecessary gates |
+| P6+ | Confidence thresholds (85%/95%) | Late | Planning vs implementation gate frequency |
+| P7 | Fail Honestly, Don't Auto-Approve | Initial | pr_finalizer force-approve |
+| P8 | Prefer Scripts for Deterministic Logic | Late | planning_or_implementation LLM doing if/else |
+| P9 | Concise, Contextual Naming | Late | epic_id vs work_item_id |
+| P10 | Explicit Invariants | Late | Missing pre/postconditions |
+| P11 | Rubric-Based Scoring | Late | Single opaque 0-100 scores |
 
 ## Key Files
 
 | File | Location | Purpose |
 |------|----------|---------|
-| `twig-sdlc-full.yaml` | `~/.conductor/registries/twig/recursive/` | Apex workflow (being redesigned) |
-| `twig-sdlc-planning.yaml` | same | Planning sub-workflow (Phase 2) |
+| `twig-sdlc-full.yaml` | `~/.conductor/registries/twig/recursive/` | Apex workflow ✅ REDESIGNED |
+| `twig-sdlc-planning.yaml` | same | Planning sub-workflow (Phase 2, in progress) |
 | `twig-sdlc-implement.yaml` | same | Implementation sub-workflow (Phase 3) |
-| `plan-issue.yaml` | same | Per-Issue task decomposition |
+| `plan-issue.yaml` | same | Per-Issue decomposition (being replaced by plan-child.yaml) |
+| `detect-state.ps1` | `same/scripts/` | Deterministic state detector ✅ |
+| `load-work-tree.ps1` | `same/scripts/` | Work tree loader (needs PG tag support) |
+| `pr-finalizer.prompt.md` | `~/.conductor/registries/twig/prompts/` | PR verification ✅ FIXED |
+| `close-out.prompt.md` | same | Close-out agent ✅ HARDENED |
+| `cleanup.prompt.md` | same | Cleanup agent for intent=redo ✅ NEW |
+| `retrospective.prompt.md` | same | Postmortem review ✅ NEW |
+| `conductor-design/SKILL.md` | `.github/skills/conductor-design/` | Design principles (P1-P11) ✅ |
+| `twig-sdlc/SKILL.md` | `.github/skills/twig-sdlc/` | Launch instructions ✅ UPDATED |
+| `sdlc-redesign-journal.md` | `docs/projects/` | This document |
 | `detect-state.ps1` | `same/scripts/` | New deterministic state detector |
 | `load-work-tree.ps1` | `same/scripts/` | Work tree loader (needs PG tag support) |
 | `pr-finalizer.prompt.md` | `~/.conductor/registries/twig/prompts/` | PR verification (fixed) |

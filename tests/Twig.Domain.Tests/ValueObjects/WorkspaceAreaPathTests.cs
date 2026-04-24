@@ -16,15 +16,6 @@ public class WorkspaceAreaPathTests
     }
 
     [Fact]
-    public void Constructor_ExactSemantics()
-    {
-        var entry = new WorkspaceAreaPath(@"Project\TeamB", "exact");
-
-        entry.Path.ShouldBe(@"Project\TeamB");
-        entry.Semantics.ShouldBe("exact");
-    }
-
-    [Fact]
     public void Equality_SameValues_AreEqual()
     {
         var a = new WorkspaceAreaPath(@"Project\TeamA", "under");

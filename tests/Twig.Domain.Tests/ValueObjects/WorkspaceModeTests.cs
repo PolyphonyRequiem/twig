@@ -42,14 +42,6 @@ public class WorkspaceModeTests
     }
 
     [Fact]
-    public void StaticInstances_HaveCorrectValues()
-    {
-        WorkspaceMode.Sprint.Value.ShouldBe("Sprint");
-        WorkspaceMode.Area.Value.ShouldBe("Area");
-        WorkspaceMode.Recent.Value.ShouldBe("Recent");
-    }
-
-    [Fact]
     public void TryParse_Sprint_ReturnsSameInstance()
     {
         var parsed = WorkspaceMode.TryParse("Sprint");

@@ -125,8 +125,7 @@ public sealed class SqliteWorkspaceModeStore(SqliteCacheStore store) : IWorkspac
     public Task SetSprintIterationsAsync(IReadOnlyList<SprintIterationEntry> entries, CancellationToken ct = default)
     {
         var conn = store.GetConnection();
-        using var tx = conn.BeginTransaction();
-        try
+        InTransaction(tx =>
         {
             using var deleteCmd = conn.CreateCommand();
             deleteCmd.Transaction = tx;
@@ -142,15 +141,7 @@ public sealed class SqliteWorkspaceModeStore(SqliteCacheStore store) : IWorkspac
                 insertCmd.Parameters.AddWithValue("@type", entry.Type);
                 insertCmd.ExecuteNonQuery();
             }
-
-            tx.Commit();
-        }
-        catch
-        {
-            tx.Rollback();
-            throw;
-        }
-
+        });
         return Task.CompletedTask;
     }
 
@@ -171,8 +162,7 @@ public sealed class SqliteWorkspaceModeStore(SqliteCacheStore store) : IWorkspac
     public Task SetAreaPathsAsync(IReadOnlyList<WorkspaceAreaPath> entries, CancellationToken ct = default)
     {
         var conn = store.GetConnection();
-        using var tx = conn.BeginTransaction();
-        try
+        InTransaction(tx =>
         {
             using var deleteCmd = conn.CreateCommand();
             deleteCmd.Transaction = tx;
@@ -188,15 +178,15 @@ public sealed class SqliteWorkspaceModeStore(SqliteCacheStore store) : IWorkspac
                 insertCmd.Parameters.AddWithValue("@semantics", entry.Semantics);
                 insertCmd.ExecuteNonQuery();
             }
-
-            tx.Commit();
-        }
-        catch
-        {
-            tx.Rollback();
-            throw;
-        }
-
+        });
         return Task.CompletedTask;
+    }
+
+    private void InTransaction(Action<Microsoft.Data.Sqlite.SqliteTransaction> work)
+    {
+        var conn = store.GetConnection();
+        using var tx = conn.BeginTransaction();
+        try { work(tx); tx.Commit(); }
+        catch { tx.Rollback(); throw; }
     }
 }

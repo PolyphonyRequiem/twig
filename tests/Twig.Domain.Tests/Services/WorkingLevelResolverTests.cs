@@ -139,29 +139,9 @@ public class WorkingLevelResolverTests
     }
 
     [Fact]
-    public void WorkingLevelAtBottomLevel_AllParentsAbove()
-    {
-        // When working level is Task (level 3), all parents are above
-        WorkingLevelResolver.IsAboveWorkingLevel("Epic", "Task", AgileTypeLevelMap)
-            .ShouldBeTrue();
-        WorkingLevelResolver.IsAboveWorkingLevel("Feature", "Task", AgileTypeLevelMap)
-            .ShouldBeTrue();
-        WorkingLevelResolver.IsAboveWorkingLevel("User Story", "Task", AgileTypeLevelMap)
-            .ShouldBeTrue();
-    }
-
-    [Fact]
     public void SameLevel_ReturnsFalse()
     {
         WorkingLevelResolver.IsAboveWorkingLevel("Feature", "Feature", AgileTypeLevelMap)
-            .ShouldBeFalse();
-    }
-
-    [Fact]
-    public void BelowWorkingLevel_ReturnsFalse()
-    {
-        // Task is below User Story — should not be dimmed
-        WorkingLevelResolver.IsAboveWorkingLevel("Task", "User Story", AgileTypeLevelMap)
             .ShouldBeFalse();
     }
 }

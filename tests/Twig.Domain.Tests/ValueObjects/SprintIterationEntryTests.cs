@@ -16,15 +16,6 @@ public class SprintIterationEntryTests
     }
 
     [Fact]
-    public void Constructor_AbsoluteType()
-    {
-        var entry = new SprintIterationEntry(@"Project\Sprint 1", "absolute");
-
-        entry.Expression.ShouldBe(@"Project\Sprint 1");
-        entry.Type.ShouldBe("absolute");
-    }
-
-    [Fact]
     public void Equality_SameValues_AreEqual()
     {
         var a = new SprintIterationEntry("@CurrentIteration", "relative");

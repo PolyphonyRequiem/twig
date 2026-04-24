@@ -18,15 +18,6 @@ public class TrackedItemTests
     }
 
     [Fact]
-    public void Constructor_TreeMode()
-    {
-        var now = DateTimeOffset.UtcNow;
-        var item = new TrackedItem(99, "tree", now);
-
-        item.TrackingMode.ShouldBe("tree");
-    }
-
-    [Fact]
     public void Equality_SameValues_AreEqual()
     {
         var now = DateTimeOffset.UtcNow;

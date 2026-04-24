@@ -1,4 +1,5 @@
 using Shouldly;
+using Twig.Domain.Enums;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Persistence;
 using Xunit;
@@ -56,36 +57,36 @@ public class SqliteWorkspaceModeStoreTests : IDisposable
     [Fact]
     public async Task AddAndGetTrackedItem_RoundTrip()
     {
-        await _modeStore.AddTrackedItemAsync(42, "single");
+        await _modeStore.AddTrackedItemAsync(42, TrackingMode.Single);
         var items = await _modeStore.GetTrackedItemsAsync();
         items.Count.ShouldBe(1);
-        items[0].Id.ShouldBe(42);
-        items[0].TrackingMode.ShouldBe("single");
+        items[0].WorkItemId.ShouldBe(42);
+        items[0].Mode.ShouldBe(TrackingMode.Single);
     }
 
     [Fact]
     public async Task AddTrackedItem_TreeMode()
     {
-        await _modeStore.AddTrackedItemAsync(99, "tree");
+        await _modeStore.AddTrackedItemAsync(99, TrackingMode.Tree);
         var items = await _modeStore.GetTrackedItemsAsync();
         items.Count.ShouldBe(1);
-        items[0].TrackingMode.ShouldBe("tree");
+        items[0].Mode.ShouldBe(TrackingMode.Tree);
     }
 
     [Fact]
     public async Task AddTrackedItem_DuplicateId_Overwrites()
     {
-        await _modeStore.AddTrackedItemAsync(42, "single");
-        await _modeStore.AddTrackedItemAsync(42, "tree");
+        await _modeStore.AddTrackedItemAsync(42, TrackingMode.Single);
+        await _modeStore.AddTrackedItemAsync(42, TrackingMode.Tree);
         var items = await _modeStore.GetTrackedItemsAsync();
         items.Count.ShouldBe(1);
-        items[0].TrackingMode.ShouldBe("tree");
+        items[0].Mode.ShouldBe(TrackingMode.Tree);
     }
 
     [Fact]
     public async Task RemoveTrackedItem_Removes()
     {
-        await _modeStore.AddTrackedItemAsync(42, "single");
+        await _modeStore.AddTrackedItemAsync(42, TrackingMode.Single);
         await _modeStore.RemoveTrackedItemAsync(42);
         var items = await _modeStore.GetTrackedItemsAsync();
         items.ShouldBeEmpty();

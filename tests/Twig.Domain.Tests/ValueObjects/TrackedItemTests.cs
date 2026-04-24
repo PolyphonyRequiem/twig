@@ -1,4 +1,5 @@
 using Shouldly;
+using Twig.Domain.Enums;
 using Twig.Domain.ValueObjects;
 using Xunit;
 
@@ -10,19 +11,19 @@ public class TrackedItemTests
     public void Constructor_SetsProperties()
     {
         var now = DateTimeOffset.UtcNow;
-        var item = new TrackedItem(42, "single", now);
+        var item = new TrackedItem(42, TrackingMode.Single, now);
 
-        item.Id.ShouldBe(42);
-        item.TrackingMode.ShouldBe("single");
-        item.CreatedAt.ShouldBe(now);
+        item.WorkItemId.ShouldBe(42);
+        item.Mode.ShouldBe(TrackingMode.Single);
+        item.TrackedAt.ShouldBe(now);
     }
 
     [Fact]
     public void Equality_SameValues_AreEqual()
     {
         var now = DateTimeOffset.UtcNow;
-        var a = new TrackedItem(1, "single", now);
-        var b = new TrackedItem(1, "single", now);
+        var a = new TrackedItem(1, TrackingMode.Single, now);
+        var b = new TrackedItem(1, TrackingMode.Single, now);
         a.ShouldBe(b);
     }
 
@@ -30,8 +31,8 @@ public class TrackedItemTests
     public void Equality_DifferentId_AreNotEqual()
     {
         var now = DateTimeOffset.UtcNow;
-        var a = new TrackedItem(1, "single", now);
-        var b = new TrackedItem(2, "single", now);
+        var a = new TrackedItem(1, TrackingMode.Single, now);
+        var b = new TrackedItem(2, TrackingMode.Single, now);
         a.ShouldNotBe(b);
     }
 
@@ -39,8 +40,8 @@ public class TrackedItemTests
     public void Equality_DifferentMode_AreNotEqual()
     {
         var now = DateTimeOffset.UtcNow;
-        var a = new TrackedItem(1, "single", now);
-        var b = new TrackedItem(1, "tree", now);
+        var a = new TrackedItem(1, TrackingMode.Single, now);
+        var b = new TrackedItem(1, TrackingMode.Tree, now);
         a.ShouldNotBe(b);
     }
 }

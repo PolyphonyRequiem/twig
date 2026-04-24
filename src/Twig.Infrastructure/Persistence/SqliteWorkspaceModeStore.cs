@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
 
@@ -45,19 +46,19 @@ public sealed class SqliteWorkspaceModeStore(SqliteCacheStore store) : IWorkspac
         {
             items.Add(new TrackedItem(
                 reader.GetInt32(0),
-                reader.GetString(1),
+                Enum.Parse<TrackingMode>(reader.GetString(1), ignoreCase: true),
                 DateTimeOffset.Parse(reader.GetString(2))));
         }
         return Task.FromResult<IReadOnlyList<TrackedItem>>(items);
     }
 
-    public Task AddTrackedItemAsync(int id, string trackingMode, CancellationToken ct = default)
+    public Task AddTrackedItemAsync(int id, TrackingMode mode, CancellationToken ct = default)
     {
         var conn = store.GetConnection();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "INSERT OR REPLACE INTO tracked_items (id, mode, created_at) VALUES (@id, @mode, @createdAt);";
         cmd.Parameters.AddWithValue("@id", id);
-        cmd.Parameters.AddWithValue("@mode", trackingMode);
+        cmd.Parameters.AddWithValue("@mode", mode.ToString());
         cmd.Parameters.AddWithValue("@createdAt", DateTimeOffset.UtcNow.ToString("O"));
         cmd.ExecuteNonQuery();
         return Task.CompletedTask;

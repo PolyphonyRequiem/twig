@@ -1,3 +1,4 @@
+using Twig.Domain.Enums;
 using Twig.Domain.ValueObjects;
 
 namespace Twig.Domain.Interfaces;
@@ -13,7 +14,7 @@ public interface IWorkspaceModeStore
     Task SetActiveModeAsync(WorkspaceMode mode, CancellationToken ct = default);
 
     Task<IReadOnlyList<TrackedItem>> GetTrackedItemsAsync(CancellationToken ct = default);
-    Task AddTrackedItemAsync(int id, string trackingMode, CancellationToken ct = default);
+    Task AddTrackedItemAsync(int id, TrackingMode mode, CancellationToken ct = default);
     Task RemoveTrackedItemAsync(int id, CancellationToken ct = default);
 
     Task<IReadOnlyList<int>> GetExcludedItemIdsAsync(CancellationToken ct = default);

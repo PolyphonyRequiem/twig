@@ -28,6 +28,11 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     /// </summary>
     internal IReadOnlyDictionary<string, List<string>>? ParentChildMap { get; set; }
 
+    /// <summary>
+    /// Optional working level type name. When set, parent chain items above this level are dimmed.
+    /// </summary>
+    internal string? WorkingLevelTypeName { get; set; }
+
     public async Task RenderWorkspaceAsync(
         IAsyncEnumerable<WorkspaceDataChunk> data,
         int staleDays,
@@ -433,7 +438,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         }
 
         var root = parentChain[0];
-        var tree2 = new Tree(FormatParentNode(root));
+        var rootAbove = IsParentAboveWorkingLevel(root);
+        var tree2 = new Tree(FormatParentNode(root, rootAbove));
         IHasTreeNodes container = tree2;
 
         // Root parent — sibling count added as child of tree root (Spectre API limitation)
@@ -446,7 +452,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
         for (var i = 1; i < parentChain.Count; i++)
         {
-            var parentNode = container.AddNode(FormatParentNode(parentChain[i]));
+            var above = IsParentAboveWorkingLevel(parentChain[i]);
+            var parentNode = container.AddNode(FormatParentNode(parentChain[i], above));
             // Sibling count at same level as node (added to container, not parentNode)
             if (getSiblingCount is not null && parentChain[i].ParentId.HasValue)
             {
@@ -468,11 +475,22 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         return (tree2, focusNode);
     }
 
+    private bool IsParentAboveWorkingLevel(WorkItem item)
+    {
+        if (WorkingLevelTypeName is null || TypeLevelMap is null)
+            return false;
+        return WorkingLevelResolver.IsAboveWorkingLevel(item.Type.Value, WorkingLevelTypeName, TypeLevelMap);
+    }
+
     internal static string FormatSiblingCount(int count) =>
         $"[dim]...{count}[/]";
 
-    internal string FormatParentNode(WorkItem item) =>
-        $"{_theme.FormatTypeBadge(item.Type)} [dim]{Markup.Escape(item.Title)}[/] {_theme.FormatState(item.State)}";
+    internal string FormatParentNode(WorkItem item, bool aboveWorkingLevel = false)
+    {
+        if (aboveWorkingLevel)
+            return $"[dim]{_theme.FormatTypeBadge(item.Type)} {Markup.Escape(item.Title)} {_theme.FormatState(item.State)}[/]";
+        return $"{_theme.FormatTypeBadge(item.Type)} [dim]{Markup.Escape(item.Title)}[/] {_theme.FormatState(item.State)}";
+    }
 
     internal string FormatFocusedNode(WorkItem item, int? activeId)
     {

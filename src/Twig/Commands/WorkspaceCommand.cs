@@ -46,6 +46,17 @@ public sealed class WorkspaceCommand(
             IReadOnlyList<Domain.Aggregates.WorkItem> sprintItems = Array.Empty<Domain.Aggregates.WorkItem>();
             IReadOnlyList<Domain.Aggregates.WorkItem> seeds = Array.Empty<Domain.Aggregates.WorkItem>();
 
+            // Wire working level into SpectreRenderer for future tree-based workspace rendering
+            if (renderer is SpectreRenderer spectreRenderer)
+            {
+                var processConfig = await processTypeStore.GetProcessConfigurationDataAsync();
+                if (processConfig is not null)
+                {
+                    spectreRenderer.TypeLevelMap = Domain.Services.BacklogHierarchyService.GetTypeLevelMap(processConfig);
+                    spectreRenderer.WorkingLevelTypeName = config.Workspace.WorkingLevel;
+                }
+            }
+
             // Resolve dynamic columns before rendering (EPIC-004)
             // NOTE: sprintItems is intentionally omitted here — in the live Spectre streaming path,
             // items arrive progressively, so fill-rate auto-discovery is unavailable. Only config-

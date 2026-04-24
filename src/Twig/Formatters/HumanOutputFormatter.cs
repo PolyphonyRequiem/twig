@@ -212,12 +212,13 @@ public sealed class HumanOutputFormatter : IOutputFormatter
 
     public string FormatTree(WorkTree tree, int maxChildren, int? activeId)
     {
-        return FormatTree(tree, maxChildren, activeId, typeLevelMap: null, parentChildMap: null);
+        return FormatTree(tree, maxChildren, activeId, typeLevelMap: null, parentChildMap: null, workingLevelTypeName: null);
     }
 
     public string FormatTree(WorkTree tree, int maxChildren, int? activeId,
         IReadOnlyDictionary<string, int>? typeLevelMap,
-        IReadOnlyDictionary<string, List<string>>? parentChildMap)
+        IReadOnlyDictionary<string, List<string>>? parentChildMap,
+        string? workingLevelTypeName = null)
     {
         var sb = new StringBuilder();
 
@@ -237,17 +238,30 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         var focusDepth = tree.ParentChain.Count;
         var lines = new List<AlignedLine>();
 
-        // Parent chain — colorized badge, dimmed title
+        // Parent chain — colorized badge, dimmed title (fully dimmed when above working level)
         for (var i = 0; i < tree.ParentChain.Count; i++)
         {
             var parent = tree.ParentChain[i];
             var indent = new string(' ', i * 2);
-            var parentTypeColor = GetTypeColor(parent.Type);
-            var parentStateColor = GetStateColor(parent.State);
-            var badge = GetTypeBadge(parent.Type);
-            lines.Add(new AlignedLine(
-                $"{indent}{parentTypeColor}{badge}{Reset} {Dim}{parent.Title}{Reset}",
-                $"[{parentStateColor}{parent.State}{Reset}]", ""));
+            var aboveWorkingLevel = workingLevelTypeName is not null && typeLevelMap is not null
+                && WorkingLevelResolver.IsAboveWorkingLevel(parent.Type.Value, workingLevelTypeName, typeLevelMap);
+
+            if (aboveWorkingLevel)
+            {
+                var badge = GetTypeBadge(parent.Type);
+                lines.Add(new AlignedLine(
+                    $"{indent}{Dim}{badge} {parent.Title}{Reset}",
+                    $"{Dim}[{parent.State}]{Reset}", ""));
+            }
+            else
+            {
+                var parentTypeColor = GetTypeColor(parent.Type);
+                var parentStateColor = GetStateColor(parent.State);
+                var badge = GetTypeBadge(parent.Type);
+                lines.Add(new AlignedLine(
+                    $"{indent}{parentTypeColor}{badge}{Reset} {Dim}{parent.Title}{Reset}",
+                    $"[{parentStateColor}{parent.State}{Reset}]", ""));
+            }
 
             // Sibling count indicator for parent chain nodes (skip root nodes with no parent)
             if (tree.SiblingCounts is not null && parent.ParentId.HasValue

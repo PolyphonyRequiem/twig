@@ -21,6 +21,7 @@ public sealed class TwigConfiguration
     public UserConfig User { get; set; } = new();
     public GitConfig Git { get; set; } = new();
     public FlowConfig Flow { get; set; } = new();
+    public WorkspaceConfig Workspace { get; set; } = new();
 
     /// <summary>
     /// Returns the project to use for git/PR API calls.
@@ -318,6 +319,9 @@ public sealed class TwigConfiguration
                 Display.Columns ??= new DisplayColumnsConfig();
                 Display.Columns.Sprint = value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
                 return true;
+            case "workspace.workinglevel":
+                Workspace.WorkingLevel = string.IsNullOrWhiteSpace(value) ? null : value;
+                return true;
             default:
                 return false;
         }
@@ -458,6 +462,20 @@ public sealed class HooksConfig
     public bool PrepareCommitMsg { get; set; } = true;
     public bool CommitMsg { get; set; } = true;
     public bool PostCheckout { get; set; } = true;
+}
+
+/// <summary>
+/// Workspace-level configuration — working level, mode preferences, etc.
+/// </summary>
+public sealed class WorkspaceConfig
+{
+    /// <summary>
+    /// The work item type name that represents the user's day-to-day working level.
+    /// Items above this level in the backlog hierarchy are dimmed in tree views.
+    /// Example values: "Task", "Issue", "User Story".
+    /// When null or empty, no dimming is applied.
+    /// </summary>
+    public string? WorkingLevel { get; set; }
 }
 
 public sealed class FlowConfig

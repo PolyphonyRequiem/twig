@@ -108,6 +108,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         [Description("Field reference name (e.g. System.Title, System.Description, Microsoft.VSTS.Scheduling.StoryPoints)")] string field,
         [Description("New field value")] string value,
         [Description("Set to 'markdown' to convert the value from Markdown to HTML before storing (useful for System.Description)")] string? format = null,
+        [Description("When true, append the value to the existing field content instead of replacing it")] bool append = false,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
         CancellationToken ct = default)
     {
@@ -137,6 +138,14 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         try
         {
             remote = await ctx.AdoService.FetchAsync(item.Id, ct);
+
+            if (append)
+            {
+                remote.Fields.TryGetValue(field, out var existingValue);
+                bool asHtml = format is not null || FieldAppender.LooksLikeHtml(existingValue ?? "");
+                effectiveValue = FieldAppender.Append(existingValue, effectiveValue, asHtml);
+            }
+
             var changes = new[] { new FieldChange(field, null, effectiveValue) };
             await ConflictRetryHelper.PatchWithRetryAsync(ctx.AdoService, item.Id, changes, remote.Revision, ct);
         }

@@ -61,6 +61,7 @@ internal sealed class ToolDispatcher(
                 GetRequiredString(args, "field"),
                 GetRequiredString(args, "value"),
                 GetString(args, "format"),
+                GetBool(args, "append"),
                 workspace, ct),
 
             "twig_note" => mutationTools.Note(

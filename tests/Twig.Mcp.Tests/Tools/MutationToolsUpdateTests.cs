@@ -406,4 +406,157 @@ public sealed class MutationToolsUpdateTests : MutationToolsTestBase
 
         await _promptStateWriter.Received(1).WritePromptStateAsync();
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Append — plain text appended to existing plain text
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Update_AppendPlainText_AppendsToExistingValue()
+    {
+        var item = new WorkItemBuilder(42, "My Task").AsTask().InState("Doing")
+            .WithField("System.Description", "existing text")
+            .Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+
+        var result = await CreateMutationSut().Update(
+            "System.Description", "appended text", append: true);
+
+        result.IsError.ShouldBeNull();
+        await _adoService.Received().PatchAsync(
+            42,
+            Arg.Is<IReadOnlyList<FieldChange>>(c =>
+                c.Count == 1
+                && c[0].FieldName == "System.Description"
+                && c[0].NewValue == "existing text\n\nappended text"),
+            Arg.Any<int>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Append — HTML field gets HTML-mode append
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Update_AppendToHtmlField_AppendsAsHtml()
+    {
+        var item = new WorkItemBuilder(42, "My Task").AsTask().InState("Doing")
+            .WithField("System.Description", "<p>existing</p>")
+            .Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+
+        var result = await CreateMutationSut().Update(
+            "System.Description", "new content", append: true);
+
+        result.IsError.ShouldBeNull();
+        await _adoService.Received().PatchAsync(
+            42,
+            Arg.Is<IReadOnlyList<FieldChange>>(c =>
+                c.Count == 1
+                && c[0].NewValue == "<p>existing</p><p>new content</p>"),
+            Arg.Any<int>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Append — empty existing field just uses new value
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Update_AppendToEmptyField_UsesNewValueDirectly()
+    {
+        var item = new WorkItemBuilder(42, "My Task").AsTask().InState("Doing").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+
+        var result = await CreateMutationSut().Update(
+            "System.Description", "new value", append: true);
+
+        result.IsError.ShouldBeNull();
+        await _adoService.Received().PatchAsync(
+            42,
+            Arg.Is<IReadOnlyList<FieldChange>>(c =>
+                c.Count == 1 && c[0].NewValue == "new value"),
+            Arg.Any<int>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Append with markdown format — forces HTML mode
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Update_AppendWithMarkdownFormat_ForcesHtmlMode()
+    {
+        var item = new WorkItemBuilder(42, "My Task").AsTask().InState("Doing")
+            .WithField("System.Description", "plain existing")
+            .Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+
+        var result = await CreateMutationSut().Update(
+            "System.Description", "**bold**", format: "markdown", append: true);
+
+        result.IsError.ShouldBeNull();
+        await _adoService.Received().PatchAsync(
+            42,
+            Arg.Is<IReadOnlyList<FieldChange>>(c =>
+                c.Count == 1
+                // format=markdown triggers asHtml=true, so existing plain text gets HTML append
+                && c[0].NewValue!.Contains("plain existing")),
+            Arg.Any<int>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Append false (default) — replaces field value
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Update_AppendFalse_ReplacesValue()
+    {
+        var item = new WorkItemBuilder(42, "My Task").AsTask().InState("Doing")
+            .WithField("System.Description", "old value")
+            .Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+
+        var result = await CreateMutationSut().Update(
+            "System.Description", "new value", append: false);
+
+        result.IsError.ShouldBeNull();
+        await _adoService.Received().PatchAsync(
+            42,
+            Arg.Is<IReadOnlyList<FieldChange>>(c =>
+                c.Count == 1 && c[0].NewValue == "new value"),
+            Arg.Any<int>(),
+            Arg.Any<CancellationToken>());
+    }
 }

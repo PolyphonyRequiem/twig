@@ -279,9 +279,88 @@ Principles were established iteratively through discussion:
 | `conductor-design/SKILL.md` | `.github/skills/conductor-design/` | Design principles (P1-P11) ✅ |
 | `twig-sdlc/SKILL.md` | `.github/skills/twig-sdlc/` | Launch instructions ✅ UPDATED |
 | `sdlc-redesign-journal.md` | `docs/projects/` | This document |
-| `detect-state.ps1` | `same/scripts/` | New deterministic state detector |
-| `load-work-tree.ps1` | `same/scripts/` | Work tree loader (needs PG tag support) |
-| `pr-finalizer.prompt.md` | `~/.conductor/registries/twig/prompts/` | PR verification (fixed) |
-| `close-out.prompt.md` | same | Close-out agent (hardened) |
-| `conductor-design/SKILL.md` | `.github/skills/conductor-design/` | Design principles |
-| `twig-sdlc/SKILL.md` | `.github/skills/twig-sdlc/` | Launch instructions (needs update) |
+
+---
+
+## Phase 2 Completion: Planning Workflow (April 24, 2026)
+
+### What was built
+
+Rewrote `twig-sdlc-planning.yaml` from a monolithic 340-line workflow into a thin
+orchestrator (160 lines) calling 3 modular sub-workflows:
+
+1. **plan-design.yaml** — architect → reviewers (P11 rubrics) → execution planner (NEW).
+   Execution planner defines PGs and can loop back to architect if PGs can't be
+   self-contained. Review router converted from LLM to deterministic script (P8).
+
+2. **planning-pr.yaml** — commits plans to `planning/<id>` branch, pushes, links
+   artifact to work item, creates GitHub PR. All nodes are scripts except the
+   (now also script) PR submit.
+
+3. **plan-seeding.yaml** — creates ADO work items with PG tags and descriptions,
+   fans out to plan-child.yaml per child.
+
+4. **plan-child.yaml** — replaces plan-issue.yaml. Routes by complexity threshold:
+   ≥3 tasks → child_architect (plan doc), else → description_enricher.
+
+### Scripts created (P8)
+- `check-plan.ps1` — idempotency: approved plan exists?
+- `check-branch.ps1` — idempotency: planning branch exists?
+- `check-seeding.ps1` — idempotency: children already seeded?
+- `review-router.ps1` — deterministic gating math + feedback assembly
+- `push-planning-branch.ps1` — git branch, commit, push, link artifact
+- `assess-complexity.ps1` — child plan vs description enrichment threshold
+
+### Prompts created/updated
+- `execution-planner.system.md` + `.prompt.md` — NEW agent defining PGs
+- `technical-reviewer.prompt.md` — P11 rubric (5 weighted dimensions)
+- `readability-reviewer.prompt.md` — P11 rubric (5 weighted dimensions)
+- All 24 system prompts — P10 invariants (pre/postconditions) added
+
+### Audit results (post-redesign)
+- **1 hard violation** — P1 filesystem fallback in plan_check (known, pending #2059)
+- **6 soft violations** — all acceptable or deferred (description divergence, naming)
+- **1 false positive reverted** — child_reviewer revision cap was incorrectly added
+
+### Key commits
+- `ec37f78` — scripts, prompts, rubrics (10 files)
+- `df63407` — 4 sub-workflow YAMLs + orchestrator rewrite (5 files)
+- `6e778c1` — P10 invariants on all 24 system prompts
+- `ff66c6e` → `84de016` — soft violation fixes, reverted false positive
+
+---
+
+## Phase 3 Audit: Implementation Workflow (April 24, 2026)
+
+### Audit findings
+
+**Hard violations: 7**
+
+| # | P | Node | Issue |
+|---|---|------|-------|
+| 1 | P2 | inputs | `plan_path` is a primary input — plans driving control flow |
+| 2 | P1 | inputs | `child_issue_plans` — plan-centric mapping from old design |
+| 3 | P4 | inputs | `prompt` — dead input, never used |
+| 4 | P9 | intake | Still outputs `epic_id`, `epic_title`, `plan_already_approved` |
+| 5 | P1/P2 | plan_reader | Entire agent exists to read plan and extract metadata |
+| 6 | P1/P2 | work_tree_seeder | Passes `-PlanPath` to load-work-tree.ps1, extracts PGs from plan text |
+| 7 | P7 | pr_finalizer | YAML routing still has `verification_attempt >= 3` auto-approve despite prompt fix |
+
+**Critical finding:** pr_finalizer prompt was fixed (commit `e996e5b`) but the YAML
+routing condition on line 512 still force-passes on attempt 3. The prompt says "fail
+honestly" but the routing bypasses the result.
+
+**Soft violations: 5** — duplicate_check as LLM, user_acceptance confidence threshold,
+reviewers lacking P11 rubrics, pr_fixer no revision cap, no resume capability.
+
+### Structural changes needed
+1. Remove `plan_reader` — implementation discovers PGs from work item tags (P1)
+2. Rewrite `load-work-tree.ps1` to read PG tags instead of plan text
+3. Fix pr_finalizer YAML routing (remove `verification_attempt >= 3`)
+4. Remove `close_out` (moved to apex level)
+5. Clean up inputs (remove plan_path, child_issue_plans, prompt; add intent)
+6. Rename `epic_*` outputs in intake
+7. Add state discovery for resume capability (P3)
+
+### Next step
+Examining cloudvault implementation workflow for patterns to adopt.

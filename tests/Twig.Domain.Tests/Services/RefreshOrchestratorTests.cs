@@ -1,6 +1,8 @@
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
@@ -19,6 +21,7 @@ public class RefreshOrchestratorTests
     private readonly ProtectedCacheWriter _protectedCacheWriter;
     private readonly WorkingSetService _workingSetService;
     private readonly SyncCoordinatorFactory _syncCoordinatorFactory;
+    private readonly ITrackingService _trackingService;
     private readonly RefreshOrchestrator _orchestrator;
 
     public RefreshOrchestratorTests()
@@ -34,10 +37,13 @@ public class RefreshOrchestratorTests
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
         _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, _iterationService, null);
         _syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, _protectedCacheWriter, _pendingChangeStore, null, 30, 30);
+        _trackingService = Substitute.For<ITrackingService>();
 
         _orchestrator = new RefreshOrchestrator(
             _contextStore, _workItemRepo, _adoService,
-            _pendingChangeStore, _protectedCacheWriter, _workingSetService, _syncCoordinatorFactory);
+            _pendingChangeStore, _protectedCacheWriter, _workingSetService, _syncCoordinatorFactory,
+            _iterationService,
+            _trackingService);
     }
 
     // ── FetchItemsAsync tests ──────────────────────────────────────
@@ -297,5 +303,154 @@ public class RefreshOrchestratorTests
 
         result.PhantomsCleansed.ShouldBe(0);
         await _workItemRepo.DidNotReceive().ClearPhantomDirtyFlagsAsync(Arg.Any<CancellationToken>());
+    }
+
+    // ── SyncTrackedTreesAsync tests ──────────────────────────────────
+
+    [Fact]
+    public async Task SyncTrackedTrees_DelegatesToTrackingService()
+    {
+        _trackingService.SyncTrackedTreesAsync(Arg.Any<SyncCoordinator>(), Arg.Any<CancellationToken>())
+            .Returns(3);
+
+        var result = await _orchestrator.SyncTrackedTreesAsync();
+
+        result.ShouldBe(3);
+        await _trackingService.Received(1).SyncTrackedTreesAsync(
+            Arg.Any<SyncCoordinator>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SyncTrackedTrees_NullTrackingService_ReturnsZero()
+    {
+        var orchestratorWithoutTracking = new RefreshOrchestrator(
+            _contextStore, _workItemRepo, _adoService,
+            _pendingChangeStore, _protectedCacheWriter, _workingSetService, _syncCoordinatorFactory,
+            _iterationService,
+            trackingService: null);
+
+        var result = await orchestratorWithoutTracking.SyncTrackedTreesAsync();
+
+        result.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task SyncTrackedTrees_PropagatesCancellationToken()
+    {
+        using var cts = new CancellationTokenSource();
+        var token = cts.Token;
+        _trackingService.SyncTrackedTreesAsync(Arg.Any<SyncCoordinator>(), token)
+            .Returns(0);
+
+        await _orchestrator.SyncTrackedTreesAsync(token);
+
+        await _trackingService.Received(1).SyncTrackedTreesAsync(
+            Arg.Any<SyncCoordinator>(), token);
+    }
+
+    [Fact]
+    public async Task SyncTrackedTrees_UsesReadWriteSyncCoordinator()
+    {
+        var receivedCoordinator = (SyncCoordinator?)null;
+        _trackingService.SyncTrackedTreesAsync(Arg.Any<SyncCoordinator>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+            {
+                receivedCoordinator = callInfo.Arg<SyncCoordinator>();
+                return 0;
+            });
+
+        await _orchestrator.SyncTrackedTreesAsync();
+
+        receivedCoordinator.ShouldNotBeNull();
+        receivedCoordinator.ShouldBeSameAs(_syncCoordinatorFactory.ReadWrite);
+    }
+
+    // ── ApplyCleanupPolicyAsync tests ────────────────────────────────
+
+    [Fact]
+    public async Task ApplyCleanupPolicy_NonePolicy_ReturnsZeroWithoutCallingService()
+    {
+        var result = await _orchestrator.ApplyCleanupPolicyAsync(TrackingCleanupPolicy.None);
+
+        result.ShouldBe(0);
+        await _trackingService.DidNotReceive().ApplyCleanupPolicyAsync(
+            Arg.Any<TrackingCleanupPolicy>(), Arg.Any<IterationPath>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ApplyCleanupPolicy_NullTrackingService_ReturnsZero()
+    {
+        var orchestratorWithoutTracking = new RefreshOrchestrator(
+            _contextStore, _workItemRepo, _adoService,
+            _pendingChangeStore, _protectedCacheWriter, _workingSetService, _syncCoordinatorFactory,
+            _iterationService,
+            trackingService: null);
+
+        var result = await orchestratorWithoutTracking.ApplyCleanupPolicyAsync(TrackingCleanupPolicy.OnComplete);
+
+        result.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task ApplyCleanupPolicy_OnComplete_DelegatesToTrackingService()
+    {
+        var expectedIteration = IterationPath.Parse("Project\\Sprint 1").Value;
+        _trackingService.ApplyCleanupPolicyAsync(
+            TrackingCleanupPolicy.OnComplete, expectedIteration, Arg.Any<CancellationToken>())
+            .Returns(2);
+
+        var result = await _orchestrator.ApplyCleanupPolicyAsync(TrackingCleanupPolicy.OnComplete);
+
+        result.ShouldBe(2);
+        await _trackingService.Received(1).ApplyCleanupPolicyAsync(
+            TrackingCleanupPolicy.OnComplete, expectedIteration, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ApplyCleanupPolicy_OnCompleteAndPast_DelegatesToTrackingService()
+    {
+        var expectedIteration = IterationPath.Parse("Project\\Sprint 1").Value;
+        _trackingService.ApplyCleanupPolicyAsync(
+            TrackingCleanupPolicy.OnCompleteAndPast, expectedIteration, Arg.Any<CancellationToken>())
+            .Returns(5);
+
+        var result = await _orchestrator.ApplyCleanupPolicyAsync(TrackingCleanupPolicy.OnCompleteAndPast);
+
+        result.ShouldBe(5);
+        await _trackingService.Received(1).ApplyCleanupPolicyAsync(
+            TrackingCleanupPolicy.OnCompleteAndPast, expectedIteration, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ApplyCleanupPolicy_ResolvesCurrentIterationFromService()
+    {
+        var customIteration = IterationPath.Parse("MyProject\\Sprint 42").Value;
+        _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
+            .Returns(customIteration);
+        _trackingService.ApplyCleanupPolicyAsync(
+            Arg.Any<TrackingCleanupPolicy>(), customIteration, Arg.Any<CancellationToken>())
+            .Returns(1);
+
+        await _orchestrator.ApplyCleanupPolicyAsync(TrackingCleanupPolicy.OnComplete);
+
+        await _iterationService.Received(1).GetCurrentIterationAsync(Arg.Any<CancellationToken>());
+        await _trackingService.Received(1).ApplyCleanupPolicyAsync(
+            TrackingCleanupPolicy.OnComplete, customIteration, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ApplyCleanupPolicy_PropagatesCancellationToken()
+    {
+        using var cts = new CancellationTokenSource();
+        var token = cts.Token;
+        _trackingService.ApplyCleanupPolicyAsync(
+            Arg.Any<TrackingCleanupPolicy>(), Arg.Any<IterationPath>(), token)
+            .Returns(0);
+
+        await _orchestrator.ApplyCleanupPolicyAsync(TrackingCleanupPolicy.OnComplete, token);
+
+        await _iterationService.Received(1).GetCurrentIterationAsync(token);
+        await _trackingService.Received(1).ApplyCleanupPolicyAsync(
+            Arg.Any<TrackingCleanupPolicy>(), Arg.Any<IterationPath>(), token);
     }
 }

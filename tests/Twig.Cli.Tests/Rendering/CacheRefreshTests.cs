@@ -27,6 +27,7 @@ public class CacheRefreshTests
     private readonly IAdoWorkItemService _adoService;
     private readonly ActiveItemResolver _activeItemResolver;
     private readonly WorkingSetService _workingSetService;
+    private readonly ITrackingService _trackingService;
     private readonly TestConsole _testConsole;
     private readonly SpectreRenderer _spectreRenderer;
     private readonly OutputFormatterFactory _formatterFactory;
@@ -47,6 +48,11 @@ public class CacheRefreshTests
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
         _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService, null);
+        _trackingService = Substitute.For<ITrackingService>();
+        _trackingService.GetTrackedItemsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<TrackedItem>());
+        _trackingService.GetExcludedIdsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
 
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
@@ -65,7 +71,7 @@ public class CacheRefreshTests
     private WorkspaceCommand CreateCommand(RenderingPipelineFactory pipelineFactory) =>
         new(_contextStore, _workItemRepo, _iterationService, _config,
             _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore,
-            _activeItemResolver, _workingSetService, pipelineFactory);
+            _activeItemResolver, _workingSetService, _trackingService, pipelineFactory);
 
     // ── IsCacheStale unit tests ─────────────────────────────────────
 

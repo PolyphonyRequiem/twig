@@ -79,6 +79,7 @@ public sealed class TreeCommand(
             {
                 spectreRenderer.TypeLevelMap = BacklogHierarchyService.GetTypeLevelMap(processConfig);
                 spectreRenderer.ParentChildMap = BacklogHierarchyService.InferParentChildMap(processConfig);
+                spectreRenderer.WorkingLevelTypeName = config.Workspace.WorkingLevel;
             }
 
             // Shared factory: build a sibling-count resolver for any root item and token
@@ -220,7 +221,7 @@ public sealed class TreeCommand(
 
         var tree = WorkTree.Build(item, parentChain, children, siblingCounts, links);
 
-        // EPIC-005: Load process config for unparented banner
+        // EPIC-005: Load process config for unparented banner + working level dim
         if (fmt is HumanOutputFormatter humanFmt)
         {
             var treeProcessConfig = await processTypeStore.GetProcessConfigurationDataAsync();
@@ -228,7 +229,7 @@ public sealed class TreeCommand(
             {
                 var typeLevelMap = BacklogHierarchyService.GetTypeLevelMap(treeProcessConfig);
                 var parentChildMap = BacklogHierarchyService.InferParentChildMap(treeProcessConfig);
-                Console.WriteLine(humanFmt.FormatTree(tree, maxChildren, activeId, typeLevelMap, parentChildMap));
+                Console.WriteLine(humanFmt.FormatTree(tree, maxChildren, activeId, typeLevelMap, parentChildMap, config.Workspace.WorkingLevel));
             }
             else
             {

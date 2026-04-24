@@ -27,6 +27,7 @@ public class WorkspaceCommandTests
     private readonly IAdoWorkItemService _adoService;
     private readonly ActiveItemResolver _activeItemResolver;
     private readonly WorkingSetService _workingSetService;
+    private readonly ITrackingService _trackingService;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
     private readonly TestConsole _testConsole;
@@ -45,6 +46,11 @@ public class WorkspaceCommandTests
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
         _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService, null);
+        _trackingService = Substitute.For<ITrackingService>();
+        _trackingService.GetTrackedItemsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<TrackedItem>());
+        _trackingService.GetExcludedIdsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
 
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
@@ -57,7 +63,7 @@ public class WorkspaceCommandTests
         _spectreRenderer = new SpectreRenderer(_testConsole, new SpectreTheme(new DisplayConfig()));
 
         _cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService, _config,
-            _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService);
+            _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService);
     }
 
     // ── Command factory methods ─────────────────────────────────────
@@ -71,7 +77,7 @@ public class WorkspaceCommandTests
     private WorkspaceCommand CreateCommandWithPipeline(RenderingPipelineFactory pipelineFactory) =>
         new(_contextStore, _workItemRepo, _iterationService, _config,
             _formatterFactory, new HintEngine(new DisplayConfig { Hints = true }), _processTypeStore, _fieldDefinitionStore,
-            _activeItemResolver, _workingSetService, pipelineFactory);
+            _activeItemResolver, _workingSetService, _trackingService, pipelineFactory);
 
     [Fact]
     public async Task Workspace_ShowsContextAndSprint()
@@ -320,7 +326,7 @@ public class WorkspaceCommandTests
             _formatterFactory, Substitute.For<IAsyncRenderer>());
         var cmdWithPipeline = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService, _config,
             _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore,
-            _activeItemResolver, _workingSetService, pipelineFactory);
+            _activeItemResolver, _workingSetService, _trackingService, pipelineFactory);
 
         var resultWith = await cmdWithPipeline.ExecuteAsync("json");
         resultWith.ShouldBe(0);
@@ -349,7 +355,7 @@ public class WorkspaceCommandTests
         var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService, null);
 
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService, _config,
-            _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, workingSetService);
+            _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, workingSetService, _trackingService);
 
         var result = await cmd.ExecuteAsync("human");
         result.ShouldBe(0);
@@ -374,7 +380,7 @@ public class WorkspaceCommandTests
         var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService, null);
 
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService, _config,
-            _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, workingSetService);
+            _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, workingSetService, _trackingService);
 
         var result = await cmd.ExecuteAsync("human");
         result.ShouldBe(0);
@@ -400,7 +406,7 @@ public class WorkspaceCommandTests
         var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService, null);
 
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService, _config,
-            _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, workingSetService);
+            _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, workingSetService, _trackingService);
 
         var result = await cmd.ExecuteAsync("human");
         result.ShouldBe(0);
@@ -428,7 +434,7 @@ public class WorkspaceCommandTests
         var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService, null);
 
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService, _config,
-            _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, workingSetService);
+            _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, workingSetService, _trackingService);
 
         var result = await cmd.ExecuteAsync("json");
         result.ShouldBe(0);
@@ -492,7 +498,7 @@ public class WorkspaceCommandTests
         var pipelineFactory = CreateTtyPipelineFactory();
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService, _config,
             _formatterFactory, hintEngine, _processTypeStore, _fieldDefinitionStore,
-            _activeItemResolver, _workingSetService, pipelineFactory);
+            _activeItemResolver, _workingSetService, _trackingService, pipelineFactory);
 
         var result = await cmd.ExecuteAsync("human");
 

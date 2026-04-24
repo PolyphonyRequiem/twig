@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
 using Twig.Domain.Services;
+using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
@@ -28,6 +29,7 @@ public sealed class WorkspaceCommand(
     IFieldDefinitionStore fieldDefinitionStore,
     ActiveItemResolver activeItemResolver,
     WorkingSetService workingSetService,
+    ITrackingService trackingService,
     RenderingPipelineFactory? pipelineFactory = null)
 {
     public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default, bool sprintLayout = false)
@@ -45,6 +47,24 @@ public sealed class WorkspaceCommand(
             Domain.Aggregates.WorkItem? contextItem = null;
             IReadOnlyList<Domain.Aggregates.WorkItem> sprintItems = Array.Empty<Domain.Aggregates.WorkItem>();
             IReadOnlyList<Domain.Aggregates.WorkItem> seeds = Array.Empty<Domain.Aggregates.WorkItem>();
+
+            // Load tracking overlay (tracked items + excluded IDs)
+            var trackedItems = await trackingService.GetTrackedItemsAsync(ct);
+            var excludedIds = await trackingService.GetExcludedIdsAsync(ct);
+
+            // Wire working level into SpectreRenderer for future tree-based workspace rendering
+            if (renderer is SpectreRenderer spectreRenderer)
+            {
+                var processConfig = await processTypeStore.GetProcessConfigurationDataAsync();
+                if (processConfig is not null)
+                {
+                    spectreRenderer.TypeLevelMap = Domain.Services.BacklogHierarchyService.GetTypeLevelMap(processConfig);
+                    spectreRenderer.WorkingLevelTypeName = config.Workspace.WorkingLevel;
+                }
+
+                // Expose tracked item IDs so the renderer can show pinned markers
+                spectreRenderer.TrackedItemIds = new HashSet<int>(trackedItems.Select(t => t.WorkItemId));
+            }
 
             // Resolve dynamic columns before rendering (EPIC-004)
             // NOTE: sprintItems is intentionally omitted here — in the live Spectre streaming path,
@@ -72,7 +92,7 @@ public sealed class WorkspaceCommand(
                     sprintItems = await workItemRepo.GetByIterationAndAssigneeAsync(iteration, userDisplayName, ct);
                 else
                     sprintItems = await workItemRepo.GetByIterationAsync(iteration, ct);
-                yield return new WorkspaceDataChunk.SprintItemsLoaded(sprintItems, WorkspaceSections.Build(sprintItems));
+                yield return new WorkspaceDataChunk.SprintItemsLoaded(sprintItems, WorkspaceSections.Build(sprintItems, excludedIds: excludedIds));
 
                 // Stage 3: Seeds
                 seeds = await workItemRepo.GetSeedsAsync(ct);
@@ -123,7 +143,7 @@ public sealed class WorkspaceCommand(
                         }
 
                         // Yield data rows (refreshed on success, original on failure)
-                        yield return new WorkspaceDataChunk.SprintItemsLoaded(sprintItems, WorkspaceSections.Build(sprintItems));
+                        yield return new WorkspaceDataChunk.SprintItemsLoaded(sprintItems, WorkspaceSections.Build(sprintItems, excludedIds: excludedIds));
                         yield return new WorkspaceDataChunk.SeedsLoaded(seeds);
                         yield return new WorkspaceDataChunk.RefreshCompleted();
                     }
@@ -134,7 +154,9 @@ public sealed class WorkspaceCommand(
 
             // Build Workspace from closure-populated variables for hint computation
             var workspace = Workspace.Build(contextItem, sprintItems, seeds,
-                sections: WorkspaceSections.Build(sprintItems));
+                sections: WorkspaceSections.Build(sprintItems, excludedIds: excludedIds),
+                trackedItems: trackedItems,
+                excludedIds: excludedIds);
 
             var hints = hintEngine.GetHints("workspace",
                 workspace: workspace,
@@ -175,6 +197,10 @@ public sealed class WorkspaceCommand(
 
         // Get seeds
         var seeds = await workItemRepo.GetSeedsAsync();
+
+        // Load tracking overlay (tracked items + excluded IDs)
+        var trackedItems = await trackingService.GetTrackedItemsAsync();
+        var excludedIds = await trackingService.GetExcludedIdsAsync();
 
         // Resolve dynamic columns (EPIC-004)
         var isJsonOutput = fmt is JsonOutputFormatter;
@@ -220,7 +246,9 @@ public sealed class WorkspaceCommand(
         }
 
         var workspace = Workspace.Build(contextItem, sprintItems, seeds, hierarchy,
-            sections: WorkspaceSections.Build(sprintItems));
+            sections: WorkspaceSections.Build(sprintItems, excludedIds: excludedIds),
+            trackedItems: trackedItems,
+            excludedIds: excludedIds);
 
         if (all || sprintLayout)
         {

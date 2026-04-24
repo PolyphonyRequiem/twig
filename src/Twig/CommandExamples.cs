@@ -220,6 +220,33 @@ internal static class CommandExamples
             "twig workspace             Show the current workspace (cached items)",
             "twig workspace --output json  Output workspace info as JSON",
         ],
+        ["workspace track"] =
+        [
+            "twig workspace track 1234          Pin work item #1234 to workspace",
+            "twig workspace track 5678 -o json  Pin and output confirmation as JSON",
+        ],
+        ["workspace track-tree"] =
+        [
+            "twig workspace track-tree 1234     Pin #1234 and its subtree to workspace",
+            "twig workspace track-tree 42       Pin an epic and all its children",
+        ],
+        ["workspace untrack"] =
+        [
+            "twig workspace untrack 1234        Stop tracking work item #1234",
+            "twig workspace untrack 5678        Remove a pinned item from workspace",
+        ],
+        ["workspace exclude"] =
+        [
+            "twig workspace exclude 1234        Hide #1234 from workspace view",
+            "twig workspace exclude 5678        Exclude a noisy item from sprint display",
+        ],
+        ["workspace exclusions"] =
+        [
+            "twig workspace exclusions              List all excluded work items",
+            "twig workspace exclusions --clear      Remove all exclusions",
+            "twig workspace exclusions --remove 42  Remove exclusion for #42",
+            "twig workspace exclusions -o json      List exclusions as JSON",
+        ],
         ["sprint"] =
         [
             "twig sprint                Show the current sprint summary",

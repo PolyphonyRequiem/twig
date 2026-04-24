@@ -1005,6 +1005,162 @@ public class TwigConfigurationTests : IDisposable
         config.Display.Columns.ShouldBeNull();
     }
 
+    // ── Three-dimensional tree depth config (#1954) ──
+
+    [Fact]
+    public void DisplayConfig_TreeDepthDimensions_HaveCorrectDefaults()
+    {
+        var config = new TwigConfiguration();
+        config.Display.TreeDepthUp.ShouldBe(2);
+        config.Display.TreeDepthDown.ShouldBe(10);
+        config.Display.TreeDepthSideways.ShouldBe(1);
+    }
+
+    [Fact]
+    public void SetValue_DisplayTreeDepthUp_ValidValue()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("display.treeDepthUp", "5").ShouldBeTrue();
+        config.Display.TreeDepthUp.ShouldBe(5);
+    }
+
+    [Fact]
+    public void SetValue_DisplayTreeDepthDown_ValidValue()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("display.treeDepthDown", "20").ShouldBeTrue();
+        config.Display.TreeDepthDown.ShouldBe(20);
+    }
+
+    [Fact]
+    public void SetValue_DisplayTreeDepthSideways_ValidValue()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("display.treeDepthSideways", "3").ShouldBeTrue();
+        config.Display.TreeDepthSideways.ShouldBe(3);
+    }
+
+    [Fact]
+    public void SetValue_DisplayTreeDepthUp_ZeroIsValid()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("display.treeDepthUp", "0").ShouldBeTrue();
+        config.Display.TreeDepthUp.ShouldBe(0);
+    }
+
+    [Fact]
+    public void SetValue_DisplayTreeDepthUp_NegativeIsRejected()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("display.treeDepthUp", "-1").ShouldBeFalse();
+        config.Display.TreeDepthUp.ShouldBe(2); // unchanged from default
+    }
+
+    [Fact]
+    public void SetValue_DisplayTreeDepthDown_NegativeIsRejected()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("display.treeDepthDown", "-5").ShouldBeFalse();
+        config.Display.TreeDepthDown.ShouldBe(10);
+    }
+
+    [Fact]
+    public void SetValue_DisplayTreeDepthSideways_NegativeIsRejected()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("display.treeDepthSideways", "-1").ShouldBeFalse();
+        config.Display.TreeDepthSideways.ShouldBe(1);
+    }
+
+    [Fact]
+    public void SetValue_DisplayTreeDepthUp_NonNumericIsRejected()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("display.treeDepthUp", "abc").ShouldBeFalse();
+        config.Display.TreeDepthUp.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task TreeDepthDimensions_SerializationRoundTrip()
+    {
+        var configPath = Path.Combine(_tempDir, "config_depth_dims.json");
+        var config = new TwigConfiguration
+        {
+            Organization = "testorg",
+            Project = "testproj",
+            Display = new DisplayConfig
+            {
+                TreeDepthUp = 4,
+                TreeDepthDown = 15,
+                TreeDepthSideways = 2,
+            },
+        };
+
+        await config.SaveAsync(configPath);
+        var loaded = await TwigConfiguration.LoadAsync(configPath);
+
+        loaded.Display.TreeDepthUp.ShouldBe(4);
+        loaded.Display.TreeDepthDown.ShouldBe(15);
+        loaded.Display.TreeDepthSideways.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task TreeDepthDimensions_DefaultsWhenMissingFromJson()
+    {
+        var configPath = Path.Combine(_tempDir, "config_no_depth_dims.json");
+        await File.WriteAllTextAsync(configPath, """{"organization":"org","project":"proj"}""");
+
+        var config = await TwigConfiguration.LoadAsync(configPath);
+
+        config.Display.TreeDepthUp.ShouldBe(2);
+        config.Display.TreeDepthDown.ShouldBe(10);
+        config.Display.TreeDepthSideways.ShouldBe(1);
+    }
+
+    // ── Workspace.WorkingLevel SetValue round-trip ──
+
+    [Fact]
+    public void SetValue_WorkspaceWorkingLevel_SetsAndReturnsTrue()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("workspace.working_level", "Task").ShouldBeTrue();
+        config.Workspace.WorkingLevel.ShouldBe("Task");
+    }
+
+    [Fact]
+    public void SetValue_WorkspaceWorkingLevel_EmptyString_ClearsToNull()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("workspace.working_level", "Task").ShouldBeTrue();
+        config.SetValue("workspace.working_level", "").ShouldBeTrue();
+        config.Workspace.WorkingLevel.ShouldBeNull();
+    }
+
+    [Fact]
+    public void SetValue_WorkspaceWorkingLevel_WhitespaceOnly_ClearsToNull()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("workspace.working_level", "   ").ShouldBeTrue();
+        config.Workspace.WorkingLevel.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task WorkspaceWorkingLevel_SerializationRoundTrip()
+    {
+        var configPath = Path.Combine(_tempDir, "config_working_level.json");
+        var config = new TwigConfiguration
+        {
+            Organization = "testorg",
+            Project = "testproj",
+        };
+        config.SetValue("workspace.working_level", "Issue");
+
+        await config.SaveAsync(configPath);
+        var loaded = await TwigConfiguration.LoadAsync(configPath);
+
+        loaded.Workspace.WorkingLevel.ShouldBe("Issue");
+    }
+
     // ── EPIC-003: Error resilience — malformed JSON and permission denied ──
 
     [Fact]

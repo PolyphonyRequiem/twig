@@ -92,6 +92,15 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(AppInsightsEnvelope))]
 // MSAL token cache DTOs (Epic — sync-perf-optimization)
 [JsonSerializable(typeof(MsalTokenCache))]
+// Workspace mode domain types (Epic — workspace-mode-infrastructure)
+[JsonSerializable(typeof(WorkspaceConfig))]
+[JsonSerializable(typeof(TrackingConfig))]
+[JsonSerializable(typeof(TrackedItem))]
+[JsonSerializable(typeof(List<TrackedItem>))]
+[JsonSerializable(typeof(ExcludedItem))]
+[JsonSerializable(typeof(List<ExcludedItem>))]
+[JsonSerializable(typeof(TrackingMode))]
+[JsonSerializable(typeof(TrackingCleanupPolicy))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]

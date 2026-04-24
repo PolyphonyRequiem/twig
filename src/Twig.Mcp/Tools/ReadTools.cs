@@ -92,10 +92,20 @@ public sealed class ReadTools(WorkspaceResolver resolver)
         // 4. Seeds
         var seeds = await ctx.WorkItemRepo.GetSeedsAsync(ct);
 
-        // 5. Build workspace
-        var ws = Domain.ReadModels.Workspace.Build(contextItem, sprintItems, seeds);
+        // 5. Tracked items and exclusions
+        var trackedItems = ctx.TrackingRepo is not null
+            ? await ctx.TrackingRepo.GetAllTrackedAsync(ct)
+            : Array.Empty<TrackedItem>();
+        var excludedItems = ctx.TrackingRepo is not null
+            ? await ctx.TrackingRepo.GetAllExcludedAsync(ct)
+            : Array.Empty<ExcludedItem>();
+        var excludedIds = excludedItems.Select(e => e.WorkItemId).ToList();
 
-        // 6. Format result
-        return McpResultBuilder.FormatWorkspace(ws, ctx.Config.Seed.StaleDays, ctx.Key.ToString());
+        // 6. Build workspace
+        var ws = Domain.ReadModels.Workspace.Build(contextItem, sprintItems, seeds,
+            trackedItems: trackedItems, excludedIds: excludedIds);
+
+        // 7. Format result
+        return McpResultBuilder.FormatWorkspace(ws, ctx.Config.Seed.StaleDays, ctx.Key.ToString(), excludedItems);
     }
 }

@@ -79,8 +79,9 @@ public sealed class MinimalOutputFormatter : IOutputFormatter
         foreach (var item in ws.SprintItems)
         {
             var dirty = item.IsDirty ? " *" : "";
+            var tracked = ws.IsTracked(item.Id) ? " TRACKED" : "";
             var stateLabel = FormatterHelpers.GetStateLabel(item.State);
-            sb.AppendLine($"SPR #{item.Id} [{stateLabel}] {item.Title}{dirty}");
+            sb.AppendLine($"SPR #{item.Id} [{stateLabel}] {item.Title}{dirty}{tracked}");
         }
 
         // Seeds

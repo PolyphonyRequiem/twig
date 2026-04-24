@@ -21,6 +21,8 @@ public sealed class TwigConfiguration
     public UserConfig User { get; set; } = new();
     public GitConfig Git { get; set; } = new();
     public FlowConfig Flow { get; set; } = new();
+    public WorkspaceConfig Workspace { get; set; } = new();
+    public TrackingConfig Tracking { get; set; } = new();
 
     /// <summary>
     /// Returns the project to use for git/PR API calls.
@@ -179,6 +181,27 @@ public sealed class TwigConfiguration
                     return true;
                 }
                 return false;
+            case "display.treedepthup":
+                if (int.TryParse(value, out var depthUp) && depthUp >= 0)
+                {
+                    Display.TreeDepthUp = depthUp;
+                    return true;
+                }
+                return false;
+            case "display.treedepthdown":
+                if (int.TryParse(value, out var depthDown) && depthDown >= 0)
+                {
+                    Display.TreeDepthDown = depthDown;
+                    return true;
+                }
+                return false;
+            case "display.treedepthsideways":
+                if (int.TryParse(value, out var depthSideways) && depthSideways >= 0)
+                {
+                    Display.TreeDepthSideways = depthSideways;
+                    return true;
+                }
+                return false;
             case "display.icons":
                 var lower = value.ToLowerInvariant();
                 if (lower is "unicode" or "nerd")
@@ -297,6 +320,17 @@ public sealed class TwigConfiguration
                 Display.Columns ??= new DisplayColumnsConfig();
                 Display.Columns.Sprint = value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
                 return true;
+            case "workspace.working_level":
+                Workspace.WorkingLevel = string.IsNullOrWhiteSpace(value) ? null : value;
+                return true;
+            case "tracking.cleanuppolicy":
+                var policyLower = value.ToLowerInvariant();
+                if (policyLower is "none" or "on-complete" or "on-complete-and-past")
+                {
+                    Tracking.CleanupPolicy = policyLower;
+                    return true;
+                }
+                return false;
             default:
                 return false;
         }
@@ -354,6 +388,9 @@ public sealed class DisplayConfig
 {
     public bool Hints { get; set; } = true;
     public int TreeDepth { get; set; } = 10;
+    public int TreeDepthUp { get; set; } = 2;
+    public int TreeDepthDown { get; set; } = 10;
+    public int TreeDepthSideways { get; set; } = 1;
     public string Icons { get; set; } = "unicode";
     public int CacheStaleMinutes { get; set; } = 5;
     public int CacheStaleMinutesReadOnly { get; set; } = 15;
@@ -436,9 +473,35 @@ public sealed class HooksConfig
     public bool PostCheckout { get; set; } = true;
 }
 
+/// <summary>
+/// Workspace-level configuration — working level, mode preferences, etc.
+/// </summary>
+public sealed class WorkspaceConfig
+{
+    /// <summary>
+    /// The work item type name that represents the user's day-to-day working level.
+    /// Items above this level in the backlog hierarchy are dimmed in tree views.
+    /// Example values: "Task", "Issue", "User Story".
+    /// When null or empty, no dimming is applied.
+    /// </summary>
+    public string? WorkingLevel { get; set; }
+}
+
 public sealed class FlowConfig
 {
     public string AutoAssign { get; set; } = "if-unassigned";
     public bool AutoSaveOnDone { get; set; } = true;
     public bool OfferPrOnDone { get; set; } = true;
+}
+
+/// <summary>
+/// Configuration for manual tracking overlay behavior.
+/// </summary>
+public sealed class TrackingConfig
+{
+    /// <summary>
+    /// Controls automatic cleanup of tracked items.
+    /// Valid values: "none", "on-complete", "on-complete-and-past".
+    /// </summary>
+    public string CleanupPolicy { get; set; } = "none";
 }

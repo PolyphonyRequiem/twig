@@ -2,6 +2,7 @@ using NSubstitute;
 using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
@@ -537,6 +538,89 @@ public class RefreshCommandTests : RefreshCommandTestBase
         var stderr = sw.ToString();
         stderr.ShouldContain("Could not fetch type data");
         stderr.ShouldContain("Could not fetch field definitions");
+    }
+
+    // ── Cleanup policy wiring tests ───────────────────────────────
+
+    [Fact]
+    public async Task Refresh_CleanupPolicyOnComplete_CallsApplyCleanupPolicyAsync()
+    {
+        _config.Tracking.CleanupPolicy = "on-complete";
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _trackingService.ApplyCleanupPolicyAsync(
+                Arg.Any<TrackingCleanupPolicy>(),
+                Arg.Any<IterationPath>(),
+                Arg.Any<CancellationToken>())
+            .Returns(0);
+
+        var result = await _cmd.ExecuteAsync();
+
+        result.ShouldBe(0);
+        await _trackingService.Received(1).ApplyCleanupPolicyAsync(
+            TrackingCleanupPolicy.OnComplete,
+            Arg.Any<IterationPath>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Refresh_CleanupPolicyNone_DoesNotCallApplyCleanupPolicyAsync()
+    {
+        _config.Tracking.CleanupPolicy = "none";
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+
+        var result = await _cmd.ExecuteAsync();
+
+        result.ShouldBe(0);
+        await _trackingService.DidNotReceive().ApplyCleanupPolicyAsync(
+            Arg.Any<TrackingCleanupPolicy>(),
+            Arg.Any<IterationPath>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Refresh_CleanupRemovesItems_LogsToStderr()
+    {
+        _config.Tracking.CleanupPolicy = "on-complete";
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _trackingService.ApplyCleanupPolicyAsync(
+                Arg.Any<TrackingCleanupPolicy>(),
+                Arg.Any<IterationPath>(),
+                Arg.Any<CancellationToken>())
+            .Returns(2);
+
+        var sw = new StringWriter();
+        var cmd = CreateRefreshCommand(sw);
+        var result = await cmd.ExecuteAsync();
+
+        result.ShouldBe(0);
+        sw.ToString().ShouldContain("Auto-untracked 2 item(s) per cleanup policy");
+    }
+
+    [Fact]
+    public async Task Refresh_CleanupRemovesZeroItems_NoStderrOutput()
+    {
+        _config.Tracking.CleanupPolicy = "on-complete";
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _trackingService.ApplyCleanupPolicyAsync(
+                Arg.Any<TrackingCleanupPolicy>(),
+                Arg.Any<IterationPath>(),
+                Arg.Any<CancellationToken>())
+            .Returns(0);
+
+        var sw = new StringWriter();
+        var cmd = CreateRefreshCommand(sw);
+        var result = await cmd.ExecuteAsync();
+
+        result.ShouldBe(0);
+        sw.ToString().ShouldNotContain("Auto-untracked");
     }
 
 }

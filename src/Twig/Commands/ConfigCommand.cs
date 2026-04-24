@@ -66,6 +66,9 @@ public sealed class ConfigCommand(
             "seed.staledays" => config.Seed.StaleDays.ToString(),
             "display.hints" => config.Display.Hints.ToString(),
             "display.treedepth" => config.Display.TreeDepth.ToString(),
+            "display.treedepthup" => config.Display.TreeDepthUp.ToString(),
+            "display.treedepthdown" => config.Display.TreeDepthDown.ToString(),
+            "display.treedepthsideways" => config.Display.TreeDepthSideways.ToString(),
             "display.icons" => config.Display.Icons,
             "user.name" => config.User.DisplayName,
             "user.email" => config.User.Email,
@@ -82,6 +85,7 @@ public sealed class ConfigCommand(
             "display.columns.workspace" => config.Display.Columns?.Workspace is { Count: > 0 } ws ? string.Join(";", ws) : null,
             "display.columns.sprint" => config.Display.Columns?.Sprint is { Count: > 0 } sp ? string.Join(";", sp) : null,
             "display.cachestaleminutes" => config.Display.CacheStaleMinutes.ToString(),
+            "tracking.cleanuppolicy" => config.Tracking.CleanupPolicy,
             _ => null,
         };
     }

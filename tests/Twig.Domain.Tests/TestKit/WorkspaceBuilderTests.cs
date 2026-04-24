@@ -52,4 +52,38 @@ public class WorkspaceBuilderTests
 
         ws.Hierarchy.ShouldNotBeNull();
     }
+
+    [Fact]
+    public void Build_WithTrackedItems_ExposesTrackedItems()
+    {
+        var tracked = new TrackedItem(42, Domain.Enums.TrackingMode.Tree, DateTimeOffset.UtcNow);
+
+        var ws = new WorkspaceBuilder()
+            .WithTrackedItems(tracked)
+            .Build();
+
+        ws.TrackedItems.Count.ShouldBe(1);
+        ws.TrackedItems[0].WorkItemId.ShouldBe(42);
+        ws.TrackedItems[0].Mode.ShouldBe(Domain.Enums.TrackingMode.Tree);
+    }
+
+    [Fact]
+    public void Build_WithExcludedIds_ExposesExcludedIds()
+    {
+        var ws = new WorkspaceBuilder()
+            .WithExcludedIds(10, 20, 30)
+            .Build();
+
+        ws.ExcludedIds.Count.ShouldBe(3);
+        ws.ExcludedIds[0].ShouldBe(10);
+    }
+
+    [Fact]
+    public void Build_Empty_TrackedAndExcludedAreEmpty()
+    {
+        var ws = new WorkspaceBuilder().Build();
+
+        ws.TrackedItems.ShouldBeEmpty();
+        ws.ExcludedIds.ShouldBeEmpty();
+    }
 }

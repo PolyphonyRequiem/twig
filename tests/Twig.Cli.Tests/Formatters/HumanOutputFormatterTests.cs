@@ -339,7 +339,8 @@ public class HumanOutputFormatterTests
     {
         var items = new[] { CreateWorkItem(1, "Task", "Active") };
         var sections = WorkspaceSections.Build(items, excludedIds: new[] { 42, 99 });
-        var ws = Workspace.Build(null, items, Array.Empty<WorkItem>(), sections: sections);
+        var ws = Workspace.Build(null, items, Array.Empty<WorkItem>(), sections: sections,
+            excludedIds: new[] { 42, 99 });
 
         var result = _formatter.FormatWorkspace(ws, staleDays: 14);
 
@@ -371,6 +372,117 @@ public class HumanOutputFormatterTests
         // Legacy path still works
         result.ShouldContain("Sprint (1 items):");
         result.ShouldContain("Task");
+    }
+
+    [Fact]
+    public void FormatWorkspace_WithTrackedItems_ShowsTrackedSummary()
+    {
+        var items = new[] { CreateWorkItem(1, "Tracked Task", "Active") };
+        var tracked = new TrackedItem(1, Domain.Enums.TrackingMode.Single, DateTimeOffset.UtcNow);
+        var ws = Workspace.Build(null, items, Array.Empty<WorkItem>(),
+            trackedItems: new[] { tracked });
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+
+        result.ShouldContain("📌");
+        result.ShouldContain("1 tracked");
+        result.ShouldContain("#1");
+    }
+
+    [Fact]
+    public void FormatWorkspace_WithTrackedItems_ShowsPinnedMarkerOnItem()
+    {
+        var items = new[] { CreateWorkItem(1, "Pinned Task", "Active"), CreateWorkItem(2, "Normal Task", "Active") };
+        var tracked = new TrackedItem(1, Domain.Enums.TrackingMode.Single, DateTimeOffset.UtcNow);
+        var ws = Workspace.Build(null, items, Array.Empty<WorkItem>(),
+            trackedItems: new[] { tracked });
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+
+        // The line containing #1 should have the pinned marker
+        var lines = result.Replace("\r\n", "\n").Split('\n');
+        var item1Line = lines.FirstOrDefault(l => l.Contains("#1"));
+        item1Line.ShouldNotBeNull("Expected a line containing #1");
+        item1Line.ShouldContain("📌");
+        // The line containing #2 should NOT have the pinned marker
+        var item2Line = lines.FirstOrDefault(l => l.Contains("#2"));
+        item2Line.ShouldNotBeNull("Expected a line containing #2");
+        item2Line.ShouldNotContain("📌");
+    }
+
+    [Fact]
+    public void FormatWorkspace_WithHierarchy_TrackedItem_ShowsPinnedMarker()
+    {
+        var feature = new WorkItemBuilder(100, "Auth Feature").AsFeature()
+            .WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var task1 = new WorkItemBuilder(1, "Tracked Child").AsTask().InState("Active")
+            .WithParent(100).AssignedTo("Alice")
+            .WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+        var task2 = new WorkItemBuilder(2, "Untracked Child").AsTask().InState("Active")
+            .WithParent(100).AssignedTo("Alice")
+            .WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
+
+        var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
+        var hierarchy = SprintHierarchy.Build(new[] { task1, task2 }, parentLookup, new[] { "Feature" });
+        var tracked = new TrackedItem(1, Domain.Enums.TrackingMode.Single, DateTimeOffset.UtcNow);
+        var ws = Workspace.Build(null, new[] { task1, task2 }, Array.Empty<WorkItem>(),
+            hierarchy: hierarchy, trackedItems: new[] { tracked });
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+
+        var lines = result.Replace("\r\n", "\n").Split('\n');
+        var trackedLine = lines.FirstOrDefault(l => l.Contains("#1"));
+        trackedLine.ShouldNotBeNull("Expected a line containing #1");
+        trackedLine.ShouldContain("📌");
+        var untrackedLine = lines.FirstOrDefault(l => l.Contains("#2"));
+        untrackedLine.ShouldNotBeNull("Expected a line containing #2");
+        untrackedLine.ShouldNotContain("📌");
+    }
+
+    [Fact]
+    public void FormatWorkspace_NoTrackedItems_NoPinnedSection()
+    {
+        var items = new[] { CreateWorkItem(1, "Normal Task", "Active") };
+        var ws = Workspace.Build(null, items, Array.Empty<WorkItem>());
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+
+        result.ShouldNotContain("tracked");
+    }
+
+    [Fact]
+    public void FormatWorkspace_WithExcludedIds_ShowsExclusionFooter()
+    {
+        var items = new[] { CreateWorkItem(1, "Task", "Active") };
+        var ws = Workspace.Build(null, items, Array.Empty<WorkItem>(),
+            excludedIds: new[] { 50, 60 });
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+
+        result.ShouldContain("2 excluded");
+        result.ShouldContain("#50");
+        result.ShouldContain("#60");
+    }
+
+    // ── FormatSprintView ────────────────────────────────────────────
+
+    [Fact]
+    public void FormatSprintView_WithTrackedItem_ShowsPinnedMarker()
+    {
+        var items = new[] { CreateWorkItem(1, "Pinned Task", "Active"), CreateWorkItem(2, "Normal Task", "Active") };
+        var tracked = new TrackedItem(1, Domain.Enums.TrackingMode.Single, DateTimeOffset.UtcNow);
+        var ws = Workspace.Build(null, items, Array.Empty<WorkItem>(),
+            trackedItems: new[] { tracked });
+
+        var result = _formatter.FormatSprintView(ws, staleDays: 14);
+
+        var lines = result.Replace("\r\n", "\n").Split('\n');
+        var item1Line = lines.FirstOrDefault(l => l.Contains("#1"));
+        item1Line.ShouldNotBeNull("Expected a line containing #1");
+        item1Line.ShouldContain("📌");
+        var item2Line = lines.FirstOrDefault(l => l.Contains("#2"));
+        item2Line.ShouldNotBeNull("Expected a line containing #2");
+        item2Line.ShouldNotContain("📌");
     }
 
     // ── Disambiguation ──────────────────────────────────────────────

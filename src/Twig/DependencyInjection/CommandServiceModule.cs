@@ -66,7 +66,8 @@ public static class CommandServiceModule
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IPendingChangeStore>(),
             sp.GetRequiredService<IIterationService>(),
-            sp.GetRequiredService<TwigConfiguration>().User.DisplayName));
+            sp.GetRequiredService<TwigConfiguration>().User.DisplayName,
+            sp.GetRequiredService<ITrackingRepository>()));
 
         // EPIC-003: Seed publish orchestrator
         services.AddSingleton<BacklogOrderer>(sp => new BacklogOrderer(
@@ -105,7 +106,9 @@ public static class CommandServiceModule
             sp.GetRequiredService<IPendingChangeStore>(),
             sp.GetRequiredService<ProtectedCacheWriter>(),
             sp.GetRequiredService<WorkingSetService>(),
-            sp.GetRequiredService<SyncCoordinatorFactory>()));
+            sp.GetRequiredService<SyncCoordinatorFactory>(),
+            sp.GetRequiredService<IIterationService>(),
+            sp.GetService<ITrackingService>()));
 
         // Context change extension — additively hydrates parent chain + downstream graph
         services.AddSingleton<ContextChangeService>(sp => new ContextChangeService(

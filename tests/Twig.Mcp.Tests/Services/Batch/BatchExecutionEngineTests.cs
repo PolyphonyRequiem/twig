@@ -2,6 +2,7 @@ using ModelContextProtocol.Protocol;
 using Shouldly;
 using Twig.Mcp.Services.Batch;
 using Xunit;
+using static Twig.Mcp.Tests.Services.Batch.BatchTestHelpers;
 
 namespace Twig.Mcp.Tests.Services.Batch;
 
@@ -10,50 +11,8 @@ public sealed class BatchExecutionEngineTests
     private static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(30);
 
     // ── Test infrastructure ─────────────────────────────────────────
-
-    /// <summary>
-    /// Concrete test dispatcher — NSubstitute cannot proxy internal interfaces
-    /// because DynamicProxy lacks InternalsVisibleTo access.
-    /// </summary>
-    private sealed class TestToolDispatcher(
-        Func<string, IReadOnlyDictionary<string, object?>, CancellationToken, Task<CallToolResult>> handler)
-        : IToolDispatcher
-    {
-        public string? LastWorkspaceOverride { get; private set; }
-
-        public Task<CallToolResult> DispatchAsync(
-            string toolName,
-            IReadOnlyDictionary<string, object?> args,
-            string? workspaceOverride,
-            CancellationToken ct)
-        {
-            LastWorkspaceOverride = workspaceOverride;
-            return handler(toolName, args, ct);
-        }
-    }
-
-    private static TestToolDispatcher CreateDispatcher(
-        Func<string, IReadOnlyDictionary<string, object?>, CallToolResult>? handler = null) =>
-        new((tool, args, _) =>
-            Task.FromResult(handler is not null
-                ? handler(tool, args)
-                : SuccessResult($"{{\"tool\":\"{tool}\",\"ok\":true}}")));
-
-    private static TestToolDispatcher CreateDelayedDispatcher(TimeSpan delay) =>
-        new(async (tool, _, ct) =>
-        {
-            await Task.Delay(delay, ct);
-            return SuccessResult($"{{\"tool\":\"{tool}\",\"ok\":true}}");
-        });
-
-    private static TestToolDispatcher CreateThrowingDispatcher(Exception ex) =>
-        new((_, _, _) => throw ex);
-
-    private static CallToolResult SuccessResult(string json) =>
-        new() { Content = [new TextContentBlock { Text = json }] };
-
-    private static CallToolResult ErrorResult(string message) =>
-        new() { Content = [new TextContentBlock { Text = message }], IsError = true };
+    // Shared: TestToolDispatcher, CreateDispatcher, CreateDelayedDispatcher,
+    //         CreateThrowingDispatcher, SuccessResult, ErrorResult → BatchTestHelpers.cs
 
     // ── Single step execution ───────────────────────────────────────
 

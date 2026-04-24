@@ -153,16 +153,7 @@ internal sealed class BatchExecutionEngine(IToolDispatcher dispatcher)
                 continue;
             }
 
-            try
-            {
-                await ExecuteNodeAsync(child, results, workspaceOverride, ct).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                // Propagate cancellation up — remaining nodes will be filled as Skipped
-                // by the caller or FillSkippedResults.
-                throw;
-            }
+            await ExecuteNodeAsync(child, results, workspaceOverride, ct).ConfigureAwait(false);
 
             // Check if any step in this child subtree failed → fail-fast.
             if (HasFailure(child, results))

@@ -31,7 +31,7 @@ internal sealed class ToolDispatcher(
         string? workspaceOverride,
         CancellationToken ct)
     {
-        var workspace = GetStringOrDefault(args, "workspace", workspaceOverride);
+        var workspace = GetString(args, "workspace") ?? workspaceOverride;
 
         return toolName switch
         {
@@ -222,11 +222,5 @@ internal sealed class ToolDispatcher(
             string s when int.TryParse(s, out var i) => i,
             _ => null
         };
-    }
-
-    private static string? GetStringOrDefault(IReadOnlyDictionary<string, object?> args, string key, string? fallback)
-    {
-        var value = GetString(args, key);
-        return value ?? fallback;
     }
 }

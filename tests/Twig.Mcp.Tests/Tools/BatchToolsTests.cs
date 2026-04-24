@@ -4,42 +4,14 @@ using Shouldly;
 using Twig.Mcp.Services.Batch;
 using Twig.Mcp.Tools;
 using Xunit;
+using static Twig.Mcp.Tests.Services.Batch.BatchTestHelpers;
 
 namespace Twig.Mcp.Tests.Tools;
 
 public sealed class BatchToolsTests
 {
     // ── Test infrastructure ─────────────────────────────────────────
-
-    private sealed class TestToolDispatcher(
-        Func<string, IReadOnlyDictionary<string, object?>, CancellationToken, Task<CallToolResult>> handler)
-        : IToolDispatcher
-    {
-        public string? LastWorkspaceOverride { get; private set; }
-
-        public Task<CallToolResult> DispatchAsync(
-            string toolName,
-            IReadOnlyDictionary<string, object?> args,
-            string? workspaceOverride,
-            CancellationToken ct)
-        {
-            LastWorkspaceOverride = workspaceOverride;
-            return handler(toolName, args, ct);
-        }
-    }
-
-    private static TestToolDispatcher CreateDispatcher(
-        Func<string, IReadOnlyDictionary<string, object?>, CallToolResult>? handler = null) =>
-        new((tool, args, _) =>
-            Task.FromResult(handler is not null
-                ? handler(tool, args)
-                : SuccessResult($"{{\"tool\":\"{tool}\",\"ok\":true}}")));
-
-    private static CallToolResult SuccessResult(string json) =>
-        new() { Content = [new TextContentBlock { Text = json }] };
-
-    private static CallToolResult ErrorResult(string message) =>
-        new() { Content = [new TextContentBlock { Text = message }], IsError = true };
+    // Shared: TestToolDispatcher, CreateDispatcher, SuccessResult, ErrorResult → BatchTestHelpers.cs
 
     private static string ExtractJson(CallToolResult result) =>
         ((TextContentBlock)result.Content![0]).Text;

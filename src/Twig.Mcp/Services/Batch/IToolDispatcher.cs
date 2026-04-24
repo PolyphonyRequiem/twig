@@ -6,7 +6,7 @@ namespace Twig.Mcp.Services.Batch;
 /// Abstraction for routing a tool name + args dictionary to the corresponding MCP tool method.
 /// Enables the <c>BatchExecutionEngine</c> to be tested in isolation from MCP transport (NFR-7).
 /// </summary>
-public interface IToolDispatcher
+internal interface IToolDispatcher
 {
     /// <summary>
     /// Dispatches a single tool call by name, extracting typed parameters from the args dictionary.

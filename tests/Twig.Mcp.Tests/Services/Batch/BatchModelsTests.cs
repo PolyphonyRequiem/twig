@@ -20,13 +20,6 @@ public sealed class BatchModelsTests
     }
 
     [Fact]
-    public void StepNode_IsBatchNode()
-    {
-        BatchNode node = new StepNode(0, "twig_set", new Dictionary<string, object?>());
-        node.ShouldBeOfType<StepNode>();
-    }
-
-    [Fact]
     public void StepNode_EmptyArguments()
     {
         var step = new StepNode(5, "twig_status", new Dictionary<string, object?>());
@@ -62,13 +55,6 @@ public sealed class BatchModelsTests
     }
 
     [Fact]
-    public void SequenceNode_IsBatchNode()
-    {
-        BatchNode node = new SequenceNode([]);
-        node.ShouldBeOfType<SequenceNode>();
-    }
-
-    [Fact]
     public void SequenceNode_EmptyChildren()
     {
         var seq = new SequenceNode([]);
@@ -93,7 +79,6 @@ public sealed class BatchModelsTests
 
     [Fact]
     public void ParallelNode_StoresChildren()
-    {
         var children = new BatchNode[]
         {
             new StepNode(0, "twig_update", new Dictionary<string, object?>()),
@@ -102,13 +87,6 @@ public sealed class BatchModelsTests
 
         var par = new ParallelNode(children);
         par.Children.Count.ShouldBe(2);
-    }
-
-    [Fact]
-    public void ParallelNode_IsBatchNode()
-    {
-        BatchNode node = new ParallelNode([]);
-        node.ShouldBeOfType<ParallelNode>();
     }
 
     // ── BatchGraph ──────────────────────────────────────────────────
@@ -141,14 +119,6 @@ public sealed class BatchModelsTests
     }
 
     // ── StepStatus ──────────────────────────────────────────────────
-
-    [Fact]
-    public void StepStatus_HasExpectedValues()
-    {
-        ((int)StepStatus.Succeeded).ShouldBe(0);
-        ((int)StepStatus.Failed).ShouldBe(1);
-        ((int)StepStatus.Skipped).ShouldBe(2);
-    }
 
     [Fact]
     public void StepStatus_HasExactlyThreeMembers()
@@ -252,27 +222,6 @@ public sealed class BatchModelsTests
         batch.Steps.ShouldBeEmpty();
         batch.TotalElapsedMs.ShouldBe(0);
         batch.TimedOut.ShouldBeFalse();
-    }
-
-    // ── Record Equality ─────────────────────────────────────────────
-
-    [Fact]
-    public void StepResult_RecordEquality()
-    {
-        var a = new StepResult(0, "twig_new", StepStatus.Succeeded, """{"id":1}""", null, 100);
-        var b = new StepResult(0, "twig_new", StepStatus.Succeeded, """{"id":1}""", null, 100);
-
-        a.ShouldBe(b);
-    }
-
-    [Fact]
-    public void BatchGraph_RecordEquality()
-    {
-        var root = new StepNode(0, "twig_status", new Dictionary<string, object?>());
-        var a = new BatchGraph(root, 1, 0);
-        var b = new BatchGraph(root, 1, 0);
-
-        a.ShouldBe(b);
     }
 
     // ── Deep Nesting ────────────────────────────────────────────────

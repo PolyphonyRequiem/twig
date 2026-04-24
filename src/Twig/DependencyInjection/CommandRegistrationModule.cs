@@ -40,6 +40,7 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<HintEngine>(),
             sp.GetRequiredService<IGlobalProfileStore>(),
+            sp.GetRequiredService<IConsoleInput>(),
             sp.GetService<ITelemetryClient>()));
         services.AddSingleton<SetCommand>();
         services.AddSingleton<ShowCommand>();

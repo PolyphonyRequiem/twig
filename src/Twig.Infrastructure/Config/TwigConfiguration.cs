@@ -331,6 +331,12 @@ public sealed class TwigConfiguration
                     return true;
                 }
                 return false;
+            case "defaults.mode":
+                var modeLower = value.ToLowerInvariant();
+                if (modeLower is not ("sprint" or "workspace"))
+                    return false;
+                Defaults.Mode = modeLower;
+                return true;
             case "defaults.areapathentries":
                 var entries = new List<AreaPathEntry>();
                 foreach (var raw in value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
@@ -373,6 +379,12 @@ public sealed class DefaultsConfig
     public List<string>? AreaPaths { get; set; }
     public List<AreaPathEntry>? AreaPathEntries { get; set; }
     public string? IterationPath { get; set; }
+
+    /// <summary>
+    /// Workspace mode: "sprint" (iteration-scoped) or "workspace" (query-scoped).
+    /// Defaults to "sprint".
+    /// </summary>
+    public string Mode { get; set; } = "sprint";
 
     /// <summary>
     /// Resolves the configured area paths using a 3-tier fallback:

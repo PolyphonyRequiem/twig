@@ -24,6 +24,7 @@ public sealed class InitCommand
     private readonly HintEngine _hintEngine;
     private readonly IGlobalProfileStore? _globalProfileStore;
     private readonly ITelemetryClient? _telemetryClient;
+    private readonly IConsoleInput? _consoleInput;
 
     /// <summary>
     /// Production constructor — accepts auth + HTTP so it can construct an
@@ -32,6 +33,7 @@ public sealed class InitCommand
     /// </summary>
     public InitCommand(IAuthenticationProvider authProvider, HttpClient httpClient, TwigPaths paths,
         OutputFormatterFactory formatterFactory, HintEngine hintEngine, IGlobalProfileStore globalProfileStore,
+        IConsoleInput consoleInput,
         ITelemetryClient? telemetryClient = null)
     {
         _authProvider = authProvider;
@@ -40,6 +42,7 @@ public sealed class InitCommand
         _formatterFactory = formatterFactory;
         _hintEngine = hintEngine;
         _globalProfileStore = globalProfileStore;
+        _consoleInput = consoleInput;
         _telemetryClient = telemetryClient;
     }
 
@@ -50,6 +53,7 @@ public sealed class InitCommand
     public InitCommand(IIterationService iterationService, TwigPaths paths,
         OutputFormatterFactory formatterFactory, HintEngine hintEngine,
         IGlobalProfileStore? globalProfileStore = null,
+        IConsoleInput? consoleInput = null,
         ITelemetryClient? telemetryClient = null)
     {
         _iterationService = iterationService;
@@ -57,6 +61,7 @@ public sealed class InitCommand
         _formatterFactory = formatterFactory;
         _hintEngine = hintEngine;
         _globalProfileStore = globalProfileStore;
+        _consoleInput = consoleInput;
         _telemetryClient = telemetryClient;
     }
 
@@ -133,6 +138,22 @@ public sealed class InitCommand
                 var shmPath = contextPaths.DbPath + "-shm";
                 if (File.Exists(walPath)) File.Delete(walPath);
                 if (File.Exists(shmPath)) File.Delete(shmPath);
+            }
+        }
+
+        // Check for .git directory/file alongside the target — warn if missing
+        var gitPath = Path.Combine(_paths.StartDir, ".git");
+        if (!Directory.Exists(gitPath) && !File.Exists(gitPath))
+        {
+            if (_consoleInput is not null && !_consoleInput.IsOutputRedirected)
+            {
+                Console.Error.Write($"\u26a0 No .git directory found at {_paths.StartDir}. This may not be a repository root. Continue? [y/N]: ");
+                var response = _consoleInput.ReadLine();
+                if (!string.Equals(response?.Trim(), "y", StringComparison.OrdinalIgnoreCase))
+                {
+                    Console.Error.WriteLine(fmt.FormatError("Aborted."));
+                    return (1, false, 0);
+                }
             }
         }
 
@@ -237,6 +258,15 @@ public sealed class InitCommand
         {
             Console.WriteLine(fmt.FormatInfo("  \u26a0 Could not detect user identity."));
             Console.WriteLine(fmt.FormatHint("You can set it later with: twig config user.name '<Your Name>'"));
+        }
+
+        // Prompt for workspace mode (TTY only; default to sprint in non-TTY)
+        if (_consoleInput is not null && !_consoleInput.IsOutputRedirected)
+        {
+            Console.Write("Default workspace mode? [sprint/workspace] (sprint): ");
+            var modeResponse = _consoleInput.ReadLine()?.Trim().ToLowerInvariant();
+            if (modeResponse is "workspace")
+                config.Defaults.Mode = "workspace";
         }
 
         await config.SaveAsync(configPath);

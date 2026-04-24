@@ -242,8 +242,10 @@ internal static class CommandExamples
         ],
         ["workspace exclusions"] =
         [
-            "twig workspace exclusions          List all excluded work items",
-            "twig workspace exclusions -o json  List exclusions as JSON",
+            "twig workspace exclusions              List all excluded work items",
+            "twig workspace exclusions --clear      Remove all exclusions",
+            "twig workspace exclusions --remove 42  Remove exclusion for #42",
+            "twig workspace exclusions -o json      List exclusions as JSON",
         ],
         ["sprint"] =
         [

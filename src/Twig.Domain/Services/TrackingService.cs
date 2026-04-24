@@ -19,8 +19,15 @@ public sealed class TrackingService(ITrackingRepository repository) : ITrackingS
         => TrackAsync(workItemId, TrackingMode.Tree, ct);
 
     /// <inheritdoc />
-    public Task UntrackAsync(int workItemId, CancellationToken ct = default)
-        => repository.RemoveTrackedAsync(workItemId, ct);
+    public async Task<bool> UntrackAsync(int workItemId, CancellationToken ct = default)
+    {
+        var existing = await repository.GetTrackedByWorkItemIdAsync(workItemId, ct);
+        if (existing is null)
+            return false;
+
+        await repository.RemoveTrackedAsync(workItemId, ct);
+        return true;
+    }
 
     /// <inheritdoc />
     public Task ExcludeAsync(int workItemId, CancellationToken ct = default)
@@ -40,4 +47,26 @@ public sealed class TrackingService(ITrackingRepository repository) : ITrackingS
     /// <inheritdoc />
     public Task<IReadOnlyList<ExcludedItem>> ListExclusionsAsync(CancellationToken ct = default)
         => repository.GetAllExcludedAsync(ct);
+
+    /// <inheritdoc />
+    public async Task<bool> RemoveExclusionAsync(int workItemId, CancellationToken ct = default)
+    {
+        var existing = await repository.GetAllExcludedAsync(ct);
+        if (!existing.Any(e => e.WorkItemId == workItemId))
+            return false;
+
+        await repository.RemoveExcludedAsync(workItemId, ct);
+        return true;
+    }
+
+    /// <inheritdoc />
+    public async Task<int> ClearExclusionsAsync(CancellationToken ct = default)
+    {
+        var existing = await repository.GetAllExcludedAsync(ct);
+        var count = existing.Count;
+        if (count > 0)
+            await repository.ClearAllExcludedAsync(ct);
+
+        return count;
+    }
 }

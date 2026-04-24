@@ -90,12 +90,24 @@ public sealed class TrackingCommandTests
     [Fact]
     public async Task Untrack_ValidId_ReturnsZero()
     {
+        _trackingService.UntrackAsync(42, Arg.Any<CancellationToken>()).Returns(true);
         var cmd = CreateCommand();
         var (result, stdout) = await StdoutCapture.RunAsync(() => cmd.UntrackAsync(42));
 
         result.ShouldBe(0);
         stdout.ShouldContain("Untracked #42");
         await _trackingService.Received(1).UntrackAsync(42, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Untrack_NotTracked_ShowsNotTrackedMessage()
+    {
+        _trackingService.UntrackAsync(42, Arg.Any<CancellationToken>()).Returns(false);
+        var cmd = CreateCommand();
+        var (result, stdout) = await StdoutCapture.RunAsync(() => cmd.UntrackAsync(42));
+
+        result.ShouldBe(0);
+        stdout.ShouldContain("#42 was not tracked");
     }
 
     [Fact]
@@ -185,6 +197,69 @@ public sealed class TrackingCommandTests
 
         result.ShouldBe(0);
         stdout.ShouldContain("#99");
+    }
+
+    [Fact]
+    public async Task Exclusions_Clear_RemovesAll()
+    {
+        _trackingService.ClearExclusionsAsync(Arg.Any<CancellationToken>()).Returns(3);
+        var cmd = CreateCommand();
+
+        var (result, stdout) = await StdoutCapture.RunAsync(() => cmd.ExclusionsAsync(clear: true));
+
+        result.ShouldBe(0);
+        stdout.ShouldContain("Cleared 3 exclusion(s)");
+        await _trackingService.Received(1).ClearExclusionsAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Exclusions_Clear_NoExclusions_ShowsInfo()
+    {
+        _trackingService.ClearExclusionsAsync(Arg.Any<CancellationToken>()).Returns(0);
+        var cmd = CreateCommand();
+
+        var (result, stdout) = await StdoutCapture.RunAsync(() => cmd.ExclusionsAsync(clear: true));
+
+        result.ShouldBe(0);
+        stdout.ShouldContain("No exclusions to clear");
+    }
+
+    [Fact]
+    public async Task Exclusions_Remove_ExistingExclusion_ShowsSuccess()
+    {
+        _trackingService.RemoveExclusionAsync(42, Arg.Any<CancellationToken>()).Returns(true);
+        var cmd = CreateCommand();
+
+        var (result, stdout) = await StdoutCapture.RunAsync(() => cmd.ExclusionsAsync(remove: 42));
+
+        result.ShouldBe(0);
+        stdout.ShouldContain("Removed exclusion for #42");
+        await _trackingService.Received(1).RemoveExclusionAsync(42, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Exclusions_Remove_NotExcluded_ShowsInfo()
+    {
+        _trackingService.RemoveExclusionAsync(42, Arg.Any<CancellationToken>()).Returns(false);
+        var cmd = CreateCommand();
+
+        var (result, stdout) = await StdoutCapture.RunAsync(() => cmd.ExclusionsAsync(remove: 42));
+
+        result.ShouldBe(0);
+        stdout.ShouldContain("#42 was not excluded");
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task Exclusions_Remove_InvalidId_ReturnsTwo(int invalidId)
+    {
+        var cmd = CreateCommand();
+
+        var (result, stderr) = await StderrCapture.RunAsync(() => cmd.ExclusionsAsync(remove: invalidId));
+
+        result.ShouldBe(2);
+        stderr.ShouldContain("Provide a positive work item ID");
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────

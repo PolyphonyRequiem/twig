@@ -733,9 +733,11 @@ public sealed class TwigCommands(IServiceProvider services)
 
     /// <summary>List all excluded work items.</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="clear">Remove all exclusions.</param>
+    /// <param name="remove">Remove a specific exclusion by work item ID.</param>
     [Command("workspace exclusions")]
-    public async Task<int> WorkspaceExclusions(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<TrackingCommand>().ExclusionsAsync(output, ct);
+    public async Task<int> WorkspaceExclusions(string output = OutputFormatterFactory.DefaultFormat, bool clear = false, int? remove = null, CancellationToken ct = default)
+        => await services.GetRequiredService<TrackingCommand>().ExclusionsAsync(output, clear, remove, ct);
 
     /// <summary>Show sprint items, grouped by assignee. Defaults to your items; use --all for the full team.</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
@@ -1140,7 +1142,7 @@ Tracking:
   workspace track-tree <id>  Pin a work item and its subtree.
   workspace untrack <id>     Remove a pinned work item.
   workspace exclude <id>     Hide a work item from workspace view.
-  workspace exclusions       List all excluded work items.
+  workspace exclusions       List all excluded work items.  (--clear / --remove <id>)
 
 Context:
   set <id|pattern>     Set the active work item.

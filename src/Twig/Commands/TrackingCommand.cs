@@ -34,8 +34,12 @@ public sealed class TrackingCommand(
             return 2;
         }
 
-        await trackingService.UntrackAsync(id, ct);
-        Console.WriteLine(fmt.FormatSuccess($"Untracked #{id}."));
+        var wasTracked = await trackingService.UntrackAsync(id, ct);
+        if (wasTracked)
+            Console.WriteLine(fmt.FormatSuccess($"Untracked #{id}."));
+        else
+            Console.WriteLine(fmt.FormatInfo($"#{id} was not tracked."));
+
         return 0;
     }
 
@@ -55,10 +59,35 @@ public sealed class TrackingCommand(
         return 0;
     }
 
-    /// <summary>List all exclusions.</summary>
-    public async Task<int> ExclusionsAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    /// <summary>List all exclusions, or clear/remove exclusions.</summary>
+    public async Task<int> ExclusionsAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool clear = false, int? remove = null, CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
+
+        if (clear)
+        {
+            var count = await trackingService.ClearExclusionsAsync(ct);
+            Console.WriteLine(count > 0
+                ? fmt.FormatSuccess($"Cleared {count} exclusion(s).")
+                : fmt.FormatInfo("No exclusions to clear."));
+            return 0;
+        }
+
+        if (remove is { } removeId)
+        {
+            if (removeId <= 0)
+            {
+                Console.Error.WriteLine(fmt.FormatError("Provide a positive work item ID to remove."));
+                return 2;
+            }
+
+            var wasExcluded = await trackingService.RemoveExclusionAsync(removeId, ct);
+            Console.WriteLine(wasExcluded
+                ? fmt.FormatSuccess($"Removed exclusion for #{removeId}.")
+                : fmt.FormatInfo($"#{removeId} was not excluded."));
+            return 0;
+        }
+
         var exclusions = await trackingService.ListExclusionsAsync(ct);
 
         if (exclusions.Count == 0)

@@ -5,7 +5,7 @@
 | **Work Item** | #1946 — Workspace Mode Infrastructure |
 | **Type** | Issue (parent of Tasks) |
 | **Author** | Daniel Green |
-| **Status** | Draft |
+| **Status** | 🔨 In Progress — 1/3 PR groups merged |
 | **Revision** | 0 |
 
 ---

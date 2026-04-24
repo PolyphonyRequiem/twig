@@ -1,3 +1,4 @@
+using Twig.Domain.Aggregates;
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
@@ -122,13 +123,19 @@ public sealed class TrackingService(
         var workItemLookup = workItems.ToDictionary(w => w.Id);
 
         var removalIds = new List<int>();
+        var processTypeCache = new Dictionary<string, ProcessTypeRecord?>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var item in tracked)
         {
             if (!workItemLookup.TryGetValue(item.WorkItemId, out var workItem))
                 continue;
 
-            var processType = await processTypeStore.GetByNameAsync(workItem.Type.Value, ct);
+            if (!processTypeCache.TryGetValue(workItem.Type.Value, out var processType))
+            {
+                processType = await processTypeStore.GetByNameAsync(workItem.Type.Value, ct);
+                processTypeCache[workItem.Type.Value] = processType;
+            }
+
             var category = StateCategoryResolver.Resolve(workItem.State, processType?.States);
 
             var isCompleted = category == StateCategory.Completed;
@@ -139,6 +146,10 @@ public sealed class TrackingService(
                     removalIds.Add(item.WorkItemId);
                     break;
 
+                // IterationPath has no total ordering; != approximates "past" for the common
+                // case where items aren't pre-assigned to future sprints. A completed item in
+                // a future iteration will also be removed — see the behavioral test
+                // ApplyCleanupPolicyAsync_OnCompleteAndPast_RemovesCompletedInFutureIteration.
                 case TrackingCleanupPolicy.OnCompleteAndPast
                     when isCompleted && workItem.IterationPath != currentIteration:
                     removalIds.Add(item.WorkItemId);

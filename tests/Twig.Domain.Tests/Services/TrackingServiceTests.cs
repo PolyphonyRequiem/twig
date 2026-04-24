@@ -872,6 +872,68 @@ public sealed class TrackingServiceTests
     }
 
     // ═══════════════════════════════════════════════════════════════
+    //  ApplyCleanupPolicyAsync — future iteration behavior
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ApplyCleanupPolicyAsync_OnCompleteAndPast_RemovesCompletedInFutureIteration_BehaviorDocumented()
+    {
+        // IterationPath has no total ordering, so != is used instead of <.
+        // This means a completed item in a future sprint is also removed.
+        // This test documents that intentional behavior (see inline comment in TrackingService).
+        var sut = CreateSut();
+        var currentIteration = TestIteration(@"Project\Sprint 2");
+
+        SetupTrackedItems(MakeTracked(1));
+        SetupWorkItems(
+            new WorkItemBuilder(1, "Future Done").AsTask().InState("Done")
+                .WithIterationPath(@"Project\Sprint 5").Build());
+
+        SetupProcessType("Task",
+            new StateEntry("Done", StateCategory.Completed, null));
+
+        var result = await sut.ApplyCleanupPolicyAsync(
+            TrackingCleanupPolicy.OnCompleteAndPast, currentIteration);
+
+        // Completed item in a future iteration is still removed (!= not <)
+        result.ShouldBe(1);
+        await _repository.Received(1).RemoveTrackedBatchAsync(
+            Arg.Is<IReadOnlyList<int>>(ids => ids.Count == 1 && ids.Contains(1)),
+            Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  ApplyCleanupPolicyAsync — process type cache (N+1 elimination)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ApplyCleanupPolicyAsync_CachesProcessTypeLookups_AvoidsDuplicateCalls()
+    {
+        var sut = CreateSut();
+        var currentIteration = TestIteration(@"Project\Sprint 2");
+
+        // Three items, all same type — should only call GetByNameAsync once
+        SetupTrackedItems(MakeTracked(1), MakeTracked(2), MakeTracked(3));
+        SetupWorkItems(
+            new WorkItemBuilder(1, "Task A").AsTask().InState("Done")
+                .WithIterationPath(@"Project\Sprint 1").Build(),
+            new WorkItemBuilder(2, "Task B").AsTask().InState("Active")
+                .WithIterationPath(@"Project\Sprint 2").Build(),
+            new WorkItemBuilder(3, "Task C").AsTask().InState("Done")
+                .WithIterationPath(@"Project\Sprint 1").Build());
+
+        SetupProcessType("Task",
+            new StateEntry("Active", StateCategory.InProgress, null),
+            new StateEntry("Done", StateCategory.Completed, null));
+
+        await sut.ApplyCleanupPolicyAsync(
+            TrackingCleanupPolicy.OnCompleteAndPast, currentIteration);
+
+        // GetByNameAsync should be called exactly once for "Task", not 3 times
+        await _processTypeStore.Received(1).GetByNameAsync("Task", Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     //  ApplyCleanupPolicyAsync — cancellation token propagation
     // ═══════════════════════════════════════════════════════════════
 

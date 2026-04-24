@@ -364,3 +364,70 @@ reviewers lacking P11 rubrics, pr_fixer no revision cap, no resume capability.
 
 ### Next step
 Examining cloudvault implementation workflow for patterns to adopt.
+
+---
+
+## Phase 3 Completion: Implementation Workflow (April 24, 2026)
+
+### What was changed
+
+Comprehensive redesign of `twig-sdlc-implement.yaml` — all 7 hard violations resolved.
+
+**Removed:**
+- `plan_reader` agent — entirely gone. Implementation no longer reads plans.
+- `close_out` agent — moved to apex workflow level.
+- Inputs: `plan_path`, `child_issue_plans`, `prompt`, `work_item_type`
+- All `plan_reader.output` references across 11 prompt files
+
+**Rewritten:**
+- `load-work-tree.ps1` — discovers PGs from ADO work item tags (P1). Falls back
+  to single PG-1 if no tags. No plan text parsing.
+- `pr_finalizer` YAML routing — removed `verification_attempt >= 3` auto-approve.
+  Now retries up to 10, then terminates honestly (P7).
+- `intake` outputs renamed: `epic_id` → `work_item_id`, etc. (P9)
+- `intent` input added (P4)
+
+**New scripts wired in:**
+- `assess-staleness.ps1` — wired into pr_group_manager, runs per-PG before starting
+- `post-merge-regression.ps1` — wired into pr_merge, runs after each PR merge
+- Review cap in task_reviewer — 2 rejections then approve-or-escalate
+
+**Prompt cleanups:**
+- `pr-group-manager.prompt.md` — staleness check + branch-from-HEAD documented
+- `pr-merge.prompt.md` — post-merge regression testing, removed plan status update
+- `task-reviewer.prompt.md` — review cap, removed plan_reader reference
+- No-nulls rule added to all 24 system prompts
+- All remaining `plan_reader.output` references replaced (8 files)
+
+### Cloudvault patterns adopted
+1. PG discovery from work items (tags) not plan text
+2. Staleness assessor per PG (proceed/adapt/replan)
+3. Post-merge regression testing on main
+4. Review caps with escalation (2 rejections → approve or escalate)
+5. Branch creation from current HEAD for PG dependencies
+6. No-nulls rule on all system prompts
+7. PR finalizer as verification-only (no auto-approve)
+
+### Key commits
+- `94d868c` — major rewrite (load-work-tree, remove plan_reader/close_out, fix routing)
+- `7eefaf7` — wire scripts into prompts, remove all plan_reader references
+
+### Remaining (non-blocking, incremental improvements)
+- Convert `duplicate_check` from LLM to script (P8)
+- Add P11 rubrics to task_reviewer, issue_reviewer, pr_reviewer
+- Resume state discovery at implementation entry (P3)
+- Formal staleness gate (currently prompt-based, could be script + human gate)
+
+---
+
+## Summary: All Three Phases Complete
+
+| Phase | Workflow | Status | Commits |
+|-------|----------|--------|---------|
+| 1 | `twig-sdlc-full.yaml` (apex) | ✅ COMPLETE | `3f1757a` → `26ad0af` |
+| 2 | `twig-sdlc-planning.yaml` + 4 sub-workflows | ✅ COMPLETE | `ec37f78` → `84de016` |
+| 3 | `twig-sdlc-implement.yaml` | ✅ COMPLETE | `94d868c` → `7eefaf7` |
+
+### Design principles established: P1–P11
+### Total files changed: ~50 across both repos
+### Net result: plan-centric → work-item-centric SDLC pipeline

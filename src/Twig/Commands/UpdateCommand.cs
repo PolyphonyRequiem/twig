@@ -28,7 +28,7 @@ public sealed class UpdateCommand(
     private readonly TextWriter _stderr = stderr ?? Console.Error;
     private readonly TextWriter _stdout = stdout ?? Console.Out;
 
-    public async Task<int> ExecuteAsync(string field, string? value = null, string outputFormat = OutputFormatterFactory.DefaultFormat, string? format = null, string? filePath = null, bool readStdin = false, int? id = null, CancellationToken ct = default)
+    public async Task<int> ExecuteAsync(string field, string? value = null, string outputFormat = OutputFormatterFactory.DefaultFormat, string? format = null, string? filePath = null, bool readStdin = false, int? id = null, bool append = false, CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
@@ -100,6 +100,13 @@ public sealed class UpdateCommand(
             return 1;
         if (conflictOutcome is ConflictOutcome.AcceptedRemote or ConflictOutcome.Aborted)
             return 0;
+
+        if (append)
+        {
+            remote.Fields.TryGetValue(field, out var existingValue);
+            bool asHtml = format is not null || FieldAppender.LooksLikeHtml(existingValue ?? "");
+            effectiveValue = FieldAppender.Append(existingValue, effectiveValue, asHtml);
+        }
 
         var changes = new[] { new FieldChange(field, null, effectiveValue) };
         try

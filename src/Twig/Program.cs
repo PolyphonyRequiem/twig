@@ -739,6 +739,35 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> WorkspaceExclusions(string output = OutputFormatterFactory.DefaultFormat, bool clear = false, int? remove = null, CancellationToken ct = default)
         => await services.GetRequiredService<TrackingCommand>().ExclusionsAsync(output, clear, remove, ct);
 
+    // ── Area Path Management ───────────────────────────────────────────
+
+    /// <summary>Add an area path to the workspace configuration.</summary>
+    /// <param name="path">Area path to add (e.g., "Project\Team A").</param>
+    /// <param name="exact">Use exact match semantics instead of subtree (under).</param>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    [Command("area add")]
+    public async Task<int> AreaAdd([Argument] string path, bool exact = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<AreaCommand>().AddAsync(path, exact, output, ct);
+
+    /// <summary>Remove an area path from the workspace configuration.</summary>
+    /// <param name="path">Area path to remove.</param>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    [Command("area remove")]
+    public async Task<int> AreaRemove([Argument] string path, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<AreaCommand>().RemoveAsync(path, output, ct);
+
+    /// <summary>List all configured area paths with their match semantics.</summary>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    [Command("area list")]
+    public async Task<int> AreaList(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<AreaCommand>().ListAsync(output, ct);
+
+    /// <summary>Fetch team area paths from ADO and replace the current configuration.</summary>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    [Command("area sync")]
+    public async Task<int> AreaSync(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<AreaCommand>().SyncAsync(output, ct);
+
     /// <summary>Show sprint items, grouped by assignee. Defaults to your items; use --all for the full team.</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     /// <param name="all">Show all team members' items, not just yours.</param>
@@ -1009,6 +1038,10 @@ internal static class GroupedHelp
         "workspace untrack",
         "workspace exclude",
         "workspace exclusions",
+        "area add",
+        "area remove",
+        "area list",
+        "area sync",
         "sprint",
 
         // Context
@@ -1101,6 +1134,7 @@ internal static class GroupedHelp
         // Group prefixes for compound commands without standalone handlers
         "link",
         "hooks",
+        "area",
     ];
 
     /// <summary>
@@ -1143,6 +1177,12 @@ Tracking:
   workspace untrack <id>     Remove a pinned work item.
   workspace exclude <id>     Hide a work item from workspace view.
   workspace exclusions       List all excluded work items.  (--clear / --remove <id>)
+
+Area Paths:
+  area add <path>            Add an area path to workspace config.  (--exact for exact match)
+  area remove <path>         Remove a configured area path.
+  area list                  List configured area paths with match semantics.
+  area sync                  Fetch team area paths from ADO and replace config.
 
 Context:
   set <id|pattern>     Set the active work item.

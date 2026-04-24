@@ -4,7 +4,7 @@ using Xunit;
 
 namespace Twig.Domain.Tests.ValueObjects;
 
-public class AreaPathTests
+public sealed class AreaPathTests
 {
     [Theory]
     [InlineData("MyProject")]
@@ -112,5 +112,70 @@ public class AreaPathTests
         var a = AreaPath.Parse("ProjectA").Value;
         var b = AreaPath.Parse("ProjectB").Value;
         a.ShouldNotBe(b);
+    }
+
+    // ── IsUnder ────────────────────────────────────────────────────────
+
+    [Fact]
+    public void IsUnder_SamePath_ReturnsTrue()
+    {
+        var path = AreaPath.Parse(@"Project\Team A").Value;
+        var ancestor = AreaPath.Parse(@"Project\Team A").Value;
+
+        path.IsUnder(ancestor).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void IsUnder_ChildPath_ReturnsTrue()
+    {
+        var path = AreaPath.Parse(@"Project\Team A\SubTeam").Value;
+        var ancestor = AreaPath.Parse(@"Project\Team A").Value;
+
+        path.IsUnder(ancestor).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void IsUnder_DeeplyNestedChild_ReturnsTrue()
+    {
+        var path = AreaPath.Parse(@"Project\Team A\Sub\Deep").Value;
+        var ancestor = AreaPath.Parse(@"Project\Team A").Value;
+
+        path.IsUnder(ancestor).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void IsUnder_ParentPath_ReturnsFalse()
+    {
+        var path = AreaPath.Parse("Project").Value;
+        var ancestor = AreaPath.Parse(@"Project\Team A").Value;
+
+        path.IsUnder(ancestor).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void IsUnder_SiblingPath_ReturnsFalse()
+    {
+        var path = AreaPath.Parse(@"Project\Team B").Value;
+        var ancestor = AreaPath.Parse(@"Project\Team A").Value;
+
+        path.IsUnder(ancestor).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void IsUnder_PrefixButNotChild_ReturnsFalse()
+    {
+        var path = AreaPath.Parse(@"Project\Team Alpha").Value;
+        var ancestor = AreaPath.Parse(@"Project\Team A").Value;
+
+        path.IsUnder(ancestor).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void IsUnder_CaseInsensitive()
+    {
+        var path = AreaPath.Parse(@"PROJECT\TEAM A\Sub").Value;
+        var ancestor = AreaPath.Parse(@"Project\Team A").Value;
+
+        path.IsUnder(ancestor).ShouldBeTrue();
     }
 }

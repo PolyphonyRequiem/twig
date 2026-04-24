@@ -331,6 +331,31 @@ public sealed class TwigConfiguration
                     return true;
                 }
                 return false;
+            case "defaults.areapathentries":
+                var entries = new List<AreaPathEntry>();
+                foreach (var raw in value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    string pathPart;
+                    bool includeChildren;
+                    if (raw.EndsWith(":exact", StringComparison.OrdinalIgnoreCase))
+                    {
+                        pathPart = raw[..^":exact".Length];
+                        includeChildren = false;
+                    }
+                    else
+                    {
+                        pathPart = raw;
+                        includeChildren = true;
+                    }
+
+                    var parsed = AreaPath.Parse(pathPart);
+                    if (!parsed.IsSuccess)
+                        return false;
+
+                    entries.Add(new AreaPathEntry { Path = pathPart, IncludeChildren = includeChildren });
+                }
+                Defaults.AreaPathEntries = entries;
+                return true;
             default:
                 return false;
         }

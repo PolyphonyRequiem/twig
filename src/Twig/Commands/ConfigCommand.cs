@@ -86,6 +86,10 @@ public sealed class ConfigCommand(
             "display.columns.sprint" => config.Display.Columns?.Sprint is { Count: > 0 } sp ? string.Join(";", sp) : null,
             "display.cachestaleminutes" => config.Display.CacheStaleMinutes.ToString(),
             "tracking.cleanuppolicy" => config.Tracking.CleanupPolicy,
+            "defaults.areapathentries" => config.Defaults.AreaPathEntries is { Count: > 0 } entries
+                ? string.Join(";", entries.Select(e => e.IncludeChildren ? e.Path : $"{e.Path}:exact"))
+                : null,
+            "workspace.worklevel" or "workspace.working_level" => config.Workspace.WorkingLevel,
             _ => null,
         };
     }

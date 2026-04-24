@@ -574,12 +574,12 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> SeedValidate([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<SeedValidateCommand>().ExecuteAsync(id, output, ct);
 
-    /// <summary>Publish seeds to Azure DevOps. Use --all for batch, --dry-run to preview, --force to skip validation.</summary>
+    /// <summary>Publish seeds to Azure DevOps. Use --all for batch, --dry-run to preview, --force to skip validation, --link-branch to link to a git branch.</summary>
     /// <param name="id">Seed ID to publish; omit when using --all.</param>
     /// <param name="all">Publish all seeds in dependency order.</param>
     /// <param name="force">Skip validation before publishing.</param>
     /// <param name="dryRun">Preview what would be published without making changes.</param>
-    /// <param name="linkBranch">Link published work items to this branch name.</param>
+    /// <param name="linkBranch">Link published work items to this branch name (e.g. feature/my-branch). Creates an ADO artifact link to the branch ref.</param>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     [Command("seed publish")]
     public async Task<int> SeedPublish([Argument] int? id = null, bool all = false, bool force = false, bool dryRun = false, string? linkBranch = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
@@ -1186,6 +1186,7 @@ Work Items:
   seed validate [id]   Validate seeds against publish rules.
   seed publish <id>    Publish a seed to Azure DevOps.
   seed publish --all   Publish all seeds in dependency order.
+  seed publish --all --link-branch <name>  Publish all and link to a branch.
   seed reconcile       Repair stale links after partial publishes.
   discard <id>         Drop pending changes for a work item.
   discard --all        Drop all pending changes (excludes seeds).

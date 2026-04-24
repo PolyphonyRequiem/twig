@@ -30,6 +30,7 @@ public sealed class WorkspaceContext : IDisposable
     public McpPendingChangeFlusher Flusher { get; }
     public IPromptStateWriter PromptStateWriter { get; }
     public ParentStatePropagationService ParentPropagationService { get; }
+    public ITrackingRepository? TrackingRepo { get; }
 
     internal SqliteCacheStore CacheStore { get; }
 
@@ -51,7 +52,8 @@ public sealed class WorkspaceContext : IDisposable
         WorkingSetService workingSetService,
         McpPendingChangeFlusher flusher,
         IPromptStateWriter promptStateWriter,
-        ParentStatePropagationService parentPropagationService)
+        ParentStatePropagationService parentPropagationService,
+        ITrackingRepository? trackingRepo = null)
     {
         Key = key;
         Config = config;
@@ -71,6 +73,7 @@ public sealed class WorkspaceContext : IDisposable
         Flusher = flusher;
         PromptStateWriter = promptStateWriter;
         ParentPropagationService = parentPropagationService;
+        TrackingRepo = trackingRepo;
     }
 
     /// <summary>

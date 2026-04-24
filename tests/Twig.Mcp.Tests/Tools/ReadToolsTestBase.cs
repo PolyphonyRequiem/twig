@@ -22,6 +22,7 @@ public abstract class ReadToolsTestBase
     protected readonly IPromptStateWriter _promptStateWriter = Substitute.For<IPromptStateWriter>();
     protected readonly IProcessConfigurationProvider _processConfigProvider =
         Substitute.For<IProcessConfigurationProvider>();
+    protected readonly ITrackingRepository _trackingRepo = Substitute.For<ITrackingRepository>();
 
     protected static readonly WorkspaceKey TestWorkspaceKey = new("testorg", "testproject");
 
@@ -34,7 +35,8 @@ public abstract class ReadToolsTestBase
     {
         var ctx = BuildContext(TestWorkspaceKey, config,
             _contextStore, _workItemRepo, _adoService, _pendingChangeStore,
-            _linkRepo, _iterationService, _processConfigProvider, _promptStateWriter);
+            _linkRepo, _iterationService, _processConfigProvider, _promptStateWriter,
+            _trackingRepo);
 
         var registry = Substitute.For<IWorkspaceRegistry>();
         registry.Workspaces.Returns(new[] { TestWorkspaceKey });
@@ -57,7 +59,8 @@ public abstract class ReadToolsTestBase
         IWorkItemLinkRepository LinkRepo,
         IIterationService IterationService,
         IPromptStateWriter PromptStateWriter,
-        IProcessConfigurationProvider ProcessConfigProvider);
+        IProcessConfigurationProvider ProcessConfigProvider,
+        ITrackingRepository TrackingRepo);
 
     /// <summary>
     /// Builds a <see cref="WorkspaceResolver"/> with multiple workspaces, each backed by
@@ -85,11 +88,13 @@ public abstract class ReadToolsTestBase
                 Substitute.For<IWorkItemLinkRepository>(),
                 Substitute.For<IIterationService>(),
                 Substitute.For<IPromptStateWriter>(),
-                Substitute.For<IProcessConfigurationProvider>());
+                Substitute.For<IProcessConfigurationProvider>(),
+                Substitute.For<ITrackingRepository>());
 
             var ctx = BuildContext(key, config,
                 m.ContextStore, m.WorkItemRepo, m.AdoService, m.PendingChangeStore,
-                m.LinkRepo, m.IterationService, m.ProcessConfigProvider, m.PromptStateWriter);
+                m.LinkRepo, m.IterationService, m.ProcessConfigProvider, m.PromptStateWriter,
+                m.TrackingRepo);
 
             factory.GetOrCreate(key).Returns(ctx);
             mocks[key] = m;
@@ -108,7 +113,8 @@ public abstract class ReadToolsTestBase
         IWorkItemLinkRepository linkRepo,
         IIterationService iterationService,
         IProcessConfigurationProvider processConfigProvider,
-        IPromptStateWriter promptStateWriter)
+        IPromptStateWriter promptStateWriter,
+        ITrackingRepository? trackingRepo = null)
     {
         var activeItemResolver = new ActiveItemResolver(contextStore, workItemRepo, adoService);
         var protectedWriter = new ProtectedCacheWriter(workItemRepo, pendingChangeStore);
@@ -136,7 +142,8 @@ public abstract class ReadToolsTestBase
             workItemRepo, contextStore, pendingChangeStore,
             adoService, iterationService, processConfigProvider,
             activeItemResolver, syncFactory, contextChange,
-            statusOrch, workingSet, flusher, promptStateWriter, parentPropagation);
+            statusOrch, workingSet, flusher, promptStateWriter, parentPropagation,
+            trackingRepo);
     }
 
     protected ReadTools CreateSut(TwigConfiguration config)

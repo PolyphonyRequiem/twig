@@ -114,7 +114,9 @@ internal static class McpResultBuilder
             writer.WriteEndArray();
         });
 
-    public static CallToolResult FormatWorkspace(Workspace workspace, int staleDays, string? workspaceKey = null) =>
+    public static CallToolResult FormatWorkspace(
+        Workspace workspace, int staleDays, string? workspaceKey = null,
+        IReadOnlyList<ExcludedItem>? excludedItems = null) =>
         BuildJson(writer =>
         {
             // Context
@@ -147,6 +149,31 @@ internal static class McpResultBuilder
             // Dirty count
             var dirtyItems = workspace.GetDirtyItems();
             writer.WriteNumber("dirtyCount", dirtyItems.Count);
+
+            // Tracked items
+            writer.WriteStartArray("trackedItems");
+            foreach (var t in workspace.TrackedItems)
+            {
+                writer.WriteStartObject();
+                writer.WriteNumber("workItemId", t.WorkItemId);
+                writer.WriteString("mode", t.Mode.ToString());
+                writer.WriteString("trackedAt", t.TrackedAt.ToString("o"));
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+
+            // Excluded items
+            var excluded = excludedItems ?? Array.Empty<ExcludedItem>();
+            writer.WriteStartArray("excludedItems");
+            foreach (var e in excluded)
+            {
+                writer.WriteStartObject();
+                writer.WriteNumber("workItemId", e.WorkItemId);
+                writer.WriteString("reason", e.Reason);
+                writer.WriteString("excludedAt", e.ExcludedAt.ToString("o"));
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
 
             WriteOptionalWorkspace(writer, workspaceKey);
         });

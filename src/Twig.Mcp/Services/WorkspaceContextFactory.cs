@@ -130,13 +130,15 @@ public sealed class WorkspaceContextFactory : IWorkspaceContextFactory, IDisposa
             protectedCacheWriter,
             linkRepo);
 
+        var trackingRepo = new SqliteTrackingRepository(cacheStore);
+
         var workingSetService = new WorkingSetService(
             contextStore,
             workItemRepo,
             pendingChangeStore,
             iterationService,
             config.User.DisplayName,
-            new SqliteTrackingRepository(cacheStore));
+            trackingRepo);
 
         var statusOrchestrator = new StatusOrchestrator(
             contextStore,
@@ -176,7 +178,8 @@ public sealed class WorkspaceContextFactory : IWorkspaceContextFactory, IDisposa
             workingSetService,
             flusher,
             promptStateWriter,
-            parentPropagationService);
+            parentPropagationService,
+            trackingRepo);
     }
 
     public void Dispose()

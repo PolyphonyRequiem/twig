@@ -380,4 +380,131 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
         context.GetProperty("id").GetInt32().ShouldBe(7);
         context.GetProperty("parentId").ValueKind.ShouldBe(JsonValueKind.Null);
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Tracked items included in output
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Workspace_WithTrackedItems_IncludesTrackedItemsInOutput()
+    {
+        SetupIteration();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var trackedAt = new DateTimeOffset(2026, 1, 15, 10, 0, 0, TimeSpan.Zero);
+        var tracked1 = new TrackedItem(42, Twig.Domain.Enums.TrackingMode.Single, trackedAt);
+        var tracked2 = new TrackedItem(99, Twig.Domain.Enums.TrackingMode.Tree, trackedAt.AddHours(1));
+        _trackingRepo.GetAllTrackedAsync(Arg.Any<CancellationToken>())
+            .Returns([tracked1, tracked2]);
+        _trackingRepo.GetAllExcludedAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<ExcludedItem>());
+
+        var result = await CreateSut(_config).Workspace();
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+
+        var trackedItems = root.GetProperty("trackedItems");
+        trackedItems.GetArrayLength().ShouldBe(2);
+        trackedItems[0].GetProperty("workItemId").GetInt32().ShouldBe(42);
+        trackedItems[0].GetProperty("mode").GetString().ShouldBe("Single");
+        trackedItems[1].GetProperty("workItemId").GetInt32().ShouldBe(99);
+        trackedItems[1].GetProperty("mode").GetString().ShouldBe("Tree");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Excluded items included in output
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Workspace_WithExcludedItems_IncludesExcludedItemsInOutput()
+    {
+        SetupIteration();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        _trackingRepo.GetAllTrackedAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<TrackedItem>());
+
+        var excludedAt = new DateTimeOffset(2026, 2, 1, 8, 0, 0, TimeSpan.Zero);
+        var excluded1 = new ExcludedItem(50, "noise", excludedAt);
+        var excluded2 = new ExcludedItem(60, "irrelevant", excludedAt.AddDays(1));
+        _trackingRepo.GetAllExcludedAsync(Arg.Any<CancellationToken>())
+            .Returns([excluded1, excluded2]);
+
+        var result = await CreateSut(_config).Workspace();
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+
+        var excludedItems = root.GetProperty("excludedItems");
+        excludedItems.GetArrayLength().ShouldBe(2);
+        excludedItems[0].GetProperty("workItemId").GetInt32().ShouldBe(50);
+        excludedItems[0].GetProperty("reason").GetString().ShouldBe("noise");
+        excludedItems[1].GetProperty("workItemId").GetInt32().ShouldBe(60);
+        excludedItems[1].GetProperty("reason").GetString().ShouldBe("irrelevant");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Empty tracking — arrays present but empty
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Workspace_NoTracking_ReturnsEmptyTrackedAndExcludedArrays()
+    {
+        SetupIteration();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _trackingRepo.GetAllTrackedAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<TrackedItem>());
+        _trackingRepo.GetAllExcludedAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<ExcludedItem>());
+
+        var result = await CreateSut(_config).Workspace();
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+
+        root.GetProperty("trackedItems").GetArrayLength().ShouldBe(0);
+        root.GetProperty("excludedItems").GetArrayLength().ShouldBe(0);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Tracked items with trackedAt ISO 8601 format
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Workspace_TrackedItem_SerializesTrackedAtAsIso8601()
+    {
+        SetupIteration();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var trackedAt = new DateTimeOffset(2026, 3, 10, 14, 30, 0, TimeSpan.Zero);
+        _trackingRepo.GetAllTrackedAsync(Arg.Any<CancellationToken>())
+            .Returns([new TrackedItem(77, Twig.Domain.Enums.TrackingMode.Single, trackedAt)]);
+        _trackingRepo.GetAllExcludedAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<ExcludedItem>());
+
+        var result = await CreateSut(_config).Workspace();
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+
+        var item = root.GetProperty("trackedItems")[0];
+        item.GetProperty("trackedAt").GetString().ShouldBe("2026-03-10T14:30:00.0000000+00:00");
+    }
 }

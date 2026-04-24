@@ -464,6 +464,24 @@ public sealed class ToolDispatcherTests
         ex.Message.ShouldContain("parentId");
     }
 
+    // ── Append flag forwarding ──────────────────────────────────────
+
+    [Fact]
+    public async Task DispatchAsync_TwigUpdate_WithAppendTrue_ReachesToolMethod()
+    {
+        // Passes field, value, and append=true — proves the dispatcher extracts
+        // and forwards the append parameter. Workspace resolution fails (empty
+        // registry), but the call reaches MutationTools.Update (no arg exception).
+        var result = await _dispatcher.DispatchAsync(
+            "twig_update",
+            Args(("field", "System.Description"), ("value", "appended text"), ("append", true)),
+            null, CancellationToken.None);
+
+        result.IsError.ShouldBe(true);
+        GetText(result).ShouldNotContain("Unknown tool");
+        // Must not throw ArgumentException — all args (including append) were extracted
+    }
+
     // ── Int coercion edge cases in routing ──────────────────────────
 
     [Fact]

@@ -505,6 +505,142 @@ public class UpdateCommandTests
     }
 
     [Fact]
+    public async Task Append_PlainText_AppendsToExistingValue()
+    {
+        var local = CreateWorkItem(1, "Test");
+        SetupActiveItem(local);
+
+        var remote = new WorkItemBuilder(1, "Test")
+            .WithField("System.Description", "existing text")
+            .Build();
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote, remote);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>()).Returns(Array.Empty<PendingChangeRecord>());
+
+        var result = await _cmd.ExecuteAsync("System.Description", "appended text", append: true);
+
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(1,
+            Arg.Is<IReadOnlyList<FieldChange>>(c =>
+                c[0].NewValue == "existing text\n\nappended text"),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Append_EmptyExisting_SetsValueDirectly()
+    {
+        var local = CreateWorkItem(1, "Test");
+        SetupActiveItem(local);
+
+        var remote = new WorkItemBuilder(1, "Test").Build();
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote, remote);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>()).Returns(Array.Empty<PendingChangeRecord>());
+
+        var result = await _cmd.ExecuteAsync("System.Description", "new value", append: true);
+
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(1,
+            Arg.Is<IReadOnlyList<FieldChange>>(c =>
+                c[0].NewValue == "new value"),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Append_HtmlExisting_AppendsAsHtml()
+    {
+        var local = CreateWorkItem(1, "Test");
+        SetupActiveItem(local);
+
+        var remote = new WorkItemBuilder(1, "Test")
+            .WithField("System.Description", "<p>existing</p>")
+            .Build();
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote, remote);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>()).Returns(Array.Empty<PendingChangeRecord>());
+
+        var result = await _cmd.ExecuteAsync("System.Description", "appended text", append: true);
+
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(1,
+            Arg.Is<IReadOnlyList<FieldChange>>(c =>
+                c[0].NewValue == "<p>existing</p><p>appended text</p>"),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Append_WithMarkdownFormat_ForcesHtmlMode()
+    {
+        var local = CreateWorkItem(1, "Test");
+        SetupActiveItem(local);
+
+        var remote = new WorkItemBuilder(1, "Test")
+            .WithField("System.Description", "plain existing")
+            .Build();
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote, remote);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>()).Returns(Array.Empty<PendingChangeRecord>());
+
+        var result = await _cmd.ExecuteAsync("System.Description", "# heading", format: "markdown", append: true);
+
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(1,
+            Arg.Is<IReadOnlyList<FieldChange>>(c =>
+                c[0].NewValue!.Contains("plain existing") &&
+                c[0].NewValue!.Contains("<h1")),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Append_False_OverwritesValue()
+    {
+        var local = CreateWorkItem(1, "Test");
+        SetupActiveItem(local);
+
+        var remote = new WorkItemBuilder(1, "Test")
+            .WithField("System.Description", "existing text")
+            .Build();
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote, remote);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>()).Returns(Array.Empty<PendingChangeRecord>());
+
+        var result = await _cmd.ExecuteAsync("System.Description", "new value", append: false);
+
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(1,
+            Arg.Is<IReadOnlyList<FieldChange>>(c =>
+                c[0].NewValue == "new value"),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Append_SuccessMessage_ShowsInlineValue()
+    {
+        var local = CreateWorkItem(1, "Test");
+        SetupActiveItem(local);
+
+        var remote = new WorkItemBuilder(1, "Test")
+            .WithField("System.Description", "existing text")
+            .Build();
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote, remote);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>()).Returns(Array.Empty<PendingChangeRecord>());
+
+        var stdout = new StringWriter();
+        var cmd = CreateCommand(stdout: stdout);
+
+        var result = await cmd.ExecuteAsync("System.Description", "appended text", append: true);
+
+        result.ShouldBe(0);
+        var output = stdout.ToString();
+        output.ShouldContain("#1");
+        output.ShouldContain("Test");
+        output.ShouldContain("updated:");
+        output.ShouldContain("System.Description");
+        output.ShouldContain("appended text");
+    }
+
+    [Fact]
     public async Task Update_WithExplicitId_ResolvesById()
     {
         var item = CreateWorkItem(42, "Explicit Item");

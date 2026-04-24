@@ -649,8 +649,9 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="file">Read the field value from a file instead of an inline argument.</param>
     /// <param name="stdin">Read the field value from piped standard input.</param>
     /// <param name="id">Work item ID to update; omit to use the active work item.</param>
-    public async Task<int> Update([Argument] string field, [Argument] string? value = null, string output = OutputFormatterFactory.DefaultFormat, string? format = null, string? file = null, bool stdin = false, int? id = null, CancellationToken ct = default)
-        => await services.GetRequiredService<UpdateCommand>().ExecuteAsync(field, value, output, format, file, stdin, id, ct);
+    /// <param name="append">Append the value to the existing field content instead of replacing it.</param>
+    public async Task<int> Update([Argument] string field, [Argument] string? value = null, string output = OutputFormatterFactory.DefaultFormat, string? format = null, string? file = null, bool stdin = false, int? id = null, bool append = false, CancellationToken ct = default)
+        => await services.GetRequiredService<UpdateCommand>().ExecuteAsync(field, value, output, format, file, stdin, id, append, ct);
 
     /// <summary>Edit work item fields in an external editor.</summary>
     /// <param name="field">Specific field to edit; omit to edit all editable fields.</param>

@@ -17,7 +17,8 @@ public sealed class RefreshOrchestrator(
     IPendingChangeStore pendingChangeStore,
     ProtectedCacheWriter protectedCacheWriter,
     WorkingSetService workingSetService,
-    SyncCoordinatorFactory syncCoordinatorFactory)
+    SyncCoordinatorFactory syncCoordinatorFactory,
+    ITrackingService? trackingService = null)
 {
 
     /// <summary>
@@ -110,6 +111,18 @@ public sealed class RefreshOrchestrator(
 
             await workItemRepo.SaveBatchAsync(ancestors, ct);
         }
+    }
+
+    /// <summary>
+    /// Syncs tracked trees by re-exploring each tree-mode root via the ADO API.
+    /// Returns the number of items auto-untracked (deleted in ADO), or 0 if tracking is not configured.
+    /// </summary>
+    public async Task<int> SyncTrackedTreesAsync(CancellationToken ct = default)
+    {
+        if (trackingService is null)
+            return 0;
+
+        return await trackingService.SyncTrackedTreesAsync(syncCoordinatorFactory.ReadWrite, ct);
     }
 
     /// <summary>Syncs the working set after refresh (no eviction per FR-013).</summary>

@@ -125,6 +125,7 @@ public sealed class RefreshCommand(
         }
 
         // Ancestor hydration and working set sync — delegated to orchestrator
+        await orchestrator.SyncTrackedTreesAsync(ct);
         await orchestrator.HydrateAncestorsAsync(ct);
         await orchestrator.SyncWorkingSetAsync(iteration, ct);
 

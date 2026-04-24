@@ -51,9 +51,11 @@ public abstract class RefreshCommandTestBase : IDisposable
         _protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
         var syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, _protectedCacheWriter, _pendingChangeStore, null, 30, 30);
         var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, _iterationService, null);
+        var trackingService = Substitute.For<ITrackingService>();
         _orchestrator = new RefreshOrchestrator(
             _contextStore, _workItemRepo, _adoService,
-            _pendingChangeStore, _protectedCacheWriter, workingSetService, syncCoordinatorFactory);
+            _pendingChangeStore, _protectedCacheWriter, workingSetService, syncCoordinatorFactory,
+            trackingService);
 
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);

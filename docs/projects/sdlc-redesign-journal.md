@@ -65,7 +65,7 @@ which is based on twig's but has evolved separately. Key differences:
 
 ## Design Principles
 
-Through iterative discussion, we established 8 design principles documented in
+Through iterative discussion, we established design principles documented in
 `.github/skills/conductor-design/SKILL.md`. Key ones driving the redesign:
 
 - **P1: Work Items Are Source of Truth** — ADO work items, not plan files, are
@@ -78,6 +78,12 @@ Through iterative discussion, we established 8 design principles documented in
 - **P4: Explicit Intent (new/redo/resume)** — Replaces ad-hoc flags like
   `skip_plan_review` and `plan_path`.
 - **P7: Fail Honestly, Don't Auto-Approve** — No force-pass after N attempts.
+- **P8: Prefer Scripts Over Agents for Deterministic Logic** *(late addition)* —
+  When a decision is deterministic and straightforward to implement as code, use a
+  script rather than an LLM agent. Agents add latency, cost, and nondeterminism for
+  zero value when the logic is just `if/else`. Discovered during post-implementation
+  audit: the `planning_or_implementation` router was an LLM doing boolean logic that
+  should have been a script or Jinja condition.
 
 ## Redesign Scope
 

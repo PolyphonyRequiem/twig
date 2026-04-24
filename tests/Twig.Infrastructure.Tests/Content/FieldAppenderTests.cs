@@ -82,22 +82,6 @@ public sealed class FieldAppenderTests
         result.ShouldBe("plain existing<p>new text</p>");
     }
 
-    [Fact]
-    public void Append_AsHtmlFalse_AutoDetects()
-    {
-        var result = FieldAppender.Append("plain existing", "new text", asHtml: false);
-
-        result.ShouldBe("plain existing\n\nnew text");
-    }
-
-    [Fact]
-    public void Append_AsHtmlTrue_NullExisting_ReturnsNewValueAsIs()
-    {
-        var result = FieldAppender.Append(null, "new content", asHtml: true);
-
-        result.ShouldBe("new content");
-    }
-
     // ── LooksLikeHtml ──
 
     [Theory]

@@ -104,8 +104,7 @@ public sealed class UpdateCommand(
         if (append)
         {
             remote.Fields.TryGetValue(field, out var existingValue);
-            bool asHtml = format is not null || FieldAppender.LooksLikeHtml(existingValue ?? "");
-            effectiveValue = FieldAppender.Append(existingValue, effectiveValue, asHtml);
+            effectiveValue = FieldAppender.Append(existingValue, effectiveValue, asHtml: format is not null);
         }
 
         var changes = new[] { new FieldChange(field, null, effectiveValue) };

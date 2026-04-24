@@ -22,6 +22,7 @@ public sealed class TwigConfiguration
     public GitConfig Git { get; set; } = new();
     public FlowConfig Flow { get; set; } = new();
     public WorkspaceConfig Workspace { get; set; } = new();
+    public TrackingConfig Tracking { get; set; } = new();
 
     /// <summary>
     /// Returns the project to use for git/PR API calls.
@@ -322,6 +323,14 @@ public sealed class TwigConfiguration
             case "workspace.working_level":
                 Workspace.WorkingLevel = string.IsNullOrWhiteSpace(value) ? null : value;
                 return true;
+            case "tracking.cleanuppolicy":
+                var policyLower = value.ToLowerInvariant();
+                if (policyLower is "none" or "on-complete" or "on-complete-and-past")
+                {
+                    Tracking.CleanupPolicy = policyLower;
+                    return true;
+                }
+                return false;
             default:
                 return false;
         }
@@ -483,4 +492,16 @@ public sealed class FlowConfig
     public string AutoAssign { get; set; } = "if-unassigned";
     public bool AutoSaveOnDone { get; set; } = true;
     public bool OfferPrOnDone { get; set; } = true;
+}
+
+/// <summary>
+/// Configuration for manual tracking overlay behavior.
+/// </summary>
+public sealed class TrackingConfig
+{
+    /// <summary>
+    /// Controls automatic cleanup of tracked items.
+    /// Valid values: "none", "on-complete", "on-complete-and-past".
+    /// </summary>
+    public string CleanupPolicy { get; set; } = "none";
 }

@@ -703,6 +703,40 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> Ws(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default)
         => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, noRefresh, ct);
 
+    /// <summary>Track a single work item by ID (pinned to workspace).</summary>
+    /// <param name="id">Work item ID to track.</param>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    [Command("workspace track")]
+    public async Task<int> WorkspaceTrack([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<TrackingCommand>().TrackAsync(id, output, ct);
+
+    /// <summary>Track a work item and its subtree.</summary>
+    /// <param name="id">Work item ID to track (with descendants).</param>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    [Command("workspace track-tree")]
+    public async Task<int> WorkspaceTrackTree([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<TrackingCommand>().TrackTreeAsync(id, output, ct);
+
+    /// <summary>Remove a work item from tracking.</summary>
+    /// <param name="id">Work item ID to stop tracking.</param>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    [Command("workspace untrack")]
+    public async Task<int> WorkspaceUntrack([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<TrackingCommand>().UntrackAsync(id, output, ct);
+
+    /// <summary>Exclude a work item from workspace view.</summary>
+    /// <param name="id">Work item ID to exclude.</param>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    [Command("workspace exclude")]
+    public async Task<int> WorkspaceExclude([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<TrackingCommand>().ExcludeAsync(id, output, ct);
+
+    /// <summary>List all excluded work items.</summary>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    [Command("workspace exclusions")]
+    public async Task<int> WorkspaceExclusions(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<TrackingCommand>().ExclusionsAsync(output, ct);
+
     /// <summary>Show sprint items, grouped by assignee. Defaults to your items; use --all for the full team.</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     /// <param name="all">Show all team members' items, not just yours.</param>
@@ -968,6 +1002,11 @@ internal static class GroupedHelp
         "tree",
         "workspace",
         "ws",
+        "workspace track",
+        "workspace track-tree",
+        "workspace untrack",
+        "workspace exclude",
+        "workspace exclusions",
         "sprint",
 
         // Context
@@ -1095,6 +1134,13 @@ Views:
   tree                 Work item hierarchy (parent → active → children).
   workspace            My sprint items.  (alias: ws)
   sprint               My sprint items, grouped by assignee.  (--all for team)
+
+Tracking:
+  workspace track <id>       Pin a work item to the workspace.
+  workspace track-tree <id>  Pin a work item and its subtree.
+  workspace untrack <id>     Remove a pinned work item.
+  workspace exclude <id>     Hide a work item from workspace view.
+  workspace exclusions       List all excluded work items.
 
 Context:
   set <id|pattern>     Set the active work item.

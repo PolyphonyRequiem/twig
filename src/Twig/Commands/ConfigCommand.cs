@@ -85,6 +85,7 @@ public sealed class ConfigCommand(
             "display.columns.workspace" => config.Display.Columns?.Workspace is { Count: > 0 } ws ? string.Join(";", ws) : null,
             "display.columns.sprint" => config.Display.Columns?.Sprint is { Count: > 0 } sp ? string.Join(";", sp) : null,
             "display.cachestaleminutes" => config.Display.CacheStaleMinutes.ToString(),
+            "tracking.cleanuppolicy" => config.Tracking.CleanupPolicy,
             _ => null,
         };
     }

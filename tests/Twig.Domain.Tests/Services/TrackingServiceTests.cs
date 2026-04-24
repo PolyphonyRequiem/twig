@@ -14,8 +14,10 @@ namespace Twig.Domain.Tests.Services;
 public sealed class TrackingServiceTests
 {
     private readonly ITrackingRepository _repository = Substitute.For<ITrackingRepository>();
+    private readonly IWorkItemRepository _workItemRepository = Substitute.For<IWorkItemRepository>();
+    private readonly IProcessTypeStore _processTypeStore = Substitute.For<IProcessTypeStore>();
 
-    private TrackingService CreateSut() => new(_repository);
+    private TrackingService CreateSut() => new(_repository, _workItemRepository, _processTypeStore);
 
     // ═══════════════════════════════════════════════════════════════
     //  TrackAsync
@@ -580,6 +582,312 @@ public sealed class TrackingServiceTests
         var coordinator = CreateSyncCoordinator();
         await sut.SyncTrackedTreesAsync(coordinator, token);
 
+        await _repository.Received(1).GetAllTrackedAsync(token);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  ApplyCleanupPolicyAsync — helpers
+    // ═══════════════════════════════════════════════════════════════
+
+    private static IterationPath TestIteration(string path = @"Project\Sprint 1") =>
+        IterationPath.Parse(path).Value;
+
+    private static TrackedItem MakeTracked(int id, TrackingMode mode = TrackingMode.Single) =>
+        new(id, mode, DateTimeOffset.UtcNow);
+
+    private void SetupTrackedItems(params TrackedItem[] items)
+    {
+        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>())
+            .Returns(items.ToList().AsReadOnly());
+    }
+
+    private void SetupWorkItems(params WorkItem[] items)
+    {
+        _workItemRepository.GetByIdsAsync(Arg.Any<IEnumerable<int>>(), Arg.Any<CancellationToken>())
+            .Returns(items.ToList().AsReadOnly());
+    }
+
+    private void SetupProcessType(string typeName, params StateEntry[] states)
+    {
+        var record = new ProcessTypeRecord { TypeName = typeName, States = states };
+        _processTypeStore.GetByNameAsync(typeName, Arg.Any<CancellationToken>())
+            .Returns(record);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  ApplyCleanupPolicyAsync — None policy
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ApplyCleanupPolicyAsync_NonePolicy_ReturnsZero_NeverQueriesRepository()
+    {
+        var sut = CreateSut();
+
+        var result = await sut.ApplyCleanupPolicyAsync(TrackingCleanupPolicy.None, TestIteration());
+
+        result.ShouldBe(0);
+        await _repository.DidNotReceive().GetAllTrackedAsync(Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  ApplyCleanupPolicyAsync — empty tracked list
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ApplyCleanupPolicyAsync_NoTrackedItems_ReturnsZero()
+    {
+        var sut = CreateSut();
+        SetupTrackedItems();
+
+        var result = await sut.ApplyCleanupPolicyAsync(TrackingCleanupPolicy.OnComplete, TestIteration());
+
+        result.ShouldBe(0);
+        await _repository.DidNotReceive().RemoveTrackedBatchAsync(
+            Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  ApplyCleanupPolicyAsync — OnComplete removes completed items
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ApplyCleanupPolicyAsync_OnComplete_RemovesCompletedItems()
+    {
+        var sut = CreateSut();
+
+        SetupTrackedItems(MakeTracked(1), MakeTracked(2), MakeTracked(3));
+        SetupWorkItems(
+            new WorkItemBuilder(1, "Done Task").AsTask().InState("Closed").Build(),
+            new WorkItemBuilder(2, "Active Task").AsTask().InState("Active").Build(),
+            new WorkItemBuilder(3, "Also Done").AsTask().InState("Done").Build());
+
+        SetupProcessType("Task",
+            new StateEntry("Active", StateCategory.InProgress, null),
+            new StateEntry("Closed", StateCategory.Completed, null),
+            new StateEntry("Done", StateCategory.Completed, null));
+
+        var result = await sut.ApplyCleanupPolicyAsync(
+            TrackingCleanupPolicy.OnComplete, TestIteration());
+
+        result.ShouldBe(2);
+        await _repository.Received(1).RemoveTrackedBatchAsync(
+            Arg.Is<IReadOnlyList<int>>(ids => ids.Count == 2 && ids.Contains(1) && ids.Contains(3)),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ApplyCleanupPolicyAsync_OnComplete_KeepsNonCompletedItems()
+    {
+        var sut = CreateSut();
+
+        SetupTrackedItems(MakeTracked(10));
+        SetupWorkItems(
+            new WorkItemBuilder(10, "In Progress").AsTask().InState("Active").Build());
+
+        SetupProcessType("Task",
+            new StateEntry("Active", StateCategory.InProgress, null));
+
+        var result = await sut.ApplyCleanupPolicyAsync(
+            TrackingCleanupPolicy.OnComplete, TestIteration());
+
+        result.ShouldBe(0);
+        await _repository.DidNotReceive().RemoveTrackedBatchAsync(
+            Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  ApplyCleanupPolicyAsync — OnCompleteAndPast requires both conditions
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ApplyCleanupPolicyAsync_OnCompleteAndPast_RemovesCompletedInPastIteration()
+    {
+        var sut = CreateSut();
+        var currentIteration = TestIteration(@"Project\Sprint 2");
+
+        SetupTrackedItems(MakeTracked(1));
+        SetupWorkItems(
+            new WorkItemBuilder(1, "Old Done").AsTask().InState("Done")
+                .WithIterationPath(@"Project\Sprint 1").Build());
+
+        SetupProcessType("Task",
+            new StateEntry("Done", StateCategory.Completed, null));
+
+        var result = await sut.ApplyCleanupPolicyAsync(
+            TrackingCleanupPolicy.OnCompleteAndPast, currentIteration);
+
+        result.ShouldBe(1);
+        await _repository.Received(1).RemoveTrackedBatchAsync(
+            Arg.Is<IReadOnlyList<int>>(ids => ids.Count == 1 && ids[0] == 1),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ApplyCleanupPolicyAsync_OnCompleteAndPast_KeepsCompletedInCurrentIteration()
+    {
+        var sut = CreateSut();
+        var currentIteration = TestIteration(@"Project\Sprint 2");
+
+        SetupTrackedItems(MakeTracked(1));
+        SetupWorkItems(
+            new WorkItemBuilder(1, "Current Done").AsTask().InState("Done")
+                .WithIterationPath(@"Project\Sprint 2").Build());
+
+        SetupProcessType("Task",
+            new StateEntry("Done", StateCategory.Completed, null));
+
+        var result = await sut.ApplyCleanupPolicyAsync(
+            TrackingCleanupPolicy.OnCompleteAndPast, currentIteration);
+
+        result.ShouldBe(0);
+        await _repository.DidNotReceive().RemoveTrackedBatchAsync(
+            Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ApplyCleanupPolicyAsync_OnCompleteAndPast_KeepsActiveInPastIteration()
+    {
+        var sut = CreateSut();
+        var currentIteration = TestIteration(@"Project\Sprint 2");
+
+        SetupTrackedItems(MakeTracked(1));
+        SetupWorkItems(
+            new WorkItemBuilder(1, "Old Active").AsTask().InState("Active")
+                .WithIterationPath(@"Project\Sprint 1").Build());
+
+        SetupProcessType("Task",
+            new StateEntry("Active", StateCategory.InProgress, null));
+
+        var result = await sut.ApplyCleanupPolicyAsync(
+            TrackingCleanupPolicy.OnCompleteAndPast, currentIteration);
+
+        result.ShouldBe(0);
+        await _repository.DidNotReceive().RemoveTrackedBatchAsync(
+            Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  ApplyCleanupPolicyAsync — process-agnostic (fallback resolution)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ApplyCleanupPolicyAsync_FallsBackToHeuristic_WhenNoProcessType()
+    {
+        var sut = CreateSut();
+
+        SetupTrackedItems(MakeTracked(1));
+        SetupWorkItems(
+            new WorkItemBuilder(1, "Closed Item").AsTask().InState("Closed").Build());
+
+        // No process type configured — StateCategoryResolver falls back to heuristic
+        _processTypeStore.GetByNameAsync("Task", Arg.Any<CancellationToken>())
+            .Returns((ProcessTypeRecord?)null);
+
+        var result = await sut.ApplyCleanupPolicyAsync(
+            TrackingCleanupPolicy.OnComplete, TestIteration());
+
+        result.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task ApplyCleanupPolicyAsync_ProcessAgnostic_WorksWithScrum()
+    {
+        var sut = CreateSut();
+
+        SetupTrackedItems(MakeTracked(1));
+        SetupWorkItems(
+            new WorkItemBuilder(1, "PBI").AsProductBacklogItem().InState("Done").Build());
+
+        SetupProcessType("Product Backlog Item",
+            new StateEntry("New", StateCategory.Proposed, null),
+            new StateEntry("Approved", StateCategory.InProgress, null),
+            new StateEntry("Committed", StateCategory.InProgress, null),
+            new StateEntry("Done", StateCategory.Completed, null));
+
+        var result = await sut.ApplyCleanupPolicyAsync(
+            TrackingCleanupPolicy.OnComplete, TestIteration());
+
+        result.ShouldBe(1);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  ApplyCleanupPolicyAsync — skips items not in cache
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ApplyCleanupPolicyAsync_SkipsItemsNotInCache()
+    {
+        var sut = CreateSut();
+
+        SetupTrackedItems(MakeTracked(1), MakeTracked(99));
+        // Only work item 1 is in cache; 99 is not
+        SetupWorkItems(
+            new WorkItemBuilder(1, "Done").AsTask().InState("Done").Build());
+
+        SetupProcessType("Task",
+            new StateEntry("Done", StateCategory.Completed, null));
+
+        var result = await sut.ApplyCleanupPolicyAsync(
+            TrackingCleanupPolicy.OnComplete, TestIteration());
+
+        result.ShouldBe(1);
+        await _repository.Received(1).RemoveTrackedBatchAsync(
+            Arg.Is<IReadOnlyList<int>>(ids => ids.Count == 1 && ids[0] == 1),
+            Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  ApplyCleanupPolicyAsync — mixed batch
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ApplyCleanupPolicyAsync_OnCompleteAndPast_MixedBatch_OnlyRemovesQualifying()
+    {
+        var sut = CreateSut();
+        var currentIteration = TestIteration(@"Project\Sprint 3");
+
+        SetupTrackedItems(MakeTracked(1), MakeTracked(2), MakeTracked(3), MakeTracked(4));
+        SetupWorkItems(
+            new WorkItemBuilder(1, "Done past").AsTask().InState("Done")
+                .WithIterationPath(@"Project\Sprint 1").Build(),
+            new WorkItemBuilder(2, "Done current").AsTask().InState("Done")
+                .WithIterationPath(@"Project\Sprint 3").Build(),
+            new WorkItemBuilder(3, "Active past").AsTask().InState("Active")
+                .WithIterationPath(@"Project\Sprint 2").Build(),
+            new WorkItemBuilder(4, "Done also past").AsTask().InState("Done")
+                .WithIterationPath(@"Project\Sprint 2").Build());
+
+        SetupProcessType("Task",
+            new StateEntry("Active", StateCategory.InProgress, null),
+            new StateEntry("Done", StateCategory.Completed, null));
+
+        var result = await sut.ApplyCleanupPolicyAsync(
+            TrackingCleanupPolicy.OnCompleteAndPast, currentIteration);
+
+        // Only items 1 and 4 are completed AND in past iterations
+        result.ShouldBe(2);
+        await _repository.Received(1).RemoveTrackedBatchAsync(
+            Arg.Is<IReadOnlyList<int>>(ids => ids.Count == 2 && ids.Contains(1) && ids.Contains(4)),
+            Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  ApplyCleanupPolicyAsync — cancellation token propagation
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ApplyCleanupPolicyAsync_PropagatesCancellationToken()
+    {
+        var sut = CreateSut();
+        using var cts = new CancellationTokenSource();
+        var token = cts.Token;
+
+        SetupTrackedItems();
+
+        var result = await sut.ApplyCleanupPolicyAsync(
+            TrackingCleanupPolicy.OnComplete, TestIteration(), token);
+
+        result.ShouldBe(0);
         await _repository.Received(1).GetAllTrackedAsync(token);
     }
 }

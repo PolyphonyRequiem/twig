@@ -45,4 +45,21 @@ public interface ITrackingService
     /// Returns the number of items that were auto-untracked.
     /// </summary>
     Task<int> SyncTrackedTreesAsync(SyncCoordinator syncCoordinator, CancellationToken ct = default);
+
+    /// <summary>
+    /// Evaluates the configured cleanup policy against all tracked items and removes
+    /// those that match the policy criteria.
+    /// <list type="bullet">
+    /// <item><see cref="TrackingCleanupPolicy.None"/>: no-op.</item>
+    /// <item><see cref="TrackingCleanupPolicy.OnComplete"/>: removes items whose state
+    /// resolves to <see cref="Enums.StateCategory.Completed"/>.</item>
+    /// <item><see cref="TrackingCleanupPolicy.OnCompleteAndPast"/>: removes items that are
+    /// both completed and in a past iteration (iteration path ≠ <paramref name="currentIteration"/>).</item>
+    /// </list>
+    /// Returns the number of items removed.
+    /// </summary>
+    Task<int> ApplyCleanupPolicyAsync(
+        TrackingCleanupPolicy policy,
+        IterationPath currentIteration,
+        CancellationToken ct = default);
 }

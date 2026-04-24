@@ -8,7 +8,10 @@ namespace Twig.Domain.Services;
 /// Domain service that orchestrates tracking and exclusion operations
 /// by delegating to <see cref="ITrackingRepository"/>.
 /// </summary>
-public sealed class TrackingService(ITrackingRepository repository) : ITrackingService
+public sealed class TrackingService(
+    ITrackingRepository repository,
+    IWorkItemRepository workItemRepository,
+    IProcessTypeStore processTypeStore) : ITrackingService
 {
     /// <inheritdoc />
     public Task TrackAsync(int workItemId, TrackingMode mode, CancellationToken ct = default)
@@ -99,5 +102,53 @@ public sealed class TrackingService(ITrackingRepository repository) : ITrackingS
             await repository.RemoveTrackedBatchAsync(untrackedIds, ct);
 
         return untrackedIds.Count;
+    }
+
+    /// <inheritdoc />
+    public async Task<int> ApplyCleanupPolicyAsync(
+        TrackingCleanupPolicy policy,
+        IterationPath currentIteration,
+        CancellationToken ct = default)
+    {
+        if (policy == TrackingCleanupPolicy.None)
+            return 0;
+
+        var tracked = await repository.GetAllTrackedAsync(ct);
+        if (tracked.Count == 0)
+            return 0;
+
+        var workItemIds = tracked.Select(t => t.WorkItemId).ToList();
+        var workItems = await workItemRepository.GetByIdsAsync(workItemIds, ct);
+        var workItemLookup = workItems.ToDictionary(w => w.Id);
+
+        var removalIds = new List<int>();
+
+        foreach (var item in tracked)
+        {
+            if (!workItemLookup.TryGetValue(item.WorkItemId, out var workItem))
+                continue;
+
+            var processType = await processTypeStore.GetByNameAsync(workItem.Type.Value, ct);
+            var category = StateCategoryResolver.Resolve(workItem.State, processType?.States);
+
+            var isCompleted = category == StateCategory.Completed;
+
+            switch (policy)
+            {
+                case TrackingCleanupPolicy.OnComplete when isCompleted:
+                    removalIds.Add(item.WorkItemId);
+                    break;
+
+                case TrackingCleanupPolicy.OnCompleteAndPast
+                    when isCompleted && workItem.IterationPath != currentIteration:
+                    removalIds.Add(item.WorkItemId);
+                    break;
+            }
+        }
+
+        if (removalIds.Count > 0)
+            await repository.RemoveTrackedBatchAsync(removalIds, ct);
+
+        return removalIds.Count;
     }
 }

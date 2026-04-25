@@ -6,7 +6,7 @@ type: Issue
 
 # SDLC close_out: Drill Into Issues to Verify Task States Before Epic Closure
 
-> **Status**: 📋 Planning
+> **Status**: 🔨 In Progress
 > **Work Item**: [#2070](https://dev.azure.com/dangreen-msft/Twig/_workitems/edit/2070)
 > **Revision**: 0 (initial draft)
 
@@ -343,6 +343,31 @@ This is an Issue (#2070) — Tasks are defined directly under it.
 All changes are tightly coupled — the read models, domain service, MCP tool, formatter method, and tests form a single coherent unit. This is small enough for a single PR and benefits from being reviewed together so the reviewer can see the full data flow from domain service → MCP tool → JSON output.
 
 **Execution order**: No dependencies on other PR groups. This is the only PG.
+
+## Execution Plan
+
+### PR Group Table
+
+| Group | Name | Issues/Tasks | Dependencies | Type |
+|-------|------|--------------|--------------|------|
+| PG-1 | PG-1-descendant-verification | T-2070.1, T-2070.2, T-2070.3, T-2070.4, T-2070.5, T-2070.6 | None | Deep |
+
+### Execution Order
+
+**PG-1-descendant-verification** is the only PR group. All six tasks form a single coherent unit:
+- T-2070.1 (read models) and T-2070.2 (domain service) must precede T-2070.4 (MCP tool) and T-2070.5 (domain service tests) because the tool and tests depend on the types defined in those files.
+- T-2070.3 (`FormatVerification` method) must precede T-2070.4 (MCP tool) since the tool calls it.
+- T-2070.5 and T-2070.6 (tests) are implemented last once all production code is in place.
+
+All changes are strictly additive (new files + two modified files) with no impact on existing tool contracts, so the entire changeset builds and tests independently as a single PR.
+
+### Validation Strategy
+
+**PG-1-descendant-verification**
+- `dotnet build` with `TreatWarningsAsErrors=true` and AOT trimming must pass
+- All new tests in `DescendantVerificationServiceTests.cs`, `NavigationToolsVerifyDescendantsTests.cs`, and `McpResultBuilderVerificationTests.cs` must pass
+- Full regression test suite (`dotnet test`) must remain green
+- Verify `twig_verify_descendants` is discoverable in `twig-mcp` tool listing at runtime
 
 ## References
 

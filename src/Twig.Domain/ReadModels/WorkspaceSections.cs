@@ -4,10 +4,13 @@ namespace Twig.Domain.ReadModels;
 
 /// <summary>
 /// A mode-labelled section of workspace items (e.g., Sprint, Area, Recent, Manual).
+/// When <see cref="TreeRoots"/> is provided, the section renders as a hierarchical tree;
+/// otherwise it falls back to flat item listing.
 /// </summary>
 public sealed record WorkspaceSection(
     string ModeName,
-    IReadOnlyList<WorkItem> Items);
+    IReadOnlyList<WorkItem> Items,
+    IReadOnlyList<SprintHierarchyNode>? TreeRoots = null);
 
 /// <summary>
 /// Read model that partitions workspace items into mode-labelled sections with
@@ -39,12 +42,13 @@ public sealed class WorkspaceSections
         IReadOnlyList<WorkItem>? areaItems = null,
         IReadOnlyList<WorkItem>? recentItems = null,
         IReadOnlyList<WorkItem>? manualItems = null,
-        IReadOnlyList<int>? excludedIds = null)
+        IReadOnlyList<int>? excludedIds = null,
+        IReadOnlyList<SprintHierarchyNode>? treeRoots = null)
     {
         var seen = new HashSet<int>();
         var sections = new List<WorkspaceSection>();
 
-        AddSection(sections, "Sprint", sprintItems, seen, dedup: true);
+        AddSection(sections, "Sprint", sprintItems, seen, dedup: true, treeRoots);
         AddSection(sections, "Area", areaItems, seen, dedup: true);
         AddSection(sections, "Recent", recentItems, seen, dedup: true);
 
@@ -54,12 +58,25 @@ public sealed class WorkspaceSections
         return new WorkspaceSections(sections, excludedIds ?? Array.Empty<int>());
     }
 
+    /// <summary>
+    /// Builds workspace sections from pre-constructed section records. Used when
+    /// multiple sections each carry their own tree roots (e.g., in tests or future
+    /// multi-mode tree rendering).
+    /// </summary>
+    public static WorkspaceSections BuildWithTreeRoots(
+        IReadOnlyList<WorkspaceSection> sections,
+        IReadOnlyList<int>? excludedIds = null)
+    {
+        return new WorkspaceSections(sections, excludedIds ?? Array.Empty<int>());
+    }
+
     private static void AddSection(
         List<WorkspaceSection> sections,
         string modeName,
         IReadOnlyList<WorkItem>? items,
         HashSet<int> seen,
-        bool dedup)
+        bool dedup,
+        IReadOnlyList<SprintHierarchyNode>? treeRoots = null)
     {
         if (items is null || items.Count == 0)
             return;
@@ -72,6 +89,6 @@ public sealed class WorkspaceSections
         }
 
         if (sectionItems.Count > 0)
-            sections.Add(new WorkspaceSection(modeName, sectionItems));
+            sections.Add(new WorkspaceSection(modeName, sectionItems, treeRoots));
     }
 }

@@ -38,6 +38,21 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     /// </summary>
     internal HashSet<int>? TrackedItemIds { get; set; }
 
+    /// <summary>
+    /// When true, workspace rendering uses tree-based layout instead of the flat table.
+    /// Set by WorkspaceCommand when hierarchy data is available.
+    /// </summary>
+    internal bool UseTreeRendering { get; set; }
+
+    /// <summary>Max ancestor levels above working level to display.</summary>
+    internal int TreeDepthUp { get; set; } = 2;
+
+    /// <summary>Max descendant depth below each root to display.</summary>
+    internal int TreeDepthDown { get; set; } = 10;
+
+    /// <summary>When &gt;0, show sibling count indicators at each tree level.</summary>
+    internal int TreeDepthSideways { get; set; } = 1;
+
     public async Task RenderWorkspaceAsync(
         IAsyncEnumerable<WorkspaceDataChunk> data,
         int staleDays,
@@ -46,6 +61,12 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         IReadOnlyList<Domain.ValueObjects.ColumnSpec>? dynamicColumns = null,
         int cacheStaleMinutes = 5)
     {
+        if (UseTreeRendering)
+        {
+            await RenderWorkspaceTreeAsync(data, staleDays, ct, cacheStaleMinutes);
+            return;
+        }
+
         var table = SpectreTheme.CreateWorkspaceTable(isTeamView, dynamicColumns);
         string? savedCaption = null;
         var loadingCleared = false;
@@ -335,6 +356,286 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             }
             catIndex++;
         }
+    }
+
+    // ── Workspace tree rendering ────────────────────────────────────────
+
+    /// <summary>
+    /// Renders workspace data as a hierarchical tree using a borderless single-column table
+    /// as the Live container. Each section's <see cref="WorkspaceSection.TreeRoots"/> is
+    /// rendered as Spectre <see cref="Tree"/> nodes with working-level focus (bold sprint
+    /// items, dimmed ancestors). Falls back to flat item listing for sections without tree data.
+    /// </summary>
+    private async Task RenderWorkspaceTreeAsync(
+        IAsyncEnumerable<WorkspaceDataChunk> data,
+        int staleDays,
+        CancellationToken ct,
+        int cacheStaleMinutes)
+    {
+        var container = new Table().Border(TableBorder.None).HideHeaders().Expand();
+        container.AddColumn(new TableColumn("").PadLeft(0).PadRight(0));
+
+        await _console.Live(container)
+            .StartAsync(async ctx =>
+            {
+                container.AddRow(new Markup("[dim]Loading workspace...[/]"));
+                ctx.Refresh();
+
+                int? activeContextId = null;
+                WorkspaceSections? currentSections = null;
+                var loadingCleared = false;
+
+                await foreach (var chunk in data.WithCancellation(ct))
+                {
+                    switch (chunk)
+                    {
+                        case WorkspaceDataChunk.ContextLoaded(var contextItem):
+                            activeContextId = contextItem?.Id;
+                            break;
+
+                        case WorkspaceDataChunk.SprintItemsLoaded { Sections: not null } loaded
+                            when loaded.Sections.Sections.Count > 0:
+                        {
+                            currentSections = loaded.Sections;
+                            if (!loadingCleared) { container.Rows.Clear(); loadingCleared = true; }
+                            else { container.Rows.Clear(); }
+
+                            var showHeaders = loaded.Sections.Sections.Count > 1;
+                            var sectionIndex = 0;
+
+                            foreach (var section in loaded.Sections.Sections)
+                            {
+                                if (sectionIndex > 0)
+                                    container.AddRow(new Markup(""));
+
+                                if (showHeaders)
+                                    container.AddRow(new Markup(
+                                        $"[bold]── {Markup.Escape(section.ModeName)} ({section.Items.Count}) ──[/]"));
+
+                                if (section.TreeRoots is { Count: > 0 })
+                                {
+                                    RenderTreeRootsIntoContainer(container, section.TreeRoots,
+                                        activeContextId, cacheStaleMinutes);
+                                }
+                                else
+                                {
+                                    RenderFlatItemsIntoContainer(container, section.Items,
+                                        activeContextId, cacheStaleMinutes);
+                                }
+
+                                sectionIndex++;
+                            }
+
+                            // Progress footer
+                            RenderTreeProgressFooter(container, loaded.Items);
+                            ctx.Refresh();
+                            break;
+                        }
+
+                        case WorkspaceDataChunk.SprintItemsLoaded loaded:
+                        {
+                            // No sections or empty sections — flat fallback in tree container
+                            currentSections = loaded.Sections;
+                            if (!loadingCleared) { container.Rows.Clear(); loadingCleared = true; }
+                            else { container.Rows.Clear(); }
+
+                            RenderFlatItemsIntoContainer(container, loaded.Items,
+                                activeContextId, cacheStaleMinutes);
+                            RenderTreeProgressFooter(container, loaded.Items);
+                            ctx.Refresh();
+                            break;
+                        }
+
+                        case WorkspaceDataChunk.SeedsLoaded(var seeds):
+                        {
+                            if (!loadingCleared) { container.Rows.Clear(); loadingCleared = true; }
+
+                            if (seeds.Count > 0)
+                            {
+                                container.AddRow(new Markup("[dim]───── Seeds ─────[/]"));
+                                var seedIndicator = _theme.FormatSeedIndicator();
+                                foreach (var seed in seeds)
+                                {
+                                    var staleMarker = seed.SeedCreatedAt.HasValue
+                                        && seed.SeedCreatedAt.Value < DateTimeOffset.UtcNow.AddDays(-staleDays)
+                                        ? " [yellow]⚠ stale[/]" : "";
+                                    container.AddRow(new Markup(
+                                        $"  {seedIndicator} {_theme.FormatTypeBadge(seed.Type)} #{seed.Id} {Markup.Escape(seed.Title)}{staleMarker} {_theme.FormatState(seed.State)}"));
+                                }
+                            }
+
+                            if (currentSections is { ExcludedItemIds.Count: > 0 })
+                            {
+                                var ids = string.Join(", ", currentSections.ExcludedItemIds.Select(id => $"#{id}"));
+                                container.AddRow(new Markup(
+                                    $"[dim]{currentSections.ExcludedItemIds.Count} excluded: {ids}[/]"));
+                            }
+
+                            ctx.Refresh();
+                            break;
+                        }
+
+                        case WorkspaceDataChunk.RefreshStarted:
+                            container.Rows.Clear();
+                            container.AddRow(new Markup("[yellow]⟳ refreshing...[/]"));
+                            ctx.Refresh();
+                            break;
+
+                        case WorkspaceDataChunk.RefreshCompleted:
+                            ctx.Refresh();
+                            break;
+                    }
+                }
+            });
+
+        _console.WriteLine();
+    }
+
+    /// <summary>
+    /// Renders hierarchy tree roots into the workspace container table. Each root
+    /// <see cref="SprintHierarchyNode"/> becomes a Spectre <see cref="Tree"/> with
+    /// children added recursively up to <see cref="TreeDepthDown"/> levels.
+    /// </summary>
+    private void RenderTreeRootsIntoContainer(
+        Table container,
+        IReadOnlyList<SprintHierarchyNode> roots,
+        int? activeContextId,
+        int cacheStaleMinutes)
+    {
+        foreach (var root in roots)
+        {
+            var rootLabel = FormatWorkspaceTreeNodeLabel(root, activeContextId, cacheStaleMinutes);
+            var tree = new Tree(rootLabel);
+            AddWorkspaceTreeChildren(tree, root.Children, activeContextId, 1, cacheStaleMinutes);
+            container.AddRow(tree);
+        }
+    }
+
+    /// <summary>
+    /// Recursively adds child nodes to a workspace tree, respecting
+    /// <see cref="TreeDepthDown"/> for depth limiting.
+    /// </summary>
+    private void AddWorkspaceTreeChildren(
+        IHasTreeNodes parent,
+        List<SprintHierarchyNode> children,
+        int? activeContextId,
+        int depth,
+        int cacheStaleMinutes)
+    {
+        if (children.Count == 0 || depth > TreeDepthDown)
+        {
+            if (depth > TreeDepthDown && children.Count > 0)
+                parent.AddNode($"[dim]... {children.Count} more[/]");
+            return;
+        }
+
+        foreach (var child in children)
+        {
+            var label = FormatWorkspaceTreeNodeLabel(child, activeContextId, cacheStaleMinutes);
+            var stateColor = child.IsVirtualGroup
+                ? "dim"
+                : _theme.GetStateCategoryMarkupColor(child.Item.State);
+            var node = parent.AddNode($"[{stateColor}]│[/] {label}");
+            AddWorkspaceTreeChildren(node, child.Children, activeContextId, depth + 1, cacheStaleMinutes);
+        }
+    }
+
+    /// <summary>
+    /// Formats a single <see cref="SprintHierarchyNode"/> label for workspace tree rendering.
+    /// Applies working-level dimming: items above the working level are fully dimmed,
+    /// sprint items at or below working level are bold, context-only items are partially dimmed.
+    /// </summary>
+    internal string FormatWorkspaceTreeNodeLabel(
+        SprintHierarchyNode node,
+        int? activeContextId,
+        int cacheStaleMinutes)
+    {
+        if (node.IsVirtualGroup)
+            return $"[dim italic]{Markup.Escape(node.GroupLabel ?? "Unparented")}[/]";
+
+        var item = node.Item;
+        var isAboveWorking = IsParentAboveWorkingLevel(item);
+        var isActive = activeContextId.HasValue && item.Id == activeContextId.Value;
+        var isTracked = TrackedItemIds is not null && TrackedItemIds.Contains(item.Id);
+        var marker = isActive ? "[aqua]►[/] " : isTracked ? "[yellow]📌[/] " : "";
+
+        var cacheAge = CacheAgeFormatter.Format(item.LastSyncedAt, cacheStaleMinutes);
+        var cacheAgeMarkup = cacheAge is not null ? $" [dim]{Markup.Escape(cacheAge)}[/]" : "";
+
+        if (isAboveWorking)
+            return $"[dim]{marker}{_theme.FormatTypeBadge(item.Type)} {Markup.Escape(item.Title)} {_theme.FormatState(item.State)}{cacheAgeMarkup}[/]";
+
+        if (node.IsSprintItem)
+            return $"{marker}{_theme.FormatTypeBadge(item.Type)} [bold]#{item.Id} {Markup.Escape(item.Title)}[/] {_theme.FormatState(item.State)}{cacheAgeMarkup}";
+
+        // Context ancestor at or below working level — type badge visible, title dimmed
+        return $"{marker}{_theme.FormatTypeBadge(item.Type)} [dim]{Markup.Escape(item.Title)}[/] {_theme.FormatState(item.State)}{cacheAgeMarkup}";
+    }
+
+    /// <summary>
+    /// Renders flat item listing into the tree-mode container (fallback when no tree roots).
+    /// </summary>
+    private void RenderFlatItemsIntoContainer(
+        Table container,
+        IReadOnlyList<WorkItem> items,
+        int? activeContextId,
+        int cacheStaleMinutes)
+    {
+        foreach (var item in items)
+        {
+            var isActive = activeContextId.HasValue && item.Id == activeContextId.Value;
+            var isTracked = TrackedItemIds is not null && TrackedItemIds.Contains(item.Id);
+            var marker = isActive ? "[aqua]►[/] " : isTracked ? "[yellow]📌[/] " : "";
+            var boldOpen = isActive ? "[bold]" : "";
+            var boldClose = isActive ? "[/]" : "";
+
+            var cacheAge = CacheAgeFormatter.Format(item.LastSyncedAt, cacheStaleMinutes);
+            var cacheAgeMarkup = cacheAge is not null ? $" [dim]{Markup.Escape(cacheAge)}[/]" : "";
+
+            container.AddRow(new Markup(
+                $"  {marker}{boldOpen}{_theme.FormatTypeBadge(item.Type)} #{item.Id} {Markup.Escape(item.Title)}{boldClose} {_theme.FormatState(item.State)}{cacheAgeMarkup}"));
+        }
+    }
+
+    /// <summary>
+    /// Adds a sprint progress footer row to the tree-mode container.
+    /// </summary>
+    private void RenderTreeProgressFooter(Table container, IReadOnlyList<WorkItem> items)
+    {
+        if (items.Count == 0)
+            return;
+
+        var proposed = 0;
+        var inProgress = 0;
+        var resolved = 0;
+        var completed = 0;
+
+        foreach (var item in items)
+        {
+            switch (_theme.ResolveCategory(item.State))
+            {
+                case StateCategory.Proposed: proposed++; break;
+                case StateCategory.InProgress: inProgress++; break;
+                case StateCategory.Resolved: resolved++; break;
+                case StateCategory.Completed: completed++; break;
+                case StateCategory.Removed: proposed++; break;
+                case StateCategory.Unknown: proposed++; break;
+            }
+        }
+
+        var done = resolved + completed;
+        var doneColor = SpectreTheme.GetCategoryMarkupColor(StateCategory.Completed);
+        var ipColor = SpectreTheme.GetCategoryMarkupColor(StateCategory.InProgress);
+        var propColor = SpectreTheme.GetCategoryMarkupColor(StateCategory.Proposed);
+
+        var segments = new List<string>();
+        segments.Add($"[{doneColor}]{done}/{items.Count}[/] done");
+        if (inProgress > 0)
+            segments.Add($"[{ipColor}]{inProgress}[/] in progress");
+        if (proposed > 0)
+            segments.Add($"[{propColor}]{proposed}[/] proposed");
+
+        container.AddRow(new Markup($"\n[dim]Sprint: {string.Join(" · ", segments)}[/]"));
     }
 
     public async Task RenderTreeAsync(

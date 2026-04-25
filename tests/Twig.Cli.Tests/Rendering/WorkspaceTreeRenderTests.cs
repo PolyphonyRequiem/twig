@@ -363,13 +363,15 @@ public sealed class WorkspaceTreeRenderTests
         var sprintRoots = new[] { BuildNode(sprintStory, isSprintItem: true) };
         var areaRoots = new[] { BuildNode(areaTask, isSprintItem: true) };
 
-        var sections = new WorkspaceSections_TestHelper(
-            new WorkspaceSection("Sprint", new[] { sprintStory }, sprintRoots),
-            new WorkspaceSection("Area", new[] { areaTask }, areaRoots));
+        var sections = WorkspaceSections.BuildWithTreeRoots(new WorkspaceSection[]
+        {
+            new("Sprint", new[] { sprintStory }, sprintRoots),
+            new("Area", new[] { areaTask }, areaRoots),
+        });
 
         var allItems = new[] { sprintStory, areaTask };
         var output = await RenderTreeWorkspace(console, renderer,
-            sprintItems: allItems, sections: sections.Build());
+            sprintItems: allItems, sections: sections);
 
         output.ShouldContain("Sprint");
         output.ShouldContain("Area");
@@ -630,28 +632,4 @@ public sealed class WorkspaceTreeRenderTests
         }
     }
 
-    /// <summary>
-    /// Helper to build WorkspaceSections with multiple sections containing tree roots.
-    /// </summary>
-    private sealed class WorkspaceSections_TestHelper
-    {
-        private readonly WorkspaceSection[] _sections;
-
-        public WorkspaceSections_TestHelper(params WorkspaceSection[] sections)
-        {
-            _sections = sections;
-        }
-
-        public WorkspaceSections Build()
-        {
-            // Build with sprint items from first section, area from second
-            var sprint = _sections.Length > 0 ? _sections[0].Items : Array.Empty<WorkItem>();
-            var area = _sections.Length > 1 ? _sections[1].Items : null;
-            var result = WorkspaceSections.Build(sprint, areaItems: area);
-            // Return custom sections via the Build method — but we need tree roots
-            // So we use the overload with treeRoots on the sprint items
-            // For multi-section with trees, we rebuild manually
-            return WorkspaceSections.BuildWithTreeRoots(_sections);
-        }
-    }
 }

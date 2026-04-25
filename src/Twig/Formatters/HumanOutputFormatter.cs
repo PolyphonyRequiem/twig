@@ -967,46 +967,7 @@ public sealed class HumanOutputFormatter : IOutputFormatter
     /// </summary>
     internal IReadOnlyList<SprintHierarchyNode> PruneAncestorsAboveDepthUp(
         IReadOnlyList<SprintHierarchyNode> roots)
-    {
-        if (WorkingLevelTypeName is null || TypeLevelMap is null)
-            return roots;
-
-        if (!TypeLevelMap.TryGetValue(WorkingLevelTypeName, out var workingLevel))
-            return roots;
-
-        var result = new List<SprintHierarchyNode>();
-        foreach (var root in roots)
-            CollectPrunedRoots(root, workingLevel, result);
-
-        return result.Count > 0 ? result : roots;
-    }
-
-    private void CollectPrunedRoots(SprintHierarchyNode node, int workingLevel, List<SprintHierarchyNode> result)
-    {
-        if (node.IsVirtualGroup)
-        {
-            result.Add(node);
-            return;
-        }
-
-        if (TypeLevelMap is null || !TypeLevelMap.TryGetValue(node.Item.Type.Value, out var nodeLevel))
-        {
-            result.Add(node);
-            return;
-        }
-
-        var levelsAbove = workingLevel - nodeLevel;
-        if (levelsAbove > TreeDepthUp)
-        {
-            // Node is too far above working level — promote its children
-            foreach (var child in node.Children)
-                CollectPrunedRoots(child, workingLevel, result);
-        }
-        else
-        {
-            result.Add(node);
-        }
-    }
+        => WorkingLevelResolver.PruneAncestors(roots, WorkingLevelTypeName, TypeLevelMap, TreeDepthUp);
 
     public string FormatFieldChange(FieldChange change)
     {

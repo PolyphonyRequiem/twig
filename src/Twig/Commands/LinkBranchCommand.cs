@@ -12,7 +12,7 @@ namespace Twig.Commands;
 /// </summary>
 public sealed class LinkBranchCommand(
     ActiveItemResolver activeItemResolver,
-    BranchLinkService branchLinkService,
+    BranchLinkService? branchLinkService,
     OutputFormatterFactory formatterFactory,
     IGitService? gitService = null,
     TextWriter? stderr = null)
@@ -52,6 +52,12 @@ public sealed class LinkBranchCommand(
         var (isValid, exitCode) = await GitGuard.EnsureGitRepoAsync(gitService, fmt, _stderr);
         if (!isValid) return exitCode;
 
+        if (branchLinkService is null)
+        {
+            _stderr.WriteLine(fmt.FormatError("Git project is not configured for this workspace. Set git.project and git.repository in config."));
+            return 1;
+        }
+
         // 4. Validate branch exists (local or remote)
         bool branchExists;
         try
@@ -74,12 +80,9 @@ public sealed class LinkBranchCommand(
         var result = await branchLinkService.LinkBranchAsync(item.Id, branchName, ct);
 
         // 6. Output
-        return result.Status switch
-        {
-            BranchLinkStatus.Linked => WriteSuccess(fmt, outputFormat, item.Id, branchName, alreadyLinked: false),
-            BranchLinkStatus.AlreadyLinked => WriteSuccess(fmt, outputFormat, item.Id, branchName, alreadyLinked: true),
-            _ => WriteError(fmt, result),
-        };
+        if (result.IsSuccess)
+            return WriteSuccess(fmt, outputFormat, item.Id, branchName, result.Status == BranchLinkStatus.AlreadyLinked);
+        return WriteError(fmt, result);
     }
 
     private int WriteSuccess(IOutputFormatter fmt, string outputFormat, int workItemId, string branchName, bool alreadyLinked)

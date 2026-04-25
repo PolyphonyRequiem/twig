@@ -201,6 +201,28 @@ public sealed class LinkBranchCommandTests : IDisposable
     }
 
     // ═══════════════════════════════════════════════════════════════
+    //  Git repo available but ADO git project not configured — error
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ExecuteAsync_BranchLinkServiceNull_ReturnsError()
+    {
+        SetActiveItem(42);
+
+        var cmd = new LinkBranchCommand(
+            new ActiveItemResolver(_contextStore, _workItemRepo, _adoWorkItemService),
+            branchLinkService: null,
+            _formatterFactory,
+            gitService: _gitService,
+            stderr: _stderr);
+
+        var result = await cmd.ExecuteAsync("feature/my-branch");
+
+        result.ShouldBe(1);
+        _stderr.ToString().ShouldContain("Git project is not configured");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     //  Not in git repo — error
     // ═══════════════════════════════════════════════════════════════
 

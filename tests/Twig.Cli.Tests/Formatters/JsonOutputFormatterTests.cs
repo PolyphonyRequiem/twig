@@ -4,6 +4,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.ReadModels;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Cli.Tests.Formatters;
@@ -680,5 +681,90 @@ public class JsonOutputFormatterTests
         var queryIdx = output.IndexOf("\"query\"", StringComparison.Ordinal);
         var countIdx = output.IndexOf("\"count\"", StringComparison.Ordinal);
         queryIdx.ShouldBeLessThan(countIdx);
+    }
+
+    // ── Recursive tree output (Task 2074) ───────────────────────────
+
+    [Fact]
+    public void FormatTree_WithDescendants_IncludesGrandchildren()
+    {
+        var focus = CreateWorkItem(1, "Focus", "Active");
+        var child = new WorkItemBuilder(2, "Child").WithParent(1).Build();
+        var grandchild = new WorkItemBuilder(3, "Grandchild").WithParent(2).Build();
+
+        var descendants = new Dictionary<int, IReadOnlyList<WorkItem>>
+        {
+            [2] = new[] { grandchild }
+        };
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child },
+            descendantsByParentId: descendants);
+
+        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var doc = JsonDocument.Parse(result);
+        var root = doc.RootElement;
+
+        // Top-level children array should have nested children
+        var childElement = root.GetProperty("children")[0];
+        childElement.GetProperty("id").GetInt32().ShouldBe(2);
+        childElement.GetProperty("children").GetArrayLength().ShouldBe(1);
+        childElement.GetProperty("children")[0].GetProperty("id").GetInt32().ShouldBe(3);
+    }
+
+    [Fact]
+    public void FormatTree_WithDescendants_ThreeLevelsDeep()
+    {
+        var focus = CreateWorkItem(1, "Epic", "Active");
+        var child = new WorkItemBuilder(2, "Issue").WithParent(1).Build();
+        var grandchild = new WorkItemBuilder(3, "Task").WithParent(2).Build();
+        var greatGrandchild = new WorkItemBuilder(4, "SubTask").WithParent(3).Build();
+
+        var descendants = new Dictionary<int, IReadOnlyList<WorkItem>>
+        {
+            [2] = new[] { grandchild },
+            [3] = new[] { greatGrandchild }
+        };
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child },
+            descendantsByParentId: descendants);
+
+        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var doc = JsonDocument.Parse(result);
+
+        var level1 = doc.RootElement.GetProperty("children")[0];
+        var level2 = level1.GetProperty("children")[0];
+        var level3 = level2.GetProperty("children")[0];
+        level3.GetProperty("id").GetInt32().ShouldBe(4);
+        level3.GetProperty("children").GetArrayLength().ShouldBe(0);
+    }
+
+    [Fact]
+    public void FormatTree_ChildWithNoDescendants_HasEmptyChildrenArray()
+    {
+        var focus = CreateWorkItem(1, "Focus", "Active");
+        var child = new WorkItemBuilder(2, "Leaf").WithParent(1).Build();
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child });
+
+        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var doc = JsonDocument.Parse(result);
+
+        var childElement = doc.RootElement.GetProperty("children")[0];
+        childElement.GetProperty("children").GetArrayLength().ShouldBe(0);
+    }
+
+    [Fact]
+    public void FormatTree_NullDescendantsByParentId_ChildrenArrayIsEmpty()
+    {
+        var focus = CreateWorkItem(1, "Focus", "Active");
+        var child1 = new WorkItemBuilder(2, "Child A").WithParent(1).Build();
+        var child2 = new WorkItemBuilder(3, "Child B").WithParent(1).Build();
+        // Build without descendantsByParentId — defaults to null
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child1, child2 });
+
+        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var doc = JsonDocument.Parse(result);
+
+        var children = doc.RootElement.GetProperty("children");
+        children.GetArrayLength().ShouldBe(2);
+        children[0].GetProperty("children").GetArrayLength().ShouldBe(0);
+        children[1].GetProperty("children").GetArrayLength().ShouldBe(0);
     }
 }

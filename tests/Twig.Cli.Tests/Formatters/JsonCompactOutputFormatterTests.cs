@@ -5,6 +5,7 @@ using Twig.Domain.Enums;
 using Twig.Domain.ReadModels;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Cli.Tests.Formatters;
@@ -358,4 +359,106 @@ public class JsonCompactOutputFormatterTests
             AreaPath = AreaPath.Parse("Project").Value,
         };
     }
+
+    // ── Recursive tree output (Task 2073 / 2075) ──────────────────
+
+    [Fact]
+    public void FormatTree_WithDescendants_IncludesNestedChildren()
+    {
+        var focus = CreateWorkItem(1, "Focus", "Active");
+        var child = new WorkItemBuilder(2, "Child").WithParent(1).Build();
+        var grandchild = new WorkItemBuilder(3, "Grandchild").WithParent(2).Build();
+
+        var descendants = new Dictionary<int, IReadOnlyList<WorkItem>>
+        {
+            [2] = new[] { grandchild }
+        };
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child },
+            descendantsByParentId: descendants);
+
+        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var doc = JsonDocument.Parse(result);
+
+        var childElement = doc.RootElement.GetProperty("children")[0];
+        childElement.GetProperty("id").GetInt32().ShouldBe(2);
+        childElement.GetProperty("children").GetArrayLength().ShouldBe(1);
+        childElement.GetProperty("children")[0].GetProperty("id").GetInt32().ShouldBe(3);
+    }
+
+    [Fact]
+    public void FormatTree_LeafChild_HasEmptyChildrenArray()
+    {
+        var focus = CreateWorkItem(1, "Focus", "Active");
+        var child = new WorkItemBuilder(2, "Leaf").WithParent(1).Build();
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child });
+
+        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var doc = JsonDocument.Parse(result);
+
+        var childElement = doc.RootElement.GetProperty("children")[0];
+        childElement.GetProperty("children").GetArrayLength().ShouldBe(0);
+    }
+
+    [Fact]
+    public void FormatTree_ThreeLevelNesting_ProducesNestedChildrenAtEachLevel()
+    {
+        var focus = CreateWorkItem(1, "Epic", "Active");
+        var child = new WorkItemBuilder(2, "Issue").WithParent(1).Build();
+        var grandchild = new WorkItemBuilder(3, "Task").WithParent(2).Build();
+        var greatGrandchild = new WorkItemBuilder(4, "SubTask").WithParent(3).Build();
+
+        var descendants = new Dictionary<int, IReadOnlyList<WorkItem>>
+        {
+            [2] = new[] { grandchild },
+            [3] = new[] { greatGrandchild },
+        };
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child },
+            descendantsByParentId: descendants);
+
+        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var doc = JsonDocument.Parse(result);
+
+        // Level 1: child
+        var childEl = doc.RootElement.GetProperty("children")[0];
+        childEl.GetProperty("id").GetInt32().ShouldBe(2);
+        childEl.GetProperty("children").GetArrayLength().ShouldBe(1);
+
+        // Level 2: grandchild
+        var grandchildEl = childEl.GetProperty("children")[0];
+        grandchildEl.GetProperty("id").GetInt32().ShouldBe(3);
+        grandchildEl.GetProperty("children").GetArrayLength().ShouldBe(1);
+
+        // Level 3: great-grandchild (leaf)
+        var greatGrandchildEl = grandchildEl.GetProperty("children")[0];
+        greatGrandchildEl.GetProperty("id").GetInt32().ShouldBe(4);
+        greatGrandchildEl.GetProperty("children").GetArrayLength().ShouldBe(0);
+
+        // totalChildren still reflects direct children only
+        doc.RootElement.GetProperty("totalChildren").GetInt32().ShouldBe(1);
+    }
+
+    [Fact]
+    public void FormatTree_NullDescendantsMap_ChildrenHaveEmptyChildrenArrays()
+    {
+        var focus = CreateWorkItem(1, "Focus", "Active");
+        var child1 = new WorkItemBuilder(2, "Child A").WithParent(1).Build();
+        var child2 = new WorkItemBuilder(3, "Child B").WithParent(1).Build();
+
+        // Do not pass descendantsByParentId — defaults to null inside Build
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child1, child2 });
+
+        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var doc = JsonDocument.Parse(result);
+
+        var children = doc.RootElement.GetProperty("children");
+        children.GetArrayLength().ShouldBe(2);
+
+        // Each child should have a "children": [] property (not omitted)
+        children[0].GetProperty("children").GetArrayLength().ShouldBe(0);
+        children[1].GetProperty("children").GetArrayLength().ShouldBe(0);
+
+        // totalChildren reflects direct children count
+        doc.RootElement.GetProperty("totalChildren").GetInt32().ShouldBe(2);
+    }
+
 }

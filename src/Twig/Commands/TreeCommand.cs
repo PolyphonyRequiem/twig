@@ -187,6 +187,10 @@ public sealed class TreeCommand(
 
         var children = await workItemRepo.GetChildrenAsync(item.Id);
 
+        // Recursively fetch descendants up to maxChildren depth for deep tree output
+        var descendantsByParentId = new Dictionary<int, IReadOnlyList<Domain.Aggregates.WorkItem>>();
+        await WorkTreeFetcher.FetchDescendantsAsync(workItemRepo, children, maxChildren - 1, descendantsByParentId, ct);
+
         // Compute sibling counts for parent chain + focused item
         var siblingCounts = new Dictionary<int, int?>();
         foreach (var node in parentChain)
@@ -219,7 +223,7 @@ public sealed class TreeCommand(
         }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
-        var tree = WorkTree.Build(item, parentChain, children, siblingCounts, links);
+        var tree = WorkTree.Build(item, parentChain, children, siblingCounts, links, descendantsByParentId);
 
         // EPIC-005: Load process config for unparented banner + working level dim
         if (fmt is HumanOutputFormatter humanFmt)

@@ -47,6 +47,10 @@ public sealed class ReadTools(WorkspaceResolver resolver)
             ? allChildren.Take(maxChildren).ToList()
             : allChildren;
 
+        // Recursively fetch descendants up to maxChildren depth for deep tree output
+        var descendantsByParentId = new Dictionary<int, IReadOnlyList<WorkItem>>();
+        await WorkTreeFetcher.FetchDescendantsAsync(ctx.WorkItemRepo, children, maxChildren - 1, descendantsByParentId, ct);
+
         // Compute sibling counts for parent chain + focused item
         var siblingCounts = new Dictionary<int, int?>();
         foreach (var node in parentChain.Append(item))
@@ -62,7 +66,7 @@ public sealed class ReadTools(WorkspaceResolver resolver)
         }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
-        var tree = WorkTree.Build(item, parentChain, children, siblingCounts, links);
+        var tree = WorkTree.Build(item, parentChain, children, siblingCounts, links, descendantsByParentId);
 
         return McpResultBuilder.FormatTree(tree, totalChildCount);
     }

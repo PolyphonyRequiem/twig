@@ -33,14 +33,23 @@ public sealed class WorkTree
     /// </summary>
     public IReadOnlyList<WorkItemLink> FocusedItemLinks { get; }
 
+    /// <summary>
+    /// All descendants keyed by their parent work item ID.
+    /// Enables recursive/deep child lookup across all depth levels without repeated linear scans.
+    /// Empty dictionary when descendant data has not been fetched.
+    /// </summary>
+    public IReadOnlyDictionary<int, IReadOnlyList<WorkItem>> DescendantsByParentId { get; }
+
     private WorkTree(WorkItem focusedItem, IReadOnlyList<WorkItem> parentChain, IReadOnlyList<WorkItem> children,
-        IReadOnlyDictionary<int, int?>? siblingCounts, IReadOnlyList<WorkItemLink> focusedItemLinks)
+        IReadOnlyDictionary<int, int?>? siblingCounts, IReadOnlyList<WorkItemLink> focusedItemLinks,
+        IReadOnlyDictionary<int, IReadOnlyList<WorkItem>> descendantsByParentId)
     {
         FocusedItem = focusedItem;
         ParentChain = parentChain;
         Children = children;
         SiblingCounts = siblingCounts;
         FocusedItemLinks = focusedItemLinks;
+        DescendantsByParentId = descendantsByParentId;
     }
 
     /// <summary>
@@ -51,10 +60,23 @@ public sealed class WorkTree
         IReadOnlyList<WorkItem> parentChain,
         IReadOnlyList<WorkItem> children,
         IReadOnlyDictionary<int, int?>? siblingCounts = null,
-        IReadOnlyList<WorkItemLink>? focusedItemLinks = null)
+        IReadOnlyList<WorkItemLink>? focusedItemLinks = null,
+        IReadOnlyDictionary<int, IReadOnlyList<WorkItem>>? descendantsByParentId = null)
     {
         return new WorkTree(focus, parentChain, children, siblingCounts,
-            focusedItemLinks ?? Array.Empty<WorkItemLink>());
+            focusedItemLinks ?? Array.Empty<WorkItemLink>(),
+            descendantsByParentId ?? new Dictionary<int, IReadOnlyList<WorkItem>>());
+    }
+
+    /// <summary>
+    /// Returns the direct children of the given parent ID from <see cref="DescendantsByParentId"/>.
+    /// Returns an empty list when no descendants are recorded for that parent.
+    /// </summary>
+    public IReadOnlyList<WorkItem> GetDescendants(int parentId)
+    {
+        return DescendantsByParentId.TryGetValue(parentId, out var descendants)
+            ? descendants
+            : Array.Empty<WorkItem>();
     }
 
     /// <summary>

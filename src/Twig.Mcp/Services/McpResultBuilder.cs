@@ -86,8 +86,13 @@ internal static class McpResultBuilder
             // Parent chain
             WriteWorkItemArray(writer, "parentChain", tree.ParentChain);
 
-            // Children
-            WriteWorkItemArray(writer, "children", tree.Children);
+            // Children (recursive for MCP consumers)
+            writer.WriteStartArray("children");
+            foreach (var child in tree.Children)
+            {
+                WriteTreeNodeRecursive(writer, child, tree);
+            }
+            writer.WriteEndArray();
 
             writer.WriteNumber("totalChildren", totalChildren);
 
@@ -494,6 +499,25 @@ internal static class McpResultBuilder
             writer.WriteString("workspace", workspace);
         else
             writer.WriteNull("workspace");
+    }
+
+    /// <summary>
+    /// Writes a work item object with recursive children from <see cref="WorkTree.DescendantsByParentId"/>.
+    /// </summary>
+    private static void WriteTreeNodeRecursive(Utf8JsonWriter writer, WorkItem item, WorkTree tree)
+    {
+        writer.WriteStartObject();
+        WriteWorkItemCore(writer, item);
+
+        var descendants = tree.GetDescendants(item.Id);
+        writer.WriteStartArray("children");
+        foreach (var child in descendants)
+        {
+            WriteTreeNodeRecursive(writer, child, tree);
+        }
+        writer.WriteEndArray();
+
+        writer.WriteEndObject();
     }
 
     private static void WriteLinkObject(Utf8JsonWriter writer, WorkItemLink link)

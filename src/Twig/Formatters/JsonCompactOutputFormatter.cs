@@ -52,7 +52,7 @@ public sealed class JsonCompactOutputFormatter(JsonOutputFormatter full) : IOutp
 
         writer.WriteStartArray("children");
         foreach (var child in tree.Children)
-            WriteCompactItem(writer, child);
+            WriteCompactTreeNodeRecursive(writer, child, tree);
         writer.WriteEndArray();
 
         writer.WriteNumber("totalChildren", tree.Children.Count);
@@ -174,6 +174,23 @@ public sealed class JsonCompactOutputFormatter(JsonOutputFormatter full) : IOutp
         writer.WriteString("title", item.Title);
         writer.WriteString("type", item.Type.ToString());
         writer.WriteString("state", item.State);
+        writer.WriteEndObject();
+    }
+
+    private static void WriteCompactTreeNodeRecursive(Utf8JsonWriter writer, WorkItem item, WorkTree tree)
+    {
+        writer.WriteStartObject();
+        writer.WriteNumber("id", item.Id);
+        writer.WriteString("title", item.Title);
+        writer.WriteString("type", item.Type.ToString());
+        writer.WriteString("state", item.State);
+
+        var descendants = tree.GetDescendants(item.Id);
+        writer.WriteStartArray("children");
+        foreach (var child in descendants)
+            WriteCompactTreeNodeRecursive(writer, child, tree);
+        writer.WriteEndArray();
+
         writer.WriteEndObject();
     }
 }

@@ -4,6 +4,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.ReadModels;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Cli.Tests.Formatters;
@@ -526,20 +527,6 @@ public class JsonOutputFormatterTests
         };
     }
 
-    private static WorkItem CreateWorkItemWithParent(int id, string title, string state, int parentId)
-    {
-        return new WorkItem
-        {
-            Id = id,
-            Type = WorkItemType.Task,
-            Title = title,
-            State = state,
-            ParentId = parentId,
-            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
-            AreaPath = AreaPath.Parse("Project").Value,
-        };
-    }
-
     // ── FormatQueryResults (Task 3.3) ───────────────────────────────
 
     [Fact]
@@ -702,8 +689,8 @@ public class JsonOutputFormatterTests
     public void FormatTree_WithDescendants_IncludesGrandchildren()
     {
         var focus = CreateWorkItem(1, "Focus", "Active");
-        var child = CreateWorkItemWithParent(2, "Child", "New", 1);
-        var grandchild = CreateWorkItemWithParent(3, "Grandchild", "New", 2);
+        var child = new WorkItemBuilder(2, "Child").WithParent(1).Build();
+        var grandchild = new WorkItemBuilder(3, "Grandchild").WithParent(2).Build();
 
         var descendants = new Dictionary<int, IReadOnlyList<WorkItem>>
         {
@@ -727,9 +714,9 @@ public class JsonOutputFormatterTests
     public void FormatTree_WithDescendants_ThreeLevelsDeep()
     {
         var focus = CreateWorkItem(1, "Epic", "Active");
-        var child = CreateWorkItemWithParent(2, "Issue", "New", 1);
-        var grandchild = CreateWorkItemWithParent(3, "Task", "New", 2);
-        var greatGrandchild = CreateWorkItemWithParent(4, "SubTask", "New", 3);
+        var child = new WorkItemBuilder(2, "Issue").WithParent(1).Build();
+        var grandchild = new WorkItemBuilder(3, "Task").WithParent(2).Build();
+        var greatGrandchild = new WorkItemBuilder(4, "SubTask").WithParent(3).Build();
 
         var descendants = new Dictionary<int, IReadOnlyList<WorkItem>>
         {
@@ -753,7 +740,7 @@ public class JsonOutputFormatterTests
     public void FormatTree_ChildWithNoDescendants_HasEmptyChildrenArray()
     {
         var focus = CreateWorkItem(1, "Focus", "Active");
-        var child = CreateWorkItemWithParent(2, "Leaf", "New", 1);
+        var child = new WorkItemBuilder(2, "Leaf").WithParent(1).Build();
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child });
 
         var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
@@ -767,8 +754,8 @@ public class JsonOutputFormatterTests
     public void FormatTree_NullDescendantsByParentId_ChildrenArrayIsEmpty()
     {
         var focus = CreateWorkItem(1, "Focus", "Active");
-        var child1 = CreateWorkItemWithParent(2, "Child A", "New", 1);
-        var child2 = CreateWorkItemWithParent(3, "Child B", "New", 1);
+        var child1 = new WorkItemBuilder(2, "Child A").WithParent(1).Build();
+        var child2 = new WorkItemBuilder(3, "Child B").WithParent(1).Build();
         // Build without descendantsByParentId — defaults to null
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child1, child2 });
 

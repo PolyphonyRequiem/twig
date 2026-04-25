@@ -1376,4 +1376,98 @@ public class TwigConfigurationTests : IDisposable
 
         loaded.Defaults.Mode.ShouldBe("workspace");
     }
+
+    // ── areas.paths (alias for defaults.areapathentries) ──
+
+    [Fact]
+    public void SetValue_AreasPaths_ParsesSemicolonDelimited()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("areas.paths", @"Proj\Team1;Proj\Team2").ShouldBeTrue();
+        config.Defaults.AreaPathEntries.ShouldNotBeNull();
+        config.Defaults.AreaPathEntries!.Count.ShouldBe(2);
+        config.Defaults.AreaPathEntries[0].Path.ShouldBe(@"Proj\Team1");
+        config.Defaults.AreaPathEntries[0].IncludeChildren.ShouldBeTrue();
+        config.Defaults.AreaPathEntries[1].Path.ShouldBe(@"Proj\Team2");
+        config.Defaults.AreaPathEntries[1].IncludeChildren.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void SetValue_AreasPaths_ExactSuffix()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("areas.paths", @"Proj\Team1:exact;Proj\Team2").ShouldBeTrue();
+        config.Defaults.AreaPathEntries.ShouldNotBeNull();
+        config.Defaults.AreaPathEntries![0].IncludeChildren.ShouldBeFalse();
+        config.Defaults.AreaPathEntries[1].IncludeChildren.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void SetValue_AreasPaths_InvalidPath_ReturnsFalse()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("areas.paths", "").ShouldBeFalse();
+    }
+
+    // ── areas.mode ──
+
+    [Fact]
+    public void SetValue_AreasMode_Under()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("areas.mode", "under").ShouldBeTrue();
+        config.Areas.Mode.ShouldBe("under");
+    }
+
+    [Fact]
+    public void SetValue_AreasMode_Exact()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("areas.mode", "exact").ShouldBeTrue();
+        config.Areas.Mode.ShouldBe("exact");
+    }
+
+    [Fact]
+    public void SetValue_AreasMode_Invalid_ReturnsFalse()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("areas.mode", "wildcard").ShouldBeFalse();
+        config.Areas.Mode.ShouldBe("under"); // unchanged default
+    }
+
+    [Fact]
+    public void SetValue_AreasMode_CaseInsensitive()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("areas.mode", "EXACT").ShouldBeTrue();
+        config.Areas.Mode.ShouldBe("exact");
+    }
+
+    [Fact]
+    public async Task AreasConfig_DefaultsToUnder_WhenMissing()
+    {
+        var configPath = Path.Combine(_tempDir, "no_areas.json");
+        await File.WriteAllTextAsync(configPath, """{"organization":"org","project":"proj"}""");
+
+        var config = await TwigConfiguration.LoadAsync(configPath);
+
+        config.Areas.Mode.ShouldBe("under");
+    }
+
+    [Fact]
+    public async Task AreasConfig_RoundTrip()
+    {
+        var configPath = Path.Combine(_tempDir, "areas_roundtrip.json");
+        var config = new TwigConfiguration
+        {
+            Organization = "org",
+            Project = "proj",
+            Areas = new AreasConfig { Mode = "exact" },
+        };
+
+        await config.SaveAsync(configPath);
+        var loaded = await TwigConfiguration.LoadAsync(configPath);
+
+        loaded.Areas.Mode.ShouldBe("exact");
+    }
 }

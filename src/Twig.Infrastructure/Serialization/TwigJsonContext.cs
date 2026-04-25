@@ -95,6 +95,7 @@ namespace Twig.Infrastructure.Serialization;
 // Workspace mode domain types (Epic — workspace-mode-infrastructure)
 [JsonSerializable(typeof(WorkspaceConfig))]
 [JsonSerializable(typeof(TrackingConfig))]
+[JsonSerializable(typeof(AreasConfig))]
 [JsonSerializable(typeof(TrackedItem))]
 [JsonSerializable(typeof(List<TrackedItem>))]
 [JsonSerializable(typeof(ExcludedItem))]

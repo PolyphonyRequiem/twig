@@ -341,12 +341,7 @@ public sealed class DescendantVerificationServiceTests
     [Fact]
     public async Task MaxDepthZero_SkipsAllChildren()
     {
-        // maxDepth=0: BFS starts at depth 1, which is > 0 → skips everything
-        var child = new WorkItemBuilder(10, "Task").AsTask().InState("Doing").WithParent(1).Build();
-
-        _adoService.FetchChildrenAsync(1, Arg.Any<CancellationToken>())
-            .Returns(new[] { child });
-
+        // maxDepth=0: BFS starts at depth 1, which is > 0 → skips everything, FetchChildrenAsync never called
         var result = await _service.VerifyAsync(1, maxDepth: 0);
 
         result.Verified.ShouldBeTrue();

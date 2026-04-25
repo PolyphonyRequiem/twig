@@ -32,7 +32,7 @@ public sealed class WorkspaceCommand(
     ITrackingService trackingService,
     RenderingPipelineFactory? pipelineFactory = null)
 {
-    public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default, bool sprintLayout = false)
+    public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default, bool sprintLayout = false, bool flat = false)
     {
         var (fmt, renderer) = pipelineFactory is not null
             ? pipelineFactory.Resolve(outputFormat, noLive)
@@ -52,7 +52,7 @@ public sealed class WorkspaceCommand(
             var trackedItems = await trackingService.GetTrackedItemsAsync(ct);
             var excludedIds = await trackingService.GetExcludedIdsAsync(ct);
 
-            // Wire working level into SpectreRenderer for future tree-based workspace rendering
+            // Wire working level and tree rendering into SpectreRenderer
             if (renderer is SpectreRenderer spectreRenderer)
             {
                 var processConfig = await processTypeStore.GetProcessConfigurationDataAsync();
@@ -60,6 +60,12 @@ public sealed class WorkspaceCommand(
                 {
                     spectreRenderer.TypeLevelMap = Domain.Services.BacklogHierarchyService.GetTypeLevelMap(processConfig);
                     spectreRenderer.WorkingLevelTypeName = config.Workspace.WorkingLevel;
+
+                    // Enable tree rendering when process configuration is available and --flat is not specified
+                    spectreRenderer.UseTreeRendering = !flat;
+                    spectreRenderer.TreeDepthUp = config.Display.TreeDepthUp;
+                    spectreRenderer.TreeDepthDown = config.Display.TreeDepthDown;
+                    spectreRenderer.TreeDepthSideways = config.Display.TreeDepthSideways;
                 }
 
                 // Expose tracked item IDs so the renderer can show pinned markers
@@ -92,7 +98,8 @@ public sealed class WorkspaceCommand(
                     sprintItems = await workItemRepo.GetByIterationAndAssigneeAsync(iteration, userDisplayName, ct);
                 else
                     sprintItems = await workItemRepo.GetByIterationAsync(iteration, ct);
-                yield return new WorkspaceDataChunk.SprintItemsLoaded(sprintItems, WorkspaceSections.Build(sprintItems, excludedIds: excludedIds));
+                var treeRoots = await BuildTreeRootsAsync(sprintItems, ct);
+                yield return new WorkspaceDataChunk.SprintItemsLoaded(sprintItems, WorkspaceSections.Build(sprintItems, excludedIds: excludedIds, treeRoots: treeRoots));
 
                 // Stage 3: Seeds
                 seeds = await workItemRepo.GetSeedsAsync(ct);
@@ -143,7 +150,8 @@ public sealed class WorkspaceCommand(
                         }
 
                         // Yield data rows (refreshed on success, original on failure)
-                        yield return new WorkspaceDataChunk.SprintItemsLoaded(sprintItems, WorkspaceSections.Build(sprintItems, excludedIds: excludedIds));
+                        var refreshTreeRoots = await BuildTreeRootsAsync(sprintItems, ct);
+                        yield return new WorkspaceDataChunk.SprintItemsLoaded(sprintItems, WorkspaceSections.Build(sprintItems, excludedIds: excludedIds, treeRoots: refreshTreeRoots));
                         yield return new WorkspaceDataChunk.SeedsLoaded(seeds);
                         yield return new WorkspaceDataChunk.RefreshCompleted();
                     }
@@ -167,10 +175,10 @@ public sealed class WorkspaceCommand(
         }
 
         // Sync path — original implementation (JSON, minimal, --no-live, --all, sprint, piped output)
-        return await ExecuteSyncAsync(fmt, all, sprintLayout);
+        return await ExecuteSyncAsync(fmt, all, sprintLayout, flat);
     }
 
-    private async Task<int> ExecuteSyncAsync(IOutputFormatter fmt, bool all, bool sprintLayout = false)
+    private async Task<int> ExecuteSyncAsync(IOutputFormatter fmt, bool all, bool sprintLayout = false, bool flat = false)
     {
         // Get active context (nullable) — auto-fetch on cache miss via ActiveItemResolver
         var activeId = await contextStore.GetActiveWorkItemIdAsync();
@@ -214,6 +222,8 @@ public sealed class WorkspaceCommand(
 
         // Build hierarchy when sprint items exist
         SprintHierarchy? hierarchy = null;
+        IReadOnlyList<SprintHierarchyNode>? treeRoots = null;
+        IReadOnlyDictionary<string, int>? typeLevelMap = null;
         if (sprintItems.Count > 0)
         {
             var uniqueParentIds = new HashSet<int>();
@@ -240,13 +250,31 @@ public sealed class WorkspaceCommand(
                     typeNameSet.Add(item.Type.Value);
 
                 var ceilingTypeNames = CeilingComputer.Compute(new List<string>(typeNameSet), processConfig);
-                var typeLevelMap = Domain.Services.BacklogHierarchyService.GetTypeLevelMap(processConfig);
+                typeLevelMap = Domain.Services.BacklogHierarchyService.GetTypeLevelMap(processConfig);
                 hierarchy = SprintHierarchy.Build(sprintItems, parentLookup, ceilingTypeNames, typeLevelMap);
+
+                // Extract tree roots from hierarchy for tree-based rendering
+                var roots = new List<SprintHierarchyNode>();
+                foreach (var group in hierarchy.AssigneeGroups.Values)
+                    foreach (var node in group)
+                        roots.Add(node);
+                treeRoots = roots.Count > 0 ? roots : null;
             }
         }
 
+        // Wire tree rendering config into HumanOutputFormatter (mirrors SpectreRenderer wiring)
+        if (fmt is HumanOutputFormatter humanFmt && typeLevelMap is not null)
+        {
+            humanFmt.TypeLevelMap = typeLevelMap;
+            humanFmt.WorkingLevelTypeName = config.Workspace.WorkingLevel;
+            humanFmt.UseTreeRendering = !flat;
+            humanFmt.TreeDepthUp = config.Display.TreeDepthUp;
+            humanFmt.TreeDepthDown = config.Display.TreeDepthDown;
+            humanFmt.TreeDepthSideways = config.Display.TreeDepthSideways;
+        }
+
         var workspace = Workspace.Build(contextItem, sprintItems, seeds, hierarchy,
-            sections: WorkspaceSections.Build(sprintItems, excludedIds: excludedIds),
+            sections: WorkspaceSections.Build(sprintItems, excludedIds: excludedIds, treeRoots: treeRoots),
             trackedItems: trackedItems,
             excludedIds: excludedIds);
 
@@ -366,5 +394,54 @@ public sealed class WorkspaceCommand(
             config.Display.FillRateThreshold,
             config.Display.MaxExtraColumns,
             isJsonOutput);
+    }
+
+    /// <summary>
+    /// Builds flattened tree roots from sprint items by walking parent chains and
+    /// assembling a <see cref="SprintHierarchy"/>. Used by the live async streaming
+    /// path to provide hierarchy data for tree-based workspace rendering.
+    /// </summary>
+    private async Task<IReadOnlyList<SprintHierarchyNode>?> BuildTreeRootsAsync(
+        IReadOnlyList<Domain.Aggregates.WorkItem> sprintItems, CancellationToken ct = default)
+    {
+        if (sprintItems.Count == 0)
+            return null;
+
+        var uniqueParentIds = new HashSet<int>();
+        foreach (var item in sprintItems)
+        {
+            if (item.ParentId.HasValue)
+                uniqueParentIds.Add(item.ParentId.Value);
+        }
+
+        var parentLookup = new Dictionary<int, Domain.Aggregates.WorkItem>();
+        foreach (var parentId in uniqueParentIds)
+        {
+            var chain = await workItemRepo.GetParentChainAsync(parentId, ct);
+            foreach (var chainItem in chain)
+                parentLookup.TryAdd(chainItem.Id, chainItem);
+        }
+
+        var processConfig = await processTypeStore.GetProcessConfigurationDataAsync();
+        if (processConfig is null)
+            return null;
+
+        var typeNameSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in sprintItems)
+            typeNameSet.Add(item.Type.Value);
+
+        var ceilingTypeNames = CeilingComputer.Compute(new List<string>(typeNameSet), processConfig);
+        var typeLevelMap = Domain.Services.BacklogHierarchyService.GetTypeLevelMap(processConfig);
+        var hierarchy = SprintHierarchy.Build(sprintItems, parentLookup, ceilingTypeNames, typeLevelMap);
+
+        // Flatten all assignee groups for personal workspace display
+        var roots = new List<SprintHierarchyNode>();
+        foreach (var group in hierarchy.AssigneeGroups.Values)
+        {
+            foreach (var node in group)
+                roots.Add(node);
+        }
+
+        return roots.Count > 0 ? roots : null;
     }
 }

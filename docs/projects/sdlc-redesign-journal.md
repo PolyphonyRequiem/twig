@@ -647,3 +647,60 @@ python tools/conductor-repro/debug_template.py
    but the execution context is a different code path.
 4. **P8 (scripts over agents) has a platform dependency** — deterministic scripts
    are only viable if the platform passes context to them correctly.
+
+---
+
+## Conductor Platform Fixes (April 24, 2026 — collaborative debugging session)
+
+### Three conductor features shipped in one session
+
+Working with the conductor development agent, we identified and fixed three
+platform issues blocking the SDLC redesign:
+
+| # | Issue | Fix | Status |
+|---|-------|-----|--------|
+| 1 | `workflow.input` empty `{}` in script agent context (explicit mode) | Script executor now populates workflow inputs into template context | PR #119, Issue #120 |
+| 2 | No way to reference workflow file location in script args | Added `{{ workflow.dir }}`, `{{ workflow.file }}`, `{{ workflow.name }}` template vars | Installed locally |
+| 3 | Script agent JSON stdout not parsed into `output.field` | Auto-parse JSON stdout, merge fields into output dict | Installed locally |
+
+### Debugging methodology that worked
+
+The key breakthrough was **monkey-patching `TemplateRenderer.render()`** to dump
+the actual template context at the point of failure. This revealed `workflow.input: {}`
+in 30 seconds after hours of wrong hypotheses. The debug script is at
+`tools/conductor-repro/debug_template.py`.
+
+### Script path resolution
+
+Registry-based workflows have scripts co-located with the YAML files. But conductor
+resolves paths relative to CWD (the worktree), not the workflow file.
+
+- **Absolute paths** break portability (contain username)
+- **Relative paths** resolve to CWD, not the registry
+- **Solution**: `{{ workflow.dir }}/scripts/detect-state.ps1`
+
+### Jinja `| default()` vs `if X else Y`
+
+Conductor uses **StrictUndefined** Jinja mode:
+
+```jinja
+{{ workflow.input.prompt | default('') }}                    {# FAILS #}
+{{ workflow.input.prompt if workflow.input.prompt else '' }}  {# WORKS #}
+```
+
+`| default()` catches undefined variables but NOT missing dict keys via attribute
+access. Always use the `if X else Y` guard for optional workflow inputs.
+
+### `duplicate_check` — script file never existed
+
+Converted from LLM to `type: script` referencing a .ps1 that was never created.
+PowerShell printed usage help, exited 0, silently skipped the check. Reverted to
+LLM agent.
+
+**Lesson**: When converting LLM → script (P8), verify the script file exists.
+
+### Commits
+- `53c9572` — `{{ workflow.dir }}` for portable paths
+- `d9b5050` — revert to output.field routing
+- `467caef` — revert duplicate_check to LLM
+- `b3b9cb1` — guard optional inputs with if-else

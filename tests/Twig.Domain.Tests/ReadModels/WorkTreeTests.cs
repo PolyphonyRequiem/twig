@@ -2,6 +2,7 @@ using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.ReadModels;
 using Twig.Domain.Services;
+using Twig.Domain.ValueObjects;
 using Twig.TestKit;
 using Xunit;
 
@@ -274,6 +275,133 @@ public class WorkTreeTests
         tree.ParentChain.Count.ShouldBe(1);
         tree.Children.Count.ShouldBe(1);
         tree.SiblingCounts.ShouldBeNull();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  DescendantsByParentId
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void Build_WithoutDescendants_DefaultsToEmptyDictionary()
+    {
+        var focus = WorkItemBuilder.Simple(10, "Focus");
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), Array.Empty<WorkItem>());
+
+        tree.DescendantsByParentId.ShouldNotBeNull();
+        tree.DescendantsByParentId.Count.ShouldBe(0);
+    }
+
+    [Fact]
+    public void Build_WithDescendants_StoresValues()
+    {
+        var focus = WorkItemBuilder.Simple(10, "Epic");
+        var child = WorkItemBuilder.Simple(20, "Feature");
+        var grandchild1 = WorkItemBuilder.Simple(30, "Story A");
+        var grandchild2 = WorkItemBuilder.Simple(31, "Story B");
+
+        var descendants = new Dictionary<int, IReadOnlyList<WorkItem>>
+        {
+            [10] = new[] { child },
+            [20] = new[] { grandchild1, grandchild2 }
+        };
+
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child },
+            descendantsByParentId: descendants);
+
+        tree.DescendantsByParentId.Count.ShouldBe(2);
+        tree.DescendantsByParentId[10].Count.ShouldBe(1);
+        tree.DescendantsByParentId[20].Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public void GetDescendants_KnownParent_ReturnsChildren()
+    {
+        var focus = WorkItemBuilder.Simple(10, "Epic");
+        var child = WorkItemBuilder.Simple(20, "Feature");
+        var grandchild = WorkItemBuilder.Simple(30, "Story");
+
+        var descendants = new Dictionary<int, IReadOnlyList<WorkItem>>
+        {
+            [10] = new[] { child },
+            [20] = new[] { grandchild }
+        };
+
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child },
+            descendantsByParentId: descendants);
+
+        tree.GetDescendants(20).Count.ShouldBe(1);
+        tree.GetDescendants(20)[0].Id.ShouldBe(30);
+    }
+
+    [Fact]
+    public void GetDescendants_UnknownParent_ReturnsEmptyList()
+    {
+        var focus = WorkItemBuilder.Simple(10, "Focus");
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), Array.Empty<WorkItem>());
+
+        tree.GetDescendants(999).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void GetDescendants_LeafNode_ReturnsEmptyList()
+    {
+        var focus = WorkItemBuilder.Simple(10, "Epic");
+        var child = WorkItemBuilder.Simple(20, "Task");
+
+        var descendants = new Dictionary<int, IReadOnlyList<WorkItem>>
+        {
+            [10] = new[] { child }
+        };
+
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child },
+            descendantsByParentId: descendants);
+
+        // Task 20 has no children in the descendants map
+        tree.GetDescendants(20).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Build_BackwardCompat_DescendantsDefaultsWhenOmitted()
+    {
+        var focus = WorkItemBuilder.Simple(10, "Focus");
+        var parent = WorkItemBuilder.Simple(5, "Parent");
+        var child = WorkItemBuilder.Simple(20, "Child");
+        var counts = new Dictionary<int, int?> { [10] = 3 };
+
+        // Five-parameter call (before descendantsByParentId existed) — still works
+        var tree = WorkTree.Build(focus, new[] { parent }, new[] { child }, counts,
+            Array.Empty<WorkItemLink>());
+
+        tree.DescendantsByParentId.ShouldNotBeNull();
+        tree.DescendantsByParentId.Count.ShouldBe(0);
+    }
+
+    [Fact]
+    public void Build_WithDescendants_DeepHierarchy_ThreeLevels()
+    {
+        var focus = WorkItemBuilder.Simple(1, "Epic");
+        var child1 = WorkItemBuilder.Simple(10, "Feature A");
+        var child2 = WorkItemBuilder.Simple(11, "Feature B");
+        var grandchild1 = WorkItemBuilder.Simple(100, "Story A1");
+        var grandchild2 = WorkItemBuilder.Simple(101, "Story A2");
+        var greatGrandchild = WorkItemBuilder.Simple(1000, "Task A1a");
+
+        var descendants = new Dictionary<int, IReadOnlyList<WorkItem>>
+        {
+            [1] = new[] { child1, child2 },
+            [10] = new[] { grandchild1, grandchild2 },
+            [100] = new[] { greatGrandchild }
+        };
+
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child1, child2 },
+            descendantsByParentId: descendants);
+
+        tree.DescendantsByParentId.Count.ShouldBe(3);
+        tree.GetDescendants(1).Count.ShouldBe(2);
+        tree.GetDescendants(10).Count.ShouldBe(2);
+        tree.GetDescendants(100).Count.ShouldBe(1);
+        tree.GetDescendants(100)[0].Id.ShouldBe(1000);
+        tree.GetDescendants(11).ShouldBeEmpty(); // Feature B has no children
     }
 
 }

@@ -681,4 +681,124 @@ public class JsonOutputFormatterTests
         var countIdx = output.IndexOf("\"count\"", StringComparison.Ordinal);
         queryIdx.ShouldBeLessThan(countIdx);
     }
+
+    // ── FormatAreaView ──────────────────────────────────────────────
+
+    [Fact]
+    public void FormatAreaView_ProducesValidJson()
+    {
+        var filters = new List<AreaPathFilter> { new("Project\\Team A", true) };
+        var view = AreaView.Build(Array.Empty<WorkItem>(), filters, matchCount: 0);
+
+        var output = _formatter.FormatAreaView(view);
+
+        JsonDocument.Parse(output).ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void FormatAreaView_HasFiltersArray()
+    {
+        var filters = new List<AreaPathFilter>
+        {
+            new("Project\\Team A", IncludeChildren: true),
+            new("Project\\Team B", IncludeChildren: false),
+        };
+        var view = AreaView.Build(Array.Empty<WorkItem>(), filters, matchCount: 0);
+
+        var output = _formatter.FormatAreaView(view);
+        var root = JsonDocument.Parse(output).RootElement;
+
+        var filtersEl = root.GetProperty("filters");
+        filtersEl.GetArrayLength().ShouldBe(2);
+        filtersEl[0].GetProperty("path").GetString().ShouldBe("Project\\Team A");
+        filtersEl[0].GetProperty("includeChildren").GetBoolean().ShouldBeTrue();
+        filtersEl[1].GetProperty("path").GetString().ShouldBe("Project\\Team B");
+        filtersEl[1].GetProperty("includeChildren").GetBoolean().ShouldBeFalse();
+    }
+
+    [Fact]
+    public void FormatAreaView_HasMatchCount()
+    {
+        var filters = new List<AreaPathFilter> { new("Project", true) };
+        var items = new[] { CreateWorkItem(1, "Item", "Active") };
+        var view = AreaView.Build(items, filters, matchCount: 1);
+
+        var output = _formatter.FormatAreaView(view);
+        var root = JsonDocument.Parse(output).RootElement;
+
+        root.GetProperty("matchCount").GetInt32().ShouldBe(1);
+    }
+
+    [Fact]
+    public void FormatAreaView_ZeroItems_EmptyItemsArray()
+    {
+        var filters = new List<AreaPathFilter> { new("Project", true) };
+        var view = AreaView.Build(Array.Empty<WorkItem>(), filters, matchCount: 0);
+
+        var output = _formatter.FormatAreaView(view);
+        var root = JsonDocument.Parse(output).RootElement;
+
+        root.GetProperty("matchCount").GetInt32().ShouldBe(0);
+        root.GetProperty("items").GetArrayLength().ShouldBe(0);
+    }
+
+    [Fact]
+    public void FormatAreaView_WithItems_HasWorkItemFields()
+    {
+        var item = new WorkItem
+        {
+            Id = 42,
+            Type = WorkItemType.Issue,
+            Title = "Area Feature",
+            State = "Doing",
+            AssignedTo = "Daniel Green",
+            AreaPath = AreaPath.Parse("Project\\Team A").Value,
+            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
+        };
+        var filters = new List<AreaPathFilter> { new("Project\\Team A", true) };
+        var view = AreaView.Build(new[] { item }, filters, matchCount: 1);
+
+        var output = _formatter.FormatAreaView(view);
+        var root = JsonDocument.Parse(output).RootElement;
+
+        // WriteWorkItemObject writes: id, title, type, state, assignedTo, isDirty, isSeed, parentId
+        var itemEl = root.GetProperty("items")[0];
+        itemEl.GetProperty("id").GetInt32().ShouldBe(42);
+        itemEl.GetProperty("type").GetString().ShouldBe("Issue");
+        itemEl.GetProperty("title").GetString().ShouldBe("Area Feature");
+        itemEl.GetProperty("state").GetString().ShouldBe("Doing");
+        itemEl.GetProperty("assignedTo").GetString().ShouldBe("Daniel Green");
+    }
+
+    [Fact]
+    public void FormatAreaView_MultipleItems_AllPresent()
+    {
+        var items = new[]
+        {
+            CreateWorkItem(10, "Task A", "Active"),
+            CreateWorkItem(20, "Task B", "Done"),
+            CreateWorkItem(30, "Task C", "New"),
+        };
+        var filters = new List<AreaPathFilter> { new("Project", true) };
+        var view = AreaView.Build(items, filters, matchCount: 3);
+
+        var output = _formatter.FormatAreaView(view);
+        var root = JsonDocument.Parse(output).RootElement;
+
+        root.GetProperty("items").GetArrayLength().ShouldBe(3);
+        root.GetProperty("matchCount").GetInt32().ShouldBe(3);
+    }
+
+    [Fact]
+    public void FormatAreaView_SingleFilter_NoChildren()
+    {
+        var filters = new List<AreaPathFilter> { new("Exact\\Path", false) };
+        var view = AreaView.Build(Array.Empty<WorkItem>(), filters, matchCount: 0);
+
+        var output = _formatter.FormatAreaView(view);
+        var root = JsonDocument.Parse(output).RootElement;
+
+        var filterEl = root.GetProperty("filters")[0];
+        filterEl.GetProperty("includeChildren").GetBoolean().ShouldBeFalse();
+    }
 }

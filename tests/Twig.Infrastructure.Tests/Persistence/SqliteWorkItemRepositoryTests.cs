@@ -552,6 +552,148 @@ public class SqliteWorkItemRepositoryTests : IDisposable
         minId.Value.ShouldBe(seed.Id);
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    //  GetByAreaPathsAsync tests (area mode)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task GetByAreaPathsAsync_EmptyEntries_ReturnsEmpty()
+    {
+        var item = CreateWorkItem(1, "Task", "Item", "Active", areaPath: @"Project\Team A");
+        await _repo.SaveAsync(item);
+
+        var results = await _repo.GetByAreaPathsAsync(Array.Empty<AreaPathFilter>());
+
+        results.Count.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task GetByAreaPathsAsync_ExactMatch_ReturnsSingleItem()
+    {
+        var item1 = CreateWorkItem(1, "Task", "Team A Task", "Active", areaPath: @"Project\Team A");
+        var item2 = CreateWorkItem(2, "Task", "Team B Task", "Active", areaPath: @"Project\Team B");
+        await _repo.SaveAsync(item1);
+        await _repo.SaveAsync(item2);
+
+        var filters = new List<AreaPathFilter>
+        {
+            new(@"Project\Team A", IncludeChildren: false),
+        };
+        var results = await _repo.GetByAreaPathsAsync(filters);
+
+        results.Count.ShouldBe(1);
+        results[0].Id.ShouldBe(1);
+        results[0].Title.ShouldBe("Team A Task");
+    }
+
+    [Fact]
+    public async Task GetByAreaPathsAsync_ExactMatch_CaseInsensitive()
+    {
+        var item = CreateWorkItem(1, "Task", "Item", "Active", areaPath: @"Project\Team A");
+        await _repo.SaveAsync(item);
+
+        var filters = new List<AreaPathFilter>
+        {
+            new(@"project\team a", IncludeChildren: false),
+        };
+        var results = await _repo.GetByAreaPathsAsync(filters);
+
+        results.Count.ShouldBe(1);
+        results[0].Id.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task GetByAreaPathsAsync_UnderSemantics_ReturnsChildPaths()
+    {
+        var parent = CreateWorkItem(1, "Task", "Parent Area", "Active", areaPath: @"Project\Team A");
+        var child = CreateWorkItem(2, "Task", "Child Area", "Active", areaPath: @"Project\Team A\Sub1");
+        var grandchild = CreateWorkItem(3, "Task", "Grandchild", "Active", areaPath: @"Project\Team A\Sub1\Deep");
+        var unrelated = CreateWorkItem(4, "Task", "Team B", "Active", areaPath: @"Project\Team B");
+        await _repo.SaveBatchAsync(new[] { parent, child, grandchild, unrelated });
+
+        var filters = new List<AreaPathFilter>
+        {
+            new(@"Project\Team A", IncludeChildren: true),
+        };
+        var results = await _repo.GetByAreaPathsAsync(filters);
+
+        results.Count.ShouldBe(3);
+        results.Select(r => r.Id).ShouldBe(new[] { 1, 2, 3 }, ignoreOrder: true);
+    }
+
+    [Fact]
+    public async Task GetByAreaPathsAsync_UnderSemantics_DoesNotMatchPartialNames()
+    {
+        // "Team A" filter should NOT match "Team AB" — only "Team A" or "Team A\..."
+        var teamA = CreateWorkItem(1, "Task", "Team A", "Active", areaPath: @"Project\Team A");
+        var teamAB = CreateWorkItem(2, "Task", "Team AB", "Active", areaPath: @"Project\Team AB");
+        await _repo.SaveAsync(teamA);
+        await _repo.SaveAsync(teamAB);
+
+        var filters = new List<AreaPathFilter>
+        {
+            new(@"Project\Team A", IncludeChildren: true),
+        };
+        var results = await _repo.GetByAreaPathsAsync(filters);
+
+        results.Count.ShouldBe(1);
+        results[0].Id.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task GetByAreaPathsAsync_MultipleFilters_ReturnsUnion()
+    {
+        var item1 = CreateWorkItem(1, "Task", "Team A", "Active", areaPath: @"Project\Team A");
+        var item2 = CreateWorkItem(2, "Task", "Team B", "Active", areaPath: @"Project\Team B");
+        var item3 = CreateWorkItem(3, "Task", "Team C", "Active", areaPath: @"Project\Team C");
+        await _repo.SaveBatchAsync(new[] { item1, item2, item3 });
+
+        var filters = new List<AreaPathFilter>
+        {
+            new(@"Project\Team A", IncludeChildren: false),
+            new(@"Project\Team C", IncludeChildren: false),
+        };
+        var results = await _repo.GetByAreaPathsAsync(filters);
+
+        results.Count.ShouldBe(2);
+        results.Select(r => r.Id).ShouldBe(new[] { 1, 3 }, ignoreOrder: true);
+    }
+
+    [Fact]
+    public async Task GetByAreaPathsAsync_MixedExactAndUnder_ReturnsCorrectResults()
+    {
+        var itemA = CreateWorkItem(1, "Task", "Team A Root", "Active", areaPath: @"Project\Team A");
+        var itemAChild = CreateWorkItem(2, "Task", "Team A Child", "Active", areaPath: @"Project\Team A\Sub");
+        var itemB = CreateWorkItem(3, "Task", "Team B Exact", "Active", areaPath: @"Project\Team B");
+        var itemBChild = CreateWorkItem(4, "Task", "Team B Child", "Active", areaPath: @"Project\Team B\Sub");
+        await _repo.SaveBatchAsync(new[] { itemA, itemAChild, itemB, itemBChild });
+
+        var filters = new List<AreaPathFilter>
+        {
+            new(@"Project\Team A", IncludeChildren: true),  // should get 1 + 2
+            new(@"Project\Team B", IncludeChildren: false),  // should get only 3
+        };
+        var results = await _repo.GetByAreaPathsAsync(filters);
+
+        results.Count.ShouldBe(3);
+        results.Select(r => r.Id).ShouldBe(new[] { 1, 2, 3 }, ignoreOrder: true);
+    }
+
+    [Fact]
+    public async Task GetByAreaPathsAsync_NoMatches_ReturnsEmpty()
+    {
+        var item = CreateWorkItem(1, "Task", "Item", "Active", areaPath: @"Project\Team A");
+        await _repo.SaveAsync(item);
+
+        var filters = new List<AreaPathFilter>
+        {
+            new(@"Project\Team Z", IncludeChildren: true),
+        };
+        var results = await _repo.GetByAreaPathsAsync(filters);
+
+        results.Count.ShouldBe(0);
+    }
+
     private static WorkItem CreateWorkItem(
         int id, string type, string title, string state,
         int? parentId = null, string? assignedTo = null,

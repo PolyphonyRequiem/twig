@@ -845,3 +845,78 @@ are treated as opaque strings until runtime.
 ```
 grep -r "old_name" recursive/ prompts/
 ```
+
+---
+
+## Output Schema / Prompt Mismatch Audit (April 25, 2026)
+
+### Discovery
+
+While launching SDLC runs for #2014 and #1945, we noticed `task_reviewer` had a
+prompt that specified one set of output fields (with a `dimensions` scoring rubric and
+`score` composite), but the YAML output schema declared a different, smaller set. The
+agent would produce `dimensions` and `score` in its JSON output, but conductor would
+drop them because they weren't in the schema.
+
+### Systematic audit
+
+We audited **all 11 workflow YAMLs** and **30+ prompt files** across the registry,
+comparing each agent's YAML `output:` block against the output JSON examples in its
+prompt file.
+
+### Pattern: P11 scoring rubric added to prompts but not schemas
+
+The P11 scoring rubric (`dimensions` + `score`) was introduced across all reviewer
+prompts to provide per-dimension scoring breakdowns. The YAML output schemas were
+never updated to capture these fields. This was consistent across **6 reviewer agents**
+in the monolithic and recursive workflows. Only `plan-design.yaml`'s
+`technical_reviewer` and `readability_reviewer` had `dimensions` declared correctly.
+
+### Findings
+
+| Severity | Agent | Workflow(s) | Missing Fields |
+|----------|-------|-------------|----------------|
+| Critical | `task_reviewer` | twig-sdlc.yaml, implement.yaml | `dimensions`, `score`, `review_attempt` |
+| Critical | `issue_reviewer` | twig-sdlc.yaml, implement.yaml | `dimensions`, `score` |
+| Critical | `technical_reviewer` | twig-sdlc.yaml | `dimensions` |
+| Critical | `readability_reviewer` | twig-sdlc.yaml | `dimensions` |
+| Critical | `pr_reviewer` | twig-sdlc.yaml, implement.yaml | `dimensions`, `score` |
+| Moderate | `child_reviewer` | plan-child.yaml | `critical_issues` |
+
+Additionally, `task_reviewer`'s prompt template referenced
+`task_reviewer.output.review_attempt` for a review-cap mechanism (auto-approve or
+escalate after 3 attempts), but `review_attempt` was never declared in the output
+schema — so the review cap could never fire.
+
+Two informational findings were noted but not fixed:
+- `close_out` in twig-sdlc-full.yaml has a deliberately different schema than the
+  main workflow (retrospective handles observations separately)
+- `intake` uses different field names across workflows sharing the same prompt
+  (YAML schema guides output, so this is fine)
+
+### Fix
+
+Added the missing fields to all affected YAML output schemas. Also updated
+`task-reviewer.prompt.md` to include `review_attempt` in the example JSON output.
+
+**Files changed:**
+- `twig-sdlc/twig-sdlc.yaml` — technical_reviewer, readability_reviewer, pr_reviewer
+- `recursive/twig-sdlc-implement.yaml` — task_reviewer, issue_reviewer, pr_reviewer
+- `recursive/plan-child.yaml` — child_reviewer
+- `prompts/task-reviewer.prompt.md` — added `review_attempt` to example JSON
+
+### Lesson
+
+**YAML output schemas and prompt output examples must stay in sync.** When adding
+structured output patterns (like P11 scoring rubrics) to prompts, update the YAML
+`output:` block in every workflow that uses that prompt. A quick way to audit:
+
+```
+# For each prompt with a ```json output block, extract the keys and compare
+# against every YAML file that references that prompt via !file
+grep -l "task-reviewer.prompt.md" recursive/*.yaml twig-sdlc/*.yaml | \
+  xargs grep -A 30 "name: task_reviewer" | grep "type:"
+```
+
+This is the same class of problem as the stale reference pattern — prompts are
+opaque strings to `conductor validate`, so schema drift is invisible until runtime.

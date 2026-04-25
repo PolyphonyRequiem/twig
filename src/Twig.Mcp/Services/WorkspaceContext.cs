@@ -32,6 +32,16 @@ public sealed class WorkspaceContext : IDisposable
     public ParentStatePropagationService ParentPropagationService { get; }
     public ITrackingRepository? TrackingRepo { get; }
 
+    /// <summary>
+    /// ADO Git API client. Null when git project/repository are not configured.
+    /// </summary>
+    public IAdoGitService? AdoGitService { get; }
+
+    /// <summary>
+    /// Branch-to-work-item linking service. Null when <see cref="AdoGitService"/> is unavailable.
+    /// </summary>
+    public BranchLinkService? BranchLinkService { get; }
+
     internal SqliteCacheStore CacheStore { get; }
 
     public WorkspaceContext(
@@ -53,7 +63,9 @@ public sealed class WorkspaceContext : IDisposable
         McpPendingChangeFlusher flusher,
         IPromptStateWriter promptStateWriter,
         ParentStatePropagationService parentPropagationService,
-        ITrackingRepository? trackingRepo = null)
+        ITrackingRepository? trackingRepo = null,
+        IAdoGitService? adoGitService = null,
+        BranchLinkService? branchLinkService = null)
     {
         Key = key;
         Config = config;
@@ -74,6 +86,8 @@ public sealed class WorkspaceContext : IDisposable
         PromptStateWriter = promptStateWriter;
         ParentPropagationService = parentPropagationService;
         TrackingRepo = trackingRepo;
+        AdoGitService = adoGitService;
+        BranchLinkService = branchLinkService;
     }
 
     /// <summary>

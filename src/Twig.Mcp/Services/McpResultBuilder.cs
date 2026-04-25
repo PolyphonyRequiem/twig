@@ -411,6 +411,18 @@ internal static class McpResultBuilder
                 : $"Artifact link added to #{workItemId}.");
         });
 
+    public static CallToolResult FormatBranchLinked(BranchLinkResult result) =>
+        BuildJson(writer =>
+        {
+            writer.WriteNumber("workItemId", result.WorkItemId);
+            writer.WriteString("branchName", result.BranchName);
+            writer.WriteString("artifactUri", result.ArtifactUri);
+            writer.WriteBoolean("alreadyLinked", result.Status == BranchLinkStatus.AlreadyLinked);
+            writer.WriteString("message", result.Status == BranchLinkStatus.AlreadyLinked
+                ? $"Branch '{result.BranchName}' already linked to #{result.WorkItemId}."
+                : $"Branch '{result.BranchName}' linked to #{result.WorkItemId}.");
+        });
+
     public static CallToolResult FormatFlushSummary(McpFlushSummary summary) =>
         BuildJson(writer =>
         {

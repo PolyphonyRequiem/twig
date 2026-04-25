@@ -160,6 +160,25 @@ public sealed class WorkspaceContextFactory : IWorkspaceContextFactory, IDisposa
             paths,
             processTypeStore);
 
+        // Git service — conditional; only when git project/repository are configured
+        IAdoGitService? adoGitService = null;
+        BranchLinkService? branchLinkService = null;
+
+        var gitProject = config.GetGitProject();
+        var gitRepo = config.Git.Repository;
+        if (!string.IsNullOrWhiteSpace(gitProject) && !string.IsNullOrWhiteSpace(gitRepo))
+        {
+            adoGitService = new AdoGitClient(
+                _httpClient,
+                _authProvider,
+                config.Organization,
+                gitProject,
+                gitRepo,
+                config.Project);
+
+            branchLinkService = new BranchLinkService(adoGitService, adoService);
+        }
+
         return new WorkspaceContext(
             key,
             config,
@@ -179,7 +198,9 @@ public sealed class WorkspaceContextFactory : IWorkspaceContextFactory, IDisposa
             flusher,
             promptStateWriter,
             parentPropagationService,
-            trackingRepo);
+            trackingRepo,
+            adoGitService,
+            branchLinkService);
     }
 
     public void Dispose()

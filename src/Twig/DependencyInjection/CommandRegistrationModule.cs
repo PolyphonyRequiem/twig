@@ -97,17 +97,24 @@ public static class CommandRegistrationModule
 
     private static void AddGitCommands(IServiceCollection services)
     {
-        services.AddSingleton<BranchCommand>(sp => new BranchCommand(
-            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
-            sp.GetRequiredService<IProcessConfigurationProvider>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
-            sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetService<IGitService>(),
-            sp.GetService<IAdoGitService>(),
-            sp.GetRequiredService<IPromptStateWriter>()));
+        services.AddSingleton<BranchCommand>(sp =>
+        {
+            var adoGitService = sp.GetService<IAdoGitService>();
+            var branchLinkService = adoGitService is not null
+                ? new BranchLinkService(adoGitService, sp.GetRequiredService<IAdoWorkItemService>())
+                : null;
+            return new BranchCommand(
+                sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
+                sp.GetRequiredService<IWorkItemRepository>(),
+                sp.GetRequiredService<IAdoWorkItemService>(),
+                sp.GetRequiredService<IProcessConfigurationProvider>(),
+                sp.GetRequiredService<OutputFormatterFactory>(),
+                sp.GetRequiredService<HintEngine>(),
+                sp.GetRequiredService<TwigConfiguration>(),
+                sp.GetService<IGitService>(),
+                branchLinkService,
+                sp.GetRequiredService<IPromptStateWriter>());
+        });
         services.AddSingleton<CommitCommand>(sp => new CommitCommand(
             sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
             sp.GetRequiredService<IAdoWorkItemService>(),

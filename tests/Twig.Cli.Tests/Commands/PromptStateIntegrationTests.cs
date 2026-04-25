@@ -528,7 +528,6 @@ public class PromptStateIntegrationTests : IDisposable
         gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
         gitService.BranchExistsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(false);
 
-        var adoGitService = Substitute.For<IAdoGitService>();
         _adoService.FetchAsync(50, Arg.Any<CancellationToken>()).Returns(item);
         _adoService.PatchAsync(50, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(2);
@@ -538,7 +537,7 @@ public class PromptStateIntegrationTests : IDisposable
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var cmd = new BranchCommand(resolver, _workItemRepo, _adoService,
             _processConfigProvider, _formatterFactory, _hintEngine, branchConfig,
-            gitService, adoGitService, writer);
+            gitService, promptStateWriter: writer);
 
         var result = await cmd.ExecuteAsync(noLink: true);
 

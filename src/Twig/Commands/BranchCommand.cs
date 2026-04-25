@@ -12,7 +12,7 @@ namespace Twig.Commands;
 /// <summary>
 /// Implements <c>twig branch</c>: generates a branch name from the active work item,
 /// creates/checks out the branch via <see cref="IGitService"/>, optionally adds an
-/// ArtifactLink (Branch type) to the ADO work item, and auto-transitions state.
+/// ArtifactLink (Branch type) via <see cref="BranchLinkService"/>, and auto-transitions state.
 /// </summary>
 public sealed class BranchCommand(
     ActiveItemResolver activeItemResolver,
@@ -23,7 +23,7 @@ public sealed class BranchCommand(
     HintEngine hintEngine,
     TwigConfiguration config,
     IGitService? gitService = null,
-    IAdoGitService? adoGitService = null,
+    BranchLinkService? branchLinkService = null,
     IPromptStateWriter? promptStateWriter = null)
 {
     /// <summary>Create a branch from the active work item context.</summary>
@@ -76,29 +76,10 @@ public sealed class BranchCommand(
 
         // 4. Artifact link (unless --no-link or autoLink disabled)
         bool linked = false;
-        if (!noLink && config.Git.AutoLink && adoGitService is not null && branchCreated)
+        if (!noLink && config.Git.AutoLink && branchLinkService is not null && branchCreated)
         {
-            try
-            {
-                var projectId = await adoGitService.GetProjectIdAsync();
-                var repoId = await adoGitService.GetRepositoryIdAsync();
-
-                if (projectId is not null && repoId is not null)
-                {
-                    var encodedBranch = Uri.EscapeDataString(branchName);
-                    var artifactUri = $"vstfs:///Git/Ref/{projectId}/{repoId}/GB{encodedBranch}";
-
-                    // Fetch latest revision for optimistic concurrency
-                    var remote = await adoService.FetchAsync(item.Id);
-                    await adoGitService.AddArtifactLinkAsync(
-                        item.Id, artifactUri, "ArtifactLink", remote.Revision, "Branch");
-                    linked = true;
-                }
-            }
-            catch (Exception)
-            {
-                // Artifact linking is best-effort — branch was already created
-            }
+            var linkResult = await branchLinkService.LinkBranchAsync(item.Id, branchName, ct);
+            linked = linkResult.IsSuccess;
         }
 
         // 5. Auto-transition state (unless --no-transition or autoTransition disabled)

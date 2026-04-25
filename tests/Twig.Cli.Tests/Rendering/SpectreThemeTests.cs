@@ -195,6 +195,41 @@ public class SpectreThemeTests
         style.Foreground.ShouldBe(Color.Grey);
     }
 
+    // ── Seed indicator ─────────────────────────────────────────────
+
+    [Fact]
+    public void FormatSeedIndicator_UnicodeMode_ReturnsGreenBullet()
+    {
+        var theme = new SpectreTheme(new DisplayConfig());
+        var result = theme.FormatSeedIndicator();
+
+        result.ShouldContain("●");
+        result.ShouldContain("[green]");
+        result.ShouldContain("[/]");
+    }
+
+    [Fact]
+    public void FormatSeedIndicator_NerdMode_ReturnsGreenSeedling()
+    {
+        var theme = new SpectreTheme(new DisplayConfig { Icons = "nerd" });
+        var result = theme.FormatSeedIndicator();
+
+        result.ShouldContain("\uf4d8");
+        result.ShouldContain("[green]");
+        result.ShouldContain("[/]");
+    }
+
+    [Fact]
+    public void FormatSeedIndicator_IsValidSpectreMarkup()
+    {
+        var theme = new SpectreTheme(new DisplayConfig());
+        var result = theme.FormatSeedIndicator();
+
+        // Should not throw when rendered as Spectre markup
+        var markup = new Markup(result);
+        markup.ShouldNotBeNull();
+    }
+
     // ── CreateWorkspaceTable remains static ─────────────────────────
 
     [Fact]

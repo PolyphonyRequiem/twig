@@ -570,3 +570,80 @@ a plan-centric, monolithic design to a work-item-centric, modular architecture w
 ### Commits
 - `1d00e46` — script output schema removal, exit code routing
 - `194e660` — stdout for context, workflow.input for mapping, relaxed plan gate
+- `748ce91` — remove script output field references from apex workflow output
+- `346663d` — fix MCP server args indentation (collateral from script fix)
+- `d25b440` — remove conditional plan_path args
+
+---
+
+## ⚠️ CRITICAL: Conductor Bug — `workflow.input` Empty in Script Agent Context
+
+**Status:** Confirmed, reported to conductor team. **BLOCKS all script agents that
+reference workflow inputs.**
+
+### The Problem
+
+Script agents (`type: script`) receive an EMPTY `workflow.input` dict `{}` in their
+template rendering context, even when inputs are correctly passed via `--input` flags
+and displayed in the UI.
+
+LLM agents (`type: agent`) receive the correct populated `workflow.input`. Only
+script agents are affected.
+
+### How We Found It
+
+After multiple launch failures with `TemplateError: 'dict object' has no attribute
+'work_item_id'`, we monkey-patched `conductor.executor.template.TemplateRenderer.render()`
+to dump the context:
+
+```python
+# Debug output:
+TEMPLATE FAILED: '{{ workflow.input.work_item_id if workflow.input.work_item_id else 0 }}'
+CONTEXT KEYS: ['context', 'workflow']
+  workflow keys: ['input']
+  workflow.input: {}      ← EMPTY! Should be {"work_item_id": 1945}
+```
+
+The workflow UI correctly shows `{"work_item_id": 1945}` — the inputs are parsed
+and stored, but `ScriptExecutor` doesn't inject them into the template context.
+
+### Root Cause
+
+`conductor/executor/script.py` (lines ~86-87) builds the template context for script
+agents. It includes `workflow` in the context but does NOT populate `workflow.input`
+from the engine's input state. Compare with `executor/agent.py` which correctly
+populates `workflow.input` for LLM agents.
+
+### Impact on SDLC Redesign
+
+This blocks ALL redesigned workflows. The `state_detector` script agent is the entry
+point and needs `workflow.input.work_item_id` to function. Every deterministic script
+node (P8) that references workflow inputs is affected.
+
+### Workarounds
+
+1. **Convert script agents back to LLM agents** — defeats P8 (determinism) but unblocks
+2. **Pass inputs as environment variables** instead of template args — untested
+3. **Hardcode values** — obviously not viable for reusable workflows
+4. **Wait for conductor fix** — the fix is likely a 1-line change in `script.py`
+
+### Debug Script
+
+The monkey-patch debug script is at `tools/conductor-repro/debug_template.py`.
+Run from any worktree to reproduce:
+```
+cd <worktree>
+python tools/conductor-repro/debug_template.py
+```
+
+### Lessons
+
+1. **Always get the actual traceback** — we spent hours hypothesizing about eager
+   resolution, sub-workflow loading, YAML structure. The monkey-patch gave us the
+   answer in 30 seconds.
+2. **Don't trust "Cannot Reproduce"** — the conductor dev agent tested a simplified
+   repro that worked. The real bug only manifests in script agents (not LLM agents).
+3. **Template context ≠ workflow config** — conductor's UI shows correct inputs
+   but the execution context is a different code path.
+4. **P8 (scripts over agents) has a platform dependency** — deterministic scripts
+   are only viable if the platform passes context to them correctly.

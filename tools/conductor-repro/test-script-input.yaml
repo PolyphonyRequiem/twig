@@ -1,0 +1,23 @@
+# Minimal repro: script agent args with Jinja templates fail at runtime
+#
+# Run: conductor run test-script-input.yaml --input my_id=42
+# Expected: script runs, echoes "42"
+# Actual: TemplateError: 'dict object' has no attribute 'my_id'
+#
+# Conductor v0.1.9, Windows 11, Python 3.14.2
+workflow:
+  name: test-script-input
+  entry_point: test
+  input:
+    my_id:
+      type: number
+      required: true
+  agents:
+    - name: test
+      type: script
+      command: pwsh
+      args:
+        - "-Command"
+        - "Write-Output '{{ workflow.input.my_id }}'; exit 0"
+      routes:
+        - to: $end

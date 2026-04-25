@@ -1633,6 +1633,131 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         return result;
     }
 
+    public string FormatAreaView(AreaView areaView)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"{Bold}Area View{Reset}");
+        sb.AppendLine(new string('─', 50));
+
+        // Configured filters
+        sb.AppendLine($"  {Bold}Filters ({areaView.Filters.Count}):{Reset}");
+        foreach (var filter in areaView.Filters)
+        {
+            var semantics = filter.IncludeChildren ? "under" : "exact";
+            sb.AppendLine($"    {Dim}{filter.Path}  ({semantics}){Reset}");
+        }
+        sb.AppendLine();
+
+        sb.AppendLine($"  {Bold}Items ({areaView.MatchCount}):{Reset}");
+
+        if (areaView.MatchCount == 0)
+        {
+            sb.AppendLine($"    {Dim}No items match the configured area paths.{Reset}");
+        }
+        else if (areaView.Hierarchy is not null)
+        {
+            RenderAreaHierarchy(sb, areaView);
+        }
+        else
+        {
+            // Flat fallback
+            var lines = new List<AlignedLine>();
+            foreach (var item in areaView.AreaItems)
+            {
+                var typeColor = GetTypeColor(item.Type);
+                var badge = GetTypeBadge(item.Type);
+                var stateColor = GetStateColor(item.State);
+                var dirty = item.IsDirty ? $" {Yellow}✎{Reset}" : "";
+                lines.Add(new AlignedLine(
+                    $"      {typeColor}{badge}{Reset} #{item.Id} {item.Title}",
+                    $"[{stateColor}{item.State}{Reset}]", dirty));
+            }
+            FlushAlignedLines(sb, lines);
+        }
+
+        // Remove trailing newline
+        if (sb.Length > 0 && sb[sb.Length - 1] == '\n')
+            sb.Length -= 1;
+        if (sb.Length > 0 && sb[sb.Length - 1] == '\r')
+            sb.Length -= 1;
+
+        return sb.ToString();
+    }
+
+    private void RenderAreaHierarchy(StringBuilder sb, AreaView areaView)
+    {
+        var hierarchy = areaView.Hierarchy!;
+        var lines = new List<AlignedLine>();
+
+        // Area view uses a single group (all items, no assignee grouping)
+        foreach (var kvp in hierarchy.AssigneeGroups)
+        {
+            foreach (var root in kvp.Value)
+            {
+                if (root.IsVirtualGroup)
+                {
+                    RenderAreaVirtualGroupLine(sb, lines, root);
+                }
+                else
+                {
+                    CollectAreaNodeLine(lines, root, indent: "      ", connector: "");
+                    CollectAreaChildren(lines, root, childIndent: "      ");
+                }
+            }
+        }
+        FlushAlignedLines(sb, lines);
+    }
+
+    private void RenderAreaVirtualGroupLine(StringBuilder sb, List<AlignedLine> lines, SprintHierarchyNode virtualNode)
+    {
+        FlushAlignedLines(sb, lines);
+        var baseIndent = "      ";
+        sb.AppendLine($"{baseIndent}{Dim}── {virtualNode.GroupLabel} ──{Reset}");
+
+        var itemIndent = baseIndent + new string(' ', virtualNode.BacklogLevel * 4);
+        foreach (var child in virtualNode.Children)
+        {
+            CollectAreaNodeLine(lines, child, itemIndent, connector: "");
+            CollectAreaChildren(lines, child, itemIndent);
+        }
+    }
+
+    private void CollectAreaNodeLine(List<AlignedLine> lines, SprintHierarchyNode node, string indent, string connector)
+    {
+        var typeColor = GetTypeColor(node.Item.Type);
+        var badge = GetTypeBadge(node.Item.Type);
+        var stateColor = GetStateColor(node.Item.State);
+        var progress = FormatProgressIndicator(node);
+
+        if (node.IsSprintItem)
+        {
+            // In-area item — normal rendering
+            var dirty = node.Item.IsDirty ? $" {Yellow}✎{Reset}" : "";
+            lines.Add(new AlignedLine(
+                $"{indent}{connector}{typeColor}{badge}{Reset} #{node.Item.Id} {node.Item.Title}{progress}",
+                $"[{stateColor}{node.Item.State}{Reset}]", dirty));
+        }
+        else
+        {
+            // Out-of-area parent context — dimmed
+            lines.Add(new AlignedLine(
+                $"{indent}{connector}{typeColor}{badge}{Reset} {Dim}{node.Item.Title}{Reset}{progress}",
+                $"[{stateColor}{node.Item.State}{Reset}]", ""));
+        }
+    }
+
+    private void CollectAreaChildren(List<AlignedLine> lines, SprintHierarchyNode node, string childIndent)
+    {
+        for (var i = 0; i < node.Children.Count; i++)
+        {
+            var isLast = i == node.Children.Count - 1;
+            var connector = isLast ? "└── " : "├── ";
+            var continuation = isLast ? "    " : "│   ";
+            CollectAreaNodeLine(lines, node.Children[i], childIndent, connector);
+            CollectAreaChildren(lines, node.Children[i], childIndent + continuation);
+        }
+    }
+
     public string FormatQueryResults(QueryResult result)
     {
         if (result.Items.Count == 0)

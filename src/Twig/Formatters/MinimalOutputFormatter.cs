@@ -316,6 +316,18 @@ public sealed class MinimalOutputFormatter : IOutputFormatter
     // Tracked for future implementation: render query results as plain tab-separated or line-per-item text.
     public string FormatQueryResults(QueryResult result) => string.Empty;
 
+    public string FormatAreaView(AreaView areaView)
+    {
+        var sb = new StringBuilder();
+        foreach (var item in areaView.AreaItems)
+        {
+            var dirty = item.IsDirty ? " *" : "";
+            var stateLabel = FormatterHelpers.GetStateLabel(item.State);
+            sb.AppendLine($"AREA #{item.Id} [{stateLabel}] {item.Title}{dirty}");
+        }
+        return TrimEnd(sb);
+    }
+
     private static string TrimEnd(StringBuilder sb)
     {
         if (sb.Length > 0 && sb[sb.Length - 1] == '\n') sb.Length -= 1;

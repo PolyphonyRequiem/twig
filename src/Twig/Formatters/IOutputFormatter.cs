@@ -80,4 +80,9 @@ public interface IOutputFormatter
 
     /// <summary>Formats query results for display.</summary>
     string FormatQueryResults(QueryResult result);
+
+    // ── Area view formatting ────────────────────────────────────────
+
+    /// <summary>Formats the area-filtered workspace view with hierarchy and dim out-of-area parents.</summary>
+    string FormatAreaView(AreaView areaView);
 }

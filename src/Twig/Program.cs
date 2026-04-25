@@ -743,6 +743,12 @@ public sealed class TwigCommands(IServiceProvider services)
 
     // ── Area Path Management ───────────────────────────────────────────
 
+    /// <summary>Show the area-filtered workspace view with configured area paths.</summary>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    [Command("area")]
+    public async Task<int> Area(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<AreaCommand>().ViewAsync(output, ct);
+
     /// <summary>Add an area path to the workspace configuration.</summary>
     /// <param name="path">Area path to add (e.g., "Project\Team A").</param>
     /// <param name="exact">Use exact match semantics instead of subtree (under).</param>
@@ -1043,6 +1049,7 @@ internal static class GroupedHelp
         "workspace untrack",
         "workspace exclude",
         "workspace exclusions",
+        "area",
         "area add",
         "area remove",
         "area list",
@@ -1140,7 +1147,6 @@ internal static class GroupedHelp
         // Group prefixes for compound commands without standalone handlers
         "link",
         "hooks",
-        "area",
     ];
 
     /// <summary>
@@ -1175,6 +1181,7 @@ Views:
   status               Active item detail and pending changes.
   tree                 Work item hierarchy (parent → active → children).
   sprint               My sprint items, grouped by assignee.  (--all for team)
+  area                 Area-filtered view of work items.
 
 Workspace:
   workspace            My sprint items.  (alias: ws)

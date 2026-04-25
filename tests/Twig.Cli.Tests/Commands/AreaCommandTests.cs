@@ -2,7 +2,9 @@ using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Commands;
+using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
+using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Infrastructure.Config;
 using Xunit;
@@ -39,10 +41,10 @@ public sealed class AreaCommandTests : IDisposable
         catch { /* best effort cleanup */ }
     }
 
-    private AreaCommand CreateCommand(TwigConfiguration? config = null, IIterationService? iterationService = null)
+    private AreaCommand CreateCommand(TwigConfiguration? config = null, IIterationService? iterationService = null, IWorkItemRepository? workItemRepo = null, IProcessTypeStore? processTypeStore = null)
     {
         config ??= new TwigConfiguration();
-        return new AreaCommand(config, _paths, _formatterFactory, iterationService);
+        return new AreaCommand(config, _paths, _formatterFactory, workItemRepo, processTypeStore, iterationService);
     }
 
     // ── Add ────────────────────────────────────────────────────────────
@@ -312,5 +314,258 @@ public sealed class AreaCommandTests : IDisposable
 
         result.ShouldBe(1);
         stderr.ShouldContain("Failed to fetch");
+    }
+
+    // ── View (default area action) ─────────────────────────────────
+
+    [Fact]
+    public async Task View_NoAreaPathsConfigured_ShowsHelpfulMessage()
+    {
+        var config = new TwigConfiguration();
+        var cmd = CreateCommand(config);
+
+        var (result, stdout) = await StdoutCapture.RunAsync(
+            () => cmd.ViewAsync());
+
+        result.ShouldBe(0);
+        stdout.ShouldContain("No area paths configured");
+    }
+
+    [Fact]
+    public async Task View_NoWorkItemRepo_ReturnsOne()
+    {
+        var config = new TwigConfiguration
+        {
+            Defaults = new DefaultsConfig
+            {
+                AreaPathEntries = [new AreaPathEntry { Path = @"Project\Team A", IncludeChildren = true }]
+            }
+        };
+        var cmd = CreateCommand(config, workItemRepo: null);
+
+        var (result, stderr) = await StderrCapture.RunAsync(
+            () => cmd.ViewAsync());
+
+        result.ShouldBe(1);
+        stderr.ShouldContain("no local cache");
+    }
+
+    [Fact]
+    public async Task View_NoMatchingItems_ShowsEmptyView()
+    {
+        var workItemRepo = Substitute.For<IWorkItemRepository>();
+        workItemRepo.GetByAreaPathsAsync(Arg.Any<IReadOnlyList<AreaPathFilter>>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var config = new TwigConfiguration
+        {
+            Defaults = new DefaultsConfig
+            {
+                AreaPathEntries = [new AreaPathEntry { Path = @"Project\Team A", IncludeChildren = true }]
+            }
+        };
+        var cmd = CreateCommand(config, workItemRepo: workItemRepo);
+
+        var (result, stdout) = await StdoutCapture.RunAsync(
+            () => cmd.ViewAsync());
+
+        result.ShouldBe(0);
+        stdout.ShouldContain("Items (0)");
+    }
+
+    [Fact]
+    public async Task View_WithMatchingItems_ShowsAreaItems()
+    {
+        var item1 = new WorkItem
+        {
+            Id = 10, Type = WorkItemType.Task, Title = "Task in area", State = "Active",
+            AreaPath = AreaPath.Parse(@"Project\Team A").Value,
+            IterationPath = IterationPath.Parse(@"Project\Sprint 1").Value,
+        };
+
+        var workItemRepo = Substitute.For<IWorkItemRepository>();
+        workItemRepo.GetByAreaPathsAsync(Arg.Any<IReadOnlyList<AreaPathFilter>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { item1 });
+
+        var config = new TwigConfiguration
+        {
+            Defaults = new DefaultsConfig
+            {
+                AreaPathEntries = [new AreaPathEntry { Path = @"Project\Team A", IncludeChildren = true }]
+            }
+        };
+        var cmd = CreateCommand(config, workItemRepo: workItemRepo);
+
+        var (result, stdout) = await StdoutCapture.RunAsync(
+            () => cmd.ViewAsync());
+
+        result.ShouldBe(0);
+        stdout.ShouldContain("Task in area");
+        stdout.ShouldContain("Items (1)");
+    }
+
+    [Fact]
+    public async Task View_WithParentHydration_HydratesParentChains()
+    {
+        var child = new WorkItem
+        {
+            Id = 10, Type = WorkItemType.Task, Title = "Child task", State = "Active",
+            ParentId = 100,
+            AreaPath = AreaPath.Parse(@"Project\Team A").Value,
+            IterationPath = IterationPath.Parse(@"Project\Sprint 1").Value,
+        };
+
+        var parent = new WorkItem
+        {
+            Id = 100, Type = WorkItemType.UserStory, Title = "Parent story", State = "Active",
+            AreaPath = AreaPath.Parse(@"Project").Value,
+            IterationPath = IterationPath.Parse(@"Project\Sprint 1").Value,
+        };
+
+        var workItemRepo = Substitute.For<IWorkItemRepository>();
+        workItemRepo.GetByAreaPathsAsync(Arg.Any<IReadOnlyList<AreaPathFilter>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { child });
+        workItemRepo.GetParentChainAsync(100, Arg.Any<CancellationToken>())
+            .Returns(new[] { parent });
+
+        var config = new TwigConfiguration
+        {
+            Defaults = new DefaultsConfig
+            {
+                AreaPathEntries = [new AreaPathEntry { Path = @"Project\Team A", IncludeChildren = true }]
+            }
+        };
+        var cmd = CreateCommand(config, workItemRepo: workItemRepo);
+
+        var (result, stdout) = await StdoutCapture.RunAsync(
+            () => cmd.ViewAsync());
+
+        result.ShouldBe(0);
+        stdout.ShouldContain("Child task");
+        // Parent should be hydrated (fetched via GetParentChainAsync)
+        await workItemRepo.Received(1).GetParentChainAsync(100, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task View_ParentAlreadyInAreaResults_SkipsHydration()
+    {
+        var parent = new WorkItem
+        {
+            Id = 100, Type = WorkItemType.UserStory, Title = "Parent in area", State = "Active",
+            AreaPath = AreaPath.Parse(@"Project\Team A").Value,
+            IterationPath = IterationPath.Parse(@"Project\Sprint 1").Value,
+        };
+
+        var child = new WorkItem
+        {
+            Id = 10, Type = WorkItemType.Task, Title = "Child task", State = "Active",
+            ParentId = 100,
+            AreaPath = AreaPath.Parse(@"Project\Team A\Sub").Value,
+            IterationPath = IterationPath.Parse(@"Project\Sprint 1").Value,
+        };
+
+        var workItemRepo = Substitute.For<IWorkItemRepository>();
+        workItemRepo.GetByAreaPathsAsync(Arg.Any<IReadOnlyList<AreaPathFilter>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { parent, child });
+
+        var config = new TwigConfiguration
+        {
+            Defaults = new DefaultsConfig
+            {
+                AreaPathEntries = [new AreaPathEntry { Path = @"Project\Team A", IncludeChildren = true }]
+            }
+        };
+        var cmd = CreateCommand(config, workItemRepo: workItemRepo);
+
+        var (result, _) = await StdoutCapture.RunAsync(
+            () => cmd.ViewAsync());
+
+        result.ShouldBe(0);
+        // Parent is already in area results, so GetParentChainAsync should NOT be called for it
+        await workItemRepo.DidNotReceive().GetParentChainAsync(100, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task View_JsonFormat_ReturnsStructuredOutput()
+    {
+        var item = new WorkItem
+        {
+            Id = 10, Type = WorkItemType.Task, Title = "Area task", State = "Active",
+            AreaPath = AreaPath.Parse(@"Project\Team A").Value,
+            IterationPath = IterationPath.Parse(@"Project\Sprint 1").Value,
+        };
+
+        var workItemRepo = Substitute.For<IWorkItemRepository>();
+        workItemRepo.GetByAreaPathsAsync(Arg.Any<IReadOnlyList<AreaPathFilter>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { item });
+
+        var config = new TwigConfiguration
+        {
+            Defaults = new DefaultsConfig
+            {
+                AreaPathEntries = [new AreaPathEntry { Path = @"Project\Team A", IncludeChildren = true }]
+            }
+        };
+        var cmd = CreateCommand(config, workItemRepo: workItemRepo);
+
+        var (result, stdout) = await StdoutCapture.RunAsync(
+            () => cmd.ViewAsync(outputFormat: "json"));
+
+        result.ShouldBe(0);
+        stdout.ShouldContain("\"matchCount\": 1");
+        stdout.ShouldContain("\"filters\"");
+        stdout.ShouldContain("\"items\"");
+    }
+
+    [Fact]
+    public async Task View_MultipleAreaPaths_QueriesAll()
+    {
+        var workItemRepo = Substitute.For<IWorkItemRepository>();
+        workItemRepo.GetByAreaPathsAsync(Arg.Any<IReadOnlyList<AreaPathFilter>>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var config = new TwigConfiguration
+        {
+            Defaults = new DefaultsConfig
+            {
+                AreaPathEntries =
+                [
+                    new AreaPathEntry { Path = @"Project\Team A", IncludeChildren = true },
+                    new AreaPathEntry { Path = @"Project\Team B", IncludeChildren = false },
+                ]
+            }
+        };
+        var cmd = CreateCommand(config, workItemRepo: workItemRepo);
+
+        await StdoutCapture.RunAsync(() => cmd.ViewAsync());
+
+        // Verify filters are passed correctly
+        await workItemRepo.Received(1).GetByAreaPathsAsync(
+            Arg.Is<IReadOnlyList<AreaPathFilter>>(f => f.Count == 2),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task View_FallbackAreaPaths_UsesResolveAreaPaths()
+    {
+        // Test the 3-tier fallback: AreaPaths (list) → single AreaPath
+        var workItemRepo = Substitute.For<IWorkItemRepository>();
+        workItemRepo.GetByAreaPathsAsync(Arg.Any<IReadOnlyList<AreaPathFilter>>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var config = new TwigConfiguration
+        {
+            Defaults = new DefaultsConfig
+            {
+                AreaPath = @"Project\Team C" // fallback single path
+            }
+        };
+        var cmd = CreateCommand(config, workItemRepo: workItemRepo);
+
+        await StdoutCapture.RunAsync(() => cmd.ViewAsync());
+
+        await workItemRepo.Received(1).GetByAreaPathsAsync(
+            Arg.Is<IReadOnlyList<AreaPathFilter>>(f => f.Count == 1 && f[0].Path == @"Project\Team C"),
+            Arg.Any<CancellationToken>());
     }
 }

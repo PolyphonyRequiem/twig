@@ -32,7 +32,7 @@ public sealed class WorkspaceCommand(
     ITrackingService trackingService,
     RenderingPipelineFactory? pipelineFactory = null)
 {
-    public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default, bool sprintLayout = false)
+    public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default, bool sprintLayout = false, bool flat = false)
     {
         var (fmt, renderer) = pipelineFactory is not null
             ? pipelineFactory.Resolve(outputFormat, noLive)
@@ -61,8 +61,8 @@ public sealed class WorkspaceCommand(
                     spectreRenderer.TypeLevelMap = Domain.Services.BacklogHierarchyService.GetTypeLevelMap(processConfig);
                     spectreRenderer.WorkingLevelTypeName = config.Workspace.WorkingLevel;
 
-                    // Enable tree rendering when process configuration is available
-                    spectreRenderer.UseTreeRendering = true;
+                    // Enable tree rendering when process configuration is available and --flat is not specified
+                    spectreRenderer.UseTreeRendering = !flat;
                     spectreRenderer.TreeDepthUp = config.Display.TreeDepthUp;
                     spectreRenderer.TreeDepthDown = config.Display.TreeDepthDown;
                     spectreRenderer.TreeDepthSideways = config.Display.TreeDepthSideways;
@@ -175,10 +175,10 @@ public sealed class WorkspaceCommand(
         }
 
         // Sync path — original implementation (JSON, minimal, --no-live, --all, sprint, piped output)
-        return await ExecuteSyncAsync(fmt, all, sprintLayout);
+        return await ExecuteSyncAsync(fmt, all, sprintLayout, flat);
     }
 
-    private async Task<int> ExecuteSyncAsync(IOutputFormatter fmt, bool all, bool sprintLayout = false)
+    private async Task<int> ExecuteSyncAsync(IOutputFormatter fmt, bool all, bool sprintLayout = false, bool flat = false)
     {
         // Get active context (nullable) — auto-fetch on cache miss via ActiveItemResolver
         var activeId = await contextStore.GetActiveWorkItemIdAsync();
@@ -267,7 +267,7 @@ public sealed class WorkspaceCommand(
         {
             humanFmt.TypeLevelMap = typeLevelMap;
             humanFmt.WorkingLevelTypeName = config.Workspace.WorkingLevel;
-            humanFmt.UseTreeRendering = true;
+            humanFmt.UseTreeRendering = !flat;
             humanFmt.TreeDepthUp = config.Display.TreeDepthUp;
             humanFmt.TreeDepthDown = config.Display.TreeDepthDown;
             humanFmt.TreeDepthSideways = config.Display.TreeDepthSideways;

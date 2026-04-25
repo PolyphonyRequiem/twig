@@ -696,7 +696,7 @@ public class JsonOutputFormatterTests
         queryIdx.ShouldBeLessThan(countIdx);
     }
 
-    // ── Recursive tree output (Task 2073) ───────────────────────────
+    // ── Recursive tree output (Task 2074) ───────────────────────────
 
     [Fact]
     public void FormatTree_WithDescendants_IncludesGrandchildren()
@@ -761,5 +761,23 @@ public class JsonOutputFormatterTests
 
         var childElement = doc.RootElement.GetProperty("children")[0];
         childElement.GetProperty("children").GetArrayLength().ShouldBe(0);
+    }
+
+    [Fact]
+    public void FormatTree_NullDescendantsByParentId_ChildrenArrayIsEmpty()
+    {
+        var focus = CreateWorkItem(1, "Focus", "Active");
+        var child1 = CreateWorkItemWithParent(2, "Child A", "New", 1);
+        var child2 = CreateWorkItemWithParent(3, "Child B", "New", 1);
+        // Build without descendantsByParentId — defaults to null
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child1, child2 });
+
+        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var doc = JsonDocument.Parse(result);
+
+        var children = doc.RootElement.GetProperty("children");
+        children.GetArrayLength().ShouldBe(2);
+        children[0].GetProperty("children").GetArrayLength().ShouldBe(0);
+        children[1].GetProperty("children").GetArrayLength().ShouldBe(0);
     }
 }

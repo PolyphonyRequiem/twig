@@ -42,7 +42,7 @@ public abstract class ReadToolsTestBase
         var ctx = BuildContext(TestWorkspaceKey, config,
             _contextStore, _workItemRepo, _adoService, _pendingChangeStore,
             _linkRepo, _iterationService, _processConfigProvider, _promptStateWriter,
-            _trackingRepo, gitService, branchLinkService);
+            _trackingRepo, branchLinkService);
 
         var registry = Substitute.For<IWorkspaceRegistry>();
         registry.Workspaces.Returns(new[] { TestWorkspaceKey });
@@ -126,7 +126,6 @@ public abstract class ReadToolsTestBase
         IProcessConfigurationProvider processConfigProvider,
         IPromptStateWriter promptStateWriter,
         ITrackingRepository? trackingRepo = null,
-        IAdoGitService? adoGitService = null,
         BranchLinkService? branchLinkService = null)
     {
         var activeItemResolver = new ActiveItemResolver(contextStore, workItemRepo, adoService);
@@ -157,7 +156,6 @@ public abstract class ReadToolsTestBase
             activeItemResolver, syncFactory, contextChange,
             statusOrch, workingSet, flusher, promptStateWriter, parentPropagation,
             trackingRepo,
-            adoGitService,
             branchLinkService);
     }
 

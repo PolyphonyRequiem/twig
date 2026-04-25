@@ -8,11 +8,6 @@ namespace Twig.Domain.Services;
 /// IDs, builds the <c>vstfs:///Git/Ref/{projectId}/{repoId}/GB{branchName}</c> URI,
 /// and adds it as an artifact link to the specified work item.
 /// </summary>
-/// <remarks>
-/// Extracted from <see cref="Twig.Domain.Services.BranchNamingService"/>-adjacent
-/// logic in <c>BranchCommand</c> to enable reuse by <c>LinkBranchCommand</c>,
-/// the <c>BranchCommand</c> refactor, and the MCP <c>twig_link_branch</c> tool.
-/// </remarks>
 public sealed class BranchLinkService(
     IAdoGitService adoGitService,
     IAdoWorkItemService adoWorkItemService)
@@ -34,7 +29,6 @@ public sealed class BranchLinkService(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(branchName);
 
-        // 1. Resolve git project and repository IDs
         string? projectId;
         string? repoId;
         try
@@ -64,10 +58,8 @@ public sealed class BranchLinkService(
             };
         }
 
-        // 2. Build vstfs artifact URI
         var artifactUri = BuildArtifactUri(projectId, repoId, branchName);
 
-        // 3. Add artifact link to work item
         try
         {
             var alreadyExisted = await adoWorkItemService.AddArtifactLinkAsync(

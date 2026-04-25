@@ -199,7 +199,6 @@ public sealed class WorkspaceContextFactory : IWorkspaceContextFactory, IDisposa
             promptStateWriter,
             parentPropagationService,
             trackingRepo,
-            adoGitService,
             branchLinkService);
     }
 

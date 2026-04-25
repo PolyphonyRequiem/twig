@@ -83,26 +83,24 @@ public sealed class WorkspaceContextFactoryTests : IDisposable
     }
 
     [Fact]
-    public void GetOrCreate_WithGitConfig_Has_GitService_And_BranchLinkService()
+    public void GetOrCreate_WithGitConfig_Has_BranchLinkService()
     {
         var key = WriteWorkspace("orgA", "proj1", gitProject: "proj1", gitRepository: "myrepo");
         using var factory = CreateFactory();
 
         var context = factory.GetOrCreate(key);
 
-        context.AdoGitService.ShouldNotBeNull();
         context.BranchLinkService.ShouldNotBeNull();
     }
 
     [Fact]
-    public void GetOrCreate_WithoutGitConfig_GitService_And_BranchLinkService_AreNull()
+    public void GetOrCreate_WithoutGitConfig_BranchLinkService_IsNull()
     {
         var key = WriteWorkspace("orgA", "proj1");
         using var factory = CreateFactory();
 
         var context = factory.GetOrCreate(key);
 
-        context.AdoGitService.ShouldBeNull();
         context.BranchLinkService.ShouldBeNull();
     }
 

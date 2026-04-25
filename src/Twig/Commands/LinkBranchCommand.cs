@@ -28,14 +28,12 @@ public sealed class LinkBranchCommand(
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
-        // 1. Validate branch name
         if (string.IsNullOrWhiteSpace(branchName))
         {
             _stderr.WriteLine(fmt.FormatError("Branch name is required."));
             return 1;
         }
 
-        // 2. Resolve work item
         var resolved = id.HasValue
             ? await activeItemResolver.ResolveByIdAsync(id.Value, ct)
             : await activeItemResolver.GetActiveItemAsync(ct);
@@ -48,7 +46,6 @@ public sealed class LinkBranchCommand(
             return 1;
         }
 
-        // 3. Validate git repo availability
         var (isValid, exitCode) = await GitGuard.EnsureGitRepoAsync(gitService, fmt, _stderr);
         if (!isValid) return exitCode;
 
@@ -58,7 +55,6 @@ public sealed class LinkBranchCommand(
             return 1;
         }
 
-        // 4. Validate branch exists (local or remote)
         bool branchExists;
         try
         {
@@ -76,35 +72,26 @@ public sealed class LinkBranchCommand(
             return 1;
         }
 
-        // 5. Link the branch
         var result = await branchLinkService.LinkBranchAsync(item.Id, branchName, ct);
 
-        // 6. Output
-        if (result.IsSuccess)
-            return WriteSuccess(fmt, outputFormat, item.Id, branchName, result.Status == BranchLinkStatus.AlreadyLinked);
-        return WriteError(fmt, result);
-    }
+        if (!result.IsSuccess)
+        {
+            _stderr.WriteLine(fmt.FormatError(
+                $"Failed to link branch '{result.BranchName}' to #{result.WorkItemId}: {result.ErrorMessage}"));
+            return 1;
+        }
 
-    private int WriteSuccess(IOutputFormatter fmt, string outputFormat, int workItemId, string branchName, bool alreadyLinked)
-    {
         if (string.Equals(outputFormat, "minimal", StringComparison.OrdinalIgnoreCase))
         {
             Console.WriteLine(branchName);
         }
         else
         {
-            var message = alreadyLinked
-                ? $"Already linked: branch '{branchName}' on #{workItemId}."
-                : $"Linked branch '{branchName}' to #{workItemId}.";
+            var message = result.Status == BranchLinkStatus.AlreadyLinked
+                ? $"Already linked: branch '{branchName}' on #{item.Id}."
+                : $"Linked branch '{branchName}' to #{item.Id}.";
             Console.WriteLine(fmt.FormatSuccess(message));
         }
         return 0;
-    }
-
-    private int WriteError(IOutputFormatter fmt, BranchLinkResult result)
-    {
-        _stderr.WriteLine(fmt.FormatError(
-            $"Failed to link branch '{result.BranchName}' to #{result.WorkItemId}: {result.ErrorMessage}"));
-        return 1;
     }
 }

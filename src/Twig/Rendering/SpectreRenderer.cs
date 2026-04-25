@@ -44,13 +44,13 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     /// </summary>
     internal bool UseTreeRendering { get; set; }
 
-    /// <summary>Max ancestor levels above working level to display.</summary>
+    /// <summary>Max ancestor levels above working level to display. Nodes beyond this depth are pruned and their children promoted.</summary>
     internal int TreeDepthUp { get; set; } = 2;
 
     /// <summary>Max descendant depth below each root to display.</summary>
     internal int TreeDepthDown { get; set; } = 10;
 
-    /// <summary>When &gt;0, show sibling count indicators at each tree level.</summary>
+    /// <summary>When &gt;0, show truncation count indicators when depth limiting hides children.</summary>
     internal int TreeDepthSideways { get; set; } = 1;
 
     public async Task RenderWorkspaceAsync(
@@ -502,7 +502,9 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         int? activeContextId,
         int cacheStaleMinutes)
     {
-        foreach (var root in roots)
+        var prunedRoots = PruneAncestorsAboveDepthUp(roots);
+
+        foreach (var root in prunedRoots)
         {
             var rootLabel = FormatWorkspaceTreeNodeLabel(root, activeContextId, cacheStaleMinutes);
             var tree = new Tree(rootLabel);
@@ -524,7 +526,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     {
         if (children.Count == 0 || depth > TreeDepthDown)
         {
-            if (depth > TreeDepthDown && children.Count > 0)
+            if (depth > TreeDepthDown && children.Count > 0 && TreeDepthSideways > 0)
                 parent.AddNode($"[dim]... {children.Count} more[/]");
             return;
         }
@@ -537,6 +539,53 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                 : _theme.GetStateCategoryMarkupColor(child.Item.State);
             var node = parent.AddNode($"[{stateColor}]│[/] {label}");
             AddWorkspaceTreeChildren(node, child.Children, activeContextId, depth + 1, cacheStaleMinutes);
+        }
+    }
+
+    /// <summary>
+    /// Prunes ancestor nodes that exceed <see cref="TreeDepthUp"/> levels above the working level.
+    /// Nodes beyond the limit are removed and their children promoted as new roots.
+    /// </summary>
+    internal IReadOnlyList<SprintHierarchyNode> PruneAncestorsAboveDepthUp(
+        IReadOnlyList<SprintHierarchyNode> roots)
+    {
+        if (WorkingLevelTypeName is null || TypeLevelMap is null)
+            return roots;
+
+        if (!TypeLevelMap.TryGetValue(WorkingLevelTypeName, out var workingLevel))
+            return roots;
+
+        var result = new List<SprintHierarchyNode>();
+        foreach (var root in roots)
+            CollectPrunedRoots(root, workingLevel, result);
+
+        return result.Count > 0 ? result : roots;
+    }
+
+    private void CollectPrunedRoots(SprintHierarchyNode node, int workingLevel, List<SprintHierarchyNode> result)
+    {
+        if (node.IsVirtualGroup)
+        {
+            result.Add(node);
+            return;
+        }
+
+        if (!TypeLevelMap!.TryGetValue(node.Item.Type.Value, out var nodeLevel))
+        {
+            result.Add(node);
+            return;
+        }
+
+        var levelsAbove = workingLevel - nodeLevel;
+        if (levelsAbove > TreeDepthUp)
+        {
+            // Node is too far above working level — promote its children
+            foreach (var child in node.Children)
+                CollectPrunedRoots(child, workingLevel, result);
+        }
+        else
+        {
+            result.Add(node);
         }
     }
 

@@ -161,6 +161,121 @@ public sealed class WorkspaceTreeRenderTests
         output.ShouldContain("more");
     }
 
+    [Fact]
+    public async Task TreeMode_DepthUp_PrunesAncestorsAboveLimit()
+    {
+        // TreeDepthUp=1 with working level "User Story" (level 2):
+        // Epic (level 0) is 2 levels above → pruned; Feature (level 1) is 1 level above → kept
+        var (console, renderer) = CreateTreeRenderer(workingLevel: "User Story", depthUp: 1);
+
+        var epic = new WorkItemBuilder(10, "Pruned Epic").AsEpic().InState("Active").Build();
+        var feature = new WorkItemBuilder(15, "Kept Feature").AsFeature().InState("Active").Build();
+        var story = new WorkItemBuilder(20, "Working Story").AsUserStory().InState("Active").Build();
+
+        var roots = new[]
+        {
+            BuildNode(epic, isSprintItem: false, children: new[]
+            {
+                BuildNode(feature, isSprintItem: false, children: new[]
+                {
+                    BuildNode(story, isSprintItem: true)
+                })
+            })
+        };
+
+        var sections = BuildSectionsWithTree(new[] { story }, roots);
+        var output = await RenderTreeWorkspace(console, renderer,
+            sprintItems: new[] { story }, sections: sections);
+
+        output.ShouldNotContain("Pruned Epic");
+        output.ShouldContain("Kept Feature");
+        output.ShouldContain("Working Story");
+    }
+
+    [Fact]
+    public async Task TreeMode_DepthUp_ZeroPrunesAllAncestors()
+    {
+        // TreeDepthUp=0 means no ancestors above working level are shown
+        var (console, renderer) = CreateTreeRenderer(workingLevel: "User Story", depthUp: 0);
+
+        var epic = new WorkItemBuilder(10, "Pruned Epic").AsEpic().InState("Active").Build();
+        var feature = new WorkItemBuilder(15, "Pruned Feature").AsFeature().InState("Active").Build();
+        var story = new WorkItemBuilder(20, "Only Story").AsUserStory().InState("Active").Build();
+
+        var roots = new[]
+        {
+            BuildNode(epic, isSprintItem: false, children: new[]
+            {
+                BuildNode(feature, isSprintItem: false, children: new[]
+                {
+                    BuildNode(story, isSprintItem: true)
+                })
+            })
+        };
+
+        var sections = BuildSectionsWithTree(new[] { story }, roots);
+        var output = await RenderTreeWorkspace(console, renderer,
+            sprintItems: new[] { story }, sections: sections);
+
+        output.ShouldNotContain("Pruned Epic");
+        output.ShouldNotContain("Pruned Feature");
+        output.ShouldContain("Only Story");
+    }
+
+    [Fact]
+    public void PruneAncestors_NoTypeLevelMap_ReturnsOriginalRoots()
+    {
+        var (_, renderer) = CreateTreeRenderer(); // no working level set → TypeLevelMap null
+        var story = new WorkItemBuilder(20, "Story").AsUserStory().InState("Active").Build();
+        var roots = new[] { BuildNode(story, isSprintItem: true) };
+
+        var result = renderer.PruneAncestorsAboveDepthUp(roots);
+        result.ShouldBe(roots);
+    }
+
+    [Fact]
+    public void PruneAncestors_VirtualGroupsPreserved()
+    {
+        var (_, renderer) = CreateTreeRenderer(workingLevel: "User Story", depthUp: 0);
+        var task = new WorkItemBuilder(30, "Orphan Task").AsTask().InState("Active").Build();
+        var virtualRoot = BuildVirtualGroupNode("Unparented Tasks", new[] { BuildNode(task, isSprintItem: true) });
+
+        var result = renderer.PruneAncestorsAboveDepthUp(new[] { virtualRoot });
+        result.Count.ShouldBe(1);
+        result[0].IsVirtualGroup.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task TreeMode_DepthSidewaysZero_HidesTruncationIndicator()
+    {
+        // TreeDepthSideways=0 suppresses the "...N more" indicator
+        var (console, renderer) = CreateTreeRenderer(depthDown: 1, depthSideways: 0);
+
+        var story = new WorkItemBuilder(20, "Story").AsUserStory().InState("Active").Build();
+        var task = new WorkItemBuilder(30, "Task").AsTask().InState("Active").Build();
+        var subtask = new WorkItemBuilder(40, "SubTask").AsTask().InState("Active").Build();
+
+        var roots = new[]
+        {
+            BuildNode(story, isSprintItem: true, children: new[]
+            {
+                BuildNode(task, isSprintItem: true, children: new[]
+                {
+                    BuildNode(subtask, isSprintItem: true)
+                })
+            })
+        };
+
+        var sections = BuildSectionsWithTree(new[] { story, task, subtask }, roots);
+        var output = await RenderTreeWorkspace(console, renderer,
+            sprintItems: new[] { story, task, subtask }, sections: sections);
+
+        output.ShouldContain("Story");
+        output.ShouldContain("Task");
+        // With depthSideways=0, the "more" indicator is hidden even though depth limits truncate
+        output.ShouldNotContain("more");
+    }
+
     // ── Virtual group nodes ─────────────────────────────────────────
 
     [Fact]

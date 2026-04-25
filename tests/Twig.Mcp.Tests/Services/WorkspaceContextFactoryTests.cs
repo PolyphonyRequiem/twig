@@ -83,6 +83,28 @@ public sealed class WorkspaceContextFactoryTests : IDisposable
     }
 
     [Fact]
+    public void GetOrCreate_WithGitConfig_Has_BranchLinkService()
+    {
+        var key = WriteWorkspace("orgA", "proj1", gitProject: "proj1", gitRepository: "myrepo");
+        using var factory = CreateFactory();
+
+        var context = factory.GetOrCreate(key);
+
+        context.BranchLinkService.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void GetOrCreate_WithoutGitConfig_BranchLinkService_IsNull()
+    {
+        var key = WriteWorkspace("orgA", "proj1");
+        using var factory = CreateFactory();
+
+        var context = factory.GetOrCreate(key);
+
+        context.BranchLinkService.ShouldBeNull();
+    }
+
+    [Fact]
     public void GetOrCreate_Config_Matches_Written_Config()
     {
         var key = WriteWorkspace("orgA", "proj1", team: "MyTeam");
@@ -251,7 +273,8 @@ public sealed class WorkspaceContextFactoryTests : IDisposable
 
     // ── Helpers ──────────────────────────────────────────────────────
 
-    private WorkspaceKey WriteWorkspace(string org, string project, string? team = null)
+    private WorkspaceKey WriteWorkspace(string org, string project, string? team = null,
+        string? gitProject = null, string? gitRepository = null)
     {
         var dir = Path.Combine(_tempDir, org, project);
         Directory.CreateDirectory(dir);
@@ -261,6 +284,11 @@ public sealed class WorkspaceContextFactoryTests : IDisposable
             Organization = org,
             Project = project,
             Team = team ?? string.Empty,
+            Git = new GitConfig
+            {
+                Project = gitProject ?? string.Empty,
+                Repository = gitRepository ?? string.Empty,
+            },
         };
 
         var json = JsonSerializer.Serialize(config, TwigJsonContext.Default.TwigConfiguration);

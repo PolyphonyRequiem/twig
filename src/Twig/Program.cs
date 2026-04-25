@@ -622,6 +622,14 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> LinkArtifact([Argument] string url, string? name = null, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ArtifactLinkCommand>().ExecuteAsync(url, name, id, output, ct);
 
+    /// <summary>Link an existing git branch to a work item as an ADO artifact link.</summary>
+    /// <param name="branchName">Branch name (short form, e.g. 'feature/123-fix').</param>
+    /// <param name="id">Target a specific work item by ID instead of the active item.</param>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    [Command("link branch")]
+    public async Task<int> LinkBranch([Argument] string branchName, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<LinkBranchCommand>().ExecuteAsync(branchName, id, output, ct);
+
     /// <summary>Batch state transitions, field updates, and notes in a single call.</summary>
     /// <param name="state">Target state name (e.g. Active, Closed).</param>
     /// <param name="set">Field updates as key=value pairs. Repeatable.</param>
@@ -1081,6 +1089,7 @@ internal static class GroupedHelp
         "link unparent",
         "link reparent",
         "link artifact",
+        "link branch",
 
         // Seeds
         "seed new",
@@ -1220,6 +1229,7 @@ Work Items:
   link unparent        Remove the parent link from the active item.
   link reparent <id>   Remove current parent and set a new one.
   link artifact <url>  Add an artifact link (URL or vstfs://) to an item.
+  link branch <name>   Link an existing git branch to a work item.
   discard <id>         Drop pending changes for a work item.
   discard --all        Drop all pending changes (excludes seeds).
   sync                 Flush pending changes then refresh from ADO.

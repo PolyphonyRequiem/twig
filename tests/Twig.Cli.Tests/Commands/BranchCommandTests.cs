@@ -51,10 +51,12 @@ public class BranchCommandTests
         _processConfigProvider.GetConfiguration().Returns(ProcessConfigBuilder.AgileUserStoryOnly());
     }
 
-    private BranchCommand CreateCommand(IGitService? gitService = null, IAdoGitService? adoGitService = null) =>
+    private BranchCommand CreateCommand(IGitService? gitService = null, BranchLinkService? branchLinkService = null) =>
         new(new ActiveItemResolver(_contextStore, _workItemRepo, _adoService), _workItemRepo, _adoService, _processConfigProvider,
             _formatterFactory, _hintEngine, _config,
-            gitService: gitService, adoGitService: adoGitService);
+            gitService: gitService, branchLinkService: branchLinkService);
+
+    private BranchLinkService CreateBranchLinkService() => new(_adoGitService, _adoService);
 
     private static WorkItem CreateWorkItem(int id, string title, string state) => new()
     {
@@ -81,7 +83,7 @@ public class BranchCommandTests
         _adoGitService.GetProjectIdAsync(Arg.Any<CancellationToken>()).Returns("project-id");
         _adoGitService.GetRepositoryIdAsync(Arg.Any<CancellationToken>()).Returns("repo-id");
 
-        var cmd = CreateCommand(_gitService, _adoGitService);
+        var cmd = CreateCommand(_gitService, CreateBranchLinkService());
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -92,12 +94,10 @@ public class BranchCommandTests
         await _gitService.Received().CheckoutAsync(
             Arg.Is<string>(s => s.Contains("12345")), Arg.Any<CancellationToken>());
 
-        // Artifact link added with "Branch" name
-        await _adoGitService.Received().AddArtifactLinkAsync(
+        // Artifact link added via BranchLinkService → IAdoWorkItemService
+        await _adoService.Received().AddArtifactLinkAsync(
             12345,
             Arg.Is<string>(s => s.StartsWith("vstfs:///Git/Ref/")),
-            "ArtifactLink",
-            Arg.Any<int>(),
             "Branch",
             Arg.Any<CancellationToken>());
 
@@ -114,7 +114,7 @@ public class BranchCommandTests
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
-        var cmd = CreateCommand(_gitService, _adoGitService);
+        var cmd = CreateCommand(_gitService, CreateBranchLinkService());
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(1);
@@ -151,7 +151,7 @@ public class BranchCommandTests
         _adoService.FetchAsync(999, Arg.Any<CancellationToken>())
             .Returns<WorkItem>(x => throw new InvalidOperationException("Network timeout"));
 
-        var cmd = CreateCommand(_gitService, _adoGitService);
+        var cmd = CreateCommand(_gitService, CreateBranchLinkService());
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(1);
@@ -202,7 +202,7 @@ public class BranchCommandTests
         _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
         _gitService.BranchExistsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(false);
 
-        var cmd = CreateCommand(_gitService, _adoGitService);
+        var cmd = CreateCommand(_gitService, CreateBranchLinkService());
         var result = await cmd.ExecuteAsync(noLink: true);
 
         result.ShouldBe(0);
@@ -211,8 +211,8 @@ public class BranchCommandTests
         await _gitService.Received().CreateBranchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
 
         // No artifact link call
-        await _adoGitService.DidNotReceive().AddArtifactLinkAsync(
-            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().AddArtifactLinkAsync(
+            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     // ── --no-transition flag ────────────────────────────────────────
@@ -229,7 +229,7 @@ public class BranchCommandTests
         _adoGitService.GetProjectIdAsync(Arg.Any<CancellationToken>()).Returns("pid");
         _adoGitService.GetRepositoryIdAsync(Arg.Any<CancellationToken>()).Returns("rid");
 
-        var cmd = CreateCommand(_gitService, _adoGitService);
+        var cmd = CreateCommand(_gitService, CreateBranchLinkService());
         var result = await cmd.ExecuteAsync(noTransition: true);
 
         result.ShouldBe(0);
@@ -254,7 +254,7 @@ public class BranchCommandTests
         _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
         _gitService.BranchExistsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
 
-        var cmd = CreateCommand(_gitService, _adoGitService);
+        var cmd = CreateCommand(_gitService, CreateBranchLinkService());
         var result = await cmd.ExecuteAsync(noLink: true, noTransition: true);
 
         result.ShouldBe(0);
@@ -274,14 +274,14 @@ public class BranchCommandTests
         _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
         _gitService.BranchExistsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(true);
 
-        var cmd = CreateCommand(_gitService, _adoGitService);
+        var cmd = CreateCommand(_gitService, CreateBranchLinkService());
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
 
         // No artifact link since branch was not newly created
-        await _adoGitService.DidNotReceive().AddArtifactLinkAsync(
-            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().AddArtifactLinkAsync(
+            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     // ── AutoLink disabled → no artifact link ────────────────────────
@@ -299,12 +299,12 @@ public class BranchCommandTests
 
         _config.Git.AutoLink = false;
 
-        var cmd = CreateCommand(_gitService, _adoGitService);
+        var cmd = CreateCommand(_gitService, CreateBranchLinkService());
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
-        await _adoGitService.DidNotReceive().AddArtifactLinkAsync(
-            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().AddArtifactLinkAsync(
+            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     // ── AutoTransition disabled → no state change ───────────────────
@@ -323,7 +323,7 @@ public class BranchCommandTests
 
         _config.Git.AutoTransition = false;
 
-        var cmd = CreateCommand(_gitService, _adoGitService);
+        var cmd = CreateCommand(_gitService, CreateBranchLinkService());
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -345,7 +345,7 @@ public class BranchCommandTests
         _adoGitService.GetProjectIdAsync(Arg.Any<CancellationToken>()).Returns("pid");
         _adoGitService.GetRepositoryIdAsync(Arg.Any<CancellationToken>()).Returns("rid");
 
-        var cmd = CreateCommand(_gitService, _adoGitService);
+        var cmd = CreateCommand(_gitService, CreateBranchLinkService());
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -370,7 +370,7 @@ public class BranchCommandTests
         _adoGitService.GetProjectIdAsync(Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("Network error"));
 
-        var cmd = CreateCommand(_gitService, _adoGitService);
+        var cmd = CreateCommand(_gitService, CreateBranchLinkService());
         var result = await cmd.ExecuteAsync();
 
         // Command succeeds — artifact linking is best-effort
@@ -394,17 +394,17 @@ public class BranchCommandTests
         _adoGitService.GetProjectIdAsync(Arg.Any<CancellationToken>()).Returns("pid");
         _adoGitService.GetRepositoryIdAsync(Arg.Any<CancellationToken>()).Returns("rid");
 
-        var cmd = CreateCommand(_gitService, _adoGitService);
+        var cmd = CreateCommand(_gitService, CreateBranchLinkService());
         var result = await cmd.ExecuteAsync(noLink: true);
 
         // Command succeeds — state transition is best-effort
         result.ShouldBe(0);
     }
 
-    // ── No AdoGitService → skips linking ────────────────────────────
+    // ── No BranchLinkService → skips linking ────────────────────────────
 
     [Fact]
-    public async Task NoAdoGitService_SkipsLinking()
+    public async Task NoBranchLinkService_SkipsLinking()
     {
         var item = CreateWorkItem(12345, "Test", "New");
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(12345);
@@ -414,7 +414,7 @@ public class BranchCommandTests
         _gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
         _gitService.BranchExistsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(false);
 
-        var cmd = CreateCommand(_gitService, adoGitService: null);
+        var cmd = CreateCommand(_gitService, branchLinkService: null);
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -495,18 +495,16 @@ public class BranchCommandTests
         _adoGitService.GetProjectIdAsync(Arg.Any<CancellationToken>()).Returns("my-project-id");
         _adoGitService.GetRepositoryIdAsync(Arg.Any<CancellationToken>()).Returns("my-repo-id");
 
-        var cmd = CreateCommand(_gitService, _adoGitService);
+        var cmd = CreateCommand(_gitService, CreateBranchLinkService());
         var result = await cmd.ExecuteAsync(noTransition: true);
 
         result.ShouldBe(0);
-        await _adoGitService.Received().AddArtifactLinkAsync(
+        await _adoService.Received().AddArtifactLinkAsync(
             12345,
             Arg.Is<string>(s =>
                 s.Contains("my-project-id") &&
                 s.Contains("my-repo-id") &&
                 s.StartsWith("vstfs:///Git/Ref/")),
-            "ArtifactLink",
-            Arg.Any<int>(),
             "Branch",
             Arg.Any<CancellationToken>());
     }
@@ -526,18 +524,16 @@ public class BranchCommandTests
         _adoGitService.GetProjectIdAsync(Arg.Any<CancellationToken>()).Returns("proj-123");
         _adoGitService.GetRepositoryIdAsync(Arg.Any<CancellationToken>()).Returns("repo-456");
 
-        var cmd = CreateCommand(_gitService, _adoGitService);
+        var cmd = CreateCommand(_gitService, CreateBranchLinkService());
         var result = await cmd.ExecuteAsync(noTransition: true);
 
         result.ShouldBe(0);
 
         // Full format: vstfs:///Git/Ref/{projectId}/{repoId}/GB{encodedBranchName}
-        await _adoGitService.Received().AddArtifactLinkAsync(
+        await _adoService.Received().AddArtifactLinkAsync(
             777,
             Arg.Is<string>(s =>
                 s.StartsWith("vstfs:///Git/Ref/proj-123/repo-456/GB")),
-            "ArtifactLink",
-            Arg.Any<int>(),
             "Branch",
             Arg.Any<CancellationToken>());
     }

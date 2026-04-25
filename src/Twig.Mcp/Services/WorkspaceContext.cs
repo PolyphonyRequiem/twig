@@ -32,6 +32,11 @@ public sealed class WorkspaceContext : IDisposable
     public ParentStatePropagationService ParentPropagationService { get; }
     public ITrackingRepository? TrackingRepo { get; }
 
+    /// <summary>
+    /// Branch-to-work-item linking service. Null when git project/repository are not configured.
+    /// </summary>
+    public BranchLinkService? BranchLinkService { get; }
+
     internal SqliteCacheStore CacheStore { get; }
 
     public WorkspaceContext(
@@ -53,7 +58,8 @@ public sealed class WorkspaceContext : IDisposable
         McpPendingChangeFlusher flusher,
         IPromptStateWriter promptStateWriter,
         ParentStatePropagationService parentPropagationService,
-        ITrackingRepository? trackingRepo = null)
+        ITrackingRepository? trackingRepo = null,
+        BranchLinkService? branchLinkService = null)
     {
         Key = key;
         Config = config;
@@ -74,6 +80,7 @@ public sealed class WorkspaceContext : IDisposable
         PromptStateWriter = promptStateWriter;
         ParentPropagationService = parentPropagationService;
         TrackingRepo = trackingRepo;
+        BranchLinkService = branchLinkService;
     }
 
     /// <summary>

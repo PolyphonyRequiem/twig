@@ -1,5 +1,7 @@
 using NSubstitute;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Mcp.Tools;
 
@@ -19,6 +21,15 @@ public abstract class CreationToolsTestBase : MutationToolsTestBase
     protected CreationTools CreateCreationSut()
     {
         return new CreationTools(BuildResolver(DefaultConfig));
+    }
+
+    /// <summary>
+    /// Creates a <see cref="CreationTools"/> SUT with <see cref="IAdoGitService"/>
+    /// and <see cref="BranchLinkService"/> wired into the workspace context.
+    /// </summary>
+    protected CreationTools CreateCreationSutWithGitService()
+    {
+        return new CreationTools(BuildResolver(DefaultConfig, includeGitService: true));
     }
 
     protected static ProcessConfiguration BuildProcessConfigWithChildren(

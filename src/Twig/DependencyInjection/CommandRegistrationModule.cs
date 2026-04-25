@@ -68,6 +68,11 @@ public static class CommandRegistrationModule
         services.AddSingleton<SeedLinkCommand>();
         services.AddSingleton<LinkCommand>();
         services.AddSingleton<ArtifactLinkCommand>();
+        services.AddSingleton<LinkBranchCommand>(sp => new LinkBranchCommand(
+            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
+            ResolveBranchLinkService(sp),
+            sp.GetRequiredService<OutputFormatterFactory>(),
+            sp.GetService<IGitService>()));
         services.AddSingleton<SeedChainCommand>();
         services.AddSingleton<SeedValidateCommand>();
         services.AddSingleton<SeedPublishCommand>(sp => new SeedPublishCommand(
@@ -95,6 +100,14 @@ public static class CommandRegistrationModule
         services.AddSingleton<AreaCommand>();
     }
 
+    private static BranchLinkService? ResolveBranchLinkService(IServiceProvider sp)
+    {
+        var adoGitService = sp.GetService<IAdoGitService>();
+        return adoGitService is not null
+            ? new BranchLinkService(adoGitService, sp.GetRequiredService<IAdoWorkItemService>())
+            : null;
+    }
+
     private static void AddGitCommands(IServiceCollection services)
     {
         services.AddSingleton<BranchCommand>(sp => new BranchCommand(
@@ -106,7 +119,7 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<HintEngine>(),
             sp.GetRequiredService<TwigConfiguration>(),
             sp.GetService<IGitService>(),
-            sp.GetService<IAdoGitService>(),
+            ResolveBranchLinkService(sp),
             sp.GetRequiredService<IPromptStateWriter>()));
         services.AddSingleton<CommitCommand>(sp => new CommitCommand(
             sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),

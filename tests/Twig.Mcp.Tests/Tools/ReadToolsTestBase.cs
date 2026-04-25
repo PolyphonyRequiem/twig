@@ -23,6 +23,7 @@ public abstract class ReadToolsTestBase
     protected readonly IProcessConfigurationProvider _processConfigProvider =
         Substitute.For<IProcessConfigurationProvider>();
     protected readonly ITrackingRepository _trackingRepo = Substitute.For<ITrackingRepository>();
+    protected readonly IAdoGitService _adoGitService = Substitute.For<IAdoGitService>();
 
     protected static readonly WorkspaceKey TestWorkspaceKey = new("testorg", "testproject");
 
@@ -31,19 +32,29 @@ public abstract class ReadToolsTestBase
         Display = new DisplayConfig { CacheStaleMinutes = 5 },
     };
 
-    protected WorkspaceResolver BuildResolver(TwigConfiguration config)
+    protected WorkspaceResolver BuildResolver(TwigConfiguration config, bool includeGitService = false)
     {
+        IAdoGitService? gitService = includeGitService ? _adoGitService : null;
+        BranchLinkService? branchLinkService = gitService is not null
+            ? new BranchLinkService(gitService, _adoService)
+            : null;
+
         var ctx = BuildContext(TestWorkspaceKey, config,
             _contextStore, _workItemRepo, _adoService, _pendingChangeStore,
             _linkRepo, _iterationService, _processConfigProvider, _promptStateWriter,
-            _trackingRepo);
+            _trackingRepo, branchLinkService);
 
         var registry = Substitute.For<IWorkspaceRegistry>();
         registry.Workspaces.Returns(new[] { TestWorkspaceKey });
         registry.IsSingleWorkspace.Returns(true);
 
         var factory = Substitute.For<IWorkspaceContextFactory>();
-        factory.GetOrCreate(TestWorkspaceKey).Returns(ctx);
+        factory.GetOrCreate(Arg.Any<WorkspaceKey>()).Returns(ci =>
+        {
+            var k = ci.Arg<WorkspaceKey>();
+            if (k == TestWorkspaceKey) return ctx;
+            throw new KeyNotFoundException($"Unknown workspace: {k}");
+        });
 
         return new WorkspaceResolver(registry, factory);
     }
@@ -114,7 +125,8 @@ public abstract class ReadToolsTestBase
         IIterationService iterationService,
         IProcessConfigurationProvider processConfigProvider,
         IPromptStateWriter promptStateWriter,
-        ITrackingRepository? trackingRepo = null)
+        ITrackingRepository? trackingRepo = null,
+        BranchLinkService? branchLinkService = null)
     {
         var activeItemResolver = new ActiveItemResolver(contextStore, workItemRepo, adoService);
         var protectedWriter = new ProtectedCacheWriter(workItemRepo, pendingChangeStore);
@@ -143,7 +155,8 @@ public abstract class ReadToolsTestBase
             adoService, iterationService, processConfigProvider,
             activeItemResolver, syncFactory, contextChange,
             statusOrch, workingSet, flusher, promptStateWriter, parentPropagation,
-            trackingRepo);
+            trackingRepo,
+            branchLinkService);
     }
 
     protected ReadTools CreateSut(TwigConfiguration config)

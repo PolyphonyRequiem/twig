@@ -464,6 +464,134 @@ public class HumanOutputFormatterTests
         result.ShouldContain("#60");
     }
 
+    // ── Mode-sectioned dedup & ordering (T-1964-C) ──────────────────
+
+    [Fact]
+    public void FormatWorkspace_MultipleSections_DedupedItemsOmittedFromLaterSections()
+    {
+        // Item 2 appears in both Sprint and Area; dedup should keep it in Sprint only
+        var sprintItems = new[] { CreateWorkItem(1, "Sprint Only", "Active"), CreateWorkItem(2, "Shared Item", "New") };
+        var areaItems = new[] { CreateWorkItem(2, "Shared Item", "New"), CreateWorkItem(3, "Area Only", "Active") };
+        var sections = WorkspaceSections.Build(sprintItems, areaItems: areaItems);
+        var ws = Workspace.Build(null, sprintItems, Array.Empty<WorkItem>(), sections: sections);
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+        var plain = StripAnsi(result);
+
+        // Sprint section should contain items 1 and 2
+        plain.ShouldContain("#1");
+        plain.ShouldContain("#2");
+        // Area section should contain only item 3 (item 2 was deduped)
+        plain.ShouldContain("#3");
+        // Section headers should both appear (multi-section)
+        plain.ShouldContain("Sprint (2)");
+        plain.ShouldContain("Area (1)");
+    }
+
+    [Fact]
+    public void FormatWorkspace_ManualSection_ShowsDuplicateItemDespiteEarlierSection()
+    {
+        // Item 1 appears in both Sprint and Manual; Manual always shows its items
+        var sprintItems = new[] { CreateWorkItem(1, "Tracked Task", "Active") };
+        var manualItems = new[] { CreateWorkItem(1, "Tracked Task", "Active") };
+        var sections = WorkspaceSections.Build(sprintItems, manualItems: manualItems);
+        var ws = Workspace.Build(null, sprintItems, Array.Empty<WorkItem>(), sections: sections);
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+        var plain = StripAnsi(result);
+
+        // Both Sprint and Manual sections should appear
+        plain.ShouldContain("Sprint (1)");
+        plain.ShouldContain("Manual (1)");
+        // Item #1 should appear twice (once per section)
+        var occurrences = plain.Split("#1").Length - 1;
+        occurrences.ShouldBeGreaterThanOrEqualTo(2);
+    }
+
+    [Fact]
+    public void FormatWorkspace_ThreeSections_RenderedInCorrectOrder()
+    {
+        var sprintItems = new[] { CreateWorkItem(1, "Sprint Item", "Active") };
+        var areaItems = new[] { CreateWorkItem(2, "Area Item", "New") };
+        var manualItems = new[] { CreateWorkItem(3, "Manual Item", "Active") };
+        var sections = WorkspaceSections.Build(sprintItems, areaItems: areaItems, manualItems: manualItems);
+        var ws = Workspace.Build(null, sprintItems, Array.Empty<WorkItem>(), sections: sections);
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+        var plain = StripAnsi(result);
+
+        // Verify section order: Sprint before Area before Manual
+        var sprintIndex = plain.IndexOf("Sprint (1)", StringComparison.Ordinal);
+        var areaIndex = plain.IndexOf("Area (1)", StringComparison.Ordinal);
+        var manualIndex = plain.IndexOf("Manual (1)", StringComparison.Ordinal);
+        sprintIndex.ShouldBeGreaterThan(-1);
+        areaIndex.ShouldBeGreaterThan(sprintIndex);
+        manualIndex.ShouldBeGreaterThan(areaIndex);
+    }
+
+    [Fact]
+    public void FormatWorkspace_AllItemsDedupedFromSection_SectionOmitted()
+    {
+        // All area items also appear in Sprint, so Area section should be empty and omitted
+        var sprintItems = new[] { CreateWorkItem(1, "Task A", "Active"), CreateWorkItem(2, "Task B", "New") };
+        var areaItems = new[] { CreateWorkItem(1, "Task A", "Active"), CreateWorkItem(2, "Task B", "New") };
+        var sections = WorkspaceSections.Build(sprintItems, areaItems: areaItems);
+        var ws = Workspace.Build(null, sprintItems, Array.Empty<WorkItem>(), sections: sections);
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+        var plain = StripAnsi(result);
+
+        // Only Sprint section should appear (Area fully deduped = omitted)
+        plain.ShouldContain("Sprint");
+        plain.ShouldNotContain("Area");
+    }
+
+    [Fact]
+    public void FormatWorkspace_SingleExclusion_ShowsSingularCount()
+    {
+        var items = new[] { CreateWorkItem(1, "Task", "Active") };
+        var sections = WorkspaceSections.Build(items, excludedIds: new[] { 42 });
+        var ws = Workspace.Build(null, items, Array.Empty<WorkItem>(), sections: sections,
+            excludedIds: new[] { 42 });
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+
+        result.ShouldContain("1 excluded");
+        result.ShouldContain("#42");
+    }
+
+    [Fact]
+    public void FormatWorkspace_EmptyWorkspace_ShowsEmptySprintHeader()
+    {
+        var sections = WorkspaceSections.Build(Array.Empty<WorkItem>());
+        var ws = Workspace.Build(null, Array.Empty<WorkItem>(), Array.Empty<WorkItem>(), sections: sections);
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+        var plain = StripAnsi(result);
+
+        plain.ShouldContain("Sprint (0 items):");
+    }
+
+    [Fact]
+    public void FormatWorkspace_RecentSection_AppearsAfterSprintAndArea()
+    {
+        var sprintItems = new[] { CreateWorkItem(1, "Sprint", "Active") };
+        var areaItems = new[] { CreateWorkItem(2, "Area", "New") };
+        var recentItems = new[] { CreateWorkItem(3, "Recent", "Active") };
+        var sections = WorkspaceSections.Build(sprintItems, areaItems: areaItems, recentItems: recentItems);
+        var ws = Workspace.Build(null, sprintItems, Array.Empty<WorkItem>(), sections: sections);
+
+        var result = _formatter.FormatWorkspace(ws, staleDays: 14);
+        var plain = StripAnsi(result);
+
+        var sprintIdx = plain.IndexOf("Sprint (1)", StringComparison.Ordinal);
+        var areaIdx = plain.IndexOf("Area (1)", StringComparison.Ordinal);
+        var recentIdx = plain.IndexOf("Recent (1)", StringComparison.Ordinal);
+        sprintIdx.ShouldBeGreaterThan(-1);
+        areaIdx.ShouldBeGreaterThan(sprintIdx);
+        recentIdx.ShouldBeGreaterThan(areaIdx);
+    }
+
     // ── FormatSprintView ────────────────────────────────────────────
 
     [Fact]

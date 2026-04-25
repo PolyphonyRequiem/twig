@@ -4,6 +4,7 @@ using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Infrastructure.Config;
+using Twig.Rendering;
 
 namespace Twig.Commands;
 
@@ -17,7 +18,8 @@ public sealed class AreaCommand(
     OutputFormatterFactory formatterFactory,
     IWorkItemRepository? workItemRepo = null,
     IProcessTypeStore? processTypeStore = null,
-    IIterationService? iterationService = null)
+    IIterationService? iterationService = null,
+    RenderingPipelineFactory? pipelineFactory = null)
 {
     /// <summary>
     /// Default action: render the area-filtered workspace view.
@@ -26,7 +28,9 @@ public sealed class AreaCommand(
     /// </summary>
     public async Task<int> ViewAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
-        var fmt = formatterFactory.GetFormatter(outputFormat);
+        var (fmt, renderer) = pipelineFactory is not null
+            ? pipelineFactory.Resolve(outputFormat)
+            : (formatterFactory.GetFormatter(outputFormat), null);
 
         // 1. Resolve configured area paths
         var resolved = config.Defaults.ResolveAreaPaths();
@@ -54,7 +58,10 @@ public sealed class AreaCommand(
         if (matchCount == 0)
         {
             var areaView = AreaView.Build(areaItems, filters, matchCount: 0);
-            Console.WriteLine(fmt.FormatAreaView(areaView));
+            if (renderer is not null)
+                await renderer.RenderAreaViewAsync(areaView, ct);
+            else
+                Console.WriteLine(fmt.FormatAreaView(areaView));
             return 0;
         }
 
@@ -106,7 +113,14 @@ public sealed class AreaCommand(
 
         // 6. Build and render area view
         var view = AreaView.Build(areaItems, filters, hierarchy, matchCount);
-        Console.WriteLine(fmt.FormatAreaView(view));
+        if (renderer is not null)
+        {
+            await renderer.RenderAreaViewAsync(view, ct);
+        }
+        else
+        {
+            Console.WriteLine(fmt.FormatAreaView(view));
+        }
         return 0;
     }
 

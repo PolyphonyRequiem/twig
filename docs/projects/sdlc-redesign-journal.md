@@ -748,3 +748,68 @@ This is filed with the conductor dev team for investigation. The fix is likely i
 4. **Incremental testing is essential** — each fix revealed the next error deeper
    in the workflow chain. A comprehensive integration test before deploying the
    redesign would have caught these in sequence.
+
+---
+
+## The Real Root Cause: `context: mode: explicit` (April 24, 2026)
+
+### What we thought was wrong
+
+We spent hours debugging what we believed were conductor platform bugs:
+- `workflow.input` empty in script agents (WAS a real bug, fixed by conductor team)
+- `| default()` not working with StrictUndefined (real Jinja behavior, not a bug)
+- Sub-workflow input_mapping not propagating (NOT a bug — our config was wrong)
+- Template pre-resolution in sub-workflows (NOT happening — templates are deferred)
+
+### What was actually wrong
+
+**`context: mode: explicit`** means agents ONLY see inputs they explicitly declare
+in their `input:` block. Every agent that references an upstream output
+(`intake.output.work_item_id`, `pr_group_manager.output.action`, etc.) MUST list
+that reference in its `input:` section.
+
+The old workflow had this right. Our redesign renamed agents (`work_tree_seeder` →
+`work_tree_loader`), converted some to scripts, and changed output schemas — but
+didn't audit that every agent's `input:` block still declared all the upstream
+references used in its `prompt:` or `args:` templates.
+
+### The fix pattern
+
+For each agent in explicit mode:
+1. Find all `{{ X.output.Y }}` references in its `prompt:` or `args:`
+2. Ensure `X.output` (or `X.output?` for optional) is in the agent's `input:` block
+3. For shared prompts that reference optional inputs, use `workflow.input.X?`
+
+### What's remaining
+
+A systematic audit of ALL agents in `twig-sdlc-implement.yaml` to ensure their
+`input:` blocks declare every upstream reference. This is mechanical work — the
+pattern is clear, it just needs to be applied to ~15 agents.
+
+### Progress through the deployment chain
+
+Each fix got us one agent deeper:
+
+```
+state_detector  ✓ (exit code routing → JSON stdout parsing)
+implementation  ✓ (sub-workflow routing)
+duplicate_check ✓ (reverted to LLM, script file didn't exist)
+intake          ✓ (added workflow.input.prompt? to input block)
+work_tree_loader ← CURRENT (added intake.output to input block)
+pr_group_manager ← NEXT (needs work_tree_loader.output + intake.output)
+...
+```
+
+### Lesson
+
+**When using `context: mode: explicit`, renaming or restructuring agents requires
+a full audit of input declarations.** This should be a checklist item in the
+conductor-design skill. Consider adding a P12 or appending to P10:
+
+> When modifying agent names, types, or output schemas in explicit context mode,
+> audit ALL downstream agents' `input:` blocks to ensure they still reference
+> the correct upstream outputs.
+
+### Commits
+- `51b3cf1` — add prompt to intake explicit inputs
+- `a8f22e0` — add intake.output to work_tree_loader inputs

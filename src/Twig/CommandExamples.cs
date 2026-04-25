@@ -193,6 +193,11 @@ internal static class CommandExamples
             "twig link artifact vstfs:///Git/Commit/p/r/abc123         Add an artifact link",
             "twig link artifact https://example.com --id 42            Link to a specific item",
         ],
+        ["link branch"] =
+        [
+            "twig link branch feature/my-branch       Link an existing branch to the active item",
+            "twig link branch feature/my-branch --id 42  Link a branch to a specific item",
+        ],
         ["note"] =
         [
             "twig note --text \"Investigated root cause\"   Add a note to the active item",
@@ -249,11 +254,6 @@ internal static class CommandExamples
             "twig workspace exclusions --clear      Remove all exclusions",
             "twig workspace exclusions --remove 42  Remove exclusion for #42",
             "twig workspace exclusions -o json      List exclusions as JSON",
-        ],
-        ["area"] =
-        [
-            "twig area                              Show area-filtered workspace view",
-            "twig area -o json                      Output area view as JSON",
         ],
         ["area add"] =
         [

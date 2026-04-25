@@ -9,7 +9,7 @@ using Xunit;
 
 namespace Twig.Domain.Tests.Services;
 
-public class DescendantVerificationServiceTests
+public sealed class DescendantVerificationServiceTests
 {
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IAdoWorkItemService _adoService;
@@ -341,5 +341,111 @@ public class DescendantVerificationServiceTests
 
         result.Verified.ShouldBeTrue();
         result.TotalChecked.ShouldBe(2);
+    }
+
+    // ── maxDepth=0 ─────────────────────────────────────────────────
+
+    [Fact]
+    public async Task MaxDepthZero_SkipsAllChildren()
+    {
+        // maxDepth=0: BFS starts at depth 1, which is > 0 → skips everything
+        var child = new WorkItemBuilder(10, "Task").AsTask().InState("Doing").WithParent(1).Build();
+
+        _adoService.FetchChildrenAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { child });
+
+        var result = await _service.VerifyAsync(1, maxDepth: 0);
+
+        result.Verified.ShouldBeTrue();
+        result.TotalChecked.ShouldBe(0);
+        result.Incomplete.ShouldBeEmpty();
+    }
+
+    // ── Mixed Issues and Tasks ─────────────────────────────────────
+
+    [Fact]
+    public async Task MixedIssuesAndTasks_OnlyNonTerminalTasksInIncomplete()
+    {
+        // Issue is Done (terminal), but its child Tasks are not all Done
+        var issue = new WorkItemBuilder(10, "Issue 1").AsIssue().InState("Done").WithParent(1).Build();
+        var taskDone = new WorkItemBuilder(20, "Task Done").AsTask().InState("Done").WithParent(10).Build();
+        var taskDoing = new WorkItemBuilder(21, "Task Doing").AsTask().InState("Doing").WithParent(10).Build();
+
+        _adoService.FetchChildrenAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { issue });
+        _adoService.FetchChildrenAsync(10, Arg.Any<CancellationToken>())
+            .Returns(new[] { taskDone, taskDoing });
+        _adoService.FetchChildrenAsync(20, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _adoService.FetchChildrenAsync(21, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var result = await _service.VerifyAsync(1, maxDepth: 2);
+
+        result.Verified.ShouldBeFalse();
+        result.TotalChecked.ShouldBe(3); // issue + 2 tasks
+        result.Incomplete.Count.ShouldBe(1);
+
+        var item = result.Incomplete[0];
+        item.Id.ShouldBe(21);
+        item.Title.ShouldBe("Task Doing");
+        item.Type.ShouldBe("Task");
+        item.State.ShouldBe("Doing");
+        item.ParentId.ShouldBe(10);
+        item.Depth.ShouldBe(2);
+    }
+
+    // ── ADO always called first ────────────────────────────────────
+
+    [Fact]
+    public async Task AdoCalledFirst_CacheNotTouched_WhenAdoSucceeds()
+    {
+        var child = new WorkItemBuilder(10, "Task").AsTask().InState("Done").WithParent(1).Build();
+
+        _adoService.FetchChildrenAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { child });
+        _adoService.FetchChildrenAsync(10, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        await _service.VerifyAsync(1);
+
+        // Cache should never be consulted when ADO succeeds
+        await _workItemRepo.DidNotReceive().GetChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    // ── Multiple non-terminal tasks with field assertions ──────────
+
+    [Fact]
+    public async Task MultipleNonTerminalTasks_AllInIncompleteWithCorrectFields()
+    {
+        var task1 = new WorkItemBuilder(10, "Task Alpha").AsTask().InState("Doing").WithParent(1).Build();
+        var task2 = new WorkItemBuilder(11, "Task Beta").AsTask().InState("To Do").WithParent(1).Build();
+
+        _adoService.FetchChildrenAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { task1, task2 });
+        _adoService.FetchChildrenAsync(10, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _adoService.FetchChildrenAsync(11, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var result = await _service.VerifyAsync(1);
+
+        result.Verified.ShouldBeFalse();
+        result.TotalChecked.ShouldBe(2);
+        result.Incomplete.Count.ShouldBe(2);
+
+        var alpha = result.Incomplete.Single(i => i.Id == 10);
+        alpha.Title.ShouldBe("Task Alpha");
+        alpha.Type.ShouldBe("Task");
+        alpha.State.ShouldBe("Doing");
+        alpha.ParentId.ShouldBe(1);
+        alpha.Depth.ShouldBe(1);
+
+        var beta = result.Incomplete.Single(i => i.Id == 11);
+        beta.Title.ShouldBe("Task Beta");
+        beta.Type.ShouldBe("Task");
+        beta.State.ShouldBe("To Do");
+        beta.ParentId.ShouldBe(1);
+        beta.Depth.ShouldBe(1);
     }
 }

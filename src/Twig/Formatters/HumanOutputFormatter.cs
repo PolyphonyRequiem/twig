@@ -35,6 +35,24 @@ public sealed class HumanOutputFormatter : IOutputFormatter
     private readonly IReadOnlyList<StateEntry>? _stateEntries;
     private readonly int _cacheStaleMinutes;
 
+    /// <summary>Optional type level map for working-level focus. Set before rendering workspace trees.</summary>
+    internal IReadOnlyDictionary<string, int>? TypeLevelMap { get; set; }
+
+    /// <summary>Optional working level type name. Items above this level are fully dimmed in tree rendering.</summary>
+    internal string? WorkingLevelTypeName { get; set; }
+
+    /// <summary>When true, workspace rendering uses tree-based layout when TreeRoots are available.</summary>
+    internal bool UseTreeRendering { get; set; }
+
+    /// <summary>Max ancestor levels above working level to display. Nodes beyond this depth are pruned and their children promoted.</summary>
+    internal int TreeDepthUp { get; set; } = 2;
+
+    /// <summary>Max descendant depth below each root to display.</summary>
+    internal int TreeDepthDown { get; set; } = 10;
+
+    /// <summary>When &gt;0, show truncation count indicators when depth limiting hides children.</summary>
+    internal int TreeDepthSideways { get; set; } = 1;
+
     public HumanOutputFormatter() : this(new DisplayConfig()) { }
 
     public HumanOutputFormatter(DisplayConfig displayConfig, List<TypeAppearanceConfig>? typeAppearances = null, IReadOnlyList<StateEntry>? stateEntries = null)
@@ -452,6 +470,8 @@ public sealed class HumanOutputFormatter : IOutputFormatter
     /// Renders workspace items grouped by mode sections with optional section headers.
     /// Section headers are omitted when only one section is present.
     /// When no sections exist (empty sprint), renders an empty Sprint header.
+    /// When tree rendering is enabled and a section has <see cref="WorkspaceSection.TreeRoots"/>,
+    /// renders as a tree with working-level focus and depth limiting (no state category grouping).
     /// </summary>
     private void RenderModeSections(StringBuilder sb, Workspace ws, WorkspaceSections sections)
     {
@@ -472,6 +492,13 @@ public sealed class HumanOutputFormatter : IOutputFormatter
             else
             {
                 sb.AppendLine($"  {Bold}{section.ModeName} ({section.Items.Count} items):{Reset}");
+            }
+
+            // Tree-based rendering: skip state category grouping when tree roots are available
+            if (UseTreeRendering && section.TreeRoots is { Count: > 0 })
+            {
+                RenderTreeRoots(sb, ws, section.TreeRoots);
+                continue;
             }
 
             var wsLines = new List<AlignedLine>();
@@ -814,6 +841,170 @@ public sealed class HumanOutputFormatter : IOutputFormatter
             var continuation = isLast ? "    " : "│   ";
             CollectHierarchyNodeLine(lines, ws, child, childIndent, connector);
             CollectHierarchyChildrenForCategory(lines, ws, child, childIndent + continuation, category: category);
+        }
+    }
+
+    // ── Tree-based workspace rendering ──────────────────────────────
+
+    /// <summary>
+    /// Renders hierarchy tree roots into the workspace output. Each root
+    /// <see cref="SprintHierarchyNode"/> becomes a plain-text tree with
+    /// box-drawing characters. Mirrors SpectreRenderer tree rendering with
+    /// working-level focus and depth limiting.
+    /// </summary>
+    private void RenderTreeRoots(StringBuilder sb, Workspace ws, IReadOnlyList<SprintHierarchyNode> roots)
+    {
+        var prunedRoots = PruneAncestorsAboveDepthUp(roots);
+        var lines = new List<AlignedLine>();
+
+        foreach (var root in prunedRoots)
+        {
+            FormatTreeNodeLine(lines, ws, root, indent: "    ", connector: "");
+            RenderTreeChildren(lines, ws, root, childIndent: "    ", depth: 1);
+        }
+
+        FlushAlignedLines(sb, lines);
+    }
+
+    /// <summary>
+    /// Recursively renders child nodes of a tree, respecting
+    /// <see cref="TreeDepthDown"/> for depth limiting.
+    /// </summary>
+    private void RenderTreeChildren(
+        List<AlignedLine> lines,
+        Workspace ws,
+        SprintHierarchyNode node,
+        string childIndent,
+        int depth)
+    {
+        if (node.Children.Count == 0 || depth > TreeDepthDown)
+        {
+            if (depth > TreeDepthDown && node.Children.Count > 0 && TreeDepthSideways > 0)
+                lines.Add(new AlignedLine($"{childIndent}{Dim}... {node.Children.Count} more{Reset}", "", ""));
+            return;
+        }
+
+        for (var i = 0; i < node.Children.Count; i++)
+        {
+            var child = node.Children[i];
+            var isLast = i == node.Children.Count - 1;
+            var connector = isLast ? "└── " : "├── ";
+            var continuation = isLast ? "    " : "│   ";
+            FormatTreeNodeLine(lines, ws, child, childIndent, connector);
+            RenderTreeChildren(lines, ws, child, childIndent + continuation, depth + 1);
+        }
+    }
+
+    /// <summary>
+    /// Formats a single <see cref="SprintHierarchyNode"/> line for workspace tree rendering.
+    /// Applies working-level dimming: items above the working level are fully dimmed,
+    /// sprint items at or below working level are bold, context-only items are partially dimmed.
+    /// </summary>
+    private void FormatTreeNodeLine(
+        List<AlignedLine> lines,
+        Workspace ws,
+        SprintHierarchyNode node,
+        string indent,
+        string connector)
+    {
+        if (node.IsVirtualGroup)
+        {
+            lines.Add(new AlignedLine(
+                $"{indent}{connector}{Dim}{node.GroupLabel ?? "Unparented"}{Reset}", "", ""));
+            return;
+        }
+
+        var item = node.Item;
+        var isAboveWorking = IsAboveWorkingLevel(item);
+        var isActive = ws.ContextItem is not null && item.Id == ws.ContextItem.Id;
+        var isTracked = ws.IsTracked(item.Id);
+        var marker = isActive ? $"{Cyan}►{Reset} " : isTracked ? $"{Yellow}📌{Reset} " : "";
+        var stateColor = GetStateColor(item.State);
+        var badge = GetTypeBadge(item.Type);
+        var typeColor = GetTypeColor(item.Type);
+        var progress = FormatProgressIndicator(node);
+
+        var cacheAge = CacheAgeFormatter.Format(item.LastSyncedAt, _cacheStaleMinutes);
+        var cacheAgeSuffix = cacheAge is not null ? $" {Dim}{cacheAge}{Reset}" : "";
+
+        if (isAboveWorking)
+        {
+            // Fully dimmed: badge, title, and state
+            lines.Add(new AlignedLine(
+                $"{indent}{connector}{marker}{Dim}{badge} {item.Title}{progress}{Reset}",
+                $"{Dim}[{item.State}]{Reset}", cacheAgeSuffix));
+        }
+        else if (node.IsSprintItem)
+        {
+            // Sprint items: bold with ID
+            var dirty = item.IsDirty ? $" {Yellow}✎{Reset}" : "";
+            lines.Add(new AlignedLine(
+                $"{indent}{connector}{marker}{typeColor}{badge}{Reset} #{item.Id} {Bold}{item.Title}{Reset}{progress}",
+                $"[{stateColor}{item.State}{Reset}]", $"{dirty}{cacheAgeSuffix}"));
+        }
+        else
+        {
+            // Context ancestor at or below working level — type badge visible, title dimmed
+            lines.Add(new AlignedLine(
+                $"{indent}{connector}{marker}{typeColor}{badge}{Reset} {Dim}{item.Title}{Reset}{progress}",
+                $"[{stateColor}{item.State}{Reset}]", cacheAgeSuffix));
+        }
+    }
+
+    /// <summary>
+    /// Returns true if the given item's type is above the configured working level.
+    /// </summary>
+    private bool IsAboveWorkingLevel(WorkItem item)
+    {
+        if (WorkingLevelTypeName is null || TypeLevelMap is null)
+            return false;
+        return WorkingLevelResolver.IsAboveWorkingLevel(item.Type.Value, WorkingLevelTypeName, TypeLevelMap);
+    }
+
+    /// <summary>
+    /// Prunes ancestor nodes that exceed <see cref="TreeDepthUp"/> levels above the working level.
+    /// Nodes beyond the limit are removed and their children promoted as new roots.
+    /// </summary>
+    internal IReadOnlyList<SprintHierarchyNode> PruneAncestorsAboveDepthUp(
+        IReadOnlyList<SprintHierarchyNode> roots)
+    {
+        if (WorkingLevelTypeName is null || TypeLevelMap is null)
+            return roots;
+
+        if (!TypeLevelMap.TryGetValue(WorkingLevelTypeName, out var workingLevel))
+            return roots;
+
+        var result = new List<SprintHierarchyNode>();
+        foreach (var root in roots)
+            CollectPrunedRoots(root, workingLevel, result);
+
+        return result.Count > 0 ? result : roots;
+    }
+
+    private void CollectPrunedRoots(SprintHierarchyNode node, int workingLevel, List<SprintHierarchyNode> result)
+    {
+        if (node.IsVirtualGroup)
+        {
+            result.Add(node);
+            return;
+        }
+
+        if (TypeLevelMap is null || !TypeLevelMap.TryGetValue(node.Item.Type.Value, out var nodeLevel))
+        {
+            result.Add(node);
+            return;
+        }
+
+        var levelsAbove = workingLevel - nodeLevel;
+        if (levelsAbove > TreeDepthUp)
+        {
+            // Node is too far above working level — promote its children
+            foreach (var child in node.Children)
+                CollectPrunedRoots(child, workingLevel, result);
+        }
+        else
+        {
+            result.Add(node);
         }
     }
 

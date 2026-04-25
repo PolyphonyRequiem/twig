@@ -222,6 +222,8 @@ public sealed class WorkspaceCommand(
 
         // Build hierarchy when sprint items exist
         SprintHierarchy? hierarchy = null;
+        IReadOnlyList<SprintHierarchyNode>? treeRoots = null;
+        IReadOnlyDictionary<string, int>? typeLevelMap = null;
         if (sprintItems.Count > 0)
         {
             var uniqueParentIds = new HashSet<int>();
@@ -248,13 +250,31 @@ public sealed class WorkspaceCommand(
                     typeNameSet.Add(item.Type.Value);
 
                 var ceilingTypeNames = CeilingComputer.Compute(new List<string>(typeNameSet), processConfig);
-                var typeLevelMap = Domain.Services.BacklogHierarchyService.GetTypeLevelMap(processConfig);
+                typeLevelMap = Domain.Services.BacklogHierarchyService.GetTypeLevelMap(processConfig);
                 hierarchy = SprintHierarchy.Build(sprintItems, parentLookup, ceilingTypeNames, typeLevelMap);
+
+                // Extract tree roots from hierarchy for tree-based rendering
+                var roots = new List<SprintHierarchyNode>();
+                foreach (var group in hierarchy.AssigneeGroups.Values)
+                    foreach (var node in group)
+                        roots.Add(node);
+                treeRoots = roots.Count > 0 ? roots : null;
             }
         }
 
+        // Wire tree rendering config into HumanOutputFormatter (mirrors SpectreRenderer wiring)
+        if (fmt is HumanOutputFormatter humanFmt && typeLevelMap is not null)
+        {
+            humanFmt.TypeLevelMap = typeLevelMap;
+            humanFmt.WorkingLevelTypeName = config.Workspace.WorkingLevel;
+            humanFmt.UseTreeRendering = true;
+            humanFmt.TreeDepthUp = config.Display.TreeDepthUp;
+            humanFmt.TreeDepthDown = config.Display.TreeDepthDown;
+            humanFmt.TreeDepthSideways = config.Display.TreeDepthSideways;
+        }
+
         var workspace = Workspace.Build(contextItem, sprintItems, seeds, hierarchy,
-            sections: WorkspaceSections.Build(sprintItems, excludedIds: excludedIds),
+            sections: WorkspaceSections.Build(sprintItems, excludedIds: excludedIds, treeRoots: treeRoots),
             trackedItems: trackedItems,
             excludedIds: excludedIds);
 

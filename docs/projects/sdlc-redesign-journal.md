@@ -704,3 +704,47 @@ LLM agent.
 - `d9b5050` — revert to output.field routing
 - `467caef` — revert duplicate_check to LLM
 - `b3b9cb1` — guard optional inputs with if-else
+- `8bebd28` — explicit default for optional prompt
+- `cd96fae` — replace all `| default()` with if-else guards
+- `97d4297` — add prompt input to implementation for shared prompt compat
+- `8fbd660` — explicitly pass prompt='' in input_mapping
+
+### Ongoing: Sub-workflow `workflow.input` propagation
+
+**Status: BLOCKED on conductor platform behavior**
+
+The shared `intake.prompt.md` template uses `{% if workflow.input.prompt %}` which
+works in the planning sub-workflow (where `prompt` is passed via input_mapping) but
+fails in the implementation sub-workflow even after:
+
+1. Adding `prompt` to implementation's input declarations with `default: ""`
+2. Explicitly passing `prompt: ""` in the apex's `input_mapping`
+3. Using `if X else Y` guard pattern instead of `| default()`
+
+The core issue: `workflow.input` inside a sub-workflow may not be populated with
+all declared inputs + defaults. Only values explicitly in `input_mapping` from the
+parent appear — and even explicit `prompt: ""` doesn't seem to make it through.
+
+Event log shows the failure path clearly:
+```
+state_detector ✓ → implementation (sub-workflow) → duplicate_check ✓ → intake FAILS
+```
+
+This is filed with the conductor dev team for investigation. The fix is likely in
+`_execute_subworkflow()` (workflow.py:606) where child engine context is built.
+
+### Lessons learned during deployment
+
+1. **Shared prompt files are a liability** — `intake.prompt.md` is used by both
+   planning and implementation, but they have different input contracts. Shared
+   prompts that reference optional inputs create fragile coupling.
+
+2. **Jinja StrictUndefined + `| default()` is a trap** — the filter doesn't catch
+   missing dict keys via attribute access. Always use `if X else Y` guards.
+
+3. **Sub-workflow input propagation is opaque** — there's no way to inspect what
+   `workflow.input` looks like inside a running sub-workflow without monkey-patching.
+
+4. **Incremental testing is essential** — each fix revealed the next error deeper
+   in the workflow chain. A comprehensive integration test before deploying the
+   redesign would have caught these in sequence.

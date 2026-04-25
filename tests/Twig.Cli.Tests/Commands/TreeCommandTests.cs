@@ -586,4 +586,52 @@ public class TreeCommandTests
         result.ShouldBe(1);
     }
 
+    // ── Recursive child fetching (Task 2073) ────────────────────────
+
+    [Fact]
+    public async Task SyncPath_JsonOutput_IncludesGrandchildren()
+    {
+        var focus = CreateWorkItem(1, "Epic", parentId: null, type: "Epic");
+        var child = CreateWorkItem(10, "Issue", parentId: 1, type: "Issue");
+        var grandchild = CreateWorkItem(100, "Task", parentId: 10);
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(focus);
+        _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(new[] { child });
+        _workItemRepo.GetChildrenAsync(10, Arg.Any<CancellationToken>()).Returns(new[] { grandchild });
+        _workItemRepo.GetChildrenAsync(100, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
+
+        var cmd = CreateCommand();
+
+        // Use redirected pipeline to trigger sync path with JSON output
+        var result = await cmd.ExecuteAsync(outputFormat: "json", depth: 3);
+
+        result.ShouldBe(0);
+
+        // Verify GetChildrenAsync was called for the child (to fetch grandchildren)
+        await _workItemRepo.Received().GetChildrenAsync(10, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SyncPath_DepthOne_DoesNotFetchGrandchildren()
+    {
+        var focus = CreateWorkItem(1, "Epic", parentId: null, type: "Epic");
+        var child = CreateWorkItem(10, "Issue", parentId: 1, type: "Issue");
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(focus);
+        _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>()).Returns(new[] { child });
+
+        var cmd = CreateCommand();
+
+        var result = await cmd.ExecuteAsync(outputFormat: "json", depth: 1);
+
+        result.ShouldBe(0);
+
+        // With depth=1, only direct children are fetched, no recursive descent
+        // GetChildrenAsync(1) is called for direct children + sibling count
+        // GetChildrenAsync(10) should NOT be called for grandchildren
+        await _workItemRepo.DidNotReceive().GetChildrenAsync(10, Arg.Any<CancellationToken>());
+    }
+
 }

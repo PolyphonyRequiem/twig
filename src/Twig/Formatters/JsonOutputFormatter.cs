@@ -126,11 +126,11 @@ public sealed class JsonOutputFormatter : IOutputFormatter
         }
         writer.WriteEndArray();
 
-        // All children (no truncation for JSON consumers)
+        // All children (recursive for JSON consumers)
         writer.WriteStartArray("children");
         foreach (var child in tree.Children)
         {
-            WriteWorkItemObject(writer, child);
+            WriteTreeNodeRecursive(writer, child, tree);
         }
         writer.WriteEndArray();
 
@@ -744,6 +744,35 @@ public sealed class JsonOutputFormatter : IOutputFormatter
             }
             writer.WriteEndObject();
         }
+
+        writer.WriteEndObject();
+    }
+
+    /// <summary>
+    /// Writes a work item object with recursive children from <see cref="WorkTree.DescendantsByParentId"/>.
+    /// </summary>
+    private static void WriteTreeNodeRecursive(Utf8JsonWriter writer, WorkItem item, WorkTree tree)
+    {
+        writer.WriteStartObject();
+        writer.WriteNumber("id", item.Id);
+        writer.WriteString("title", item.Title);
+        writer.WriteString("type", item.Type.ToString());
+        writer.WriteString("state", item.State);
+        writer.WriteString("assignedTo", item.AssignedTo);
+        writer.WriteBoolean("isDirty", item.IsDirty);
+        writer.WriteBoolean("isSeed", item.IsSeed);
+        if (item.ParentId.HasValue)
+            writer.WriteNumber("parentId", item.ParentId.Value);
+        else
+            writer.WriteNull("parentId");
+
+        var descendants = tree.GetDescendants(item.Id);
+        writer.WriteStartArray("children");
+        foreach (var child in descendants)
+        {
+            WriteTreeNodeRecursive(writer, child, tree);
+        }
+        writer.WriteEndArray();
 
         writer.WriteEndObject();
     }

@@ -526,6 +526,20 @@ public class JsonOutputFormatterTests
         };
     }
 
+    private static WorkItem CreateWorkItemWithParent(int id, string title, string state, int parentId)
+    {
+        return new WorkItem
+        {
+            Id = id,
+            Type = WorkItemType.Task,
+            Title = title,
+            State = state,
+            ParentId = parentId,
+            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
+            AreaPath = AreaPath.Parse("Project").Value,
+        };
+    }
+
     // ── FormatQueryResults (Task 3.3) ───────────────────────────────
 
     [Fact]
@@ -680,5 +694,72 @@ public class JsonOutputFormatterTests
         var queryIdx = output.IndexOf("\"query\"", StringComparison.Ordinal);
         var countIdx = output.IndexOf("\"count\"", StringComparison.Ordinal);
         queryIdx.ShouldBeLessThan(countIdx);
+    }
+
+    // ── Recursive tree output (Task 2073) ───────────────────────────
+
+    [Fact]
+    public void FormatTree_WithDescendants_IncludesGrandchildren()
+    {
+        var focus = CreateWorkItem(1, "Focus", "Active");
+        var child = CreateWorkItemWithParent(2, "Child", "New", 1);
+        var grandchild = CreateWorkItemWithParent(3, "Grandchild", "New", 2);
+
+        var descendants = new Dictionary<int, IReadOnlyList<WorkItem>>
+        {
+            [2] = new[] { grandchild }
+        };
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child },
+            descendantsByParentId: descendants);
+
+        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var doc = JsonDocument.Parse(result);
+        var root = doc.RootElement;
+
+        // Top-level children array should have nested children
+        var childElement = root.GetProperty("children")[0];
+        childElement.GetProperty("id").GetInt32().ShouldBe(2);
+        childElement.GetProperty("children").GetArrayLength().ShouldBe(1);
+        childElement.GetProperty("children")[0].GetProperty("id").GetInt32().ShouldBe(3);
+    }
+
+    [Fact]
+    public void FormatTree_WithDescendants_ThreeLevelsDeep()
+    {
+        var focus = CreateWorkItem(1, "Epic", "Active");
+        var child = CreateWorkItemWithParent(2, "Issue", "New", 1);
+        var grandchild = CreateWorkItemWithParent(3, "Task", "New", 2);
+        var greatGrandchild = CreateWorkItemWithParent(4, "SubTask", "New", 3);
+
+        var descendants = new Dictionary<int, IReadOnlyList<WorkItem>>
+        {
+            [2] = new[] { grandchild },
+            [3] = new[] { greatGrandchild }
+        };
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child },
+            descendantsByParentId: descendants);
+
+        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var doc = JsonDocument.Parse(result);
+
+        var level1 = doc.RootElement.GetProperty("children")[0];
+        var level2 = level1.GetProperty("children")[0];
+        var level3 = level2.GetProperty("children")[0];
+        level3.GetProperty("id").GetInt32().ShouldBe(4);
+        level3.GetProperty("children").GetArrayLength().ShouldBe(0);
+    }
+
+    [Fact]
+    public void FormatTree_ChildWithNoDescendants_HasEmptyChildrenArray()
+    {
+        var focus = CreateWorkItem(1, "Focus", "Active");
+        var child = CreateWorkItemWithParent(2, "Leaf", "New", 1);
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child });
+
+        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var doc = JsonDocument.Parse(result);
+
+        var childElement = doc.RootElement.GetProperty("children")[0];
+        childElement.GetProperty("children").GetArrayLength().ShouldBe(0);
     }
 }

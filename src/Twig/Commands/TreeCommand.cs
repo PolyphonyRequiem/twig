@@ -187,6 +187,9 @@ public sealed class TreeCommand(
 
         var children = await workItemRepo.GetChildrenAsync(item.Id);
 
+        // Recursively fetch descendants up to maxChildren depth for deep tree output
+        var descendantsByParentId = await FetchDescendantsAsync(children, maxChildren - 1);
+
         // Compute sibling counts for parent chain + focused item
         var siblingCounts = new Dictionary<int, int?>();
         foreach (var node in parentChain)
@@ -219,7 +222,7 @@ public sealed class TreeCommand(
         }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
-        var tree = WorkTree.Build(item, parentChain, children, siblingCounts, links);
+        var tree = WorkTree.Build(item, parentChain, children, siblingCounts, links, descendantsByParentId);
 
         // EPIC-005: Load process config for unparented banner + working level dim
         if (fmt is HumanOutputFormatter humanFmt)
@@ -254,5 +257,34 @@ public sealed class TreeCommand(
         }
 
         return 0;
+    }
+
+    /// <summary>
+    /// Recursively fetches children for each item up to <paramref name="remainingDepth"/> levels,
+    /// building a lookup dictionary keyed by parent ID.
+    /// </summary>
+    private async Task<Dictionary<int, IReadOnlyList<Domain.Aggregates.WorkItem>>> FetchDescendantsAsync(
+        IReadOnlyList<Domain.Aggregates.WorkItem> parents, int remainingDepth)
+    {
+        var result = new Dictionary<int, IReadOnlyList<Domain.Aggregates.WorkItem>>();
+        if (remainingDepth <= 0 || parents.Count == 0)
+            return result;
+
+        foreach (var parent in parents)
+        {
+            var grandchildren = await workItemRepo.GetChildrenAsync(parent.Id);
+            if (grandchildren.Count > 0)
+            {
+                result[parent.Id] = grandchildren;
+                // Recurse deeper
+                var deeper = await FetchDescendantsAsync(grandchildren, remainingDepth - 1);
+                foreach (var kvp in deeper)
+                {
+                    result[kvp.Key] = kvp.Value;
+                }
+            }
+        }
+
+        return result;
     }
 }

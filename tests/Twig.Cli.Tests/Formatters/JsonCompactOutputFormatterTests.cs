@@ -358,4 +358,57 @@ public class JsonCompactOutputFormatterTests
             AreaPath = AreaPath.Parse("Project").Value,
         };
     }
+
+    // ── Recursive tree output (Task 2073) ───────────────────────────
+
+    [Fact]
+    public void FormatTree_WithDescendants_IncludesNestedChildren()
+    {
+        var focus = CreateWorkItem(1, "Focus", "Active");
+        var child = CreateWorkItemWithParent(2, "Child", "New", 1);
+        var grandchild = CreateWorkItemWithParent(3, "Grandchild", "New", 2);
+
+        var descendants = new Dictionary<int, IReadOnlyList<WorkItem>>
+        {
+            [2] = new[] { grandchild }
+        };
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child },
+            descendantsByParentId: descendants);
+
+        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var doc = JsonDocument.Parse(result);
+
+        var childElement = doc.RootElement.GetProperty("children")[0];
+        childElement.GetProperty("id").GetInt32().ShouldBe(2);
+        childElement.GetProperty("children").GetArrayLength().ShouldBe(1);
+        childElement.GetProperty("children")[0].GetProperty("id").GetInt32().ShouldBe(3);
+    }
+
+    [Fact]
+    public void FormatTree_LeafChild_HasEmptyChildrenArray()
+    {
+        var focus = CreateWorkItem(1, "Focus", "Active");
+        var child = CreateWorkItemWithParent(2, "Leaf", "New", 1);
+        var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child });
+
+        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var doc = JsonDocument.Parse(result);
+
+        var childElement = doc.RootElement.GetProperty("children")[0];
+        childElement.GetProperty("children").GetArrayLength().ShouldBe(0);
+    }
+
+    private static WorkItem CreateWorkItemWithParent(int id, string title, string state, int parentId)
+    {
+        return new WorkItem
+        {
+            Id = id,
+            Type = WorkItemType.Task,
+            Title = title,
+            State = state,
+            ParentId = parentId,
+            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
+            AreaPath = AreaPath.Parse("Project").Value,
+        };
+    }
 }

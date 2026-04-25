@@ -117,6 +117,19 @@ public class SqliteCacheStoreTests
     }
 
     [Fact]
+    public void Schema_HasAreaPathIndex_OnWorkItems()
+    {
+        using var store = new SqliteCacheStore("Data Source=:memory:");
+        var conn = store.GetConnection();
+
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_work_items_area';";
+        var result = cmd.ExecuteScalar() as string;
+
+        result.ShouldBe("idx_work_items_area");
+    }
+
+    [Fact]
     public void ProcessTypes_HasColorHexAndIconIdColumns()
     {
         using var store = new SqliteCacheStore("Data Source=:memory:");

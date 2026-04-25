@@ -235,11 +235,10 @@ public sealed class DescendantVerificationServiceTests
 
     // ── Terminal state categories ──────────────────────────────────
 
-    [Theory]
-    [InlineData("Done")]      // Completed
-    public async Task TerminalState_Completed(string state)
+    [Fact]
+    public async Task TerminalState_Completed()
     {
-        var child = new WorkItemBuilder(10, "Task").AsTask().InState(state).WithParent(1).Build();
+        var child = new WorkItemBuilder(10, "Task").AsTask().InState("Done").WithParent(1).Build();
 
         _adoService.FetchChildrenAsync(1, Arg.Any<CancellationToken>())
             .Returns(new[] { child });
@@ -264,10 +263,7 @@ public sealed class DescendantVerificationServiceTests
         _adoService.FetchChildrenAsync(10, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var service = new DescendantVerificationService(
-            _workItemRepo, _adoService, _processConfigProvider);
-
-        var result = await service.VerifyAsync(1);
+        var result = await _service.VerifyAsync(1);
 
         result.Verified.ShouldBeTrue();
     }
@@ -284,10 +280,7 @@ public sealed class DescendantVerificationServiceTests
         _adoService.FetchChildrenAsync(10, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var service = new DescendantVerificationService(
-            _workItemRepo, _adoService, _processConfigProvider);
-
-        var result = await service.VerifyAsync(1);
+        var result = await _service.VerifyAsync(1);
 
         result.Verified.ShouldBeTrue();
     }

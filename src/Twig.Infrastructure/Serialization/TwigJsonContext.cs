@@ -1,6 +1,5 @@
 using System.Text.Json.Serialization;
 using Twig.Domain.Enums;
-using Twig.Domain.ReadModels;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado.Dtos;
 using Twig.Infrastructure.Auth;
@@ -102,9 +101,6 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(List<ExcludedItem>))]
 [JsonSerializable(typeof(TrackingMode))]
 [JsonSerializable(typeof(TrackingCleanupPolicy))]
-// Descendant verification read models (Epic — SDLC close-out drill-down)
-[JsonSerializable(typeof(DescendantVerificationResult))]
-[JsonSerializable(typeof(IReadOnlyList<IncompleteItem>))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]

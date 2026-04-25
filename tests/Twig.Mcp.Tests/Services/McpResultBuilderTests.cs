@@ -891,6 +891,97 @@ public sealed class McpResultBuilderTests
         ParseJson(result).GetProperty("warning").GetString().ShouldBe("Cache sync failed");
     }
 
+    // ── FormatTree — Recursive Children ─────────────────────────────
+
+    [Fact]
+    public void FormatTree_WithDescendants_WritesRecursiveChildrenArrays()
+    {
+        var focus = WorkItemBuilder.Simple(1, "Focus");
+        var child = new WorkItemBuilder(10, "Child").AsTask().WithParent(1).Build();
+        var grandchild = new WorkItemBuilder(100, "Grandchild").AsTask().WithParent(10).Build();
+
+        var descendants = new Dictionary<int, IReadOnlyList<WorkItem>>
+        {
+            [10] = new[] { grandchild }
+        };
+
+        var tree = WorkTree.Build(focus, [], [child], descendantsByParentId: descendants);
+        var result = McpResultBuilder.FormatTree(tree, 1);
+        var root = ParseJson(result);
+
+        var children = root.GetProperty("children");
+        children.GetArrayLength().ShouldBe(1);
+
+        var childNode = children[0];
+        childNode.GetProperty("id").GetInt32().ShouldBe(10);
+        childNode.GetProperty("children").GetArrayLength().ShouldBe(1);
+        childNode.GetProperty("children")[0].GetProperty("id").GetInt32().ShouldBe(100);
+    }
+
+    [Fact]
+    public void FormatTree_ThreeLevelNesting_WritesAllLevels()
+    {
+        var focus = WorkItemBuilder.Simple(1, "Epic");
+        var child = new WorkItemBuilder(10, "Issue").AsTask().WithParent(1).Build();
+        var grandchild = new WorkItemBuilder(100, "Task").AsTask().WithParent(10).Build();
+        var greatGrandchild = new WorkItemBuilder(1000, "Subtask").AsTask().WithParent(100).Build();
+
+        var descendants = new Dictionary<int, IReadOnlyList<WorkItem>>
+        {
+            [10] = new[] { grandchild },
+            [100] = new[] { greatGrandchild }
+        };
+
+        var tree = WorkTree.Build(focus, [], [child], descendantsByParentId: descendants);
+        var result = McpResultBuilder.FormatTree(tree, 1);
+        var root = ParseJson(result);
+
+        var level1 = root.GetProperty("children")[0];
+        level1.GetProperty("id").GetInt32().ShouldBe(10);
+
+        var level2 = level1.GetProperty("children")[0];
+        level2.GetProperty("id").GetInt32().ShouldBe(100);
+
+        var level3 = level2.GetProperty("children")[0];
+        level3.GetProperty("id").GetInt32().ShouldBe(1000);
+        level3.GetProperty("children").GetArrayLength().ShouldBe(0);
+    }
+
+    [Fact]
+    public void FormatTree_NoDescendants_ChildrenHaveEmptyChildrenArrays()
+    {
+        var focus = WorkItemBuilder.Simple(1, "Focus");
+        var child1 = new WorkItemBuilder(10, "Child 1").AsTask().Build();
+        var child2 = new WorkItemBuilder(11, "Child 2").AsTask().Build();
+
+        var tree = WorkTree.Build(focus, [], [child1, child2]);
+        var result = McpResultBuilder.FormatTree(tree, 2);
+        var root = ParseJson(result);
+
+        var children = root.GetProperty("children");
+        children.GetArrayLength().ShouldBe(2);
+        children[0].GetProperty("children").GetArrayLength().ShouldBe(0);
+        children[1].GetProperty("children").GetArrayLength().ShouldBe(0);
+    }
+
+    [Fact]
+    public void FormatTree_ChildNodeIncludesCoreFields()
+    {
+        var focus = WorkItemBuilder.Simple(1, "Focus");
+        var child = new WorkItemBuilder(10, "Child Item")
+            .AsTask().InState("Active").AssignedTo("Alice").WithParent(1).Build();
+
+        var tree = WorkTree.Build(focus, [], [child]);
+        var result = McpResultBuilder.FormatTree(tree, 1);
+        var childNode = ParseJson(result).GetProperty("children")[0];
+
+        childNode.GetProperty("id").GetInt32().ShouldBe(10);
+        childNode.GetProperty("title").GetString().ShouldBe("Child Item");
+        childNode.GetProperty("state").GetString().ShouldBe("Active");
+        childNode.GetProperty("assignedTo").GetString().ShouldBe("Alice");
+        childNode.GetProperty("parentId").GetInt32().ShouldBe(1);
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────
 
     private static JsonElement ParseJson(CallToolResult result)

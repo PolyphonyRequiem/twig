@@ -47,6 +47,9 @@ public sealed class ReadTools(WorkspaceResolver resolver)
             ? allChildren.Take(maxChildren).ToList()
             : allChildren;
 
+        // Recursively fetch descendants up to maxChildren depth for deep tree output
+        var descendantsByParentId = await FetchDescendantsAsync(ctx, children, maxChildren - 1, ct);
+
         // Compute sibling counts for parent chain + focused item
         var siblingCounts = new Dictionary<int, int?>();
         foreach (var node in parentChain.Append(item))
@@ -62,9 +65,37 @@ public sealed class ReadTools(WorkspaceResolver resolver)
         }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
-        var tree = WorkTree.Build(item, parentChain, children, siblingCounts, links);
+        var tree = WorkTree.Build(item, parentChain, children, siblingCounts, links, descendantsByParentId);
 
         return McpResultBuilder.FormatTree(tree, totalChildCount);
+    }
+
+    /// <summary>
+    /// Recursively fetches children for each item up to <paramref name="remainingDepth"/> levels,
+    /// building a lookup dictionary keyed by parent ID.
+    /// </summary>
+    private static async Task<Dictionary<int, IReadOnlyList<WorkItem>>> FetchDescendantsAsync(
+        WorkspaceContext ctx, IReadOnlyList<WorkItem> parents, int remainingDepth, CancellationToken ct)
+    {
+        var result = new Dictionary<int, IReadOnlyList<WorkItem>>();
+        if (remainingDepth <= 0 || parents.Count == 0)
+            return result;
+
+        foreach (var parent in parents)
+        {
+            var grandchildren = await ctx.WorkItemRepo.GetChildrenAsync(parent.Id, ct);
+            if (grandchildren.Count > 0)
+            {
+                result[parent.Id] = grandchildren;
+                var deeper = await FetchDescendantsAsync(ctx, grandchildren, remainingDepth - 1, ct);
+                foreach (var kvp in deeper)
+                {
+                    result[kvp.Key] = kvp.Value;
+                }
+            }
+        }
+
+        return result;
     }
 
     [McpServerTool(Name = "twig_workspace"), Description("Returns the current sprint workspace: active context item, sprint backlog items, and seeds.")]

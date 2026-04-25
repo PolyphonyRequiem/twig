@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>twig-tui</AssemblyName>
+    <!-- Terminal.Gui v2 beta does not support AOT — keep this project non-AOT. -->
+    <IsAotCompatible>false</IsAotCompatible>
+    <!-- SingleFile bundle for companion distribution. Terminal.Gui relies on reflection;
+         trimming is intentionally not enabled. -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Terminal.Gui" />
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Twig.Domain\Twig.Domain.csproj" />
+    <ProjectReference Include="..\Twig.Infrastructure\Twig.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Twig.Tui.Tests" />
+  </ItemGroup>
+
+</Project>

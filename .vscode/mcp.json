@@ -1,0 +1,123 @@
+{
+  "servers": {
+    "ado": {
+      "disabled": true,
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@azure-devops/mcp",
+        "contoso",
+        "--authentication",
+        "azcli"
+      ]
+    },
+    "agent-sre": {
+      "type": "stdio",
+      "command": "python",
+      "args": [
+        "-m",
+        "agent_viewer",
+        "mcp-server"
+      ],
+      "description": "Copilot observability — query session insights, cost analytics, DORA metrics, health policies, and decision points from the Agent SRE dashboard. Requires: pip install agent-viewer && agent-viewer start"
+    },
+    "azure-mcp": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "--registry",
+        "https://registry.npmjs.org",
+        "-y",
+        "@azure/mcp@latest",
+        "server",
+        "start",
+        "--namespace",
+        "kusto",
+        "--namespace",
+        "monitor"
+      ]
+    },
+    "enghub": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${env:ENGHUB_MCP_PATH}/dist/cli.js",
+        "start"
+      ],
+      "description": "Engineering Hub documentation search. Clone from https://github.com/azure-core/enghub-mcp-server-tools and set ENGHUB_MCP_PATH environment variable."
+    },
+    "ev2-mcp": {
+      "type": "stdio",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-Command",
+        "if (-not (dotnet tool list -g | Select-String 'ev2.mcpserver')) { dotnet tool install -g Ev2.McpServer --add-source https://msazure.pkgs.visualstudio.com/_packaging/Official/nuget/v3/index.json }; ev2-mcp-server"
+      ],
+      "env": {
+        "ALLOWED_EV2_ENDPOINTS": "Prod,Test"
+      }
+    },
+    "ms-learn": {
+      "url": "https://learn.microsoft.com/api/mcp",
+      "type": "http"
+    },
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "@playwright/mcp@latest"
+      ],
+      "type": "stdio"
+    },
+    "pr-insights": {
+      "url": "https://app-prinsights-01-mcp.azurewebsites.net/",
+      "type": "http"
+    },
+    "twig-mcp": {
+      "type": "stdio",
+      "command": "twig-mcp",
+      "description": "Twig MCP server — Azure DevOps work-item context and mutation tools for Copilot. Provides twig_set, twig_status, twig_tree, twig_workspace, twig_state, twig_update, twig_note, twig_sync."
+    },
+    "work-iq": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@microsoft/workiq",
+        "mcp"
+      ],
+      "description": "Microsoft 365 data search - emails, meetings, documents, Teams messages. Requires tenant admin consent on first use. See https://github.com/microsoft/work-iq-mcp"
+    }
+  },
+  "inputs": [
+    {
+      "id": "ado_organization",
+      "type": "promptString",
+      "description": "Azure DevOps Organization name",
+      "password": false,
+      "default": "contoso"
+    },
+    {
+      "id": "ado_project",
+      "type": "promptString",
+      "description": "Azure DevOps Project name",
+      "password": false,
+      "default": "MyProject"
+    },
+    {
+      "id": "ado_repository",
+      "type": "promptString",
+      "description": "Azure DevOps Repository name",
+      "password": false,
+      "default": "my-api-service"
+    },
+    {
+      "id": "ado_branch",
+      "type": "promptString",
+      "description": "Azure DevOps Branch name",
+      "password": false,
+      "default": "main"
+    }
+  ]
+}

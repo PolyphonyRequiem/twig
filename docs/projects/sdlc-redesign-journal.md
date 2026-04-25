@@ -1,0 +1,847 @@
+# SDLC Workflow Redesign — Decision Journal
+
+> This document captures the investigation, design decisions, and implementation
+> progress for the twig SDLC conductor workflow redesign. It is intended as a
+> handoff artifact for agents continuing this work.
+
+## Background
+
+The twig CLI uses a conductor-based SDLC pipeline to automate planning, implementation,
+code review, PR management, and close-out for ADO work items. The pipeline is organized
+as 4 workflow files:
+
+1. **twig-sdlc-full.yaml** — apex entry point (routes to planning and/or implementation)
+2. **twig-sdlc-planning.yaml** — planning sub-workflow (architect → review → seed → task decomposition)
+3. **plan-issue.yaml** — per-Issue task decomposition sub-workflow
+4. **twig-sdlc-implement.yaml** — implementation sub-workflow (code → review → PR → merge → close-out)
+
+Workflows live in the conductor registry at `~/.conductor/registries/twig/recursive/`.
+Prompts live at `~/.conductor/registries/twig/prompts/`.
+The registry repo is [PolyphonyRequiem/twig-conductor-workflows](https://github.com/PolyphonyRequiem/twig-conductor-workflows).
+
+NOTE: ALL ADO WORK ITEM REFERENCES ARE IN THE TWIG ADO REPOSITORY (See ~/projects/twig2/.twig/ for configuration details)
+
+## What Triggered This Redesign
+
+### Repeated "early completion" failures
+
+Epics #1945 (Workspace Modes, 7 Issues) and #2014 (Artifact Linking, 4 Issues) were
+dispatched through the SDLC pipeline multiple times. Each run "completed" after
+implementing only a subset of the work — typically 2-3 of 7 Issues.
+
+### Root cause investigation (April 23-24, 2026)
+
+We traced the failures through conductor event logs and identified three bugs:
+
+**Bug 1: Empty PG task_ids**
+The architect writes a plan document with PG (PR Group) headings during the planning
+phase. Much later, during implementation, `load-work-tree.ps1` parses the plan text
+to rediscover PG structure by regex-extracting `#ID` references from PG sections.
+Problem: the plan was written BEFORE ADO Tasks were created, so the IDs don't exist
+in the plan. Result: PGs with `task_ids: []` → `task_manager` skips them → no code
+written → `pr_group_manager` declares "all_complete" after processing empty PGs.
+
+**Bug 2: pr_finalizer auto-approve**
+`pr_finalizer.prompt.md` had: "If this is attempt 3 or higher and verification still
+fails, set `verified: true` anyway." This force-approved even when 5 of 11 PGs had
+no merged PRs, no branches, and no code. The close-out agent then ran on incomplete
+work.
+
+**Bug 3: Close-out premature tagging**
+The close-out agent would create version tags and transition Epics to Done even when
+only a subset of children were complete. (This was partially fixed earlier with
+`epic_completed` guards in commit `e996e5b`, but the root causes above still allowed
+the workflow to reach close-out prematurely.)
+
+### Comparison with cloudvault SDLC
+
+We examined the cloudvault SDLC (`~/projects/cloudvault-service-api/.conductor/workflows/`)
+which is based on twig's but has evolved separately. Key differences:
+
+- **Execution planner agent** — separate agent in planning that defines PGs before seeding
+- **PG tags on work items** — `Custom.String6 = PG name` written during seeding
+- **Deterministic load-work-tree.ps1** — parses plan + ADO state with fallback single PG
+- **No auto-verify** — pr_finalizer does honest verification, no force-pass
+
+## Design Principles
+
+Through iterative discussion, we established design principles documented in
+`.github/skills/conductor-design/SKILL.md`. Key ones driving the redesign:
+
+- **P1: Work Items Are Source of Truth** — ADO work items, not plan files, are
+  authoritative for state. PG membership belongs on work items (tags), not in plan text.
+- **P2: Plans Are Context, Not Control Flow** — Plans provide design rationale but
+  don't drive routing, task assignment, or state transitions.
+- **P2a: Plans Describe Solutions, Not Work Items** — The architect designs the solution;
+  a separate seeder creates work items. Plans don't contain ADO IDs as operational data.
+- **P3: Re-Entry by State Discovery** — Resume by inspecting observable state.
+- **P4: Explicit Intent (new/redo/resume)** — Replaces ad-hoc flags like
+  `skip_plan_review` and `plan_path`.
+- **P7: Fail Honestly, Don't Auto-Approve** — No force-pass after N attempts.
+- **P8: Prefer Scripts Over Agents for Deterministic Logic** *(late addition)* —
+  When a decision is deterministic and straightforward to implement as code, use a
+  script rather than an LLM agent. Agents add latency, cost, and nondeterminism for
+  zero value when the logic is just `if/else`. Discovered during post-implementation
+  audit: the `planning_or_implementation` router was an LLM doing boolean logic that
+  should have been a script or Jinja condition.
+
+## Redesign Scope
+
+We're redesigning each workflow layer separately, starting with the apex workflow.
+
+### Phase 1: Apex Workflow (`twig-sdlc-full.yaml`) — IN PROGRESS
+
+**Current state (before redesign):**
+```
+Inputs: work_item_id?, prompt?, skip_plan_review?, plan_path?
+
+plan_detector → replan_gate (human) → planning → implementation
+```
+- `plan_detector` scans filesystem for `.plan.md` files (P1/P2 violation)
+- `replan_gate` asks "use existing plan?" (P4/P6 violation — no intent signal)
+- `implementation` receives `plan_path` and parses plan for PG structure (P1/P2 violation)
+- Close-out is buried inside implementation sub-workflow
+
+**Redesigned:**
+```
+Inputs: work_item_id?, prompt?, intent? (default: resume), plan_path? (override only)
+
+state_detector → intent_correction_gate? → cleanup? → planning → implementation → close_out → retrospective
+```
+
+7 nodes:
+
+1. **state_detector** (deterministic PowerShell script) — validates inputs, inspects
+   ADO state + plan artifact links, determines phase (done/needs_planning/ready_for_implementation).
+   Does NOT do deep tree walks — sub-workflows own their own P3 discovery.
+
+2. **intent_correction_gate** (human gate, conditional) — triggered when `intent=new`
+   but prior work exists. Asks user: "Did you mean resume or redo?" This is a genuine
+   P6 decision, not a routine checkpoint.
+
+3. **cleanup** (agent, conditional on intent=redo) — closes children, abandons PRs,
+   deletes branches, resets root to To Do, clears PG tags.
+
+4. **planning** (sub-workflow) — architect → exec_planner → seeder, iterated per
+   hierarchy level. Separate redesign scope.
+
+5. **implementation** (sub-workflow) — discovers PGs from work item tags (not plan text).
+   Separate redesign scope.
+
+6. **close_out** (agent) — verifies all children Done, all PRs merged. Transitions
+   root to Done, tags version. Partial completion: no tag, rollback orphans. (P7)
+
+7. **retrospective** (agent) — postmortem: what went well/poorly/improve. Files
+   closeout findings as ADO Issue.
+
+**Key decisions made during design:**
+
+- *Plan discovery via artifact links (P1):* Plans are linked to work items via
+  `twig link artifact`. The state_detector reads these links instead of scanning
+  the filesystem. Filesystem scan is a fallback until Issue #2059 (artifact link
+  sync to local cache) lands.
+
+- *State detector is minimal:* We considered having it walk the entire work tree
+  to check planning completeness at every level. User feedback: "that's the planning
+  sub-workflow's job." The apex state_detector just answers "what phase?" and lets
+  sub-workflows do detailed P3 discovery.
+
+- *Intent replaces ad-hoc flags:* `skip_plan_review` and `plan_path` (as primary input)
+  are removed. `plan_path` is kept as a guarded debugging override only.
+
+- *Close-out and retrospective at apex level:* These were previously inside the
+  implementation sub-workflow. They span the entire lifecycle, so they belong at the
+  top level.
+
+- *No human gate for "use existing plan":* The `replan_gate` is removed. If `intent=resume`
+  and plans exist, we skip planning automatically. The user already told us their intent.
+
+### Phase 2: Planning Workflow (`twig-sdlc-planning.yaml`) — IN PROGRESS
+
+**Audit findings:** 8 hard violations, 8 soft. See `files/planning-audit.md` and
+`files/planning-node-report.md` for full details.
+
+**Hard violations fixed (commit `d8c1e28`):**
+- P4: Removed `skip_plan_review`, replaced with `intent` input
+- P2: Removed plan detection from intake (state_detector handles upstream)
+- P9: Renamed `epic_id`/`epic_title` → `work_item_id`/`title` across all prompts
+- P1: Updated work_tree_seeder prompt to tag items with PG-N and link plan artifact
+
+**Structural redesign (in progress):**
+
+Modular sub-workflow architecture inspired by cloudvault SDLC:
+- `plan-design.yaml` — architect → reviewers → execution planner (NEW agent)
+- `planning-pr.yaml` — commit plans to branch, push, link artifact, create PR (NEW)
+- `plan-seeding.yaml` — create work items with PG tags, fan-out to child planners
+- `plan-child.yaml` — replaces `plan-issue.yaml` with complexity-based routing
+
+Agent/script split (P8): 8 scripts, 9 agents, 3 human gates. Key conversions:
+- `duplicate_check`, `plan_check`, `review_router`, `plan_status_updater`,
+  `branch_check`, `planning_branch_pusher`, `seeding_check`, `complexity_assessor`
+  all converted from agents to deterministic scripts.
+
+Scoring rubrics (P11): Technical and readability reviewers use dimension-by-dimension
+scoring with 5 weighted dimensions each. Any dimension ≤ 2 = blocking issue.
+
+Human gate confidence thresholds (P6 update): ≤85% during planning (surface early),
+≥95% during implementation (only genuine blockers).
+
+**Key design decisions:**
+- Execution planner is separate from architect (cloudvault pattern). Architect designs
+  WHAT, execution planner determines HOW (PG grouping). Exec planner can loop back
+  to architect if PGs can't be self-contained.
+- Planning PR is mandatory — plans committed to `planning/<id>` branch, linked to
+  work item, PR created for design governance.
+- Complexity threshold for child plans — ≥3 tasks or significant scope gets a plan
+  doc; simple items get enriched work item descriptions instead.
+- Idempotency checks at every sub-workflow entry (P3).
+
+### Phase 3: Implementation Workflow (`twig-sdlc-implement.yaml`) — NOT YET STARTED
+
+Key changes needed:
+- `load-work-tree.ps1` reads PG tags from ADO work items instead of parsing plan text
+- Fallback: single PG-1 for untagged legacy items
+- `pr_finalizer` auto-approve already removed (done)
+- Close-out agent removed from implementation (moved to apex)
+
+## Implementation Progress
+
+### Completed (Apex Workflow — Phase 1)
+- `detect-state.ps1` — deterministic state detector script, tested against 4 scenarios
+- `twig-sdlc-full.yaml` — fully rewritten with 6 nodes: state_detector, intent_correction_gate,
+  cleanup, planning, implementation, close_out, retrospective
+- `cleanup.prompt.md` + `cleanup.system.md` — cleanup agent for intent=redo
+- `retrospective.prompt.md` + `retrospective.system.md` — postmortem review agent
+- `pr-finalizer.prompt.md` — removed auto-approve (P7)
+- `close-out.prompt.md` — Step 1c failure path, Step 1e rollback, Steps 9/10 guarded
+- `planning_or_implementation` LLM router removed — replaced with Jinja `when` clause (P8)
+- `implementation` input_mapping simplified — 2-way ternary, no `workflow.input` fallback
+- Unused workflow files deleted (4 files, 898 lines removed)
+
+### Completed (Planning Workflow — Phase 2, partial)
+- `conductor-design/SKILL.md` — 11 design principles (P1-P11) documented
+- Planning workflow: `skip_plan_review` removed, `intent` added, `epic_*` renamed
+- `work-tree-seeder.prompt.md` — PG tagging and plan artifact linking added
+- `intake.prompt.md` — plan detection removed (P2 fix)
+- All prompts: `epic_id` → `work_item_id` bulk rename across 9 files
+- `twig-sdlc/SKILL.md` — updated with new inputs (intent replaces skip_plan_review)
+
+### Remaining (Planning Workflow — Phase 2)
+- Create 4 sub-workflow YAML files (plan-design, planning-pr, plan-seeding, plan-child)
+- Create execution_planner agent prompt
+- Write 6 deterministic scripts (idempotency checks, review router, branch pusher)
+- Update reviewer prompts with P11 rubrics
+- Rewrite twig-sdlc-planning.yaml as modular orchestrator
+
+### Remaining (Implementation Workflow — Phase 3)
+- `load-work-tree.ps1` → read PG tags instead of parsing plan text
+- Close-out extraction (already moved to apex level)
+- Principle audit + redesign
+
+### Dependencies
+- **Issue #2059** (artifact link sync) — SDLC run dispatched, in progress.
+  Soft dependency: state_detector uses filesystem fallback until this lands.
+
+## Design Principles Evolution
+
+Principles were established iteratively through discussion:
+
+| # | Principle | When Added | Trigger |
+|---|-----------|------------|---------|
+| P1 | Work Items Are Source of Truth | Initial | Bug 2 (empty PG task_ids) |
+| P2 | Plans Are Context, Not Control Flow | Initial | plan_detector violations |
+| P2a | Plans Describe Solutions, Not Work Items | Mid-session | User correction on plan vs. work item scope |
+| P3 | Re-Entry by State Discovery | Initial | No resume capability |
+| P4 | Explicit Intent (new/redo/resume) | Initial | replan_gate as workaround |
+| P5 | Type-Agnostic Workflow Structure | Initial | Epic-only naming |
+| P6 | Human Gates for Genuine Decisions | Initial | Unnecessary gates |
+| P6+ | Confidence thresholds (85%/95%) | Late | Planning vs implementation gate frequency |
+| P7 | Fail Honestly, Don't Auto-Approve | Initial | pr_finalizer force-approve |
+| P8 | Prefer Scripts for Deterministic Logic | Late | planning_or_implementation LLM doing if/else |
+| P9 | Concise, Contextual Naming | Late | epic_id vs work_item_id |
+| P10 | Explicit Invariants | Late | Missing pre/postconditions |
+| P11 | Rubric-Based Scoring | Late | Single opaque 0-100 scores |
+
+## Key Files
+
+| File | Location | Purpose |
+|------|----------|---------|
+| `twig-sdlc-full.yaml` | `~/.conductor/registries/twig/recursive/` | Apex workflow ✅ REDESIGNED |
+| `twig-sdlc-planning.yaml` | same | Planning sub-workflow (Phase 2, in progress) |
+| `twig-sdlc-implement.yaml` | same | Implementation sub-workflow (Phase 3) |
+| `plan-issue.yaml` | same | Per-Issue decomposition (being replaced by plan-child.yaml) |
+| `detect-state.ps1` | `same/scripts/` | Deterministic state detector ✅ |
+| `load-work-tree.ps1` | `same/scripts/` | Work tree loader (needs PG tag support) |
+| `pr-finalizer.prompt.md` | `~/.conductor/registries/twig/prompts/` | PR verification ✅ FIXED |
+| `close-out.prompt.md` | same | Close-out agent ✅ HARDENED |
+| `cleanup.prompt.md` | same | Cleanup agent for intent=redo ✅ NEW |
+| `retrospective.prompt.md` | same | Postmortem review ✅ NEW |
+| `conductor-design/SKILL.md` | `.github/skills/conductor-design/` | Design principles (P1-P11) ✅ |
+| `twig-sdlc/SKILL.md` | `.github/skills/twig-sdlc/` | Launch instructions ✅ UPDATED |
+| `sdlc-redesign-journal.md` | `docs/projects/` | This document |
+
+---
+
+## Phase 2 Completion: Planning Workflow (April 24, 2026)
+
+### What was built
+
+Rewrote `twig-sdlc-planning.yaml` from a monolithic 340-line workflow into a thin
+orchestrator (160 lines) calling 3 modular sub-workflows:
+
+1. **plan-design.yaml** — architect → reviewers (P11 rubrics) → execution planner (NEW).
+   Execution planner defines PGs and can loop back to architect if PGs can't be
+   self-contained. Review router converted from LLM to deterministic script (P8).
+
+2. **planning-pr.yaml** — commits plans to `planning/<id>` branch, pushes, links
+   artifact to work item, creates GitHub PR. All nodes are scripts except the
+   (now also script) PR submit.
+
+3. **plan-seeding.yaml** — creates ADO work items with PG tags and descriptions,
+   fans out to plan-child.yaml per child.
+
+4. **plan-child.yaml** — replaces plan-issue.yaml. Routes by complexity threshold:
+   ≥3 tasks → child_architect (plan doc), else → description_enricher.
+
+### Scripts created (P8)
+- `check-plan.ps1` — idempotency: approved plan exists?
+- `check-branch.ps1` — idempotency: planning branch exists?
+- `check-seeding.ps1` — idempotency: children already seeded?
+- `review-router.ps1` — deterministic gating math + feedback assembly
+- `push-planning-branch.ps1` — git branch, commit, push, link artifact
+- `assess-complexity.ps1` — child plan vs description enrichment threshold
+
+### Prompts created/updated
+- `execution-planner.system.md` + `.prompt.md` — NEW agent defining PGs
+- `technical-reviewer.prompt.md` — P11 rubric (5 weighted dimensions)
+- `readability-reviewer.prompt.md` — P11 rubric (5 weighted dimensions)
+- All 24 system prompts — P10 invariants (pre/postconditions) added
+
+### Audit results (post-redesign)
+- **1 hard violation** — P1 filesystem fallback in plan_check (known, pending #2059)
+- **6 soft violations** — all acceptable or deferred (description divergence, naming)
+- **1 false positive reverted** — child_reviewer revision cap was incorrectly added
+
+### Key commits
+- `ec37f78` — scripts, prompts, rubrics (10 files)
+- `df63407` — 4 sub-workflow YAMLs + orchestrator rewrite (5 files)
+- `6e778c1` — P10 invariants on all 24 system prompts
+- `ff66c6e` → `84de016` — soft violation fixes, reverted false positive
+
+---
+
+## Phase 3 Audit: Implementation Workflow (April 24, 2026)
+
+### Audit findings
+
+**Hard violations: 7**
+
+| # | P | Node | Issue |
+|---|---|------|-------|
+| 1 | P2 | inputs | `plan_path` is a primary input — plans driving control flow |
+| 2 | P1 | inputs | `child_issue_plans` — plan-centric mapping from old design |
+| 3 | P4 | inputs | `prompt` — dead input, never used |
+| 4 | P9 | intake | Still outputs `epic_id`, `epic_title`, `plan_already_approved` |
+| 5 | P1/P2 | plan_reader | Entire agent exists to read plan and extract metadata |
+| 6 | P1/P2 | work_tree_seeder | Passes `-PlanPath` to load-work-tree.ps1, extracts PGs from plan text |
+| 7 | P7 | pr_finalizer | YAML routing still has `verification_attempt >= 3` auto-approve despite prompt fix |
+
+**Critical finding:** pr_finalizer prompt was fixed (commit `e996e5b`) but the YAML
+routing condition on line 512 still force-passes on attempt 3. The prompt says "fail
+honestly" but the routing bypasses the result.
+
+**Soft violations: 5** — duplicate_check as LLM, user_acceptance confidence threshold,
+reviewers lacking P11 rubrics, pr_fixer no revision cap, no resume capability.
+
+### Structural changes needed
+1. Remove `plan_reader` — implementation discovers PGs from work item tags (P1)
+2. Rewrite `load-work-tree.ps1` to read PG tags instead of plan text
+3. Fix pr_finalizer YAML routing (remove `verification_attempt >= 3`)
+4. Remove `close_out` (moved to apex level)
+5. Clean up inputs (remove plan_path, child_issue_plans, prompt; add intent)
+6. Rename `epic_*` outputs in intake
+7. Add state discovery for resume capability (P3)
+
+### Next step
+Examining cloudvault implementation workflow for patterns to adopt.
+
+---
+
+## Phase 3 Completion: Implementation Workflow (April 24, 2026)
+
+### What was changed
+
+Comprehensive redesign of `twig-sdlc-implement.yaml` — all 7 hard violations resolved.
+
+**Removed:**
+- `plan_reader` agent — entirely gone. Implementation no longer reads plans.
+- `close_out` agent — moved to apex workflow level.
+- Inputs: `plan_path`, `child_issue_plans`, `prompt`, `work_item_type`
+- All `plan_reader.output` references across 11 prompt files
+
+**Rewritten:**
+- `load-work-tree.ps1` — discovers PGs from ADO work item tags (P1). Falls back
+  to single PG-1 if no tags. No plan text parsing.
+- `pr_finalizer` YAML routing — removed `verification_attempt >= 3` auto-approve.
+  Now retries up to 10, then terminates honestly (P7).
+- `intake` outputs renamed: `epic_id` → `work_item_id`, etc. (P9)
+- `intent` input added (P4)
+
+**New scripts wired in:**
+- `assess-staleness.ps1` — wired into pr_group_manager, runs per-PG before starting
+- `post-merge-regression.ps1` — wired into pr_merge, runs after each PR merge
+- Review cap in task_reviewer — 2 rejections then approve-or-escalate
+
+**Prompt cleanups:**
+- `pr-group-manager.prompt.md` — staleness check + branch-from-HEAD documented
+- `pr-merge.prompt.md` — post-merge regression testing, removed plan status update
+- `task-reviewer.prompt.md` — review cap, removed plan_reader reference
+- No-nulls rule added to all 24 system prompts
+- All remaining `plan_reader.output` references replaced (8 files)
+
+### Cloudvault patterns adopted
+1. PG discovery from work items (tags) not plan text
+2. Staleness assessor per PG (proceed/adapt/replan)
+3. Post-merge regression testing on main
+4. Review caps with escalation (2 rejections → approve or escalate)
+5. Branch creation from current HEAD for PG dependencies
+6. No-nulls rule on all system prompts
+7. PR finalizer as verification-only (no auto-approve)
+
+### Key commits
+- `94d868c` — major rewrite (load-work-tree, remove plan_reader/close_out, fix routing)
+- `7eefaf7` — wire scripts into prompts, remove all plan_reader references
+
+### Remaining (non-blocking, incremental improvements)
+- Convert `duplicate_check` from LLM to script (P8)
+- Add P11 rubrics to task_reviewer, issue_reviewer, pr_reviewer
+- Resume state discovery at implementation entry (P3)
+- Formal staleness gate (currently prompt-based, could be script + human gate)
+
+---
+
+## Summary: All Three Phases Complete
+
+| Phase | Workflow | Status | Commits |
+|-------|----------|--------|---------|
+| 1 | `twig-sdlc-full.yaml` (apex) | ✅ COMPLETE | `3f1757a` → `26ad0af` |
+| 2 | `twig-sdlc-planning.yaml` + 4 sub-workflows | ✅ COMPLETE | `ec37f78` → `84de016` |
+| 3 | `twig-sdlc-implement.yaml` | ✅ COMPLETE | `94d868c` → `7eefaf7` |
+
+### Design principles established: P1–P11
+### Total files changed: ~50 across both repos
+### Net result: plan-centric → work-item-centric SDLC pipeline
+
+---
+
+## Final Principles Audit (April 24, 2026)
+
+### Result: 0 hard violations, 2 soft P9 concerns
+
+Post-redesign audit across all 7 workflow files found zero hard violations.
+
+Two minor P9 soft concerns:
+- `branching` in planning orchestrator — does more than branch (also commits plans,
+  creates PR). Acceptable in context of the 3-step flow (design → branching → seeding).
+- `work_tree_seeder` in implementation — name says "seeder" but it loads/reads the tree.
+  Leftover from when it actually created items. Could be `work_tree_loader`.
+
+### Principles Evolution (final state)
+
+| # | Principle | Summary |
+|---|-----------|---------|
+| P1 | Work Items Are Source of Truth | ADO state over plan files |
+| P2 | Plans Are Context, Not Control Flow | Plans don't drive routing |
+| P2a | Plans Describe Solutions, Not Work Items | Architect designs, seeder creates |
+| P3 | Re-Entry by State Discovery | Resume via observable state |
+| P4 | Explicit Intent (new/redo/resume) | Replaces ad-hoc flags |
+| P5 | Type-Agnostic Workflow Structure | Same nodes for Epic/Issue/Task |
+| P6 | Human Gates for Genuine Decisions | ≤85% planning, ≥95% implementation |
+| P7 | Fail Honestly, Don't Auto-Approve | No force-pass after N attempts |
+| P8 | Prefer Scripts for Deterministic Logic | if/else → script, judgment → agent |
+| P9 | Clear, Minimal Naming | Clear in scope, minimal text, unambiguous at a glance |
+| P10 | Explicit Invariants | Pre/postconditions on all agents |
+| P11 | Rubric-Based Scoring | Weighted dimensions, academic grounding |
+
+**P9 was refined late in the process** — original wording ("Concise, Contextual Naming")
+led the audit agent to suggest overly verbose names like `"disambiguate_intent_conflict"`.
+Updated to emphasize minimalism: "use as little text as needed to still be clear."
+
+### What's left (non-blocking, incremental)
+
+~~These are improvement opportunities, not violations:~~
+~~- Convert implementation `duplicate_check` from LLM to script (P8)~~
+~~- Add P11 rubrics to task_reviewer, issue_reviewer, pr_reviewer~~
+~~- Rename `work_tree_seeder` → `work_tree_loader` in implementation (P9)~~
+~~- Resume state discovery at implementation entry (P3 — conductor limitation)~~
+~~- Human escalation gate on pr_finalizer after max retries (P7 polish)~~
+
+**All resolved** — see post-audit fixes below.
+
+---
+
+## Post-Audit Fixes (April 24, 2026)
+
+All five "non-blocking, incremental" items from the final audit were resolved:
+
+| Item | Principle | Fix | Commit |
+|------|-----------|-----|--------|
+| `duplicate_check` → script | P8 | Converted from LLM to script in implementation | `6c73ef5` |
+| P11 rubrics on reviewers | P11 | Added 5-dimension rubric to task_reviewer, issue_reviewer, pr_reviewer | `6c73ef5` |
+| `work_tree_seeder` → `work_tree_loader` | P9 | Renamed in implementation yaml + all references | `6c73ef5` |
+| Resume state discovery | P3 | `load-work-tree.ps1` detects completed PGs via merged PRs + task states. `pr_group_manager` reads `next_pg` to skip completed PGs on restart. | `4b8d60e` |
+| pr_finalizer escalation | P7 | Added `verification_failure_gate` — human gate after 10 failed attempts | `6c73ef5` |
+
+### P3 Resume Design
+
+The resume mechanism works as follows:
+1. `load-work-tree.ps1` queries `gh pr list --state merged` and cross-references
+   PG branch names. Also checks if all tasks in a PG are Done.
+2. Outputs `completed_pgs`, `pending_pgs`, and `next_pg` fields.
+3. `pr_group_manager` reads `next_pg` on first invocation and starts from there.
+4. If a run dies mid-PG-2 and is restarted, it skips PG-1 (already merged) and
+   resumes at PG-2.
+
+This was initially thought to be a conductor platform limitation. It's not — it's
+just deterministic state discovery in the work tree loader script, exactly per P3
+and P8.
+
+---
+
+## Final State
+
+All SDLC workflow redesign work is complete. The pipeline has been transformed from
+a plan-centric, monolithic design to a work-item-centric, modular architecture with:
+
+- **11 design principles** (P1-P11) governing all workflow decisions
+- **7 workflow files** (apex + 4 planning sub-workflows + implementation + plan-child)
+- **10 deterministic scripts** replacing LLM agents for routing/validation
+- **P11 rubrics** on all 5 reviewer agents (tech, readability, task, issue, PR)
+- **P10 invariants** on all 24 system prompts
+- **Resume support** via state discovery at every entry point
+- **No auto-approve** anywhere — honest failure with human escalation
+- **0 hard principle violations** in final audit
+
+---
+
+## Deployment Lessons (April 24, 2026 — first live test)
+
+### Errors encountered during first launch
+
+**Error 1: TemplateError — 'dict object' has no attribute 'work_item_id'**
+- **Cause**: Conductor script agents don't parse stdout JSON into typed fields.
+  `state_detector.output.work_item_id` doesn't exist — only `state_detector.output.stdout`
+  (raw string) and `state_detector.output.exit_code` are available.
+- **Fix**: Use `{{ state_detector.output.stdout }}` for prompt context (dumps the full
+  JSON). Use `workflow.input.*` for sub-workflow input_mapping (the canonical source).
+  Route via exit codes, not output field values.
+- **Lesson**: Conductor script agents have three output channels:
+  - `stdout` → available as `agent_name.output.stdout` (string)
+  - `stderr` → available as `agent_name.output.stderr` (string)
+  - `exit_code` → used for `when:` routing conditions
+- **Feature request filed**: [microsoft/conductor#118](https://github.com/microsoft/conductor/issues/118)
+  — allow script agents to declare output schemas for typed downstream access.
+
+**Error 2: Stale github registry cache serving version 0.1.0**
+- **Cause**: Conductor github registry mode resolved workflows by tag, not latest commit.
+  Tags `0.1.0`, `1.0.0`, `2.1.0` all pointed to an ancient commit. New tag `3.0.0` was
+  created but conductor still pulled the old cached version.
+- **Fix**: Switched to path registry mode (local clone). Cleared `~/.conductor/cache/`
+  globally. Path mode reads directly from the local clone — always current.
+- **Lesson**: Github registry mode + tags requires understanding conductor's version
+  resolution strategy. Path mode is simpler for development; github mode for distribution.
+
+**Error 3: Overly strict 'seeded but no plan' error**
+- **Cause**: `detect-state.ps1` treated "children exist but no discoverable plan file"
+  as a corrupted state error. For existing epics planned per-issue (not per-epic), this
+  is a legitimate state — children were created from per-issue plans that don't match
+  the parent epic's ID.
+- **Fix**: If children are seeded, route to implementation regardless of plan status.
+  The plan is context (P2), not required for implementation to proceed.
+- **Lesson**: P2 compliance means the system works WITHOUT plans. Plans enhance context
+  but must never be a gate for execution when work items already exist.
+
+**Error 4: TOML path escaping**
+- **Cause**: `conductor registry add` wrote Windows backslashes into `registries.toml`.
+  TOML interprets `\U`, `\t`, etc. as escape sequences.
+- **Fix**: Manually corrected to forward slashes in `registries.toml`.
+- **Lesson**: Always use forward slashes in conductor TOML config, even on Windows.
+
+### Commits
+- `1d00e46` — script output schema removal, exit code routing
+- `194e660` — stdout for context, workflow.input for mapping, relaxed plan gate
+- `748ce91` — remove script output field references from apex workflow output
+- `346663d` — fix MCP server args indentation (collateral from script fix)
+- `d25b440` — remove conditional plan_path args
+
+---
+
+## ⚠️ CRITICAL: Conductor Bug — `workflow.input` Empty in Script Agent Context
+
+**Status:** Confirmed, reported to conductor team. **BLOCKS all script agents that
+reference workflow inputs.**
+
+### The Problem
+
+Script agents (`type: script`) receive an EMPTY `workflow.input` dict `{}` in their
+template rendering context, even when inputs are correctly passed via `--input` flags
+and displayed in the UI.
+
+LLM agents (`type: agent`) receive the correct populated `workflow.input`. Only
+script agents are affected.
+
+### How We Found It
+
+After multiple launch failures with `TemplateError: 'dict object' has no attribute
+'work_item_id'`, we monkey-patched `conductor.executor.template.TemplateRenderer.render()`
+to dump the context:
+
+```python
+# Debug output:
+TEMPLATE FAILED: '{{ workflow.input.work_item_id if workflow.input.work_item_id else 0 }}'
+CONTEXT KEYS: ['context', 'workflow']
+  workflow keys: ['input']
+  workflow.input: {}      ← EMPTY! Should be {"work_item_id": 1945}
+```
+
+The workflow UI correctly shows `{"work_item_id": 1945}` — the inputs are parsed
+and stored, but `ScriptExecutor` doesn't inject them into the template context.
+
+### Root Cause
+
+`conductor/executor/script.py` (lines ~86-87) builds the template context for script
+agents. It includes `workflow` in the context but does NOT populate `workflow.input`
+from the engine's input state. Compare with `executor/agent.py` which correctly
+populates `workflow.input` for LLM agents.
+
+### Impact on SDLC Redesign
+
+This blocks ALL redesigned workflows. The `state_detector` script agent is the entry
+point and needs `workflow.input.work_item_id` to function. Every deterministic script
+node (P8) that references workflow inputs is affected.
+
+### Workarounds
+
+1. **Convert script agents back to LLM agents** — defeats P8 (determinism) but unblocks
+2. **Pass inputs as environment variables** instead of template args — untested
+3. **Hardcode values** — obviously not viable for reusable workflows
+4. **Wait for conductor fix** — the fix is likely a 1-line change in `script.py`
+
+### Debug Script
+
+The monkey-patch debug script is at `tools/conductor-repro/debug_template.py`.
+Run from any worktree to reproduce:
+```
+cd <worktree>
+python tools/conductor-repro/debug_template.py
+```
+
+### Lessons
+
+1. **Always get the actual traceback** — we spent hours hypothesizing about eager
+   resolution, sub-workflow loading, YAML structure. The monkey-patch gave us the
+   answer in 30 seconds.
+2. **Don't trust "Cannot Reproduce"** — the conductor dev agent tested a simplified
+   repro that worked. The real bug only manifests in script agents (not LLM agents).
+3. **Template context ≠ workflow config** — conductor's UI shows correct inputs
+   but the execution context is a different code path.
+4. **P8 (scripts over agents) has a platform dependency** — deterministic scripts
+   are only viable if the platform passes context to them correctly.
+
+---
+
+## Conductor Platform Fixes (April 24, 2026 — collaborative debugging session)
+
+### Three conductor features shipped in one session
+
+Working with the conductor development agent, we identified and fixed three
+platform issues blocking the SDLC redesign:
+
+| # | Issue | Fix | Status |
+|---|-------|-----|--------|
+| 1 | `workflow.input` empty `{}` in script agent context (explicit mode) | Script executor now populates workflow inputs into template context | PR #119, Issue #120 |
+| 2 | No way to reference workflow file location in script args | Added `{{ workflow.dir }}`, `{{ workflow.file }}`, `{{ workflow.name }}` template vars | Installed locally |
+| 3 | Script agent JSON stdout not parsed into `output.field` | Auto-parse JSON stdout, merge fields into output dict | Installed locally |
+
+### Debugging methodology that worked
+
+The key breakthrough was **monkey-patching `TemplateRenderer.render()`** to dump
+the actual template context at the point of failure. This revealed `workflow.input: {}`
+in 30 seconds after hours of wrong hypotheses. The debug script is at
+`tools/conductor-repro/debug_template.py`.
+
+### Script path resolution
+
+Registry-based workflows have scripts co-located with the YAML files. But conductor
+resolves paths relative to CWD (the worktree), not the workflow file.
+
+- **Absolute paths** break portability (contain username)
+- **Relative paths** resolve to CWD, not the registry
+- **Solution**: `{{ workflow.dir }}/scripts/detect-state.ps1`
+
+### Jinja `| default()` vs `if X else Y`
+
+Conductor uses **StrictUndefined** Jinja mode:
+
+```jinja
+{{ workflow.input.prompt | default('') }}                    {# FAILS #}
+{{ workflow.input.prompt if workflow.input.prompt else '' }}  {# WORKS #}
+```
+
+`| default()` catches undefined variables but NOT missing dict keys via attribute
+access. Always use the `if X else Y` guard for optional workflow inputs.
+
+### `duplicate_check` — script file never existed
+
+Converted from LLM to `type: script` referencing a .ps1 that was never created.
+PowerShell printed usage help, exited 0, silently skipped the check. Reverted to
+LLM agent.
+
+**Lesson**: When converting LLM → script (P8), verify the script file exists.
+
+### Commits
+- `53c9572` — `{{ workflow.dir }}` for portable paths
+- `d9b5050` — revert to output.field routing
+- `467caef` — revert duplicate_check to LLM
+- `b3b9cb1` — guard optional inputs with if-else
+- `8bebd28` — explicit default for optional prompt
+- `cd96fae` — replace all `| default()` with if-else guards
+- `97d4297` — add prompt input to implementation for shared prompt compat
+- `8fbd660` — explicitly pass prompt='' in input_mapping
+
+### Ongoing: Sub-workflow `workflow.input` propagation
+
+**Status: BLOCKED on conductor platform behavior**
+
+The shared `intake.prompt.md` template uses `{% if workflow.input.prompt %}` which
+works in the planning sub-workflow (where `prompt` is passed via input_mapping) but
+fails in the implementation sub-workflow even after:
+
+1. Adding `prompt` to implementation's input declarations with `default: ""`
+2. Explicitly passing `prompt: ""` in the apex's `input_mapping`
+3. Using `if X else Y` guard pattern instead of `| default()`
+
+The core issue: `workflow.input` inside a sub-workflow may not be populated with
+all declared inputs + defaults. Only values explicitly in `input_mapping` from the
+parent appear — and even explicit `prompt: ""` doesn't seem to make it through.
+
+Event log shows the failure path clearly:
+```
+state_detector ✓ → implementation (sub-workflow) → duplicate_check ✓ → intake FAILS
+```
+
+This is filed with the conductor dev team for investigation. The fix is likely in
+`_execute_subworkflow()` (workflow.py:606) where child engine context is built.
+
+### Lessons learned during deployment
+
+1. **Shared prompt files are a liability** — `intake.prompt.md` is used by both
+   planning and implementation, but they have different input contracts. Shared
+   prompts that reference optional inputs create fragile coupling.
+
+2. **Jinja StrictUndefined + `| default()` is a trap** — the filter doesn't catch
+   missing dict keys via attribute access. Always use `if X else Y` guards.
+
+3. **Sub-workflow input propagation is opaque** — there's no way to inspect what
+   `workflow.input` looks like inside a running sub-workflow without monkey-patching.
+
+4. **Incremental testing is essential** — each fix revealed the next error deeper
+   in the workflow chain. A comprehensive integration test before deploying the
+   redesign would have caught these in sequence.
+
+---
+
+## The Real Root Cause: `context: mode: explicit` (April 24, 2026)
+
+### What we thought was wrong
+
+We spent hours debugging what we believed were conductor platform bugs:
+- `workflow.input` empty in script agents (WAS a real bug, fixed by conductor team)
+- `| default()` not working with StrictUndefined (real Jinja behavior, not a bug)
+- Sub-workflow input_mapping not propagating (NOT a bug — our config was wrong)
+- Template pre-resolution in sub-workflows (NOT happening — templates are deferred)
+
+### What was actually wrong
+
+**`context: mode: explicit`** means agents ONLY see inputs they explicitly declare
+in their `input:` block. Every agent that references an upstream output
+(`intake.output.work_item_id`, `pr_group_manager.output.action`, etc.) MUST list
+that reference in its `input:` section.
+
+The old workflow had this right. Our redesign renamed agents (`work_tree_seeder` →
+`work_tree_loader`), converted some to scripts, and changed output schemas — but
+didn't audit that every agent's `input:` block still declared all the upstream
+references used in its `prompt:` or `args:` templates.
+
+### The fix pattern
+
+For each agent in explicit mode:
+1. Find all `{{ X.output.Y }}` references in its `prompt:` or `args:`
+2. Ensure `X.output` (or `X.output?` for optional) is in the agent's `input:` block
+3. For shared prompts that reference optional inputs, use `workflow.input.X?`
+
+### What's remaining
+
+A systematic audit of ALL agents in `twig-sdlc-implement.yaml` to ensure their
+`input:` blocks declare every upstream reference. This is mechanical work — the
+pattern is clear, it just needs to be applied to ~15 agents.
+
+### Progress through the deployment chain
+
+Each fix got us one agent deeper:
+
+```
+state_detector  ✓ (exit code routing → JSON stdout parsing)
+implementation  ✓ (sub-workflow routing)
+duplicate_check ✓ (reverted to LLM, script file didn't exist)
+intake          ✓ (added workflow.input.prompt? to input block)
+work_tree_loader ← CURRENT (added intake.output to input block)
+pr_group_manager ← NEXT (needs work_tree_loader.output + intake.output)
+...
+```
+
+### Lesson
+
+**When using `context: mode: explicit`, renaming or restructuring agents requires
+a full audit of input declarations.** This should be a checklist item in the
+conductor-design skill. Consider adding a P12 or appending to P10:
+
+> When modifying agent names, types, or output schemas in explicit context mode,
+> audit ALL downstream agents' `input:` blocks to ensure they still reference
+> the correct upstream outputs.
+
+### Commits
+- `51b3cf1` — add prompt to intake explicit inputs
+- `a8f22e0` — add intake.output to work_tree_loader inputs
+- `a2781d3` — deduplicate intake.output refs, audit all input declarations
+- `5255ed8` — rename work_tree_seeder → work_tree_loader in 5 prompts
+
+### Updated deployment chain
+
+```
+state_detector       ✓ (script, JSON stdout → output.field routing)
+implementation       ✓ (sub-workflow routing)
+duplicate_check      ✓ (LLM agent, gracefully handles missing script)
+intake               ✓ (added workflow.input.prompt? to input block)
+work_tree_loader     ✓ (added intake.output to input block, script runs)
+pr_group_manager     ✓ (deduplicated inputs, runs through task cycle)
+...task/review loop  ✓ (reached pr_finalizer)
+pr_finalizer         ✓ (fixed stale work_tree_seeder → work_tree_loader ref)
+close_out            ✓ (fixed same stale reference)
+```
+
+### Stale reference pattern
+
+When renaming agents (P9), we updated:
+- ✅ The YAML agent `name:` field
+- ✅ The YAML `input:` references in the same file
+- ❌ Prompt `.md` files that use `{{ agent_name.output.X }}` templates
+
+5 prompt files still referenced `work_tree_seeder` after the rename to
+`work_tree_loader`. This is invisible to `conductor validate` since prompts
+are treated as opaque strings until runtime.
+
+**Lesson**: Agent renames require grep across BOTH `.yaml` AND `.md` files:
+```
+grep -r "old_name" recursive/ prompts/
+```

@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Twig.TestKit" />
+    <InternalsVisibleTo Include="Twig.Domain.Tests" />
+    <InternalsVisibleTo Include="Twig.Infrastructure" />
+    <InternalsVisibleTo Include="Twig.Infrastructure.Tests" />
+    <InternalsVisibleTo Include="Twig.Cli.Tests" />
+    <InternalsVisibleTo Include="Twig.Tui" />
+    <InternalsVisibleTo Include="Twig.Tui.Tests" />
+    <InternalsVisibleTo Include="twig" />
+    <InternalsVisibleTo Include="Twig.Mcp" />
+    <InternalsVisibleTo Include="twig-mcp" />
+    <InternalsVisibleTo Include="Twig.Mcp.Tests" />
+  </ItemGroup>
+
+</Project>

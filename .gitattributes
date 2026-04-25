@@ -1,0 +1,5 @@
+# Ensure shell scripts always use LF line endings
+*.sh text eol=lf
+
+# Ensure PowerShell scripts use consistent line endings across platforms
+*.ps1 text eol=lf

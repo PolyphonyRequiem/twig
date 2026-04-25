@@ -1,0 +1,528 @@
+using NSubstitute;
+using NSubstitute.ExceptionExtensions;
+using Shouldly;
+using Twig.Commands;
+using Twig.Domain.Aggregates;
+using Twig.Domain.Common;
+using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
+using Twig.Domain.ValueObjects;
+using Twig.Formatters;
+using Twig.Hints;
+using Twig.Infrastructure.Ado.Exceptions;
+using Twig.Infrastructure.Config;
+using Twig.TestKit;
+using Xunit;
+
+namespace Twig.Cli.Tests.Commands;
+
+public class StateCommandTests
+{
+    private readonly IContextStore _contextStore;
+    private readonly IWorkItemRepository _workItemRepo;
+    private readonly IAdoWorkItemService _adoService;
+    private readonly IPendingChangeStore _pendingChangeStore;
+    private readonly IProcessConfigurationProvider _processConfigProvider;
+    private readonly IConsoleInput _consoleInput;
+    private readonly StringWriter _stderr;
+    private readonly StateCommand _cmd;
+
+    public StateCommandTests()
+    {
+        _contextStore = Substitute.For<IContextStore>();
+        _workItemRepo = Substitute.For<IWorkItemRepository>();
+        _adoService = Substitute.For<IAdoWorkItemService>();
+        _pendingChangeStore = Substitute.For<IPendingChangeStore>();
+        _processConfigProvider = Substitute.For<IProcessConfigurationProvider>();
+        _consoleInput = Substitute.For<IConsoleInput>();
+        _stderr = new StringWriter();
+
+        _processConfigProvider.GetConfiguration()
+            .Returns(ProcessConfigBuilder.Agile());
+
+        var formatterFactory = new OutputFormatterFactory(
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
+        var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
+
+        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        _cmd = new StateCommand(
+            resolver, _workItemRepo, _adoService,
+            _pendingChangeStore, _processConfigProvider, _consoleInput,
+            formatterFactory, hintEngine, stderr: _stderr);
+    }
+
+    [Fact]
+    public async Task State_ForwardTransition_AutoApplies()
+    {
+        var item = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
+        SetupActiveItem(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+
+        var result = await _cmd.ExecuteAsync("Active"); // Active (forward from New)
+
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task State_AlreadyInState_NoOp()
+    {
+        var item = CreateWorkItem(1, "Test", "Active", WorkItemType.UserStory);
+        SetupActiveItem(item);
+
+        var result = await _cmd.ExecuteAsync("Active"); // Active, already Active
+
+        result.ShouldBe(0);
+        await _adoService.DidNotReceive().PatchAsync(Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task State_InvalidState_ReturnsError()
+    {
+        var item = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
+        SetupActiveItem(item);
+
+        var result = await _cmd.ExecuteAsync("Nonexistent"); // no match
+
+        result.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task State_NoActiveItem_ReturnsError()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+
+        var result = await _cmd.ExecuteAsync("Active");
+
+        result.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task State_AutoPushesNotes_OnStateChange()
+    {
+        var item = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
+        SetupActiveItem(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+
+        var pendingNote = new PendingChangeRecord(1, "note", null, null, "Test note");
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { pendingNote });
+
+        var result = await _cmd.ExecuteAsync("Active");
+
+        result.ShouldBe(0);
+        await _adoService.Received().AddCommentAsync(1, "Test note", Arg.Any<CancellationToken>());
+        await _pendingChangeStore.Received().ClearChangesByTypeAsync(1, "note", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task State_PreservesFieldChanges_OnStateChange()
+    {
+        var item = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
+        SetupActiveItem(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+
+        var pendingField = new PendingChangeRecord(1, "field", "System.Title", "Old", "New");
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { pendingField });
+
+        var result = await _cmd.ExecuteAsync("Active");
+
+        result.ShouldBe(0);
+        // Field changes should NOT be cleared
+        await _pendingChangeStore.DidNotReceive().ClearChangesAsync(1, Arg.Any<CancellationToken>());
+        await _pendingChangeStore.DidNotReceive().ClearChangesByTypeAsync(1, "note", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task State_BackwardTransition_UserConfirms_AppliesChange()
+    {
+        // Active → New is a backward transition for Agile UserStory
+        var item = CreateWorkItem(1, "Test", "Active", WorkItemType.UserStory);
+        SetupActiveItem(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+        _consoleInput.ReadLine().Returns("y");
+
+        var result = await _cmd.ExecuteAsync("New"); // New (backward from Active)
+
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task State_BackwardTransition_UserDeclines_Cancels()
+    {
+        // Active → New is a backward transition for Agile UserStory
+        var item = CreateWorkItem(1, "Test", "Active", WorkItemType.UserStory);
+        SetupActiveItem(item);
+        _consoleInput.ReadLine().Returns("n");
+
+        var result = await _cmd.ExecuteAsync("New"); // New (backward from Active)
+
+        result.ShouldBe(0);
+        await _adoService.DidNotReceive().PatchAsync(Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task State_CutTransition_UserConfirms_AppliesChange()
+    {
+        // New → Removed is a Cut transition for Agile UserStory
+        var item = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
+        SetupActiveItem(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+        _consoleInput.ReadLine().Returns("y");
+
+        var result = await _cmd.ExecuteAsync("Removed"); // Removed (cut from New)
+
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task State_ForwardTransition_ReFetchesAndSavesServerItem()
+    {
+        var local = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
+        SetupActiveItem(local);
+
+        // Distinct "server" item representing post-transition state
+        var serverItem = CreateWorkItem(1, "Test", "Active", WorkItemType.UserStory);
+        serverItem.MarkSynced(5);
+
+        // First FetchAsync (conflict check) returns local; second (resync) returns serverItem
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>())
+            .Returns(local, serverItem);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+
+        var result = await _cmd.ExecuteAsync("Active");
+
+        result.ShouldBe(0);
+        // FetchAsync called twice: conflict check + resync
+        await _adoService.Received(2).FetchAsync(1, Arg.Any<CancellationToken>());
+        // SaveAsync receives the re-fetched server item, not the local one
+        await _workItemRepo.Received(1).SaveAsync(serverItem, Arg.Any<CancellationToken>());
+        _stderr.ToString().ShouldNotContain("resync failed");
+    }
+
+    [Fact]
+    public async Task State_PatchConflict_RetrySucceeds_ReturnsSuccess()
+    {
+        var item = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
+        SetupActiveItem(item);
+
+        var remote = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
+        remote.MarkSynced(3);
+
+        // First patch attempt → conflict
+        _adoService
+            .PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoConflictException(5));
+
+        // Re-fetch returns fresh item at revision 5
+        var freshItem = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
+        freshItem.MarkSynced(5);
+
+        // FetchAsync: first call returns remote (pre-patch conflict check),
+        // second returns freshItem (retry re-fetch from ConflictRetryHelper),
+        // third returns freshItem again (resync after successful patch)
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>())
+            .Returns(remote, freshItem);
+
+        // Retry with fresh revision succeeds
+        _adoService
+            .PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), 5, Arg.Any<CancellationToken>())
+            .Returns(6);
+
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+
+        var result = await _cmd.ExecuteAsync("Active");
+
+        result.ShouldBe(0);
+        // PatchAsync called twice: once with old revision (conflict), once with fresh revision (success)
+        await _adoService.Received(2).PatchAsync(1,
+            Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task State_PatchConflict_BothAttemptsFail_ThrowsAdoConflictException()
+    {
+        var item = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
+        SetupActiveItem(item);
+
+        var remote = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
+        remote.MarkSynced(3);
+
+        // Re-fetch returns fresh item at revision 5
+        var freshItem = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
+        freshItem.MarkSynced(5);
+
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>())
+            .Returns(remote, freshItem);
+
+        // First patch attempt → conflict
+        _adoService
+            .PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), 3, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoConflictException(5));
+
+        // Retry also conflicts
+        _adoService
+            .PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), 5, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoConflictException(7));
+
+        await Should.ThrowAsync<AdoConflictException>(
+            () => _cmd.ExecuteAsync("Active"));
+    }
+
+    [Fact]
+    public async Task State_Resync_NotAttempted_WhenTransitionFails()
+    {
+        var item = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
+        SetupActiveItem(item);
+
+        // First FetchAsync (conflict check) succeeds
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+
+        // PatchAsync throws a non-conflict failure
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("ADO unavailable"));
+
+        await Should.ThrowAsync<HttpRequestException>(() => _cmd.ExecuteAsync("Active"));
+
+        // FetchAsync called only once (conflict check), never for resync
+        await _adoService.Received(1).FetchAsync(1, Arg.Any<CancellationToken>());
+        // SaveAsync never called — transition failed before resync
+        await _workItemRepo.DidNotReceive().SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task State_Resync_FetchThrows_ReturnsSuccessWithWarning()
+    {
+        var item = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
+        SetupActiveItem(item);
+
+        // First FetchAsync (conflict check) returns item; second (resync) throws
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>())
+            .Returns(_ => item, _ => throw new HttpRequestException("network timeout"));
+
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+
+        var result = await _cmd.ExecuteAsync("Active");
+
+        // Command still succeeds — the ADO state transition completed
+        result.ShouldBe(0);
+        // Warning emitted to stderr about resync failure with recovery hint
+        var stderrOutput = _stderr.ToString();
+        stderrOutput.ShouldContain("twig sync");
+        stderrOutput.ShouldContain("network timeout");
+        // SaveAsync never called — FetchAsync for resync threw before save
+        await _workItemRepo.DidNotReceive().SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task State_Resync_OperationCanceled_IsNotSwallowed()
+    {
+        var item = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
+        SetupActiveItem(item);
+
+        // First FetchAsync (conflict check) returns item; second (resync) throws OperationCanceledException
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>())
+            .Returns(_ => item, _ => throw new OperationCanceledException());
+
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+
+        // OperationCanceledException should propagate — not be caught by the resync catch block
+        await Should.ThrowAsync<OperationCanceledException>(() => _cmd.ExecuteAsync("Active"));
+    }
+
+    private void SetupActiveItem(WorkItem item)
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(item.Id);
+        _workItemRepo.GetByIdAsync(item.Id, Arg.Any<CancellationToken>()).Returns(item);
+    }
+
+    private StateCommand CreateCommandWithPropagation()
+    {
+        var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
+        var propagationService = new ParentStatePropagationService(
+            _workItemRepo, _adoService, _processConfigProvider, protectedCacheWriter);
+
+        var formatterFactory = new OutputFormatterFactory(
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
+        var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
+        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+
+        return new StateCommand(
+            resolver, _workItemRepo, _adoService,
+            _pendingChangeStore, _processConfigProvider, _consoleInput,
+            formatterFactory, hintEngine,
+            parentPropagationService: propagationService,
+            stderr: _stderr);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Parent propagation — transition to InProgress
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task State_ToInProgress_PropagatesParentFromProposedToInProgress()
+    {
+        // Child UserStory with parent Epic
+        var child = new WorkItemBuilder(1, "My Story").AsUserStory().InState("New").WithParent(100).Build();
+        SetupActiveItem(child);
+
+        // Parent Epic in Proposed (New) state
+        var parent = new WorkItemBuilder(100, "Parent Epic").AsEpic().InState("New").Build();
+        parent.MarkSynced(5);
+
+        // Child: conflict check + resync
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(child);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+
+        // Parent: cache hit, ADO fetch for revision, patch
+        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
+        _adoService.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
+        _adoService.PatchAsync(100, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(6);
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());
+
+        var cmd = CreateCommandWithPropagation();
+        var result = await cmd.ExecuteAsync("Active"); // Active is InProgress for Agile UserStory
+
+        result.ShouldBe(0);
+        // Parent Epic should have been patched to Active
+        await _adoService.Received().PatchAsync(
+            100,
+            Arg.Is<IReadOnlyList<FieldChange>>(c =>
+                c.Count == 1 &&
+                c[0].FieldName == "System.State" &&
+                c[0].OldValue == "New" &&
+                c[0].NewValue == "Active"),
+            Arg.Any<int>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task State_ToInProgress_ParentAlreadyActive_NoPropagationPatch()
+    {
+        // Child with parent already in Active (InProgress)
+        var child = new WorkItemBuilder(1, "My Story").AsUserStory().InState("New").WithParent(100).Build();
+        SetupActiveItem(child);
+
+        var parent = new WorkItemBuilder(100, "Parent Epic").AsEpic().InState("Active").Build();
+
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(child);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());
+
+        var cmd = CreateCommandWithPropagation();
+        var result = await cmd.ExecuteAsync("Active");
+
+        result.ShouldBe(0);
+        // PatchAsync should NOT be called for parent (it's already active)
+        await _adoService.DidNotReceive().PatchAsync(
+            100, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task State_ToNonInProgress_NoPropagation()
+    {
+        // Child transitioning to Resolved (not InProgress) — propagation should NOT trigger
+        var child = new WorkItemBuilder(1, "My Story").AsUserStory().InState("Active").WithParent(100).Build();
+        SetupActiveItem(child);
+
+        var parent = new WorkItemBuilder(100, "Parent Epic").AsEpic().InState("New").Build();
+
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(child);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
+
+        var cmd = CreateCommandWithPropagation();
+        var result = await cmd.ExecuteAsync("Resolved"); // Resolved is not InProgress
+
+        result.ShouldBe(0);
+        // No patch call for parent
+        await _adoService.DidNotReceive().PatchAsync(
+            100, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    private static WorkItem CreateWorkItem(int id, string title, string state, WorkItemType type)
+    {
+        return new WorkItem
+        {
+            Id = id,
+            Type = type,
+            Title = title,
+            State = state,
+            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
+            AreaPath = AreaPath.Parse("Project").Value,
+        };
+    }
+
+    [Fact]
+    public async Task State_WithExplicitId_TransitionsCorrectItem()
+    {
+        var item = CreateWorkItem(42, "Specific Item", "New", WorkItemType.UserStory);
+        // Explicit ID does NOT require active context to be set
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+        _pendingChangeStore.GetChangesAsync(42, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+
+        var result = await _cmd.ExecuteAsync("Active", id: 42);
+
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        // Active context in context store should NOT be changed
+        await _contextStore.DidNotReceive().SetActiveWorkItemIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task State_WithExplicitId_NotFound_ReturnsError()
+    {
+        _workItemRepo.GetByIdAsync(99, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        // ADO also doesn't have it
+        _adoService.FetchAsync(99, Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<WorkItem>(new HttpRequestException("Not found")));
+
+        var result = await _cmd.ExecuteAsync("Active", id: 99);
+
+        result.ShouldBe(1);
+    }
+}

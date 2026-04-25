@@ -813,3 +813,35 @@ conductor-design skill. Consider adding a P12 or appending to P10:
 ### Commits
 - `51b3cf1` — add prompt to intake explicit inputs
 - `a8f22e0` — add intake.output to work_tree_loader inputs
+- `a2781d3` — deduplicate intake.output refs, audit all input declarations
+- `5255ed8` — rename work_tree_seeder → work_tree_loader in 5 prompts
+
+### Updated deployment chain
+
+```
+state_detector       ✓ (script, JSON stdout → output.field routing)
+implementation       ✓ (sub-workflow routing)
+duplicate_check      ✓ (LLM agent, gracefully handles missing script)
+intake               ✓ (added workflow.input.prompt? to input block)
+work_tree_loader     ✓ (added intake.output to input block, script runs)
+pr_group_manager     ✓ (deduplicated inputs, runs through task cycle)
+...task/review loop  ✓ (reached pr_finalizer)
+pr_finalizer         ✓ (fixed stale work_tree_seeder → work_tree_loader ref)
+close_out            ✓ (fixed same stale reference)
+```
+
+### Stale reference pattern
+
+When renaming agents (P9), we updated:
+- ✅ The YAML agent `name:` field
+- ✅ The YAML `input:` references in the same file
+- ❌ Prompt `.md` files that use `{{ agent_name.output.X }}` templates
+
+5 prompt files still referenced `work_tree_seeder` after the rename to
+`work_tree_loader`. This is invisible to `conductor validate` since prompts
+are treated as opaque strings until runtime.
+
+**Lesson**: Agent renames require grep across BOTH `.yaml` AND `.md` files:
+```
+grep -r "old_name" recursive/ prompts/
+```

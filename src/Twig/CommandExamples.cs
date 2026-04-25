@@ -193,6 +193,11 @@ internal static class CommandExamples
             "twig link artifact vstfs:///Git/Commit/p/r/abc123         Add an artifact link",
             "twig link artifact https://example.com --id 42            Link to a specific item",
         ],
+        ["link branch"] =
+        [
+            "twig link branch feature/123-fix        Link branch to the active work item",
+            "twig link branch main --id 42           Link branch to a specific work item",
+        ],
         ["note"] =
         [
             "twig note --text \"Investigated root cause\"   Add a note to the active item",

@@ -68,6 +68,18 @@ public static class CommandRegistrationModule
         services.AddSingleton<SeedLinkCommand>();
         services.AddSingleton<LinkCommand>();
         services.AddSingleton<ArtifactLinkCommand>();
+        services.AddSingleton<LinkBranchCommand>(sp =>
+        {
+            var adoGitService = sp.GetService<IAdoGitService>();
+            var branchLinkService = adoGitService is not null
+                ? new BranchLinkService(adoGitService, sp.GetRequiredService<IAdoWorkItemService>())
+                : null;
+            return new LinkBranchCommand(
+                sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
+                branchLinkService!,
+                sp.GetRequiredService<OutputFormatterFactory>(),
+                sp.GetService<IGitService>());
+        });
         services.AddSingleton<SeedChainCommand>();
         services.AddSingleton<SeedValidateCommand>();
         services.AddSingleton<SeedPublishCommand>(sp => new SeedPublishCommand(

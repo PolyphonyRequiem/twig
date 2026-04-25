@@ -85,15 +85,7 @@ public sealed class MinimalOutputFormatter : IOutputFormatter
         }
 
         // Seeds
-        var staleSeeds = ws.GetStaleSeeds(staleDays);
-        var staleSeedIds = new HashSet<int>(staleSeeds.Count);
-        foreach (var s in staleSeeds)
-            staleSeedIds.Add(s.Id);
-        foreach (var seed in ws.Seeds)
-        {
-            var staleWarning = staleSeedIds.Contains(seed.Id) ? " STALE" : "";
-            sb.AppendLine($"SEED #{seed.Id} {seed.Title} ({seed.Type}){staleWarning}");
-        }
+        AppendSeeds(sb, ws, staleDays);
 
         return TrimEnd(sb);
     }
@@ -123,15 +115,7 @@ public sealed class MinimalOutputFormatter : IOutputFormatter
         }
 
         // Seeds
-        var staleSeeds = ws.GetStaleSeeds(staleDays);
-        var staleSeedIds = new HashSet<int>(staleSeeds.Count);
-        foreach (var s in staleSeeds)
-            staleSeedIds.Add(s.Id);
-        foreach (var seed in ws.Seeds)
-        {
-            var staleWarning = staleSeedIds.Contains(seed.Id) ? " STALE" : "";
-            sb.AppendLine($"SEED #{seed.Id} {seed.Title} ({seed.Type}){staleWarning}");
-        }
+        AppendSeeds(sb, ws, staleDays);
 
         return TrimEnd(sb);
     }
@@ -326,6 +310,16 @@ public sealed class MinimalOutputFormatter : IOutputFormatter
             sb.AppendLine($"AREA #{item.Id} [{stateLabel}] {item.Title}{dirty}");
         }
         return TrimEnd(sb);
+    }
+
+    private static void AppendSeeds(StringBuilder sb, Workspace ws, int staleDays)
+    {
+        var staleSeedIds = ws.GetStaleSeeds(staleDays).Select(s => s.Id).ToHashSet();
+        foreach (var seed in ws.Seeds)
+        {
+            var staleWarning = staleSeedIds.Contains(seed.Id) ? " STALE" : "";
+            sb.AppendLine($"SEED #{seed.Id} {seed.Title} ({seed.Type}){staleWarning}");
+        }
     }
 
     private static string TrimEnd(StringBuilder sb)

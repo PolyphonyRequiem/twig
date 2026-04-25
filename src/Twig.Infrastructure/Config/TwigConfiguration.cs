@@ -423,6 +423,7 @@ public sealed class AreaPathEntry
 {
     public string Path { get; set; } = string.Empty;
     public bool IncludeChildren { get; set; } = true;
+    public string SemanticsLabel => IncludeChildren ? "under" : "exact";
 }
 
 public sealed class SeedConfig

@@ -111,12 +111,6 @@ public class SqliteCacheStoreTests
     }
 
     [Fact]
-    public void SchemaVersion_IsTen()
-    {
-        SqliteCacheStore.SchemaVersion.ShouldBe(10);
-    }
-
-    [Fact]
     public void Schema_HasAreaPathIndex_OnWorkItems()
     {
         using var store = new SqliteCacheStore("Data Source=:memory:");

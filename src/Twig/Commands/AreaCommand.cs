@@ -66,9 +66,7 @@ public sealed class AreaCommand(
         }
 
         // 4. Hydrate parent chains for hierarchy context
-        var areaItemIds = new HashSet<int>(areaItems.Count);
-        foreach (var item in areaItems)
-            areaItemIds.Add(item.Id);
+        var areaItemIds = areaItems.Select(i => i.Id).ToHashSet();
 
         var uniqueParentIds = new HashSet<int>();
         foreach (var item in areaItems)
@@ -95,9 +93,7 @@ public sealed class AreaCommand(
             var processConfig = await processTypeStore.GetProcessConfigurationDataAsync();
             if (processConfig is not null)
             {
-                var typeNameSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var item in areaItems)
-                    typeNameSet.Add(item.Type.Value);
+                var typeNameSet = new HashSet<string>(areaItems.Select(i => i.Type.Value), StringComparer.OrdinalIgnoreCase);
 
                 var ceilingTypeNames = CeilingComputer.Compute(new List<string>(typeNameSet), processConfig);
                 var typeLevelMap = BacklogHierarchyService.GetTypeLevelMap(processConfig);
@@ -157,7 +153,7 @@ public sealed class AreaCommand(
         config.Defaults.AreaPathEntries.Add(entry);
         await config.SaveAsync(paths.ConfigPath, ct);
 
-        var semantics = exact ? "exact" : "under";
+        var semantics = entry.SemanticsLabel;
         Console.WriteLine(fmt.FormatSuccess($"Added area path '{entry.Path}' ({semantics})."));
         return 0;
     }
@@ -204,11 +200,7 @@ public sealed class AreaCommand(
         }
 
         foreach (var entry in entries)
-        {
-            var semantics = entry.IncludeChildren ? "under" : "exact";
-            Console.WriteLine(fmt.FormatInfo($"{entry.Path}  ({semantics})"));
-        }
-
+            Console.WriteLine(fmt.FormatInfo($"{entry.Path}  ({entry.SemanticsLabel})"));
         Console.WriteLine(fmt.FormatInfo($"{entries.Count} area path(s) configured."));
         return Task.FromResult(0);
     }
@@ -248,10 +240,7 @@ public sealed class AreaCommand(
         await config.SaveAsync(paths.ConfigPath, ct);
 
         foreach (var entry in config.Defaults.AreaPathEntries)
-        {
-            var semantics = entry.IncludeChildren ? "under" : "exact";
-            Console.WriteLine(fmt.FormatInfo($"{entry.Path}  ({semantics})"));
-        }
+            Console.WriteLine(fmt.FormatInfo($"{entry.Path}  ({entry.SemanticsLabel})"));
 
         Console.WriteLine(fmt.FormatSuccess($"Synced {teamAreas.Count} area path(s) from team settings."));
         return 0;

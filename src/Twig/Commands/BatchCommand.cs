@@ -390,10 +390,9 @@ public sealed class BatchCommand(
                     return new BatchItemResult(item.Id, item.Title, false,
                         $"Transition from '{item.State}' to '{resolvedState}' is not allowed.", null, null, 0);
 
-                if (interactive && transition.RequiresConfirmation)
+                if (interactive && transition.Kind == TransitionKind.Cut)
                 {
-                    var kind = transition.Kind == TransitionKind.Cut ? "REMOVE" : "move backward";
-                    _stdout.Write($"This will {kind} #{item.Id} from '{item.State}' to '{resolvedState}'. Continue? [y/N] ");
+                    _stdout.Write($"This will REMOVE #{item.Id} from '{item.State}' to '{resolvedState}'. Continue? [y/N] ");
                     var response = consoleInput.ReadLine()?.Trim();
                     if (!string.Equals(response, "y", StringComparison.OrdinalIgnoreCase))
                     {

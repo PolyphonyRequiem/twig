@@ -2,7 +2,7 @@
 
 **Work Item:** #2086
 **Type:** Issue
-**Status:** Draft
+**Status:** 🔨 In Progress
 **Revision:** 0
 
 ---
@@ -64,6 +64,8 @@ transitions directly by category and bypasses the guard entirely.
 | `src/Twig/CommandExamples.cs` | State examples | No backward-specific examples | No change needed |
 | `src/Twig.Domain/Services/FlowTransitionService.cs` | `TransitionStateAsync()` | Does NOT check RequiresConfirmation | No change needed |
 | `src/Twig.Domain/Services/ParentStatePropagationService.cs` | `TryPropagateToParentAsync()` | Does NOT check RequiresConfirmation | No change needed |
+| `.github/copilot-instructions.md` | Lines 173, 181 | References `force` for backward transitions | Update to remove `force` references |
+| `docs/architecture/mcp-server.md` | Lines 131–138 | Documents `force` param and confirmation step | Remove `force` from signature; remove step 4 |
 
 ### Test Files Affected
 
@@ -271,6 +273,13 @@ MCP: twig_state("Doing") [no force param]
 | `tests/Twig.Mcp.Tests/Tools/MutationToolsStateTests.cs` | Remove `force` tests; backward transitions succeed without force |
 | `tests/Twig.Mcp.Tests/Services/Batch/ToolDispatcherTests.cs` | Remove `force` arg from twig_state dispatch tests |
 
+### Documentation Files
+
+| File Path | Changes |
+|-----------|---------|
+| `.github/copilot-instructions.md` | Line 173: remove `(supports force for backward transitions)` from `twig_state` description; Line 181: remove `force: true` bypass reference |
+| `docs/architecture/mcp-server.md` | Lines 131–138: remove `force` parameter from `twig_state` signature and remove step 4 (confirmation gate) |
+
 ### Deleted Files
 
 | File Path | Reason |
@@ -366,14 +375,32 @@ guards.
 - [ ] No test references `TransitionKind.Backward`, `RequiresConfirmation`, or `force`
 - [ ] Test coverage for valid transitions (forward, cut) and invalid transitions remains
 
+### Task 5: Update documentation
+
+**Goal:** Update copilot instructions, architecture docs, and skill files to remove
+references to the `force` parameter and backward transition confirmation.
+
+**Prerequisites:** Tasks 1, 2, 3
+
+**Tasks:**
+
+| Task | Description | Files | Effort |
+|------|-------------|-------|--------|
+| T5.1 | Remove `force` references from copilot-instructions.md | `.github/copilot-instructions.md` | XS |
+| T5.2 | Update mcp-server.md to remove `force` from `twig_state` signature and confirmation step | `docs/architecture/mcp-server.md` | XS |
+
+**Acceptance Criteria:**
+- [ ] No documentation references `force` parameter for `twig_state`
+- [ ] No documentation references backward transition confirmation prompts
+
 ## PR Groups
 
 ### PG-1: Domain + CLI + MCP changes (all source code)
 
 **Type:** Deep
-**Scope:** All source code changes (Tasks 1, 2, 3)
-**Files:** ~9 source files
-**Estimated LoC:** ~80 lines removed, ~10 lines modified ≈ 90 LoC delta
+**Scope:** All source code changes + documentation (Tasks 1, 2, 3, 5)
+**Files:** ~11 source + doc files
+**Estimated LoC:** ~80 lines removed, ~15 lines modified ≈ 95 LoC delta
 **Successor:** None
 
 Rationale: The source changes are tightly coupled — removing the enum member
@@ -420,39 +447,31 @@ confirm test coverage in a follow-up.
 
 | Group | Name | Issues/Tasks | Dependencies | Type |
 |-------|------|--------------|--------------|------|
-| PG-1 | `PG-1-domain-cli-mcp-source` | #2086 / T1.1, T1.2, T1.3, T1.4, T1.5, T2.1, T2.2, T3.1, T3.2 | None | Deep |
-| PG-2 | `PG-2-test-updates` | #2086 / T4.1, T4.2, T4.3, T4.4, T4.5, T4.6 | PG-1 | Wide |
+| PG-1 | `PG-1-remove-backward-state-guard` | #2086 / T1.1–T1.5, T2.1–T2.2, T3.1–T3.2, T4.1–T4.6, T5.1–T5.2 | None | Deep |
 
 ### Execution Order
 
-**PG-1 first**: All production source changes are tightly coupled — removing
-`TransitionKind.Backward` from the domain enum immediately breaks any consumer that
-references it (`StateTransitionService`, `ProcessConfiguration`, `StateCommand`,
-`BatchCommand`, `MutationTools`, `ToolDispatcher`). Splitting these across multiple
-PRs would require temporary shim code or would leave the build broken mid-stream.
-A single PR lets the reviewer trace the complete cause-and-effect chain: enum removal
-→ service simplification → consumer cleanup.
+**Single PR**: All tasks are bundled into one self-contained PR. The original
+two-PR split (source vs. tests) is not viable because the test files directly
+reference `TransitionKind.Backward`, `RequiresConfirmation`, and the `force`
+parameter — all of which are removed in the source changes. Merging PG-1 without
+the test updates leaves the test projects unable to compile, violating the
+self-containment constraint.
 
-**PG-2 second**: Test changes are entirely mechanical — swap enum members, drop
-confirmation assertions, remove `force` parameter tests. They cannot build until
-PG-1 is merged (the test files reference `TransitionKind.Backward` and
-`RequiresConfirmation` which no longer exist after PG-1). Keeping tests in a
-separate PR lets the reviewer first verify correctness of the behavioral changes,
-then confirm test coverage in a focused follow-up.
+The total scope (~235 LoC delta across ~17 files) is well within the ≤2,000 LoC
+and ≤50 file guardrails, making a single coherent PR the correct choice. The
+reviewer sees the complete cause-and-effect chain in one pass: enum removal →
+service simplification → consumer cleanup → test alignment → doc updates.
 
 ### Validation Strategy
 
-**PG-1 — `PG-1-domain-cli-mcp-source`**
-- `dotnet build` on `Twig.Domain`, `Twig`, `Twig.Mcp` — all must compile with zero
-  warnings/errors
-- Existing tests that still compile must remain green (domain tests may temporarily
-  fail only on backward/confirmation assertions that will be fixed in PG-2)
-- Manual smoke test: `twig state <backward-state>` on a real work item must
-  transition without prompting
-
-**PG-2 — `PG-2-test-updates`**
-- `dotnet test` on all test projects — 100% pass rate required
-- No test references `TransitionKind.Backward`, `RequiresConfirmation`, or `force`
-  parameter
+**PG-1 — `PG-1-remove-backward-state-guard`**
+- `dotnet build` — all projects (`Twig.Domain`, `Twig`, `Twig.Mcp`, all test
+  projects) must compile with zero warnings/errors
+- `dotnet test` — 100% pass rate required across all test projects
+- No source or test file references `TransitionKind.Backward`,
+  `RequiresConfirmation`, `RequiresReason`, or `force` parameter on `twig_state`
 - Coverage for valid forward transitions, cut transitions, and invalid transitions
   (unknown state, type not configured) must remain present
+- Manual smoke test: `twig state <backward-state>` on a real work item transitions
+  without prompting

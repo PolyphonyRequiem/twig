@@ -81,10 +81,9 @@ public sealed class StateCommand(
             return 1;
         }
 
-        if (transition.RequiresConfirmation)
+        if (transition.Kind == TransitionKind.Cut)
         {
-            var kind = transition.Kind == TransitionKind.Cut ? "REMOVE" : "move backward";
-            Console.Write($"This will {kind} #{item.Id} from '{item.State}' to '{newState}'. Continue? [y/N] ");
+            Console.Write($"This will REMOVE #{item.Id} from '{item.State}' to '{newState}'. Continue? [y/N] ");
             var response = consoleInput.ReadLine()?.Trim();
             if (!string.Equals(response, "y", StringComparison.OrdinalIgnoreCase))
             {

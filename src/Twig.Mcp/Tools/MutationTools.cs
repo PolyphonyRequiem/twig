@@ -60,9 +60,9 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         if (!transition.IsAllowed)
             return McpResultBuilder.ToError($"Transition from '{item.State}' to '{newState}' is not allowed.");
 
-        if (transition.RequiresConfirmation && !force)
+        if (transition.Kind == TransitionKind.Cut && !force)
             return McpResultBuilder.ToError(
-                $"Transition from '{item.State}' to '{newState}' requires confirmation (kind: {transition.Kind}). Retry with force: true to proceed.");
+                $"Transition from '{item.State}' to '{newState}' is a Cut (Removed) transition. Retry with force: true to proceed.");
 
         WorkItem remote;
         try

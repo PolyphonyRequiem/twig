@@ -184,35 +184,32 @@ public class BatchCommandTests
     }
 
     [Fact]
-    public async Task StateOnly_BackwardTransition_UserConfirms_Succeeds()
+    public async Task StateOnly_BackwardTransition_NoConfirmationNeeded_Succeeds()
     {
         var item = CreateWorkItem(1, "Test", "Active", WorkItemType.UserStory);
         SetupActiveItem(item);
         SetupSuccessfulPatch(item);
-        _consoleInput.ReadLine().Returns("y");
 
-        var result = await _cmd.ExecuteAsync(state: "New"); // Active → New is backward
+        var result = await _cmd.ExecuteAsync(state: "New"); // Active → New is now Forward
 
         result.ShouldBe(0);
         await _adoService.Received().PatchAsync(1,
             Arg.Any<IReadOnlyList<FieldChange>>(),
             Arg.Any<int>(), Arg.Any<CancellationToken>());
+        _consoleInput.DidNotReceive().ReadLine(); // No confirmation prompt
     }
 
     [Fact]
-    public async Task StateOnly_BackwardTransition_UserDeclines_ReturnsExitCode1()
+    public async Task StateOnly_BackwardTransition_NoPrompt_NeverCancels()
     {
         var item = CreateWorkItem(1, "Test", "Active", WorkItemType.UserStory);
         SetupActiveItem(item);
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
-        _consoleInput.ReadLine().Returns("n");
+        SetupSuccessfulPatch(item);
 
-        var result = await _cmd.ExecuteAsync(state: "New"); // Active → New is backward
+        var result = await _cmd.ExecuteAsync(state: "New"); // Active → New is now Forward
 
-        result.ShouldBe(1); // Cancelled results in error return
-        await _adoService.DidNotReceive().PatchAsync(
-            Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(),
-            Arg.Any<int>(), Arg.Any<CancellationToken>());
+        result.ShouldBe(0);
+        _consoleInput.DidNotReceive().ReadLine();
     }
 
     // ── Field-only updates ──────────────────────────────────────────
@@ -601,18 +598,18 @@ public class BatchCommandTests
     }
 
     [Fact]
-    public async Task IdsParameter_BackwardTransition_SkipsConfirmation()
+    public async Task IdsParameter_BackwardTransition_NoConfirmation_Succeeds()
     {
         var item = CreateWorkItem(10, "Item A", "Active", WorkItemType.UserStory);
         _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(item);
         SetupSuccessfulPatch(item);
 
         var result = await _cmd.ExecuteAsync(
-            state: "New", // backward transition
+            state: "New", // backward transition — now Forward, no confirmation
             ids: "10");
 
         result.ShouldBe(0);
-        // Should NOT prompt — multi-item auto-proceeds
+        // Should NOT prompt — backward is now Forward
         _consoleInput.DidNotReceive().ReadLine();
         await _adoService.Received().PatchAsync(10,
             Arg.Any<IReadOnlyList<FieldChange>>(),

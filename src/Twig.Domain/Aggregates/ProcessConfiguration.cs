@@ -18,7 +18,7 @@ public sealed class TypeConfig
     /// <summary>Work item types that can be children of this type.</summary>
     public IReadOnlyList<WorkItemType> AllowedChildTypes { get; }
 
-    /// <summary>Classifies each (from, to) state pair as Forward, Backward, or Cut.</summary>
+    /// <summary>Classifies each (from, to) state pair as Forward or Cut.</summary>
     public IReadOnlyDictionary<(string From, string To), TransitionKind> TransitionRules { get; }
 
     public TypeConfig(

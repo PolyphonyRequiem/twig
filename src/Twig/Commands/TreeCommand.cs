@@ -59,7 +59,7 @@ public sealed class TreeCommand(
 
         // ITEM-158: Resolve tree depth — --all overrides to show everything,
         // --depth <n> takes precedence, otherwise use config default.
-        var maxChildren = all ? int.MaxValue
+        var maxDepth = all ? int.MaxValue
             : depth ?? config.Display.TreeDepth;
 
         // Resolve active item with auto-fetch on cache miss (G-3)
@@ -101,7 +101,7 @@ public sealed class TreeCommand(
                     ? Array.Empty<Domain.Aggregates.WorkItem>()
                     : await workItemRepo.GetParentChainAsync(resolvedItem.ParentId.Value, ct),
                 getChildren: () => workItemRepo.GetChildrenAsync(activeId.Value, ct),
-                maxChildren: maxChildren,
+                maxDepth: maxDepth,
                 activeId: activeId,
                 ct: ct,
                 getSiblingCount: getSiblingCount,
@@ -132,7 +132,7 @@ public sealed class TreeCommand(
                             resolvedItem,
                             cachedParentChain,
                             cachedChildren,
-                            maxChildren,
+                            maxDepth,
                             activeId,
                             getSiblingCount,
                             cachedLinks,
@@ -153,7 +153,7 @@ public sealed class TreeCommand(
                                 freshItem,
                                 freshParentChain,
                                 freshChildren,
-                                maxChildren,
+                                maxDepth,
                                 activeId,
                                 MakeSiblingCounter(freshItem, CancellationToken.None),
                                 cachedLinks,
@@ -189,7 +189,7 @@ public sealed class TreeCommand(
 
         // Recursively fetch descendants up to maxChildren depth for deep tree output
         var descendantsByParentId = new Dictionary<int, IReadOnlyList<Domain.Aggregates.WorkItem>>();
-        await WorkTreeFetcher.FetchDescendantsAsync(workItemRepo, children, maxChildren - 1, descendantsByParentId, ct);
+        await WorkTreeFetcher.FetchDescendantsAsync(workItemRepo, children, maxDepth - 1, descendantsByParentId, ct);
 
         // Compute sibling counts for parent chain + focused item
         var siblingCounts = new Dictionary<int, int?>();
@@ -233,16 +233,16 @@ public sealed class TreeCommand(
             {
                 var typeLevelMap = BacklogHierarchyService.GetTypeLevelMap(treeProcessConfig);
                 var parentChildMap = BacklogHierarchyService.InferParentChildMap(treeProcessConfig);
-                Console.WriteLine(humanFmt.FormatTree(tree, maxChildren, activeId, typeLevelMap, parentChildMap, config.Workspace.WorkingLevel));
+                Console.WriteLine(humanFmt.FormatTree(tree, maxDepth, activeId, typeLevelMap, parentChildMap, config.Workspace.WorkingLevel));
             }
             else
             {
-                Console.WriteLine(fmt.FormatTree(tree, maxChildren, activeId));
+                Console.WriteLine(fmt.FormatTree(tree, maxDepth, activeId));
             }
         }
         else
         {
-            Console.WriteLine(fmt.FormatTree(tree, maxChildren, activeId));
+            Console.WriteLine(fmt.FormatTree(tree, maxDepth, activeId));
         }
 
         // Sync working set silently after output (EPIC-004) — best-effort; skip if --no-refresh

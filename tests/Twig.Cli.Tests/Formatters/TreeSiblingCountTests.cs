@@ -24,7 +24,7 @@ public class TreeSiblingCountTests
         var counts = new Dictionary<int, int?> { [1] = 5, [10] = 3 };
         var tree = WorkTree.Build(focus, new[] { parent }, Array.Empty<WorkItem>(), counts);
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
 
         result.ShouldContain($"{Dim}...5{Reset}");
         result.ShouldContain($"{Dim}...3{Reset}");
@@ -39,7 +39,7 @@ public class TreeSiblingCountTests
         var counts = new Dictionary<int, int?> { [1] = null };
         var tree = WorkTree.Build(root, Array.Empty<WorkItem>(), Array.Empty<WorkItem>(), counts);
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
 
         result.ShouldNotContain("...");
     }
@@ -54,7 +54,7 @@ public class TreeSiblingCountTests
         var counts = new Dictionary<int, int?> { [1] = null, [10] = 2 };
         var tree = WorkTree.Build(focus, new[] { root }, Array.Empty<WorkItem>(), counts);
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
 
         // Root node should not show sibling count (null = root)
         // Focus should show sibling count
@@ -73,7 +73,7 @@ public class TreeSiblingCountTests
         var focus = CreateWorkItem(10, "Focus", parentId: 1);
         var tree = WorkTree.Build(focus, new[] { parent }, Array.Empty<WorkItem>());
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
 
         result.ShouldNotContain("...");
     }
@@ -87,7 +87,7 @@ public class TreeSiblingCountTests
         var focus = CreateWorkItem(10, "Focus", parentId: 1);
         var tree = WorkTree.Build(focus, new[] { parent }, Array.Empty<WorkItem>(), new Dictionary<int, int?>());
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
 
         result.ShouldNotContain("...");
     }
@@ -103,7 +103,7 @@ public class TreeSiblingCountTests
         var counts = new Dictionary<int, int?> { [1] = 4, [5] = 7, [10] = 2 };
         var tree = WorkTree.Build(focus, new[] { grandparent, parent }, Array.Empty<WorkItem>(), counts);
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
 
         result.ShouldContain($"{Dim}...4{Reset}");
         result.ShouldContain($"{Dim}...7{Reset}");
@@ -120,9 +120,9 @@ public class TreeSiblingCountTests
         var counts = new Dictionary<int, int?> { [10] = null };
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child }, counts);
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
 
-        // "... and N more" shouldn't appear either — only 1 child and maxChildren=10
+        // Sibling count should not appear for root items (null parent count)
         result.ShouldNotContain($"{Dim}...");
     }
 

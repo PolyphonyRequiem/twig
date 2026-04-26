@@ -77,7 +77,7 @@ public class MinimalOutputFormatterTests
         var child = CreateWorkItem(2, "Child", "New");
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child });
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
         var lines = result.Split('\n');
 
         // Focus line + child line
@@ -90,7 +90,7 @@ public class MinimalOutputFormatterTests
         var focus = CreateWorkItem(1, "Focus", "Active");
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), Array.Empty<WorkItem>());
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
 
         result.ShouldNotContain("\x1b[");
     }
@@ -101,7 +101,7 @@ public class MinimalOutputFormatterTests
         var focus = CreateWorkItem(1, "Focus", "Active");
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), Array.Empty<WorkItem>());
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
 
         result.ShouldStartWith("> ");
     }
@@ -113,7 +113,7 @@ public class MinimalOutputFormatterTests
         var child = CreateWorkItem(2, "Child", "New");
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child });
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
         var lines = result.Split('\n');
 
         lines[1].ShouldStartWith("  ");
@@ -126,13 +126,13 @@ public class MinimalOutputFormatterTests
         var focus = CreateWorkItem(1, "Focus", "Active");
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), Array.Empty<WorkItem>());
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
 
         result.ShouldContain("[Active]");
     }
 
     [Fact]
-    public void FormatTree_CollapsesExcessChildren()
+    public void FormatTree_ShowsAllChildren_RegardlessOfDepth()
     {
         var focus = CreateWorkItem(1, "Focus", "Active");
         var children = new[]
@@ -143,9 +143,12 @@ public class MinimalOutputFormatterTests
         };
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), children);
 
-        var result = _formatter.FormatTree(tree, maxChildren: 1, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
 
-        result.ShouldContain("+2 more");
+        result.ShouldContain("#2");
+        result.ShouldContain("#3");
+        result.ShouldContain("#4");
+        result.ShouldNotContain("more");
     }
 
     // ── Workspace formatting ────────────────────────────────────────

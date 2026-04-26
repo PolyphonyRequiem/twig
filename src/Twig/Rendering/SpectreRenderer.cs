@@ -652,7 +652,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         Func<Task<WorkItem?>> getFocusedItem,
         Func<Task<IReadOnlyList<WorkItem>>> getParentChain,
         Func<Task<IReadOnlyList<WorkItem>>> getChildren,
-        int maxChildren,
+        int maxDepth,
         int? activeId,
         CancellationToken ct,
         Func<int, Task<int?>>? getSiblingCount = null,
@@ -680,10 +680,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
                 // Stage 3: Load children progressively
                 var children = await getChildren();
-                var displayCount = Math.Min(children.Count, maxChildren);
-                var hasMore = children.Count > maxChildren;
 
-                for (var i = 0; i < displayCount; i++)
+                for (var i = 0; i < children.Count; i++)
                 {
                     var child = children[i];
                     var activeMarker = (activeId.HasValue && child.Id == activeId.Value)
@@ -695,12 +693,6 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                     var stateColor = _theme.GetStateCategoryMarkupColor(child.State);
                     var label = $"[{stateColor}]│[/] {activeMarker}{_theme.FormatTypeBadge(child.Type)} #{child.Id} {Markup.Escape(child.Title)}{dirty} {_theme.FormatState(child.State)}{effortSuffix}";
                     focusContainer.AddNode(label);
-                    ctx.Refresh();
-                }
-
-                if (hasMore)
-                {
-                    focusContainer.AddNode($"[dim]... and {children.Count - maxChildren} more[/]");
                     ctx.Refresh();
                 }
 
@@ -841,7 +833,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         WorkItem focusedItem,
         IReadOnlyList<WorkItem> parentChain,
         IReadOnlyList<WorkItem> children,
-        int maxChildren,
+        int maxDepth,
         int? activeId,
         Func<int, Task<int?>>? getSiblingCount = null,
         IReadOnlyList<Domain.ValueObjects.WorkItemLink>? links = null,
@@ -858,10 +850,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         }
 
         // Add children with cache-age indicators on stale items
-        var displayCount = Math.Min(children.Count, maxChildren);
-        var hasMore = children.Count > maxChildren;
-
-        for (var i = 0; i < displayCount; i++)
+        for (var i = 0; i < children.Count; i++)
         {
             var child = children[i];
             var activeMarker = (activeId.HasValue && child.Id == activeId.Value)
@@ -876,11 +865,6 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
             var label = $"[{stateColor}]│[/] {activeMarker}{_theme.FormatTypeBadge(child.Type)} #{child.Id} {Markup.Escape(child.Title)}{dirty} {_theme.FormatState(child.State)}{effortSuffix}{childCacheAgeMarkup}";
             focusContainer.AddNode(label);
-        }
-
-        if (hasMore)
-        {
-            focusContainer.AddNode($"[dim]... and {children.Count - maxChildren} more[/]");
         }
 
         // Links section

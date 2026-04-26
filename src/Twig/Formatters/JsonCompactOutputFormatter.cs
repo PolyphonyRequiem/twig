@@ -35,7 +35,7 @@ public sealed class JsonCompactOutputFormatter(JsonOutputFormatter full) : IOutp
         return Encoding.UTF8.GetString(stream.ToArray());
     }
 
-    public string FormatTree(WorkTree tree, int maxChildren, int? activeId)
+    public string FormatTree(WorkTree tree, int maxDepth, int? activeId)
     {
         using var stream = new MemoryStream();
         using var writer = new Utf8JsonWriter(stream, WriterOptions);

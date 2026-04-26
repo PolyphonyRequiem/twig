@@ -11,7 +11,7 @@ namespace Twig.Formatters;
 public interface IOutputFormatter
 {
     string FormatWorkItem(WorkItem item, bool showDirty);
-    string FormatTree(WorkTree tree, int maxChildren, int? activeId);
+    string FormatTree(WorkTree tree, int maxDepth, int? activeId);
     string FormatWorkspace(Workspace ws, int staleDays);
     string FormatSprintView(Workspace ws, int staleDays);
     string FormatFieldChange(FieldChange change);

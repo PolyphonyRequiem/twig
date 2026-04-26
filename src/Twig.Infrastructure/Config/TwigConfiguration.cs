@@ -435,7 +435,7 @@ public sealed class SeedConfig
 public sealed class DisplayConfig
 {
     public bool Hints { get; set; } = true;
-    public int TreeDepth { get; set; } = 10;
+    public int TreeDepth { get; set; } = 5;
     public int TreeDepthUp { get; set; } = 2;
     public int TreeDepthDown { get; set; } = 10;
     public int TreeDepthSideways { get; set; } = 1;

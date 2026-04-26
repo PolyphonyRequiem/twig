@@ -40,16 +40,14 @@ public sealed class ReadTools(WorkspaceResolver resolver)
             ? await ctx.WorkItemRepo.GetParentChainAsync(item.ParentId.Value, ct)
             : Array.Empty<WorkItem>();
 
-        var maxChildren = depth ?? ctx.Config.Display.TreeDepth;
+        var maxDepth = depth ?? ctx.Config.Display.TreeDepth;
         var allChildren = await ctx.WorkItemRepo.GetChildrenAsync(item.Id, ct);
         var totalChildCount = allChildren.Count;
-        var children = allChildren.Count > maxChildren
-            ? allChildren.Take(maxChildren).ToList()
-            : allChildren;
+        var children = allChildren;
 
         // Recursively fetch descendants up to maxChildren depth for deep tree output
         var descendantsByParentId = new Dictionary<int, IReadOnlyList<WorkItem>>();
-        await WorkTreeFetcher.FetchDescendantsAsync(ctx.WorkItemRepo, children, maxChildren - 1, descendantsByParentId, ct);
+        await WorkTreeFetcher.FetchDescendantsAsync(ctx.WorkItemRepo, children, maxDepth - 1, descendantsByParentId, ct);
 
         // Compute sibling counts for parent chain + focused item
         var siblingCounts = new Dictionary<int, int?>();

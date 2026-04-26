@@ -22,7 +22,7 @@ public sealed class MinimalOutputFormatter : IOutputFormatter
 
     // activeId is accepted per the IOutputFormatter contract but not used —
     // minimal output marks the focused item with ">" instead.
-    public string FormatTree(WorkTree tree, int maxChildren, int? activeId)
+    public string FormatTree(WorkTree tree, int maxDepth, int? activeId)
     {
         var sb = new StringBuilder();
         var focusDepth = tree.ParentChain.Count;
@@ -44,18 +44,16 @@ public sealed class MinimalOutputFormatter : IOutputFormatter
 
         // Children at focused+1 depth
         var childIndent = new string(' ', (focusDepth + 1) * 2);
-        var displayCount = Math.Min(tree.Children.Count, maxChildren);
-        var hasMore = tree.Children.Count > maxChildren;
-        for (var i = 0; i < displayCount; i++)
+        for (var i = 0; i < tree.Children.Count; i++)
         {
             var child = tree.Children[i];
             var stateLabel = FormatterHelpers.GetStateLabel(child.State);
             var dirty = child.IsDirty ? " *" : "";
             sb.AppendLine($"{childIndent}#{child.Id} [{stateLabel}] {child.Title}{dirty}");
-        }
 
-        if (hasMore)
-            sb.AppendLine($"{childIndent}... +{tree.Children.Count - maxChildren} more");
+            // Recursively render descendants up to maxDepth
+            RenderDescendantsMinimal(sb, tree, child.Id, (focusDepth + 2) * 2, 2, maxDepth);
+        }
 
         return TrimEnd(sb);
     }
@@ -319,6 +317,22 @@ public sealed class MinimalOutputFormatter : IOutputFormatter
         {
             var staleWarning = staleSeedIds.Contains(seed.Id) ? " STALE" : "";
             sb.AppendLine($"SEED #{seed.Id} {seed.Title} ({seed.Type}){staleWarning}");
+        }
+    }
+
+    private static void RenderDescendantsMinimal(StringBuilder sb, WorkTree tree, int parentId, int indentSize, int currentDepth, int maxDepth)
+    {
+        if (currentDepth > maxDepth) return;
+
+        var descendants = tree.GetDescendants(parentId);
+        foreach (var desc in descendants)
+        {
+            var indent = new string(' ', indentSize);
+            var stateLabel = FormatterHelpers.GetStateLabel(desc.State);
+            var dirty = desc.IsDirty ? " *" : "";
+            sb.AppendLine($"{indent}#{desc.Id} [{stateLabel}] {desc.Title}{dirty}");
+
+            RenderDescendantsMinimal(sb, tree, desc.Id, indentSize + 2, currentDepth + 1, maxDepth);
         }
     }
 

@@ -130,7 +130,7 @@ public class WorkingLevelDimRenderingTests
             focusedType: WorkItemType.Task,
             parentTypes: new[] { WorkItemType.Epic, WorkItemType.Issue });
 
-        var output = fmt.FormatTree(tree, maxChildren: 10, activeId: 3,
+        var output = fmt.FormatTree(tree, maxDepth: 5, activeId: 3,
             typeLevelMap: BasicTypeLevelMap,
             parentChildMap: BasicParentChildMap,
             workingLevelTypeName: "Task");
@@ -156,7 +156,7 @@ public class WorkingLevelDimRenderingTests
             focusedType: WorkItemType.Task,
             parentTypes: new[] { WorkItemType.Epic });
 
-        var output = fmt.FormatTree(tree, maxChildren: 10, activeId: 3,
+        var output = fmt.FormatTree(tree, maxDepth: 5, activeId: 3,
             typeLevelMap: BasicTypeLevelMap,
             parentChildMap: BasicParentChildMap,
             workingLevelTypeName: "Task");
@@ -178,13 +178,13 @@ public class WorkingLevelDimRenderingTests
             parentTypes: new[] { WorkItemType.Epic });
 
         // No working level — standard rendering
-        var outputWithout = fmt.FormatTree(tree, maxChildren: 10, activeId: 3,
+        var outputWithout = fmt.FormatTree(tree, maxDepth: 5, activeId: 3,
             typeLevelMap: BasicTypeLevelMap,
             parentChildMap: BasicParentChildMap,
             workingLevelTypeName: null);
 
         // With working level — enhanced dimming
-        var outputWith = fmt.FormatTree(tree, maxChildren: 10, activeId: 3,
+        var outputWith = fmt.FormatTree(tree, maxDepth: 5, activeId: 3,
             typeLevelMap: BasicTypeLevelMap,
             parentChildMap: BasicParentChildMap,
             workingLevelTypeName: "Task");
@@ -202,7 +202,7 @@ public class WorkingLevelDimRenderingTests
             parentTypes: new[] { WorkItemType.Epic });
 
         // Working level is Epic (level 0) — nothing is above it
-        var output = fmt.FormatTree(tree, maxChildren: 10, activeId: 3,
+        var output = fmt.FormatTree(tree, maxDepth: 5, activeId: 3,
             typeLevelMap: BasicTypeLevelMap,
             parentChildMap: BasicParentChildMap,
             workingLevelTypeName: "Epic");
@@ -231,7 +231,7 @@ public class WorkingLevelDimRenderingTests
             siblingCounts: null,
             focusedItemLinks: Array.Empty<WorkItemLink>());
 
-        var output = fmt.FormatTree(tree, maxChildren: 10, activeId: 2,
+        var output = fmt.FormatTree(tree, maxDepth: 5, activeId: 2,
             typeLevelMap: BasicTypeLevelMap,
             parentChildMap: BasicParentChildMap,
             workingLevelTypeName: "Task");

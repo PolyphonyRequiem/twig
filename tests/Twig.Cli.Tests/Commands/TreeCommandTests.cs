@@ -232,7 +232,7 @@ public class TreeCommandTests
     }
 
     [Fact]
-    public async Task AsyncPath_RespectsMaxChildren()
+    public async Task AsyncPath_ShowsAllChildrenAtDepth()
     {
         var focus = CreateWorkItem(1, "Focus", parentId: null);
         var children = Enumerable.Range(2, 5)
@@ -251,7 +251,10 @@ public class TreeCommandTests
         var output = _testConsole.Output;
         output.ShouldContain("Child 2");
         output.ShouldContain("Child 3");
-        output.ShouldContain("... and 3 more");
+        output.ShouldContain("Child 4");
+        output.ShouldContain("Child 5");
+        output.ShouldContain("Child 6");
+        output.ShouldNotContain("... and");
     }
 
     [Fact]
@@ -400,7 +403,7 @@ public class TreeCommandTests
             getFocusedItem: () => Task.FromResult<WorkItem?>(focus),
             getParentChain: () => Task.FromResult<IReadOnlyList<WorkItem>>(new[] { parent }),
             getChildren: () => Task.FromResult<IReadOnlyList<WorkItem>>(Array.Empty<WorkItem>()),
-            maxChildren: 10,
+            maxDepth: 5,
             activeId: 1,
             ct: CancellationToken.None);
 
@@ -423,7 +426,7 @@ public class TreeCommandTests
             getFocusedItem: () => Task.FromResult<WorkItem?>(focus),
             getParentChain: () => Task.FromResult<IReadOnlyList<WorkItem>>(Array.Empty<WorkItem>()),
             getChildren: () => Task.FromResult<IReadOnlyList<WorkItem>>(children),
-            maxChildren: 10,
+            maxDepth: 5,
             activeId: 1,
             ct: CancellationToken.None);
 
@@ -433,7 +436,7 @@ public class TreeCommandTests
     }
 
     [Fact]
-    public async Task SpectreRenderer_RenderTreeAsync_TruncatesChildren()
+    public async Task SpectreRenderer_RenderTreeAsync_ShowsAllChildren()
     {
         var focus = CreateWorkItem(1, "Focus", parentId: null);
         var children = Enumerable.Range(10, 5)
@@ -444,15 +447,17 @@ public class TreeCommandTests
             getFocusedItem: () => Task.FromResult<WorkItem?>(focus),
             getParentChain: () => Task.FromResult<IReadOnlyList<WorkItem>>(Array.Empty<WorkItem>()),
             getChildren: () => Task.FromResult<IReadOnlyList<WorkItem>>(children),
-            maxChildren: 2,
+            maxDepth: 5,
             activeId: 1,
             ct: CancellationToken.None);
 
         var output = _testConsole.Output;
         output.ShouldContain("Child 10");
         output.ShouldContain("Child 11");
-        output.ShouldContain("... and 3 more");
-        output.ShouldNotContain("Child 12");
+        output.ShouldContain("Child 12");
+        output.ShouldContain("Child 13");
+        output.ShouldContain("Child 14");
+        output.ShouldNotContain("... and");
     }
 
     [Fact]
@@ -462,7 +467,7 @@ public class TreeCommandTests
             getFocusedItem: () => Task.FromResult<WorkItem?>(null),
             getParentChain: () => Task.FromResult<IReadOnlyList<WorkItem>>(Array.Empty<WorkItem>()),
             getChildren: () => Task.FromResult<IReadOnlyList<WorkItem>>(Array.Empty<WorkItem>()),
-            maxChildren: 10,
+            maxDepth: 5,
             activeId: null,
             ct: CancellationToken.None);
 
@@ -483,7 +488,7 @@ public class TreeCommandTests
             getFocusedItem: () => Task.FromResult<WorkItem?>(focus),
             getParentChain: () => Task.FromResult<IReadOnlyList<WorkItem>>(Array.Empty<WorkItem>()),
             getChildren: () => Task.FromResult<IReadOnlyList<WorkItem>>(children),
-            maxChildren: 10,
+            maxDepth: 5,
             activeId: 10,
             ct: CancellationToken.None);
 
@@ -531,7 +536,7 @@ public class TreeCommandTests
             getFocusedItem: () => Task.FromResult<WorkItem?>(focus),
             getParentChain: () => Task.FromResult<IReadOnlyList<WorkItem>>(Array.Empty<WorkItem>()),
             getChildren: () => Task.FromResult<IReadOnlyList<WorkItem>>(new[] { child }),
-            maxChildren: 10,
+            maxDepth: 5,
             activeId: null,
             ct: CancellationToken.None);
 
@@ -549,7 +554,7 @@ public class TreeCommandTests
             getFocusedItem: () => Task.FromResult<WorkItem?>(focus),
             getParentChain: () => Task.FromResult<IReadOnlyList<WorkItem>>(Array.Empty<WorkItem>()),
             getChildren: () => Task.FromResult<IReadOnlyList<WorkItem>>(new[] { child }),
-            maxChildren: 10,
+            maxDepth: 5,
             activeId: null,
             ct: CancellationToken.None);
 

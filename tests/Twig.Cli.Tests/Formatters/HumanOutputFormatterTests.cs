@@ -111,7 +111,7 @@ public class HumanOutputFormatterTests
         var child2 = CreateWorkItem(3, "Child 2", "Done");
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child1, child2 });
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
 
         result.ShouldContain("├── ");
         result.ShouldContain("└── ");
@@ -123,7 +123,7 @@ public class HumanOutputFormatterTests
         var focus = CreateWorkItem(1, "Focus", "Active");
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), Array.Empty<WorkItem>());
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: 1);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: 1);
 
         result.ShouldContain("●");
     }
@@ -134,7 +134,7 @@ public class HumanOutputFormatterTests
         var focus = CreateWorkItem(1, "Focus", "Active");
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), Array.Empty<WorkItem>());
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
 
         result.ShouldContain("["); // state in brackets
         result.ShouldContain("Active");
@@ -148,7 +148,7 @@ public class HumanOutputFormatterTests
         focus.ApplyCommands();
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), Array.Empty<WorkItem>());
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
 
         result.ShouldContain("✎");
     }
@@ -160,13 +160,13 @@ public class HumanOutputFormatterTests
         var focus = CreateWorkItem(2, "Focus", "New");
         var tree = WorkTree.Build(focus, new[] { parent }, Array.Empty<WorkItem>());
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
 
         result.ShouldContain("Parent");
     }
 
     [Fact]
-    public void FormatTree_CollapsesExcessChildren()
+    public void FormatTree_ShowsAllChildren_RegardlessOfDepth()
     {
         var focus = CreateWorkItem(1, "Focus", "Active");
         var children = new WorkItem[]
@@ -178,9 +178,13 @@ public class HumanOutputFormatterTests
         };
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), children);
 
-        var result = _formatter.FormatTree(tree, maxChildren: 2, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
 
-        result.ShouldContain("... and 2 more");
+        result.ShouldContain("Child 1");
+        result.ShouldContain("Child 2");
+        result.ShouldContain("Child 3");
+        result.ShouldContain("Child 4");
+        result.ShouldNotContain("... and");
     }
 
     // ── Workspace formatting ────────────────────────────────────────
@@ -935,7 +939,7 @@ public class HumanOutputFormatterTests
         var child2 = CreateWorkItem(3, "Task Child 2", "Done");
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child1, child2 });
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
 
         result.ShouldContain("◆"); // Epic badge
         result.ShouldContain("□"); // Task badge
@@ -1021,7 +1025,7 @@ public class HumanOutputFormatterTests
         };
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child });
 
-        var result = formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = formatter.FormatTree(tree, maxDepth: 5, activeId: null);
 
         // Epic true-color + badge on focused item
         result.ShouldContain("\x1b[38;2;255;123;0m");
@@ -1086,7 +1090,7 @@ public class HumanOutputFormatterTests
             ["User Story"] = new List<string> { "Task" },
         };
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null, typeLevelMap, parentChildMap);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null, typeLevelMap, parentChildMap);
 
         result.ShouldContain("unparented");
         result.ShouldContain("expected under a User Story");
@@ -1117,7 +1121,7 @@ public class HumanOutputFormatterTests
             ["Feature"] = new List<string> { "Task" },
         };
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null, typeLevelMap, parentChildMap);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null, typeLevelMap, parentChildMap);
 
         result.ShouldNotContain("unparented");
     }
@@ -1157,7 +1161,7 @@ public class HumanOutputFormatterTests
             ["Feature"] = new List<string> { "Task" },
         };
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null, typeLevelMap, parentChildMap);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null, typeLevelMap, parentChildMap);
 
         result.ShouldNotContain("unparented");
     }
@@ -1312,7 +1316,7 @@ public class HumanOutputFormatterTests
         var focus = CreateWorkItem(3, "Focus Task", "Active");
         var tree = WorkTree.Build(focus, new[] { grandparent, parent }, Array.Empty<WorkItem>());
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
 
         // All items present in tree output
         result.ShouldContain("Epic");
@@ -1346,7 +1350,7 @@ public class HumanOutputFormatterTests
         var child2 = CreateWorkItem(4, "Child 2", "Done");
         var tree = WorkTree.Build(focus, new[] { parent }, new[] { child1, child2 });
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
         var lines = result.Replace("\r\n", "\n").Split('\n');
 
         // Parent at depth 0, focus at depth 1, children at depth 2
@@ -1369,7 +1373,7 @@ public class HumanOutputFormatterTests
         var child = CreateWorkItem(2, "Child", "New");
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child });
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
         var lines = result.Replace("\r\n", "\n").Split('\n');
 
         // Focus at depth 0 — starts at column 0 with active marker
@@ -1399,7 +1403,7 @@ public class HumanOutputFormatterTests
         var focus = CreateWorkItem(2, "Task Focus", "Active");
         var tree = WorkTree.Build(focus, new[] { parent }, Array.Empty<WorkItem>());
 
-        var result = formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = formatter.FormatTree(tree, maxDepth: 5, activeId: null);
 
         // Focus uses Task true-color
         result.ShouldContain("\x1b[38;2;242;203;29m");
@@ -1425,7 +1429,7 @@ public class HumanOutputFormatterTests
         var taskChild = CreateWorkItem(3, "Task", "New");
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { bugChild, taskChild });
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
 
         // Verify badge characters are present for all types
         var stripped = StripAnsi(result);
@@ -2407,7 +2411,7 @@ public class HumanOutputFormatterTests
         var child = CreateWorkItem(2, "In Progress Child", "Active");
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child });
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
 
         // Active → InProgress → Blue (\x1b[34m)
         result.ShouldContain("\x1b[34m└── \x1b[0m");
@@ -2420,7 +2424,7 @@ public class HumanOutputFormatterTests
         var child = CreateWorkItem(2, "Closed Child", "Closed");
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child });
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
 
         // Closed → Completed → Green (\x1b[32m)
         result.ShouldContain("\x1b[32m└── \x1b[0m");
@@ -2433,7 +2437,7 @@ public class HumanOutputFormatterTests
         var child = CreateWorkItem(2, "New Child", "New");
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child });
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
 
         // New → Proposed → Dim (\x1b[2m)
         result.ShouldContain("\x1b[2m└── \x1b[0m");
@@ -2446,7 +2450,7 @@ public class HumanOutputFormatterTests
         var child = CreateWorkItem(2, "Removed Child", "Removed");
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child });
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
 
         // Removed → Red (\x1b[31m)
         result.ShouldContain("\x1b[31m└── \x1b[0m");
@@ -2460,7 +2464,7 @@ public class HumanOutputFormatterTests
         var child2 = CreateWorkItem(3, "Closed Child", "Closed");
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child1, child2 });
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
 
         // First child: Active → Blue with ├──
         result.ShouldContain("\x1b[34m├── \x1b[0m");
@@ -2475,7 +2479,7 @@ public class HumanOutputFormatterTests
         var child = CreateWorkItem(2, "Unknown Child", "SomeUnknownState");
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child });
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
 
         // Unknown state → StateCategoryResolver returns Unknown → GetStateColor returns Reset (\x1b[0m)
         // REQ-005: connector wrapped in Reset for unknown state categories
@@ -2492,7 +2496,7 @@ public class HumanOutputFormatterTests
         var child = CreateWorkItem(2, "Empty State Child", "");
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child });
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
 
         // Empty state → GetStateColor returns Dim (\x1b[2m)
         result.ShouldContain("\x1b[2m└── \x1b[0m");
@@ -2506,7 +2510,7 @@ public class HumanOutputFormatterTests
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), Array.Empty<WorkItem>(),
             focusedItemLinks: links);
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
 
         // Link type should be wrapped in Blue ANSI
         result.ShouldContain($"\x1b[34mRelated\x1b[0m: #42");
@@ -2520,7 +2524,7 @@ public class HumanOutputFormatterTests
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), Array.Empty<WorkItem>(),
             focusedItemLinks: links);
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
 
         // Links header should contain ⇄ glyph
         result.ShouldContain("⇄ Links");
@@ -2538,7 +2542,7 @@ public class HumanOutputFormatterTests
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), Array.Empty<WorkItem>(),
             focusedItemLinks: links);
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
 
         result.ShouldContain($"\x1b[34mRelated\x1b[0m: #42");
         result.ShouldContain($"\x1b[34mPredecessor\x1b[0m: #99");
@@ -2552,7 +2556,7 @@ public class HumanOutputFormatterTests
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), Array.Empty<WorkItem>(),
             focusedItemLinks: links);
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
 
         // The links header should NOT be wrapped entirely in Dim
         result.ShouldNotContain($"{Dim}╰── Links{Reset}");

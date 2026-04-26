@@ -77,7 +77,7 @@ public class JsonCompactOutputFormatterTests
         var focus = CreateWorkItem(1, "Focus", "Active");
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), Array.Empty<WorkItem>());
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
 
         JsonDocument.Parse(result).ShouldNotBeNull();
     }
@@ -90,7 +90,7 @@ public class JsonCompactOutputFormatterTests
         var child = CreateWorkItem(3, "Child", "New");
         var tree = WorkTree.Build(focus, new[] { parent }, new[] { child });
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
         var root = JsonDocument.Parse(result).RootElement;
 
         root.GetProperty("focus").GetProperty("id").GetInt32().ShouldBe(2);
@@ -376,7 +376,7 @@ public class JsonCompactOutputFormatterTests
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child },
             descendantsByParentId: descendants);
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
         var doc = JsonDocument.Parse(result);
 
         var childElement = doc.RootElement.GetProperty("children")[0];
@@ -392,7 +392,7 @@ public class JsonCompactOutputFormatterTests
         var child = new WorkItemBuilder(2, "Leaf").WithParent(1).Build();
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child });
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
         var doc = JsonDocument.Parse(result);
 
         var childElement = doc.RootElement.GetProperty("children")[0];
@@ -415,7 +415,7 @@ public class JsonCompactOutputFormatterTests
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child },
             descendantsByParentId: descendants);
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
         var doc = JsonDocument.Parse(result);
 
         // Level 1: child
@@ -447,7 +447,7 @@ public class JsonCompactOutputFormatterTests
         // Do not pass descendantsByParentId — defaults to null inside Build
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), new[] { child1, child2 });
 
-        var result = _formatter.FormatTree(tree, maxChildren: 10, activeId: null);
+        var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
         var doc = JsonDocument.Parse(result);
 
         var children = doc.RootElement.GetProperty("children");

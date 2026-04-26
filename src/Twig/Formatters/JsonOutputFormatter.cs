@@ -107,7 +107,7 @@ public sealed class JsonOutputFormatter : IOutputFormatter
 
     // activeId is accepted per the IOutputFormatter contract but not serialized —
     // JSON consumers derive active state from the "focus" object.
-    public string FormatTree(WorkTree tree, int maxChildren, int? activeId)
+    public string FormatTree(WorkTree tree, int maxDepth, int? activeId)
     {
         using var stream = new MemoryStream();
         using var writer = new Utf8JsonWriter(stream, WriterOptions);

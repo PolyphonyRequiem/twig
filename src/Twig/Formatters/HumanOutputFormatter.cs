@@ -228,12 +228,12 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         return sb.ToString();
     }
 
-    public string FormatTree(WorkTree tree, int maxChildren, int? activeId)
+    public string FormatTree(WorkTree tree, int maxDepth, int? activeId)
     {
-        return FormatTree(tree, maxChildren, activeId, typeLevelMap: null, parentChildMap: null, workingLevelTypeName: null);
+        return FormatTree(tree, maxDepth, activeId, typeLevelMap: null, parentChildMap: null, workingLevelTypeName: null);
     }
 
-    public string FormatTree(WorkTree tree, int maxChildren, int? activeId,
+    public string FormatTree(WorkTree tree, int maxDepth, int? activeId,
         IReadOnlyDictionary<string, int>? typeLevelMap,
         IReadOnlyDictionary<string, List<string>>? parentChildMap,
         string? workingLevelTypeName = null)
@@ -308,12 +308,10 @@ public sealed class HumanOutputFormatter : IOutputFormatter
 
         // Children with box-drawing at focused+1 depth
         var childIndent = new string(' ', (focusDepth + 1) * 2);
-        var displayCount = Math.Min(tree.Children.Count, maxChildren);
-        var hasMore = tree.Children.Count > maxChildren;
-        for (var i = 0; i < displayCount; i++)
+        for (var i = 0; i < tree.Children.Count; i++)
         {
             var child = tree.Children[i];
-            var isLast = i == displayCount - 1 && !hasMore;
+            var isLast = i == tree.Children.Count - 1;
             var connector = isLast ? "└── " : "├── ";
             var dirty = child.IsDirty ? $" {Yellow}✎{Reset}" : "";
             var childStateColor = GetStateColor(child.State);
@@ -325,12 +323,13 @@ public sealed class HumanOutputFormatter : IOutputFormatter
             lines.Add(new AlignedLine(
                 $"{childIndent}{childStateColor}{connector}{Reset}{activeMarker}{childTypeColor}{childBadge}{Reset} #{child.Id} {child.Title}",
                 $"[{childStateColor}{child.State}{Reset}]{effortSuffix}", dirty));
+
+            // Recursively render descendants up to maxDepth
+            var continuation = isLast ? "    " : "│   ";
+            RenderDescendants(lines, tree, child.Id, childIndent + continuation, activeId, 2, maxDepth);
         }
 
         FlushAlignedLines(sb, lines);
-
-        if (hasMore)
-            sb.AppendLine($"{childIndent}└── {Dim}... and {tree.Children.Count - maxChildren} more{Reset}");
 
         // Links section — non-hierarchy links for the focused item
         if (tree.FocusedItemLinks.Count > 0)
@@ -358,6 +357,39 @@ public sealed class HumanOutputFormatter : IOutputFormatter
             sb.Length -= 1;
 
         return sb.ToString();
+    }
+
+    private void RenderDescendants(
+        List<AlignedLine> lines,
+        WorkTree tree,
+        int parentId,
+        string indent,
+        int? activeId,
+        int currentDepth,
+        int maxDepth)
+    {
+        if (currentDepth > maxDepth) return;
+
+        var descendants = tree.GetDescendants(parentId);
+        for (var i = 0; i < descendants.Count; i++)
+        {
+            var desc = descendants[i];
+            var isLast = i == descendants.Count - 1;
+            var connector = isLast ? "└── " : "├── ";
+            var dirty = desc.IsDirty ? $" {Yellow}✎{Reset}" : "";
+            var stateColor = GetStateColor(desc.State);
+            var typeColor = GetTypeColor(desc.Type);
+            var badge = GetTypeBadge(desc.Type);
+            var activeMarker = (activeId.HasValue && desc.Id == activeId.Value) ? $"{Cyan}●{Reset} " : "";
+            var effort = FormatterHelpers.GetEffortDisplay(desc);
+            var effortSuffix = effort is not null ? $" {Dim}{effort}{Reset}" : "";
+            lines.Add(new AlignedLine(
+                $"{indent}{stateColor}{connector}{Reset}{activeMarker}{typeColor}{badge}{Reset} #{desc.Id} {desc.Title}",
+                $"[{stateColor}{desc.State}{Reset}]{effortSuffix}", dirty));
+
+            var continuation = isLast ? "    " : "│   ";
+            RenderDescendants(lines, tree, desc.Id, indent + continuation, activeId, currentDepth + 1, maxDepth);
+        }
     }
 
     public string FormatWorkspace(Workspace ws, int staleDays)

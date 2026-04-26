@@ -302,7 +302,7 @@ public sealed class TreeCommand_CacheAwareTests
             focus,
             Array.Empty<WorkItem>(),
             Array.Empty<WorkItem>(),
-            maxChildren: 10,
+            maxDepth: 5,
             activeId: 1);
 
         result.ShouldNotBeNull();
@@ -320,7 +320,7 @@ public sealed class TreeCommand_CacheAwareTests
             focus,
             Array.Empty<WorkItem>(),
             new[] { child },
-            maxChildren: 10,
+            maxDepth: 5,
             activeId: 1);
 
         var output = RenderToString(result);
@@ -338,7 +338,7 @@ public sealed class TreeCommand_CacheAwareTests
             focus,
             new[] { root },
             Array.Empty<WorkItem>(),
-            maxChildren: 10,
+            maxDepth: 5,
             activeId: 1);
 
         var output = RenderToString(result);
@@ -347,7 +347,7 @@ public sealed class TreeCommand_CacheAwareTests
     }
 
     [Fact]
-    public async Task BuildTreeViewAsync_MaxChildrenExceeded_ShowsMoreIndicator()
+    public async Task BuildTreeViewAsync_ShowsAllChildren_RegardlessOfDepth()
     {
         var focus = CreateWorkItem(1, "Focus");
         var children = Enumerable.Range(2, 5)
@@ -358,10 +358,16 @@ public sealed class TreeCommand_CacheAwareTests
             focus,
             Array.Empty<WorkItem>(),
             children,
-            maxChildren: 2,
+            maxDepth: 5,
             activeId: 1);
 
-        RenderToString(result).ShouldContain("... and 3 more");
+        var output = RenderToString(result);
+        output.ShouldContain("Child 2");
+        output.ShouldContain("Child 3");
+        output.ShouldContain("Child 4");
+        output.ShouldContain("Child 5");
+        output.ShouldContain("Child 6");
+        output.ShouldNotContain("... and");
     }
 
     [Fact]
@@ -377,7 +383,7 @@ public sealed class TreeCommand_CacheAwareTests
             focus,
             Array.Empty<WorkItem>(),
             Array.Empty<WorkItem>(),
-            maxChildren: 10,
+            maxDepth: 5,
             activeId: 1,
             links: links);
 
@@ -405,7 +411,7 @@ public sealed class TreeCommand_CacheAwareTests
             staleItem,
             Array.Empty<WorkItem>(),
             Array.Empty<WorkItem>(),
-            maxChildren: 10,
+            maxDepth: 5,
             activeId: 1,
             cacheStaleMinutes: 5);
 
@@ -430,7 +436,7 @@ public sealed class TreeCommand_CacheAwareTests
             freshItem,
             Array.Empty<WorkItem>(),
             Array.Empty<WorkItem>(),
-            maxChildren: 10,
+            maxDepth: 5,
             activeId: 1,
             cacheStaleMinutes: 5);
 

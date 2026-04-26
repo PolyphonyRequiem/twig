@@ -26,7 +26,7 @@ public interface IAsyncRenderer
         Func<Task<WorkItem?>> getFocusedItem,
         Func<Task<IReadOnlyList<WorkItem>>> getParentChain,
         Func<Task<IReadOnlyList<WorkItem>>> getChildren,
-        int maxChildren,
+        int maxDepth,
         int? activeId,
         CancellationToken ct,
         Func<int, Task<int?>>? getSiblingCount = null,

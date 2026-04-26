@@ -11,11 +11,22 @@ public class ProcessConfigurationTests
     private static StateEntry[] ToStateEntries(params string[] names) =>
         names.Select(n => new StateEntry(n, StateCategory.Unknown, null)).ToArray();
 
+    private static StateEntry[] ToStateEntriesWithCategories(params (string Name, StateCategory Category)[] entries) =>
+        entries.Select(e => new StateEntry(e.Name, e.Category, null)).ToArray();
+
     private static ProcessTypeRecord MakeRecord(string typeName, string[] states, string[] childTypes) =>
         new()
         {
             TypeName = typeName,
             States = ToStateEntries(states),
+            ValidChildTypes = childTypes,
+        };
+
+    private static ProcessTypeRecord MakeRecord(string typeName, StateEntry[] stateEntries, string[] childTypes) =>
+        new()
+        {
+            TypeName = typeName,
+            States = stateEntries,
             ValidChildTypes = childTypes,
         };
 
@@ -97,11 +108,22 @@ public class ProcessConfigurationTests
     private static ProcessConfiguration BuildAgileStyle() =>
         ProcessConfiguration.FromRecords(new[]
         {
-            MakeRecord("Epic", new[] { "New", "Active", "Closed", "Removed" }, new[] { "Feature" }),
-            MakeRecord("Feature", new[] { "New", "Active", "Closed", "Removed" }, new[] { "User Story", "Bug" }),
-            MakeRecord("User Story", new[] { "New", "Active", "Resolved", "Closed", "Removed" }, new[] { "Task" }),
-            MakeRecord("Bug", new[] { "New", "Active", "Resolved", "Closed" }, new[] { "Task" }),
-            MakeRecord("Task", new[] { "New", "Active", "Closed", "Removed" }, Array.Empty<string>()),
+            MakeRecord("Epic", ToStateEntriesWithCategories(
+                ("New", StateCategory.Proposed), ("Active", StateCategory.InProgress),
+                ("Closed", StateCategory.Completed), ("Removed", StateCategory.Removed)), new[] { "Feature" }),
+            MakeRecord("Feature", ToStateEntriesWithCategories(
+                ("New", StateCategory.Proposed), ("Active", StateCategory.InProgress),
+                ("Closed", StateCategory.Completed), ("Removed", StateCategory.Removed)), new[] { "User Story", "Bug" }),
+            MakeRecord("User Story", ToStateEntriesWithCategories(
+                ("New", StateCategory.Proposed), ("Active", StateCategory.InProgress),
+                ("Resolved", StateCategory.Resolved), ("Closed", StateCategory.Completed),
+                ("Removed", StateCategory.Removed)), new[] { "Task" }),
+            MakeRecord("Bug", ToStateEntriesWithCategories(
+                ("New", StateCategory.Proposed), ("Active", StateCategory.InProgress),
+                ("Resolved", StateCategory.Resolved), ("Closed", StateCategory.Completed)), new[] { "Task" }),
+            MakeRecord("Task", ToStateEntriesWithCategories(
+                ("New", StateCategory.Proposed), ("Active", StateCategory.InProgress),
+                ("Closed", StateCategory.Completed), ("Removed", StateCategory.Removed)), Array.Empty<string>()),
         });
 
     [Fact]
@@ -207,11 +229,23 @@ public class ProcessConfigurationTests
     private static ProcessConfiguration BuildScrumStyle() =>
         ProcessConfiguration.FromRecords(new[]
         {
-            MakeRecord("Epic", new[] { "New", "In Progress", "Done", "Removed" }, new[] { "Feature" }),
-            MakeRecord("Feature", new[] { "New", "In Progress", "Done", "Removed" }, new[] { "Product Backlog Item", "Bug" }),
-            MakeRecord("Product Backlog Item", new[] { "New", "Approved", "Committed", "Done", "Removed" }, new[] { "Task" }),
-            MakeRecord("Bug", new[] { "New", "Approved", "Committed", "Done", "Removed" }, new[] { "Task" }),
-            MakeRecord("Task", new[] { "To Do", "In Progress", "Done", "Removed" }, Array.Empty<string>()),
+            MakeRecord("Epic", ToStateEntriesWithCategories(
+                ("New", StateCategory.Proposed), ("In Progress", StateCategory.InProgress),
+                ("Done", StateCategory.Completed), ("Removed", StateCategory.Removed)), new[] { "Feature" }),
+            MakeRecord("Feature", ToStateEntriesWithCategories(
+                ("New", StateCategory.Proposed), ("In Progress", StateCategory.InProgress),
+                ("Done", StateCategory.Completed), ("Removed", StateCategory.Removed)), new[] { "Product Backlog Item", "Bug" }),
+            MakeRecord("Product Backlog Item", ToStateEntriesWithCategories(
+                ("New", StateCategory.Proposed), ("Approved", StateCategory.Proposed),
+                ("Committed", StateCategory.InProgress), ("Done", StateCategory.Completed),
+                ("Removed", StateCategory.Removed)), new[] { "Task" }),
+            MakeRecord("Bug", ToStateEntriesWithCategories(
+                ("New", StateCategory.Proposed), ("Approved", StateCategory.Proposed),
+                ("Committed", StateCategory.InProgress), ("Done", StateCategory.Completed),
+                ("Removed", StateCategory.Removed)), new[] { "Task" }),
+            MakeRecord("Task", ToStateEntriesWithCategories(
+                ("To Do", StateCategory.Proposed), ("In Progress", StateCategory.InProgress),
+                ("Done", StateCategory.Completed), ("Removed", StateCategory.Removed)), Array.Empty<string>()),
         });
 
     [Fact]
@@ -296,14 +330,38 @@ public class ProcessConfigurationTests
     private static ProcessConfiguration BuildCmmiStyle() =>
         ProcessConfiguration.FromRecords(new[]
         {
-            MakeRecord("Epic", new[] { "Proposed", "Active", "Resolved", "Closed", "Removed" }, new[] { "Feature" }),
-            MakeRecord("Feature", new[] { "Proposed", "Active", "Resolved", "Closed", "Removed" }, new[] { "Requirement" }),
-            MakeRecord("Requirement", new[] { "Proposed", "Active", "Resolved", "Closed", "Removed" }, new[] { "Task" }),
-            MakeRecord("Bug", new[] { "Proposed", "Active", "Resolved", "Closed", "Removed" }, new[] { "Task" }),
-            MakeRecord("Task", new[] { "Proposed", "Active", "Resolved", "Closed", "Removed" }, Array.Empty<string>()),
-            MakeRecord("Change Request", new[] { "Proposed", "Active", "Resolved", "Closed", "Removed" }, Array.Empty<string>()),
-            MakeRecord("Review", new[] { "Proposed", "Active", "Resolved", "Closed", "Removed" }, Array.Empty<string>()),
-            MakeRecord("Risk", new[] { "Proposed", "Active", "Resolved", "Closed", "Removed" }, Array.Empty<string>()),
+            MakeRecord("Epic", ToStateEntriesWithCategories(
+                ("Proposed", StateCategory.Proposed), ("Active", StateCategory.InProgress),
+                ("Resolved", StateCategory.Resolved), ("Closed", StateCategory.Completed),
+                ("Removed", StateCategory.Removed)), new[] { "Feature" }),
+            MakeRecord("Feature", ToStateEntriesWithCategories(
+                ("Proposed", StateCategory.Proposed), ("Active", StateCategory.InProgress),
+                ("Resolved", StateCategory.Resolved), ("Closed", StateCategory.Completed),
+                ("Removed", StateCategory.Removed)), new[] { "Requirement" }),
+            MakeRecord("Requirement", ToStateEntriesWithCategories(
+                ("Proposed", StateCategory.Proposed), ("Active", StateCategory.InProgress),
+                ("Resolved", StateCategory.Resolved), ("Closed", StateCategory.Completed),
+                ("Removed", StateCategory.Removed)), new[] { "Task" }),
+            MakeRecord("Bug", ToStateEntriesWithCategories(
+                ("Proposed", StateCategory.Proposed), ("Active", StateCategory.InProgress),
+                ("Resolved", StateCategory.Resolved), ("Closed", StateCategory.Completed),
+                ("Removed", StateCategory.Removed)), new[] { "Task" }),
+            MakeRecord("Task", ToStateEntriesWithCategories(
+                ("Proposed", StateCategory.Proposed), ("Active", StateCategory.InProgress),
+                ("Resolved", StateCategory.Resolved), ("Closed", StateCategory.Completed),
+                ("Removed", StateCategory.Removed)), Array.Empty<string>()),
+            MakeRecord("Change Request", ToStateEntriesWithCategories(
+                ("Proposed", StateCategory.Proposed), ("Active", StateCategory.InProgress),
+                ("Resolved", StateCategory.Resolved), ("Closed", StateCategory.Completed),
+                ("Removed", StateCategory.Removed)), Array.Empty<string>()),
+            MakeRecord("Review", ToStateEntriesWithCategories(
+                ("Proposed", StateCategory.Proposed), ("Active", StateCategory.InProgress),
+                ("Resolved", StateCategory.Resolved), ("Closed", StateCategory.Completed),
+                ("Removed", StateCategory.Removed)), Array.Empty<string>()),
+            MakeRecord("Risk", ToStateEntriesWithCategories(
+                ("Proposed", StateCategory.Proposed), ("Active", StateCategory.InProgress),
+                ("Resolved", StateCategory.Resolved), ("Closed", StateCategory.Completed),
+                ("Removed", StateCategory.Removed)), Array.Empty<string>()),
         });
 
     [Fact]
@@ -549,5 +607,29 @@ public class ProcessConfigurationTests
         var parentType = WorkItemType.Parse("CustomParent").Value;
         var childType = WorkItemType.Parse("CustomChild").Value;
         config.GetAllowedChildTypes(parentType).ShouldContain(childType);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  AB#2116: StateCategory.Removed drives Cut classification
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void NonRemovedStateName_WithRemovedCategory_IsClassifiedAsCut()
+    {
+        // A custom process may use a state name other than "Removed"
+        // (e.g. "Cancelled") but categorize it as StateCategory.Removed.
+        // The transition to that state must still be classified as Cut.
+        var config = ProcessConfiguration.FromRecords(new[]
+        {
+            MakeRecord("Epic", ToStateEntriesWithCategories(
+                ("Open", StateCategory.Proposed),
+                ("Active", StateCategory.InProgress),
+                ("Cancelled", StateCategory.Removed)), Array.Empty<string>()),
+        });
+
+        config.GetTransitionKind(WorkItemType.Epic, "Open", "Cancelled").ShouldBe(TransitionKind.Cut);
+        config.GetTransitionKind(WorkItemType.Epic, "Active", "Cancelled").ShouldBe(TransitionKind.Cut);
+        // Transitions between non-removed states remain Forward.
+        config.GetTransitionKind(WorkItemType.Epic, "Open", "Active").ShouldBe(TransitionKind.Forward);
     }
 }

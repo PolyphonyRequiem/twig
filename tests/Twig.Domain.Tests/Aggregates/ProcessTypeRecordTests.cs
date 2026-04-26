@@ -140,7 +140,13 @@ public class ProcessConfigurationFromRecordsTests
             new ProcessTypeRecord
             {
                 TypeName = "Deliverable",
-                States = ToStateEntries("Draft", "Active", "Closed", "Removed"),
+                States = new StateEntry[]
+                {
+                    new("Draft", StateCategory.Proposed, null),
+                    new("Active", StateCategory.InProgress, null),
+                    new("Closed", StateCategory.Completed, null),
+                    new("Removed", StateCategory.Removed, null),
+                },
                 ValidChildTypes = Array.Empty<string>(),
             },
         };

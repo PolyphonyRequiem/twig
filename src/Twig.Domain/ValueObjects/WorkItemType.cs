@@ -12,27 +12,43 @@ public readonly record struct WorkItemType
 
     private WorkItemType(string value) => Value = value;
 
-    // Standard types (cross-process)
+    /// <summary>Well-known type shared across all standard ADO processes. Advisory only — not a behavioral constraint.</summary>
     public static readonly WorkItemType Epic = new("Epic");
+
+    /// <summary>Well-known type shared across all standard ADO processes. Advisory only — not a behavioral constraint.</summary>
     public static readonly WorkItemType Feature = new("Feature");
+
+    /// <summary>Well-known type shared across all standard ADO processes. Advisory only — not a behavioral constraint.</summary>
     public static readonly WorkItemType Task = new("Task");
+
+    /// <summary>Well-known type shared across all standard ADO processes. Advisory only — not a behavioral constraint.</summary>
     public static readonly WorkItemType Bug = new("Bug");
+
+    /// <summary>Well-known type shared across all standard ADO processes. Advisory only — not a behavioral constraint.</summary>
     public static readonly WorkItemType TestCase = new("Test Case");
 
-    // Agile-specific
+    /// <summary>Well-known Agile process type. Advisory only — not a behavioral constraint.</summary>
     public static readonly WorkItemType UserStory = new("User Story");
 
-    // Scrum-specific
+    /// <summary>Well-known Scrum process type. Advisory only — not a behavioral constraint.</summary>
     public static readonly WorkItemType ProductBacklogItem = new("Product Backlog Item");
+
+    /// <summary>Well-known Scrum process type. Advisory only — not a behavioral constraint.</summary>
     public static readonly WorkItemType Impediment = new("Impediment");
 
-    // CMMI-specific
+    /// <summary>Well-known CMMI process type. Advisory only — not a behavioral constraint.</summary>
     public static readonly WorkItemType Requirement = new("Requirement");
+
+    /// <summary>Well-known CMMI process type. Advisory only — not a behavioral constraint.</summary>
     public static readonly WorkItemType ChangeRequest = new("Change Request");
+
+    /// <summary>Well-known CMMI process type. Advisory only — not a behavioral constraint.</summary>
     public static readonly WorkItemType Review = new("Review");
+
+    /// <summary>Well-known CMMI process type. Advisory only — not a behavioral constraint.</summary>
     public static readonly WorkItemType Risk = new("Risk");
 
-    // Basic-specific
+    /// <summary>Well-known Basic process type. Advisory only — not a behavioral constraint.</summary>
     public static readonly WorkItemType Issue = new("Issue");
 
     /// <summary>

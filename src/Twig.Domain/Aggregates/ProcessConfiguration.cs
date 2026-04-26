@@ -104,11 +104,9 @@ public sealed class ProcessConfiguration
         return new ProcessConfiguration(configs);
     }
 
-    private const string RemovedStateName = "Removed";
-
     /// <summary>
     /// Builds a TypeConfig with automatically generated transition rules.
-    /// Forward = any move between non-removed states, Cut = transitioning to "Removed".
+    /// Forward = any move between non-removed states, Cut = transitioning to a <see cref="StateCategory.Removed"/> state.
     /// ADO enforces process-specific ordering; twig treats all non-cut transitions equally.
     /// </summary>
     private static TypeConfig BuildTypeConfig(string[] states, StateEntry[] stateEntries, WorkItemType[] childTypes)
@@ -124,7 +122,7 @@ public sealed class ProcessConfiguration
                 var from = states[i];
                 var to = states[j];
 
-                var kind = to == RemovedStateName
+                var kind = stateEntries[j].Category == StateCategory.Removed
                     ? TransitionKind.Cut
                     : TransitionKind.Forward;
 

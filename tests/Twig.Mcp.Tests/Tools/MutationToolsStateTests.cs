@@ -181,7 +181,7 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  Backward transition without force — succeeds (no guard)
+    //  Backward transition — succeeds (no guard)
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
@@ -201,7 +201,7 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
             Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(2);
 
-        var result = await CreateMutationSut().State("Doing", force: false);
+        var result = await CreateMutationSut().State("Doing");
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
@@ -210,7 +210,7 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  Backward transition with force — also succeeds
+    //  Backward transition (formerly force-required) — also succeeds
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
@@ -230,7 +230,7 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
             Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(2);
 
-        var result = await CreateMutationSut().State("Doing", force: true);
+        var result = await CreateMutationSut().State("Doing");
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);

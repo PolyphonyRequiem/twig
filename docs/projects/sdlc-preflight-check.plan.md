@@ -4,7 +4,7 @@
 work_item_id: 2071
 title: "SDLC preflight check: validate external dependencies before planning"
 type: Issue
-status: Draft
+status: In Progress
 revision: 0
 revision_notes: "Initial draft."
 ---
@@ -16,6 +16,8 @@ revision_notes: "Initial draft."
 | **Parent** | SDLC Epic (twig-conductor-workflows) |
 | **Branch** | `feature/2071-sdlc-preflight` |
 | **Author** | Daniel Green |
+
+> **Status**: 🔨 In Progress
 
 ## Executive Summary
 

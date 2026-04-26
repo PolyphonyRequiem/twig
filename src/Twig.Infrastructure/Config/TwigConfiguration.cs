@@ -23,6 +23,7 @@ public sealed class TwigConfiguration
     public FlowConfig Flow { get; set; } = new();
     public WorkspaceConfig Workspace { get; set; } = new();
     public TrackingConfig Tracking { get; set; } = new();
+    public AreasConfig Areas { get; set; } = new();
 
     /// <summary>
     /// Returns the project to use for git/PR API calls.
@@ -338,6 +339,7 @@ public sealed class TwigConfiguration
                 Defaults.Mode = modeLower;
                 return true;
             case "defaults.areapathentries":
+            case "areas.paths":
                 var entries = new List<AreaPathEntry>();
                 foreach (var raw in value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                 {
@@ -360,7 +362,15 @@ public sealed class TwigConfiguration
 
                     entries.Add(new AreaPathEntry { Path = pathPart, IncludeChildren = includeChildren });
                 }
+                if (entries.Count == 0)
+                    return false;
                 Defaults.AreaPathEntries = entries;
+                return true;
+            case "areas.mode":
+                var areaModeLower = value.ToLowerInvariant();
+                if (areaModeLower is not ("under" or "exact"))
+                    return false;
+                Areas.Mode = areaModeLower;
                 return true;
             default:
                 return false;
@@ -413,6 +423,7 @@ public sealed class AreaPathEntry
 {
     public string Path { get; set; } = string.Empty;
     public bool IncludeChildren { get; set; } = true;
+    public string SemanticsLabel => IncludeChildren ? "under" : "exact";
 }
 
 public sealed class SeedConfig
@@ -529,6 +540,17 @@ public sealed class FlowConfig
     public string AutoAssign { get; set; } = "if-unassigned";
     public bool AutoSaveOnDone { get; set; } = true;
     public bool OfferPrOnDone { get; set; } = true;
+}
+
+/// <summary>
+/// Configuration for area-path filtering: paths and default match mode.
+/// </summary>
+public sealed class AreasConfig
+{
+    /// <summary>
+    /// Default match mode for area entries: "under" (include children) or "exact".
+    /// </summary>
+    public string Mode { get; set; } = "under";
 }
 
 /// <summary>

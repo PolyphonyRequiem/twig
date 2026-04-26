@@ -8,11 +8,11 @@ user-invokable: true
 
 Orchestrated SDLC pipeline powered by the `conductor` skill. Takes an ADO work item (Epic or Issue) or a natural language prompt and drives it through planning, implementation, code review, PR management, and close-out — all via multi-agent orchestration.
 
-> **This workflow is long-running** — typically 30-120+ minutes depending on scope. **Always launch with `conductor --silent run ... --web`** — this suppresses console noise and opens a real-time web dashboard. **Do NOT use `--web-bg`** — it does not work correctly; always use `--web`.
+> **This workflow is long-running** — typically 30-120+ minutes depending on scope. **Always launch with `conductor run ... --web`** (no `--silent`) in a hidden window — this captures full agent output in logs for post-mortem analysis while the web dashboard provides real-time monitoring. **Do NOT use `--web-bg`** — it does not work correctly; always use `--web`.
 
-> **Always launch detached** — use `detach: true` (or `Start-Process`) so conductor
-> survives if the parent session drops. Non-detached async shells die when the Copilot
-> CLI session reconnects or terminates.
+> **Always launch detached** — use `Start-Process -WindowStyle Hidden` so conductor
+> survives if the parent session drops and doesn't clutter the terminal.
+> Non-detached async shells die when the Copilot CLI session reconnects or terminates.
 
 ## Workflows
 
@@ -75,13 +75,13 @@ twig set <ID>
 twig sync
 
 # 4. Run the full SDLC — default intent is "resume"
-conductor --silent run twig-sdlc-full@twig --input work_item_id=<ID> -m tracker=ado -m project_url=https://dev.azure.com/dangreen-msft/Twig -m git_repo=C:\Users\dangreen\projects\twig2 -m workitem_id=<ID> -m worktree_name=twig2-<ID> -m cwd=C:\Users\dangreen\projects\twig2-<ID> --web
+conductor run twig-sdlc-full@twig --input work_item_id=<ID> -m tracker=ado -m project_url=https://dev.azure.com/dangreen-msft/Twig -m git_repo=C:\Users\dangreen\projects\twig2 -m workitem_id=<ID> -m worktree_name=twig2-<ID> -m cwd=C:\Users\dangreen\projects\twig2-<ID> --web
 
 # For a brand new work item (no prior work):
-conductor --silent run twig-sdlc-full@twig --input work_item_id=<ID> --input intent=new -m tracker=ado -m project_url=https://dev.azure.com/dangreen-msft/Twig -m git_repo=C:\Users\dangreen\projects\twig2 -m workitem_id=<ID> -m worktree_name=twig2-<ID> -m cwd=C:\Users\dangreen\projects\twig2-<ID> --web
+conductor run twig-sdlc-full@twig --input work_item_id=<ID> --input intent=new -m tracker=ado -m project_url=https://dev.azure.com/dangreen-msft/Twig -m git_repo=C:\Users\dangreen\projects\twig2 -m workitem_id=<ID> -m worktree_name=twig2-<ID> -m cwd=C:\Users\dangreen\projects\twig2-<ID> --web
 
 # To redo from scratch (deletes existing children/branches):
-conductor --silent run twig-sdlc-full@twig --input work_item_id=<ID> --input intent=redo -m tracker=ado -m project_url=https://dev.azure.com/dangreen-msft/Twig -m git_repo=C:\Users\dangreen\projects\twig2 -m workitem_id=<ID> -m worktree_name=twig2-<ID> -m cwd=C:\Users\dangreen\projects\twig2-<ID> --web
+conductor run twig-sdlc-full@twig --input work_item_id=<ID> --input intent=redo -m tracker=ado -m project_url=https://dev.azure.com/dangreen-msft/Twig -m git_repo=C:\Users\dangreen\projects\twig2 -m workitem_id=<ID> -m worktree_name=twig2-<ID> -m cwd=C:\Users\dangreen\projects\twig2-<ID> --web
 ```
 
 ## Launching Multiple Runs
@@ -103,8 +103,8 @@ $ids = 1673, 1782
 foreach ($id in $ids) {
     $wt = "C:\Users\dangreen\projects\twig2-$id"
     Start-Process -FilePath "pwsh" -ArgumentList "-NoProfile", "-Command",
-        "cd $wt; conductor --silent run twig-sdlc-full@twig --input work_item_id=$id -m tracker=ado -m project_url=https://dev.azure.com/dangreen-msft/Twig -m git_repo=C:\Users\dangreen\projects\twig2 -m workitem_id=$id -m worktree_name=twig2-$id -m cwd=$wt --web 2>&1 | Tee-Object -FilePath $wt\conductor.log" `
-        -PassThru | ForEach-Object { "Launched #$id — PID $($_.Id)" }
+        "cd $wt; conductor run twig-sdlc-full@twig --input work_item_id=$id -m tracker=ado -m project_url=https://dev.azure.com/dangreen-msft/Twig -m git_repo=C:\Users\dangreen\projects\twig2 -m workitem_id=$id -m worktree_name=twig2-$id -m cwd=$wt --web 2>&1 | Tee-Object -FilePath $wt\conductor.log" `
+        -WindowStyle Hidden -PassThru | ForEach-Object { "Launched #$id — PID $($_.Id)" }
     if ($id -ne $ids[-1]) { Start-Sleep -Seconds 10 }
 }
 
@@ -129,7 +129,7 @@ kills all child processes when conductor exits.
 $ids = 1673, 1782
 foreach ($id in $ids) {
     $wt = "C:\Users\dangreen\projects\twig2-$id"
-    $args = "--silent run twig-sdlc-full@twig --input work_item_id=$id -m tracker=ado -m project_url=https://dev.azure.com/dangreen-msft/Twig -m git_repo=C:\Users\dangreen\projects\twig2 -m workitem_id=$id -m worktree_name=twig2-$id -m cwd=$wt --web"
+    $args = "run twig-sdlc-full@twig --input work_item_id=$id -m tracker=ado -m project_url=https://dev.azure.com/dangreen-msft/Twig -m git_repo=C:\Users\dangreen\projects\twig2 -m workitem_id=$id -m worktree_name=twig2-$id -m cwd=$wt --web"
     Start-Process -FilePath "pwsh" -ArgumentList "-NoProfile", "-File",
         "tools\run-conductor.ps1",
         "-WorkingDirectory", "`"$wt`"",

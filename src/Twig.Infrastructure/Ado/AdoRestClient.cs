@@ -339,6 +339,28 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         string? ifMatch,
         CancellationToken ct)
     {
+        try
+        {
+            return await SendCoreAsync(method, url, content, ifMatch, ct);
+        }
+        catch (Exception ex) when (AdoErrorHandler.IsAuthChallenge(ex))
+        {
+            _authProvider.InvalidateToken();
+            // Only retry when there's no body content — HttpRequestMessage.Dispose()
+            // disposes the content, so it can't be re-sent on writes. The invalidation
+            // ensures the next call will use a fresh token.
+            if (content is not null) throw;
+            return await SendCoreAsync(method, url, content, ifMatch, ct);
+        }
+    }
+
+    private async Task<HttpResponseMessage> SendCoreAsync(
+        HttpMethod method,
+        string url,
+        HttpContent? content,
+        string? ifMatch,
+        CancellationToken ct)
+    {
         using var request = new HttpRequestMessage(method, url);
         request.Content = content;
 
@@ -377,7 +399,13 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         }
         catch (AdoRateLimitException ex)
         {
+            response.Dispose();
             _throttle?.SetPause(ex.RetryAfter);
+            throw;
+        }
+        catch
+        {
+            response.Dispose();
             throw;
         }
 

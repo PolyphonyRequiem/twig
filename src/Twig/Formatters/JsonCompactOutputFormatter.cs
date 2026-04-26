@@ -165,6 +165,8 @@ public sealed class JsonCompactOutputFormatter(JsonOutputFormatter full) : IOutp
         return Encoding.UTF8.GetString(stream.ToArray());
     }
 
+    public string FormatAreaView(AreaView areaView) => full.FormatAreaView(areaView);
+
     // ── Private helpers ─────────────────────────────────────────────
 
     private static void WriteCompactItem(Utf8JsonWriter writer, WorkItem item)

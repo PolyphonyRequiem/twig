@@ -162,6 +162,25 @@ internal sealed class AdoGitClient : IAdoGitService
         CancellationToken ct,
         Action<HttpRequestMessage>? configureRequest = null)
     {
+        try
+        {
+            return await SendCoreAsync(method, url, content, ct, configureRequest);
+        }
+        catch (Exception ex) when (AdoErrorHandler.IsAuthChallenge(ex))
+        {
+            _authProvider.InvalidateToken();
+            if (content is not null) throw;
+            return await SendCoreAsync(method, url, content, ct, configureRequest);
+        }
+    }
+
+    private async Task<HttpResponseMessage> SendCoreAsync(
+        HttpMethod method,
+        string url,
+        HttpContent? content,
+        CancellationToken ct,
+        Action<HttpRequestMessage>? configureRequest = null)
+    {
         using var request = new HttpRequestMessage(method, url);
         request.Content = content;
 
@@ -183,7 +202,16 @@ internal sealed class AdoGitClient : IAdoGitService
             throw new AdoOfflineException(ex);
         }
 
-        await AdoErrorHandler.ThrowOnErrorAsync(response, url, ct);
+        try
+        {
+            await AdoErrorHandler.ThrowOnErrorAsync(response, url, ct);
+        }
+        catch
+        {
+            response.Dispose();
+            throw;
+        }
+
         return response;
     }
 

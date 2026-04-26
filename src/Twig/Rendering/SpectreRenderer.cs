@@ -1636,6 +1636,129 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         }
     }
 
+    // ── Area view rendering ────────────────────────────────────────
+
+    /// <inheritdoc />
+    public Task RenderAreaViewAsync(AreaView areaView, CancellationToken ct)
+    {
+        _ = ct;
+
+        // Header
+        _console.MarkupLine("[bold]Area View[/]");
+        _console.Write(new Rule().RuleStyle("dim"));
+
+        // Filters
+        _console.MarkupLine($"  [bold]Filters ({areaView.Filters.Count}):[/]");
+        foreach (var filter in areaView.Filters)
+        {
+            var semantics = filter.IncludeChildren ? "under" : "exact";
+            _console.MarkupLine($"    [dim]{Markup.Escape(filter.Path)}  ({semantics})[/]");
+        }
+        _console.WriteLine();
+
+        // Items
+        _console.MarkupLine($"  [bold]Items ({areaView.MatchCount}):[/]");
+
+        if (areaView.MatchCount == 0)
+        {
+            _console.MarkupLine("    [dim italic]No items match the configured area paths.[/]");
+            return Task.CompletedTask;
+        }
+
+        if (areaView.Hierarchy is not null)
+        {
+            RenderAreaHierarchyTree(areaView.Hierarchy);
+        }
+        else
+        {
+            RenderAreaFlatTable(areaView);
+        }
+
+        _console.WriteLine();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Renders area hierarchy as Spectre Tree widgets. In-area items (IsSprintItem=true)
+    /// are rendered normally; out-of-area parents are dimmed for visual distinction.
+    /// </summary>
+    private void RenderAreaHierarchyTree(SprintHierarchy hierarchy)
+    {
+        foreach (var kvp in hierarchy.AssigneeGroups)
+        {
+            foreach (var root in kvp.Value)
+            {
+                if (root.IsVirtualGroup)
+                {
+                    _console.MarkupLine($"    [dim]── {Markup.Escape(root.GroupLabel ?? "Unparented")} ──[/]");
+                    foreach (var child in root.Children)
+                    {
+                        var tree = new Tree(FormatAreaNode(child));
+                        AddAreaChildNodes(tree, child);
+                        _console.Write(tree);
+                    }
+                }
+                else
+                {
+                    var tree = new Tree(FormatAreaNode(root));
+                    AddAreaChildNodes(tree, root);
+                    _console.Write(tree);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Formats a hierarchy node for area view. Out-of-area parents get dim styling;
+    /// in-area items get full detail with ID and state.
+    /// </summary>
+    internal string FormatAreaNode(SprintHierarchyNode node)
+    {
+        if (node.IsSprintItem)
+        {
+            // In-area item — full detail
+            var dirty = node.Item.IsDirty ? " [yellow]✎[/]" : "";
+            return $"{_theme.FormatTypeBadge(node.Item.Type)} #{node.Item.Id} {Markup.Escape(node.Item.Title)}{dirty} {_theme.FormatState(node.Item.State)}";
+        }
+
+        // Out-of-area parent — dimmed
+        return $"[dim]{_theme.FormatTypeBadge(node.Item.Type)} {Markup.Escape(node.Item.Title)} {_theme.FormatState(node.Item.State)}[/]";
+    }
+
+    private void AddAreaChildNodes(IHasTreeNodes parent, SprintHierarchyNode node)
+    {
+        foreach (var child in node.Children)
+        {
+            var childNode = parent.AddNode(FormatAreaNode(child));
+            AddAreaChildNodes(childNode, child);
+        }
+    }
+
+    /// <summary>
+    /// Flat fallback table for area view when no hierarchy is available.
+    /// </summary>
+    private void RenderAreaFlatTable(AreaView areaView)
+    {
+        var table = new Table()
+            .Border(TableBorder.None)
+            .HideHeaders()
+            .AddColumn(new TableColumn("ID").RightAligned())
+            .AddColumn(new TableColumn("Type"))
+            .AddColumn(new TableColumn("Title"))
+            .AddColumn(new TableColumn("State").RightAligned());
+
+        foreach (var item in areaView.AreaItems)
+        {
+            table.AddRow(
+                $"{item.Id}",
+                _theme.FormatTypeBadge(item.Type),
+                Markup.Escape(item.Title),
+                _theme.FormatState(item.State));
+        }
+
+        _console.Write(table);
+    }
+
     // ── Interactive tree navigator ──────────────────────────────────
 
     /// <inheritdoc />

@@ -149,6 +149,15 @@ internal static partial class AdoErrorHandler
         }
     }
 
+    /// <summary>
+    /// Returns <c>true</c> if the exception indicates a stale/expired auth token
+    /// that may succeed after <see cref="IAuthenticationProvider.InvalidateToken"/> + retry.
+    /// Matches 401 responses and 2xx responses with HTML body (ADO sign-in challenge).
+    /// </summary>
+    internal static bool IsAuthChallenge(Exception ex)
+        => ex is AdoAuthenticationException
+            or AdoUnexpectedResponseException { StatusCode: 203 };
+
     [GeneratedRegex(@"/_apis/wit/workitems/(\d+)", RegexOptions.IgnoreCase)]
     private static partial Regex WorkItemIdRegex();
 

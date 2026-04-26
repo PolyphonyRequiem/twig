@@ -3344,4 +3344,195 @@ public class HumanOutputFormatterTests
         result.ShouldNotContain("cached");
     }
 
+    // ── FormatAreaView ──────────────────────────────────────────────
+
+    [Fact]
+    public void FormatAreaView_EmptyView_ShowsNoItemsMessage()
+    {
+        var filters = new List<AreaPathFilter>
+        {
+            new("Project\\Team A", IncludeChildren: true),
+        };
+        var view = AreaView.Build(
+            Array.Empty<WorkItem>(),
+            filters,
+            matchCount: 0);
+
+        var result = _formatter.FormatAreaView(view);
+
+        result.ShouldContain("Area View");
+        result.ShouldContain("Filters (1)");
+        result.ShouldContain("Team A");
+        result.ShouldContain("Items (0)");
+        result.ShouldContain("No items match");
+    }
+
+    [Fact]
+    public void FormatAreaView_SingleFilter_ShowsUnderSemantics()
+    {
+        var filters = new List<AreaPathFilter>
+        {
+            new("Project\\Team A", IncludeChildren: true),
+        };
+        var view = AreaView.Build(Array.Empty<WorkItem>(), filters, matchCount: 0);
+
+        var result = _formatter.FormatAreaView(view);
+
+        result.ShouldContain("under");
+    }
+
+    [Fact]
+    public void FormatAreaView_SingleFilter_ShowsExactSemantics()
+    {
+        var filters = new List<AreaPathFilter>
+        {
+            new("Project\\Team B", IncludeChildren: false),
+        };
+        var view = AreaView.Build(Array.Empty<WorkItem>(), filters, matchCount: 0);
+
+        var result = _formatter.FormatAreaView(view);
+
+        result.ShouldContain("exact");
+    }
+
+    [Fact]
+    public void FormatAreaView_MultipleFilters_ShowsCount()
+    {
+        var filters = new List<AreaPathFilter>
+        {
+            new("Project\\Team A", IncludeChildren: true),
+            new("Project\\Team B", IncludeChildren: false),
+        };
+        var view = AreaView.Build(Array.Empty<WorkItem>(), filters, matchCount: 0);
+
+        var result = _formatter.FormatAreaView(view);
+
+        result.ShouldContain("Filters (2)");
+        result.ShouldContain("Team A");
+        result.ShouldContain("Team B");
+    }
+
+    [Fact]
+    public void FormatAreaView_FlatFallback_ShowsItemDetails()
+    {
+        var items = new List<WorkItem>
+        {
+            CreateWorkItem(10, "Task Alpha", "Active"),
+            CreateWorkItem(20, "Task Beta", "Done"),
+        };
+        var filters = new List<AreaPathFilter> { new("Project", true) };
+        var view = AreaView.Build(items, filters, hierarchy: null, matchCount: 2);
+
+        var result = _formatter.FormatAreaView(view);
+
+        result.ShouldContain("Items (2)");
+        result.ShouldContain("#10");
+        result.ShouldContain("Task Alpha");
+        result.ShouldContain("#20");
+        result.ShouldContain("Task Beta");
+    }
+
+    [Fact]
+    public void FormatAreaView_FlatFallback_DirtyItem_ShowsMarker()
+    {
+        var item = CreateWorkItem(42, "Dirty Task", "Active");
+        item.UpdateField("System.Title", "Changed");
+        item.ApplyCommands();
+
+        var filters = new List<AreaPathFilter> { new("Project", true) };
+        var view = AreaView.Build(new[] { item }, filters, hierarchy: null, matchCount: 1);
+
+        var result = _formatter.FormatAreaView(view);
+
+        result.ShouldContain("✎");
+    }
+
+    [Fact]
+    public void FormatAreaView_WithHierarchy_InAreaItem_ShowsId()
+    {
+        var inAreaTask = CreateWorkItem(3, "In-Area Task", "Active");
+        var parentEpic = new WorkItem
+        {
+            Id = 1,
+            Type = WorkItemType.Epic,
+            Title = "Parent Epic",
+            State = "Active",
+            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
+            AreaPath = AreaPath.Parse("Project").Value,
+        };
+        inAreaTask = new WorkItem
+        {
+            Id = 3,
+            Type = WorkItemType.Task,
+            Title = "In-Area Task",
+            State = "Active",
+            ParentId = 1,
+            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
+            AreaPath = AreaPath.Parse("Project\\Team A").Value,
+        };
+
+        var parentLookup = new Dictionary<int, WorkItem>
+        {
+            [1] = parentEpic,
+            [3] = inAreaTask,
+        };
+        var hierarchy = SprintHierarchy.Build(
+            new List<WorkItem> { inAreaTask },
+            parentLookup,
+            ceilingTypeNames: new List<string> { "Epic" });
+
+        var filters = new List<AreaPathFilter> { new("Project\\Team A", true) };
+        var view = AreaView.Build(new[] { inAreaTask }, filters, hierarchy, matchCount: 1);
+
+        var result = _formatter.FormatAreaView(view);
+
+        result.ShouldContain("#3");
+        result.ShouldContain("In-Area Task");
+    }
+
+    [Fact]
+    public void FormatAreaView_WithHierarchy_OutOfAreaParent_IsDimmed()
+    {
+        var parentEpic = new WorkItem
+        {
+            Id = 1,
+            Type = WorkItemType.Epic,
+            Title = "Parent Epic",
+            State = "Active",
+            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
+            AreaPath = AreaPath.Parse("Project").Value,
+        };
+        var inAreaTask = new WorkItem
+        {
+            Id = 3,
+            Type = WorkItemType.Task,
+            Title = "In-Area Task",
+            State = "Active",
+            ParentId = 1,
+            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
+            AreaPath = AreaPath.Parse("Project\\Team A").Value,
+        };
+
+        var parentLookup = new Dictionary<int, WorkItem>
+        {
+            [1] = parentEpic,
+            [3] = inAreaTask,
+        };
+        var hierarchy = SprintHierarchy.Build(
+            new List<WorkItem> { inAreaTask },
+            parentLookup,
+            ceilingTypeNames: new List<string> { "Epic" });
+
+        var filters = new List<AreaPathFilter> { new("Project\\Team A", true) };
+        var view = AreaView.Build(new[] { inAreaTask }, filters, hierarchy, matchCount: 1);
+
+        var result = _formatter.FormatAreaView(view);
+
+        // Out-of-area parent should be dimmed — Dim ANSI code wraps the title
+        result.ShouldContain("Parent Epic");
+        result.ShouldContain(Dim);
+        // Out-of-area parent should NOT show its ID
+        result.ShouldNotContain("#1");
+    }
+
 }

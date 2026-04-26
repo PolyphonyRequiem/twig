@@ -255,6 +255,11 @@ internal static class CommandExamples
             "twig workspace exclusions --remove 42  Remove exclusion for #42",
             "twig workspace exclusions -o json      List exclusions as JSON",
         ],
+        ["area"] =
+        [
+            "twig area                              Show area-filtered workspace view",
+            "twig area -o json                      Output area view as JSON",
+        ],
         ["area add"] =
         [
             "twig area add \"Project\\Team A\"           Add area path with subtree matching",

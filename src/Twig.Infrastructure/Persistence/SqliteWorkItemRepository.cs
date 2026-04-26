@@ -349,6 +349,39 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         return Task.CompletedTask;
     }
 
+    public Task<IReadOnlyList<WorkItem>> GetByAreaPathsAsync(IReadOnlyList<AreaPathFilter> entries, CancellationToken ct = default)
+    {
+        if (entries.Count == 0)
+            return Task.FromResult<IReadOnlyList<WorkItem>>(Array.Empty<WorkItem>());
+
+        var conn = _store.GetConnection();
+        using var cmd = conn.CreateCommand();
+
+        // Build OR-joined WHERE clause: each entry is either exact match or LIKE prefix
+        var clauses = new List<string>(entries.Count);
+        for (var i = 0; i < entries.Count; i++)
+        {
+            var exactParam = $"@ap{i}";
+            cmd.Parameters.AddWithValue(exactParam, entries[i].Path);
+
+            if (entries[i].IncludeChildren)
+            {
+                var likeParam = $"@apl{i}";
+                cmd.Parameters.AddWithValue(likeParam, entries[i].Path + "\\%");
+                clauses.Add($"(area_path = {exactParam} COLLATE NOCASE OR area_path LIKE {likeParam})");
+            }
+            else
+            {
+                clauses.Add($"(area_path = {exactParam} COLLATE NOCASE)");
+            }
+        }
+
+        cmd.CommandText = $"SELECT * FROM work_items WHERE {string.Join(" OR ", clauses)};";
+
+        var items = ReadAll(cmd);
+        return Task.FromResult<IReadOnlyList<WorkItem>>(items);
+    }
+
     private static void SaveWorkItem(SqliteConnection conn, WorkItem item, SqliteTransaction? tx = null)
     {
         using var cmd = conn.CreateCommand();

@@ -122,4 +122,87 @@ public class ConfigCommandTests : IDisposable
         config.Display.Icons.ShouldBe("nerd");
         File.Exists(_paths.ConfigPath).ShouldBeTrue();
     }
+
+    // ── areas.paths config path ──
+
+    [Fact]
+    public async Task Config_Read_AreasPaths_ReturnsFormattedEntries()
+    {
+        var config = new TwigConfiguration
+        {
+            Defaults = new DefaultsConfig
+            {
+                AreaPathEntries =
+                [
+                    new AreaPathEntry { Path = @"Proj\Team1", IncludeChildren = true },
+                    new AreaPathEntry { Path = @"Proj\Team2", IncludeChildren = false },
+                ],
+            },
+        };
+        var cmd = new ConfigCommand(config, _paths, _formatterFactory);
+
+        var result = await cmd.ExecuteAsync("areas.paths");
+
+        result.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Config_Read_AreasPaths_NoEntries_ReturnsError()
+    {
+        var config = new TwigConfiguration();
+        var cmd = new ConfigCommand(config, _paths, _formatterFactory);
+
+        var result = await cmd.ExecuteAsync("areas.paths");
+
+        result.ShouldBe(1); // null → unknown key
+    }
+
+    [Fact]
+    public async Task Config_Write_AreasPaths_SetsEntries()
+    {
+        var config = new TwigConfiguration();
+        var cmd = new ConfigCommand(config, _paths, _formatterFactory);
+
+        var result = await cmd.ExecuteAsync("areas.paths", @"Proj\Team1;Proj\Team2:exact");
+
+        result.ShouldBe(0);
+        config.Defaults.AreaPathEntries.ShouldNotBeNull();
+        config.Defaults.AreaPathEntries!.Count.ShouldBe(2);
+    }
+
+    // ── areas.mode config path ──
+
+    [Fact]
+    public async Task Config_Read_AreasMode_ReturnsDefault()
+    {
+        var config = new TwigConfiguration();
+        var cmd = new ConfigCommand(config, _paths, _formatterFactory);
+
+        var result = await cmd.ExecuteAsync("areas.mode");
+
+        result.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Config_Write_AreasMode_SetsValue()
+    {
+        var config = new TwigConfiguration();
+        var cmd = new ConfigCommand(config, _paths, _formatterFactory);
+
+        var result = await cmd.ExecuteAsync("areas.mode", "exact");
+
+        result.ShouldBe(0);
+        config.Areas.Mode.ShouldBe("exact");
+    }
+
+    [Fact]
+    public async Task Config_Write_AreasMode_Invalid_ReturnsError()
+    {
+        var config = new TwigConfiguration();
+        var cmd = new ConfigCommand(config, _paths, _formatterFactory);
+
+        var result = await cmd.ExecuteAsync("areas.mode", "wildcard");
+
+        result.ShouldBe(1);
+    }
 }

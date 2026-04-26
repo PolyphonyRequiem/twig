@@ -92,6 +92,14 @@ internal sealed class AzCliAuthProvider : IAuthenticationProvider
         return DefaultProcessTimeout;
     }
 
+    /// <inheritdoc />
+    public void InvalidateToken()
+    {
+        _cachedToken = null;
+        _tokenExpiry = default;
+        TryDeleteFileCache();
+    }
+
     public async Task<string> GetAccessTokenAsync(CancellationToken ct = default)
     {
         // 1. In-memory cache (same process, hot path)
@@ -243,6 +251,22 @@ internal sealed class AzCliAuthProvider : IAuthenticationProvider
         catch
         {
             // Best effort — if we can't write the cache, az CLI still works
+        }
+    }
+
+    /// <summary>
+    /// Deletes the cross-process file cache. Best-effort — failures are silently ignored.
+    /// </summary>
+    private void TryDeleteFileCache()
+    {
+        try
+        {
+            if (File.Exists(_cachePath))
+                File.Delete(_cachePath);
+        }
+        catch
+        {
+            // Best effort
         }
     }
 

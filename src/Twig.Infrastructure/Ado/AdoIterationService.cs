@@ -335,13 +335,48 @@ internal sealed class AdoIterationService : IIterationService
 
     private async Task<HttpResponseMessage> SendAsync(string url, CancellationToken ct)
     {
+        try
+        {
+            return await SendCoreAsync(url, ct);
+        }
+        catch (Exception ex) when (AdoErrorHandler.IsAuthChallenge(ex))
+        {
+            _authProvider.InvalidateToken();
+            return await SendCoreAsync(url, ct);
+        }
+    }
+
+    private async Task<HttpResponseMessage> SendCoreAsync(string url, CancellationToken ct)
+    {
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
 
         var token = await _authProvider.GetAccessTokenAsync(ct);
         AdoErrorHandler.ApplyAuthHeader(request, token);
 
-        var response = await _http.SendAsync(request, ct);
-        await AdoErrorHandler.ThrowOnErrorAsync(response, url, ct);
+        HttpResponseMessage response;
+        try
+        {
+            response = await _http.SendAsync(request, ct);
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new AdoOfflineException(ex);
+        }
+        catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            throw new AdoOfflineException(ex);
+        }
+
+        try
+        {
+            await AdoErrorHandler.ThrowOnErrorAsync(response, url, ct);
+        }
+        catch
+        {
+            response.Dispose();
+            throw;
+        }
+
         return response;
     }
 }

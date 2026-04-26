@@ -188,6 +188,7 @@ public sealed class SqliteCacheStore : IDisposable
         CREATE INDEX idx_work_items_iteration ON work_items(iteration_path);
         CREATE INDEX idx_work_items_assigned ON work_items(assigned_to);
         CREATE INDEX idx_work_items_dirty ON work_items(is_dirty) WHERE is_dirty = 1;
+        CREATE INDEX idx_work_items_area ON work_items(area_path);
         CREATE INDEX idx_work_items_seed ON work_items(is_seed) WHERE is_seed = 1;
         CREATE INDEX idx_pending_changes_item ON pending_changes(work_item_id);
 

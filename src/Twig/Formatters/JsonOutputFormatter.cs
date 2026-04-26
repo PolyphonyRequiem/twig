@@ -807,4 +807,38 @@ public sealed class JsonOutputFormatter : IOutputFormatter
         writer.Flush();
         return Encoding.UTF8.GetString(stream.ToArray());
     }
+
+    public string FormatAreaView(AreaView areaView)
+    {
+        using var stream = new MemoryStream();
+        using var writer = new Utf8JsonWriter(stream, WriterOptions);
+
+        writer.WriteStartObject();
+
+        // Filters
+        writer.WriteStartArray("filters");
+        foreach (var filter in areaView.Filters)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("path", filter.Path);
+            writer.WriteBoolean("includeChildren", filter.IncludeChildren);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+
+        writer.WriteNumber("matchCount", areaView.MatchCount);
+
+        // Area items
+        writer.WriteStartArray("items");
+        foreach (var item in areaView.AreaItems)
+        {
+            WriteWorkItemObject(writer, item);
+        }
+        writer.WriteEndArray();
+
+        writer.WriteEndObject();
+
+        writer.Flush();
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
 }

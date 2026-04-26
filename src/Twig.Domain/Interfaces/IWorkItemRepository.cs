@@ -57,4 +57,11 @@ public interface IWorkItemRepository
     /// Clears <c>is_dirty</c> for a single work item by ID.
     /// </summary>
     Task ClearDirtyFlagAsync(int id, CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns work items whose area path matches any of the configured area path entries.
+    /// Entries with <c>IncludeChildren=true</c> match the path and all children (UNDER semantics);
+    /// entries with <c>IncludeChildren=false</c> match only the exact path.
+    /// </summary>
+    Task<IReadOnlyList<WorkItem>> GetByAreaPathsAsync(IReadOnlyList<AreaPathFilter> entries, CancellationToken ct = default);
 }

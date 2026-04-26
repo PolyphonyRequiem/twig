@@ -86,6 +86,12 @@ public interface IAsyncRenderer
         CancellationToken ct = default);
 
     /// <summary>
+    /// Renders the area-filtered workspace view with dim styling for out-of-area parent items.
+    /// In-area items (IsSprintItem=true) render normally; out-of-area parents render dimmed.
+    /// </summary>
+    Task RenderAreaViewAsync(AreaView areaView, CancellationToken ct);
+
+    /// <summary>
     /// Launches the interactive tree navigator. Renders a Live tree with keyboard-driven
     /// traversal — arrow keys move cursor, Enter commits, Escape cancels.
     /// Returns the committed work item ID, or <c>null</c> if cancelled.

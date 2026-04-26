@@ -86,11 +86,14 @@ internal sealed class MsalCacheTokenProvider : IAuthenticationProvider
                     var cache = JsonSerializer.Deserialize(json, TwigJsonContext.Default.MsalTokenCache);
                     if (cache?.AccessToken is { } accessTokens)
                     {
-                        var token = FindBestToken(accessTokens, now);
+                        var (token, tokenExpiry) = FindBestToken(accessTokens, now);
                         if (token is not null)
                         {
                             _cachedToken = token;
-                            _cacheExpiry = now + TokenTtl;
+                            // Use the earlier of our standard TTL or the actual token expiry (minus buffer)
+                            _cacheExpiry = tokenExpiry < now + TokenTtl
+                                ? tokenExpiry - ExpiryBuffer
+                                : now + TokenTtl;
                             return token;
                         }
                     }
@@ -102,7 +105,10 @@ internal sealed class MsalCacheTokenProvider : IAuthenticationProvider
             }
 
             // 3. Fallback to inner provider (az CLI)
-            return await _inner.GetAccessTokenAsync(ct);
+            var innerToken = await _inner.GetAccessTokenAsync(ct);
+            _cachedToken = innerToken;
+            _cacheExpiry = now + TokenTtl;
+            return innerToken;
         }
         finally
         {
@@ -110,12 +116,20 @@ internal sealed class MsalCacheTokenProvider : IAuthenticationProvider
         }
     }
 
+    /// <inheritdoc />
+    public void InvalidateToken()
+    {
+        _cachedToken = null;
+        _cacheExpiry = default;
+        _inner.InvalidateToken();
+    }
+
     /// <summary>
     /// Finds the best (longest-lived) ADO token from the MSAL cache that is still valid
     /// with at least 5 minutes of remaining lifetime.
-    /// Returns the raw secret string (NOT Bearer-prefixed — DD-21).
+    /// Returns the raw secret string (NOT Bearer-prefixed — DD-21) and its expiry.
     /// </summary>
-    private string? FindBestToken(Dictionary<string, MsalAccessTokenEntry> accessTokens, DateTimeOffset now)
+    private (string? token, DateTimeOffset expiry) FindBestToken(Dictionary<string, MsalAccessTokenEntry> accessTokens, DateTimeOffset now)
     {
         string? bestToken = null;
         DateTimeOffset bestExpiry = DateTimeOffset.MinValue;
@@ -142,7 +156,7 @@ internal sealed class MsalCacheTokenProvider : IAuthenticationProvider
             }
         }
 
-        return bestToken;
+        return (bestToken, bestExpiry);
     }
 
     /// <summary>

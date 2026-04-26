@@ -181,11 +181,11 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  Backward transition — succeeds (no guard)
+    //  Backward transition — succeeds without prompt
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task State_BackwardTransition_WithoutForce_Succeeds()
+    public async Task State_BackwardTransition_Succeeds()
     {
         var item = new WorkItemBuilder(42, "My Task").AsTask().InState("Done").Build();
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
@@ -210,11 +210,11 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  Backward transition (formerly force-required) — also succeeds
+    //  Backward transition with explicit workspace — two-parameter call
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task State_BackwardTransition_WithForce_Succeeds()
+    public async Task State_BackwardTransition_WithExplicitWorkspace_Succeeds()
     {
         var item = new WorkItemBuilder(42, "My Task").AsTask().InState("Done").Build();
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
@@ -230,7 +230,7 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
             Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(2);
 
-        var result = await CreateMutationSut().State("Doing");
+        var result = await CreateMutationSut().State("Doing", "testorg/testproject");
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);

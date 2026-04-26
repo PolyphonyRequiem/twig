@@ -35,7 +35,10 @@ public sealed class DynamicProcessConfigProvider : IProcessConfigurationProvider
         var records = _processTypeStore.GetAllAsync().GetAwaiter().GetResult();
         if (records.Count == 0)
             throw new InvalidOperationException(
-                "Process configuration not available. Run 'twig init' to initialize.");
+                "Process configuration not available. The process_types table is empty — " +
+                "this usually means 'twig sync' has not been run in this workspace, or " +
+                "ADO authentication has expired. Try: twig sync (to refresh from ADO), " +
+                "or: az login / set TWIG_PAT (to fix auth).");
 
         _cachedConfig = ProcessConfiguration.FromRecords(records);
         return _cachedConfig;

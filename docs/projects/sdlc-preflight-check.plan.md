@@ -360,7 +360,7 @@ Output schema matches the full preflight (same structure, fewer checks) so the g
 | Task ID | Description | Files | Effort Estimate | Status |
 |---------|-------------|-------|-----------------|--------|
 | T1 | Add advisory checks and required/advisory output schema to `preflight-check.ps1` | `recursive/scripts/preflight-check.ps1` | ~120 LoC | ✅ DONE |
-| T2 | Update `preflight_gate` template in `twig-sdlc-full.yaml` to distinguish required failures from advisory warnings | `recursive/twig-sdlc-full.yaml` | ~30 LoC | TO DO |
+| T2 | Update `preflight_gate` template in `twig-sdlc-full.yaml` to distinguish required failures from advisory warnings | `recursive/twig-sdlc-full.yaml` | ~30 LoC | ✅ DONE |
 | T3 | Create `preflight-lite.ps1` for sub-workflows | `recursive/scripts/preflight-lite.ps1` | ~60 LoC | ✅ DONE |
 | T4 | Wire `preflight_lite` into `twig-sdlc-planning.yaml` and `twig-sdlc-implement.yaml` | `recursive/twig-sdlc-planning.yaml`, `recursive/twig-sdlc-implement.yaml` | ~80 LoC | TO DO |
 | T5 | Add Pester tests for both preflight scripts | `tests/preflight-check.Tests.ps1`, `tests/preflight-lite.Tests.ps1` | ~200 LoC | ✅ DONE |

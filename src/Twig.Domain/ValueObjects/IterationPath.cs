@@ -5,7 +5,7 @@ namespace Twig.Domain.ValueObjects;
 /// <summary>
 /// Validated iteration path value object. Non-empty, backslash-separated segments.
 /// </summary>
-public readonly record struct IterationPath
+public readonly struct IterationPath : IEquatable<IterationPath>
 {
     public string Value { get; }
 
@@ -17,24 +17,25 @@ public readonly record struct IterationPath
     /// </summary>
     public static Result<IterationPath> Parse(string? raw)
     {
-        if (raw is null)
-            return Result.Fail<IterationPath>("Iteration path cannot be null.");
+        var result = PathValidation.ValidateBackslashPath(raw, "Iteration path");
+        if (!result.IsSuccess)
+            return Result.Fail<IterationPath>(result.Error);
 
-        if (string.IsNullOrWhiteSpace(raw))
-            return Result.Fail<IterationPath>("Iteration path cannot be empty.");
-
-        var trimmed = raw.Trim();
-
-        // Validate segments: split on backslash, each segment must be non-empty
-        var segments = trimmed.Split('\\');
-        foreach (var segment in segments)
-        {
-            if (string.IsNullOrWhiteSpace(segment))
-                return Result.Fail<IterationPath>($"Iteration path contains empty segment: '{raw}'.");
-        }
-
-        return Result.Ok(new IterationPath(trimmed));
+        return Result.Ok(new IterationPath(result.Value));
     }
+
+    /// <summary>
+    /// Returns <c>true</c> when this iteration path is a descendant of (or equal to) <paramref name="ancestor"/>.
+    /// Uses case-insensitive ordinal comparison with backslash segment boundaries.
+    /// </summary>
+    public bool IsUnder(IterationPath ancestor) => PathValidation.IsUnder(Value, ancestor.Value);
+
+    public bool Equals(IterationPath other) => string.Equals(Value, other.Value, StringComparison.Ordinal);
+    public override bool Equals(object? obj) => obj is IterationPath other && Equals(other);
+    public override int GetHashCode() => Value?.GetHashCode(StringComparison.Ordinal) ?? 0;
+
+    public static bool operator ==(IterationPath left, IterationPath right) => left.Equals(right);
+    public static bool operator !=(IterationPath left, IterationPath right) => !left.Equals(right);
 
     public override string ToString() => Value;
 }

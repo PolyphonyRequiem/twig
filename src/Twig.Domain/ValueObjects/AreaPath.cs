@@ -5,7 +5,7 @@ namespace Twig.Domain.ValueObjects;
 /// <summary>
 /// Validated area path value object. Non-empty, backslash-separated segments.
 /// </summary>
-public readonly record struct AreaPath
+public readonly struct AreaPath : IEquatable<AreaPath>
 {
     public string Value { get; }
 
@@ -23,46 +23,31 @@ public readonly record struct AreaPath
         _segments = value.Split('\\');
     }
 
-    // Override equality to compare by Value only, ignoring the cached _segments array
-    // (which would fail reference equality even for identical paths).
-    public bool Equals(AreaPath other) => string.Equals(Value, other.Value, StringComparison.Ordinal);
-    public override int GetHashCode() => Value?.GetHashCode() ?? 0;
-
     /// <summary>
     /// Parses a raw string into an <see cref="AreaPath"/>.
     /// Validates non-null, non-empty, and well-formed backslash-separated segments.
     /// </summary>
     public static Result<AreaPath> Parse(string? raw)
     {
-        if (raw is null)
-            return Result.Fail<AreaPath>("Area path cannot be null.");
+        var result = PathValidation.ValidateBackslashPath(raw, "Area path");
+        if (!result.IsSuccess)
+            return Result.Fail<AreaPath>(result.Error);
 
-        if (string.IsNullOrWhiteSpace(raw))
-            return Result.Fail<AreaPath>("Area path cannot be empty.");
-
-        var trimmed = raw.Trim();
-
-        var segments = trimmed.Split('\\');
-        foreach (var segment in segments)
-        {
-            if (string.IsNullOrWhiteSpace(segment))
-                return Result.Fail<AreaPath>($"Area path contains empty segment: '{raw}'.");
-        }
-
-        return Result.Ok(new AreaPath(trimmed));
+        return Result.Ok(new AreaPath(result.Value));
     }
 
     /// <summary>
     /// Returns <c>true</c> when this area path is a descendant of (or equal to) <paramref name="ancestor"/>.
     /// Uses case-insensitive ordinal comparison with backslash segment boundaries.
     /// </summary>
-    public bool IsUnder(AreaPath ancestor)
-    {
-        if (string.Equals(Value, ancestor.Value, StringComparison.OrdinalIgnoreCase))
-            return true;
+    public bool IsUnder(AreaPath ancestor) => PathValidation.IsUnder(Value, ancestor.Value);
 
-        return Value.StartsWith(ancestor.Value + "\\", StringComparison.OrdinalIgnoreCase);
-    }
+    public bool Equals(AreaPath other) => string.Equals(Value, other.Value, StringComparison.Ordinal);
+    public override bool Equals(object? obj) => obj is AreaPath other && Equals(other);
+    public override int GetHashCode() => Value?.GetHashCode(StringComparison.Ordinal) ?? 0;
+
+    public static bool operator ==(AreaPath left, AreaPath right) => left.Equals(right);
+    public static bool operator !=(AreaPath left, AreaPath right) => !left.Equals(right);
 
     public override string ToString() => Value;
 }

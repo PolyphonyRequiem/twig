@@ -4,7 +4,7 @@ using Xunit;
 
 namespace Twig.Domain.Tests.ValueObjects;
 
-public class IterationPathTests
+public sealed class IterationPathTests
 {
     [Theory]
     [InlineData("MyProject")]
@@ -94,5 +94,70 @@ public class IterationPathTests
         var a = IterationPath.Parse("ProjectA").Value;
         var b = IterationPath.Parse("ProjectB").Value;
         a.ShouldNotBe(b);
+    }
+
+    // ── IsUnder ────────────────────────────────────────────────────────
+
+    [Fact]
+    public void IsUnder_SamePath_ReturnsTrue()
+    {
+        var path = IterationPath.Parse(@"Project\Sprint 1").Value;
+        var ancestor = IterationPath.Parse(@"Project\Sprint 1").Value;
+
+        path.IsUnder(ancestor).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void IsUnder_ChildPath_ReturnsTrue()
+    {
+        var path = IterationPath.Parse(@"Project\Sprint 1\Week 1").Value;
+        var ancestor = IterationPath.Parse(@"Project\Sprint 1").Value;
+
+        path.IsUnder(ancestor).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void IsUnder_DeeplyNestedChild_ReturnsTrue()
+    {
+        var path = IterationPath.Parse(@"Project\Sprint 1\Week 1\Day 1").Value;
+        var ancestor = IterationPath.Parse(@"Project\Sprint 1").Value;
+
+        path.IsUnder(ancestor).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void IsUnder_ParentPath_ReturnsFalse()
+    {
+        var path = IterationPath.Parse("Project").Value;
+        var ancestor = IterationPath.Parse(@"Project\Sprint 1").Value;
+
+        path.IsUnder(ancestor).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void IsUnder_SiblingPath_ReturnsFalse()
+    {
+        var path = IterationPath.Parse(@"Project\Sprint 2").Value;
+        var ancestor = IterationPath.Parse(@"Project\Sprint 1").Value;
+
+        path.IsUnder(ancestor).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void IsUnder_PrefixButNotChild_ReturnsFalse()
+    {
+        var path = IterationPath.Parse(@"Project\Sprint 10").Value;
+        var ancestor = IterationPath.Parse(@"Project\Sprint 1").Value;
+
+        path.IsUnder(ancestor).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void IsUnder_CaseInsensitive()
+    {
+        var path = IterationPath.Parse(@"PROJECT\SPRINT 1\Week 1").Value;
+        var ancestor = IterationPath.Parse(@"Project\Sprint 1").Value;
+
+        path.IsUnder(ancestor).ShouldBeTrue();
     }
 }

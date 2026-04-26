@@ -77,7 +77,7 @@ twig-mcp exposes **8 tools** across three tool classes:
 | `twig_status` | `ContextTools` | Show active item status and pending changes |
 | `twig_tree` | `ReadTools` | Render focused item's parent chain + children |
 | `twig_workspace` | `ReadTools` | Sprint backlog, seeds, dirty count |
-| `twig_state` | `MutationTools` | Change active item state (with optional `force`) |
+| `twig_state` | `MutationTools` | Change active item state |
 | `twig_update` | `MutationTools` | Update a field and push to ADO |
 | `twig_note` | `MutationTools` | Add a comment (falls back to local staging) |
 | `twig_sync` | `MutationTools` | Flush pending changes, then refresh cache |
@@ -128,17 +128,15 @@ Returns the sprint workspace projection:
 
 ### Mutation tools
 
-**`twig_state(stateName: string, force?: bool)`**
+**`twig_state(stateName: string)`**
 
 1. Look up process configuration for the item's type.
 2. Resolve target state via `StateResolver.ResolveByName()` (supports
    partial, case-insensitive matching).
 3. Evaluate transition legality (`StateTransitionService.Evaluate()`).
-4. If the transition requires confirmation and `force` is false, return
-   an error prompting the caller to retry with `force: true`.
-5. Fetch remote item, apply patch with `ConflictRetryHelper`.
-6. Auto-push any staged notes via `AutoPushNotesHelper`.
-7. Resync cache (best-effort).
+4. Fetch remote item, apply patch with `ConflictRetryHelper`.
+5. Auto-push any staged notes via `AutoPushNotesHelper`.
+6. Resync cache (best-effort).
 
 **`twig_update(field: string, value: string, format?: string)`**
 

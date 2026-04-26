@@ -120,3 +120,39 @@ For runtime config, context modes, limits, and cost tracking, see [references/au
 
 For pattern examples (linear, loop, conditional, parallel, for-each, human gate) and template syntax, see [references/authoring.md](references/authoring.md).
 
+## Debugging & Diagnostics
+
+### Runtime Logging
+
+| Flag | Description |
+|------|-------------|
+| `--log-file auto` | Writes full debug output (prompts, tool calls, responses) to a temp file |
+| `--log-file <path>` | Writes debug output to a specific file |
+| `-V` (verbose) | Untruncated prompts and tool args in terminal output |
+| `--web` | Real-time web dashboard with DAG graph, live streaming |
+
+After a run completes, use `conductor replay <log-file>` to open the web dashboard in replay mode with timeline scrubbing.
+
+### Context Budget Diagnostic
+
+Use `tools/conductor-context-diag.ps1` to measure the context budget of a workflow before running it. This helps diagnose quality issues caused by context pressure — when MCP tool schemas or oversized prompts crowd out agent instructions.
+
+```powershell
+# Full diagnostic with live MCP server probing
+.\tools\conductor-context-diag.ps1 -Workflow twig-sdlc-implement@twig
+
+# Quick check (skip slow MCP probes, show prompt sizes only)
+.\tools\conductor-context-diag.ps1 -Workflow twig-sdlc-planning@twig -SkipMcpProbe
+
+# Verbose mode (per-tool breakdown within each MCP server)
+.\tools\conductor-context-diag.ps1 -Workflow twig-sdlc-implement@twig -Verbose
+```
+
+The diagnostic reports:
+- **MCP tool schema sizes** — probes each MCP server and measures the JSON tool definitions that fill agent context
+- **Agent prompt sizes** — measures system_prompt and prompt files for each LLM agent
+- **Per-agent context budget** — combines prompts + MCP schemas with traffic-light indicators (🟢 <30KB, 🟡 30-60KB, 🔴 >60KB)
+- **Prompt/Schema ratio** — flags when tool schemas dominate over actual instructions
+
+**Key insight:** MCP servers are defined at the workflow level and shared by ALL agents. Every agent in the workflow receives the full tool schema for every MCP server, even if it never uses those tools. When MCP schemas are 3× larger than prompts, the agent spends more context on tool definitions than on its actual instructions — a common cause of quality degradation.
+

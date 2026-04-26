@@ -102,16 +102,19 @@ function Parse-WorkflowYaml {
     }
     if ($currentServer) { $mcpServers += $currentServer }
 
-    # Extract agents with prompts
+    # Extract agents with prompts (skip output/routes sub-blocks)
     $agents = @()
     $inAgents = $false
     $currentAgent = $null
+    $inSubBlock = $false
 
     foreach ($line in (Get-Content $Path)) {
         if ($line -match '^agents:\s*$') { $inAgents = $true; continue }
+        if ($line -match '^\w' -and $inAgents -and $line -notmatch '^\s') { $inAgents = $false }
         if ($inAgents) {
-            if ($line -match '^\s+-\s+name:\s*(\S+)') {
+            if ($line -match '^\s{2}-\s+name:\s*(\S+)') {
                 if ($currentAgent) { $agents += $currentAgent }
+                $inSubBlock = $false
                 $currentAgent = @{
                     Name = $Matches[1]
                     Type = "agent"
@@ -123,18 +126,23 @@ function Parse-WorkflowYaml {
                 }
             }
             elseif ($currentAgent) {
-                if ($line -match '^\s+type:\s*(\S+)') { $currentAgent.Type = $Matches[1] }
-                if ($line -match '^\s+model:\s*(\S+)') { $currentAgent.Model = $Matches[1] }
-                if ($line -match '^\s+system_prompt:\s*!file\s+(.+)') {
-                    $promptPath = $Matches[1].Trim()
-                    # Resolve relative to workflow's prompts dir
-                    $resolved = Join-Path $dir $promptPath
-                    if (Test-Path $resolved) { $currentAgent.SystemPromptFile = $resolved }
-                }
-                if ($line -match '^\s+prompt:\s*!file\s+(.+)') {
-                    $promptPath = $Matches[1].Trim()
-                    $resolved = Join-Path $dir $promptPath
-                    if (Test-Path $resolved) { $currentAgent.PromptFile = $resolved }
+                # Detect sub-blocks we want to skip (output:, routes:, input:)
+                if ($line -match '^\s{4}(output|routes|input):\s*') { $inSubBlock = $true; continue }
+                # A new top-level agent property resets the sub-block flag
+                if ($line -match '^\s{4}\w' -and -not ($line -match '^\s{6,}')) { $inSubBlock = $false }
+                if (-not $inSubBlock -and $line -match '^\s{4}') {
+                    if ($line -match '^\s+type:\s*(\S+)') { $currentAgent.Type = $Matches[1] }
+                    if ($line -match '^\s+model:\s*(\S+)') { $currentAgent.Model = $Matches[1] }
+                    if ($line -match '^\s+system_prompt:\s*!file\s+(.+)') {
+                        $promptPath = $Matches[1].Trim()
+                        $resolved = Join-Path $dir $promptPath
+                        if (Test-Path $resolved) { $currentAgent.SystemPromptFile = $resolved }
+                    }
+                    if ($line -match '^\s+prompt:\s*!file\s+(.+)') {
+                        $promptPath = $Matches[1].Trim()
+                        $resolved = Join-Path $dir $promptPath
+                        if (Test-Path $resolved) { $currentAgent.PromptFile = $resolved }
+                    }
                 }
             }
         }

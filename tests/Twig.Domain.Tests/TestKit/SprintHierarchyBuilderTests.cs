@@ -14,7 +14,7 @@ public class SprintHierarchyBuilderTests
         var task1 = new WorkItemBuilder(1, "Login").AsTask().WithParent(100).AssignedTo("Alice").Build();
         var task2 = new WorkItemBuilder(2, "Logout").AsTask().WithParent(100).AssignedTo("Alice").Build();
 
-        var hierarchy = new SprintHierarchyBuilder()
+        var hierarchy = new SprintHierarchyTestBuilder()
             .WithSprintItems(task1, task2)
             .WithParents(feature)
             .WithCeilingTypes("Feature")
@@ -30,7 +30,7 @@ public class SprintHierarchyBuilderTests
     [Fact]
     public void Build_Empty_ReturnsEmptyHierarchy()
     {
-        var hierarchy = new SprintHierarchyBuilder()
+        var hierarchy = new SprintHierarchyTestBuilder()
             .WithCeilingTypes("Feature")
             .Build();
 
@@ -43,7 +43,7 @@ public class SprintHierarchyBuilderTests
         var task1 = new WorkItemBuilder(1, "Task 1").AssignedTo("Bob").Build();
         var task2 = new WorkItemBuilder(2, "Task 2").AssignedTo("Bob").Build();
 
-        var hierarchy = new SprintHierarchyBuilder()
+        var hierarchy = new SprintHierarchyTestBuilder()
             .WithSprintItems(task1, task2)
             .Build();
 

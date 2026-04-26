@@ -41,7 +41,7 @@ public class WorkspaceBuilderTests
     public void Build_WithHierarchy_ExposesHierarchy()
     {
         var task = new WorkItemBuilder(1, "Task").AssignedTo("Alice").Build();
-        var hierarchy = new SprintHierarchyBuilder()
+        var hierarchy = new SprintHierarchyTestBuilder()
             .WithSprintItems(task)
             .Build();
 

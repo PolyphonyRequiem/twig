@@ -1,6 +1,7 @@
 using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.ReadModels;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.TestKit;
 using Xunit;
@@ -22,7 +23,7 @@ public class SprintHierarchyTests
         var task2 = new WorkItemBuilder(2, "Task 2").AsTask().WithParent(100).AssignedTo("Alice").Build();
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
-        var hierarchy = SprintHierarchy.Build(new[] { task1, task2 }, parentLookup, new[] { "Feature" });
+        var hierarchy = new SprintHierarchyBuilder().Build(new[] { task1, task2 }, parentLookup, new[] { "Feature" });
 
         hierarchy.AssigneeGroups.ShouldContainKey("Alice");
         var roots = hierarchy.AssigneeGroups["Alice"];
@@ -47,7 +48,7 @@ public class SprintHierarchyTests
         var task2 = new WorkItemBuilder(2, "Task 2").AsTask().AssignedTo("Bob").Build();
 
         var parentLookup = new Dictionary<int, WorkItem>();
-        var hierarchy = SprintHierarchy.Build(new[] { task1, task2 }, parentLookup, new[] { "Feature" });
+        var hierarchy = new SprintHierarchyBuilder().Build(new[] { task1, task2 }, parentLookup, new[] { "Feature" });
 
         var roots = hierarchy.AssigneeGroups["Bob"];
         roots.Count.ShouldBe(2);
@@ -76,7 +77,7 @@ public class SprintHierarchyTests
         };
 
         // Ceiling at Epic → include Feature as context, stop at Epic
-        var hierarchy = SprintHierarchy.Build(new[] { story, task }, parentLookup, new[] { "Epic" });
+        var hierarchy = new SprintHierarchyBuilder().Build(new[] { story, task }, parentLookup, new[] { "Epic" });
 
         var roots = hierarchy.AssigneeGroups["Carol"];
         roots.Count.ShouldBe(1); // Epic is the root
@@ -101,7 +102,7 @@ public class SprintHierarchyTests
     public void Build_EmptySprint_EmptyHierarchy()
     {
         var parentLookup = new Dictionary<int, WorkItem>();
-        var hierarchy = SprintHierarchy.Build(Array.Empty<WorkItem>(), parentLookup, new[] { "Feature" });
+        var hierarchy = new SprintHierarchyBuilder().Build(Array.Empty<WorkItem>(), parentLookup, new[] { "Feature" });
 
         hierarchy.AssigneeGroups.ShouldBeEmpty();
     }
@@ -116,7 +117,7 @@ public class SprintHierarchyTests
         var task = new WorkItemBuilder(1, "Only task").AsTask().AssignedTo("Dan").Build();
 
         var parentLookup = new Dictionary<int, WorkItem>();
-        var hierarchy = SprintHierarchy.Build(new[] { task }, parentLookup, new[] { "Feature" });
+        var hierarchy = new SprintHierarchyBuilder().Build(new[] { task }, parentLookup, new[] { "Feature" });
 
         var roots = hierarchy.AssigneeGroups["Dan"];
         roots.Count.ShouldBe(1);
@@ -142,7 +143,7 @@ public class SprintHierarchyTests
         };
 
         // Both story and task are sprint items; story is parent of task
-        var hierarchy = SprintHierarchy.Build(new[] { story, task }, parentLookup, new[] { "Feature" });
+        var hierarchy = new SprintHierarchyBuilder().Build(new[] { story, task }, parentLookup, new[] { "Feature" });
 
         var roots = hierarchy.AssigneeGroups["Eve"];
         roots.Count.ShouldBe(1);
@@ -173,7 +174,7 @@ public class SprintHierarchyTests
         var task3 = new WorkItemBuilder(3, "Task 3").AsTask().AssignedTo("Bob").Build();
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
-        var hierarchy = SprintHierarchy.Build(new[] { task1, task2, task3 }, parentLookup, new[] { "Feature" });
+        var hierarchy = new SprintHierarchyBuilder().Build(new[] { task1, task2, task3 }, parentLookup, new[] { "Feature" });
 
         hierarchy.AssigneeGroups.Count.ShouldBe(2);
 
@@ -202,7 +203,7 @@ public class SprintHierarchyTests
         var task = new WorkItemBuilder(1, "Orphan task").AsTask().WithParent(999).AssignedTo("Frank").Build();
 
         var parentLookup = new Dictionary<int, WorkItem>();
-        var hierarchy = SprintHierarchy.Build(new[] { task }, parentLookup, new[] { "Feature" });
+        var hierarchy = new SprintHierarchyBuilder().Build(new[] { task }, parentLookup, new[] { "Feature" });
 
         var roots = hierarchy.AssigneeGroups["Frank"];
         roots.ShouldHaveSingleItem();
@@ -222,7 +223,7 @@ public class SprintHierarchyTests
         var task2 = new WorkItemBuilder(2, "Task 2").AsTask().WithParent(100).AssignedTo("Grace").Build();
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
-        var hierarchy = SprintHierarchy.Build(new[] { task1, task2 }, parentLookup, ceilingTypeNames: null);
+        var hierarchy = new SprintHierarchyBuilder().Build(new[] { task1, task2 }, parentLookup, ceilingTypeNames: null);
 
         var roots = hierarchy.AssigneeGroups["Grace"];
         roots.Count.ShouldBe(2);
@@ -242,7 +243,7 @@ public class SprintHierarchyTests
         var task2 = new WorkItemBuilder(2, "Task 2").AsTask().WithParent(100).AssignedTo("Grace").Build();
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
-        var hierarchy = SprintHierarchy.Build(new[] { task1, task2 }, parentLookup, ceilingTypeNames: Array.Empty<string>());
+        var hierarchy = new SprintHierarchyBuilder().Build(new[] { task1, task2 }, parentLookup, ceilingTypeNames: Array.Empty<string>());
 
         var roots = hierarchy.AssigneeGroups["Grace"];
         roots.Count.ShouldBe(2);
@@ -269,7 +270,7 @@ public class SprintHierarchyTests
             [100] = feature,
         };
 
-        var hierarchy = SprintHierarchy.Build(new[] { story }, parentLookup, new[] { "Feature" });
+        var hierarchy = new SprintHierarchyBuilder().Build(new[] { story }, parentLookup, new[] { "Feature" });
 
         var roots = hierarchy.AssigneeGroups["Hank"];
         roots.Count.ShouldBe(1);
@@ -295,7 +296,7 @@ public class SprintHierarchyTests
         var task = new WorkItemBuilder(1, "Task 1").AsTask().WithParent(200).AssignedTo("Ivy").Build();
 
         var parentLookup = new Dictionary<int, WorkItem> { [200] = backlogItem };
-        var hierarchy = SprintHierarchy.Build(
+        var hierarchy = new SprintHierarchyBuilder().Build(
             new[] { task },
             parentLookup,
             new[] { "User Story", "Backlog Item" });
@@ -321,7 +322,7 @@ public class SprintHierarchyTests
         var task3 = new WorkItemBuilder(3, "Task 3").AsTask().AssignedTo("bob").Build();
 
         var parentLookup = new Dictionary<int, WorkItem>();
-        var hierarchy = SprintHierarchy.Build(new[] { task1, task2, task3 }, parentLookup, new[] { "Feature" });
+        var hierarchy = new SprintHierarchyBuilder().Build(new[] { task1, task2, task3 }, parentLookup, new[] { "Feature" });
 
         var keys = hierarchy.AssigneeGroups.Keys.ToList();
         keys.Count.ShouldBe(3);
@@ -340,7 +341,7 @@ public class SprintHierarchyTests
         var task = new WorkItemBuilder(1, "Task 1").AsTask().Build();
 
         var parentLookup = new Dictionary<int, WorkItem>();
-        var hierarchy = SprintHierarchy.Build(new[] { task }, parentLookup, new[] { "Feature" });
+        var hierarchy = new SprintHierarchyBuilder().Build(new[] { task }, parentLookup, new[] { "Feature" });
 
         hierarchy.AssigneeGroups.ShouldContainKey("(unassigned)");
         hierarchy.AssigneeGroups["(unassigned)"].ShouldHaveSingleItem().Item.Id.ShouldBe(1);
@@ -364,7 +365,7 @@ public class SprintHierarchyTests
             ["Task"] = 2,
         };
 
-        var hierarchy = SprintHierarchy.Build(new[] { task1, task2 }, parentLookup, new[] { "Epic" }, typeLevelMap);
+        var hierarchy = new SprintHierarchyBuilder().Build(new[] { task1, task2 }, parentLookup, new[] { "Epic" }, typeLevelMap);
 
         var roots = hierarchy.AssigneeGroups["Alice"];
         roots.Count.ShouldBe(1); // One virtual group
@@ -390,7 +391,7 @@ public class SprintHierarchyTests
             ["Task"] = 2,
         };
 
-        var hierarchy = SprintHierarchy.Build(new[] { feature }, parentLookup, new[] { "Epic" }, typeLevelMap);
+        var hierarchy = new SprintHierarchyBuilder().Build(new[] { feature }, parentLookup, new[] { "Epic" }, typeLevelMap);
 
         var roots = hierarchy.AssigneeGroups["Bob"];
         roots.Count.ShouldBe(1);
@@ -423,7 +424,7 @@ public class SprintHierarchyTests
             ["Task"] = 2,
         };
 
-        var hierarchy = SprintHierarchy.Build(
+        var hierarchy = new SprintHierarchyBuilder().Build(
             new[] { task1, task2 }, parentLookup, new[] { "Epic" }, typeLevelMap);
 
         var roots = hierarchy.AssigneeGroups["Alice"];
@@ -454,7 +455,7 @@ public class SprintHierarchyTests
             ["Task"] = 2,
         };
 
-        var hierarchy = SprintHierarchy.Build(
+        var hierarchy = new SprintHierarchyBuilder().Build(
             new[] { feature, task }, parentLookup, new[] { "Epic" }, typeLevelMap);
 
         var roots = hierarchy.AssigneeGroups["Alice"];
@@ -475,7 +476,7 @@ public class SprintHierarchyTests
         var task = new WorkItemBuilder(1, "Task 1").AsTask().AssignedTo("Alice").Build();
 
         var parentLookup = new Dictionary<int, WorkItem>();
-        var hierarchy = SprintHierarchy.Build(
+        var hierarchy = new SprintHierarchyBuilder().Build(
             new[] { task }, parentLookup, new[] { "Feature" }, typeLevelMap: null);
 
         var roots = hierarchy.AssigneeGroups["Alice"];
@@ -497,7 +498,7 @@ public class SprintHierarchyTests
             ["Task"] = 1,
         };
 
-        var hierarchy = SprintHierarchy.Build(
+        var hierarchy = new SprintHierarchyBuilder().Build(
             new[] { task }, parentLookup, new[] { "Epic" }, typeLevelMap);
 
         var roots = hierarchy.AssigneeGroups["Alice"];
@@ -521,7 +522,7 @@ public class SprintHierarchyTests
             ["Task"] = 2,
         };
 
-        var hierarchy = SprintHierarchy.Build(
+        var hierarchy = new SprintHierarchyBuilder().Build(
             new[] { epic }, parentLookup, new[] { "Epic" }, typeLevelMap);
 
         var roots = hierarchy.AssigneeGroups["Alice"];
@@ -549,7 +550,7 @@ public class SprintHierarchyTests
             ["Task"] = 2,
         };
 
-        var hierarchy = SprintHierarchy.Build(
+        var hierarchy = new SprintHierarchyBuilder().Build(
             new[] { task }, parentLookup, new[] { "Epic" }, typeLevelMap);
 
         var roots = hierarchy.AssigneeGroups["Alice"];

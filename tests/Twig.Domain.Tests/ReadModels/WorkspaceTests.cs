@@ -1,6 +1,7 @@
 using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.ReadModels;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.TestKit;
 using Xunit;
@@ -234,7 +235,7 @@ public class WorkspaceTests
     public void Build_WithHierarchy_ExposesHierarchy()
     {
         var item = WorkItemBuilder.Simple(1, "Sprint item");
-        var hierarchy = SprintHierarchy.Build(
+        var hierarchy = new SprintHierarchyBuilder().Build(
             new[] { item },
             new Dictionary<int, WorkItem>(),
             null);

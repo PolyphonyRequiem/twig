@@ -71,7 +71,7 @@ public class CacheRefreshTests
     private WorkspaceCommand CreateCommand(RenderingPipelineFactory pipelineFactory) =>
         new(_contextStore, _workItemRepo, _iterationService, _config,
             _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore,
-            _activeItemResolver, _workingSetService, _trackingService, pipelineFactory);
+            _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder(), pipelineFactory);
 
     // ── IsCacheStale unit tests ─────────────────────────────────────
 

@@ -299,7 +299,7 @@ public sealed class WorkspaceSectionsWiringTests
     private WorkspaceCommand CreateDefaultCommand() =>
         new(_contextStore, _workItemRepo, _iterationService, _config,
             _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore,
-            _activeItemResolver, _workingSetService, _trackingService);
+            _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder());
 
     private WorkspaceCommand CreateCommandWithTtyPipeline()
     {
@@ -307,7 +307,7 @@ public sealed class WorkspaceSectionsWiringTests
             _formatterFactory, _spectreRenderer, isOutputRedirected: () => false);
         return new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService, _config,
             _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore,
-            _activeItemResolver, _workingSetService, _trackingService, pipelineFactory);
+            _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder(), pipelineFactory);
     }
 
     private static WorkItem CreateWorkItem(int id, string title) =>

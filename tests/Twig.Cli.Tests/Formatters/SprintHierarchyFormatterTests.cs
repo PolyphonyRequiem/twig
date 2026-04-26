@@ -1,6 +1,7 @@
 using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.ReadModels;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.TestKit;
@@ -51,7 +52,7 @@ public class SprintHierarchyFormatterTests
         task1.SetDirty();
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
-        var hierarchy = SprintHierarchy.Build(new[] { task1 }, parentLookup, new[] { "Feature" });
+        var hierarchy = new SprintHierarchyBuilder().Build(new[] { task1 }, parentLookup, new[] { "Feature" });
         var ws = Workspace.Build(task1, new[] { task1 }, Array.Empty<WorkItem>(), hierarchy);
 
         var output = _formatter.FormatSprintView(ws, 14);
@@ -72,7 +73,7 @@ public class SprintHierarchyFormatterTests
         var task1 = new WorkItemBuilder(44, "Fix typo").AsTask().AssignedTo("Alice").InState("Active").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
 
         var parentLookup = new Dictionary<int, WorkItem>();
-        var hierarchy = SprintHierarchy.Build(new[] { task1 }, parentLookup, new[] { "Feature" });
+        var hierarchy = new SprintHierarchyBuilder().Build(new[] { task1 }, parentLookup, new[] { "Feature" });
         var ws = Workspace.Build(null, new[] { task1 }, Array.Empty<WorkItem>(), hierarchy);
 
         var output = _formatter.FormatSprintView(ws, 14);
@@ -96,7 +97,7 @@ public class SprintHierarchyFormatterTests
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
         var sprintItems = new[] { task1, task2 };
-        var hierarchy = SprintHierarchy.Build(sprintItems, parentLookup, new[] { "Feature" });
+        var hierarchy = new SprintHierarchyBuilder().Build(sprintItems, parentLookup, new[] { "Feature" });
         var ws = Workspace.Build(null, sprintItems, Array.Empty<WorkItem>(), hierarchy);
 
         var output = _formatter.FormatSprintView(ws, 14);
@@ -145,7 +146,7 @@ public class SprintHierarchyFormatterTests
     [Fact]
     public void EmptySprint_ShowsZeroItems()
     {
-        var hierarchy = SprintHierarchy.Build(
+        var hierarchy = new SprintHierarchyBuilder().Build(
             Array.Empty<WorkItem>(),
             new Dictionary<int, WorkItem>(),
             new[] { "Feature" });
@@ -169,7 +170,7 @@ public class SprintHierarchyFormatterTests
         var task3 = new WorkItemBuilder(3, "Task B").AsTask().AssignedTo("bob").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
 
         var parentLookup = new Dictionary<int, WorkItem>();
-        var hierarchy = SprintHierarchy.Build(new[] { task1, task2, task3 }, parentLookup, new[] { "Feature" });
+        var hierarchy = new SprintHierarchyBuilder().Build(new[] { task1, task2, task3 }, parentLookup, new[] { "Feature" });
         var ws = Workspace.Build(null, new[] { task1, task2, task3 }, Array.Empty<WorkItem>(), hierarchy);
 
         var output = _formatter.FormatSprintView(ws, 14);
@@ -191,7 +192,7 @@ public class SprintHierarchyFormatterTests
         var task1 = new WorkItemBuilder(42, "Login endpoint").AsTask().WithParent(100).AssignedTo("Alice").InState("Active").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
-        var hierarchy = SprintHierarchy.Build(new[] { task1 }, parentLookup, new[] { "Feature" });
+        var hierarchy = new SprintHierarchyBuilder().Build(new[] { task1 }, parentLookup, new[] { "Feature" });
         // Set context to feature — even so, parent context node should NOT show active marker
         var ws = Workspace.Build(task1, new[] { task1 }, Array.Empty<WorkItem>(), hierarchy);
 
@@ -222,7 +223,7 @@ public class SprintHierarchyFormatterTests
             [50] = us1,
         };
         var sprintItems = new[] { us1, us2, task1 };
-        var hierarchy = SprintHierarchy.Build(sprintItems, parentLookup, new[] { "Feature" });
+        var hierarchy = new SprintHierarchyBuilder().Build(sprintItems, parentLookup, new[] { "Feature" });
         var ws = Workspace.Build(null, sprintItems, Array.Empty<WorkItem>(), hierarchy);
 
         var output = _formatter.FormatSprintView(ws, 14);
@@ -244,7 +245,7 @@ public class SprintHierarchyFormatterTests
         {
             ["Epic"] = 0, ["Feature"] = 1, ["Task"] = 2,
         };
-        var hierarchy = SprintHierarchy.Build(new[] { task1, task2 }, parentLookup, new[] { "Epic" }, typeLevelMap);
+        var hierarchy = new SprintHierarchyBuilder().Build(new[] { task1, task2 }, parentLookup, new[] { "Epic" }, typeLevelMap);
         var ws = Workspace.Build(null, new[] { task1, task2 }, Array.Empty<WorkItem>(), hierarchy);
 
         var output = _formatter.FormatSprintView(ws, 14);
@@ -267,7 +268,7 @@ public class SprintHierarchyFormatterTests
         {
             ["Epic"] = 0, ["Feature"] = 1, ["Task"] = 2,
         };
-        var hierarchy = SprintHierarchy.Build(new[] { feature, task }, parentLookup, new[] { "Epic" }, typeLevelMap);
+        var hierarchy = new SprintHierarchyBuilder().Build(new[] { feature, task }, parentLookup, new[] { "Epic" }, typeLevelMap);
         var ws = Workspace.Build(null, new[] { feature, task }, Array.Empty<WorkItem>(), hierarchy);
 
         var output = _formatter.FormatSprintView(ws, 14);
@@ -294,7 +295,7 @@ public class SprintHierarchyFormatterTests
         {
             ["Epic"] = 0, ["Feature"] = 1, ["Task"] = 2,
         };
-        var hierarchy = SprintHierarchy.Build(
+        var hierarchy = new SprintHierarchyBuilder().Build(
             new[] { task1, task2 }, parentLookup, new[] { "Epic" }, typeLevelMap);
         var ws = Workspace.Build(null, new[] { task1, task2 }, Array.Empty<WorkItem>(), hierarchy);
 
@@ -320,7 +321,7 @@ public class SprintHierarchyFormatterTests
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
         var sprintItems = new[] { task1, task2, task3 };
-        var hierarchy = SprintHierarchy.Build(sprintItems, parentLookup, new[] { "Feature" });
+        var hierarchy = new SprintHierarchyBuilder().Build(sprintItems, parentLookup, new[] { "Feature" });
         var ws = Workspace.Build(task1, sprintItems, Array.Empty<WorkItem>(), hierarchy);
 
         return (ws, hierarchy);

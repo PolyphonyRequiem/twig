@@ -3,6 +3,7 @@ using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Enums;
 using Twig.Domain.ReadModels;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.TestKit;
@@ -200,7 +201,7 @@ public class ProcessAwareWorkspaceTests
         var task2 = new WorkItemBuilder(43, "Logout endpoint").AsTask().InState("Active").WithParent(100).AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
-        var hierarchy = SprintHierarchy.Build(new[] { task1, task2 }, parentLookup, new[] { "Feature" });
+        var hierarchy = new SprintHierarchyBuilder().Build(new[] { task1, task2 }, parentLookup, new[] { "Feature" });
         var ws = Workspace.Build(null, new[] { task1, task2 }, Array.Empty<WorkItem>(), hierarchy);
 
         var output = _formatter.FormatSprintView(ws, 14);
@@ -220,7 +221,7 @@ public class ProcessAwareWorkspaceTests
         var task2 = new WorkItemBuilder(43, "Logout endpoint").AsTask().WithParent(100).AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
-        var hierarchy = SprintHierarchy.Build(new[] { task1, task2 }, parentLookup, new[] { "Feature" });
+        var hierarchy = new SprintHierarchyBuilder().Build(new[] { task1, task2 }, parentLookup, new[] { "Feature" });
         var ws = Workspace.Build(null, new[] { task1, task2 }, Array.Empty<WorkItem>(), hierarchy);
 
         var output = _formatter.FormatSprintView(ws, 14);
@@ -243,7 +244,7 @@ public class ProcessAwareWorkspaceTests
         var taskC = new WorkItemBuilder(43, "Task C").AsTask().WithParent(100).AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
-        var hierarchy = SprintHierarchy.Build(new[] { taskA, taskB, taskC }, parentLookup, new[] { "Feature" });
+        var hierarchy = new SprintHierarchyBuilder().Build(new[] { taskA, taskB, taskC }, parentLookup, new[] { "Feature" });
         var ws = Workspace.Build(null, new[] { taskA, taskB, taskC }, Array.Empty<WorkItem>(), hierarchy);
 
         var output = _formatter.FormatSprintView(ws, 14);
@@ -271,7 +272,7 @@ public class ProcessAwareWorkspaceTests
         var task3 = new WorkItemBuilder(44, "Profile").AsTask().InState("Resolved").WithParent(100).AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
-        var hierarchy = SprintHierarchy.Build(new[] { task1, task2, task3 }, parentLookup, new[] { "Feature" });
+        var hierarchy = new SprintHierarchyBuilder().Build(new[] { task1, task2, task3 }, parentLookup, new[] { "Feature" });
         var ws = Workspace.Build(null, new[] { task1, task2, task3 }, Array.Empty<WorkItem>(), hierarchy);
 
         var output = _formatter.FormatSprintView(ws, 14);
@@ -286,7 +287,7 @@ public class ProcessAwareWorkspaceTests
     {
         var task1 = new WorkItemBuilder(42, "Solo task").AsTask().InState("Active").AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
 
-        var hierarchy = SprintHierarchy.Build(new[] { task1 }, new Dictionary<int, WorkItem>(), new[] { "Feature" });
+        var hierarchy = new SprintHierarchyBuilder().Build(new[] { task1 }, new Dictionary<int, WorkItem>(), new[] { "Feature" });
         var ws = Workspace.Build(null, new[] { task1 }, Array.Empty<WorkItem>(), hierarchy);
 
         var output = _formatter.FormatSprintView(ws, 14);
@@ -304,7 +305,7 @@ public class ProcessAwareWorkspaceTests
         var task2 = new WorkItemBuilder(43, "Task 2").AsTask().InState("Closed").WithParent(100).AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
-        var hierarchy = SprintHierarchy.Build(new[] { task1, task2 }, parentLookup, new[] { "Feature" });
+        var hierarchy = new SprintHierarchyBuilder().Build(new[] { task1, task2 }, parentLookup, new[] { "Feature" });
         var ws = Workspace.Build(null, new[] { task1, task2 }, Array.Empty<WorkItem>(), hierarchy);
 
         var output = _formatter.FormatSprintView(ws, 14);
@@ -320,7 +321,7 @@ public class ProcessAwareWorkspaceTests
         var task2 = new WorkItemBuilder(43, "Task 2").AsTask().InState("Active").WithParent(100).AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
-        var hierarchy = SprintHierarchy.Build(new[] { task1, task2 }, parentLookup, new[] { "Feature" });
+        var hierarchy = new SprintHierarchyBuilder().Build(new[] { task1, task2 }, parentLookup, new[] { "Feature" });
         var ws = Workspace.Build(null, new[] { task1, task2 }, Array.Empty<WorkItem>(), hierarchy);
 
         var output = _formatter.FormatSprintView(ws, 14);
@@ -336,7 +337,7 @@ public class ProcessAwareWorkspaceTests
         var task2 = new WorkItemBuilder(43, "Task 2").AsTask().InState("Active").WithParent(100).AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
-        var hierarchy = SprintHierarchy.Build(new[] { task1, task2 }, parentLookup, new[] { "Feature" });
+        var hierarchy = new SprintHierarchyBuilder().Build(new[] { task1, task2 }, parentLookup, new[] { "Feature" });
         var ws = Workspace.Build(null, new[] { task1, task2 }, Array.Empty<WorkItem>(), hierarchy);
 
         var output = _formatter.FormatWorkspace(ws, 14);
@@ -387,7 +388,7 @@ public class ProcessAwareWorkspaceTests
         var task1 = new WorkItemBuilder(42, "Login endpoint").AsTask().InState("Active").WithParent(100).AssignedTo("Alice").WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
-        var hierarchy = SprintHierarchy.Build(new[] { task1 }, parentLookup, new[] { "Feature" });
+        var hierarchy = new SprintHierarchyBuilder().Build(new[] { task1 }, parentLookup, new[] { "Feature" });
         var ws = Workspace.Build(null, new[] { task1 }, Array.Empty<WorkItem>(), hierarchy);
 
         var output = _formatter.FormatSprintView(ws, 14);

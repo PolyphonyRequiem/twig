@@ -19,7 +19,8 @@ public sealed class AreaCommand(
     IWorkItemRepository? workItemRepo = null,
     IProcessTypeStore? processTypeStore = null,
     IIterationService? iterationService = null,
-    RenderingPipelineFactory? pipelineFactory = null)
+    RenderingPipelineFactory? pipelineFactory = null,
+    ISprintHierarchyBuilder? sprintHierarchyBuilder = null)
 {
     /// <summary>
     /// Default action: render the area-filtered workspace view.
@@ -103,7 +104,7 @@ public sealed class AreaCommand(
                 foreach (var item in areaItems)
                     fullParentLookup.TryAdd(item.Id, item);
 
-                hierarchy = SprintHierarchy.Build(areaItems, fullParentLookup, ceilingTypeNames, typeLevelMap);
+                hierarchy = sprintHierarchyBuilder!.Build(areaItems, fullParentLookup, ceilingTypeNames, typeLevelMap);
             }
         }
 

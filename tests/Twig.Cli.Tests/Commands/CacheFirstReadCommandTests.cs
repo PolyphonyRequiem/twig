@@ -401,7 +401,7 @@ public class CacheFirstReadCommandTests
         var fieldDefinitionStore = Substitute.For<IFieldDefinitionStore>();
         var config = new TwigConfiguration();
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, iterationService, config,
-            _formatterFactory, _hintEngine, processTypeStore, fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService);
+            _formatterFactory, _hintEngine, processTypeStore, fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder());
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);

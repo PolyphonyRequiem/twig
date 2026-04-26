@@ -63,7 +63,7 @@ public class WorkspaceCommandTests
         _spectreRenderer = new SpectreRenderer(_testConsole, new SpectreTheme(new DisplayConfig()));
 
         _cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService, _config,
-            _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService);
+            _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder());
     }
 
     // ── Command factory methods ─────────────────────────────────────
@@ -77,7 +77,7 @@ public class WorkspaceCommandTests
     private WorkspaceCommand CreateCommandWithPipeline(RenderingPipelineFactory pipelineFactory) =>
         new(_contextStore, _workItemRepo, _iterationService, _config,
             _formatterFactory, new HintEngine(new DisplayConfig { Hints = true }), _processTypeStore, _fieldDefinitionStore,
-            _activeItemResolver, _workingSetService, _trackingService, pipelineFactory);
+            _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder(), pipelineFactory);
 
     [Fact]
     public async Task Workspace_ShowsContextAndSprint()
@@ -326,7 +326,7 @@ public class WorkspaceCommandTests
             _formatterFactory, Substitute.For<IAsyncRenderer>());
         var cmdWithPipeline = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService, _config,
             _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore,
-            _activeItemResolver, _workingSetService, _trackingService, pipelineFactory);
+            _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder(), pipelineFactory);
 
         var resultWith = await cmdWithPipeline.ExecuteAsync("json");
         resultWith.ShouldBe(0);
@@ -355,7 +355,7 @@ public class WorkspaceCommandTests
         var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService, null);
 
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService, _config,
-            _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, workingSetService, _trackingService);
+            _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, workingSetService, _trackingService, new SprintHierarchyBuilder());
 
         var result = await cmd.ExecuteAsync("human");
         result.ShouldBe(0);
@@ -380,7 +380,7 @@ public class WorkspaceCommandTests
         var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService, null);
 
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService, _config,
-            _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, workingSetService, _trackingService);
+            _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, workingSetService, _trackingService, new SprintHierarchyBuilder());
 
         var result = await cmd.ExecuteAsync("human");
         result.ShouldBe(0);
@@ -406,7 +406,7 @@ public class WorkspaceCommandTests
         var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService, null);
 
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService, _config,
-            _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, workingSetService, _trackingService);
+            _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, workingSetService, _trackingService, new SprintHierarchyBuilder());
 
         var result = await cmd.ExecuteAsync("human");
         result.ShouldBe(0);
@@ -434,7 +434,7 @@ public class WorkspaceCommandTests
         var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService, null);
 
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService, _config,
-            _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, workingSetService, _trackingService);
+            _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, workingSetService, _trackingService, new SprintHierarchyBuilder());
 
         var result = await cmd.ExecuteAsync("json");
         result.ShouldBe(0);
@@ -498,7 +498,7 @@ public class WorkspaceCommandTests
         var pipelineFactory = CreateTtyPipelineFactory();
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService, _config,
             _formatterFactory, hintEngine, _processTypeStore, _fieldDefinitionStore,
-            _activeItemResolver, _workingSetService, _trackingService, pipelineFactory);
+            _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder(), pipelineFactory);
 
         var result = await cmd.ExecuteAsync("human");
 

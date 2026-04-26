@@ -30,6 +30,7 @@ public sealed class WorkspaceCommand(
     ActiveItemResolver activeItemResolver,
     WorkingSetService workingSetService,
     ITrackingService trackingService,
+    ISprintHierarchyBuilder sprintHierarchyBuilder,
     RenderingPipelineFactory? pipelineFactory = null)
 {
     public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default, bool sprintLayout = false, bool flat = false)
@@ -251,7 +252,7 @@ public sealed class WorkspaceCommand(
 
                 var ceilingTypeNames = CeilingComputer.Compute(new List<string>(typeNameSet), processConfig);
                 typeLevelMap = Domain.Services.BacklogHierarchyService.GetTypeLevelMap(processConfig);
-                hierarchy = SprintHierarchy.Build(sprintItems, parentLookup, ceilingTypeNames, typeLevelMap);
+                hierarchy = sprintHierarchyBuilder.Build(sprintItems, parentLookup, ceilingTypeNames, typeLevelMap);
 
                 // Extract tree roots from hierarchy for tree-based rendering
                 var roots = new List<SprintHierarchyNode>();
@@ -432,7 +433,7 @@ public sealed class WorkspaceCommand(
 
         var ceilingTypeNames = CeilingComputer.Compute(new List<string>(typeNameSet), processConfig);
         var typeLevelMap = Domain.Services.BacklogHierarchyService.GetTypeLevelMap(processConfig);
-        var hierarchy = SprintHierarchy.Build(sprintItems, parentLookup, ceilingTypeNames, typeLevelMap);
+        var hierarchy = sprintHierarchyBuilder.Build(sprintItems, parentLookup, ceilingTypeNames, typeLevelMap);
 
         // Flatten all assignee groups for personal workspace display
         var roots = new List<SprintHierarchyNode>();

@@ -73,7 +73,7 @@ public class UserScopedWorkspaceTests
             .Returns(new[] { aliceItem, bobItem });
 
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService,
-            config, _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService);
+            config, _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder());
 
         var result = await cmd.ExecuteAsync();
 
@@ -98,7 +98,7 @@ public class UserScopedWorkspaceTests
             .Returns(new[] { aliceItem, bobItem });
 
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService,
-            config, _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService);
+            config, _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder());
 
         var result = await cmd.ExecuteAsync(all: true);
 
@@ -123,7 +123,7 @@ public class UserScopedWorkspaceTests
             .Returns(new[] { aliceItem, bobItem });
 
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService,
-            config, _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService);
+            config, _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder());
 
         var result = await cmd.ExecuteAsync();
 
@@ -147,7 +147,7 @@ public class UserScopedWorkspaceTests
             .Returns(new[] { aliceItem, bobItem });
 
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService,
-            config, _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService);
+            config, _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder());
 
         // Use StringWriter to capture output without modifying global Console.Out.
         // FormatSprintView returns a string; we call it directly to avoid Console.SetOut.
@@ -181,7 +181,7 @@ public class UserScopedWorkspaceTests
             .Returns(Array.Empty<WorkItem>());
 
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService,
-            config, _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService);
+            config, _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder());
 
         var result = await cmd.ExecuteAsync();
 
@@ -204,7 +204,7 @@ public class UserScopedWorkspaceTests
             .Returns(new[] { contextItem });
 
         var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService,
-            config, _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService);
+            config, _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder());
 
         var result = await cmd.ExecuteAsync();
         result.ShouldBe(0);

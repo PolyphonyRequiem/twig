@@ -427,7 +427,7 @@ public class HumanOutputFormatterTests
             .WithIterationPath(@"Project\Sprint 1").WithAreaPath("Project").Build();
 
         var parentLookup = new Dictionary<int, WorkItem> { [100] = feature };
-        var hierarchy = SprintHierarchy.Build(new[] { task1, task2 }, parentLookup, new[] { "Feature" });
+        var hierarchy = new SprintHierarchyBuilder().Build(new[] { task1, task2 }, parentLookup, new[] { "Feature" });
         var tracked = new TrackedItem(1, Domain.Enums.TrackingMode.Single, DateTimeOffset.UtcNow);
         var ws = Workspace.Build(null, new[] { task1, task2 }, Array.Empty<WorkItem>(),
             hierarchy: hierarchy, trackedItems: new[] { tracked });
@@ -3480,7 +3480,7 @@ public class HumanOutputFormatterTests
             [1] = parentEpic,
             [3] = inAreaTask,
         };
-        var hierarchy = SprintHierarchy.Build(
+        var hierarchy = new SprintHierarchyBuilder().Build(
             new List<WorkItem> { inAreaTask },
             parentLookup,
             ceilingTypeNames: new List<string> { "Epic" });
@@ -3522,7 +3522,7 @@ public class HumanOutputFormatterTests
             [1] = parentEpic,
             [3] = inAreaTask,
         };
-        var hierarchy = SprintHierarchy.Build(
+        var hierarchy = new SprintHierarchyBuilder().Build(
             new List<WorkItem> { inAreaTask },
             parentLookup,
             ceilingTypeNames: new List<string> { "Epic" });

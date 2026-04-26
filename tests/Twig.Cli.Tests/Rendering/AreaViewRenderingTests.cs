@@ -3,6 +3,7 @@ using Spectre.Console;
 using Spectre.Console.Testing;
 using Twig.Domain.Aggregates;
 using Twig.Domain.ReadModels;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Config;
 using Twig.Rendering;
@@ -194,7 +195,7 @@ public sealed class AreaViewRenderingTests
 
     /// <summary>
     /// Builds an AreaView with a hierarchy containing an out-of-area parent and an in-area child.
-    /// Uses SprintHierarchy.Build() with the in-area task as the sprint item and the epic as
+    /// Uses new SprintHierarchyBuilder().Build() with the in-area task as the sprint item and the epic as
     /// a parent-context node (out-of-area, IsSprintItem=false).
     /// </summary>
     private static AreaView BuildHierarchyView()
@@ -208,7 +209,7 @@ public sealed class AreaViewRenderingTests
             [1] = outOfAreaEpic,
             [3] = inAreaTask,
         };
-        var hierarchy = SprintHierarchy.Build(
+        var hierarchy = new SprintHierarchyBuilder().Build(
             new List<WorkItem> { inAreaTask },
             parentLookup,
             ceilingTypeNames: new List<string> { "Epic" });

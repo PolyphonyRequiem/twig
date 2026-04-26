@@ -160,6 +160,139 @@ Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'twig2-\d+'
 
 ## Phases
 
+### Phase 0: Preflight Validation
+
+Validates external dependencies before expensive LLM planning begins. Catches broken
+auth, missing tooling, and connectivity failures early — saving minutes of wasted Opus
+inference that would otherwise fail opaquely in a downstream agent.
+
+#### Entry Points
+
+| Script | Workflow | Purpose | Budget |
+|--------|----------|---------|--------|
+| `preflight-check.ps1` | `twig-sdlc-full.yaml` | Full validation (12 checks) for apex SDLC entry | ≤10 seconds |
+| `preflight-lite.ps1` | `twig-sdlc-planning.yaml`, `twig-sdlc-implement.yaml` | Lightweight validation (3 checks) for sub-workflow re-entry | ≤5 seconds |
+
+**Full preflight** runs as the `preflight_check` script node in `twig-sdlc-full.yaml`.
+On failure, it routes to the `preflight_gate` human gate where the user can retry,
+proceed anyway (advisory-only failures), or abort.
+
+**Lite preflight** runs as the `preflight_lite` script node in sub-workflows. This
+catches the most common failures (gh auth, git repo, ADO connectivity) without
+repeating the full 12-check suite. On failure, it routes to `preflight_lite_gate`.
+
+#### Required vs. Advisory Checks
+
+Checks are classified into two categories:
+
+- **Required** — failure sets `ready=false` and blocks the workflow. The human gate
+  fires with remediation instructions. The user must fix the issue before proceeding.
+- **Advisory** — failure sets `has_warnings=true` but does NOT block. The workflow
+  continues with a warning. Advisory checks predict downstream issues but are not
+  hard blockers (e.g., missing `twig-mcp` binary may cause MCP server startup failure,
+  but the workflow can still run).
+
+#### Full Preflight Checks (`preflight-check.ps1`)
+
+| # | Check | Category | What It Validates |
+|---|-------|----------|-------------------|
+| 1 | `gh_auth` | Required | `gh api user` — GitHub CLI is authenticated |
+| 2 | `gh_push` | Required | `gh api repos/:slug` — push access on the repository |
+| 3 | `ado_access` | Required | `twig sync` + `twig set <id>` — ADO reachable, work item exists |
+| 4 | `twig_state` | Required | `twig state --help` — process config is loaded |
+| 5 | `dotnet_sdk` | Required | `dotnet --version` — .NET SDK is installed |
+| 6 | `git_status` | Required | `git branch --show-current` — git is functional |
+| 7 | `gh_default_repo` | Required | `gh repo set-default` — default repo set for `gh pr create` |
+| 8 | `conductor_version` | Advisory | `conductor --version` — conductor CLI is installed |
+| 9 | `twig_mcp_binary` | Advisory | `Get-Command twig-mcp` — twig-mcp binary is in PATH |
+| 10 | `twig_config` | Advisory | `Test-Path .twig/` — workspace config directory exists |
+| 11 | `network_ado` | Advisory | HTTP HEAD to `dev.azure.com` (3s timeout) |
+| 12 | `network_github` | Advisory | HTTP HEAD to `github.com` (3s timeout) |
+
+#### Lite Preflight Checks (`preflight-lite.ps1`)
+
+| # | Check | Category | What It Validates |
+|---|-------|----------|-------------------|
+| 1 | `gh_auth` | Required | `gh api user` — GitHub CLI is authenticated |
+| 2 | `git_repo` | Required | `git rev-parse --git-dir` — running inside a git repo |
+| 3 | `ado_access` | Required | `twig set <id>` — ADO reachable, work item exists |
+
+All lite checks are required — no advisory category in lite mode.
+
+#### Output Schema
+
+Both scripts output the same JSON structure for gate template compatibility:
+
+```json
+{
+  "ready": true,
+  "has_warnings": false,
+  "required_checks": [
+    { "name": "gh_auth", "passed": true, "detail": "Logged in as user", "category": "required" }
+  ],
+  "advisory_checks": [
+    { "name": "conductor_version", "passed": false, "detail": "...", "remediation": "Install conductor CLI", "category": "advisory" }
+  ],
+  "failed_count": 0,
+  "warning_count": 1,
+  "summary": "All required checks passed. 1 advisory warning."
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `ready` | boolean | `true` only when ALL required checks pass |
+| `has_warnings` | boolean | `true` when any advisory check fails |
+| `required_checks` | array | Results for each required check |
+| `advisory_checks` | array | Results for each advisory check (empty in lite mode) |
+| `failed_count` | number | Count of failed required checks |
+| `warning_count` | number | Count of failed advisory checks |
+| `summary` | string | Human-readable summary for the gate prompt |
+
+#### Remediation Steps
+
+**Required check failures** — workflow is blocked until resolved:
+
+| Check | Remediation |
+|-------|-------------|
+| `gh_auth` | Run `gh auth login` to re-authenticate |
+| `gh_push` | Run `gh auth switch --user <owner>` if wrong account is active |
+| `ado_access` | Run `az login` or set `TWIG_PAT` env var; run `twig sync` to refresh cache |
+| `twig_state` | Run `./publish-local.ps1` to rebuild twig; run `twig sync` to refresh process config |
+| `dotnet_sdk` | Install the .NET SDK from https://dot.net |
+| `git_status` | Ensure `git` is installed and you are inside a git repository |
+| `gh_default_repo` | Run `gh repo set-default <owner/repo>` |
+| `git_repo` (lite) | `cd` into a git repository before running the workflow |
+
+**Advisory check failures** — workflow proceeds with warnings:
+
+| Check | Remediation |
+|-------|-------------|
+| `conductor_version` | Install conductor CLI or add it to PATH |
+| `twig_mcp_binary` | Run `./publish-local.ps1` to build and deploy twig-mcp |
+| `twig_config` | Run `twig init` or clone a repo with `.twig/` checked in |
+| `network_ado` | Check network connectivity and proxy settings |
+| `network_github` | Check network connectivity and proxy settings |
+
+#### Workflow Routing
+
+```
+twig-sdlc-full.yaml:
+  preflight_check ──→ ready=true ──→ state_detector (continue)
+       │
+       └── ready=false ──→ preflight_gate (human gate)
+                               ├─ retry → preflight_check (loop)
+                               ├─ proceed anyway (advisory-only)
+                               └─ abort → $end
+
+twig-sdlc-planning.yaml / twig-sdlc-implement.yaml:
+  preflight_lite ──→ ready=true ──→ duplicate_check (continue)
+       │
+       └── ready=false ──→ preflight_lite_gate (human gate)
+                               ├─ retry → preflight_lite (loop)
+                               └─ abort → $end
+```
+
 ### Phase 1: Intake (1 agent)
 
 Reads an existing ADO work item or creates a new Epic from a prompt. Gathers context (title, description, existing child items) for the planning phase.

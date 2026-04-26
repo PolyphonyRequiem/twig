@@ -641,6 +641,8 @@ public class MsalCacheTokenProviderTests
             CallCount++;
             return Task.FromResult(token);
         }
+
+        public void InvalidateToken() { }
     }
 
     /// <summary>
@@ -655,5 +657,7 @@ public class MsalCacheTokenProviderTests
             CallCount++;
             throw new InvalidOperationException("az CLI unavailable");
         }
+
+        public void InvalidateToken() { }
     }
 }

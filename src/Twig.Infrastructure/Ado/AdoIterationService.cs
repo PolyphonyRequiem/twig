@@ -335,6 +335,19 @@ internal sealed class AdoIterationService : IIterationService
 
     private async Task<HttpResponseMessage> SendAsync(string url, CancellationToken ct)
     {
+        try
+        {
+            return await SendCoreAsync(url, ct);
+        }
+        catch (Exception ex) when (AdoErrorHandler.IsAuthChallenge(ex))
+        {
+            _authProvider.InvalidateToken();
+            return await SendCoreAsync(url, ct);
+        }
+    }
+
+    private async Task<HttpResponseMessage> SendCoreAsync(string url, CancellationToken ct)
+    {
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
 
         var token = await _authProvider.GetAccessTokenAsync(ct);

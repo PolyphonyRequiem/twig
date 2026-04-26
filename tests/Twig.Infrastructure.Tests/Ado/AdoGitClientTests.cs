@@ -172,6 +172,8 @@ public class AdoGitClientTests
     public async Task Unauthorized_ThrowsAdoAuthenticationException()
     {
         var handler = new FakeHandler();
+        // Two 401s: initial attempt + retry (GET requests retry once after token invalidation)
+        handler.Enqueue(HttpStatusCode.Unauthorized, """{"message":"Auth failed"}""");
         handler.Enqueue(HttpStatusCode.Unauthorized, """{"message":"Auth failed"}""");
 
         var client = CreateClient(handler);
@@ -394,6 +396,8 @@ public class AdoGitClientTests
     {
         public Task<string> GetAccessTokenAsync(CancellationToken ct = default)
             => Task.FromResult("fake-bearer-token");
+
+        public void InvalidateToken() { }
     }
 
     /// <summary>

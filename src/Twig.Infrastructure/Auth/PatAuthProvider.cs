@@ -33,6 +33,10 @@ internal sealed class PatAuthProvider : IAuthenticationProvider
         _configPatReader = configPatReader;
     }
 
+    /// <inheritdoc />
+    /// <remarks>PAT tokens are stateless — no cached state to clear.</remarks>
+    public void InvalidateToken() { }
+
     public Task<string> GetAccessTokenAsync(CancellationToken ct = default)
     {
         // Priority 1: environment variable

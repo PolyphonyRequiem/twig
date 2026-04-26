@@ -78,6 +78,8 @@ public sealed class AdoRestClientWiqlTopTests
     {
         public Task<string> GetAccessTokenAsync(CancellationToken ct = default)
             => Task.FromResult("fake-bearer-token");
+
+        public void InvalidateToken() { }
     }
 
     /// <summary>

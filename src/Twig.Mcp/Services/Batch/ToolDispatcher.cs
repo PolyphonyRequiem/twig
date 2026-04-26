@@ -54,7 +54,6 @@ internal sealed class ToolDispatcher(
             // Mutation tools
             "twig_state" => mutationTools.State(
                 GetRequiredString(args, "stateName"),
-                GetBool(args, "force"),
                 workspace, ct),
 
             "twig_update" => mutationTools.Update(

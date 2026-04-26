@@ -11,7 +11,7 @@ namespace Twig.Commands;
 
 /// <summary>
 /// Implements <c>twig state &lt;name&gt;</c>: resolves a full or partial state name,
-/// validates transition, prompts if backward/cut, pushes to ADO, auto-pushes pending notes,
+/// validates transition, pushes to ADO, auto-pushes pending notes,
 /// and updates cache.
 /// </summary>
 public sealed class StateCommand(
@@ -79,18 +79,6 @@ public sealed class StateCommand(
         {
             _stderr.WriteLine(fmt.FormatError($"Transition from '{item.State}' to '{newState}' is not allowed."));
             return 1;
-        }
-
-        if (transition.RequiresConfirmation)
-        {
-            var kind = transition.Kind == TransitionKind.Cut ? "REMOVE" : "move backward";
-            Console.Write($"This will {kind} #{item.Id} from '{item.State}' to '{newState}'. Continue? [y/N] ");
-            var response = consoleInput.ReadLine()?.Trim();
-            if (!string.Equals(response, "y", StringComparison.OrdinalIgnoreCase))
-            {
-                Console.WriteLine(fmt.FormatInfo("Cancelled."));
-                return 0;
-            }
         }
 
         var remote = await adoService.FetchAsync(item.Id);

@@ -22,7 +22,6 @@ public sealed class MutationTools(WorkspaceResolver resolver)
     [McpServerTool(Name = "twig_state"), Description("Change the state of the active work item")]
     public async Task<CallToolResult> State(
         [Description("Target state name (full or partial, case-insensitive)")] string stateName,
-        [Description("Set to true to proceed with backward or cut (remove-type) transitions without interactive confirmation")] bool force = false,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
         CancellationToken ct = default)
     {
@@ -59,10 +58,6 @@ public sealed class MutationTools(WorkspaceResolver resolver)
 
         if (!transition.IsAllowed)
             return McpResultBuilder.ToError($"Transition from '{item.State}' to '{newState}' is not allowed.");
-
-        if (transition.RequiresConfirmation && !force)
-            return McpResultBuilder.ToError(
-                $"Transition from '{item.State}' to '{newState}' requires confirmation (kind: {transition.Kind}). Retry with force: true to proceed.");
 
         WorkItem remote;
         try

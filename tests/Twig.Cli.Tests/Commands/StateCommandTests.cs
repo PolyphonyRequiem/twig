@@ -143,9 +143,9 @@ public class StateCommandTests
     }
 
     [Fact]
-    public async Task State_BackwardTransition_UserConfirms_AppliesChange()
+    public async Task State_BackwardTransition_NoConfirmationNeeded_AppliesChange()
     {
-        // Active → New is a backward transition for Agile UserStory
+        // Active → New is now a Forward transition (no confirmation needed)
         var item = CreateWorkItem(1, "Test", "Active", WorkItemType.UserStory);
         SetupActiveItem(item);
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
@@ -153,32 +153,36 @@ public class StateCommandTests
             .Returns(2);
         _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<PendingChangeRecord>());
-        _consoleInput.ReadLine().Returns("y");
 
-        var result = await _cmd.ExecuteAsync("New"); // New (backward from Active)
+        var result = await _cmd.ExecuteAsync("New"); // New (backward from Active — now Forward)
 
         result.ShouldBe(0);
         await _adoService.Received().PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        _consoleInput.DidNotReceive().ReadLine(); // No confirmation prompt
     }
 
     [Fact]
-    public async Task State_BackwardTransition_UserDeclines_Cancels()
+    public async Task State_BackwardTransition_NoPrompt_NeverCancels()
     {
-        // Active → New is a backward transition for Agile UserStory
+        // Active → New is now a Forward transition — no prompt, always proceeds
         var item = CreateWorkItem(1, "Test", "Active", WorkItemType.UserStory);
         SetupActiveItem(item);
-        _consoleInput.ReadLine().Returns("n");
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
 
-        var result = await _cmd.ExecuteAsync("New"); // New (backward from Active)
+        var result = await _cmd.ExecuteAsync("New");
 
         result.ShouldBe(0);
-        await _adoService.DidNotReceive().PatchAsync(Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        _consoleInput.DidNotReceive().ReadLine();
     }
 
     [Fact]
-    public async Task State_CutTransition_UserConfirms_AppliesChange()
+    public async Task State_CutTransition_AppliesWithoutPrompt()
     {
-        // New → Removed is a Cut transition for Agile UserStory
+        // New → Removed is a Cut transition for Agile UserStory — no prompt required
         var item = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
         SetupActiveItem(item);
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
@@ -186,12 +190,12 @@ public class StateCommandTests
             .Returns(2);
         _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<PendingChangeRecord>());
-        _consoleInput.ReadLine().Returns("y");
 
         var result = await _cmd.ExecuteAsync("Removed"); // Removed (cut from New)
 
         result.ShouldBe(0);
         await _adoService.Received().PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        _consoleInput.DidNotReceive().ReadLine();
     }
 
     [Fact]

@@ -83,11 +83,11 @@ public class ProcessConfigurationTests
     }
 
     [Fact]
-    public void BasicStyle_BackwardTransition()
+    public void BasicStyle_OrdinalBackwardTransition_IsForward()
     {
         var config = BuildBasicStyle();
-        config.GetTransitionKind(WorkItemType.Issue, "Doing", "To Do").ShouldBe(TransitionKind.Backward);
-        config.GetTransitionKind(WorkItemType.Issue, "Done", "Doing").ShouldBe(TransitionKind.Backward);
+        config.GetTransitionKind(WorkItemType.Issue, "Doing", "To Do").ShouldBe(TransitionKind.Forward);
+        config.GetTransitionKind(WorkItemType.Issue, "Done", "Doing").ShouldBe(TransitionKind.Forward);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -186,10 +186,10 @@ public class ProcessConfigurationTests
     }
 
     [Fact]
-    public void AgileStyle_BackwardTransition()
+    public void AgileStyle_OrdinalBackwardTransition_IsForward()
     {
         var config = BuildAgileStyle();
-        config.GetTransitionKind(WorkItemType.UserStory, "Active", "New").ShouldBe(TransitionKind.Backward);
+        config.GetTransitionKind(WorkItemType.UserStory, "Active", "New").ShouldBe(TransitionKind.Forward);
     }
 
     [Fact]
@@ -355,11 +355,11 @@ public class ProcessConfigurationTests
     }
 
     [Fact]
-    public void CmmiStyle_BackwardTransition()
+    public void CmmiStyle_OrdinalBackwardTransition_IsForward()
     {
         var config = BuildCmmiStyle();
-        config.GetTransitionKind(WorkItemType.Requirement, "Active", "Proposed").ShouldBe(TransitionKind.Backward);
-        config.GetTransitionKind(WorkItemType.Requirement, "Resolved", "Active").ShouldBe(TransitionKind.Backward);
+        config.GetTransitionKind(WorkItemType.Requirement, "Active", "Proposed").ShouldBe(TransitionKind.Forward);
+        config.GetTransitionKind(WorkItemType.Requirement, "Resolved", "Active").ShouldBe(TransitionKind.Forward);
     }
 
     [Fact]
@@ -534,7 +534,7 @@ public class ProcessConfigurationTests
 
         var customType = WorkItemType.Parse("CustomWorkItemType").Value;
         config.GetTransitionKind(customType, "Draft", "InReview").ShouldBe(TransitionKind.Forward);
-        config.GetTransitionKind(customType, "InReview", "Draft").ShouldBe(TransitionKind.Backward);
+        config.GetTransitionKind(customType, "InReview", "Draft").ShouldBe(TransitionKind.Forward);
     }
 
     [Fact]

@@ -1,19 +1,18 @@
 namespace Twig.Domain.Enums;
 
 /// <summary>
-/// Classifies a state transition for confirmation requirements.
+/// Classifies a state transition for routing purposes.
+/// ADO enforces process-specific transition rules; twig only distinguishes
+/// forward/cut for UI affordances (e.g. cut transitions may still prompt).
 /// </summary>
 public enum TransitionKind
 {
     /// <summary>Invalid or disallowed transition — no matching rule found.</summary>
     None = 0,
 
-    /// <summary>Toward completion — auto-applies without confirmation.</summary>
+    /// <summary>Toward completion or any ordinal move between non-removed states.</summary>
     Forward = 1,
 
-    /// <summary>Toward earlier state — requires confirmation.</summary>
-    Backward = 2,
-
-    /// <summary>To Removed — requires confirmation and reason.</summary>
+    /// <summary>To Removed — a destructive cut transition.</summary>
     Cut = 3
 }

@@ -181,33 +181,11 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  Backward transition without force — confirmation required
+    //  Backward transition — succeeds without prompt
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task State_BackwardTransition_WithoutForce_ReturnsConfirmationError()
-    {
-        var item = new WorkItemBuilder(42, "My Task").AsTask().InState("Done").Build();
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
-        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
-
-        var config = BuildTaskProcessConfig();
-        _processConfigProvider.GetConfiguration().Returns(config);
-
-        var result = await CreateMutationSut().State("Doing", force: false);
-
-        result.IsError.ShouldBe(true);
-        var text = result.Content[0].ShouldBeOfType<TextContentBlock>().Text;
-        text.ShouldContain("requires confirmation");
-        text.ShouldContain("force");
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  Backward transition with force — succeeds
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task State_BackwardTransition_WithForce_Succeeds()
+    public async Task State_BackwardTransition_Succeeds()
     {
         var item = new WorkItemBuilder(42, "My Task").AsTask().InState("Done").Build();
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
@@ -223,7 +201,36 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
             Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(2);
 
-        var result = await CreateMutationSut().State("Doing", force: true);
+        var result = await CreateMutationSut().State("Doing");
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+        root.GetProperty("state").GetString().ShouldBe("Doing");
+        root.GetProperty("previousState").GetString().ShouldBe("Done");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Backward transition with explicit workspace — two-parameter call
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task State_BackwardTransition_WithExplicitWorkspace_Succeeds()
+    {
+        var item = new WorkItemBuilder(42, "My Task").AsTask().InState("Done").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+
+        var config = BuildTaskProcessConfig();
+        _processConfigProvider.GetConfiguration().Returns(config);
+
+        var updatedItem = new WorkItemBuilder(42, "My Task").AsTask().InState("Doing").Build();
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
+            .Returns(item, updatedItem);
+        _adoService.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+
+        var result = await CreateMutationSut().State("Doing", "testorg/testproject");
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);

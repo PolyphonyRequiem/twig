@@ -38,7 +38,7 @@ public class TwigConfigurationTests : IDisposable
         config.Auth.Method.ShouldBe("azcli");
         config.Seed.StaleDays.ShouldBe(14);
         config.Display.Hints.ShouldBeTrue();
-        config.Display.TreeDepth.ShouldBe(10);
+        config.Display.TreeDepth.ShouldBe(5);
         config.Display.Icons.ShouldBe("unicode");
     }
 
@@ -167,7 +167,7 @@ public class TwigConfigurationTests : IDisposable
         config.Auth.Method.ShouldBe("azcli");
         config.Seed.StaleDays.ShouldBe(14);
         config.Display.Hints.ShouldBeTrue();
-        config.Display.TreeDepth.ShouldBe(10);
+        config.Display.TreeDepth.ShouldBe(5);
     }
 
     [Fact]

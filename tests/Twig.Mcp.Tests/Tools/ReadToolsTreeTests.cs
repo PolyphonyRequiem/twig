@@ -135,9 +135,9 @@ public sealed class ReadToolsTreeTests : ReadToolsTestBase
     // ═══════════════════════════════════════════════════════════════
 
     [Theory]
-    [InlineData(0, 3, 0)]  // depth=0: boundary — no children displayed
-    [InlineData(2, 5, 2)]  // depth=2: normal limit
-    public async Task Tree_DepthParameter_LimitsDisplayedChildren(int depth, int childCount, int expectedDisplayed)
+    [InlineData(0, 3)]  // depth=0: no descendant fetching, but direct children still shown
+    [InlineData(2, 5)]  // depth=2: controls recursive descendant levels, all direct children shown
+    public async Task Tree_DepthParameter_ControlsTraversalDepth(int depth, int childCount)
     {
         var focus = new WorkItemBuilder(10, "Feature").AsFeature().InState("Active").Build();
         var children = Enumerable.Range(20, childCount)
@@ -153,7 +153,8 @@ public sealed class ReadToolsTreeTests : ReadToolsTestBase
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
 
-        root.GetProperty("children").GetArrayLength().ShouldBe(expectedDisplayed);
+        // Depth controls descendant traversal, not direct child count — all children are always shown
+        root.GetProperty("children").GetArrayLength().ShouldBe(childCount);
         root.GetProperty("totalChildren").GetInt32().ShouldBe(childCount);
     }
 

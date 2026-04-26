@@ -202,7 +202,16 @@ internal sealed class AdoGitClient : IAdoGitService
             throw new AdoOfflineException(ex);
         }
 
-        await AdoErrorHandler.ThrowOnErrorAsync(response, url, ct);
+        try
+        {
+            await AdoErrorHandler.ThrowOnErrorAsync(response, url, ct);
+        }
+        catch
+        {
+            response.Dispose();
+            throw;
+        }
+
         return response;
     }
 

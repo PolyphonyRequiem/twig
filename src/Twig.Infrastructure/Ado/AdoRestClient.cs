@@ -399,7 +399,13 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         }
         catch (AdoRateLimitException ex)
         {
+            response.Dispose();
             _throttle?.SetPause(ex.RetryAfter);
+            throw;
+        }
+        catch
+        {
+            response.Dispose();
             throw;
         }
 

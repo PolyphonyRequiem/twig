@@ -353,8 +353,30 @@ internal sealed class AdoIterationService : IIterationService
         var token = await _authProvider.GetAccessTokenAsync(ct);
         AdoErrorHandler.ApplyAuthHeader(request, token);
 
-        var response = await _http.SendAsync(request, ct);
-        await AdoErrorHandler.ThrowOnErrorAsync(response, url, ct);
+        HttpResponseMessage response;
+        try
+        {
+            response = await _http.SendAsync(request, ct);
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new AdoOfflineException(ex);
+        }
+        catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            throw new AdoOfflineException(ex);
+        }
+
+        try
+        {
+            await AdoErrorHandler.ThrowOnErrorAsync(response, url, ct);
+        }
+        catch
+        {
+            response.Dispose();
+            throw;
+        }
+
         return response;
     }
 }

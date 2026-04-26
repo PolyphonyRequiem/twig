@@ -1,6 +1,5 @@
 using System.Text;
 using System.Text.Json;
-using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
@@ -390,16 +389,6 @@ public sealed class BatchCommand(
                     return new BatchItemResult(item.Id, item.Title, false,
                         $"Transition from '{item.State}' to '{resolvedState}' is not allowed.", null, null, 0);
 
-                if (interactive && transition.Kind == TransitionKind.Cut)
-                {
-                    _stdout.Write($"This will REMOVE #{item.Id} from '{item.State}' to '{resolvedState}'. Continue? [y/N] ");
-                    var response = consoleInput.ReadLine()?.Trim();
-                    if (!string.Equals(response, "y", StringComparison.OrdinalIgnoreCase))
-                    {
-                        _stdout.WriteLine(fmt.FormatInfo("Cancelled."));
-                        return new BatchItemResult(item.Id, item.Title, false, "Cancelled by user.", previousState, resolvedState, 0);
-                    }
-                }
             }
         }
 

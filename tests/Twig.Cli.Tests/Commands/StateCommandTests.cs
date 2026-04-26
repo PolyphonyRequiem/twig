@@ -180,9 +180,9 @@ public class StateCommandTests
     }
 
     [Fact]
-    public async Task State_CutTransition_UserConfirms_AppliesChange()
+    public async Task State_CutTransition_AppliesWithoutPrompt()
     {
-        // New → Removed is a Cut transition for Agile UserStory
+        // New → Removed is a Cut transition for Agile UserStory — no prompt required
         var item = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
         SetupActiveItem(item);
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
@@ -190,12 +190,12 @@ public class StateCommandTests
             .Returns(2);
         _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<PendingChangeRecord>());
-        _consoleInput.ReadLine().Returns("y");
 
         var result = await _cmd.ExecuteAsync("Removed"); // Removed (cut from New)
 
         result.ShouldBe(0);
         await _adoService.Received().PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        _consoleInput.DidNotReceive().ReadLine();
     }
 
     [Fact]

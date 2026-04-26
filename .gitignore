@@ -41,7 +41,11 @@ coverage/
 *.coveragexml
 
 # Twig runtime files
-.twig/
+# Twig runtime files (databases excluded, config checked in)
+.twig/*/
+.twig/prompt.json
+!.twig/config
+!.twig/status-fields
 
 # Local dev builds (publish-local.ps1)
 .local/

@@ -116,7 +116,7 @@ public static class TwigServiceRegistration
         // Telemetry client — no-op when TWIG_TELEMETRY_ENDPOINT is unset.
         services.AddSingleton<ITelemetryClient, TelemetryClient>();
 
-        // Prompt state writer— writes .twig/prompt.json atomically after mutating commands.
+        // Prompt state writer — writes .twig/prompt.json atomically after mutating commands.
         services.AddSingleton<IPromptStateWriter>(sp => new PromptStateWriter(
             sp.GetRequiredService<IContextStore>(),
             sp.GetRequiredService<IWorkItemRepository>(),

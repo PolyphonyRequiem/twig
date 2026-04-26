@@ -104,7 +104,6 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(TrackingCleanupPolicy))]
 // Descendant verification read models (Epic — SDLC close-out drill-down)
 [JsonSerializable(typeof(DescendantVerificationResult))]
-[JsonSerializable(typeof(IReadOnlyList<IncompleteItem>))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]

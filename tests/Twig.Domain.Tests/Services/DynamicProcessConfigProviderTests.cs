@@ -19,7 +19,7 @@ public class DynamicProcessConfigProviderTests
         var provider = new DynamicProcessConfigProvider(new FakeProcessTypeStore());
 
         var ex = Should.Throw<InvalidOperationException>(() => provider.GetConfiguration());
-        ex.Message.ShouldContain("Run 'twig init'");
+        ex.Message.ShouldContain("twig sync");
     }
 
     [Fact]

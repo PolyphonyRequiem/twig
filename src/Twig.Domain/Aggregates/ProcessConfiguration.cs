@@ -108,8 +108,8 @@ public sealed class ProcessConfiguration
 
     /// <summary>
     /// Builds a TypeConfig with automatically generated transition rules.
-    /// Forward = moving to a higher index, Backward = moving to a lower index,
-    /// Cut = transitioning to "Removed".
+    /// Forward = any move between non-removed states, Cut = transitioning to "Removed".
+    /// ADO enforces process-specific ordering; twig treats all non-cut transitions equally.
     /// </summary>
     private static TypeConfig BuildTypeConfig(string[] states, StateEntry[] stateEntries, WorkItemType[] childTypes)
     {
@@ -124,13 +124,9 @@ public sealed class ProcessConfiguration
                 var from = states[i];
                 var to = states[j];
 
-                TransitionKind kind;
-                if (to == RemovedStateName)
-                    kind = TransitionKind.Cut;
-                else if (j > i)
-                    kind = TransitionKind.Forward;
-                else
-                    kind = TransitionKind.Backward;
+                var kind = to == RemovedStateName
+                    ? TransitionKind.Cut
+                    : TransitionKind.Forward;
 
                 transitions[(from, to)] = kind;
             }

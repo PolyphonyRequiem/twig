@@ -2,7 +2,7 @@ namespace Twig.Domain.Interfaces;
 
 /// <summary>
 /// Abstracts reading a line of text from the user, enabling testability of
-/// commands that require interactive confirmation (e.g. backward/cut transitions).
+/// interactive CLI commands.
 /// </summary>
 public interface IConsoleInput
 {

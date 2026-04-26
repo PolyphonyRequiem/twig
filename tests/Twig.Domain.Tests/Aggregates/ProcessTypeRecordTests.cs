@@ -151,8 +151,8 @@ public class ProcessConfigurationFromRecordsTests
 
         // Draft → Active = Forward
         typeConfig.TransitionRules[("Draft", "Active")].ShouldBe(TransitionKind.Forward);
-        // Active → Draft = Backward
-        typeConfig.TransitionRules[("Active", "Draft")].ShouldBe(TransitionKind.Backward);
+        // Active → Draft = Forward (ordinal-backward is now Forward)
+        typeConfig.TransitionRules[("Active", "Draft")].ShouldBe(TransitionKind.Forward);
         // Any → Removed = Cut
         typeConfig.TransitionRules[("Active", "Removed")].ShouldBe(TransitionKind.Cut);
     }

@@ -11,8 +11,6 @@ public record TransitionResult
 {
     public TransitionKind Kind { get; init; }
     public bool IsAllowed { get; init; }
-    public bool RequiresConfirmation { get; init; }
-    public bool RequiresReason { get; init; }
 }
 
 /// <summary>
@@ -38,8 +36,6 @@ public static class StateTransitionService
             {
                 Kind = TransitionKind.None,
                 IsAllowed = false,
-                RequiresConfirmation = false,
-                RequiresReason = false,
             };
         }
 
@@ -49,22 +45,11 @@ public static class StateTransitionService
             {
                 Kind = TransitionKind.Forward,
                 IsAllowed = true,
-                RequiresConfirmation = false,
-                RequiresReason = false,
-            },
-            TransitionKind.Backward => new TransitionResult
-            {
-                Kind = TransitionKind.Backward,
-                IsAllowed = true,
-                RequiresConfirmation = true,
-                RequiresReason = false,
             },
             TransitionKind.Cut => new TransitionResult
             {
                 Kind = TransitionKind.Cut,
                 IsAllowed = true,
-                RequiresConfirmation = true,
-                RequiresReason = true,
             },
             // Defensive fallback — TransitionKind.None is never returned by GetTransitionKind,
             // but the compiler requires an exhaustive match and this guards against future enum additions.
@@ -72,8 +57,6 @@ public static class StateTransitionService
             {
                 Kind = TransitionKind.None,
                 IsAllowed = false,
-                RequiresConfirmation = false,
-                RequiresReason = false,
             },
         };
     }

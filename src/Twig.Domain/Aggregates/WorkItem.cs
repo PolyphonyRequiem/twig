@@ -79,9 +79,9 @@ public sealed class WorkItem
     // ── Command enqueueing ──────────────────────────────────────────
 
     /// <summary>Enqueues a state change command.</summary>
-    public void ChangeState(string newState, string? confirmation = null)
+    public void ChangeState(string newState)
     {
-        _commandQueue.Enqueue(new ChangeStateCommand(newState, confirmation));
+        _commandQueue.Enqueue(new ChangeStateCommand(newState));
         IsDirty = true;
     }
 

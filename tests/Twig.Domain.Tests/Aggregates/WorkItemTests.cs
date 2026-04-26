@@ -122,15 +122,14 @@ public class WorkItemTests
     }
 
     [Fact]
-    public void ChangeStateCommand_Confirmation_IsPreserved()
+    public void ChangeStateCommand_NewState_IsPreserved()
     {
-        var cmd = new ChangeStateCommand("Resolved", "Confirmed by user");
-        cmd.Confirmation.ShouldBe("Confirmed by user");
+        var cmd = new ChangeStateCommand("Resolved");
 
         var wi = new WorkItem { Id = 1, Type = WorkItemType.Task, State = "New" };
         cmd.Execute(wi);
 
-        cmd.Confirmation.ShouldBe("Confirmed by user");
+        cmd.NewState.ShouldBe("Resolved");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -174,11 +173,11 @@ public class WorkItemTests
     }
 
     [Fact]
-    public void ChangeState_WithConfirmation()
+    public void ChangeState_ToRemoved()
     {
         var wi = new WorkItem { Id = 1, Type = WorkItemType.UserStory, State = "Active" };
 
-        wi.ChangeState("Removed", "User confirmed removal");
+        wi.ChangeState("Removed");
         var changes = wi.ApplyCommands();
 
         wi.State.ShouldBe("Removed");

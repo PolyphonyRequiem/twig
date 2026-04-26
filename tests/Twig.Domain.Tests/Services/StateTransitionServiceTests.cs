@@ -18,27 +18,23 @@ public class StateTransitionServiceTests
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public void Basic_Forward_IsAllowed_NoConfirmation()
+    public void Basic_Forward_IsAllowed()
     {
         var config = ProcessConfigBuilder.Basic();
         var result = StateTransitionService.Evaluate(config, WorkItemType.Issue, "To Do", "Doing");
 
         result.Kind.ShouldBe(TransitionKind.Forward);
         result.IsAllowed.ShouldBeTrue();
-        result.RequiresConfirmation.ShouldBeFalse();
-        result.RequiresReason.ShouldBeFalse();
     }
 
     [Fact]
-    public void Basic_Backward_RequiresConfirmation()
+    public void Basic_OrdinalBackward_IsForward()
     {
         var config = ProcessConfigBuilder.Basic();
         var result = StateTransitionService.Evaluate(config, WorkItemType.Issue, "Doing", "To Do");
 
-        result.Kind.ShouldBe(TransitionKind.Backward);
+        result.Kind.ShouldBe(TransitionKind.Forward);
         result.IsAllowed.ShouldBeTrue();
-        result.RequiresConfirmation.ShouldBeTrue();
-        result.RequiresReason.ShouldBeFalse();
     }
 
     [Fact]
@@ -49,8 +45,6 @@ public class StateTransitionServiceTests
 
         result.Kind.ShouldBe(TransitionKind.None);
         result.IsAllowed.ShouldBeFalse();
-        result.RequiresConfirmation.ShouldBeFalse();
-        result.RequiresReason.ShouldBeFalse();
     }
 
     [Fact]
@@ -78,22 +72,19 @@ public class StateTransitionServiceTests
 
         result.Kind.ShouldBe(TransitionKind.Forward);
         result.IsAllowed.ShouldBeTrue();
-        result.RequiresConfirmation.ShouldBeFalse();
     }
 
     [Theory]
     [InlineData("Active", "New")]
     [InlineData("Resolved", "Active")]
     [InlineData("Closed", "Resolved")]
-    public void Agile_UserStory_Backward(string from, string to)
+    public void Agile_UserStory_OrdinalBackward_IsForward(string from, string to)
     {
         var config = ProcessConfigBuilder.Agile();
         var result = StateTransitionService.Evaluate(config, WorkItemType.UserStory, from, to);
 
-        result.Kind.ShouldBe(TransitionKind.Backward);
+        result.Kind.ShouldBe(TransitionKind.Forward);
         result.IsAllowed.ShouldBeTrue();
-        result.RequiresConfirmation.ShouldBeTrue();
-        result.RequiresReason.ShouldBeFalse();
     }
 
     [Theory]
@@ -108,8 +99,6 @@ public class StateTransitionServiceTests
 
         result.Kind.ShouldBe(TransitionKind.Cut);
         result.IsAllowed.ShouldBeTrue();
-        result.RequiresConfirmation.ShouldBeTrue();
-        result.RequiresReason.ShouldBeTrue();
     }
 
     [Fact]
@@ -137,20 +126,18 @@ public class StateTransitionServiceTests
 
         result.Kind.ShouldBe(TransitionKind.Forward);
         result.IsAllowed.ShouldBeTrue();
-        result.RequiresConfirmation.ShouldBeFalse();
     }
 
     [Theory]
     [InlineData("Committed", "Approved")]
     [InlineData("Approved", "New")]
-    public void Scrum_PBI_Backward(string from, string to)
+    public void Scrum_PBI_OrdinalBackward_IsForward(string from, string to)
     {
         var config = ProcessConfigBuilder.Scrum();
         var result = StateTransitionService.Evaluate(config, WorkItemType.ProductBacklogItem, from, to);
 
-        result.Kind.ShouldBe(TransitionKind.Backward);
+        result.Kind.ShouldBe(TransitionKind.Forward);
         result.IsAllowed.ShouldBeTrue();
-        result.RequiresConfirmation.ShouldBeTrue();
     }
 
     [Theory]
@@ -163,8 +150,6 @@ public class StateTransitionServiceTests
 
         result.Kind.ShouldBe(TransitionKind.Cut);
         result.IsAllowed.ShouldBeTrue();
-        result.RequiresConfirmation.ShouldBeTrue();
-        result.RequiresReason.ShouldBeTrue();
     }
 
     [Fact]
@@ -192,20 +177,18 @@ public class StateTransitionServiceTests
 
         result.Kind.ShouldBe(TransitionKind.Forward);
         result.IsAllowed.ShouldBeTrue();
-        result.RequiresConfirmation.ShouldBeFalse();
     }
 
     [Theory]
     [InlineData("Active", "Proposed")]
     [InlineData("Resolved", "Active")]
-    public void CMMI_Requirement_Backward(string from, string to)
+    public void CMMI_Requirement_OrdinalBackward_IsForward(string from, string to)
     {
         var config = ProcessConfigBuilder.Cmmi();
         var result = StateTransitionService.Evaluate(config, WorkItemType.Requirement, from, to);
 
-        result.Kind.ShouldBe(TransitionKind.Backward);
+        result.Kind.ShouldBe(TransitionKind.Forward);
         result.IsAllowed.ShouldBeTrue();
-        result.RequiresConfirmation.ShouldBeTrue();
     }
 
     [Theory]
@@ -220,8 +203,6 @@ public class StateTransitionServiceTests
 
         result.Kind.ShouldBe(TransitionKind.Cut);
         result.IsAllowed.ShouldBeTrue();
-        result.RequiresConfirmation.ShouldBeTrue();
-        result.RequiresReason.ShouldBeTrue();
     }
 
     [Fact]
@@ -250,8 +231,6 @@ public class StateTransitionServiceTests
 
         result.Kind.ShouldBe(TransitionKind.None);
         result.IsAllowed.ShouldBeFalse();
-        result.RequiresConfirmation.ShouldBeFalse();
-        result.RequiresReason.ShouldBeFalse();
     }
 
     [Fact]
@@ -295,8 +274,6 @@ public class StateTransitionServiceTests
 
         result.Kind.ShouldBe(TransitionKind.None);
         result.IsAllowed.ShouldBeFalse();
-        result.RequiresConfirmation.ShouldBeFalse();
-        result.RequiresReason.ShouldBeFalse();
     }
 
     [Fact]

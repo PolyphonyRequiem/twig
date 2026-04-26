@@ -428,6 +428,34 @@ internal static class McpResultBuilder
                 : $"Branch '{result.BranchName}' linked to #{result.WorkItemId}.");
         });
 
+    public static CallToolResult FormatVerification(DescendantVerificationResult result, string? workspace) =>
+        BuildJson(writer =>
+        {
+            writer.WriteNumber("rootId", result.RootId);
+            writer.WriteBoolean("verified", result.Verified);
+            writer.WriteNumber("totalChecked", result.TotalChecked);
+            writer.WriteNumber("incompleteCount", result.Incomplete.Count);
+
+            writer.WriteStartArray("incomplete");
+            foreach (var item in result.Incomplete)
+            {
+                writer.WriteStartObject();
+                writer.WriteNumber("id", item.Id);
+                writer.WriteString("title", item.Title);
+                writer.WriteString("type", item.Type);
+                writer.WriteString("state", item.State);
+                if (item.ParentId.HasValue)
+                    writer.WriteNumber("parentId", item.ParentId.Value);
+                else
+                    writer.WriteNull("parentId");
+                writer.WriteNumber("depth", item.Depth);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+
+            WriteOptionalWorkspace(writer, workspace);
+        });
+
     public static CallToolResult FormatFlushSummary(McpFlushSummary summary) =>
         BuildJson(writer =>
         {

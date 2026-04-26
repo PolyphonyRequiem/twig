@@ -123,6 +123,22 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
         return McpResultBuilder.FormatParent(child, parent, ctx.Key.ToString());
     }
 
+    [McpServerTool(Name = "twig_verify_descendants"), Description("Recursively verify that all descendants of a work item are in terminal states.")]
+    public async Task<CallToolResult> VerifyDescendants(
+        [Description("Root work item ID")] int id,
+        [Description("Maximum depth to traverse (default: 2)")] int maxDepth = 2,
+        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        CancellationToken ct = default)
+    {
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+
+        var service = new DescendantVerificationService(
+            ctx.WorkItemRepo, ctx.AdoService, ctx.ProcessConfigProvider);
+
+        var result = await service.VerifyAsync(id, maxDepth, ct);
+        return McpResultBuilder.FormatVerification(result, ctx.Key.ToString());
+    }
+
     [McpServerTool(Name = "twig_sprint"), Description("Get the current sprint iteration info, optionally listing sprint items")]
     public async Task<CallToolResult> Sprint(
         [Description("When true, includes work items assigned to the current sprint")] bool items = false,

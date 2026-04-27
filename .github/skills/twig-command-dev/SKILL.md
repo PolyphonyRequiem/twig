@@ -292,7 +292,7 @@ Command behavior specs are documented per-domain:
 |--------|-----------|--------|
 | Working Set & Sync | `docs/specs/working-set-sync.spec.md` | Draft |
 | Context (set, show) | `docs/specs/context-commands.spec.md` | Draft |
-| Mutation (state, update, note, edit, save, discard) | TBD | Not started |
+| Mutation (state, update, note, edit) | `docs/specs/mutation-commands.spec.md` | Draft |
 | Tree/Query (tree, workspace, query, area, states) | TBD | Not started |
 | Seed Lifecycle | TBD | Not started |
 | Flow (start, close, done) | TBD | Not started |

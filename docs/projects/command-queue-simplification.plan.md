@@ -1,7 +1,7 @@
 # Command Queue Pattern Simplification
 
 **Epic:** #2115 — Domain Critique: Command Queue Pattern Simplification
-**Status:** Draft
+**Status:** 🔨 In Progress
 **Revision:** 0
 **Revision Notes:** Initial draft.
 

@@ -51,7 +51,8 @@ public class SeedNewCommandTests
         var config = new TwigConfiguration { User = new UserConfig { DisplayName = "Test User" } };
         _cmd = new SeedNewCommand(
             _resolver, _workItemRepo, _processConfigProvider,
-            _fieldDefStore, _editorLauncher, formatterFactory, hintEngine, config);
+            _fieldDefStore, _editorLauncher, formatterFactory, hintEngine, config,
+            new SeedFactory(new SeedIdCounter()));
     }
 
     [Fact]

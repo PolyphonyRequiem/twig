@@ -4,6 +4,7 @@ using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -64,7 +65,8 @@ public class NewCommandTests : IDisposable
         _cmd = new NewCommand(
             _adoService, _workItemRepo, _contextStore,
             _fieldDefStore, _editorLauncher, _formatterFactory,
-            _hintEngine, _config);
+            _hintEngine, _config,
+            new SeedFactory(new SeedIdCounter()));
     }
 
     public void Dispose()
@@ -248,7 +250,8 @@ public class NewCommandTests : IDisposable
         var cmd = new NewCommand(
             _adoService, _workItemRepo, _contextStore,
             _fieldDefStore, _editorLauncher, _formatterFactory,
-            _hintEngine, configNoDefaults);
+            _hintEngine, configNoDefaults,
+            new SeedFactory(new SeedIdCounter()));
 
         ArrangeCreateSuccess();
 

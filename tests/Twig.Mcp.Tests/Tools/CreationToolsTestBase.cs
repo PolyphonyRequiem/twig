@@ -20,7 +20,7 @@ public abstract class CreationToolsTestBase : MutationToolsTestBase
 
     protected CreationTools CreateCreationSut()
     {
-        return new CreationTools(BuildResolver(DefaultConfig));
+        return new CreationTools(BuildResolver(DefaultConfig), new SeedFactory(new SeedIdCounter()));
     }
 
     /// <summary>
@@ -29,7 +29,7 @@ public abstract class CreationToolsTestBase : MutationToolsTestBase
     /// </summary>
     protected CreationTools CreateCreationSutWithGitService()
     {
-        return new CreationTools(BuildResolver(DefaultConfig, includeGitService: true));
+        return new CreationTools(BuildResolver(DefaultConfig, includeGitService: true), new SeedFactory(new SeedIdCounter()));
     }
 
     protected static ProcessConfiguration BuildProcessConfigWithChildren(

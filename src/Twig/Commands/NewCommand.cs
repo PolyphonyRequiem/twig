@@ -18,6 +18,7 @@ public sealed class NewCommand(
     OutputFormatterFactory formatterFactory,
     HintEngine hintEngine,
     TwigConfiguration config,
+    SeedFactory seedFactory,
     ContextChangeService? contextChangeService = null)
 {
     public async Task<int> ExecuteAsync(
@@ -77,7 +78,7 @@ public sealed class NewCommand(
 
         var seedTitle = string.IsNullOrWhiteSpace(title) ? "(untitled)" : title;
 
-        var seedResult = SeedFactory.CreateUnparented(
+        var seedResult = seedFactory.CreateUnparented(
             seedTitle,
             typeResult.Value,
             areaResult.Value,

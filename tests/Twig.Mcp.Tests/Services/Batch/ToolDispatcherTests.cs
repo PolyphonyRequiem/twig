@@ -1,6 +1,7 @@
 using ModelContextProtocol.Protocol;
 using NSubstitute;
 using Shouldly;
+using Twig.Domain.Services;
 using Twig.Mcp.Services;
 using Twig.Mcp.Services.Batch;
 using Twig.Mcp.Tools;
@@ -36,7 +37,7 @@ public sealed class ToolDispatcherTests
             new ReadTools(resolver),
             new MutationTools(resolver),
             new NavigationTools(resolver),
-            new CreationTools(resolver),
+            new CreationTools(resolver, new SeedFactory(new SeedIdCounter())),
             new WorkspaceTools(registry, resolver));
     }
 

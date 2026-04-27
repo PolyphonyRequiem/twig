@@ -43,7 +43,8 @@ public class SeedChainCommandTests
         _resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         _cmd = new SeedChainCommand(
             _resolver, _workItemRepo, _seedLinkRepo,
-            _processConfigProvider, _consoleInput, formatterFactory, hintEngine);
+            _processConfigProvider, _consoleInput, formatterFactory, hintEngine,
+            new SeedFactory(new SeedIdCounter()));
     }
 
     // ── E4-T4: Chain creates N seeds with N-1 links ────────────────

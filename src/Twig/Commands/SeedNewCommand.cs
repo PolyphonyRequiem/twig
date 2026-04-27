@@ -21,7 +21,8 @@ public sealed class SeedNewCommand(
     IEditorLauncher editorLauncher,
     OutputFormatterFactory formatterFactory,
     HintEngine hintEngine,
-    TwigConfiguration config)
+    TwigConfiguration config,
+    SeedFactory seedFactory)
 {
     /// <summary>Create a new local seed work item (no ADO push).</summary>
     public async Task<int> ExecuteAsync(
@@ -64,12 +65,12 @@ public sealed class SeedNewCommand(
         // Initialize seed counter from DB to avoid ID collisions (D7)
         var minSeedId = await workItemRepo.GetMinSeedIdAsync(ct);
         if (minSeedId.HasValue)
-            WorkItem.InitializeSeedCounter(minSeedId.Value);
+            seedFactory.InitializeSeedCounter(minSeedId.Value);
 
         // Use placeholder title for editor-only flow when no title provided
         var seedTitle = string.IsNullOrWhiteSpace(title) ? "(untitled)" : title;
 
-        var seedResult = SeedFactory.Create(seedTitle, parent, processConfig, typeOverride,
+        var seedResult = seedFactory.Create(seedTitle, parent, processConfig, typeOverride,
             config.User.DisplayName);
         if (!seedResult.IsSuccess)
         {

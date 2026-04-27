@@ -21,7 +21,8 @@ public sealed class SeedChainCommand(
     IProcessConfigurationProvider processConfigProvider,
     IConsoleInput consoleInput,
     OutputFormatterFactory formatterFactory,
-    HintEngine hintEngine)
+    HintEngine hintEngine,
+    SeedFactory seedFactory)
 {
     /// <summary>Create a chain of seeds interactively or from explicit titles, linking each to the previous.</summary>
     public async Task<int> ExecuteAsync(
@@ -66,7 +67,7 @@ public sealed class SeedChainCommand(
         // 3. Initialize seed counter from DB
         var minSeedId = await workItemRepo.GetMinSeedIdAsync(ct);
         if (minSeedId.HasValue)
-            WorkItem.InitializeSeedCounter(minSeedId.Value);
+            seedFactory.InitializeSeedCounter(minSeedId.Value);
 
         // 4. Create seeds — batch mode (explicit titles) or interactive loop
         var createdSeeds = new List<WorkItem>();
@@ -92,7 +93,7 @@ public sealed class SeedChainCommand(
 
         foreach (var title in GetTitleSource())
         {
-            var seedResult = SeedFactory.Create(title, parent, processConfig, typeOverride);
+            var seedResult = seedFactory.Create(title, parent, processConfig, typeOverride);
             if (!seedResult.IsSuccess)
             {
                 if (createdSeeds.Count > 0)

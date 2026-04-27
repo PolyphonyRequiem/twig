@@ -15,7 +15,7 @@ namespace Twig.Mcp.Tools;
 /// Resolves per-workspace services via <see cref="WorkspaceResolver"/>.
 /// </summary>
 [McpServerToolType]
-public sealed class CreationTools(WorkspaceResolver resolver)
+public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFactory)
 {
     [McpServerTool(Name = "twig_new"), Description("Create a new work item in Azure DevOps")]
     public async Task<CallToolResult> New(
@@ -67,7 +67,7 @@ public sealed class CreationTools(WorkspaceResolver resolver)
         var areaPath = ResolveDefaultPath(ctx.Config.Defaults?.AreaPath, ctx.Config.Project, AreaPath.Parse);
         var iterationPath = ResolveDefaultPath(ctx.Config.Defaults?.IterationPath, ctx.Config.Project, IterationPath.Parse);
 
-        var unparentedResult = SeedFactory.CreateUnparented(
+        var unparentedResult = seedFactory.CreateUnparented(
             title,
             parsedType,
             areaPath,
@@ -248,7 +248,7 @@ public sealed class CreationTools(WorkspaceResolver resolver)
         var (parent, fetchErr) = await ctx.FetchWithFallbackAsync(parentId, ct);
         if (fetchErr is not null) return McpResultBuilder.ToError(fetchErr);
 
-        var seedResult = SeedFactory.Create(title, parent!, processConfig, parsedType, assignedTo);
+        var seedResult = seedFactory.Create(title, parent!, processConfig, parsedType, assignedTo);
         if (!seedResult.IsSuccess)
         {
             var parentType = parent!.Type;

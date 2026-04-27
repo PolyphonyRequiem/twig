@@ -123,7 +123,8 @@ public sealed class NewCommand_ContextChangeTests : IDisposable
         var cmd = new NewCommand(
             _adoService, _workItemRepo, _contextStore,
             _fieldDefStore, _editorLauncher, _formatterFactory,
-            _hintEngine, _config);
+            _hintEngine, _config,
+            new SeedFactory(new SeedIdCounter()));
 
         var result = await cmd.ExecuteAsync("My Task", "Task", set: true);
 
@@ -142,7 +143,9 @@ public sealed class NewCommand_ContextChangeTests : IDisposable
         return new NewCommand(
             _adoService, _workItemRepo, _contextStore,
             _fieldDefStore, _editorLauncher, _formatterFactory,
-            _hintEngine, _config, contextChangeService);
+            _hintEngine, _config,
+            new SeedFactory(new SeedIdCounter()),
+            contextChangeService);
     }
 
     private void ArrangeCreateSuccess(int newId = 100, string title = "My Task")

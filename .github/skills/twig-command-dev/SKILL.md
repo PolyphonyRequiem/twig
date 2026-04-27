@@ -311,6 +311,7 @@ Command behavior specs are documented per-domain:
 | Context (set, show) | `docs/specs/context-commands.spec.md` | Draft |
 | Mutation (state, update, note, edit, patch) | `docs/specs/mutation-commands.spec.md` | Draft |
 | Tree/Query (show --tree, workspace, query, process, sync) | `docs/specs/tree-query-commands.spec.md` | Draft |
+| Navigation (nav, up, down, next, prev, back, fore, history) | `docs/specs/navigation-commands.spec.md` | Draft |
 | Seed Lifecycle | TBD | Not started |
 | Navigation (up, down, back, forward) | TBD | Not started |
 | Flow (start, close, done) | N/A | Removed |

@@ -57,6 +57,7 @@ public sealed class JsonOutputFormatter : IOutputFormatter
                 writer.WriteString("title", child.Title);
                 writer.WriteString("type", child.Type.ToString());
                 writer.WriteString("state", child.State);
+                writer.WriteString("tags", GetTags(child));
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();
@@ -694,6 +695,13 @@ public sealed class JsonOutputFormatter : IOutputFormatter
             writer.WriteNumber("parentId", item.ParentId.Value);
         else
             writer.WriteNull("parentId");
+        writer.WriteString("tags", GetTags(item));
+    }
+
+    internal static string GetTags(WorkItem item)
+    {
+        item.Fields.TryGetValue("System.Tags", out var tags);
+        return tags ?? "";
     }
 
     internal static void WriteSectionsBlock(Utf8JsonWriter writer, WorkspaceSections sections)
@@ -732,6 +740,7 @@ public sealed class JsonOutputFormatter : IOutputFormatter
             writer.WriteNumber("parentId", item.ParentId.Value);
         else
             writer.WriteNull("parentId");
+        writer.WriteString("tags", GetTags(item));
 
         if (dynamicColumns is { Count: > 0 })
         {
@@ -765,6 +774,7 @@ public sealed class JsonOutputFormatter : IOutputFormatter
             writer.WriteNumber("parentId", item.ParentId.Value);
         else
             writer.WriteNull("parentId");
+        writer.WriteString("tags", GetTags(item));
 
         var descendants = tree.GetDescendants(item.Id);
         writer.WriteStartArray("children");

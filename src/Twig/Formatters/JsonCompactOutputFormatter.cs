@@ -176,6 +176,7 @@ public sealed class JsonCompactOutputFormatter(JsonOutputFormatter full) : IOutp
         writer.WriteString("title", item.Title);
         writer.WriteString("type", item.Type.ToString());
         writer.WriteString("state", item.State);
+        writer.WriteString("tags", JsonOutputFormatter.GetTags(item));
         writer.WriteEndObject();
     }
 
@@ -186,6 +187,7 @@ public sealed class JsonCompactOutputFormatter(JsonOutputFormatter full) : IOutp
         writer.WriteString("title", item.Title);
         writer.WriteString("type", item.Type.ToString());
         writer.WriteString("state", item.State);
+        writer.WriteString("tags", JsonOutputFormatter.GetTags(item));
 
         var descendants = tree.GetDescendants(item.Id);
         writer.WriteStartArray("children");

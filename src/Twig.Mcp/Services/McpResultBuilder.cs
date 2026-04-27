@@ -515,6 +515,8 @@ internal static class McpResultBuilder
             writer.WriteNumber("parentId", item.ParentId.Value);
         else
             writer.WriteNull("parentId");
+        item.Fields.TryGetValue("System.Tags", out var tags);
+        writer.WriteString("tags", tags ?? "");
     }
 
     /// <summary>

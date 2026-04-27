@@ -1,9 +1,11 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Shouldly;
+using Twig.Domain.Aggregates;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Ado.Dtos;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Infrastructure.Tests.Ado;
@@ -321,7 +323,7 @@ public class AdoResponseMapperTests
     [Fact]
     public void MapSeedToCreatePayload_WithoutParent_ContainsTitleAndTwigTag()
     {
-        var seed = Domain.Aggregates.WorkItem.CreateSeed(WorkItemType.Task, "New Task");
+        var seed = new WorkItemBuilder(-1, "New Task").AsSeed().Build();
 
         var result = AdoResponseMapper.MapSeedToCreatePayload(seed, "https://dev.azure.com/myorg");
 
@@ -334,7 +336,7 @@ public class AdoResponseMapperTests
     [Fact]
     public void MapSeedToCreatePayload_WithParent_ContainsRelationLink()
     {
-        var seed = Domain.Aggregates.WorkItem.CreateSeed(WorkItemType.Task, "Child Task", parentId: 42);
+        var seed = new WorkItemBuilder(-1, "Child Task").WithParent(42).AsSeed().Build();
 
         var result = AdoResponseMapper.MapSeedToCreatePayload(seed, "https://dev.azure.com/myorg", parentId: 42);
 
@@ -345,11 +347,12 @@ public class AdoResponseMapperTests
     [Fact]
     public void MapSeedToCreatePayload_WithAreaAndIterationPaths_IncludesThem()
     {
-        var seed = Domain.Aggregates.WorkItem.CreateSeed(
-            WorkItemType.UserStory,
-            "Story",
-            areaPath: AreaPath.Parse(@"Proj\Area").Value,
-            iterationPath: IterationPath.Parse(@"Proj\Sprint 1").Value);
+        var seed = new WorkItemBuilder(-1, "Story")
+            .AsUserStory()
+            .WithAreaPath(@"Proj\Area")
+            .WithIterationPath(@"Proj\Sprint 1")
+            .AsSeed()
+            .Build();
 
         var result = AdoResponseMapper.MapSeedToCreatePayload(seed, "https://dev.azure.com/org");
 
@@ -361,7 +364,7 @@ public class AdoResponseMapperTests
     [Fact]
     public void MapSeedToCreatePayload_IncludesPopulatedFields()
     {
-        var seed = Domain.Aggregates.WorkItem.CreateSeed(WorkItemType.Task, "Task with fields");
+        var seed = new WorkItemBuilder(-1, "Task with fields").AsSeed().Build();
         seed.ImportFields(new Dictionary<string, string?>
         {
             ["System.Description"] = "A description",
@@ -378,7 +381,7 @@ public class AdoResponseMapperTests
     [Fact]
     public void MapSeedToCreatePayload_SkipsEmptyFields()
     {
-        var seed = Domain.Aggregates.WorkItem.CreateSeed(WorkItemType.Task, "Task");
+        var seed = new WorkItemBuilder(-1, "Task").AsSeed().Build();
         seed.ImportFields(new Dictionary<string, string?>
         {
             ["System.Description"] = "",
@@ -396,7 +399,7 @@ public class AdoResponseMapperTests
     [Fact]
     public void MapSeedToCreatePayload_SkipsReadOnlyFields()
     {
-        var seed = Domain.Aggregates.WorkItem.CreateSeed(WorkItemType.Task, "Task");
+        var seed = new WorkItemBuilder(-1, "Task").AsSeed().Build();
         seed.ImportFields(new Dictionary<string, string?>
         {
             ["System.Id"] = "999",
@@ -426,10 +429,11 @@ public class AdoResponseMapperTests
     [Fact]
     public void MapSeedToCreatePayload_DoesNotDuplicateExplicitlyHandledFields()
     {
-        var seed = Domain.Aggregates.WorkItem.CreateSeed(
-            WorkItemType.Task, "My Task",
-            areaPath: AreaPath.Parse(@"Proj\Area").Value,
-            iterationPath: IterationPath.Parse(@"Proj\Sprint").Value);
+        var seed = new WorkItemBuilder(-1, "My Task")
+            .WithAreaPath(@"Proj\Area")
+            .WithIterationPath(@"Proj\Sprint")
+            .AsSeed()
+            .Build();
         seed.ImportFields(new Dictionary<string, string?>
         {
             ["System.Title"] = "My Task",
@@ -454,7 +458,7 @@ public class AdoResponseMapperTests
     [Fact]
     public void MapSeedToCreatePayload_ExistingTags_MergesTwigTag()
     {
-        var seed = Domain.Aggregates.WorkItem.CreateSeed(WorkItemType.Task, "Task");
+        var seed = new WorkItemBuilder(-1, "Task").AsSeed().Build();
         seed.ImportFields(new Dictionary<string, string?>
         {
             ["System.Tags"] = "frontend; api",
@@ -470,7 +474,7 @@ public class AdoResponseMapperTests
     [Fact]
     public void MapSeedToCreatePayload_TwigTagAlreadyPresent_NoDuplicate()
     {
-        var seed = Domain.Aggregates.WorkItem.CreateSeed(WorkItemType.Task, "Task");
+        var seed = new WorkItemBuilder(-1, "Task").AsSeed().Build();
         seed.ImportFields(new Dictionary<string, string?>
         {
             ["System.Tags"] = "frontend; twig",
@@ -486,7 +490,7 @@ public class AdoResponseMapperTests
     [Fact]
     public void MapSeedToCreatePayload_TwigTagCaseInsensitive_NoDuplicate()
     {
-        var seed = Domain.Aggregates.WorkItem.CreateSeed(WorkItemType.Task, "Task");
+        var seed = new WorkItemBuilder(-1, "Task").AsSeed().Build();
         seed.ImportFields(new Dictionary<string, string?>
         {
             ["System.Tags"] = "Twig; backend",

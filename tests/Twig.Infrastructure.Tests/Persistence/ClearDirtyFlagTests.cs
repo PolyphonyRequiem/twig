@@ -2,6 +2,7 @@ using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Persistence;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Infrastructure.Tests.Persistence;
@@ -92,8 +93,7 @@ public sealed class ClearDirtyFlagTests : IDisposable
     [Fact]
     public async Task WorksOnSeedItems()
     {
-        WorkItem.InitializeSeedCounter(-100);
-        var seed = WorkItem.CreateSeed(WorkItemType.Task, "Seed Item");
+        var seed = new WorkItemBuilder(-101, "Seed Item").AsSeed().Build();
         seed.SetDirty();
         await _repo.SaveAsync(seed);
 

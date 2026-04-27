@@ -139,7 +139,7 @@ public class WorkspaceTests
     [Fact]
     public void GetDirtyItems_IncludesDirtySeeds()
     {
-        var dirtySeed = WorkItem.CreateSeed(WorkItemType.Task, "Dirty seed");
+        var dirtySeed = new WorkItemBuilder(Interlocked.Decrement(ref _seedCounter), "Dirty seed").AsSeed().Build();
         dirtySeed.ChangeState("Active");
 
         var cleanSprint = WorkItemBuilder.Simple(2, "Clean sprint");
@@ -215,8 +215,8 @@ public class WorkspaceTests
     [Fact]
     public void ListAll_MultipleSeedsFromCreateSeed_AllIncluded()
     {
-        var seed1 = WorkItem.CreateSeed(WorkItemType.Task, "Seed A");
-        var seed2 = WorkItem.CreateSeed(WorkItemType.Task, "Seed B");
+        var seed1 = new WorkItemBuilder(Interlocked.Decrement(ref _seedCounter), "Seed A").AsSeed().Build();
+        var seed2 = new WorkItemBuilder(Interlocked.Decrement(ref _seedCounter), "Seed B").AsSeed().Build();
 
         var ws = Workspace.Build(null, Array.Empty<WorkItem>(), new[] { seed1, seed2 });
 

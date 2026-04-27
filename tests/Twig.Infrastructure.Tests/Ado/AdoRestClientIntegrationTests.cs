@@ -4,6 +4,7 @@ using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Ado.Exceptions;
 using Twig.Infrastructure.Auth;
+using Twig.TestKit;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -58,7 +59,7 @@ public class AdoRestClientIntegrationTests
         var (client, _) = CreateClients();
 
         // Create a work item first to avoid assuming ID 1 exists
-        var seed = WorkItem.CreateSeed(WorkItemType.Task, $"Fetch test {DateTimeOffset.UtcNow:O}");
+        var seed = new WorkItemBuilder(-1, $"Fetch test {DateTimeOffset.UtcNow:O}").AsSeed().Build();
         var id = await client.CreateAsync(seed);
 
         var item = await client.FetchAsync(id);
@@ -74,7 +75,7 @@ public class AdoRestClientIntegrationTests
         if (!CanRun) { SkipIfNotConfigured(); return; }
         var (client, _) = CreateClients();
 
-        var seed = WorkItem.CreateSeed(WorkItemType.Task, $"Integration test task {DateTimeOffset.UtcNow:O}");
+        var seed = new WorkItemBuilder(-1, $"Integration test task {DateTimeOffset.UtcNow:O}").AsSeed().Build();
         var id = await client.CreateAsync(seed);
 
         id.ShouldBeGreaterThan(0);
@@ -87,7 +88,7 @@ public class AdoRestClientIntegrationTests
         var (client, _) = CreateClients();
 
         // Create a work item first, then patch it
-        var seed = WorkItem.CreateSeed(WorkItemType.Task, $"Patch test {DateTimeOffset.UtcNow:O}");
+        var seed = new WorkItemBuilder(-1, $"Patch test {DateTimeOffset.UtcNow:O}").AsSeed().Build();
         var id = await client.CreateAsync(seed);
 
         var item = await client.FetchAsync(id);
@@ -103,7 +104,7 @@ public class AdoRestClientIntegrationTests
         if (!CanRun) { SkipIfNotConfigured(); return; }
         var (client, _) = CreateClients();
 
-        var seed = WorkItem.CreateSeed(WorkItemType.Task, $"Comment test {DateTimeOffset.UtcNow:O}");
+        var seed = new WorkItemBuilder(-1, $"Comment test {DateTimeOffset.UtcNow:O}").AsSeed().Build();
         var id = await client.CreateAsync(seed);
 
         // Should not throw

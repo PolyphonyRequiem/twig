@@ -21,8 +21,13 @@ explicitly noted (e.g., pure-utility commands like `upgrade`).
 --output human       # Default. Rich ANSI, Spectre tables, icons.
 --output json        # Full structured JSON. Machine-consumable.
 --output jsonc       # Compact JSON (json-compact). Reduced schema.
---output minimal     # Pipe-friendly. IDs and essential fields only.
+--output minimal     # Pipe-friendly. Key fields, tab-separated, one per line.
+--output ids         # Bare numeric IDs, one per line. For piping to other commands.
 ```
+
+**`ids` format:** Supported by all list-like commands: `query`, `workspace`,
+`workspace area view`, `show` (batch/tree). NOT supported by single-item detail
+views, `process`, or `sync`.
 
 **Implementation pattern:**
 ```csharp
@@ -207,11 +212,13 @@ human-only). But commands that agents use for reading, mutating, or navigating
 work items should have corresponding tools in `src/Twig.Mcp/`.
 
 **Priority for MCP parity:**
-- Context commands (set, show, status, tree) — ✅ have MCP tools
-- Mutation commands (state, update, note, sync) — ✅ have MCP tools
+- Context commands (set, show) — ✅ have MCP tools
+- Mutation commands (state, update, note, patch, sync) — ✅ have MCP tools
 - Seed commands (new, publish, chain, reconcile) — ❌ missing
-- Flow commands (start, close, done) — ❌ missing
-- Query/read commands — partially covered
+- Query — ❌ missing (add `twig_query` MCP tool)
+- Process — ❌ missing (add `twig_process` MCP tool)
+- Workspace area — no MCP (CLI config concern)
+- Flow/git commands — ❌ removed (not applicable)
 
 ### 9. --no-refresh Pattern
 
@@ -270,9 +277,19 @@ UpdateCommand, WebCommand, WorkspaceCommand
 
 ### Missing MCP Tools
 - All seed commands (new, edit, publish, reconcile, validate, view, chain, link)
-- All flow commands (start, close, done)
-- BranchCommand, CommitCommand, PrCommand
-- LogCommand, ChangelogCommand, StashCommand
+- Query (`twig_query` — ad-hoc search for agents)
+- Process (`twig_process` — process discovery for agents)
+
+### Removed Commands
+- **`status`** — absorbed into `show` (see context-commands spec)
+- **`tree`** — merged into `show --tree` / `workspace --tree` (hidden alias kept)
+- **`refresh`** — merged into `sync --pull-only` (hidden alias kept)
+- **`states`** — renamed to `process` (expanded: types, states, fields)
+- **`save`** — replaced by `sync` (push-on-write model)
+- **`discard`** (top-level) — removed, only `seed discard` remains
+- **`area`** — moved under `workspace area`
+- **Flow commands** (start, close, done) — removed, violate process-agnostic principle
+- **Git commands** (branch, commit, pr, link-branch, git-context, hooks) — removed, wrap git/gh
 
 ### Missing --output Support
 - SeedChainCommand — no `outputFormat` parameter
@@ -292,9 +309,9 @@ Command behavior specs are documented per-domain:
 |--------|-----------|--------|
 | Working Set & Sync | `docs/specs/working-set-sync.spec.md` | Draft |
 | Context (set, show) | `docs/specs/context-commands.spec.md` | Draft |
-| Mutation (state, update, note, edit) | `docs/specs/mutation-commands.spec.md` | Draft |
-| Tree/Query (tree, workspace, query, area, states) | TBD | Not started |
+| Mutation (state, update, note, edit, patch) | `docs/specs/mutation-commands.spec.md` | Draft |
+| Tree/Query (show --tree, workspace, query, process, sync) | `docs/specs/tree-query-commands.spec.md` | Draft |
 | Seed Lifecycle | TBD | Not started |
-| Flow (start, close, done) | TBD | Not started |
-| Git Integration | TBD | Not started |
 | Navigation (up, down, back, forward) | TBD | Not started |
+| Flow (start, close, done) | N/A | Removed |
+| Git Integration (branch, commit, pr, etc.) | N/A | Removed |

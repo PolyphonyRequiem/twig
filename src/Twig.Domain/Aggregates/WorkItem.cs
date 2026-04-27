@@ -10,8 +10,6 @@ namespace Twig.Domain.Aggregates;
 /// </summary>
 public sealed class WorkItem
 {
-    private static int _seedIdCounter;
-
     private readonly Dictionary<string, string?> _fields = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<PendingNote> _pendingNotes = new();
     private readonly ReadOnlyDictionary<string, string?> _fieldsView;
@@ -202,48 +200,4 @@ public sealed class WorkItem
         return copy;
     }
 
-    // ── Seed factory ────────────────────────────────────────────────
-
-    /// <summary>
-    /// Initializes the seed ID counter so that the next <see cref="CreateSeed"/>
-    /// call produces an ID below all existing seeds. Thread-safe via
-    /// <see cref="Interlocked.Exchange"/>.
-    /// </summary>
-    public static void InitializeSeedCounter(int minExistingId)
-    {
-        Interlocked.Exchange(ref _seedIdCounter, Math.Min(minExistingId, 0));
-    }
-
-    /// <summary>
-    /// Creates a seed work item (not yet persisted to ADO).
-    /// Each seed receives a unique negative sentinel ID via thread-safe counter.
-    /// Optional <paramref name="parentId"/>, <paramref name="areaPath"/>, and
-    /// <paramref name="iterationPath"/> are inherited from the parent context when provided.
-    /// </summary>
-    public static WorkItem CreateSeed(
-        WorkItemType type,
-        string title,
-        int? parentId = null,
-        AreaPath areaPath = default,
-        IterationPath iterationPath = default,
-        string? assignedTo = null)
-    {
-        var seed = new WorkItem
-        {
-            Id = Interlocked.Decrement(ref _seedIdCounter),
-            Type = type,
-            Title = title,
-            IsSeed = true,
-            SeedCreatedAt = DateTimeOffset.UtcNow,
-            ParentId = parentId,
-            AreaPath = areaPath,
-            IterationPath = iterationPath,
-            AssignedTo = assignedTo,
-        };
-
-        if (!string.IsNullOrWhiteSpace(assignedTo))
-            seed.SetField("System.AssignedTo", assignedTo);
-
-        return seed;
-    }
 }

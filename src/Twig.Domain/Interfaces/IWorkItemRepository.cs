@@ -43,7 +43,7 @@ public interface IWorkItemRepository
 
     /// <summary>
     /// Returns the smallest seed ID in the cache, or null if no seeds exist.
-    /// Used to initialize <see cref="WorkItem.InitializeSeedCounter"/> on startup.
+    /// Used to initialize <see cref="ISeedIdCounter.Initialize"/> on startup.
     /// </summary>
     Task<int?> GetMinSeedIdAsync(CancellationToken ct = default);
 

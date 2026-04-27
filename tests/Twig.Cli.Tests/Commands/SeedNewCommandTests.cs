@@ -49,9 +49,11 @@ public class SeedNewCommandTests
 
         _resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var config = new TwigConfiguration { User = new UserConfig { DisplayName = "Test User" } };
+        var seedIdCounter = new SeedIdCounter();
         _cmd = new SeedNewCommand(
             _resolver, _workItemRepo, _processConfigProvider,
-            _fieldDefStore, _editorLauncher, formatterFactory, hintEngine, config);
+            _fieldDefStore, _editorLauncher, formatterFactory, hintEngine, config,
+            new SeedFactory(seedIdCounter), seedIdCounter);
     }
 
     [Fact]

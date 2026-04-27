@@ -499,3 +499,38 @@ public class WorkItemCopyPreservationTests
 - Epic #2115 — Command Queue Pattern Simplification (prerequisite, completed)
 - `src/Twig.Domain/Aggregates/WorkItem.cs` — current implementation
 - `src/Twig.Domain/Services/SeedFactory.cs` — existing static factory
+
+---
+
+## Execution Plan
+
+### PR Group Table
+
+| Group | Name | Issues/Tasks | Dependencies | Type |
+|-------|------|-------------|--------------|------|
+| PG-1 | WorkItemCopier & Property Preservation Tests | Issue 1 (T-2114.1, T-2114.2, T-2114.3) | None | Deep |
+| PG-2 | SeedFactory Extraction & Documentation | Issue 2 + Issue 3 (T-2114.4 – T-2114.8) | PG-1 | Wide |
+
+### Execution Order
+
+**PG-1 → PG-2** (sequential, one depends on the other).
+
+PG-1 is implemented first: it introduces `WorkItemCopier`, wires the three `With*` methods through a single `CopyCore`, and adds the reflection-based property-preservation theory test. This PR is small (~250 LoC, ~4 files), deep in complexity, and self-contained — no changes outside `WorkItem.cs` and its test files. It establishes the green safety net that de-risks all structural changes in PG-2.
+
+PG-2 follows: it converts `SeedFactory` from a static class to a DI-registered singleton, moves `_seedIdCounter`/`CreateSeed`/`InitializeSeedCounter` from `WorkItem`, injects the instance into production command callers and MCP tools, introduces `TestSeedFactory` in TestKit, migrates ~10 test files from static `WorkItem.*` calls to `TestSeedFactory.*`, and updates `domain-model-critique.md`. The wide scope (~400 LoC, ~20 files) is acceptable because the majority of changes are mechanical find-replace. All changes in PG-2 are tightly coupled — a partial static→instance conversion would leave a broken build — so they ship together.
+
+### Validation Strategy
+
+**PG-1 validation:**
+1. `WorkItemCopyPreservationTests` passes for all three copy methods (`WithSeedFields`, `WithParentId`, `WithIsSeed`) against current code (pre-change baseline).
+2. Implement `WorkItemCopier.CopyCore` and wire `With*` methods.
+3. `WorkItemCopyPreservationTests`, `WorkItemCopyTests`, and `WorkItemTests` all pass without modification.
+4. Deliberately add a dummy init-only property to `WorkItem` in a scratch branch and confirm a compile error is raised in `WorkItemCopier.CopyCore` — then revert.
+5. `dotnet build` with `TreatWarningsAsErrors=true` passes.
+
+**PG-2 validation:**
+1. `WorkItemCopyPreservationTests` continues to pass (regression guard from PG-1).
+2. `SeedFactoryTests` instantiate `SeedFactory` as a non-static object and all assertions pass.
+3. `TestSeedFactory` wrapper compiles and all migrated test files pass.
+4. Full test suite (`Twig.Domain.Tests`, `Twig.Infrastructure.Tests`, `Twig.Cli.Tests`, `Twig.Mcp.Tests`) — zero regressions.
+5. AOT build: `dotnet publish -r win-x64 -c Release` succeeds (no reflection at runtime path).

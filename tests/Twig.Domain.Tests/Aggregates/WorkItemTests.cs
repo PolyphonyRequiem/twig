@@ -1,6 +1,8 @@
 using Shouldly;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Domain.Tests.Aggregates;
@@ -262,14 +264,14 @@ public class WorkItemTests
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public void CreateSeed_ReturnsSeedWorkItem()
+    public void AsSeed_ReturnsSeedWorkItem()
     {
         var before = DateTimeOffset.UtcNow;
-        var seed = WorkItem.CreateSeed(WorkItemType.Bug, "New bug");
+        var seed = new WorkItemBuilder(-1, "New bug").AsBug().AsSeed().Build();
         var after = DateTimeOffset.UtcNow;
 
         seed.IsSeed.ShouldBeTrue();
-        seed.Id.ShouldBeLessThan(0);
+        seed.Id.ShouldBe(-1);
         seed.Type.ShouldBe(WorkItemType.Bug);
         seed.Title.ShouldBe("New bug");
         seed.SeedCreatedAt.ShouldNotBeNull();
@@ -278,40 +280,18 @@ public class WorkItemTests
     }
 
     [Fact]
-    public void CreateSeed_DefaultState_IsEmpty()
+    public void AsSeed_HasEmptyFieldsAndNotes()
     {
-        var seed = WorkItem.CreateSeed(WorkItemType.Task, "Seed task");
-        seed.State.ShouldBe(string.Empty);
-    }
-
-    [Fact]
-    public void CreateSeed_HasEmptyFieldsAndNotes()
-    {
-        var seed = WorkItem.CreateSeed(WorkItemType.Feature, "Seed feature");
+        var seed = new WorkItemBuilder(-1, "Seed feature").AsFeature().AsSeed().Build();
         seed.Fields.ShouldBeEmpty();
         seed.PendingNotes.ShouldBeEmpty();
     }
 
     [Fact]
-    public void CreateSeed_IsDirty_IsFalseInitially()
+    public void AsSeed_IsDirty_IsFalseInitially()
     {
-        var seed = WorkItem.CreateSeed(WorkItemType.Task, "Seed");
+        var seed = new WorkItemBuilder(-1, "Seed").AsSeed().Build();
         seed.IsDirty.ShouldBeFalse();
-    }
-
-    [Fact]
-    public void CreateSeed_MultipleSeedsHaveUniqueIds()
-    {
-        var seed1 = WorkItem.CreateSeed(WorkItemType.Task, "Seed 1");
-        var seed2 = WorkItem.CreateSeed(WorkItemType.Task, "Seed 2");
-        var seed3 = WorkItem.CreateSeed(WorkItemType.Bug, "Seed 3");
-
-        seed1.Id.ShouldBeLessThan(0);
-        seed2.Id.ShouldBeLessThan(0);
-        seed3.Id.ShouldBeLessThan(0);
-        seed1.Id.ShouldNotBe(seed2.Id);
-        seed1.Id.ShouldNotBe(seed3.Id);
-        seed2.Id.ShouldNotBe(seed3.Id);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -453,7 +433,7 @@ public class WorkItemTests
     [Fact]
     public void WithSeedFields_CopyIsNotDirty()
     {
-        var original = WorkItem.CreateSeed(WorkItemType.Task, "Seed");
+        var original = new WorkItemBuilder(-1, "Seed").AsSeed().Build();
         original.UpdateField("System.Description", "Dirty");
         original.IsDirty.ShouldBeTrue();
 
@@ -481,7 +461,7 @@ public class WorkItemTests
     [Fact]
     public void WithSeedFields_DoesNotMutateOriginal()
     {
-        var original = WorkItem.CreateSeed(WorkItemType.Task, "Original");
+        var original = new WorkItemBuilder(-1, "Original").AsSeed().Build();
         original.ImportFields(new Dictionary<string, string?> { ["System.Description"] = "Orig desc" });
 
         var newFields = new Dictionary<string, string?> { ["System.Description"] = "Modified" };
@@ -492,52 +472,55 @@ public class WorkItemTests
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  InitializeSeedCounter tests (E1-T3, E1-T12)
+    //  SeedIdCounter tests (E1-T3, E1-T12) — via instance counter
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public void InitializeSeedCounter_SetsCounterBelowExistingSeeds()
+    public void SeedIdCounter_SetsCounterBelowExistingSeeds()
     {
-        WorkItem.InitializeSeedCounter(-10);
+        var counter = new SeedIdCounter();
+        counter.Initialize(-10);
 
-        var seed = WorkItem.CreateSeed(WorkItemType.Task, "After init");
+        var id = counter.Next();
 
-        // The new seed should have an ID below -10
-        seed.Id.ShouldBeLessThan(-10);
+        id.ShouldBeLessThan(-10);
     }
 
     [Fact]
-    public void InitializeSeedCounter_WithPositiveValue_ClampsToZero()
+    public void SeedIdCounter_WithPositiveValue_ClampsToZero()
     {
-        WorkItem.InitializeSeedCounter(5);
+        var counter = new SeedIdCounter();
+        counter.Initialize(5);
 
-        var seed = WorkItem.CreateSeed(WorkItemType.Task, "Clamped");
+        var id = counter.Next();
 
-        // Math.Min(5, 0) = 0, so next seed is Decrement(0) = -1
-        seed.Id.ShouldBeLessThan(0);
+        // Math.Min(5, 0) = 0, so next is Decrement(0) = -1
+        id.ShouldBeLessThan(0);
     }
 
     [Fact]
-    public void InitializeSeedCounter_AvoidCollisionsWithExistingSeeds()
+    public void SeedIdCounter_AvoidCollisionsWithExistingSeeds()
     {
+        var counter = new SeedIdCounter();
         // Simulate existing seeds at -1, -2, -3 → min is -3
-        WorkItem.InitializeSeedCounter(-3);
+        counter.Initialize(-3);
 
         var newIds = new HashSet<int>();
         for (var i = 0; i < 5; i++)
         {
-            var seed = WorkItem.CreateSeed(WorkItemType.Task, $"Seed {i}");
-            seed.Id.ShouldBeLessThan(-3, "New seed ID should be below all existing seed IDs");
-            newIds.Add(seed.Id).ShouldBeTrue("Each seed should have a unique ID");
+            var id = counter.Next();
+            id.ShouldBeLessThan(-3, "New seed ID should be below all existing seed IDs");
+            newIds.Add(id).ShouldBeTrue("Each seed should have a unique ID");
         }
     }
 
     [Fact]
-    public void InitializeSeedCounter_WithZero_ProducesNegativeIds()
+    public void SeedIdCounter_WithZero_ProducesNegativeIds()
     {
-        WorkItem.InitializeSeedCounter(0);
+        var counter = new SeedIdCounter();
+        counter.Initialize(0);
 
-        var seed = WorkItem.CreateSeed(WorkItemType.Bug, "Zero init");
-        seed.Id.ShouldBeLessThan(0);
+        var id = counter.Next();
+        id.ShouldBeLessThan(0);
     }
 }

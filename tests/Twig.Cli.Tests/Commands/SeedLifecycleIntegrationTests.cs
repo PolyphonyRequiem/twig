@@ -100,10 +100,12 @@ public class SeedLifecycleIntegrationTests : IDisposable
 
         // ── Step 1: twig seed new ──────────────────────────────────────
         var config = new TwigConfiguration { User = new UserConfig { DisplayName = "Test User" } };
+        var seedIdCounter = new SeedIdCounter();
         var seedNewCmd = new SeedNewCommand(
             new ActiveItemResolver(_contextStore, _workItemRepo, _adoService),
             _workItemRepo, _processConfigProvider,
-            _fieldDefStore, _editorLauncher, _formatterFactory, _hintEngine, config);
+            _fieldDefStore, _editorLauncher, _formatterFactory, _hintEngine, config,
+            new SeedFactory(seedIdCounter), seedIdCounter);
 
         Console.SetOut(new StringWriter());
         var newResult = await seedNewCmd.ExecuteAsync("My Lifecycle Seed");
@@ -202,10 +204,12 @@ public class SeedLifecycleIntegrationTests : IDisposable
             .Returns(Task.FromException(new InvalidOperationException("SQLite write error")));
 
         var config = new TwigConfiguration { User = new UserConfig { DisplayName = "Test User" } };
+        var seedIdCounter2 = new SeedIdCounter();
         var cmd = new SeedNewCommand(
             new ActiveItemResolver(_contextStore, _workItemRepo, _adoService),
             _workItemRepo, _processConfigProvider,
-            _fieldDefStore, _editorLauncher, _formatterFactory, _hintEngine, config);
+            _fieldDefStore, _editorLauncher, _formatterFactory, _hintEngine, config,
+            new SeedFactory(seedIdCounter2), seedIdCounter2);
 
         Console.SetOut(new StringWriter());
         await Should.ThrowAsync<InvalidOperationException>(
@@ -268,10 +272,12 @@ public class SeedLifecycleIntegrationTests : IDisposable
 
         // ── Step 1: twig seed new ──────────────────────────────────────
         var config = new TwigConfiguration { User = new UserConfig { DisplayName = "Test User" } };
+        var seedIdCounter = new SeedIdCounter();
         var seedNewCmd = new SeedNewCommand(
             new ActiveItemResolver(_contextStore, _workItemRepo, _adoService),
             _workItemRepo, _processConfigProvider,
-            _fieldDefStore, _editorLauncher, _formatterFactory, _hintEngine, config);
+            _fieldDefStore, _editorLauncher, _formatterFactory, _hintEngine, config,
+            new SeedFactory(seedIdCounter), seedIdCounter);
 
         Console.SetOut(new StringWriter());
         var newResult = await seedNewCmd.ExecuteAsync("Publishable Seed");

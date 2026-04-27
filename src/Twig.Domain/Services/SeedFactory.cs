@@ -1,5 +1,6 @@
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
+using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
 
 namespace Twig.Domain.Services;
@@ -7,9 +8,17 @@ namespace Twig.Domain.Services;
 /// <summary>
 /// Creates seed work items, validating parent/child rules via <see cref="ProcessConfiguration"/>
 /// and inheriting area/iteration paths from the parent context.
+/// Uses <see cref="ISeedIdCounter"/> for thread-safe negative ID generation.
 /// </summary>
-public static class SeedFactory
+public sealed class SeedFactory(ISeedIdCounter seedIdCounter)
 {
+    /// <summary>
+    /// Initializes the seed ID counter so that subsequent seed creation
+    /// produces IDs below all existing seeds. Thread-safe.
+    /// </summary>
+    public void InitializeSeedCounter(int minExistingId) =>
+        seedIdCounter.Initialize(minExistingId);
+
     /// <summary>
     /// Creates a seed work item under the given parent context.
     /// </summary>
@@ -18,7 +27,7 @@ public static class SeedFactory
     /// <param name="processConfig">Process configuration for validating parent/child rules.</param>
     /// <param name="typeOverride">Explicit child type. If null, inferred from parent's allowed child types.</param>
     /// <param name="assignedTo">Optional user display name to auto-assign the seed.</param>
-    public static Result<WorkItem> Create(
+    public Result<WorkItem> Create(
         string title,
         WorkItem? parentContext,
         ProcessConfiguration processConfig,
@@ -64,7 +73,7 @@ public static class SeedFactory
         }
 
         // Create the seed, inheriting area/iteration paths and parent from the context
-        var seed = WorkItem.CreateSeed(
+        var seed = CreateSeedInternal(
             childType,
             title,
             parentContext?.Id,
@@ -79,7 +88,7 @@ public static class SeedFactory
     /// Creates a seed with explicit area/iteration paths.
     /// Used by <c>twig new</c>. Pass <paramref name="parentId"/> to create a child item.
     /// </summary>
-    public static Result<WorkItem> CreateUnparented(
+    public Result<WorkItem> CreateUnparented(
         string title,
         WorkItemType type,
         AreaPath areaPath,
@@ -90,7 +99,7 @@ public static class SeedFactory
         if (string.IsNullOrWhiteSpace(title))
             return Result.Fail<WorkItem>("Title cannot be empty.");
 
-        var seed = WorkItem.CreateSeed(
+        var seed = CreateSeedInternal(
             type,
             title,
             parentId,
@@ -99,5 +108,32 @@ public static class SeedFactory
             assignedTo);
 
         return Result.Ok(seed);
+    }
+
+    private WorkItem CreateSeedInternal(
+        WorkItemType type,
+        string title,
+        int? parentId,
+        AreaPath areaPath,
+        IterationPath iterationPath,
+        string? assignedTo)
+    {
+        var seed = new WorkItem
+        {
+            Id = seedIdCounter.Next(),
+            Type = type,
+            Title = title,
+            IsSeed = true,
+            SeedCreatedAt = DateTimeOffset.UtcNow,
+            ParentId = parentId,
+            AreaPath = areaPath,
+            IterationPath = iterationPath,
+            AssignedTo = assignedTo,
+        };
+
+        if (!string.IsNullOrWhiteSpace(assignedTo))
+            seed.SetField("System.AssignedTo", assignedTo);
+
+        return seed;
     }
 }

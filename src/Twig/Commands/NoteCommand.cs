@@ -164,7 +164,6 @@ public sealed class NoteCommand(
             newValue: noteText);
 
         item.AddNote(new PendingNote(noteText, DateTimeOffset.UtcNow, IsHtml: false));
-        item.ApplyCommands();
         await workItemRepo.SaveAsync(item, ct);
     }
 }

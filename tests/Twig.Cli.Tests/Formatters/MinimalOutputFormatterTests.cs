@@ -39,7 +39,6 @@ public class MinimalOutputFormatterTests
     {
         var item = CreateWorkItem(123, "My Task", "Active");
         item.UpdateField("test", "val");
-        item.ApplyCommands();
 
         var result = _formatter.FormatWorkItem(item, showDirty: true);
 
@@ -51,7 +50,6 @@ public class MinimalOutputFormatterTests
     {
         var item = CreateWorkItem(123, "My Task", "Active");
         item.UpdateField("test", "val");
-        item.ApplyCommands();
 
         var result = _formatter.FormatWorkItem(item, showDirty: false);
 

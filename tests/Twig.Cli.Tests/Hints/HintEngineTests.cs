@@ -102,9 +102,8 @@ public sealed class HintEngineTests
         var engine = CreateEngine();
         var item = CreateWorkItem(1, "Test", "Active");
         item.AddNote(new PendingNote("note text", DateTimeOffset.UtcNow, false));
-        item.ApplyCommands();
 
-        var hints = engine.GetHints("state", item: item, newStateName: "Closed");
+        var hints= engine.GetHints("state", item: item, newStateName: "Closed");
 
         hints.ShouldContain(h => h.Contains("pending notes"));
         hints.ShouldContain(h => h.Contains("twig save"));
@@ -371,7 +370,6 @@ public sealed class HintEngineTests
         var engine = CreateEngine();
         var dirty = CreateWorkItem(1, "Dirty", "Active");
         dirty.UpdateField("test", "val");
-        dirty.ApplyCommands();
         var ws = Workspace.Build(null, new[] { dirty }, Array.Empty<WorkItem>());
 
         var hints = engine.GetHints("workspace", workspace: ws);
@@ -388,10 +386,8 @@ public sealed class HintEngineTests
         var engine = CreateEngine();
         var dirty1 = CreateWorkItem(1, "Dirty1", "Active");
         dirty1.UpdateField("test", "val");
-        dirty1.ApplyCommands();
         var dirty2 = CreateWorkItem(2, "Dirty2", "Active");
         dirty2.UpdateField("test", "val");
-        dirty2.ApplyCommands();
         var ws = Workspace.Build(null, new[] { dirty1, dirty2 }, Array.Empty<WorkItem>());
 
         var hints = engine.GetHints("workspace", workspace: ws);

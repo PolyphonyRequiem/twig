@@ -131,7 +131,6 @@ public sealed class ParentStatePropagationService(
             var newRevision = await adoService.PatchAsync(parent.Id, changes, revisionSource.Revision, ct);
 
             parent.ChangeState(newState);
-            parent.ApplyCommands();
             parent.MarkSynced(newRevision);
             await protectedCacheWriter.SaveProtectedAsync(parent, ct);
 

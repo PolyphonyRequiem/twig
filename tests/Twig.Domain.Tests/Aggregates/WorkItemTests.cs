@@ -1,6 +1,5 @@
 using Shouldly;
 using Twig.Domain.Aggregates;
-using Twig.Domain.Commands;
 using Twig.Domain.ValueObjects;
 using Xunit;
 
@@ -100,36 +99,27 @@ public class WorkItemTests
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  Command guard clause tests
+    //  Guard clause tests
     // ═══════════════════════════════════════════════════════════════
 
     [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
-    public void ChangeStateCommand_ThrowsOnNullOrWhitespace(string? newState)
+    public void ChangeState_ThrowsOnNullOrWhitespace(string? newState)
     {
-        Should.Throw<ArgumentException>(() => new ChangeStateCommand(newState!));
+        var wi = new WorkItem { Id = 1, Type = WorkItemType.Task, State = "New" };
+        Should.Throw<ArgumentException>(() => wi.ChangeState(newState!));
     }
 
     [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
-    public void UpdateFieldCommand_ThrowsOnNullOrWhitespaceFieldName(string? fieldName)
+    public void UpdateField_ThrowsOnNullOrWhitespaceFieldName(string? fieldName)
     {
-        Should.Throw<ArgumentException>(() => new UpdateFieldCommand(fieldName!, "value"));
-    }
-
-    [Fact]
-    public void ChangeStateCommand_NewState_IsPreserved()
-    {
-        var cmd = new ChangeStateCommand("Resolved");
-
         var wi = new WorkItem { Id = 1, Type = WorkItemType.Task, State = "New" };
-        cmd.Execute(wi);
-
-        cmd.NewState.ShouldBe("Resolved");
+        Should.Throw<ArgumentException>(() => wi.UpdateField(fieldName!, "value"));
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -137,20 +127,17 @@ public class WorkItemTests
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public void ChangeState_EnqueuesAndApplies()
+    public void ChangeState_MutatesAndReturnsFieldChange()
     {
         var wi = new WorkItem { Id = 1, Type = WorkItemType.Task, State = "New" };
 
-        wi.ChangeState("Active");
+        var change = wi.ChangeState("Active");
         wi.IsDirty.ShouldBeTrue();
 
-        var changes = wi.ApplyCommands();
-
         wi.State.ShouldBe("Active");
-        changes.Count.ShouldBe(1);
-        changes[0].FieldName.ShouldBe("System.State");
-        changes[0].OldValue.ShouldBe("New");
-        changes[0].NewValue.ShouldBe("Active");
+        change.FieldName.ShouldBe("System.State");
+        change.OldValue.ShouldBe("New");
+        change.NewValue.ShouldBe("Active");
         wi.IsDirty.ShouldBeTrue();
     }
 
@@ -159,17 +146,14 @@ public class WorkItemTests
     {
         var wi = new WorkItem { Id = 1, Type = WorkItemType.Task, State = "New" };
 
-        wi.ChangeState("Active");
-        wi.ChangeState("New");
-
-        var changes = wi.ApplyCommands();
+        var change1 = wi.ChangeState("Active");
+        var change2 = wi.ChangeState("New");
 
         wi.State.ShouldBe("New");
-        changes.Count.ShouldBe(2);
-        changes[0].OldValue.ShouldBe("New");
-        changes[0].NewValue.ShouldBe("Active");
-        changes[1].OldValue.ShouldBe("Active");
-        changes[1].NewValue.ShouldBe("New");
+        change1.OldValue.ShouldBe("New");
+        change1.NewValue.ShouldBe("Active");
+        change2.OldValue.ShouldBe("Active");
+        change2.NewValue.ShouldBe("New");
     }
 
     [Fact]
@@ -177,11 +161,10 @@ public class WorkItemTests
     {
         var wi = new WorkItem { Id = 1, Type = WorkItemType.UserStory, State = "Active" };
 
-        wi.ChangeState("Removed");
-        var changes = wi.ApplyCommands();
+        var change = wi.ChangeState("Removed");
 
         wi.State.ShouldBe("Removed");
-        changes.Count.ShouldBe(1);
+        change.FieldName.ShouldBe("System.State");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -189,19 +172,17 @@ public class WorkItemTests
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public void UpdateField_EnqueuesAndApplies()
+    public void UpdateField_MutatesAndReturnsFieldChange()
     {
         var wi = new WorkItem { Id = 1, Type = WorkItemType.Task, State = "New" };
 
-        wi.UpdateField("System.Description", "Some description");
+        wi.IsDirty.ShouldBeFalse();
+        var change = wi.UpdateField("System.Description", "Some description");
         wi.IsDirty.ShouldBeTrue();
 
-        var changes = wi.ApplyCommands();
-
-        changes.Count.ShouldBe(1);
-        changes[0].FieldName.ShouldBe("System.Description");
-        changes[0].OldValue.ShouldBeNull();
-        changes[0].NewValue.ShouldBe("Some description");
+        change.FieldName.ShouldBe("System.Description");
+        change.OldValue.ShouldBeNull();
+        change.NewValue.ShouldBe("Some description");
         wi.Fields["System.Description"].ShouldBe("Some description");
         wi.IsDirty.ShouldBeTrue();
     }
@@ -212,12 +193,10 @@ public class WorkItemTests
         var wi = new WorkItem { Id = 1, Type = WorkItemType.Task, State = "New" };
         wi.SetField("Priority", "2");
 
-        wi.UpdateField("Priority", "1");
-        var changes = wi.ApplyCommands();
+        var change = wi.UpdateField("Priority", "1");
 
-        changes.Count.ShouldBe(1);
-        changes[0].OldValue.ShouldBe("2");
-        changes[0].NewValue.ShouldBe("1");
+        change.OldValue.ShouldBe("2");
+        change.NewValue.ShouldBe("1");
         wi.Fields["Priority"].ShouldBe("1");
     }
 
@@ -227,12 +206,10 @@ public class WorkItemTests
         var wi = new WorkItem { Id = 1, Type = WorkItemType.Task, State = "New" };
         wi.SetField("System.AssignedTo", "bob@example.com");
 
-        wi.UpdateField("System.AssignedTo", null);
-        var changes = wi.ApplyCommands();
+        var change = wi.UpdateField("System.AssignedTo", null);
 
-        changes.Count.ShouldBe(1);
-        changes[0].OldValue.ShouldBe("bob@example.com");
-        changes[0].NewValue.ShouldBeNull();
+        change.OldValue.ShouldBe("bob@example.com");
+        change.NewValue.ShouldBeNull();
         wi.Fields["System.AssignedTo"].ShouldBeNull();
     }
 
@@ -242,12 +219,10 @@ public class WorkItemTests
         var wi = new WorkItem { Id = 1, Type = WorkItemType.Task, State = "New" };
         wi.SetField("system.description", "old");
 
-        wi.UpdateField("System.Description", "new");
-        var changes = wi.ApplyCommands();
+        var change = wi.UpdateField("System.Description", "new");
 
-        changes.Count.ShouldBe(1);
-        changes[0].OldValue.ShouldBe("old");
-        changes[0].NewValue.ShouldBe("new");
+        change.OldValue.ShouldBe("old");
+        change.NewValue.ShouldBe("new");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -263,9 +238,6 @@ public class WorkItemTests
         wi.AddNote(note);
         wi.IsDirty.ShouldBeTrue();
 
-        var changes = wi.ApplyCommands();
-
-        changes.ShouldBeEmpty();
         wi.PendingNotes.Count.ShouldBe(1);
         wi.PendingNotes[0].Text.ShouldBe("Test note");
         wi.PendingNotes[0].IsHtml.ShouldBeFalse();
@@ -279,9 +251,6 @@ public class WorkItemTests
         wi.AddNote(new PendingNote("Note 1", DateTimeOffset.UtcNow, false));
         wi.AddNote(new PendingNote("<b>Note 2</b>", DateTimeOffset.UtcNow, true));
 
-        var changes = wi.ApplyCommands();
-
-        changes.ShouldBeEmpty();
         wi.PendingNotes.Count.ShouldBe(2);
         wi.PendingNotes[0].Text.ShouldBe("Note 1");
         wi.PendingNotes[1].Text.ShouldBe("<b>Note 2</b>");
@@ -346,27 +315,23 @@ public class WorkItemTests
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  Multi-command atomic apply (ITEM-044)
+    //  Multiple direct mutations (ITEM-044)
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public void ApplyCommands_MultiCommand_AtomicApply()
+    public void DirectMutations_AllTakeEffectImmediately()
     {
         var wi = new WorkItem { Id = 1, Type = WorkItemType.UserStory, State = "New" };
 
-        wi.ChangeState("Active");
-        wi.UpdateField("System.Description", "Updated description");
+        var stateChange = wi.ChangeState("Active");
+        var fieldChange = wi.UpdateField("System.Description", "Updated description");
         wi.AddNote(new PendingNote("Progress note", DateTimeOffset.UtcNow, false));
 
-        var changes = wi.ApplyCommands();
-
-        // FieldChange list should contain 2 (state + field), note produces null
-        changes.Count.ShouldBe(2);
-        changes[0].FieldName.ShouldBe("System.State");
-        changes[0].OldValue.ShouldBe("New");
-        changes[0].NewValue.ShouldBe("Active");
-        changes[1].FieldName.ShouldBe("System.Description");
-        changes[1].NewValue.ShouldBe("Updated description");
+        stateChange.FieldName.ShouldBe("System.State");
+        stateChange.OldValue.ShouldBe("New");
+        stateChange.NewValue.ShouldBe("Active");
+        fieldChange.FieldName.ShouldBe("System.Description");
+        fieldChange.NewValue.ShouldBe("Updated description");
 
         // Note should be in PendingNotes
         wi.PendingNotes.Count.ShouldBe(1);
@@ -380,26 +345,6 @@ public class WorkItemTests
         wi.IsDirty.ShouldBeTrue();
     }
 
-    [Fact]
-    public void ApplyCommands_EmptyQueue_ReturnsEmpty()
-    {
-        var wi = new WorkItem { Id = 1, Type = WorkItemType.Task, State = "New" };
-        var changes = wi.ApplyCommands();
-        changes.ShouldBeEmpty();
-        wi.IsDirty.ShouldBeFalse();
-    }
-
-    [Fact]
-    public void ApplyCommands_CalledTwice_SecondCallReturnsEmpty()
-    {
-        var wi = new WorkItem { Id = 1, Type = WorkItemType.Task, State = "New" };
-        wi.ChangeState("Active");
-        wi.ApplyCommands();
-
-        var secondChanges = wi.ApplyCommands();
-        secondChanges.ShouldBeEmpty();
-    }
-
     // ═══════════════════════════════════════════════════════════════
     //  MarkSynced tests (ITEM-045)
     // ═══════════════════════════════════════════════════════════════
@@ -410,9 +355,6 @@ public class WorkItemTests
         var wi = new WorkItem { Id = 1, Type = WorkItemType.Task, State = "New" };
 
         wi.ChangeState("Active");
-        wi.IsDirty.ShouldBeTrue();
-
-        wi.ApplyCommands();
         wi.IsDirty.ShouldBeTrue();
 
         wi.MarkSynced(5);
@@ -430,7 +372,6 @@ public class WorkItemTests
         wi.Revision.ShouldBe(1);
 
         wi.ChangeState("Active");
-        wi.ApplyCommands();
         wi.MarkSynced(2);
         wi.Revision.ShouldBe(2);
     }
@@ -514,7 +455,6 @@ public class WorkItemTests
     {
         var original = WorkItem.CreateSeed(WorkItemType.Task, "Seed");
         original.UpdateField("System.Description", "Dirty");
-        original.ApplyCommands();
         original.IsDirty.ShouldBeTrue();
 
         var copy = original.WithSeedFields("Updated", new Dictionary<string, string?>());

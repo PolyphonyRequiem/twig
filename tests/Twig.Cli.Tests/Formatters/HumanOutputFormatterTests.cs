@@ -45,7 +45,6 @@ public class HumanOutputFormatterTests
     {
         var item = CreateWorkItem(123, "Dirty Task", "Active");
         item.UpdateField("test", "value");
-        item.ApplyCommands();
 
         var result = _formatter.FormatWorkItem(item, showDirty: true);
 
@@ -58,7 +57,6 @@ public class HumanOutputFormatterTests
     {
         var item = CreateWorkItem(123, "Dirty Task", "Active");
         item.UpdateField("test", "value");
-        item.ApplyCommands();
 
         var result = _formatter.FormatWorkItem(item, showDirty: false);
 
@@ -145,7 +143,6 @@ public class HumanOutputFormatterTests
     {
         var focus = CreateWorkItem(1, "Focus", "Active");
         focus.UpdateField("test", "val");
-        focus.ApplyCommands();
         var tree = WorkTree.Build(focus, Array.Empty<WorkItem>(), Array.Empty<WorkItem>());
 
         var result = _formatter.FormatTree(tree, maxDepth: 5, activeId: null);
@@ -253,7 +250,6 @@ public class HumanOutputFormatterTests
     {
         var dirty = CreateWorkItem(1, "Dirty Item", "Active");
         dirty.UpdateField("test", "val");
-        dirty.ApplyCommands();
         var ws = Workspace.Build(null, new[] { dirty }, Array.Empty<WorkItem>());
 
         var result = _formatter.FormatWorkspace(ws, staleDays: 14);
@@ -2872,7 +2868,6 @@ public class HumanOutputFormatterTests
     {
         var item = CreateWorkItem(1, "Edited Item", "Active");
         item.UpdateField("System.Title", "New Title");
-        item.ApplyCommands();
 
         var result = _formatter.FormatWorkItem(item, showDirty: true);
 
@@ -3441,7 +3436,6 @@ public class HumanOutputFormatterTests
     {
         var item = CreateWorkItem(42, "Dirty Task", "Active");
         item.UpdateField("System.Title", "Changed");
-        item.ApplyCommands();
 
         var filters = new List<AreaPathFilter> { new("Project", true) };
         var view = AreaView.Build(new[] { item }, filters, hierarchy: null, matchCount: 1);

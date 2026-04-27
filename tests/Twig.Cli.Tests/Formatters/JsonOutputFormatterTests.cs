@@ -61,7 +61,6 @@ public class JsonOutputFormatterTests
     {
         var item = CreateWorkItem(123, "My Task", "Active");
         item.UpdateField("test", "value");
-        item.ApplyCommands();
 
         var result = _formatter.FormatWorkItem(item, showDirty: true);
         var doc = JsonDocument.Parse(result);
@@ -74,7 +73,6 @@ public class JsonOutputFormatterTests
     {
         var item = CreateWorkItem(123, "My Task", "Active");
         item.UpdateField("test", "value");
-        item.ApplyCommands();
 
         var result = _formatter.FormatWorkItem(item, showDirty: false);
         var doc = JsonDocument.Parse(result);

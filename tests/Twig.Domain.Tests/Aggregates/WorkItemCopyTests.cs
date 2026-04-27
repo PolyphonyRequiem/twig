@@ -76,7 +76,6 @@ public class WorkItemCopyTests
     {
         var original = WorkItem.CreateSeed(WorkItemType.Task, "Seed");
         original.UpdateField("System.Description", "dirty");
-        original.ApplyCommands();
         original.IsDirty.ShouldBeTrue();
 
         var copy = original.WithParentId(100);
@@ -192,7 +191,6 @@ public class WorkItemCopyTests
     {
         var original = WorkItem.CreateSeed(WorkItemType.Task, "Dirty seed");
         original.UpdateField("System.Description", "dirty");
-        original.ApplyCommands();
         original.IsDirty.ShouldBeTrue();
 
         // WithIsSeed does NOT copy dirty flag (by design — used on fetched-back items)

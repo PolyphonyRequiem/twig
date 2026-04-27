@@ -61,7 +61,6 @@ public class JsonCompactOutputFormatterTests
     {
         var item = CreateWorkItem(42, "My Task", "Active");
         item.UpdateField("test", "value");
-        item.ApplyCommands();
 
         var result = _formatter.FormatWorkItem(item, showDirty: true);
         var root = JsonDocument.Parse(result).RootElement;

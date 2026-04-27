@@ -119,7 +119,6 @@ public class SqliteWorkItemRepositoryTests : IDisposable
         var clean = CreateWorkItem(1, "Task", "Clean Item", "Active");
         var dirty = CreateWorkItem(2, "Task", "Dirty Item", "Active");
         dirty.UpdateField("System.Title", "Changed");
-        dirty.ApplyCommands();
 
         await _repo.SaveAsync(clean);
         await _repo.SaveAsync(dirty);
@@ -286,7 +285,6 @@ public class SqliteWorkItemRepositoryTests : IDisposable
         var item = CreateWorkItem(1, "Task", "Dirty Item", "Active");
         item.SetField("Custom.Field", "value");
         item.UpdateField("System.Title", "Changed Title");
-        item.ApplyCommands();
 
         // Item is dirty with one custom field
         item.IsDirty.ShouldBeTrue();

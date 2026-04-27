@@ -119,7 +119,6 @@ public sealed class FlowTransitionService
         var newRevision = await _adoService.PatchAsync(item.Id, changes, remote.Revision, ct);
 
         item.ChangeState(newState);
-        item.ApplyCommands();
         item.MarkSynced(newRevision);
         await _protectedCacheWriter.SaveProtectedAsync(item, ct);
 

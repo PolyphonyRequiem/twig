@@ -261,7 +261,6 @@ public class EditSaveCommandTests
     {
         var item = CreateSeedItem(1, "Title");
         item.ChangeState("New");
-        item.ApplyCommands();
         SetupActiveItem(item);
 
         _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())

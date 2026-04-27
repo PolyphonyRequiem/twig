@@ -182,7 +182,6 @@ public sealed class FlowStartCommand(
                         var changes = new[] { new FieldChange("System.State", item.State, newState) };
                         currentRevision = await adoService.PatchAsync(item.Id, changes, currentRevision);
                         item.ChangeState(newState);
-                        item.ApplyCommands();
                         item.MarkSynced(currentRevision);
                         await protectedCacheWriter.SaveProtectedAsync(item);
                     }

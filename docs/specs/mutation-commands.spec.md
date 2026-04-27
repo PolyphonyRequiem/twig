@@ -1,8 +1,8 @@
 # Mutation Commands — Functional Specification
 
-> **Domain:** Work item mutation — changing state, fields, and comments  
-> **Commands:** `state`, `update`, `note`, `edit`, `patch`, `batch`  
-> **Removed:** `save` (replaced by `sync`), `discard` (moved to seeds only)
+> **Domain:** Work item mutation — changing state, fields, comments, and links  
+> **Commands:** `state`, `update`, `note`, `edit`, `patch`, `batch`, `link parent`, `link unparent`, `link reparent`, `link artifact`  
+> **Removed:** `save` (replaced by `sync`), `discard` (moved to seeds only), `link branch` (git integration removal)
 
 ## Design Principles
 
@@ -411,6 +411,216 @@ and does not need one. Agents use `twig update` for field mutations.
 
 ---
 
+## `twig link parent` — Set Parent
+
+### Purpose
+
+Set the parent of the active work item by adding a `System.LinkTypes.Hierarchy-Reverse`
+link in ADO. This is a real ADO link mutation, not local staging.
+
+### Signature
+
+```
+twig link parent <targetId> [--output <format>]
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `targetId` | int | required | Work item ID to set as parent |
+| `--output` | string | `human` | Output format: `human`, `json`, `jsonc`, `minimal` |
+
+### Behavior
+
+1. Resolve active item. Exit 1 if not found.
+2. **Guards:** self-parenting (exit 1), already this parent (exit 0 — no-op).
+3. Already has different parent → exit 1: "Use `link reparent` to change."
+4. Validate target exists in ADO. Exit 1 if not found.
+5. Call `AddLinkAsync(itemId, targetId, Hierarchy-Reverse)`.
+6. Resync both items (non-fatal on failure).
+7. Output confirmation with updated links.
+
+### Exit Codes
+
+| Code | Condition |
+|------|-----------|
+| 0 | Link added, or already linked (no-op) |
+| 1 | No active item, target not found, self-parenting, already has different parent |
+
+---
+
+## `twig link unparent` — Remove Parent
+
+### Signature
+
+```
+twig link unparent [--output <format>]
+```
+
+### Behavior
+
+1. Resolve active item.
+2. If no parent → exit 1 "No parent link to remove."
+3. Call `RemoveLinkAsync(itemId, parentId, Hierarchy-Reverse)`.
+4. Resync both items.
+5. Output confirmation.
+
+---
+
+## `twig link reparent` — Change Parent
+
+### Signature
+
+```
+twig link reparent <targetId> [--output <format>]
+```
+
+### Behavior
+
+1. Resolve active item. Run guards (self-parenting, already this parent).
+2. Validate target exists.
+3. Remove existing parent link (if any).
+4. Add new parent link.
+5. Resync all affected items (child, new parent, old parent if different).
+6. Output confirmation.
+
+---
+
+## `twig link artifact` — Add Artifact/Hyperlink
+
+### Purpose
+
+Add a hyperlink (http/https URL) or artifact link (vstfs:// URI) to a work item.
+Used to associate external resources — build results, wiki pages, design docs,
+branch refs — with work items.
+
+### Signature
+
+```
+twig link artifact <url> [--name <display>] [--id <int>] [--output <format>]
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `url` | string | required | HTTP/HTTPS URL or vstfs:// URI |
+| `--name` | string? | null | Display name for the link |
+| `--id` | int? | null | Target work item ID; omit for active item |
+| `--output` | string | `human` | Output format |
+
+### Behavior
+
+1. Resolve item (by `--id` or active context).
+2. Call `AddArtifactLinkAsync(itemId, url, name)`.
+3. If already linked: exit 0 "Already linked."
+4. On failure: exit 1 with error.
+5. Output confirmation.
+
+### MCP Tool: `twig_link_artifact`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `url` | string | yes | URL or vstfs:// URI |
+| `name` | string? | no | Display name |
+| `id` | int? | no | Work item ID (omit for active) |
+
+---
+
+## `twig link batch` — Batch Link Operations (NEW)
+
+### Purpose
+
+Apply link operations across multiple work items in a single invocation.
+Designed for agents and scripts that need to restructure hierarchy or
+attach artifacts to many items at once.
+
+### Signature
+
+```
+twig link batch --json <string> [--stdin] [--output <format>]
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `--json` | string? | null | Inline JSON array of link operations |
+| `--stdin` | bool | false | Read JSON from stdin |
+| `--output` | string | `human` | Output format |
+
+### Input Format
+
+JSON array of operations. Each operation specifies a type and parameters:
+
+```json
+[
+  { "op": "parent", "itemId": 1234, "targetId": 5678 },
+  { "op": "unparent", "itemId": 1234 },
+  { "op": "reparent", "itemId": 1234, "targetId": 9012 },
+  { "op": "artifact", "itemId": 1234, "url": "https://example.com", "name": "Design Doc" }
+]
+```
+
+### Behavior
+
+1. Parse and validate JSON input. Exit 2 on parse error.
+2. For each operation:
+   a. Resolve item by `itemId`.
+   b. Execute the link operation (same logic as individual commands).
+   c. Record success/failure.
+3. Resync all affected items (deduplicated).
+4. Output aggregate results.
+
+### Output
+
+- **Human:** per-operation success/failure, then summary
+- **JSON:** `{ totalOps, succeeded, failed, operations: [{ op, itemId, success, error? }] }`
+- **Minimal:** per-operation one-liners
+
+### Exit Codes
+
+| Code | Condition |
+|------|-----------|
+| 0 | All operations succeeded |
+| 1 | One or more operations failed |
+| 2 | Invalid input JSON |
+
+### MCP Tool: `twig_link_batch`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `operations` | array | yes | Array of link operation objects |
+
+Primary MCP tool for agents doing hierarchy restructuring.
+
+### Telemetry
+
+- `command`: `"link-batch"`
+- `exit_code`, `output_format`, `duration_ms`
+- `operation_count`, `succeeded_count`
+
+---
+
+## `twig link branch` — REMOVED
+
+**Rationale:** Git integration command. Wraps branch-to-work-item artifact
+linking that users can do directly via ADO UI or `link artifact` with the
+vstfs:// branch URI. Removed as part of the git integration cleanup.
+
+Remove `LinkBranchCommand.cs`, its tests, and its `Program.cs` registration.
+
+---
+
+## Link Commands — Telemetry
+
+**Gap:** No link commands have telemetry. All must be instrumented:
+
+| Command | Properties |
+|---------|-----------|
+| `link parent` | `command=link-parent`, `exit_code`, `duration_ms` |
+| `link unparent` | `command=link-unparent`, `exit_code`, `duration_ms` |
+| `link reparent` | `command=link-reparent`, `exit_code`, `duration_ms` |
+| `link artifact` | `command=link-artifact`, `exit_code`, `duration_ms` |
+| `link batch` | `command=link-batch`, `exit_code`, `operation_count`, `duration_ms` |
+
+---
+
 ## `twig save` — REMOVED
 
 **Rationale:** With push-on-write and no local staging, there's nothing to
@@ -460,6 +670,7 @@ Remove `DiscardCommand.cs`, its tests, and its registration in `Program.cs`.
 |---------|-------------|
 | `save` | `sync` |
 | `discard` (top-level) | `seed discard` |
+| `link branch` | `link artifact` with vstfs:// URI, or ADO UI |
 
 ### MCP changes
 
@@ -467,5 +678,7 @@ Remove `DiscardCommand.cs`, its tests, and its registration in `Program.cs`.
 |------|--------|
 | `twig_patch` | Add — primary agent mutation tool (multi-field, atomic) |
 | `twig_batch` | Add — multi-item mutation tool |
+| `twig_link_artifact` | Add — artifact/hyperlink attachment |
+| `twig_link_batch` | Add — batch link operations for hierarchy restructuring |
 | `twig_edit` | Remove if it exists (interactive only) |
 | `twig_discard` | Remove (seeds handled by seed-specific tools) |

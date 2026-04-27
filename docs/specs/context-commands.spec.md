@@ -299,11 +299,11 @@ single, predictable command surface:
 | `twig show <id>` | `twig show <id>` (unchanged) |
 | `twig show <id> --no-refresh` | `twig show <id> --no-refresh` (unchanged) |
 
-### Deprecation Strategy
+### Removal Strategy
 
-1. Keep `status` as a hidden alias that calls `show` internally
-2. Emit deprecation warning on stderr: `"warning: 'twig status' is deprecated. Use 'twig show' instead."`
-3. Remove alias after 2 minor versions
+`status` is removed entirely — no deprecation alias, no transition period.
+Both the CLI command (`StatusCommand.cs`) and the MCP tool (`twig_status`)
+are deleted. This is a clean break.
 
 ---
 
@@ -337,6 +337,6 @@ single, predictable command surface:
 | 1 | Move pending changes, git context, branch hints to `show` |
 | 2 | Add hidden `status` alias pointing to `show.ExecuteAsync()` |
 | 3 | Emit deprecation warning |
-| 4 | Update MCP tool `twig_status` → `twig_show` |
+| 4 | Remove MCP tool `twig_status` entirely |
 | 5 | Update all tests |
-| 6 | Remove `StatusCommand.cs` after deprecation period |
+| 6 | Delete `StatusCommand.cs` |

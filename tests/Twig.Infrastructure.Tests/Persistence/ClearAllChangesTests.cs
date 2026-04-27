@@ -2,6 +2,7 @@ using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Persistence;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Infrastructure.Tests.Persistence;
@@ -50,8 +51,7 @@ public sealed class ClearAllChangesTests : IDisposable
     [Fact]
     public async Task PreservesSeedItemChanges()
     {
-        WorkItem.InitializeSeedCounter(-100);
-        var seed = WorkItem.CreateSeed(WorkItemType.Task, "Seed Item");
+        var seed = new WorkItemBuilder(-101, "Seed Item").AsSeed().Build();
         await _repo.SaveAsync(seed);
         await _changeStore.AddChangeAsync(seed.Id, "set_field", "System.Title", "Old", "New");
 
@@ -65,8 +65,7 @@ public sealed class ClearAllChangesTests : IDisposable
     public async Task MixedSeedAndNonSeed_OnlyDeletesNonSeed()
     {
         await SaveWorkItem(1, isSeed: false);
-        WorkItem.InitializeSeedCounter(-200);
-        var seed = WorkItem.CreateSeed(WorkItemType.Task, "Seed");
+        var seed = new WorkItemBuilder(-201, "Seed").AsSeed().Build();
         await _repo.SaveAsync(seed);
 
         await _changeStore.AddChangeAsync(1, "set_field", "System.Title", "A", "B");

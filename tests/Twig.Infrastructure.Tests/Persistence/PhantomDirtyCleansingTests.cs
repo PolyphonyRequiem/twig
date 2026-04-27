@@ -2,6 +2,7 @@ using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Persistence;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Infrastructure.Tests.Persistence;
@@ -90,8 +91,7 @@ public sealed class PhantomDirtyCleansingTests : IDisposable
     [Fact]
     public async Task DirtySeedWithNoPendingChanges_NeverCleansed()
     {
-        WorkItem.InitializeSeedCounter(-100);
-        var seed = WorkItem.CreateSeed(WorkItemType.Task, "Dirty Seed");
+        var seed = new WorkItemBuilder(-101, "Dirty Seed").AsSeed().Build();
         seed.SetDirty();
         await _repo.SaveAsync(seed);
 
@@ -132,8 +132,7 @@ public sealed class PhantomDirtyCleansingTests : IDisposable
         await _repo.SaveAsync(clean);
 
         // 1 dirty seed
-        WorkItem.InitializeSeedCounter(-300);
-        var seed = WorkItem.CreateSeed(WorkItemType.Task, "Seed");
+        var seed = new WorkItemBuilder(-301, "Seed").AsSeed().Build();
         seed.SetDirty();
         await _repo.SaveAsync(seed);
 
@@ -161,8 +160,7 @@ public sealed class PhantomDirtyCleansingTests : IDisposable
         await _repo.SaveAsync(clean);
 
         // Dirty seed → stays dirty
-        WorkItem.InitializeSeedCounter(-400);
-        var seed = WorkItem.CreateSeed(WorkItemType.Task, "Dirty Seed");
+        var seed = new WorkItemBuilder(-401, "Dirty Seed").AsSeed().Build();
         seed.SetDirty();
         await _repo.SaveAsync(seed);
 

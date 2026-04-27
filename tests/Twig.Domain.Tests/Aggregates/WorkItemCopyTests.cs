@@ -1,6 +1,7 @@
 using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.ValueObjects;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Domain.Tests.Aggregates;
@@ -74,7 +75,7 @@ public class WorkItemCopyTests
     [Fact]
     public void WithParentId_PreservesDirtyFlag()
     {
-        var original = WorkItem.CreateSeed(WorkItemType.Task, "Seed");
+        var original = new WorkItemBuilder(-1, "Seed").AsSeed().Build();
         original.UpdateField("System.Description", "dirty");
         original.IsDirty.ShouldBeTrue();
 
@@ -139,7 +140,7 @@ public class WorkItemCopyTests
     [Fact]
     public void WithIsSeed_False_ClearsSeedFlag()
     {
-        var original = WorkItem.CreateSeed(WorkItemType.Bug, "Seed bug");
+        var original = new WorkItemBuilder(-1, "Seed bug").AsBug().AsSeed().Build();
 
         var copy = original.WithIsSeed(false);
 
@@ -189,7 +190,7 @@ public class WorkItemCopyTests
     [Fact]
     public void WithIsSeed_DoesNotPreserveDirtyFlag()
     {
-        var original = WorkItem.CreateSeed(WorkItemType.Task, "Dirty seed");
+        var original = new WorkItemBuilder(-1, "Dirty seed").AsSeed().Build();
         original.UpdateField("System.Description", "dirty");
         original.IsDirty.ShouldBeTrue();
 

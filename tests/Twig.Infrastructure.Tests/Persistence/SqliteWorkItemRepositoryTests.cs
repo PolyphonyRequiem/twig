@@ -2,6 +2,7 @@ using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Persistence;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Infrastructure.Tests.Persistence;
@@ -132,7 +133,7 @@ public class SqliteWorkItemRepositoryTests : IDisposable
     public async Task GetSeedsAsync_ReturnsOnlySeeds()
     {
         var regular = CreateWorkItem(1, "Task", "Regular Item", "Active");
-        var seed = WorkItem.CreateSeed(WorkItemType.Task, "Seed Item");
+        var seed = new WorkItemBuilder(-1, "Seed Item").AsSeed().Build();
 
         await _repo.SaveAsync(regular);
         await _repo.SaveAsync(seed);
@@ -491,7 +492,7 @@ public class SqliteWorkItemRepositoryTests : IDisposable
     [Fact]
     public async Task DeleteByIdAsync_RemovesSeedByNegativeId()
     {
-        var seed = WorkItem.CreateSeed(WorkItemType.Task, "Delete Me");
+        var seed = new WorkItemBuilder(-1, "Delete Me").AsSeed().Build();
         await _repo.SaveAsync(seed);
 
         (await _repo.GetByIdAsync(seed.Id)).ShouldNotBeNull();
@@ -523,10 +524,9 @@ public class SqliteWorkItemRepositoryTests : IDisposable
     [Fact]
     public async Task GetMinSeedIdAsync_ReturnsSmallestSeedId()
     {
-        WorkItem.InitializeSeedCounter(-10);
-        var seed1 = WorkItem.CreateSeed(WorkItemType.Task, "Seed 1"); // -11
-        var seed2 = WorkItem.CreateSeed(WorkItemType.Task, "Seed 2"); // -12
-        var seed3 = WorkItem.CreateSeed(WorkItemType.Task, "Seed 3"); // -13
+        var seed1 = new WorkItemBuilder(-11, "Seed 1").AsSeed().Build();
+        var seed2 = new WorkItemBuilder(-12, "Seed 2").AsSeed().Build();
+        var seed3 = new WorkItemBuilder(-13, "Seed 3").AsSeed().Build();
         await _repo.SaveBatchAsync(new[] { seed1, seed2, seed3 });
 
         var minId = await _repo.GetMinSeedIdAsync();
@@ -539,8 +539,7 @@ public class SqliteWorkItemRepositoryTests : IDisposable
     public async Task GetMinSeedIdAsync_IgnoresNonSeedItems()
     {
         var regular = CreateWorkItem(1, "Task", "Regular", "Active");
-        WorkItem.InitializeSeedCounter(-5);
-        var seed = WorkItem.CreateSeed(WorkItemType.Task, "Seed");
+        var seed = new WorkItemBuilder(-6, "Seed").AsSeed().Build();
         await _repo.SaveAsync(regular);
         await _repo.SaveAsync(seed);
 

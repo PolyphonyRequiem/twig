@@ -77,6 +77,38 @@ Every production call site follows the exact same 3-step sequence: (1) enqueue o
 
 No external code ever handles `IWorkItemCommand` directly — it is a purely internal abstraction.
 
+#### Test call sites — `ApplyCommands()` (10 test files)
+
+These test files call `UpdateField()`/`ChangeState()`/`AddNote()` followed by `ApplyCommands()` in setup code to make work items dirty or to test mutation behavior. After the refactor, each `ApplyCommands()` call is simply removed.
+
+| File | Sites | Pattern |
+|------|-------|---------|
+| `tests/Twig.Domain.Tests/Aggregates/WorkItemTests.cs` | ~16 | Core mutation tests (ITEM-040/041/042/044) + guard clause tests referencing `ChangeStateCommand`/`UpdateFieldCommand` directly |
+| `tests/Twig.Domain.Tests/Aggregates/WorkItemCopyTests.cs` | 2 | `UpdateField()` + `ApplyCommands()` to make items dirty in setup |
+| `tests/Twig.Cli.Tests/Hints/HintEngineTests.cs` | 3 | `AddNote()`/`UpdateField()` + `ApplyCommands()` in dirty-item setup |
+| `tests/Twig.Cli.Tests/Formatters/HumanOutputFormatterTests.cs` | 6 | `UpdateField()` + `ApplyCommands()` in dirty-item setup |
+| `tests/Twig.Cli.Tests/Formatters/JsonOutputFormatterTests.cs` | 2 | `UpdateField()` + `ApplyCommands()` in dirty-item setup |
+| `tests/Twig.Cli.Tests/Formatters/JsonCompactOutputFormatterTests.cs` | 1 | `UpdateField()` + `ApplyCommands()` in dirty-item setup |
+| `tests/Twig.Cli.Tests/Formatters/MinimalOutputFormatterTests.cs` | 2 | `UpdateField()` + `ApplyCommands()` in dirty-item setup |
+| `tests/Twig.Infrastructure.Tests/Persistence/SqliteWorkItemRepositoryTests.cs` | 2 | `UpdateField()` + `ApplyCommands()` in dirty-item setup |
+| `tests/Twig.Cli.Tests/Commands/UpdateCommandTests.cs` | 4 | `UpdateField()` + `ApplyCommands()` in conflict-resolution setup |
+| `tests/Twig.Cli.Tests/Commands/EditSaveCommandTests.cs` | 1 | `ChangeState()` + `ApplyCommands()` in state-change test setup |
+
+**Not affected** (confirmed by grep): `StateCommandTests.cs`, `NoteCommandTests.cs` — these test CLI orchestration that constructs `FieldChange` directly and never touches the command queue.
+
+#### Test files with `using Twig.Domain.Commands` (2 files, excluding deleted command test files)
+
+| File | Usage |
+|------|-------|
+| `tests/Twig.Domain.Tests/Aggregates/WorkItemTests.cs` | Guard clause tests directly instantiate `ChangeStateCommand`/`UpdateFieldCommand` — must rewrite to test `WorkItem` methods |
+
+#### Test files to delete (2 files — test deleted types)
+
+| File | Reason |
+|------|--------|
+| `tests/Twig.Domain.Tests/Commands/ChangeStateCommandTests.cs` | Tests `ChangeStateCommand` which is being deleted |
+| `tests/Twig.Domain.Tests/Commands/AddNoteAndUpdateFieldCommandTests.cs` | Tests `AddNoteCommand`/`UpdateFieldCommand` which are being deleted |
+
 ---
 
 ## Problem Statement
@@ -299,7 +331,7 @@ item.AddNote(new PendingNote(...));  // no change needed (was void, still void)
 | `FlowTransitionService` | Remove `ApplyCommands()` call |
 | `ParentStatePropagationService` | Remove `ApplyCommands()` call |
 | Domain tests (6+ files) | Update to new API, remove command-specific tests |
-| CLI tests (3+ files) | Update mocked interactions that assert on `ApplyCommands()` |
+| CLI/infra tests (10 files) | Remove `ApplyCommands()` calls in setup code |
 
 ### Backward Compatibility
 - **Binary**: Breaking (method signatures change). This is internal code with no public NuGet surface.
@@ -349,13 +381,16 @@ item.AddNote(new PendingNote(...));  // no change needed (was void, still void)
 | `src/Twig/Commands/NoteCommand.cs` | Remove `ApplyCommands()` call |
 | `src/Twig.Domain/Services/FlowTransitionService.cs` | Remove `ApplyCommands()` call |
 | `src/Twig.Domain/Services/ParentStatePropagationService.cs` | Remove `ApplyCommands()` call |
-| `tests/Twig.Domain.Tests/Aggregates/WorkItemTests.cs` | Update all command-queue tests to direct-method API |
-| `tests/Twig.Domain.Tests/Aggregates/WorkItemCopyTests.cs` | Update `UpdateField`+`ApplyCommands` setup calls |
-| `tests/Twig.Domain.Tests/Commands/ChangeStateCommandTests.cs` | **Delete** — tests for removed type |
-| `tests/Twig.Domain.Tests/Commands/AddNoteAndUpdateFieldCommandTests.cs` | **Delete** — tests for removed types |
-| `tests/Twig.Cli.Tests/Commands/StateCommandTests.cs` | Remove `ApplyCommands()` mock expectations if any |
-| `tests/Twig.Cli.Tests/Commands/NoteCommandTests.cs` | Update staging path assertions |
-| `tests/Twig.Cli.Tests/Commands/EditSaveCommandTests.cs` | Update staging path assertions |
+| `tests/Twig.Domain.Tests/Aggregates/WorkItemTests.cs` | Remove `using Twig.Domain.Commands;`, rewrite guard clause tests to test `WorkItem` methods directly, remove all `ApplyCommands()` calls, assert on `ChangeState`/`UpdateField` return values |
+| `tests/Twig.Domain.Tests/Aggregates/WorkItemCopyTests.cs` | Remove `ApplyCommands()` calls (2 sites) in dirty-item setup |
+| `tests/Twig.Cli.Tests/Hints/HintEngineTests.cs` | Remove `ApplyCommands()` calls (3 sites) in dirty-item setup |
+| `tests/Twig.Cli.Tests/Formatters/HumanOutputFormatterTests.cs` | Remove `ApplyCommands()` calls (6 sites) in dirty-item setup |
+| `tests/Twig.Cli.Tests/Formatters/JsonOutputFormatterTests.cs` | Remove `ApplyCommands()` calls (2 sites) in dirty-item setup |
+| `tests/Twig.Cli.Tests/Formatters/JsonCompactOutputFormatterTests.cs` | Remove `ApplyCommands()` call (1 site) in dirty-item setup |
+| `tests/Twig.Cli.Tests/Formatters/MinimalOutputFormatterTests.cs` | Remove `ApplyCommands()` calls (2 sites) in dirty-item setup |
+| `tests/Twig.Infrastructure.Tests/Persistence/SqliteWorkItemRepositoryTests.cs` | Remove `ApplyCommands()` calls (2 sites) in dirty-item setup |
+| `tests/Twig.Cli.Tests/Commands/UpdateCommandTests.cs` | Remove `ApplyCommands()` calls (4 sites) in conflict-resolution setup |
+| `tests/Twig.Cli.Tests/Commands/EditSaveCommandTests.cs` | Remove `ApplyCommands()` call (1 site) in state-change test setup |
 
 ### Deleted Files
 
@@ -372,7 +407,7 @@ item.AddNote(new PendingNote(...));  // no change needed (was void, still void)
 
 ## ADO Work Item Structure
 
-### Issue 1: Refactor WorkItem Aggregate — Direct Mutation Methods
+### Issue 1: Refactor WorkItem Aggregate — Direct Mutation Methods (#2127)
 
 **Goal:** Replace the command queue in `WorkItem` with direct mutation methods that return `FieldChange` values inline. This is the core domain change.
 
@@ -397,7 +432,7 @@ item.AddNote(new PendingNote(...));  // no change needed (was void, still void)
 - [ ] `IsDirty` is set on every mutation
 - [ ] Guard clauses throw `ArgumentException` on null/whitespace input
 
-### Issue 2: Update Production Callers
+### Issue 2: Update Production Callers (#2128)
 
 **Goal:** Update all 6 production call sites to remove `ApplyCommands()` calls and adapt to the new method signatures.
 
@@ -420,7 +455,7 @@ item.AddNote(new PendingNote(...));  // no change needed (was void, still void)
 - [ ] `IsDirty` tracking preserved at all call sites
 - [ ] `MarkSynced()` calls unchanged
 
-### Issue 3: Migrate Tests and Validate
+### Issue 3: Migrate Tests and Validate (#2129)
 
 **Goal:** Update all test files to use the new direct-method API, delete obsolete command tests, and verify full test suite passes.
 
@@ -430,16 +465,18 @@ item.AddNote(new PendingNote(...));  // no change needed (was void, still void)
 
 | Task ID | Description | Files | Effort |
 |---------|-------------|-------|--------|
-| T3.1 | Update `WorkItemTests.cs` — rewrite ITEM-040 (state transition), ITEM-041 (field update), ITEM-042 (note), ITEM-044 (multi-command) tests to use direct methods. Remove `ApplyCommands()` calls, assert on return values directly. | `WorkItemTests.cs` | Medium |
-| T3.2 | Update `WorkItemCopyTests.cs` — replace `UpdateField()`+`ApplyCommands()` setup with direct `UpdateField()` call. | `WorkItemCopyTests.cs` | Small |
+| T3.1 | Update `WorkItemTests.cs` — rewrite ITEM-040 (state transition), ITEM-041 (field update), ITEM-042 (note), ITEM-044 (multi-command) tests to use direct methods. Remove `ApplyCommands()` calls, assert on return values directly. Rewrite guard clause tests (lines 106–121) to test `WorkItem.ChangeState`/`UpdateField` directly instead of command constructors. Delete `ChangeStateCommand.NewState` property test. Remove `using Twig.Domain.Commands;`. | `WorkItemTests.cs` | Medium |
+| T3.2 | Update `WorkItemCopyTests.cs` — remove `ApplyCommands()` calls in 2 dirty-item setup sites. | `WorkItemCopyTests.cs` | Small |
 | T3.3 | Delete `ChangeStateCommandTests.cs` and `AddNoteAndUpdateFieldCommandTests.cs` — these test deleted types. Equivalent coverage is provided by the updated `WorkItemTests`. | `Commands/*.cs` test files | Small |
-| T3.4 | Update CLI test files (`StateCommandTests.cs`, `NoteCommandTests.cs`, `EditSaveCommandTests.cs`) — remove any mock expectations or setup that references `ApplyCommands()`. | CLI test files | Medium |
-| T3.5 | Run full test suite (`dotnet test`), fix any remaining compilation errors or test failures. | All | Medium |
+| T3.4 | Update remaining test files that use `ApplyCommands()` in setup — remove the `ApplyCommands()` call at each site. Files: `HintEngineTests.cs` (3 sites), `HumanOutputFormatterTests.cs` (6 sites), `JsonOutputFormatterTests.cs` (2 sites), `JsonCompactOutputFormatterTests.cs` (1 site), `MinimalOutputFormatterTests.cs` (2 sites), `SqliteWorkItemRepositoryTests.cs` (2 sites), `UpdateCommandTests.cs` (4 sites), `EditSaveCommandTests.cs` (1 site). All are mechanical one-line removals. | 8 test files | Medium |
+| T3.5 | Run full test suite (`dotnet test`), fix any remaining compilation errors or test failures. Verify no references to `ApplyCommands`, `IWorkItemCommand`, `ChangeStateCommand`, `UpdateFieldCommand`, or `AddNoteCommand` remain in src/ or tests/. | All | Medium |
 
 **Acceptance Criteria:**
 - [ ] All existing tests pass (with API updates applied)
 - [ ] No references to `IWorkItemCommand`, `ChangeStateCommand`, `UpdateFieldCommand`, `AddNoteCommand` remain in test code
+- [ ] No references to `ApplyCommands` remain in src/ or tests/
 - [ ] ITEM-040, ITEM-041, ITEM-042, ITEM-044 equivalent coverage preserved
+- [ ] Guard clause tests rewritten to test `WorkItem` methods directly
 - [ ] `IsDirty` tracking tests pass
 - [ ] Full `dotnet test` green
 
@@ -451,7 +488,7 @@ item.AddNote(new PendingNote(...));  // no change needed (was void, still void)
 
 **Type:** Deep
 **Scope:** All changes in a single PR — domain model refactor, caller updates, and test migration.
-**Rationale:** This is a tightly coupled refactor where the domain change, caller updates, and test changes must be atomic. Splitting into multiple PRs would create broken intermediate states (removed `ApplyCommands()` with callers still referencing it). The total change is well within the ≤2000 LoC / ≤50 files guideline — estimated ~400 LoC changed across ~15 files (6 deleted, 9 modified).
+**Rationale:** This is a tightly coupled refactor where the domain change, caller updates, and test changes must be atomic. Splitting into multiple PRs would create broken intermediate states (removed `ApplyCommands()` with callers still referencing it). The total change is well within the ≤2000 LoC / ≤50 files guideline — estimated ~500 LoC changed across ~23 files (6 deleted, 17 modified).
 **Successor:** None.
 
 **Contents:**
@@ -459,7 +496,7 @@ item.AddNote(new PendingNote(...));  // no change needed (was void, still void)
 - Issue 2: All tasks (T2.1–T2.6) — Caller updates
 - Issue 3: All tasks (T3.1–T3.5) — Test migration + validation
 
-**Estimated Impact:** ~400 LoC changed, ~15 files touched, net deletion of ~120 lines.
+**Estimated Impact:** ~500 LoC changed, ~23 files touched (17 modified, 6 deleted), net deletion of ~200 lines.
 
 ---
 
@@ -475,16 +512,17 @@ item.AddNote(new PendingNote(...));  // no change needed (was void, still void)
 
 **PG-1 — core-refactor-and-tests** is the only PR and is fully self-contained.
 
-All three issues are tightly coupled: the domain change (I1) removes `ApplyCommands()`, the caller updates (I2) remove the only call sites, and the test migration (I3) deletes tests for the removed types. Splitting these into separate PRs would create broken intermediate states that do not build. Because the total impact is ~400 LoC across ~15 files (well within the ≤2,000 LoC / ≤50 files guardrails), a single atomic PR is the correct grouping.
+All three issues are tightly coupled: the domain change (I1) removes `ApplyCommands()`, the caller updates (I2) remove the only production call sites, and the test migration (I3) deletes tests for the removed types and removes `ApplyCommands()` from 10 test files. Splitting these into separate PRs would create broken intermediate states that do not build. Because the total impact is ~500 LoC across ~23 files (well within the ≤2,000 LoC / ≤50 files guardrails), a single atomic PR is the correct grouping.
 
 Recommended implementation order within the PR:
 1. Rewrite `WorkItem.cs` (T1.1–T1.4) — establishes the new API.
 2. Delete `Commands/` source files (T1.5) — removes deleted types.
 3. Update 6 production callers (T2.1–T2.6) — each is a one-line removal.
 4. Delete obsolete command test files (T3.3) — removes references to deleted types.
-5. Update `WorkItemTests.cs` and `WorkItemCopyTests.cs` (T3.1–T3.2) — migrate domain tests to new API.
-6. Update CLI test files (T3.4) — remove `ApplyCommands()` mock expectations.
-7. Run `dotnet test` and fix any remaining issues (T3.5).
+5. Update `WorkItemTests.cs` (T3.1) — rewrite guard clause tests and migrate domain tests to new API.
+6. Update `WorkItemCopyTests.cs` (T3.2) — remove `ApplyCommands()` from setup.
+7. Update 8 remaining test files (T3.4) — mechanical `ApplyCommands()` removal.
+8. Run `dotnet test` and fix any remaining issues (T3.5).
 
 ### Validation Strategy — PG-1
 
@@ -495,7 +533,7 @@ Recommended implementation order within the PR:
 | No remaining command-type references | `grep -r "IWorkItemCommand\|ChangeStateCommand\|UpdateFieldCommand\|AddNoteCommand" src/ tests/` — must return empty |
 | All tests pass | `dotnet test` — full suite green |
 | `IsDirty` tracking preserved | Existing `WorkItemTests.cs` ITEM-040/041/042/044 equivalents assert dirty flag |
-| LoC budget respected | ~400 LoC changed, ~15 files, well under limits |
+| LoC budget respected | ~500 LoC changed, ~23 files, well under limits |
 
 ---
 

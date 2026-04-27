@@ -1,7 +1,7 @@
 # Mutation Commands — Functional Specification
 
 > **Domain:** Work item mutation — changing state, fields, and comments  
-> **Commands:** `state`, `update`, `note`, `edit`  
+> **Commands:** `state`, `update`, `note`, `edit`, `patch`, `batch`  
 > **Removed:** `save` (replaced by `sync`), `discard` (moved to seeds only)
 
 ## Design Principles
@@ -218,6 +218,83 @@ multi-field, JSON-native. `twig_update` remains for single-field convenience.
 
 ---
 
+## `twig batch` — Multi-Item Patch
+
+### Purpose
+
+Apply the same mutation (state change, field updates, note) across multiple
+work items in a single invocation. Internally calls the same per-item logic
+as `patch`. Designed for bulk operations from scripts and agents.
+
+### Signature
+
+```
+twig batch --ids <csv> [--state <name>] [--set <key=value>...] [--note <text>]
+    [--format <convert>] [--output <format>]
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `--ids` | string | required | Comma-separated work item IDs |
+| `--state` | string? | null | Target state for all items |
+| `--set` | string[]? | null | Field updates as `key=value` pairs (repeatable) |
+| `--note` | string? | null | Comment to add to each item |
+| `--format` | string? | null | Input conversion: `"markdown"` converts values → HTML |
+| `--output` | string | `human` | Output format: `human`, `json`, `jsonc`, `minimal` |
+
+At least one of `--state`, `--set`, or `--note` must be specified. Exit 2 otherwise.
+
+### Behavior
+
+1. **Parse IDs** — validate comma-separated integer list. Exit 2 on parse error.
+2. **For each item:**
+   a. Fetch remote (conflict check)
+   b. Auto-accept-remote on conflict (no interactive prompt in multi-item mode)
+   c. Validate state transition (if `--state`)
+   d. Build combined field changes
+   e. Single PATCH to ADO
+   f. Add note (if `--note`)
+   g. Resync cache (non-fatal on failure)
+3. **Aggregate results** — count successes/failures
+4. **Output summary**
+5. Exit 0 if all succeed, exit 1 if any fail
+
+### Relationship to `patch`
+
+`batch` and `patch` share the same core processing logic:
+- **`patch`**: single item, supports `--json`/`--stdin` structured input, interactive conflict resolution
+- **`batch`**: multiple items via `--ids`, uses `--set key=value` CLI syntax, auto-accepts conflicts
+
+`batch` should delegate per-item processing to the same `ProcessItemAsync` that
+`patch` uses. The existing `BatchCommand` already implements this correctly.
+
+### Output
+
+- **Human:** per-item success/failure, then summary
+- **JSON:** `{ totalItems, succeeded, failed, items: [{ itemId, title, success, ... }] }`
+- **Minimal:** per-item one-liners, then count summary
+
+### MCP Tool: `twig_batch`
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `ids` | string | yes | Comma-separated work item IDs |
+| `state` | string? | no | Target state |
+| `fields` | object? | no | Field→value map (JSON object) |
+| `note` | string? | no | Comment to add |
+| `format` | string? | no | Input conversion (`"markdown"`) |
+
+Returns JSON format with per-item results.
+
+### Telemetry
+
+- `command`: `"batch"`
+- `exit_code`, `output_format`, `duration_ms`, `twig_version`, `os_platform`
+- `item_count`: number of items in batch
+- `succeeded_count`: number of successful items
+
+---
+
 ## `twig note` — Add a Comment
 
 ### Purpose
@@ -388,5 +465,7 @@ Remove `DiscardCommand.cs`, its tests, and its registration in `Program.cs`.
 
 | Tool | Action |
 |------|--------|
+| `twig_patch` | Add — primary agent mutation tool (multi-field, atomic) |
+| `twig_batch` | Add — multi-item mutation tool |
 | `twig_edit` | Remove if it exists (interactive only) |
 | `twig_discard` | Remove (seeds handled by seed-specific tools) |

@@ -142,6 +142,82 @@ Exactly one must be provided:
 
 ---
 
+## `twig patch` — Atomic Multi-Field Update
+
+### Purpose
+
+Update multiple fields on a work item in a single atomic ADO PATCH request.
+Designed for machine integrations (MCP agents, scripts) where multiple fields
+must change together.
+
+### Signature
+
+```
+twig patch [--json <string>] [--stdin] [--format <convert>] [--id <int>] [--output <format>]
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `--json` | string? | null | Inline JSON object of field→value pairs |
+| `--stdin` | bool | false | Read JSON object from stdin |
+| `--format` | string? | null | Input conversion: `"markdown"` converts Markdown values → HTML |
+| `--id` | int? | null | Target work item ID; omit for active item |
+| `--output` | string | `human` | Output format: `human`, `json`, `jsonc`, `minimal` |
+
+### Input Format
+
+JSON object where keys are field reference names and values are the new values:
+
+```json
+{
+  "System.Title": "New Title",
+  "System.Description": "# Heading\n\nBody text",
+  "Microsoft.VSTS.Common.Priority": 1
+}
+```
+
+Exactly one of `--json` or `--stdin` must be provided. Exit 2 if 0 or 2.
+
+### Behavior
+
+1. **Validate input** — parse JSON, validate field names exist. Exit 2 on parse error.
+2. **Resolve item** — by `--id` or active context. Exit 1 if not found.
+3. **Format conversion** — if `--format markdown`, convert all string values
+   that look like Markdown to HTML. Non-string values pass through unchanged.
+4. **Fetch remote** — get latest revision.
+5. **Conflict resolution** — detect and retry once.
+6. **Patch** — push ALL field changes in a single ADO PATCH request (atomic).
+7. **Auto-push pending notes** — push alongside if any exist.
+8. **Resync cache** — re-fetch and update. Non-fatal on failure.
+9. **Output confirmation**
+
+### Output
+
+- **Human:** `✓ #42 patched: 3 field(s) updated`
+- **JSON:** `{"id": 42, "fields": {"System.Title": {"old": "...", "new": "..."}, ...}}`
+- **Minimal:** `#42 patched (3 fields)`
+
+### Exit Codes
+
+| Code | Condition |
+|------|-----------|
+| 0 | All fields updated successfully |
+| 1 | Item not found, ADO error, conflict after retry |
+| 2 | Usage error (invalid JSON, no input, both --json and --stdin) |
+
+### MCP Parity
+
+`twig_patch` should be the primary MCP mutation tool for agents — atomic,
+multi-field, JSON-native. `twig_update` remains for single-field convenience.
+
+### Telemetry
+
+- `command`: `"patch"`
+- `exit_code`, `output_format`, `duration_ms`, `twig_version`, `os_platform`
+- `field_count`: number of fields in the patch
+
+---
+
 ## `twig note` — Add a Comment
 
 ### Purpose

@@ -110,7 +110,7 @@ public sealed class WorkItem
         IsDirty = false;
     }
 
-    // ── Seed copy ──────────────────────────────────────────────────
+    // ── Copy methods (delegate to WorkItemCopier) ──────────────────
 
     /// <summary>
     /// Returns a new <see cref="WorkItem"/> with updated title and fields,
@@ -120,84 +120,23 @@ public sealed class WorkItem
     /// </summary>
     public WorkItem WithSeedFields(
         string title,
-        IReadOnlyDictionary<string, string?> fields)
-    {
-        var copy = new WorkItem
-        {
-            Id = Id,
-            Type = Type,
-            Title = title,
-            State = State,
-            AssignedTo = AssignedTo,
-            IterationPath = IterationPath,
-            AreaPath = AreaPath,
-            ParentId = ParentId,
-            IsSeed = IsSeed,
-            SeedCreatedAt = SeedCreatedAt,
-            LastSyncedAt = LastSyncedAt,
-        };
-
-        // Restore revision without side-effecting dirty flag
-        if (Revision > 0)
-            copy.MarkSynced(Revision);
-
-        copy.ImportFields(fields);
-        return copy;
-    }
+        IReadOnlyDictionary<string, string?> fields) =>
+        WorkItemCopier.Copy(this, titleOverride: title,
+            preserveExistingFields: false, fieldsOverride: fields);
 
     /// <summary>
     /// Returns a copy with a different <see cref="ParentId"/>.
     /// All other properties (including fields and dirty state) are preserved.
     /// </summary>
-    public WorkItem WithParentId(int? newParentId)
-    {
-        var copy = new WorkItem
-        {
-            Id = Id,
-            Type = Type,
-            Title = Title,
-            State = State,
-            AssignedTo = AssignedTo,
-            IterationPath = IterationPath,
-            AreaPath = AreaPath,
-            ParentId = newParentId,
-            IsSeed = IsSeed,
-            SeedCreatedAt = SeedCreatedAt,
-            LastSyncedAt = LastSyncedAt,
-        };
-
-        if (Revision > 0) copy.MarkSynced(Revision);
-        copy.ImportFields(Fields);
-        if (IsDirty) copy.SetDirty();
-
-        return copy;
-    }
+    public WorkItem WithParentId(int? newParentId) =>
+        WorkItemCopier.Copy(this, overrideParentId: true,
+            parentIdValue: newParentId, preserveDirty: true);
 
     /// <summary>
     /// Returns a copy with a different <see cref="IsSeed"/> flag.
     /// Used to mark a fetched-back ADO item as seed provenance.
     /// </summary>
-    public WorkItem WithIsSeed(bool isSeed)
-    {
-        var copy = new WorkItem
-        {
-            Id = Id,
-            Type = Type,
-            Title = Title,
-            State = State,
-            AssignedTo = AssignedTo,
-            IterationPath = IterationPath,
-            AreaPath = AreaPath,
-            ParentId = ParentId,
-            IsSeed = isSeed,
-            SeedCreatedAt = SeedCreatedAt,
-            LastSyncedAt = LastSyncedAt,
-        };
-
-        if (Revision > 0) copy.MarkSynced(Revision);
-        copy.ImportFields(Fields);
-
-        return copy;
-    }
+    public WorkItem WithIsSeed(bool isSeed) =>
+        WorkItemCopier.Copy(this, isSeedOverride: isSeed);
 
 }

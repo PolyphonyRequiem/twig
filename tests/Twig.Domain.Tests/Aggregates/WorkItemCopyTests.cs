@@ -217,6 +217,112 @@ public class WorkItemCopyTests
         original.IsSeed.ShouldBeFalse();
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    //  WithSeedFields tests
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void WithSeedFields_CleanItem_ProducesCleanCopy()
+    {
+        var original = new WorkItemBuilder(-1, "Original")
+            .AsSeed()
+            .WithField("System.Description", "desc")
+            .Build();
+        original.IsDirty.ShouldBeFalse();
+
+        var copy = original.WithSeedFields("Updated", new Dictionary<string, string?>
+        {
+            ["System.Description"] = "new desc",
+        });
+
+        copy.IsDirty.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void WithSeedFields_DirtyItem_ProducesCleanCopy()
+    {
+        var original = new WorkItemBuilder(-1, "Original").AsSeed().Build();
+        original.UpdateField("System.Description", "dirty");
+        original.IsDirty.ShouldBeTrue();
+
+        var copy = original.WithSeedFields("Updated", new Dictionary<string, string?>
+        {
+            ["System.Description"] = "override",
+        });
+
+        copy.IsDirty.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void WithSeedFields_FieldsOverride_NoBleedThrough()
+    {
+        var original = new WorkItemBuilder(-1, "Original")
+            .AsSeed()
+            .WithField("System.Description", "original desc")
+            .WithField("Microsoft.VSTS.Common.Priority", "1")
+            .Build();
+
+        var overrideFields = new Dictionary<string, string?>
+        {
+            ["Custom.NewField"] = "new value",
+        };
+
+        var copy = original.WithSeedFields("Updated", overrideFields);
+
+        copy.Fields.ShouldContainKey("Custom.NewField");
+        copy.Fields["Custom.NewField"].ShouldBe("new value");
+        copy.Fields.ShouldNotContainKey("System.Description");
+        copy.Fields.ShouldNotContainKey("Microsoft.VSTS.Common.Priority");
+        copy.Fields.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public void WithSeedFields_RevisionZero_SkipsMarkSynced()
+    {
+        var original = new WorkItem
+        {
+            Id = -1,
+            Type = WorkItemType.Task,
+            Title = "Unsynced",
+            State = "New",
+            IsSeed = true,
+        };
+        original.Revision.ShouldBe(0);
+
+        var copy = original.WithSeedFields("Updated", new Dictionary<string, string?>());
+
+        copy.Revision.ShouldBe(0);
+    }
+
+    [Fact]
+    public void WithParentId_RevisionZero_SkipsMarkSynced()
+    {
+        var original = new WorkItemBuilder(-1, "Unsynced").AsSeed().Build();
+        original.Revision.ShouldBe(0);
+
+        var copy = original.WithParentId(100);
+
+        copy.Revision.ShouldBe(0);
+    }
+
+    [Fact]
+    public void WithIsSeed_RevisionZero_SkipsMarkSynced()
+    {
+        var original = new WorkItem
+        {
+            Id = 1,
+            Type = WorkItemType.Task,
+            Title = "Unsynced",
+            State = "New",
+            IsSeed = false,
+        };
+        original.Revision.ShouldBe(0);
+
+        var copy = original.WithIsSeed(true);
+
+        copy.Revision.ShouldBe(0);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     private static WorkItem CreateSeedWithFields(int? parentId)

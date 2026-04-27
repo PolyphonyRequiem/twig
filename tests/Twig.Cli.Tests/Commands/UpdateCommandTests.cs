@@ -71,14 +71,12 @@ public class UpdateCommandTests
     {
         var local = CreateWorkItem(1, "Local Title");
         local.UpdateField("System.Title", "Local Change");
-        local.ApplyCommands();
 
         var remote = CreateWorkItem(1, "Remote Title");
         remote.MarkSynced(5); // Different revision
 
         // Make remote have a different field value
         remote.UpdateField("System.Title", "Remote Change");
-        remote.ApplyCommands();
 
         SetupActiveItem(local);
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
@@ -95,12 +93,10 @@ public class UpdateCommandTests
     {
         var local = CreateWorkItem(1, "Local Title");
         local.UpdateField("System.Title", "Local Change");
-        local.ApplyCommands();
 
         var remote = CreateWorkItem(1, "Remote Title");
         remote.MarkSynced(5);
         remote.UpdateField("System.Title", "Remote Change");
-        remote.ApplyCommands();
 
         SetupActiveItem(local);
         _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);

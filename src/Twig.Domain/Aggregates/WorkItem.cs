@@ -1,20 +1,17 @@
 using System.Collections.ObjectModel;
-using Twig.Domain.Commands;
 using Twig.Domain.ValueObjects;
 
 namespace Twig.Domain.Aggregates;
 
 /// <summary>
 /// Root aggregate for an Azure DevOps work item.
-/// Supports a command-queue pattern: enqueue mutations via
-/// <see cref="ChangeState"/>, <see cref="UpdateField"/>, <see cref="AddNote"/>,
-/// then flush them atomically with <see cref="ApplyCommands"/>.
+/// Mutations via <see cref="ChangeState"/>, <see cref="UpdateField"/>,
+/// <see cref="AddNote"/> take effect immediately and set <see cref="IsDirty"/>.
 /// </summary>
 public sealed class WorkItem
 {
     private static int _seedIdCounter;
 
-    private readonly Queue<IWorkItemCommand> _commandQueue = new();
     private readonly Dictionary<string, string?> _fields = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<PendingNote> _pendingNotes = new();
     private readonly ReadOnlyDictionary<string, string?> _fieldsView;
@@ -76,50 +73,33 @@ public sealed class WorkItem
 
     internal void AddPendingNote(PendingNote note) => _pendingNotes.Add(note);
 
-    // ── Command enqueueing ──────────────────────────────────────────
+    // ── Direct mutation methods ─────────────────────────────────────
 
-    /// <summary>Enqueues a state change command.</summary>
-    public void ChangeState(string newState)
+    /// <summary>Transitions the work item to a new state, returning the field change.</summary>
+    public FieldChange ChangeState(string newState)
     {
-        _commandQueue.Enqueue(new ChangeStateCommand(newState));
+        ArgumentException.ThrowIfNullOrWhiteSpace(newState);
+        var oldState = State;
+        State = newState;
         IsDirty = true;
+        return new FieldChange("System.State", oldState, newState);
     }
 
-    /// <summary>Enqueues an arbitrary field update command.</summary>
-    public void UpdateField(string fieldName, string? value)
+    /// <summary>Sets an arbitrary field value, returning the field change.</summary>
+    public FieldChange UpdateField(string fieldName, string? value)
     {
-        _commandQueue.Enqueue(new UpdateFieldCommand(fieldName, value));
+        ArgumentException.ThrowIfNullOrWhiteSpace(fieldName);
+        TryGetField(fieldName, out var oldValue);
+        SetField(fieldName, value);
         IsDirty = true;
+        return new FieldChange(fieldName, oldValue, value);
     }
 
-    /// <summary>Enqueues an add-note command.</summary>
+    /// <summary>Appends a pending note. Notes do not produce field changes.</summary>
     public void AddNote(PendingNote note)
     {
-        _commandQueue.Enqueue(new AddNoteCommand(note));
+        AddPendingNote(note);
         IsDirty = true;
-    }
-
-    // ── Command application ─────────────────────────────────────────
-
-    /// <summary>
-    /// Dequeues and executes all pending commands.
-    /// Returns non-null <see cref="FieldChange"/> entries (notes are filtered out).
-    /// </summary>
-    public IReadOnlyList<FieldChange> ApplyCommands()
-    {
-        var changes = new List<FieldChange>();
-
-        while (_commandQueue.TryDequeue(out var command))
-        {
-            command.Execute(this);
-            var change = command.ToFieldChange();
-            if (change.HasValue)
-            {
-                changes.Add(change.Value);
-            }
-        }
-
-        return changes;
     }
 
     /// <summary>

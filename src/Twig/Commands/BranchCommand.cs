@@ -103,7 +103,6 @@ public sealed class BranchCommand(
                             var changes = new[] { new FieldChange("System.State", item.State, newState) };
                             var newRevision = await adoService.PatchAsync(item.Id, changes, remote.Revision);
                             item.ChangeState(newState);
-                            item.ApplyCommands();
                             item.MarkSynced(newRevision);
                             await workItemRepo.SaveAsync(item);
                         }

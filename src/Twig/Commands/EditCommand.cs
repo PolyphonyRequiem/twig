@@ -180,7 +180,6 @@ public sealed class EditCommand(
         }
 
         item.UpdateField("_edited", "true");
-        item.ApplyCommands();
         await workItemRepo.SaveAsync(item, ct);
     }
 }

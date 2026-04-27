@@ -517,6 +517,18 @@ internal static class McpResultBuilder
             writer.WriteNull("parentId");
         item.Fields.TryGetValue("System.Tags", out var tags);
         writer.WriteString("tags", tags ?? "");
+
+        if (item.Fields.Count > 0)
+        {
+            writer.WriteStartObject("fields");
+            foreach (var (refName, value) in item.Fields)
+            {
+                if (string.IsNullOrEmpty(value)) continue;
+                if (string.Equals(refName, "System.Tags", StringComparison.OrdinalIgnoreCase)) continue;
+                writer.WriteString(refName, value);
+            }
+            writer.WriteEndObject();
+        }
     }
 
     /// <summary>

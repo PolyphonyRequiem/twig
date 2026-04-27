@@ -696,12 +696,32 @@ public sealed class JsonOutputFormatter : IOutputFormatter
         else
             writer.WriteNull("parentId");
         writer.WriteString("tags", GetTags(item));
+        WriteFieldsBlock(writer, item);
     }
 
     internal static string GetTags(WorkItem item)
     {
         item.Fields.TryGetValue("System.Tags", out var tags);
         return tags ?? "";
+    }
+
+    /// <summary>
+    /// Writes all populated fields from <see cref="WorkItem.Fields"/> as a <c>"fields"</c> object.
+    /// Skips <c>System.Tags</c> (already promoted to a top-level property).
+    /// </summary>
+    private static void WriteFieldsBlock(Utf8JsonWriter writer, WorkItem item)
+    {
+        if (item.Fields.Count == 0) return;
+
+        writer.WriteStartObject("fields");
+        foreach (var (refName, value) in item.Fields)
+        {
+            if (string.IsNullOrEmpty(value)) continue;
+            // System.Tags is already a top-level property
+            if (string.Equals(refName, "System.Tags", StringComparison.OrdinalIgnoreCase)) continue;
+            writer.WriteString(refName, value);
+        }
+        writer.WriteEndObject();
     }
 
     internal static void WriteSectionsBlock(Utf8JsonWriter writer, WorkspaceSections sections)
@@ -744,6 +764,7 @@ public sealed class JsonOutputFormatter : IOutputFormatter
 
         if (dynamicColumns is { Count: > 0 })
         {
+            // Dynamic columns mode: write only the requested columns (workspace/sprint view)
             writer.WriteStartObject("fields");
             foreach (var col in dynamicColumns)
             {
@@ -752,6 +773,10 @@ public sealed class JsonOutputFormatter : IOutputFormatter
                 writer.WriteString(col.ReferenceName, formatted);
             }
             writer.WriteEndObject();
+        }
+        else
+        {
+            WriteFieldsBlock(writer, item);
         }
 
         writer.WriteEndObject();
@@ -775,6 +800,7 @@ public sealed class JsonOutputFormatter : IOutputFormatter
         else
             writer.WriteNull("parentId");
         writer.WriteString("tags", GetTags(item));
+        WriteFieldsBlock(writer, item);
 
         var descendants = tree.GetDescendants(item.Id);
         writer.WriteStartArray("children");

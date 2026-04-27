@@ -41,10 +41,11 @@ public class SeedChainCommandTests
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
 
         _resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var seedIdCounter = new SeedIdCounter();
         _cmd = new SeedChainCommand(
             _resolver, _workItemRepo, _seedLinkRepo,
             _processConfigProvider, _consoleInput, formatterFactory, hintEngine,
-            new SeedFactory(new SeedIdCounter()));
+            new SeedFactory(seedIdCounter), seedIdCounter);
     }
 
     // ── E4-T4: Chain creates N seeds with N-1 links ────────────────

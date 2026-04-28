@@ -35,6 +35,22 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         return Task.FromResult(item);
     }
 
+    /// <summary>
+    /// Returns the raw <see cref="WorkItemSnapshot"/> for a given ID without mapping to a domain object.
+    /// Exposed as internal for persistence-layer tests that need to verify the snapshot intermediate step.
+    /// </summary>
+    internal Task<WorkItemSnapshot?> GetSnapshotByIdAsync(int id, CancellationToken ct = default)
+    {
+        var conn = _store.GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT * FROM work_items WHERE id = @id;";
+        cmd.Parameters.AddWithValue("@id", id);
+
+        using var reader = cmd.ExecuteReader();
+        var snapshot = reader.Read() ? MapRowToSnapshot(reader) : null;
+        return Task.FromResult(snapshot);
+    }
+
     public Task<IReadOnlyList<WorkItem>> GetByIdsAsync(IEnumerable<int> ids, CancellationToken ct = default)
     {
         var idList = ids as IList<int> ?? ids.ToList();

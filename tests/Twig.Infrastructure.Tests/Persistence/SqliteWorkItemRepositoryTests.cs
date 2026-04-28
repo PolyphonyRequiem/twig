@@ -692,6 +692,303 @@ public class SqliteWorkItemRepositoryTests : IDisposable
         results.Count.ShouldBe(0);
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    //  Snapshot intermediate step verification
+    //  Verify MapRowToSnapshot() produces a snapshot with all
+    //  expected field values after save.
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task GetSnapshotByIdAsync_ProducesSnapshotWithAllExpectedFields()
+    {
+        var seedCreatedAt = new DateTimeOffset(2025, 6, 15, 10, 30, 0, TimeSpan.Zero);
+        var item = new WorkItem
+        {
+            Id = 42,
+            Type = WorkItemType.UserStory,
+            Title = "Snapshot Verification Item",
+            State = "Resolved",
+            ParentId = 10,
+            AssignedTo = "Alice",
+            IterationPath = IterationPath.Parse(@"Project\Sprint3").Value,
+            AreaPath = AreaPath.Parse(@"Project\Backend").Value,
+            IsSeed = true,
+            SeedCreatedAt = seedCreatedAt,
+        };
+        item.MarkSynced(7);
+        item.ImportFields(new Dictionary<string, string?>
+        {
+            ["Microsoft.VSTS.Common.Priority"] = "1",
+            ["System.Tags"] = "api; backend",
+            ["Custom.Team"] = "Platform",
+        });
+        item.SetDirty();
+
+        await _repo.SaveAsync(item);
+
+        var snapshot = await _repo.GetSnapshotByIdAsync(42);
+        snapshot.ShouldNotBeNull();
+
+        snapshot.Id.ShouldBe(42);
+        snapshot.TypeName.ShouldBe("User Story");
+        snapshot.Title.ShouldBe("Snapshot Verification Item");
+        snapshot.State.ShouldBe("Resolved");
+        snapshot.ParentId.ShouldBe(10);
+        snapshot.AssignedTo.ShouldBe("Alice");
+        snapshot.IterationPath.ShouldBe(@"Project\Sprint3");
+        snapshot.AreaPath.ShouldBe(@"Project\Backend");
+        snapshot.Revision.ShouldBe(7);
+        snapshot.IsSeed.ShouldBeTrue();
+        snapshot.SeedCreatedAt.ShouldNotBeNull();
+        snapshot.SeedCreatedAt!.Value.Year.ShouldBe(2025);
+        snapshot.SeedCreatedAt.Value.Month.ShouldBe(6);
+        snapshot.SeedCreatedAt.Value.Day.ShouldBe(15);
+        snapshot.LastSyncedAt.ShouldNotBeNull();
+        snapshot.IsDirty.ShouldBeTrue();
+
+        snapshot.Fields.Count.ShouldBe(3);
+        snapshot.Fields["Microsoft.VSTS.Common.Priority"].ShouldBe("1");
+        snapshot.Fields["System.Tags"].ShouldBe("api; backend");
+        snapshot.Fields["Custom.Team"].ShouldBe("Platform");
+    }
+
+    [Fact]
+    public async Task GetSnapshotByIdAsync_NullableFieldsPreservedAsNull()
+    {
+        var item = new WorkItem
+        {
+            Id = 1,
+            Type = WorkItemType.Task,
+            Title = "Nullable Test",
+            State = "New",
+        };
+
+        await _repo.SaveAsync(item);
+
+        var snapshot = await _repo.GetSnapshotByIdAsync(1);
+        snapshot.ShouldNotBeNull();
+
+        snapshot.ParentId.ShouldBeNull();
+        snapshot.AssignedTo.ShouldBeNull();
+        snapshot.IsSeed.ShouldBeFalse();
+        snapshot.SeedCreatedAt.ShouldBeNull();
+        snapshot.IsDirty.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task GetSnapshotByIdAsync_ReturnsNull_WhenNotFound()
+    {
+        var snapshot = await _repo.GetSnapshotByIdAsync(999);
+        snapshot.ShouldBeNull();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Save-read round-trip: comprehensive property verification
+    //  Save a WorkItem via SaveAsync, read it back via GetByIdAsync,
+    //  assert ALL properties are identical.
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SaveAndGetById_ComprehensiveRoundTrip_AllPropertiesPreserved()
+    {
+        var seedCreatedAt = new DateTimeOffset(2025, 3, 20, 14, 0, 0, TimeSpan.Zero);
+        var original = new WorkItem
+        {
+            Id = 100,
+            Type = WorkItemType.Feature,
+            Title = "Comprehensive Round-Trip Item",
+            State = "Active",
+            ParentId = 50,
+            AssignedTo = "Bob",
+            IterationPath = IterationPath.Parse(@"MyProject\Sprint 5").Value,
+            AreaPath = AreaPath.Parse(@"MyProject\Frontend").Value,
+            IsSeed = true,
+            SeedCreatedAt = seedCreatedAt,
+        };
+        original.MarkSynced(12);
+        original.ImportFields(new Dictionary<string, string?>
+        {
+            ["Microsoft.VSTS.Common.Priority"] = "2",
+            ["Microsoft.VSTS.Scheduling.StoryPoints"] = "5",
+            ["System.Description"] = "<p>Some HTML</p>",
+            ["System.Tags"] = "frontend; ux",
+            ["Custom.NullableField"] = null,
+        });
+
+        await _repo.SaveAsync(original);
+
+        var loaded = await _repo.GetByIdAsync(100);
+        loaded.ShouldNotBeNull();
+
+        // Identity
+        loaded.Id.ShouldBe(original.Id);
+        loaded.Type.ShouldBe(original.Type);
+        loaded.Title.ShouldBe(original.Title);
+        loaded.State.ShouldBe(original.State);
+
+        // Relationships & assignment
+        loaded.ParentId.ShouldBe(original.ParentId);
+        loaded.AssignedTo.ShouldBe(original.AssignedTo);
+
+        // Paths
+        loaded.IterationPath.Value.ShouldBe(original.IterationPath.Value);
+        loaded.AreaPath.Value.ShouldBe(original.AreaPath.Value);
+
+        // Revision
+        loaded.Revision.ShouldBe(original.Revision);
+
+        // Seed
+        loaded.IsSeed.ShouldBe(original.IsSeed);
+        loaded.SeedCreatedAt.ShouldNotBeNull();
+        loaded.SeedCreatedAt!.Value.Year.ShouldBe(seedCreatedAt.Year);
+        loaded.SeedCreatedAt.Value.Month.ShouldBe(seedCreatedAt.Month);
+        loaded.SeedCreatedAt.Value.Day.ShouldBe(seedCreatedAt.Day);
+
+        // Dirty flag should not be set (MarkSynced clears it, and no mutations after)
+        loaded.IsDirty.ShouldBeFalse();
+
+        // Fields
+        loaded.Fields.Count.ShouldBe(5);
+        loaded.Fields["Microsoft.VSTS.Common.Priority"].ShouldBe("2");
+        loaded.Fields["Microsoft.VSTS.Scheduling.StoryPoints"].ShouldBe("5");
+        loaded.Fields["System.Description"].ShouldBe("<p>Some HTML</p>");
+        loaded.Fields["System.Tags"].ShouldBe("frontend; ux");
+        loaded.Fields.ShouldContainKey("Custom.NullableField");
+    }
+
+    [Fact]
+    public async Task SaveAndGetById_DirtyItemRoundTrip_PreservesDirtyFlag()
+    {
+        var original = CreateWorkItem(200, "Bug", "Dirty Round-Trip", "Active",
+            parentId: 99, assignedTo: "Carol");
+        original.UpdateField("System.Title", "Changed Title");
+
+        original.IsDirty.ShouldBeTrue();
+
+        await _repo.SaveAsync(original);
+
+        var loaded = await _repo.GetByIdAsync(200);
+        loaded.ShouldNotBeNull();
+        loaded.IsDirty.ShouldBeTrue();
+        loaded.Id.ShouldBe(200);
+        loaded.Type.ShouldBe(WorkItemType.Bug);
+        loaded.State.ShouldBe("Active");
+        loaded.ParentId.ShouldBe(99);
+        loaded.AssignedTo.ShouldBe("Carol");
+    }
+
+    [Fact]
+    public async Task SaveAndGetById_SeedWithNegativeId_RoundTrips()
+    {
+        var seed = new WorkItemBuilder(-5, "Seed Round-Trip")
+            .AsSeed()
+            .AsUserStory()
+            .InState("New")
+            .WithParent(10)
+            .AssignedTo("Dave")
+            .WithIterationPath(@"Project\Sprint1")
+            .WithAreaPath(@"Project\Area")
+            .WithField("System.Tags", "seed; test")
+            .Build();
+
+        await _repo.SaveAsync(seed);
+
+        var loaded = await _repo.GetByIdAsync(-5);
+        loaded.ShouldNotBeNull();
+        loaded.Id.ShouldBe(-5);
+        loaded.IsSeed.ShouldBeTrue();
+        loaded.Title.ShouldBe("Seed Round-Trip");
+        loaded.Type.ShouldBe(WorkItemType.UserStory);
+        loaded.ParentId.ShouldBe(10);
+        loaded.AssignedTo.ShouldBe("Dave");
+        loaded.Fields.ShouldContainKey("System.Tags");
+        loaded.Fields["System.Tags"].ShouldBe("seed; test");
+    }
+
+    [Fact]
+    public async Task SaveAndGetById_EmptyFields_RoundTripsAsEmptyDictionary()
+    {
+        var item = CreateWorkItem(300, "Task", "No Fields", "New");
+
+        await _repo.SaveAsync(item);
+
+        var loaded = await _repo.GetByIdAsync(300);
+        loaded.ShouldNotBeNull();
+        loaded.Fields.Count.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task SaveAndGetById_CustomWorkItemType_RoundTripsTypeName()
+    {
+        var customType = WorkItemType.Parse("Deliverable").Value;
+        var item = new WorkItem
+        {
+            Id = 400,
+            Type = customType,
+            Title = "Custom Type Round-Trip",
+            State = "Active",
+        };
+
+        await _repo.SaveAsync(item);
+
+        var loaded = await _repo.GetByIdAsync(400);
+        loaded.ShouldNotBeNull();
+        loaded.Type.Value.ShouldBe("Deliverable");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Write path verification: SaveWorkItem reads WorkItem
+    //  properties directly (not from snapshot).
+    //  Verified by comparing snapshot field values with original
+    //  WorkItem properties — the snapshot must match what was on
+    //  the WorkItem at save time.
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SaveWorkItem_WritesDirectWorkItemProperties_SnapshotMatchesOriginal()
+    {
+        var item = new WorkItem
+        {
+            Id = 500,
+            Type = WorkItemType.Epic,
+            Title = "Write Path Verification",
+            State = "Closed",
+            ParentId = 42,
+            AssignedTo = "Eve",
+            IterationPath = IterationPath.Parse(@"Org\Release 2").Value,
+            AreaPath = AreaPath.Parse(@"Org\Platform").Value,
+            IsSeed = false,
+        };
+        item.MarkSynced(3);
+        item.ImportFields(new Dictionary<string, string?>
+        {
+            ["System.CreatedBy"] = "Admin",
+        });
+
+        await _repo.SaveAsync(item);
+
+        // Read raw snapshot to verify SaveWorkItem wrote the WorkItem's direct properties
+        var snapshot = await _repo.GetSnapshotByIdAsync(500);
+        snapshot.ShouldNotBeNull();
+
+        // Each snapshot field should match the WorkItem property used in SaveWorkItem
+        snapshot.Id.ShouldBe(item.Id);
+        snapshot.TypeName.ShouldBe(item.Type.ToString());
+        snapshot.Title.ShouldBe(item.Title);
+        snapshot.State.ShouldBe(item.State);
+        snapshot.ParentId.ShouldBe(item.ParentId);
+        snapshot.AssignedTo.ShouldBe(item.AssignedTo);
+        snapshot.IterationPath.ShouldBe(item.IterationPath.Value);
+        snapshot.AreaPath.ShouldBe(item.AreaPath.Value);
+        snapshot.Revision.ShouldBe(item.Revision);
+        snapshot.IsSeed.ShouldBe(item.IsSeed);
+        snapshot.IsDirty.ShouldBe(item.IsDirty);
+
+        // Fields written from item.Fields
+        snapshot.Fields.Count.ShouldBe(1);
+        snapshot.Fields["System.CreatedBy"].ShouldBe("Admin");
+    }
+
     private static WorkItem CreateWorkItem(
         int id, string type, string title, string state,
         int? parentId = null, string? assignedTo = null,

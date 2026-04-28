@@ -171,6 +171,7 @@ public static class CommandRegistrationModule
     private static void AddFlowCommands(IServiceCollection services)
     {
         services.AddSingleton<FlowStartCommand>(sp => new FlowStartCommand(
+            sp.GetRequiredService<CommandContext>(),
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IAdoWorkItemService>(),
             sp.GetRequiredService<IContextStore>(),
@@ -178,10 +179,6 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<Domain.Services.Sync.ProtectedCacheWriter>(),
             sp.GetRequiredService<IProcessConfigurationProvider>(),
             sp.GetRequiredService<IConsoleInput>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
-            sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetRequiredService<RenderingPipelineFactory>(),
             sp.GetService<IGitService>(),
             sp.GetService<IIterationService>(),
             sp.GetRequiredService<IPromptStateWriter>(),

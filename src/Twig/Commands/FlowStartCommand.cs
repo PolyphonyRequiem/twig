@@ -6,8 +6,6 @@ using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
-using Twig.Hints;
-using Twig.Infrastructure.Config;
 using Twig.Rendering;
 
 namespace Twig.Commands;
@@ -18,6 +16,7 @@ namespace Twig.Commands;
 /// When called with no argument, shows an interactive picker of unstarted sprint items.
 /// </summary>
 public sealed class FlowStartCommand(
+    CommandContext ctx,
     IWorkItemRepository workItemRepo,
     IAdoWorkItemService adoService,
     IContextStore contextStore,
@@ -25,10 +24,6 @@ public sealed class FlowStartCommand(
     ProtectedCacheWriter protectedCacheWriter,
     IProcessConfigurationProvider processConfigProvider,
     IConsoleInput consoleInput,
-    OutputFormatterFactory formatterFactory,
-    HintEngine hintEngine,
-    TwigConfiguration config,
-    RenderingPipelineFactory? pipelineFactory = null,
     IGitService? gitService = null,
     IIterationService? iterationService = null,
     IPromptStateWriter? promptStateWriter = null,
@@ -47,9 +42,7 @@ public sealed class FlowStartCommand(
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
     {
-        var (fmt, renderer) = pipelineFactory is not null
-            ? pipelineFactory.Resolve(outputFormat)
-            : (formatterFactory.GetFormatter(outputFormat), null);
+        var (fmt, renderer) = ctx.Resolve(outputFormat);
 
         // No-argument path: interactive picker of unstarted sprint items
         if (string.IsNullOrWhiteSpace(idOrPattern))
@@ -205,7 +198,7 @@ public sealed class FlowStartCommand(
 
             if (shouldAssign)
             {
-                var displayName = config.User.DisplayName;
+                var displayName = ctx.Config.User.DisplayName;
                 if (string.IsNullOrWhiteSpace(displayName))
                 {
                     // DisplayName not configured — skip assignment silently
@@ -231,7 +224,7 @@ public sealed class FlowStartCommand(
             try
             {
                 branchName = BranchNamingService.Generate(
-                    item, config.Git.BranchTemplate, config.Git.TypeMap);
+                    item, ctx.Config.Git.BranchTemplate, ctx.Config.Git.TypeMap);
 
                 var branchExists = await gitService.BranchExistsAsync(branchName);
                 if (branchExists)
@@ -288,7 +281,7 @@ public sealed class FlowStartCommand(
             }
         }
 
-        var hints = hintEngine.GetHints("flow-start", item: item, outputFormat: outputFormat);
+        var hints = ctx.HintEngine.GetHints("flow-start", item: item, outputFormat: outputFormat);
         foreach (var hint in hints)
         {
             var formatted = fmt.FormatHint(hint);
@@ -314,7 +307,7 @@ public sealed class FlowStartCommand(
         IOutputFormatter fmt, IAsyncRenderer? renderer, string outputFormat)
     {
         var iteration = await iterationService!.GetCurrentIterationAsync();
-        var displayName = config.User.DisplayName ?? "";
+        var displayName = ctx.Config.User.DisplayName ?? "";
 
         var items = string.IsNullOrWhiteSpace(displayName)
             ? await workItemRepo.GetByIterationAsync(iteration)

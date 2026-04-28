@@ -149,9 +149,11 @@ public class PromptStateIntegrationTests : IDisposable
         var writer = CreateWriter();
         var activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        var cmd = new FlowStartCommand(_workItemRepo, _adoService, _contextStore,
+        var pipelineFactory = new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true);
+        var ctx = new CommandContext(pipelineFactory, _formatterFactory, _hintEngine, _config);
+        var cmd = new FlowStartCommand(ctx, _workItemRepo, _adoService, _contextStore,
             activeItemResolver, protectedCacheWriter, _processConfigProvider, _consoleInput,
-            _formatterFactory, _hintEngine, _config, promptStateWriter: writer);
+            promptStateWriter: writer);
 
         var result = await cmd.ExecuteAsync("42");
 

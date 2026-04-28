@@ -27,4 +27,10 @@ public interface IAdoWorkItemService
     /// Returns <c>true</c> if the link already existed (HTTP 409), <c>false</c> if newly created.
     /// </summary>
     Task<bool> AddArtifactLinkAsync(int workItemId, string url, string? name = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Deletes a work item by ID (sends it to the recycle bin).
+    /// Implementations should treat HTTP 404 as idempotent (item already deleted).
+    /// </summary>
+    Task DeleteAsync(int id, CancellationToken ct = default);
 }

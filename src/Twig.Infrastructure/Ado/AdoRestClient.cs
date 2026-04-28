@@ -263,6 +263,13 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         }
     }
 
+    /// <inheritdoc />
+    public async Task DeleteAsync(int id, CancellationToken ct = default)
+    {
+        var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/{id}?api-version={ApiVersion}";
+        using var _ = await SendAsync(HttpMethod.Delete, url, content: null, ifMatch: null, ct);
+    }
+
     // ── Batch fetch ─────────────────────────────────────────────────
 
     /// <summary>

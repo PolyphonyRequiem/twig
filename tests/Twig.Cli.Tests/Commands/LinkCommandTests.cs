@@ -590,6 +590,93 @@ public class LinkCommandTests : IDisposable
         result.ShouldBe(0);
     }
 
+    // ── ReparentAsync telemetry tests ─────────────────────────────
+
+    [Fact]
+    public async Task ReparentAsync_Success_EmitsTelemetryWithExitCodeZero()
+    {
+        var child = new WorkItemBuilder(42, "Child Item").InState("Active").WithParent(50).Build();
+        var newParent = new WorkItemBuilder(200, "New Parent").InState("Active").Build();
+
+        SetActiveItem(child);
+        SetResolvable(newParent);
+        SetupResyncForItem(42);
+        SetupResyncForItem(200);
+        SetupResyncForItem(50);
+        _linkRepo.GetLinksAsync(42, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItemLink>());
+
+        var cmd = CreateCommand();
+        await cmd.ReparentAsync(200);
+
+        _telemetryClient.Received(1).TrackEvent(
+            "CommandExecuted",
+            Arg.Is<Dictionary<string, string>>(p =>
+                p["command"] == "link-reparent" &&
+                p["exit_code"] == "0"),
+            Arg.Is<Dictionary<string, double>>(m =>
+                m.ContainsKey("duration_ms")));
+    }
+
+    [Fact]
+    public async Task ReparentAsync_NoActiveItem_EmitsTelemetryWithExitCodeOne()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+
+        var cmd = CreateCommand();
+        await cmd.ReparentAsync(200);
+
+        _telemetryClient.Received(1).TrackEvent(
+            "CommandExecuted",
+            Arg.Is<Dictionary<string, string>>(p =>
+                p["command"] == "link-reparent" &&
+                p["exit_code"] == "1"),
+            Arg.Is<Dictionary<string, double>>(m =>
+                m.ContainsKey("duration_ms")));
+    }
+
+    [Fact]
+    public async Task ReparentAsync_SelfParent_EmitsTelemetryWithExitCodeOne()
+    {
+        var item = new WorkItemBuilder(42, "Self Item").InState("Active").Build();
+        SetActiveItem(item);
+
+        var cmd = CreateCommand();
+        await cmd.ReparentAsync(42);
+
+        _telemetryClient.Received(1).TrackEvent(
+            "CommandExecuted",
+            Arg.Is<Dictionary<string, string>>(p =>
+                p["command"] == "link-reparent" &&
+                p["exit_code"] == "1"),
+            Arg.Is<Dictionary<string, double>>(m =>
+                m.ContainsKey("duration_ms")));
+    }
+
+    [Fact]
+    public async Task ReparentAsync_NullTelemetryClient_DoesNotThrow()
+    {
+        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var protectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
+        var syncCoordinatorFactory = new SyncCoordinatorFactory(
+            _workItemRepo, _adoService, protectedWriter, _pendingChangeStore, _linkRepo,
+            readOnlyStaleMinutes: 30, readWriteStaleMinutes: 30);
+        var cmd = new LinkCommand(resolver, _adoService, _linkRepo, syncCoordinatorFactory, _formatterFactory, telemetryClient: null, stderr: _stderr);
+
+        var child = new WorkItemBuilder(42, "Child Item").InState("Active").WithParent(50).Build();
+        var newParent = new WorkItemBuilder(200, "New Parent").InState("Active").Build();
+
+        SetActiveItem(child);
+        SetResolvable(newParent);
+        SetupResyncForItem(42);
+        SetupResyncForItem(200);
+        SetupResyncForItem(50);
+        _linkRepo.GetLinksAsync(42, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItemLink>());
+
+        var result = await cmd.ReparentAsync(200);
+
+        result.ShouldBe(0);
+    }
+
     public void Dispose()
     {
         Console.SetOut(_originalOut);

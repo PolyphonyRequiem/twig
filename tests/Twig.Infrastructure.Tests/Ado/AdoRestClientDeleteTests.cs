@@ -99,6 +99,16 @@ public sealed class AdoRestClientDeleteTests
     }
 
     [Fact]
+    public async Task DeleteAsync_Forbidden_ThrowsAdoException()
+    {
+        var handler = new DeleteTrackingHandler(HttpStatusCode.Forbidden);
+        var client = CreateClient(handler);
+
+        await Should.ThrowAsync<AdoException>(
+            () => client.DeleteAsync(42));
+    }
+
+    [Fact]
     public async Task DeleteAsync_ServerError_ThrowsAdoServerException()
     {
         var handler = new DeleteTrackingHandler(HttpStatusCode.InternalServerError);

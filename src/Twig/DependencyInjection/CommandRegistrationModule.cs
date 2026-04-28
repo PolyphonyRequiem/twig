@@ -1,15 +1,11 @@
 using Microsoft.Extensions.DependencyInjection;
 using Twig.Commands;
 using Twig.Domain.Interfaces;
-using Twig.Domain.Services.Navigation;
-using Twig.Domain.Services.Process;
 using Twig.Domain.Services.Seed;
-using Twig.Domain.Services.Sync;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.GitHub;
-using Twig.Rendering;
 
 namespace Twig.DependencyInjection;
 
@@ -23,7 +19,6 @@ public static class CommandRegistrationModule
     public static IServiceCollection AddTwigCommands(this IServiceCollection services)
     {
         AddCoreCommands(services);
-        AddGitCommands(services);
         AddSelfUpdateCommands(services);
         services.AddSingleton<OhMyPoshCommands>();
 
@@ -59,11 +54,6 @@ public static class CommandRegistrationModule
         services.AddSingleton<SeedLinkCommand>();
         services.AddSingleton<LinkCommand>();
         services.AddSingleton<ArtifactLinkCommand>();
-        services.AddSingleton<LinkBranchCommand>(sp => new LinkBranchCommand(
-            sp.GetRequiredService<Domain.Services.Navigation.ActiveItemResolver>(),
-            ResolveBranchLinkService(sp),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetService<IGitService>()));
         services.AddSingleton<SeedChainCommand>();
         services.AddSingleton<SeedValidateCommand>();
         services.AddSingleton<SeedPublishCommand>(sp => new SeedPublishCommand(
@@ -89,74 +79,6 @@ public static class CommandRegistrationModule
         services.AddSingleton<BatchCommand>();
         services.AddSingleton<TrackingCommand>();
         services.AddSingleton<AreaCommand>();
-    }
-
-    private static BranchLinkService? ResolveBranchLinkService(IServiceProvider sp)
-    {
-        var adoGitService = sp.GetService<IAdoGitService>();
-        return adoGitService is not null
-            ? new BranchLinkService(adoGitService, sp.GetRequiredService<IAdoWorkItemService>())
-            : null;
-    }
-
-    private static void AddGitCommands(IServiceCollection services)
-    {
-        services.AddSingleton<BranchCommand>(sp => new BranchCommand(
-            sp.GetRequiredService<Domain.Services.Navigation.ActiveItemResolver>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
-            sp.GetRequiredService<IProcessConfigurationProvider>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
-            sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetService<IGitService>(),
-            ResolveBranchLinkService(sp),
-            sp.GetRequiredService<IPromptStateWriter>()));
-        services.AddSingleton<CommitCommand>(sp => new CommitCommand(
-            sp.GetRequiredService<Domain.Services.Navigation.ActiveItemResolver>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
-            sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetService<IGitService>(),
-            sp.GetService<IAdoGitService>()));
-        services.AddSingleton<PrCommand>(sp => new PrCommand(
-            sp.GetRequiredService<Domain.Services.Navigation.ActiveItemResolver>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
-            sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetService<IGitService>(),
-            sp.GetService<IAdoGitService>()));
-        services.AddSingleton<StashCommand>(sp => new StashCommand(
-            sp.GetRequiredService<IContextStore>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<Domain.Services.Navigation.ActiveItemResolver>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
-            sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetService<IGitService>(),
-            sp.GetRequiredService<IPromptStateWriter>()));
-        services.AddSingleton<LogCommand>(sp => new LogCommand(
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
-            sp.GetService<IGitService>()));
-
-        services.AddSingleton<GitContextCommand>(sp => new GitContextCommand(
-            sp.GetRequiredService<Domain.Services.Navigation.ActiveItemResolver>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
-            sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetService<IGitService>(),
-            sp.GetService<IAdoGitService>()));
-        services.AddSingleton<HookHandlerCommand>(sp => new HookHandlerCommand(
-            sp.GetRequiredService<IContextStore>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetService<IGitService>(),
-            sp.GetRequiredService<IPromptStateWriter>()));
     }
 
     private static void AddSelfUpdateCommands(IServiceCollection services)

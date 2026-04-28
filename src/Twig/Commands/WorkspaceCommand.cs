@@ -8,8 +8,6 @@ using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
-using Twig.Hints;
-using Twig.Infrastructure.Config;
 using Twig.Rendering;
 
 namespace Twig.Commands;
@@ -22,25 +20,20 @@ namespace Twig.Commands;
 /// grouped by assignee instead of filtering to the current user.
 /// </summary>
 public sealed class WorkspaceCommand(
+    CommandContext ctx,
     IContextStore contextStore,
     IWorkItemRepository workItemRepo,
     IIterationService iterationService,
-    TwigConfiguration config,
-    OutputFormatterFactory formatterFactory,
-    HintEngine hintEngine,
     IProcessTypeStore processTypeStore,
     IFieldDefinitionStore fieldDefinitionStore,
     ActiveItemResolver activeItemResolver,
     WorkingSetService workingSetService,
     ITrackingService trackingService,
-    ISprintHierarchyBuilder sprintHierarchyBuilder,
-    RenderingPipelineFactory? pipelineFactory = null)
+    ISprintHierarchyBuilder sprintHierarchyBuilder)
 {
     public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default, bool sprintLayout = false, bool flat = false)
     {
-        var (fmt, renderer) = pipelineFactory is not null
-            ? pipelineFactory.Resolve(outputFormat, noLive)
-            : (formatterFactory.GetFormatter(outputFormat), null);
+        var (fmt, renderer) = ctx.Resolve(outputFormat, noLive);
 
         if (renderer is not null && !all && !sprintLayout)
         {
@@ -63,13 +56,13 @@ public sealed class WorkspaceCommand(
                 if (processConfig is not null)
                 {
                     spectreRenderer.TypeLevelMap = Domain.Services.Workspace.BacklogHierarchyService.GetTypeLevelMap(processConfig);
-                    spectreRenderer.WorkingLevelTypeName = config.Workspace.WorkingLevel;
+                    spectreRenderer.WorkingLevelTypeName = ctx.Config.Workspace.WorkingLevel;
 
                     // Enable tree rendering when process configuration is available and --flat is not specified
                     spectreRenderer.UseTreeRendering = !flat;
-                    spectreRenderer.TreeDepthUp = config.Display.TreeDepthUp;
-                    spectreRenderer.TreeDepthDown = config.Display.TreeDepthDown;
-                    spectreRenderer.TreeDepthSideways = config.Display.TreeDepthSideways;
+                    spectreRenderer.TreeDepthUp = ctx.Config.Display.TreeDepthUp;
+                    spectreRenderer.TreeDepthDown = ctx.Config.Display.TreeDepthDown;
+                    spectreRenderer.TreeDepthSideways = ctx.Config.Display.TreeDepthSideways;
                 }
 
                 // Expose tracked item IDs so the renderer can show pinned markers
@@ -97,7 +90,7 @@ public sealed class WorkspaceCommand(
 
                 // Stage 2: Sprint items
                 var iteration = await iterationService.GetCurrentIterationAsync(ct);
-                var userDisplayName = config.User.DisplayName;
+                var userDisplayName = ctx.Config.User.DisplayName;
                 if (!string.IsNullOrWhiteSpace(userDisplayName))
                     sprintItems = await workItemRepo.GetByIterationAndAssigneeAsync(iteration, userDisplayName, ct);
                 else
@@ -114,7 +107,7 @@ public sealed class WorkspaceCommand(
                 if (!noRefresh)
                 {
                     var lastRefreshedRaw = await contextStore.GetValueAsync("last_refreshed_at", ct);
-                    if (IsCacheStale(lastRefreshedRaw, config.Display.CacheStaleMinutes))
+                    if (IsCacheStale(lastRefreshedRaw, ctx.Config.Display.CacheStaleMinutes))
                     {
                         yield return new WorkspaceDataChunk.RefreshStarted();
 
@@ -162,7 +155,7 @@ public sealed class WorkspaceCommand(
                 }
             }
 
-            await renderer.RenderWorkspaceAsync(StreamWorkspaceData(ct), config.Seed.StaleDays, all, ct, dynamicColumns, config.Display.CacheStaleMinutes);
+            await renderer.RenderWorkspaceAsync(StreamWorkspaceData(ct), ctx.Config.Seed.StaleDays, all, ct, dynamicColumns, ctx.Config.Display.CacheStaleMinutes);
 
             // Build Workspace from closure-populated variables for hint computation
             var workspace = Workspace.Build(contextItem, sprintItems, seeds,
@@ -170,7 +163,7 @@ public sealed class WorkspaceCommand(
                 trackedItems: trackedItems,
                 excludedIds: excludedIds);
 
-            var hints = hintEngine.GetHints("workspace",
+            var hints = ctx.HintEngine.GetHints("workspace",
                 workspace: workspace,
                 outputFormat: outputFormat);
             renderer.RenderHints(hints);
@@ -197,7 +190,7 @@ public sealed class WorkspaceCommand(
         var iteration = await iterationService.GetCurrentIterationAsync();
         IReadOnlyList<Domain.Aggregates.WorkItem> sprintItems;
 
-        var userDisplayName = config.User.DisplayName;
+        var userDisplayName = ctx.Config.User.DisplayName;
         if (!all && !string.IsNullOrWhiteSpace(userDisplayName))
         {
             sprintItems = await workItemRepo.GetByIterationAndAssigneeAsync(iteration, userDisplayName);
@@ -270,11 +263,11 @@ public sealed class WorkspaceCommand(
         if (fmt is HumanOutputFormatter humanFmt && typeLevelMap is not null)
         {
             humanFmt.TypeLevelMap = typeLevelMap;
-            humanFmt.WorkingLevelTypeName = config.Workspace.WorkingLevel;
+            humanFmt.WorkingLevelTypeName = ctx.Config.Workspace.WorkingLevel;
             humanFmt.UseTreeRendering = !flat;
-            humanFmt.TreeDepthUp = config.Display.TreeDepthUp;
-            humanFmt.TreeDepthDown = config.Display.TreeDepthDown;
-            humanFmt.TreeDepthSideways = config.Display.TreeDepthSideways;
+            humanFmt.TreeDepthUp = ctx.Config.Display.TreeDepthUp;
+            humanFmt.TreeDepthDown = ctx.Config.Display.TreeDepthDown;
+            humanFmt.TreeDepthSideways = ctx.Config.Display.TreeDepthSideways;
         }
 
         var workspace = Workspace.Build(contextItem, sprintItems, seeds, hierarchy,
@@ -284,11 +277,11 @@ public sealed class WorkspaceCommand(
 
         if (all || sprintLayout)
         {
-            Console.WriteLine(fmt.FormatSprintView(workspace, config.Seed.StaleDays));
+            Console.WriteLine(fmt.FormatSprintView(workspace, ctx.Config.Seed.StaleDays));
         }
         else
         {
-            Console.WriteLine(fmt.FormatWorkspace(workspace, config.Seed.StaleDays));
+            Console.WriteLine(fmt.FormatWorkspace(workspace, ctx.Config.Seed.StaleDays));
         }
 
         // Dirty orphans: items with unsaved changes not in sprint/seed scope (EPIC-004)
@@ -328,7 +321,7 @@ public sealed class WorkspaceCommand(
             }
         }
 
-        var hints = hintEngine.GetHints("workspace",
+        var hints = ctx.HintEngine.GetHints("workspace",
             workspace: workspace,
             outputFormat: fmt is JsonOutputFormatter or JsonCompactOutputFormatter ? "json" : (fmt is MinimalOutputFormatter ? "minimal" : "human"));
         foreach (var hint in hints)
@@ -368,8 +361,8 @@ public sealed class WorkspaceCommand(
     {
         // Check for config-specified columns
         var configuredColumns = viewName.Equals("sprint", StringComparison.OrdinalIgnoreCase)
-            ? config.Display.Columns?.Sprint
-            : config.Display.Columns?.Workspace;
+            ? ctx.Config.Display.Columns?.Sprint
+            : ctx.Config.Display.Columns?.Workspace;
 
         // Load cached field definitions (may be empty if not yet synced)
         var fieldDefs = await fieldDefinitionStore.GetAllAsync(ct);
@@ -381,8 +374,8 @@ public sealed class WorkspaceCommand(
                 Array.Empty<Domain.ValueObjects.FieldProfile>(),
                 fieldDefs,
                 configuredColumns,
-                config.Display.FillRateThreshold,
-                config.Display.MaxExtraColumns,
+                ctx.Config.Display.FillRateThreshold,
+                ctx.Config.Display.MaxExtraColumns,
                 isJsonOutput);
         }
 
@@ -395,8 +388,8 @@ public sealed class WorkspaceCommand(
             profiles,
             fieldDefs,
             configuredColumns: null,
-            config.Display.FillRateThreshold,
-            config.Display.MaxExtraColumns,
+            ctx.Config.Display.FillRateThreshold,
+            ctx.Config.Display.MaxExtraColumns,
             isJsonOutput);
     }
 

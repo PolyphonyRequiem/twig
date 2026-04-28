@@ -412,8 +412,11 @@ public class CacheFirstReadCommandTests
         var processTypeStore = Substitute.For<IProcessTypeStore>();
         var fieldDefinitionStore = Substitute.For<IFieldDefinitionStore>();
         var config = new TwigConfiguration();
-        var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, iterationService, config,
-            _formatterFactory, _hintEngine, processTypeStore, fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder());
+        var wsCtx = new CommandContext(
+            new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true),
+            _formatterFactory, _hintEngine, config);
+        var cmd = new WorkspaceCommand(wsCtx, _contextStore, _workItemRepo, iterationService,
+            processTypeStore, fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder());
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);

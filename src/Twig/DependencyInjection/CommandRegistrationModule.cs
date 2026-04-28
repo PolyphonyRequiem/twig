@@ -69,6 +69,7 @@ public static class CommandRegistrationModule
         services.AddSingleton<SaveCommand>();
         services.AddSingleton<RefreshCommand>();
         services.AddSingleton<DiscardCommand>();
+        services.AddSingleton<DeleteCommand>();
         services.AddSingleton<SyncCommand>();
         services.AddSingleton<WorkspaceCommand>();
         services.AddSingleton<ConfigCommand>();

@@ -203,6 +203,11 @@ internal static class CommandExamples
             "twig edit                  Open the active item's description in an editor",
             "twig edit System.Title     Open the Title field for editing",
         ],
+        ["delete"] =
+        [
+            "twig delete 1234           Permanently delete work item #1234 from ADO",
+            "twig delete 1234 --force   Delete without confirmation prompt",
+        ],
         ["discard"] =
         [
             "twig discard               Discard all pending changes on the active item",

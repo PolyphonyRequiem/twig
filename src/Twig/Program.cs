@@ -660,6 +660,14 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> Discard([Argument] int? id = null, bool all = false, bool yes = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<DiscardCommand>().ExecuteAsync(id, all, yes, output, ct);
 
+    /// <summary>Permanently delete a work item from Azure DevOps. This is irreversible — consider 'twig state Closed' instead.</summary>
+    /// <param name="id">Work item ID to delete (required).</param>
+    /// <param name="force">Skip the interactive confirmation prompt.</param>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    [Command("delete")]
+    public async Task<int> Delete([Argument] int id, bool force = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<DeleteCommand>().ExecuteAsync(id, force, output, ct);
+
     /// <summary>Push pending changes to Azure DevOps. Deprecated — use 'twig sync' instead.</summary>
     [Hidden]
     public async Task<int> Save([Argument] int? id = null, bool all = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
@@ -958,6 +966,7 @@ internal static class GroupedHelp
         "update",
         "edit",
         "new",
+        "delete",
         "discard",
         "link parent",
         "link unparent",
@@ -1085,6 +1094,8 @@ Work Items:
   link artifact <url>  Add an artifact link (URL or vstfs://) to an item.
   discard <id>         Drop pending changes for a work item.
   discard --all        Drop all pending changes (excludes seeds).
+  delete <id>          ⚠ Permanently delete a work item (irreversible).
+  delete <id> --force  Delete without confirmation prompt.
   sync                 Flush pending changes then refresh from ADO.
 
 Seeds:

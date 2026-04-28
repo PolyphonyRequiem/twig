@@ -652,13 +652,7 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> Edit(string? field = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<EditCommand>().ExecuteAsync(field, output, ct);
 
-    /// <summary>Discard pending changes for a single item or all dirty items.</summary>
-    /// <param name="id">Work item ID to discard changes for.</param>
-    /// <param name="all">Discard all pending changes (excludes seeds).</param>
-    /// <param name="yes">Skip confirmation prompt.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
-    public async Task<int> Discard([Argument] int? id = null, bool all = false, bool yes = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<DiscardCommand>().ExecuteAsync(id, all, yes, output, ct);
+
 
     /// <summary>Push pending changes to Azure DevOps. Deprecated — use 'twig sync' instead.</summary>
     [Hidden]
@@ -958,7 +952,7 @@ internal static class GroupedHelp
         "update",
         "edit",
         "new",
-        "discard",
+
         "link parent",
         "link unparent",
         "link reparent",
@@ -1083,9 +1077,7 @@ Work Items:
   link unparent        Remove the parent link from the active item.
   link reparent <id>   Remove current parent and set a new one.
   link artifact <url>  Add an artifact link (URL or vstfs://) to an item.
-  discard <id>         Drop pending changes for a work item.
-  discard --all        Drop all pending changes (excludes seeds).
-  sync                 Flush pending changes then refresh from ADO.
+  syncFlush pending changes then refresh from ADO.
 
 Seeds:
   seed new <title>     Create a new local seed (child work item).

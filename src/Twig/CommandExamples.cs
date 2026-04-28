@@ -203,11 +203,6 @@ internal static class CommandExamples
             "twig edit                  Open the active item's description in an editor",
             "twig edit System.Title     Open the Title field for editing",
         ],
-        ["discard"] =
-        [
-            "twig discard               Discard all pending changes on the active item",
-            "twig discard --yes         Skip the confirmation prompt",
-        ],
         ["sync"] =
         [
             "twig sync                  Sync the working set from ADO",

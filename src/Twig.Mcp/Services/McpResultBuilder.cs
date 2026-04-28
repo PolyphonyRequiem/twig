@@ -75,6 +75,10 @@ internal static class McpResultBuilder
                     writer.WriteEndArray();
                     WriteWorkItemArray(writer, "seeds", s.Seeds);
                     break;
+
+                default:
+                    throw new System.Diagnostics.UnreachableException(
+                        $"Unhandled StatusResult: {status.GetType().Name}");
             }
 
             WriteOptionalWorkspace(writer, workspace);

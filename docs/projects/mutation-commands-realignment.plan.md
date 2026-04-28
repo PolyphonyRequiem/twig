@@ -4,6 +4,8 @@
 **Spec:** `docs/specs/mutation-commands.spec.md`  
 **Revision:** 0 (Initial draft)
 
+> **Status**: 🔨 In Progress
+
 ---
 
 ## Executive Summary

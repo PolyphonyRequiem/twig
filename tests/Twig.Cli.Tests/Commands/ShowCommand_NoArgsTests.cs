@@ -297,7 +297,119 @@ public sealed class ShowCommand_NoArgsTests : IDisposable
         ShowCommand.ExtractWorkItemIdFromBranch("feature/-1234").ShouldBeNull();
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    //  No-args: pending changes appear in output
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task NoArgs_PendingChangesPresent_IncludedInJsonOutput()
+    {
+        var item = new WorkItemBuilder(42, "Pending Item").Build();
+        SetupActiveItem(item);
+        _pendingChangeStore.GetChangesAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new PendingChangeRecord[]
+            {
+                new(42, "set_field", "System.Title", "Old", "New"),
+                new(42, "set_field", "System.State", "Active", "Resolved"),
+                new(42, "note", null, null, "A note"),
+            });
+
+        var cmd = CreateCommand();
+        var output = await CaptureStdout(() => cmd.ExecuteAsync(outputFormat: "json"));
+
+        output.ShouldContain("\"pendingChanges\"");
+        output.ShouldContain("\"fieldEditCount\": 2");
+        output.ShouldContain("\"noteCount\": 1");
+    }
+
+    [Fact]
+    public async Task NoArgs_NoPendingChanges_OmitsPendingSection()
+    {
+        var item = new WorkItemBuilder(42, "Clean Item").Build();
+        SetupActiveItem(item);
+
+        var cmd = CreateCommand();
+        var output = await CaptureStdout(() => cmd.ExecuteAsync(outputFormat: "json"));
+
+        output.ShouldNotContain("pendingChanges");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  No-args: git branch appears in output
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task NoArgs_WithGitRepo_IncludesGitContextInJsonOutput()
+    {
+        var repoDir = CreateGitRepo("feature/42-active-branch");
+        var twigDir = Path.Combine(repoDir, ".twig");
+        Directory.CreateDirectory(twigDir);
+        var paths = new TwigPaths(twigDir, Path.Combine(twigDir, "config"), Path.Combine(twigDir, "twig.db"));
+
+        var item = new WorkItemBuilder(42, "Git Active Item").Build();
+        SetupActiveItem(item);
+
+        var cmd = CreateCommand(paths: paths);
+        var output = await CaptureStdout(() => cmd.ExecuteAsync(outputFormat: "json"));
+
+        output.ShouldContain("\"gitContext\"");
+        output.ShouldContain("\"currentBranch\": \"feature/42-active-branch\"");
+    }
+
+    [Fact]
+    public async Task NoArgs_WithoutGitRepo_OmitsGitContext()
+    {
+        var item = new WorkItemBuilder(42, "No Git Active").Build();
+        SetupActiveItem(item);
+
+        var cmd = CreateCommand();
+        var output = await CaptureStdout(() => cmd.ExecuteAsync(outputFormat: "json"));
+
+        output.ShouldNotContain("\"gitContext\"");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  No-args: --no-refresh skips sync call
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task NoArgs_NoRefresh_SkipsSyncCall()
+    {
+        var item = new WorkItemBuilder(42, "NoRefresh Active").Build();
+        SetupActiveItem(item);
+
+        var cmd = CreateCommand();
+        var result = await cmd.ExecuteAsync(outputFormat: "json", noRefresh: true);
+
+        result.ShouldBe(0);
+        await _adoService.DidNotReceive().FetchAsync(
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task NoArgs_DefaultRefresh_SyncIsExercised()
+    {
+        var item = new WorkItemBuilder(42, "Sync Active").Build();
+        SetupActiveItem(item);
+
+        var cmd = CreateCommand();
+        await CaptureStdout(() => cmd.ExecuteAsync(outputFormat: "json"));
+
+        // Default path (non-TTY, noRefresh=false) should trigger sync
+        await _adoService.Received().FetchAsync(42, Arg.Any<CancellationToken>());
+    }
+
     // ── Private helpers ─────────────────────────────────────────────
+
+    /// <summary>Creates a temp directory with a .git/HEAD pointing to a branch.</summary>
+    private string CreateGitRepo(string branchName)
+    {
+        var repoDir = Path.Combine(_tempDir, "repo-" + Guid.NewGuid().ToString("N")[..8]);
+        var gitDir = Path.Combine(repoDir, ".git");
+        Directory.CreateDirectory(gitDir);
+        File.WriteAllText(Path.Combine(gitDir, "HEAD"), $"ref: refs/heads/{branchName}\n");
+        return repoDir;
+    }
 
     private static async Task<string> CaptureStdout(Func<Task<int>> action)
     {

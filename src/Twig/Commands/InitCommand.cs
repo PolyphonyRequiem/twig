@@ -273,6 +273,42 @@ public sealed class InitCommand
                 config.Defaults.Mode = "workspace";
         }
 
+        // Prompt for workspace sources (TTY only; skip if --sprint or --area flags provided)
+        if (_consoleInput is not null && !_consoleInput.IsOutputRedirected
+            && string.IsNullOrWhiteSpace(sprint) && string.IsNullOrWhiteSpace(area))
+        {
+            Console.WriteLine("Workspace sources \u2014 what should be included in your workspace?");
+            Console.WriteLine("  1. Sprint only (@Current)");
+            Console.WriteLine("  2. Area paths only (sync from team)");
+            Console.WriteLine("  3. Both sprint and area paths");
+            Console.WriteLine("  4. Neither (start empty, configure later)");
+            Console.Write("Choose [1-4] (4): ");
+            var prefResponse = _consoleInput.ReadLine()?.Trim();
+
+            switch (prefResponse)
+            {
+                case "1": // Sprint only
+                    config.Workspace.Sprints = [new SprintEntry { Expression = "@current" }];
+                    config.Defaults.AreaPathEntries = [];
+                    config.Defaults.AreaPaths = [];
+                    Console.WriteLine(fmt.FormatInfo("  Sprint: @current"));
+                    break;
+                case "2": // Area paths only — keep auto-detected areas
+                    Console.WriteLine(fmt.FormatInfo("  Keeping team area paths"));
+                    break;
+                case "3": // Both
+                    config.Workspace.Sprints = [new SprintEntry { Expression = "@current" }];
+                    Console.WriteLine(fmt.FormatInfo("  Sprint: @current"));
+                    Console.WriteLine(fmt.FormatInfo("  Keeping team area paths"));
+                    break;
+                default: // "4" or any other input → Neither (start empty)
+                    config.Defaults.AreaPathEntries = [];
+                    config.Defaults.AreaPaths = [];
+                    Console.WriteLine(fmt.FormatInfo("  Starting empty \u2014 configure later with workspace commands"));
+                    break;
+            }
+        }
+
         // --sprint flag: add sprint expressions to workspace.sprints[]
         if (!string.IsNullOrWhiteSpace(sprint))
         {

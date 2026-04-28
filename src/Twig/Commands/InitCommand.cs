@@ -69,10 +69,10 @@ public sealed class InitCommand
         _telemetryClient = telemetryClient;
     }
 
-    public async Task<int> ExecuteAsync(string org, string project, string? team = null, string? gitProject = null, bool force = false, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    public async Task<int> ExecuteAsync(string org, string project, string? team = null, string? gitProject = null, bool force = false, string outputFormat = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, CancellationToken ct = default)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
-        var (exitCode, hadGlobalProfile, fieldCount) = await ExecuteCoreAsync(org, project, team, gitProject, force, outputFormat, ct);
+        var (exitCode, hadGlobalProfile, fieldCount) = await ExecuteCoreAsync(org, project, team, gitProject, force, outputFormat, sprint, area, ct);
         _telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
         {
             ["command"] = "init",
@@ -89,7 +89,7 @@ public sealed class InitCommand
         return exitCode;
     }
 
-    private async Task<(int ExitCode, bool HadGlobalProfile, int FieldCount)> ExecuteCoreAsync(string org, string project, string? team, string? gitProject, bool force, string outputFormat, CancellationToken ct)
+    private async Task<(int ExitCode, bool HadGlobalProfile, int FieldCount)> ExecuteCoreAsync(string org, string project, string? team, string? gitProject, bool force, string outputFormat, string? sprint, string? area, CancellationToken ct)
     {
         var fmt = _formatterFactory.GetFormatter(outputFormat);
         var telemetryHadGlobalProfile = false;
@@ -271,6 +271,60 @@ public sealed class InitCommand
             var modeResponse = _consoleInput.ReadLine()?.Trim().ToLowerInvariant();
             if (modeResponse is "workspace")
                 config.Defaults.Mode = "workspace";
+        }
+
+        // --sprint flag: add sprint expressions to workspace.sprints[]
+        if (!string.IsNullOrWhiteSpace(sprint))
+        {
+            var expressions = sprint.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var sprintEntries = new List<SprintEntry>();
+            foreach (var expr in expressions)
+            {
+                var parsed = IterationExpression.Parse(expr);
+                if (!parsed.IsSuccess)
+                {
+                    Console.Error.WriteLine(fmt.FormatError($"Invalid sprint expression '{expr}': {parsed.Error}"));
+                    return (1, telemetryHadGlobalProfile, 0);
+                }
+                sprintEntries.Add(new SprintEntry { Expression = expr });
+            }
+            config.Workspace.Sprints = sprintEntries;
+            foreach (var entry in sprintEntries)
+                Console.WriteLine(fmt.FormatInfo($"  Sprint: {entry.Expression}"));
+        }
+
+        // --area flag: add area path entries to defaults.areapathentries[]
+        if (!string.IsNullOrWhiteSpace(area))
+        {
+            var areaParts = area.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var areaEntries = new List<AreaPathEntry>();
+            foreach (var raw in areaParts)
+            {
+                string pathPart;
+                bool includeChildren;
+                if (raw.EndsWith(":exact", StringComparison.OrdinalIgnoreCase))
+                {
+                    pathPart = raw[..^":exact".Length];
+                    includeChildren = false;
+                }
+                else
+                {
+                    pathPart = raw;
+                    includeChildren = true;
+                }
+
+                var parsed = AreaPath.Parse(pathPart);
+                if (!parsed.IsSuccess)
+                {
+                    Console.Error.WriteLine(fmt.FormatError($"Invalid area path '{pathPart}': {parsed.Error}"));
+                    return (1, telemetryHadGlobalProfile, 0);
+                }
+                areaEntries.Add(new AreaPathEntry { Path = pathPart, IncludeChildren = includeChildren });
+            }
+            config.Defaults.AreaPathEntries = areaEntries;
+            config.Defaults.AreaPaths = areaEntries.Select(e => e.Path).ToList();
+            foreach (var entry in areaEntries)
+                Console.WriteLine(fmt.FormatInfo($"  Area: {entry.Path}{(entry.IncludeChildren ? "" : " (exact)")}"));
         }
 
         await config.SaveAsync(configPath);

@@ -593,6 +593,159 @@ public class InitCommandTests : IDisposable
         result.ShouldBe(0);
         Directory.Exists(_twigDir).ShouldBeTrue();
     }
-}
 
-// InferParentChildMap tests moved to Twig.Domain.Tests/Services/BacklogHierarchyServiceTests.cs
+    // --- --sprint / --area flag tests ---
+
+    [Fact]
+    public async Task Init_SprintFlag_AddsSingleExpression()
+    {
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", sprint: "@current");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        loaded.Workspace.Sprints.ShouldNotBeNull();
+        loaded.Workspace.Sprints.Count.ShouldBe(1);
+        loaded.Workspace.Sprints[0].Expression.ShouldBe("@current");
+    }
+
+    [Fact]
+    public async Task Init_SprintFlag_AddsMultipleExpressions()
+    {
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", sprint: "@current;@current-1");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        loaded.Workspace.Sprints.ShouldNotBeNull();
+        loaded.Workspace.Sprints.Count.ShouldBe(2);
+        loaded.Workspace.Sprints[0].Expression.ShouldBe("@current");
+        loaded.Workspace.Sprints[1].Expression.ShouldBe("@current-1");
+    }
+
+    [Fact]
+    public async Task Init_SprintFlag_RejectsInvalidExpression()
+    {
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", sprint: "@invalid");
+
+        result.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Init_AreaFlag_AddsSinglePath()
+    {
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", area: @"MyProject\TeamA");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        loaded.Defaults.AreaPathEntries.ShouldNotBeNull();
+        loaded.Defaults.AreaPathEntries.Count.ShouldBe(1);
+        loaded.Defaults.AreaPathEntries[0].Path.ShouldBe(@"MyProject\TeamA");
+        loaded.Defaults.AreaPathEntries[0].IncludeChildren.ShouldBeTrue();
+        // Backward-compat AreaPaths also populated
+        loaded.Defaults.AreaPaths.ShouldNotBeNull();
+        loaded.Defaults.AreaPaths.ShouldContain(@"MyProject\TeamA");
+    }
+
+    [Fact]
+    public async Task Init_AreaFlag_AddsMultiplePaths()
+    {
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", area: @"MyProject\TeamA;MyProject\TeamB");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        loaded.Defaults.AreaPathEntries.ShouldNotBeNull();
+        loaded.Defaults.AreaPathEntries.Count.ShouldBe(2);
+        loaded.Defaults.AreaPathEntries[0].Path.ShouldBe(@"MyProject\TeamA");
+        loaded.Defaults.AreaPathEntries[1].Path.ShouldBe(@"MyProject\TeamB");
+    }
+
+    [Fact]
+    public async Task Init_AreaFlag_SupportsExactSuffix()
+    {
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", area: @"MyProject\TeamA:exact");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        loaded.Defaults.AreaPathEntries.ShouldNotBeNull();
+        loaded.Defaults.AreaPathEntries.Count.ShouldBe(1);
+        loaded.Defaults.AreaPathEntries[0].Path.ShouldBe(@"MyProject\TeamA");
+        loaded.Defaults.AreaPathEntries[0].IncludeChildren.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Init_AreaFlag_RejectsInvalidPath()
+    {
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", area: "");
+
+        // Empty string after whitespace trim → no entries → treated as no-op (not error)
+        result.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Init_BothFlags_ConfigureSprintAndArea()
+    {
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject",
+            sprint: "@current", area: @"MyProject\TeamA");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        loaded.Workspace.Sprints.ShouldNotBeNull();
+        loaded.Workspace.Sprints.Count.ShouldBe(1);
+        loaded.Workspace.Sprints[0].Expression.ShouldBe("@current");
+        loaded.Defaults.AreaPathEntries.ShouldNotBeNull();
+        loaded.Defaults.AreaPathEntries.Count.ShouldBe(1);
+        loaded.Defaults.AreaPathEntries[0].Path.ShouldBe(@"MyProject\TeamA");
+    }
+
+    [Fact]
+    public async Task Init_SprintFlag_OverridesAutoDetectedAreas_NotSprints()
+    {
+        // Verify --area flag overrides auto-detected team area paths
+        _iterationService.GetTeamAreaPathsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<(string Path, bool IncludeChildren)>
+            {
+                ("MyProject\\AutoTeam", true)
+            });
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject",
+            area: @"MyProject\ManualTeam");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        // --area flag should override the auto-detected areas
+        loaded.Defaults.AreaPathEntries.ShouldNotBeNull();
+        loaded.Defaults.AreaPathEntries.Count.ShouldBe(1);
+        loaded.Defaults.AreaPathEntries[0].Path.ShouldBe(@"MyProject\ManualTeam");
+    }
+
+    [Fact]
+    public async Task Init_SprintFlag_AcceptsAbsolutePath()
+    {
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject",
+            sprint: @"MyProject\Sprint 5");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        loaded.Workspace.Sprints.ShouldNotBeNull();
+        loaded.Workspace.Sprints.Count.ShouldBe(1);
+        loaded.Workspace.Sprints[0].Expression.ShouldBe(@"MyProject\Sprint 5");
+    }
+}

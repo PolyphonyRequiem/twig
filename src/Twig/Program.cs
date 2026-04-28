@@ -322,8 +322,10 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="gitProject">ADO project that hosts the git repository, if different from the work-item project.</param>
     /// <param name="force">Overwrite existing workspace configuration.</param>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
-    public async Task<int> Init(string org, string project, string? team = null, string? gitProject = null, bool force = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<InitCommand>().ExecuteAsync(org, project, team, gitProject, force, output, ct);
+    /// <param name="sprint">Sprint expression(s) to subscribe to (e.g., @current, @current-1). Semicolon-separated for multiple.</param>
+    /// <param name="area">Area path(s) to filter by (e.g., Project\Team). Append :exact for exact match. Semicolon-separated for multiple.</param>
+    public async Task<int> Init(string org, string project, string? team = null, string? gitProject = null, bool force = false, string output = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, CancellationToken ct = default)
+        => await services.GetRequiredService<InitCommand>().ExecuteAsync(org, project, team, gitProject, force, output, sprint, area, ct);
 
     /// <summary>Set the active work item by ID or title pattern.</summary>
     /// <param name="idOrPattern">Work item ID (e.g., 1234) or title substring to match.</param>

@@ -92,6 +92,7 @@ public static class TwigServiceRegistration
         services.AddSingleton<ISeedIdCounter, SeedIdCounter>();
         services.AddSingleton<SeedFactory>();
         services.AddSingleton<ISprintHierarchyBuilder, SprintHierarchyBuilder>();
+        services.AddSingleton<SprintIterationResolver>();
         services.AddSingleton<IProcessTypeStore>(sp => new SqliteProcessTypeStore(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<IProcessConfigurationProvider>(sp => new DynamicProcessConfigProvider(sp.GetRequiredService<IProcessTypeStore>()));
         services.AddSingleton<IFieldDefinitionStore>(sp => new SqliteFieldDefinitionStore(sp.GetRequiredService<SqliteCacheStore>()));

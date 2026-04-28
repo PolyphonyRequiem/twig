@@ -124,7 +124,11 @@ public sealed class CreationToolsLinkBranchTests : CreationToolsTestBase
             .LinkBranch(42, "feature/test");
 
         result.IsError.ShouldBe(true);
-        GetErrorText(result).ShouldContain("Failed to resolve git context");
+        var json = ParseResult(result);
+        json.GetProperty("status").GetString().ShouldBe("git-context-unavailable");
+        json.GetProperty("workItemId").GetInt32().ShouldBe(42);
+        json.GetProperty("branchName").GetString().ShouldBe("feature/test");
+        json.GetProperty("errorMessage").GetString()!.ShouldContain("Failed to resolve git context");
     }
 
     [Fact]
@@ -139,7 +143,11 @@ public sealed class CreationToolsLinkBranchTests : CreationToolsTestBase
             .LinkBranch(42, "feature/test");
 
         result.IsError.ShouldBe(true);
-        GetErrorText(result).ShouldContain("could not be resolved");
+        var json = ParseResult(result);
+        json.GetProperty("status").GetString().ShouldBe("git-context-unavailable");
+        json.GetProperty("workItemId").GetInt32().ShouldBe(42);
+        json.GetProperty("branchName").GetString().ShouldBe("feature/test");
+        json.GetProperty("errorMessage").GetString()!.ShouldContain("could not be resolved");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -161,7 +169,12 @@ public sealed class CreationToolsLinkBranchTests : CreationToolsTestBase
             .LinkBranch(42, "feature/test");
 
         result.IsError.ShouldBe(true);
-        GetErrorText(result).ShouldContain("Failed to add artifact link");
+        var json = ParseResult(result);
+        json.GetProperty("status").GetString().ShouldBe("failed");
+        json.GetProperty("workItemId").GetInt32().ShouldBe(42);
+        json.GetProperty("branchName").GetString().ShouldBe("feature/test");
+        json.GetProperty("artifactUri").GetString()!.ShouldContain("vstfs:///Git/Ref/");
+        json.GetProperty("errorMessage").GetString()!.ShouldContain("Failed to add artifact link");
     }
 
     // ═══════════════════════════════════════════════════════════════

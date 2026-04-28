@@ -444,7 +444,23 @@ internal static class McpResultBuilder
             writer.WriteBoolean("alreadyLinked", false);
             writer.WriteString("message", $"Branch '{l.BranchName}' linked to #{l.WorkItemId}.");
         }),
-        _ => throw new System.Diagnostics.UnreachableException(),
+        BranchLinkResult.GitContextUnavailable g => BuildErrorJson(writer =>
+        {
+            writer.WriteString("status", "git-context-unavailable");
+            writer.WriteNumber("workItemId", g.WorkItemId);
+            writer.WriteString("branchName", g.BranchName);
+            writer.WriteString("errorMessage", g.ErrorMessage);
+        }),
+        BranchLinkResult.Failed f => BuildErrorJson(writer =>
+        {
+            writer.WriteString("status", "failed");
+            writer.WriteNumber("workItemId", f.WorkItemId);
+            writer.WriteString("branchName", f.BranchName);
+            writer.WriteString("artifactUri", f.ArtifactUri);
+            writer.WriteString("errorMessage", f.ErrorMessage);
+        }),
+        _ => throw new System.Diagnostics.UnreachableException(
+            $"Unhandled BranchLinkResult: {result.GetType().Name}"),
     };
 
     public static CallToolResult FormatVerification(DescendantVerificationResult result, string? workspace) =>
@@ -500,6 +516,21 @@ internal static class McpResultBuilder
         writer.WriteEndObject();
         writer.Flush();
         return ToResult(Encoding.UTF8.GetString(stream.ToArray()));
+    }
+
+    private static CallToolResult BuildErrorJson(Action<Utf8JsonWriter> write)
+    {
+        using var stream = new MemoryStream();
+        using var writer = new Utf8JsonWriter(stream, WriterOptions);
+        writer.WriteStartObject();
+        write(writer);
+        writer.WriteEndObject();
+        writer.Flush();
+        return new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = Encoding.UTF8.GetString(stream.ToArray()) }],
+            IsError = true,
+        };
     }
 
     private static void WriteWorkItemArray(Utf8JsonWriter writer, string name, IEnumerable<WorkItem> items)

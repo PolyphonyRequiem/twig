@@ -217,12 +217,7 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
 
         var result = await ctx.BranchLinkService.LinkBranchAsync(workItemId, branchName, ct);
 
-        return result switch
-        {
-            BranchLinkResult.GitContextUnavailable g => McpResultBuilder.ToError(g.ErrorMessage),
-            BranchLinkResult.Failed f => McpResultBuilder.ToError(f.ErrorMessage),
-            _ => McpResultBuilder.FormatBranchLinked(result),
-        };
+        return McpResultBuilder.FormatBranchLinked(result);
     }
 
     private async Task<CallToolResult?> CheckForDuplicateAsync(

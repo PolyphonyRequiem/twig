@@ -2,6 +2,7 @@ using System.ComponentModel;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Common;
 using Twig.Domain.Services.Field;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
@@ -28,7 +29,13 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
         var (item, fetchErr) = await ctx.FetchWithFallbackAsync(id, ct);
         if (fetchErr is not null) return McpResultBuilder.ToError(fetchErr);
 
-        return McpResultBuilder.FormatWorkItem(item!, ctx.Key.ToString());
+        // Include pending changes when the requested item is the active work item
+        var activeId = await ctx.ContextStore.GetActiveWorkItemIdAsync(ct);
+        IReadOnlyList<PendingChangeRecord>? pendingChanges = null;
+        if (activeId == id)
+            pendingChanges = await ctx.PendingChangeStore.GetChangesAsync(id, ct);
+
+        return McpResultBuilder.FormatWorkItem(item!, pendingChanges, ctx.Key.ToString());
     }
 
     [McpServerTool(Name = "twig_query"), Description("Search work items with structured filters (type, state, title, assignedTo, etc.)")]

@@ -240,6 +240,12 @@ internal static class McpResultBuilder
         });
 
     public static CallToolResult FormatWorkItem(WorkItem item, string? workspace = null) =>
+        FormatWorkItem(item, pendingChanges: null, workspace: workspace);
+
+    public static CallToolResult FormatWorkItem(
+        WorkItem item,
+        IReadOnlyList<PendingChangeRecord>? pendingChanges,
+        string? workspace = null) =>
         BuildJson(writer =>
         {
             WriteWorkItemWithPaths(writer, item);
@@ -257,6 +263,7 @@ internal static class McpResultBuilder
                 writer.WriteEndObject();
             }
 
+            WritePendingChanges(writer, pendingChanges);
             WriteOptionalWorkspace(writer, workspace);
         });
 
@@ -579,6 +586,28 @@ internal static class McpResultBuilder
             }
             writer.WriteEndObject();
         }
+    }
+
+    /// <summary>
+    /// Writes a "pendingChanges" array when pending changes are provided.
+    /// Omits the property entirely when <paramref name="changes"/> is null (no active context match).
+    /// </summary>
+    private static void WritePendingChanges(Utf8JsonWriter writer, IReadOnlyList<PendingChangeRecord>? changes)
+    {
+        if (changes is null) return;
+
+        writer.WriteStartArray("pendingChanges");
+        foreach (var change in changes)
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("workItemId", change.WorkItemId);
+            writer.WriteString("changeType", change.ChangeType);
+            writer.WriteString("fieldName", change.FieldName ?? "");
+            writer.WriteString("oldValue", change.OldValue ?? "");
+            writer.WriteString("newValue", change.NewValue ?? "");
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
     }
 
     /// <summary>

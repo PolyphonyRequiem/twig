@@ -189,7 +189,101 @@ public sealed class ShowCommand_CacheAwareTests
             Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
+    // ── Non-TTY sync-first: machine output formats ─────────────────
+
+    [Theory]
+    [InlineData("json")]
+    [InlineData("json-compact")]
+    [InlineData("minimal")]
+    [InlineData("human")]
+    public async Task NonTty_SyncsBeforeEmitting(string format)
+    {
+        var item = CreateWorkItem(1, "Sync First Item");
+        SetupCachedItem(item);
+
+        var cmd = CreateCommand(); // non-TTY pipeline (isOutputRedirected: true)
+        await CaptureStdout(() => cmd.ExecuteAsync(1, format));
+
+        // Verify sync was exercised — FetchAsync is called by SyncItemSetAsync
+        await _adoService.Received().FetchAsync(1, Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("json")]
+    [InlineData("json-compact")]
+    [InlineData("minimal")]
+    [InlineData("human")]
+    public async Task NonTty_NoRefresh_SkipsSync(string format)
+    {
+        var item = CreateWorkItem(1, "No Refresh Machine");
+        SetupCachedItem(item);
+
+        var cmd = CreateCommand();
+        await CaptureStdout(() => cmd.ExecuteAsync(1, format, noRefresh: true));
+
+        await _adoService.DidNotReceive().FetchAsync(
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task NonTty_Json_SyncUpdatesData_EmitsFreshItem()
+    {
+        var cachedItem = CreateWorkItem(1, "Stale Title");
+        SetupCachedItem(cachedItem);
+
+        var freshItem = CreateWorkItem(1, "Fresh Title");
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(freshItem);
+
+        // First GetByIdAsync returns cached (initial lookup),
+        // second returns cached (ProtectedCacheWriter check in sync),
+        // third returns fresh (post-sync reload)
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>())
+            .Returns(cachedItem, cachedItem, freshItem);
+
+        var cmd = CreateCommand();
+        var output = await CaptureStdout(() => cmd.ExecuteAsync(1, "json"));
+
+        output.ShouldContain("Fresh Title");
+    }
+
+    [Fact]
+    public async Task NonTty_Json_SyncFailure_FallsBackToCache()
+    {
+        var item = CreateWorkItem(1, "Cached Fallback Item");
+        SetupCachedItem(item);
+
+        _adoService.FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<WorkItem>(new HttpRequestException("Network error")));
+
+        var cmd = CreateCommand();
+        var exitCode = 0;
+        var output = await CaptureStdout(async () =>
+        {
+            exitCode = await cmd.ExecuteAsync(1, "json");
+            return exitCode;
+        });
+
+        exitCode.ShouldBe(0);
+        output.ShouldContain("Cached Fallback Item");
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
+
+    private static async Task<string> CaptureStdout(Func<Task<int>> action)
+    {
+        var originalOut = Console.Out;
+        using var sw = new StringWriter();
+        Console.SetOut(sw);
+        try
+        {
+            await action();
+            return sw.ToString();
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+        }
+    }
 
     private static WorkItem CreateWorkItem(int id, string title, int? parentId = null) => new()
     {

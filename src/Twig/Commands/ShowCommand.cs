@@ -95,6 +95,36 @@ public sealed class ShowCommand(
             ? () => _pendingChangeStore.GetChangesAsync(item.Id)
             : () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>([]);
 
+        // Non-TTY machine output: sync synchronously before emitting so consumers get fresh data.
+        // The TTY path handles sync via RenderWithSyncAsync (two-pass: cached → sync → revised).
+        if (renderer is null && !noRefresh)
+        {
+            try
+            {
+                await syncCoordinatorFactory.ReadOnly.SyncItemSetAsync([id]);
+
+                // Reload data from cache after sync
+                var freshItem = await workItemRepo.GetByIdAsync(id, ct);
+                if (freshItem is not null)
+                {
+                    item = freshItem;
+                    children = await workItemRepo.GetChildrenAsync(item.Id, ct);
+                    parent = item.ParentId.HasValue
+                        ? await workItemRepo.GetByIdAsync(item.ParentId.Value, ct)
+                        : null;
+
+                    try { links = await linkRepo.GetLinksAsync(item.Id, ct); }
+                    catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
+
+                    childProgress = processConfigProvider.ComputeChildProgress(children);
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Sync failure is non-fatal — emit cache-only data
+            }
+        }
+
         if (renderer is not null)
         {
             Task RenderStaticAsync() => renderer.RenderStatusAsync(

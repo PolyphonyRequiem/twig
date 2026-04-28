@@ -160,8 +160,8 @@ public sealed class ShowCommandTests : IDisposable
         var result = await _cmd.ExecuteAsync(42);
 
         result.ShouldBe(0);
-        // GetByIdAsync called once for the item itself, not for a parent
-        await _workItemRepo.Received(1).GetByIdAsync(42, Arg.Any<CancellationToken>());
+        // No parent lookup — GetByIdAsync never called with an ID other than the item itself
+        await _workItemRepo.DidNotReceive().GetByIdAsync(Arg.Is<int>(id => id != 42), Arg.Any<CancellationToken>());
     }
 
     [Fact]

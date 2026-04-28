@@ -1,6 +1,6 @@
 using Twig.Domain.Interfaces;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Sync;
 
 /// <summary>
 /// Holds two pre-built <see cref="SyncCoordinator"/> instances with different cache staleness

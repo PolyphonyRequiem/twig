@@ -3,6 +3,7 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.Services.Process;
 using Twig.Domain.Services.Seed;
+using Twig.Domain.Services.Sync;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Git;
 using Twig.Infrastructure.Persistence;

@@ -1,6 +1,6 @@
 using Twig.Domain.Aggregates;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Sync;
 
 /// <summary>
 /// Represents a field-level conflict between local and remote work item state.

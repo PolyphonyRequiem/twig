@@ -2,7 +2,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Sync;
 
 /// <summary>
 /// Coordinates sync operations between the local cache and Azure DevOps.

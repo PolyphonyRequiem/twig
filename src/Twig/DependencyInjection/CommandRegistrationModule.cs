@@ -5,6 +5,7 @@ using Twig.Domain.Services;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Process;
 using Twig.Domain.Services.Seed;
+using Twig.Domain.Services.Sync;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
@@ -185,7 +186,7 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<IAdoWorkItemService>(),
             sp.GetRequiredService<IContextStore>(),
             sp.GetRequiredService<Domain.Services.Navigation.ActiveItemResolver>(),
-            sp.GetRequiredService<Domain.Services.ProtectedCacheWriter>(),
+            sp.GetRequiredService<Domain.Services.Sync.ProtectedCacheWriter>(),
             sp.GetRequiredService<IProcessConfigurationProvider>(),
             sp.GetRequiredService<IConsoleInput>(),
             sp.GetRequiredService<OutputFormatterFactory>(),

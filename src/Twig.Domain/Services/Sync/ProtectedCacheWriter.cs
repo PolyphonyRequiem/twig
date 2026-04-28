@@ -1,7 +1,7 @@
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Sync;
 
 /// <summary>
 /// Writes work items to the cache while protecting dirty/pending items from overwrite.

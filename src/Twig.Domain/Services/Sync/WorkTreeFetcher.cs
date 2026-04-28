@@ -1,7 +1,7 @@
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Sync;
 
 /// <summary>
 /// Static helper for recursively fetching work item descendants from the local cache.

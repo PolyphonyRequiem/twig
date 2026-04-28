@@ -1,6 +1,6 @@
 using Twig.Domain.Interfaces;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Sync;
 
 /// <summary>
 /// Identifies work items that must not be overwritten during a refresh.

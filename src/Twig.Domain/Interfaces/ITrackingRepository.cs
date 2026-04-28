@@ -1,5 +1,6 @@
 using Twig.Domain.Enums;
 using Twig.Domain.ValueObjects;
+using Twig.Domain.Services.Sync;
 
 namespace Twig.Domain.Interfaces;
 

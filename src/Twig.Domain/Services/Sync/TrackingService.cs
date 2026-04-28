@@ -4,7 +4,7 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Process;
 using Twig.Domain.ValueObjects;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Sync;
 
 /// <summary>
 /// Domain service that orchestrates tracking and exclusion operations

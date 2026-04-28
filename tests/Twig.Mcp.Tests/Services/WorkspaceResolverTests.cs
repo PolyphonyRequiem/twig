@@ -7,6 +7,7 @@ using Twig.Mcp.Services;
 using Twig.TestKit;
 using Xunit;
 using Twig.Domain.Services.Navigation;
+using Twig.Domain.Services.Sync;
 
 namespace Twig.Mcp.Tests.Services;
 

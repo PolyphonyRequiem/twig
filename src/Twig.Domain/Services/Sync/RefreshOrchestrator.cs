@@ -3,7 +3,7 @@ using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Sync;
 
 /// <summary>
 /// Encapsulates the core refresh logic: ADO fetch → conflict detection → batch save →

@@ -1,4 +1,4 @@
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Sync;
 
 /// <summary>
 /// Describes a single item that failed to sync.

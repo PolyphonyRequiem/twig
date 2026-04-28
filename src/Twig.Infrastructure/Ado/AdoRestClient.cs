@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado.Dtos;
 using Twig.Infrastructure.Ado.Exceptions;
@@ -22,6 +23,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService
     private readonly IAuthenticationProvider _authProvider;
     private readonly string _orgUrl;
     private readonly string _project;
+    private readonly WorkItemMapper _mapper;
     private readonly IFieldDefinitionStore? _fieldDefStore;
     private readonly AdoConcurrencyThrottle? _throttle;
     private IReadOnlyDictionary<string, FieldDefinition>? _fieldDefLookup;
@@ -31,6 +33,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         IAuthenticationProvider authProvider,
         string orgUrl,
         string project,
+        WorkItemMapper mapper,
         IFieldDefinitionStore? fieldDefStore = null,
         AdoConcurrencyThrottle? throttle = null)
     {
@@ -43,6 +46,7 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         _authProvider = authProvider;
         _orgUrl = NormalizeOrgUrl(orgUrl);
         _project = project;
+        _mapper = mapper;
         _fieldDefStore = fieldDefStore;
         _throttle = throttle;
     }
@@ -67,7 +71,8 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         using var response = await SendAsync(HttpMethod.Get, url, content: null, ifMatch: null, ct);
         var dto = await DeserializeWorkItemAsync(response, ct);
         var lookup = await GetFieldDefLookupAsync(ct);
-        return AdoResponseMapper.MapWorkItem(dto, lookup);
+        var snapshot = AdoResponseMapper.MapToSnapshot(dto, lookup);
+        return _mapper.Map(snapshot);
     }
 
     public async Task<(WorkItem Item, IReadOnlyList<WorkItemLink> Links)> FetchWithLinksAsync(int id, CancellationToken ct = default)
@@ -76,7 +81,8 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         using var response = await SendAsync(HttpMethod.Get, url, content: null, ifMatch: null, ct);
         var dto = await DeserializeWorkItemAsync(response, ct);
         var lookup = await GetFieldDefLookupAsync(ct);
-        return AdoResponseMapper.MapWorkItemWithLinks(dto, lookup);
+        var (snapshot, links) = AdoResponseMapper.MapToSnapshotWithLinks(dto, lookup);
+        return (_mapper.Map(snapshot), links);
     }
 
     public async Task<IReadOnlyList<WorkItem>> FetchChildrenAsync(int parentId, CancellationToken ct = default)
@@ -303,7 +309,8 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         var items = new List<WorkItem>(result.Value.Count);
         foreach (var dto in result.Value)
         {
-            items.Add(AdoResponseMapper.MapWorkItem(dto, lookup));
+            var snapshot = AdoResponseMapper.MapToSnapshot(dto, lookup);
+            items.Add(_mapper.Map(snapshot));
         }
 
         return items;

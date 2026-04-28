@@ -1,6 +1,7 @@
 using System.Net;
 using Microsoft.Extensions.DependencyInjection;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
@@ -45,6 +46,7 @@ public static class NetworkServiceModule
                 sp.GetRequiredService<IAuthenticationProvider>(),
                 cfg.Organization,
                 cfg.Project,
+                new WorkItemMapper(),
                 sp.GetService<IFieldDefinitionStore>(),
                 sp.GetRequiredService<AdoConcurrencyThrottle>());
         });

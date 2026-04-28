@@ -9,10 +9,10 @@ namespace Twig.Infrastructure.Tests.Ado;
 
 /// <summary>
 /// Unit tests for <see cref="AdoResponseMapper.ExtractNonHierarchyLinks"/> and
-/// <see cref="AdoResponseMapper.MapWorkItemWithLinks"/>.
+/// <see cref="AdoResponseMapper.MapToSnapshotWithLinks"/>.
 /// No network calls — all DTOs constructed manually.
 /// </summary>
-public class AdoResponseMapperLinkTests
+public sealed class AdoResponseMapperLinkTests
 {
     // ── ExtractNonHierarchyLinks ─────────────────────────────────────
 
@@ -218,10 +218,10 @@ public class AdoResponseMapperLinkTests
         result[1].TargetId.ShouldBe(201);
     }
 
-    // ── MapWorkItemWithLinks ─────────────────────────────────────────
+    // ── MapToSnapshotWithLinks ─────────────────────────────────────────
 
     [Fact]
-    public void MapWorkItemWithLinks_ReturnsItemAndLinks()
+    public void MapToSnapshotWithLinks_ReturnsSnapshotAndLinks()
     {
         var dto = CreateWorkItemDto(id: 42, rev: 5, type: "Task", title: "Test", state: "Active");
         dto.Relations = new List<AdoRelation>
@@ -243,24 +243,24 @@ public class AdoResponseMapperLinkTests
             },
         };
 
-        var (item, links) = AdoResponseMapper.MapWorkItemWithLinks(dto);
+        var (snapshot, links) = AdoResponseMapper.MapToSnapshotWithLinks(dto);
 
-        item.Id.ShouldBe(42);
-        item.ParentId.ShouldBe(10);
+        snapshot.Id.ShouldBe(42);
+        snapshot.ParentId.ShouldBe(10);
         links.Count.ShouldBe(2);
         links.ShouldContain(l => l.LinkType == LinkTypes.Related && l.TargetId == 200);
         links.ShouldContain(l => l.LinkType == LinkTypes.Successor && l.TargetId == 300);
     }
 
     [Fact]
-    public void MapWorkItemWithLinks_NoRelations_ReturnsEmptyLinks()
+    public void MapToSnapshotWithLinks_NoRelations_ReturnsEmptyLinks()
     {
         var dto = CreateWorkItemDto(id: 42, rev: 1, type: "Task", title: "Test", state: "New");
         dto.Relations = null;
 
-        var (item, links) = AdoResponseMapper.MapWorkItemWithLinks(dto);
+        var (snapshot, links) = AdoResponseMapper.MapToSnapshotWithLinks(dto);
 
-        item.Id.ShouldBe(42);
+        snapshot.Id.ShouldBe(42);
         links.ShouldBeEmpty();
     }
 

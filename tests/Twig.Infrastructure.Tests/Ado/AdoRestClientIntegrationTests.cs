@@ -1,6 +1,7 @@
 using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Extensions;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Ado.Exceptions;
@@ -47,7 +48,7 @@ public class AdoRestClientIntegrationTests
         var project = Environment.GetEnvironmentVariable("TWIG_TEST_PROJECT")!;
         var auth = new PatAuthProvider();
         var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-        var client = new AdoRestClient(http, auth, org, project);
+        var client = new AdoRestClient(http, auth, org, project, new WorkItemMapper());
         var team = Environment.GetEnvironmentVariable("TWIG_TEST_TEAM") ?? $"{project} Team";
         var iterationService = new AdoIterationService(new HttpClient { Timeout = TimeSpan.FromSeconds(30) }, auth, org, project, team);
         return (client, iterationService);

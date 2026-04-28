@@ -1,6 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Twig.Domain.Aggregates;
+using Twig.Domain.Services;
 using Twig.Domain.Services.Field;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.ValueObjects;
@@ -9,8 +9,10 @@ using Twig.Infrastructure.Ado.Dtos;
 namespace Twig.Infrastructure.Ado;
 
 /// <summary>
-/// Maps between ADO REST API DTOs and domain aggregates.
+/// Maps between ADO REST API DTOs and domain value objects.
 /// Anti-corruption layer — all ADO-specific data transformations live here.
+/// Produces <see cref="WorkItemSnapshot"/> records; domain aggregate construction
+/// is deferred to <see cref="WorkItemMapper"/>.
 /// </summary>
 internal static class AdoResponseMapper
 {
@@ -24,41 +26,49 @@ internal static class AdoResponseMapper
     };
 
     /// <summary>
-    /// Maps an ADO work item response DTO to a domain <see cref="WorkItem"/>.
-    /// Extracts parent ID from relation links.
-    /// When <paramref name="fieldDefLookup"/> is provided, filters imported fields using
-    /// <see cref="FieldImportFilter"/>; otherwise imports all non-core fields.
+    /// Maps an ADO work item response DTO to an immutable <see cref="WorkItemSnapshot"/>.
+    /// Produces raw/primitive data — value object parsing is deferred to <see cref="WorkItemMapper"/>.
     /// </summary>
-    public static WorkItem MapWorkItem(AdoWorkItemResponse dto,
+    public static WorkItemSnapshot MapToSnapshot(AdoWorkItemResponse dto,
         IReadOnlyDictionary<string, FieldDefinition>? fieldDefLookup = null)
     {
         var fields = dto.Fields ?? new Dictionary<string, object?>();
 
-        var workItem = new WorkItem
-        {
-            Id = dto.Id,
-            Type = ParseWorkItemType(GetStringField(fields, "System.WorkItemType")),
-            Title = GetStringField(fields, "System.Title") ?? string.Empty,
-            State = GetStringField(fields, "System.State") ?? string.Empty,
-            AssignedTo = ParseAssignedTo(fields),
-            IterationPath = ParseIterationPath(GetStringField(fields, "System.IterationPath")),
-            AreaPath = ParseAreaPath(GetStringField(fields, "System.AreaPath")),
-            ParentId = ExtractParentId(dto.Relations),
-        };
-
-        // Import filtered fields into the extensible Fields dictionary
+        var filteredFields = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         foreach (var kvp in fields)
         {
             FieldDefinition? fieldDef = null;
             fieldDefLookup?.TryGetValue(kvp.Key, out fieldDef);
             if (!FieldImportFilter.ShouldImport(kvp.Key, fieldDef)) continue;
             var value = ParseFieldValue(kvp.Value);
-            if (value is not null) workItem.SetField(kvp.Key, value);
+            if (value is not null) filteredFields[kvp.Key] = value;
         }
 
-        workItem.MarkSynced(dto.Rev);
+        return new WorkItemSnapshot
+        {
+            Id = dto.Id,
+            Revision = dto.Rev,
+            TypeName = GetStringField(fields, "System.WorkItemType") ?? string.Empty,
+            Title = GetStringField(fields, "System.Title") ?? string.Empty,
+            State = GetStringField(fields, "System.State") ?? string.Empty,
+            AssignedTo = ParseAssignedTo(fields),
+            IterationPath = GetStringField(fields, "System.IterationPath"),
+            AreaPath = GetStringField(fields, "System.AreaPath"),
+            ParentId = ExtractParentId(dto.Relations),
+            Fields = filteredFields,
+        };
+    }
 
-        return workItem;
+    /// <summary>
+    /// Maps an ADO work item response DTO to a <see cref="WorkItemSnapshot"/> plus non-hierarchy links.
+    /// </summary>
+    public static (WorkItemSnapshot Snapshot, IReadOnlyList<WorkItemLink> Links) MapToSnapshotWithLinks(
+        AdoWorkItemResponse dto,
+        IReadOnlyDictionary<string, FieldDefinition>? fieldDefLookup = null)
+    {
+        var snapshot = MapToSnapshot(dto, fieldDefLookup);
+        var links = ExtractNonHierarchyLinks(dto.Id, dto.Relations);
+        return (snapshot, links);
     }
 
     /// <summary>
@@ -224,17 +234,6 @@ internal static class AdoResponseMapper
     }
 
     /// <summary>
-    /// Maps an ADO work item response DTO to a domain <see cref="WorkItem"/> plus non-hierarchy links.
-    /// </summary>
-    public static (WorkItem Item, IReadOnlyList<WorkItemLink> Links) MapWorkItemWithLinks(AdoWorkItemResponse dto,
-        IReadOnlyDictionary<string, FieldDefinition>? fieldDefLookup = null)
-    {
-        var item = MapWorkItem(dto, fieldDefLookup);
-        var links = ExtractNonHierarchyLinks(dto.Id, dto.Relations);
-        return (item, links);
-    }
-
-    /// <summary>
     /// Extracts non-hierarchy links (Related, Predecessor, Successor) from the relations array.
     /// Uses the same URL-suffix ID parsing pattern as <see cref="ExtractParentId"/>.
     /// </summary>
@@ -379,29 +378,5 @@ internal static class AdoResponseMapper
         return value.ToString();
     }
 
-    private static WorkItemType ParseWorkItemType(string? typeName)
-    {
-        if (string.IsNullOrWhiteSpace(typeName))
-            return WorkItemType.Task; // fallback
 
-        return WorkItemType.Parse(typeName).Value;
-    }
-
-    private static IterationPath ParseIterationPath(string? raw)
-    {
-        if (string.IsNullOrEmpty(raw))
-            return default;
-
-        var result = IterationPath.Parse(raw);
-        return result.IsSuccess ? result.Value : default;
-    }
-
-    private static AreaPath ParseAreaPath(string? raw)
-    {
-        if (string.IsNullOrEmpty(raw))
-            return default;
-
-        var result = AreaPath.Parse(raw);
-        return result.IsSuccess ? result.Value : default;
-    }
 }

@@ -139,4 +139,47 @@ public class SqliteWorkItemLinkRepositoryTests : IDisposable
         loadedB.Count.ShouldBe(1);
         loadedB[0].TargetId.ShouldBe(300);
     }
+
+    [Theory]
+    [InlineData(LinkTypes.Related)]
+    [InlineData(LinkTypes.Predecessor)]
+    [InlineData(LinkTypes.Successor)]
+    public async Task SaveAndGetLinks_PreservesLinkType(string linkType)
+    {
+        var links = new List<WorkItemLink>
+        {
+            new(100, 200, linkType),
+        };
+
+        await _repo.SaveLinksAsync(100, links);
+        var loaded = await _repo.GetLinksAsync(100);
+
+        loaded.Count.ShouldBe(1);
+        loaded[0].SourceId.ShouldBe(100);
+        loaded[0].TargetId.ShouldBe(200);
+        loaded[0].LinkType.ShouldBe(linkType);
+    }
+
+    [Fact]
+    public async Task SaveAndGetLinks_AllThreeMetadataFieldsPreserved()
+    {
+        var links = new List<WorkItemLink>
+        {
+            new(42, 100, LinkTypes.Related),
+            new(42, 200, LinkTypes.Predecessor),
+            new(42, 300, LinkTypes.Successor),
+        };
+
+        await _repo.SaveLinksAsync(42, links);
+        var loaded = await _repo.GetLinksAsync(42);
+
+        loaded.Count.ShouldBe(3);
+        foreach (var link in loaded)
+        {
+            link.SourceId.ShouldBe(42);
+        }
+        loaded.ShouldContain(l => l.TargetId == 100 && l.LinkType == LinkTypes.Related);
+        loaded.ShouldContain(l => l.TargetId == 200 && l.LinkType == LinkTypes.Predecessor);
+        loaded.ShouldContain(l => l.TargetId == 300 && l.LinkType == LinkTypes.Successor);
+    }
 }

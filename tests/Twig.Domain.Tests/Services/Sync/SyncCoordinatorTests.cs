@@ -1508,4 +1508,120 @@ public class SyncCoordinatorTests
         result.ShouldBeOfType<SyncResult.Updated>().ChangedCount.ShouldBe(1);
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncLinksAsync — link metadata values are persisted exactly
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncLinksAsync_PersistsExactLinkMetadata_SourceTargetAndType()
+    {
+        var linkRepo = Substitute.For<IWorkItemLinkRepository>();
+        IReadOnlyList<Domain.ValueObjects.WorkItemLink>? savedLinks = null;
+        linkRepo.SaveLinksAsync(Arg.Any<int>(),
+            Arg.Do<IReadOnlyList<Domain.ValueObjects.WorkItemLink>>(l => savedLinks = l),
+            Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+
+        var protectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingStore);
+        var sut = new SyncCoordinator(_workItemRepo, _adoService, protectedWriter, _pendingStore, linkRepo, CacheStaleMinutes);
+
+        var fetchedItem = new WorkItemBuilder(42, "Item 42").InState("Active").Build();
+        var links = new List<Domain.ValueObjects.WorkItemLink>
+        {
+            new(42, 100, Domain.ValueObjects.LinkTypes.Related),
+            new(42, 200, Domain.ValueObjects.LinkTypes.Predecessor),
+            new(42, 300, Domain.ValueObjects.LinkTypes.Successor),
+        };
+        _adoService.FetchWithLinksAsync(42, Arg.Any<CancellationToken>())
+            .Returns((fetchedItem, (IReadOnlyList<Domain.ValueObjects.WorkItemLink>)links));
+
+        await sut.SyncLinksAsync(42);
+
+        savedLinks.ShouldNotBeNull();
+        savedLinks.Count.ShouldBe(3);
+
+        // Verify each link's full metadata: source_id, target_id, link_type
+        savedLinks.ShouldContain(l => l.SourceId == 42 && l.TargetId == 100 && l.LinkType == Domain.ValueObjects.LinkTypes.Related);
+        savedLinks.ShouldContain(l => l.SourceId == 42 && l.TargetId == 200 && l.LinkType == Domain.ValueObjects.LinkTypes.Predecessor);
+        savedLinks.ShouldContain(l => l.SourceId == 42 && l.TargetId == 300 && l.LinkType == Domain.ValueObjects.LinkTypes.Successor);
+    }
+
+    [Fact]
+    public async Task SyncRootLinksAsync_PersistsLinkMetadataBeforeFetchingTargets()
+    {
+        var linkRepo = Substitute.For<IWorkItemLinkRepository>();
+        var protectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingStore);
+        var sut = new SyncCoordinator(_workItemRepo, _adoService, protectedWriter, _pendingStore, linkRepo, CacheStaleMinutes);
+
+        var rootItem = new WorkItemBuilder(42, "Root").InState("Active").Build();
+        var targetItem = new WorkItemBuilder(100, "Target").InState("Active").Build();
+        var links = new List<Domain.ValueObjects.WorkItemLink>
+        {
+            new(42, 100, Domain.ValueObjects.LinkTypes.Related),
+        };
+        _adoService.FetchWithLinksAsync(42, Arg.Any<CancellationToken>())
+            .Returns((rootItem, (IReadOnlyList<Domain.ValueObjects.WorkItemLink>)links));
+        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        _adoService.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(targetItem);
+
+        var result = await sut.SyncRootLinksAsync(42);
+
+        result.ShouldBeOfType<SyncResult.Updated>();
+
+        // Link metadata was persisted
+        await linkRepo.Received(1).SaveLinksAsync(42,
+            Arg.Is<IReadOnlyList<Domain.ValueObjects.WorkItemLink>>(l =>
+                l.Count == 1 &&
+                l[0].SourceId == 42 &&
+                l[0].TargetId == 100 &&
+                l[0].LinkType == Domain.ValueObjects.LinkTypes.Related),
+            Arg.Any<CancellationToken>());
+
+        // Target was also fetched and saved
+        await _adoService.Received(1).FetchAsync(100, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SyncRootLinksAsync_MultipleLinks_AllMetadataPersisted()
+    {
+        var linkRepo = Substitute.For<IWorkItemLinkRepository>();
+        IReadOnlyList<Domain.ValueObjects.WorkItemLink>? savedLinks = null;
+        linkRepo.SaveLinksAsync(Arg.Any<int>(),
+            Arg.Do<IReadOnlyList<Domain.ValueObjects.WorkItemLink>>(l => savedLinks = l),
+            Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+
+        var protectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingStore);
+        var sut = new SyncCoordinator(_workItemRepo, _adoService, protectedWriter, _pendingStore, linkRepo, CacheStaleMinutes);
+
+        var rootItem = new WorkItemBuilder(42, "Root").InState("Active").Build();
+        var links = new List<Domain.ValueObjects.WorkItemLink>
+        {
+            new(42, 100, Domain.ValueObjects.LinkTypes.Related),
+            new(42, 200, Domain.ValueObjects.LinkTypes.Predecessor),
+            new(42, 300, Domain.ValueObjects.LinkTypes.Successor),
+        };
+        _adoService.FetchWithLinksAsync(42, Arg.Any<CancellationToken>())
+            .Returns((rootItem, (IReadOnlyList<Domain.ValueObjects.WorkItemLink>)links));
+
+        // All targets are stale (not in cache)
+        _workItemRepo.GetByIdAsync(Arg.Is<int>(id => id == 100 || id == 200 || id == 300), Arg.Any<CancellationToken>())
+            .Returns((WorkItem?)null);
+        _adoService.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(100, "T1").InState("Active").Build());
+        _adoService.FetchAsync(200, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(200, "T2").InState("Active").Build());
+        _adoService.FetchAsync(300, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(300, "T3").InState("Active").Build());
+
+        var result = await sut.SyncRootLinksAsync(42);
+
+        result.ShouldBeOfType<SyncResult.Updated>().ChangedCount.ShouldBe(3);
+
+        // Verify all three link metadata entries were persisted
+        await linkRepo.Received(1).SaveLinksAsync(42,
+            Arg.Is<IReadOnlyList<Domain.ValueObjects.WorkItemLink>>(l => l.Count == 3),
+            Arg.Any<CancellationToken>());
+
+        savedLinks.ShouldNotBeNull();
+        savedLinks.ShouldContain(l => l.TargetId == 100 && l.LinkType == Domain.ValueObjects.LinkTypes.Related);
+        savedLinks.ShouldContain(l => l.TargetId == 200 && l.LinkType == Domain.ValueObjects.LinkTypes.Predecessor);
+        savedLinks.ShouldContain(l => l.TargetId == 300 && l.LinkType == Domain.ValueObjects.LinkTypes.Successor);
+    }
+
 }

@@ -697,6 +697,114 @@ public class AdoIterationServiceTests
         result.PortfolioBacklogs.ShouldBeEmpty();
     }
 
+    // ── GetTeamIterationsAsync ────────────────────────────────────
+
+    [Fact]
+    public async Task GetTeamIterationsAsync_ReturnsAllIterations()
+    {
+        var handler = new FakeHandler();
+        handler.SetTeamIterationsResponse(
+            (@"TestProject\Sprint 1", "2026-01-01T00:00:00Z", "2026-01-14T00:00:00Z"),
+            (@"TestProject\Sprint 2", "2026-01-15T00:00:00Z", "2026-01-28T00:00:00Z"),
+            (@"TestProject\Sprint 3", "2026-01-29T00:00:00Z", "2026-02-11T00:00:00Z"));
+        var service = CreateService(handler);
+
+        var result = await service.GetTeamIterationsAsync();
+
+        result.Count.ShouldBe(3);
+        result[0].Path.ShouldBe(@"TestProject\Sprint 1");
+        result[1].Path.ShouldBe(@"TestProject\Sprint 2");
+        result[2].Path.ShouldBe(@"TestProject\Sprint 3");
+    }
+
+    [Fact]
+    public async Task GetTeamIterationsAsync_ParsesDatesCorrectly()
+    {
+        var handler = new FakeHandler();
+        handler.SetTeamIterationsResponse(
+            (@"TestProject\Sprint 1", "2026-01-01T00:00:00Z", "2026-01-14T00:00:00Z"));
+        var service = CreateService(handler);
+
+        var result = await service.GetTeamIterationsAsync();
+
+        result.Count.ShouldBe(1);
+        result[0].StartDate.ShouldNotBeNull();
+        result[0].StartDate!.Value.Year.ShouldBe(2026);
+        result[0].StartDate!.Value.Month.ShouldBe(1);
+        result[0].StartDate!.Value.Day.ShouldBe(1);
+        result[0].EndDate.ShouldNotBeNull();
+        result[0].EndDate!.Value.Day.ShouldBe(14);
+    }
+
+    [Fact]
+    public async Task GetTeamIterationsAsync_NullDates_ReturnsNullDateTimeOffsets()
+    {
+        var handler = new FakeHandler();
+        handler.SetTeamIterationsResponse(
+            (@"TestProject\Sprint 1", null, null));
+        var service = CreateService(handler);
+
+        var result = await service.GetTeamIterationsAsync();
+
+        result.Count.ShouldBe(1);
+        result[0].Path.ShouldBe(@"TestProject\Sprint 1");
+        result[0].StartDate.ShouldBeNull();
+        result[0].EndDate.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GetTeamIterationsAsync_EmptyResponse_ReturnsEmptyList()
+    {
+        var handler = new FakeHandler();
+        handler.SetRawResponse("/_apis/work/teamsettings/iterations", """{"count":0,"value":[]}""");
+        var service = CreateService(handler);
+
+        var result = await service.GetTeamIterationsAsync();
+
+        result.Count.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task GetTeamIterationsAsync_NullValueList_ReturnsEmptyList()
+    {
+        var handler = new FakeHandler();
+        handler.SetRawResponse("/_apis/work/teamsettings/iterations", """{"count":0,"value":null}""");
+        var service = CreateService(handler);
+
+        var result = await service.GetTeamIterationsAsync();
+
+        result.Count.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task GetTeamIterationsAsync_SkipsEntriesWithNullPath()
+    {
+        var handler = new FakeHandler();
+        handler.SetRawResponse("/_apis/work/teamsettings/iterations",
+            """{"count":2,"value":[{"id":"g1","name":"Sprint 1","path":"TestProject\\Sprint 1","attributes":{"startDate":"2026-01-01","finishDate":"2026-01-14"}},{"id":"g2","name":"Sprint 2","path":null,"attributes":{"startDate":"2026-01-15","finishDate":"2026-01-28"}}]}""");
+        var service = CreateService(handler);
+
+        var result = await service.GetTeamIterationsAsync();
+
+        result.Count.ShouldBe(1);
+        result[0].Path.ShouldBe(@"TestProject\Sprint 1");
+    }
+
+    [Fact]
+    public async Task GetTeamIterationsAsync_InvalidDateFormat_ReturnsNullDate()
+    {
+        var handler = new FakeHandler();
+        handler.SetRawResponse("/_apis/work/teamsettings/iterations",
+            """{"count":1,"value":[{"id":"g1","name":"Sprint 1","path":"TestProject\\Sprint 1","attributes":{"startDate":"not-a-date","finishDate":"also-invalid"}}]}""");
+        var service = CreateService(handler);
+
+        var result = await service.GetTeamIterationsAsync();
+
+        result.Count.ShouldBe(1);
+        result[0].StartDate.ShouldBeNull();
+        result[0].EndDate.ShouldBeNull();
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     private static AdoIterationService CreateService(HttpMessageHandler handler) =>

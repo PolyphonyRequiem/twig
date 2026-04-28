@@ -79,6 +79,7 @@ public static class CommandRegistrationModule
         services.AddSingleton<BatchCommand>();
         services.AddSingleton<TrackingCommand>();
         services.AddSingleton<AreaCommand>();
+        services.AddSingleton<SprintCommand>();
     }
 
     private static void AddSelfUpdateCommands(IServiceCollection services)

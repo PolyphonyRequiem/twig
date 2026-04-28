@@ -50,6 +50,19 @@ internal class FakeHandler : HttpMessageHandler
         _responses["/_apis/work/teamsettings/iterations"] = json;
     }
 
+    public void SetTeamIterationsResponse(params (string path, string? startDate, string? finishDate)[] iterations)
+    {
+        var items = iterations.Select(i =>
+        {
+            var escapedPath = i.path.Replace(@"\", @"\\");
+            var startPart = i.startDate is not null ? $"\"startDate\":\"{i.startDate}\"" : "\"startDate\":null";
+            var finishPart = i.finishDate is not null ? $"\"finishDate\":\"{i.finishDate}\"" : "\"finishDate\":null";
+            return $"{{\"id\":\"guid-{Guid.NewGuid():N}\",\"name\":\"{escapedPath.Split('\\').Last()}\",\"path\":\"{escapedPath}\",\"attributes\":{{{startPart},{finishPart}}}}}";
+        });
+        var json = $"{{\"count\":{iterations.Length},\"value\":[{string.Join(',', items)}]}}";
+        _responses["/_apis/work/teamsettings/iterations"] = json;
+    }
+
     public void SetRawResponse(string urlFragment, string json)
     {
         _responses[urlFragment] = json;

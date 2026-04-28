@@ -36,6 +36,24 @@ public sealed class GroupedHelpTests
             .ShouldBeFalse("SeedNew should NOT be hidden — it is the canonical seed command");
     }
 
+    [Theory]
+    [InlineData(nameof(TwigCommands.Area))]
+    [InlineData(nameof(TwigCommands.AreaAdd))]
+    [InlineData(nameof(TwigCommands.AreaRemove))]
+    [InlineData(nameof(TwigCommands.AreaList))]
+    [InlineData(nameof(TwigCommands.AreaSync))]
+    public void DeprecatedAreaAlias_HasHiddenAttribute(string methodName)
+    {
+        var method = typeof(TwigCommands).GetMethod(
+            methodName,
+            BindingFlags.Public | BindingFlags.Instance);
+
+        method.ShouldNotBeNull($"TwigCommands.{methodName} method not found");
+        method.GetCustomAttributes()
+            .Any(a => a.GetType().Name == "HiddenAttribute")
+            .ShouldBeTrue($"{methodName} should have [Hidden] — 'workspace area' is the canonical namespace");
+    }
+
     [Fact]
     public void AllNonHiddenCommands_AppearInGroupedHelp()
     {
@@ -169,6 +187,12 @@ public sealed class GroupedHelpTests
     [InlineData("history")]
     [InlineData("seed")]
     [InlineData("refresh")]
+    // Hidden deprecated area aliases
+    [InlineData("area")]
+    [InlineData("area add")]
+    [InlineData("area remove")]
+    [InlineData("area list")]
+    [InlineData("area sync")]
     public void KnownCommands_ContainsExpectedCommand(string command)
     {
         GroupedHelp.KnownCommands.ShouldContain(command);
@@ -200,6 +224,25 @@ public sealed class GroupedHelpTests
         stdout.ShouldContain("Seeds:");
     }
 
+    [Fact]
+    public void HelpText_AreaCommandsAreUnderWorkspaceSection()
+    {
+        var helpOutput = CaptureHelp();
+
+        var workspaceIdx = helpOutput.IndexOf("Workspace:");
+        var contextIdx = helpOutput.IndexOf("Context:");
+
+        workspaceIdx.ShouldBeGreaterThan(-1, "Help text should contain 'Workspace:' section");
+        contextIdx.ShouldBeGreaterThan(workspaceIdx, "'Context:' section should come after 'Workspace:'");
+
+        var workspaceSection = helpOutput[workspaceIdx..contextIdx];
+        workspaceSection.ShouldContain("workspace area");
+        workspaceSection.ShouldContain("workspace area add");
+        workspaceSection.ShouldContain("workspace area remove");
+        workspaceSection.ShouldContain("workspace area list");
+        workspaceSection.ShouldContain("workspace area sync");
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("some-weird-cmd")]
@@ -228,9 +271,21 @@ public sealed class GroupedHelpTests
     [InlineData("seed", "edit")]
     [InlineData("link", "parent")]
     [InlineData("ohmyposh", "init")]
+    [InlineData("workspace", "area")]
+    [InlineData("workspace", "track")]
     public void IsKnownCommand_RecognizesCompoundCommands(string first, string second)
     {
         GroupedHelp.IsKnownCommand([first, second]).ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData("workspace", "area", "add")]
+    [InlineData("workspace", "area", "remove")]
+    [InlineData("workspace", "area", "list")]
+    [InlineData("workspace", "area", "sync")]
+    public void IsKnownCommand_RecognizesThreeLevelCommands(string first, string second, string third)
+    {
+        GroupedHelp.IsKnownCommand([first, second, third]).ShouldBeTrue();
     }
 
     [Theory]

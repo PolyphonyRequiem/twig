@@ -257,6 +257,12 @@ public sealed class TwigConfiguration
             case "workspace.working_level":
                 Workspace.WorkingLevel = string.IsNullOrWhiteSpace(value) ? null : value;
                 return true;
+            case "workspace.sprints":
+                var expressions = value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                if (expressions.Length == 0)
+                    return false;
+                Workspace.Sprints = expressions.Select(e => new SprintEntry { Expression = e }).ToList();
+                return true;
             case "tracking.cleanuppolicy":
                 var policyLower = value.ToLowerInvariant();
                 if (policyLower is "none" or "on-complete" or "on-complete-and-past")
@@ -423,6 +429,24 @@ public sealed class WorkspaceConfig
     /// When null or empty, no dimming is applied.
     /// </summary>
     public string? WorkingLevel { get; set; }
+
+    /// <summary>
+    /// Configured sprint iteration expressions (e.g., "@current", "@current-1", "Project\Sprint 5").
+    /// Each entry represents a subscribed sprint iteration that twig tracks.
+    /// </summary>
+    public List<SprintEntry>? Sprints { get; set; }
+}
+
+/// <summary>
+/// A single sprint iteration expression stored in workspace configuration.
+/// Expressions can be relative (@current, @current±N) or absolute iteration paths.
+/// </summary>
+public sealed class SprintEntry
+{
+    /// <summary>
+    /// The iteration expression string (e.g., "@current", "@current-1", "Project\Sprint 5").
+    /// </summary>
+    public string Expression { get; set; } = string.Empty;
 }
 
 /// <summary>

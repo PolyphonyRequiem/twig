@@ -250,30 +250,45 @@ internal static class CommandExamples
             "twig workspace exclusions --remove 42  Remove exclusion for #42",
             "twig workspace exclusions -o json      List exclusions as JSON",
         ],
-        ["area"] =
+        ["workspace area"] =
         [
-            "twig area                              Show area-filtered workspace view",
-            "twig area -o json                      Output area view as JSON",
+            "twig workspace area                    Show area-filtered workspace view",
+            "twig workspace area -o json            Output area view as JSON",
         ],
-        ["area add"] =
+        ["workspace area add"] =
         [
-            "twig area add \"Project\\Team A\"           Add area path with subtree matching",
-            "twig area add \"Project\\Team A\" --exact   Add area path with exact matching only",
+            "twig workspace area add \"Project\\Team A\"           Add area path with subtree matching",
+            "twig workspace area add \"Project\\Team A\" --exact   Add area path with exact matching only",
         ],
-        ["area remove"] =
+        ["workspace area remove"] =
         [
-            "twig area remove \"Project\\Team A\"        Remove a configured area path",
-            "twig area remove \"Project\\Team A\" -o json  Remove and output result as JSON",
+            "twig workspace area remove \"Project\\Team A\"        Remove a configured area path",
+            "twig workspace area remove \"Project\\Team A\" -o json  Remove and output result as JSON",
         ],
-        ["area list"] =
+        ["workspace area list"] =
         [
-            "twig area list                          List all configured area paths",
-            "twig area list -o json                  List area paths as JSON",
+            "twig workspace area list                          List all configured area paths",
+            "twig workspace area list -o json                  List area paths as JSON",
         ],
-        ["area sync"] =
+        ["workspace area sync"] =
         [
-            "twig area sync                          Fetch team area paths from ADO",
-            "twig area sync -o json                  Sync and output result as JSON",
+            "twig workspace area sync                          Fetch team area paths from ADO",
+            "twig workspace area sync -o json                  Sync and output result as JSON",
+        ],
+        ["workspace sprint add"] =
+        [
+            @"twig workspace sprint add @current               Subscribe to the current sprint",
+            @"twig workspace sprint add @current-1             Subscribe to the previous sprint",
+        ],
+        ["workspace sprint remove"] =
+        [
+            @"twig workspace sprint remove @current            Unsubscribe from the current sprint",
+            @"twig workspace sprint remove ""Project\Sprint 5""  Remove an absolute sprint path",
+        ],
+        ["workspace sprint list"] =
+        [
+            "twig workspace sprint list                        List configured sprint expressions",
+            "twig workspace sprint list -o json                List sprint expressions as JSON",
         ],
         ["sprint"] =
         [
@@ -324,16 +339,34 @@ internal static class CommandExamples
 
     /// <summary>
     /// Resolves the command name from <paramref name="args"/> and prints usage examples
-    /// if any are registered. When <c>args.Length &gt;= 2</c>, tries the compound key
-    /// <c>"{args[0]} {args[1]}"</c> first (e.g. <c>"nav up"</c>), then falls back to
-    /// <c>args[0]</c> (e.g. <c>"set"</c>). Does nothing if no examples match.
+    /// if any are registered. Tries the longest compound key first
+    /// (e.g. <c>"workspace area add"</c>), then two-token (e.g. <c>"nav up"</c>),
+    /// then single-token (e.g. <c>"set"</c>). Does nothing if no examples match.
     /// </summary>
     internal static void ShowIfPresent(string[] args)
     {
         if (args.Length == 0) return;
 
-        var compound = args.Length >= 2 ? $"{args[0]} {args[1]}" : null;
-        var key = compound is not null && Examples.ContainsKey(compound) ? compound : args[0];
+        string? key = null;
+
+        // Try 3-token compound first (e.g. "workspace area add")
+        if (args.Length >= 3)
+        {
+            var triple = $"{args[0]} {args[1]} {args[2]}";
+            if (Examples.ContainsKey(triple))
+                key = triple;
+        }
+
+        // Try 2-token compound (e.g. "nav up", "workspace area")
+        if (key is null && args.Length >= 2)
+        {
+            var compound = $"{args[0]} {args[1]}";
+            if (Examples.ContainsKey(compound))
+                key = compound;
+        }
+
+        // Fall back to single token
+        key ??= args[0];
 
         if (!Examples.TryGetValue(key, out var examples))
             return;

@@ -39,4 +39,11 @@ public interface IIterationService
     /// Calls GET /{project}/_apis/wit/fields.
     /// </summary>
     Task<IReadOnlyList<FieldDefinition>> GetFieldDefinitionsAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Gets all team iterations (sprints) from the ADO team settings.
+    /// Calls GET /{project}/{team}/_apis/work/teamsettings/iterations without a timeframe filter.
+    /// Results are returned in the order provided by ADO (chronological).
+    /// </summary>
+    Task<IReadOnlyList<TeamIteration>> GetTeamIterationsAsync(CancellationToken ct = default);
 }

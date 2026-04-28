@@ -1,7 +1,7 @@
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Navigation;
 
 /// <summary>
 /// Resolves the active work item from context, cache, or ADO auto-fetch.

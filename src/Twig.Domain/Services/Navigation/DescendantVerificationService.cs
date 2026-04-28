@@ -3,7 +3,7 @@ using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Navigation;
 
 /// <summary>
 /// Recursively verifies that all descendants of a root work item are in terminal states

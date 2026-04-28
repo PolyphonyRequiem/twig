@@ -1,6 +1,6 @@
 using Twig.Domain.Aggregates;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Navigation;
 
 /// <summary>
 /// Discriminated union representing the outcome of active item resolution.

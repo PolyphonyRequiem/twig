@@ -1,7 +1,7 @@
 using Twig.Domain.Aggregates;
 using Twig.Domain.ValueObjects;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Navigation;
 
 /// <summary>
 /// Formats commit messages from work item context using configurable templates.

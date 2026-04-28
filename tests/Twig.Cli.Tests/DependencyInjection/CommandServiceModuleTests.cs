@@ -4,6 +4,7 @@ using Shouldly;
 using Twig.DependencyInjection;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
+using Twig.Domain.Services.Navigation;
 using Twig.Formatters;
 using Twig.Infrastructure.Config;
 using Xunit;

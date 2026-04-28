@@ -3,6 +3,7 @@ using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Domain.ValueObjects;
 using Xunit;
+using Twig.Domain.Services.Navigation;
 
 namespace Twig.Mcp.Tests.Tools;
 

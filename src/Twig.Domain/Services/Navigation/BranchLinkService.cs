@@ -1,7 +1,7 @@
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Navigation;
 
 /// <summary>
 /// Encapsulates branch-to-ADO artifact link logic: resolves the git project/repository

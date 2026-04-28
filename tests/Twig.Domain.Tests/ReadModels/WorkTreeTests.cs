@@ -2,6 +2,7 @@ using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.ReadModels;
 using Twig.Domain.Services;
+using Twig.Domain.Services.Navigation;
 using Twig.Domain.ValueObjects;
 using Twig.TestKit;
 using Xunit;

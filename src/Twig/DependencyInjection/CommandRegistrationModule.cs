@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Twig.Commands;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
+using Twig.Domain.Services.Navigation;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
@@ -47,7 +48,7 @@ public static class CommandRegistrationModule
         services.AddSingleton<ShowCommand>();
         services.AddSingleton<StatusCommand>();
         services.AddSingleton<StateCommand>(sp => new StateCommand(
-            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
+            sp.GetRequiredService<Domain.Services.Navigation.ActiveItemResolver>(),
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IAdoWorkItemService>(),
             sp.GetRequiredService<IPendingChangeStore>(),
@@ -56,7 +57,7 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<HintEngine>(),
             sp.GetRequiredService<IPromptStateWriter>(),
-            parentPropagationService: sp.GetRequiredService<Domain.Services.ParentStatePropagationService>()));
+            parentPropagationService: sp.GetRequiredService<Domain.Services.Navigation.ParentStatePropagationService>()));
         services.AddSingleton<TreeCommand>();
         services.AddSingleton<NavigationCommands>();
         services.AddSingleton<NavigationHistoryCommands>();
@@ -69,7 +70,7 @@ public static class CommandRegistrationModule
         services.AddSingleton<LinkCommand>();
         services.AddSingleton<ArtifactLinkCommand>();
         services.AddSingleton<LinkBranchCommand>(sp => new LinkBranchCommand(
-            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
+            sp.GetRequiredService<Domain.Services.Navigation.ActiveItemResolver>(),
             ResolveBranchLinkService(sp),
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetService<IGitService>()));
@@ -111,7 +112,7 @@ public static class CommandRegistrationModule
     private static void AddGitCommands(IServiceCollection services)
     {
         services.AddSingleton<BranchCommand>(sp => new BranchCommand(
-            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
+            sp.GetRequiredService<Domain.Services.Navigation.ActiveItemResolver>(),
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IAdoWorkItemService>(),
             sp.GetRequiredService<IProcessConfigurationProvider>(),
@@ -122,7 +123,7 @@ public static class CommandRegistrationModule
             ResolveBranchLinkService(sp),
             sp.GetRequiredService<IPromptStateWriter>()));
         services.AddSingleton<CommitCommand>(sp => new CommitCommand(
-            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
+            sp.GetRequiredService<Domain.Services.Navigation.ActiveItemResolver>(),
             sp.GetRequiredService<IAdoWorkItemService>(),
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<HintEngine>(),
@@ -130,7 +131,7 @@ public static class CommandRegistrationModule
             sp.GetService<IGitService>(),
             sp.GetService<IAdoGitService>()));
         services.AddSingleton<PrCommand>(sp => new PrCommand(
-            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
+            sp.GetRequiredService<Domain.Services.Navigation.ActiveItemResolver>(),
             sp.GetRequiredService<IAdoWorkItemService>(),
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<HintEngine>(),
@@ -140,7 +141,7 @@ public static class CommandRegistrationModule
         services.AddSingleton<StashCommand>(sp => new StashCommand(
             sp.GetRequiredService<IContextStore>(),
             sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
+            sp.GetRequiredService<Domain.Services.Navigation.ActiveItemResolver>(),
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<HintEngine>(),
             sp.GetRequiredService<TwigConfiguration>(),
@@ -160,7 +161,7 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<TwigConfiguration>(),
             sp.GetService<IGitService>()));
         services.AddSingleton<GitContextCommand>(sp => new GitContextCommand(
-            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
+            sp.GetRequiredService<Domain.Services.Navigation.ActiveItemResolver>(),
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<HintEngine>(),
@@ -181,7 +182,7 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IAdoWorkItemService>(),
             sp.GetRequiredService<IContextStore>(),
-            sp.GetRequiredService<Domain.Services.ActiveItemResolver>(),
+            sp.GetRequiredService<Domain.Services.Navigation.ActiveItemResolver>(),
             sp.GetRequiredService<Domain.Services.ProtectedCacheWriter>(),
             sp.GetRequiredService<IProcessConfigurationProvider>(),
             sp.GetRequiredService<IConsoleInput>(),
@@ -193,8 +194,8 @@ public static class CommandRegistrationModule
             sp.GetService<IIterationService>(),
             sp.GetRequiredService<IPromptStateWriter>(),
             sp.GetService<INavigationHistoryStore>(),
-            sp.GetService<Domain.Services.ContextChangeService>(),
-            sp.GetRequiredService<Domain.Services.ParentStatePropagationService>()));
+            sp.GetService<Domain.Services.Navigation.ContextChangeService>(),
+            sp.GetRequiredService<Domain.Services.Navigation.ParentStatePropagationService>()));
         services.AddSingleton<FlowDoneCommand>(sp => new FlowDoneCommand(
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IPendingChangeStore>(),

@@ -1,4 +1,4 @@
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Navigation;
 
 /// <summary>
 /// Bidirectional mapper between user-facing friendly link type names

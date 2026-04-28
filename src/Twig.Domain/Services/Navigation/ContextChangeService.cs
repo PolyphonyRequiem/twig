@@ -1,6 +1,6 @@
 using Twig.Domain.Interfaces;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Navigation;
 
 /// <summary>
 /// Orchestrates working set extension when the active context changes.

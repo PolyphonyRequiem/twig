@@ -1,5 +1,6 @@
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
+using Twig.Domain.Services.Navigation;
 using Twig.Formatters;
 
 namespace Twig.Commands;

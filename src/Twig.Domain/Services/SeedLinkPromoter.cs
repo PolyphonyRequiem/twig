@@ -1,5 +1,6 @@
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
+using Twig.Domain.Services.Navigation;
 
 namespace Twig.Domain.Services;
 

@@ -1,6 +1,7 @@
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.Navigation;
 
 namespace Twig.Domain.Services;
 

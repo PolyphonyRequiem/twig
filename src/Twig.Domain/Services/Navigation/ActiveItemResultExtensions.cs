@@ -1,7 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using Twig.Domain.Aggregates;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Navigation;
 
 /// <summary>
 /// Extension methods for <see cref="ActiveItemResult"/> that collapse the repeated

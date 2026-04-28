@@ -4,6 +4,7 @@ using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.TestKit;
 using Xunit;
+using Twig.Domain.Services.Navigation;
 
 namespace Twig.Mcp.Tests.Tools;
 

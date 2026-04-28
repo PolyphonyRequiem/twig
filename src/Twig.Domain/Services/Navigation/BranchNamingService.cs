@@ -1,7 +1,7 @@
 using Twig.Domain.Aggregates;
 using Twig.Domain.ValueObjects;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Navigation;
 
 /// <summary>
 /// Generates branch names from work items using configurable templates and type mapping.

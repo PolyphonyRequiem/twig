@@ -3,7 +3,7 @@ using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Navigation;
 
 /// <summary>
 /// Outcomes for a parent state propagation attempt.

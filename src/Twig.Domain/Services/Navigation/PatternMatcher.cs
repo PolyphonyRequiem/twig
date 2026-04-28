@@ -1,4 +1,4 @@
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Navigation;
 
 /// <summary>
 /// Discriminated result of a pattern match against a list of candidates.

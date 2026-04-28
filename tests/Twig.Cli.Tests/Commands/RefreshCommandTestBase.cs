@@ -2,6 +2,7 @@ using NSubstitute;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.Services.Workspace;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.ValueObjects;
@@ -32,6 +33,7 @@ public abstract class RefreshCommandTestBase : IDisposable
     protected readonly ProtectedCacheWriter _protectedCacheWriter;
     protected readonly ITrackingService _trackingService;
     protected readonly RefreshOrchestrator _orchestrator;
+    protected readonly SprintIterationResolver _sprintResolver;
     protected readonly OutputFormatterFactory _formatterFactory;
 
     protected RefreshCommandTestBase()
@@ -61,6 +63,8 @@ public abstract class RefreshCommandTestBase : IDisposable
             _pendingChangeStore, _protectedCacheWriter, workingSetService, syncCoordinatorFactory,
             _iterationService,
             _trackingService);
+
+        _sprintResolver = new SprintIterationResolver(_iterationService, _workItemRepo);
 
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
@@ -97,7 +101,7 @@ public abstract class RefreshCommandTestBase : IDisposable
             Stderr: stderr);
         return new RefreshCommand(
             ctx, _contextStore, _iterationService, _paths, _processTypeStore, _fieldDefinitionStore,
-            _orchestrator, profileStore);
+            _orchestrator, _sprintResolver, profileStore);
     }
 
     protected static WorkItem CreateWorkItem(int id, string title, int revision = 0)

@@ -5,6 +5,7 @@ using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Process;
 using Twig.Domain.Services.Sync;
@@ -378,10 +379,11 @@ public class PromptStateIntegrationTests : IDisposable
             _pendingChangeStore, refreshProtectedWriter, refreshWorkingSetService, refreshSyncCoordinatorFactory,
             iterationService,
             Substitute.For<ITrackingService>());
+        var sprintResolver = new SprintIterationResolver(iterationService, _workItemRepo);
         var cmd = new RefreshCommand(
             new CommandContext(new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true), _formatterFactory, _hintEngine, _config),
             _contextStore, iterationService, _paths, _processTypeStore, _fieldDefinitionStore,
-            refreshOrchestrator, promptStateWriter: writer);
+            refreshOrchestrator, sprintResolver, promptStateWriter: writer);
 
         var result = await cmd.ExecuteAsync();
 

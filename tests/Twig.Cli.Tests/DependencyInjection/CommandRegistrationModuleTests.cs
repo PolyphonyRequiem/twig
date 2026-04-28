@@ -4,6 +4,7 @@ using Shouldly;
 using Twig.Commands;
 using Twig.DependencyInjection;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.Services.Navigation;
 using Twig.Formatters;
 using Twig.Infrastructure.Config;
@@ -49,6 +50,7 @@ public sealed class CommandRegistrationModuleTests
         services.AddSingleton(Substitute.For<ITrackingRepository>());
         services.AddSingleton(Substitute.For<ITrackingService>());
         services.AddSingleton(Substitute.For<ISprintHierarchyBuilder>());
+        services.AddSingleton<SprintIterationResolver>();
 
         // Formatters
         services.AddSingleton(new OutputFormatterFactory(

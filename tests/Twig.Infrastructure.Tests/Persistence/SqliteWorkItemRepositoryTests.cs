@@ -83,6 +83,66 @@ public class SqliteWorkItemRepositoryTests : IDisposable
     }
 
     [Fact]
+    public async Task GetByIterationsAsync_ReturnsItemsFromMultipleIterations()
+    {
+        var item1 = CreateWorkItem(1, "Task", "Sprint1 Item", "Active", iterationPath: @"Project\Sprint1");
+        var item2 = CreateWorkItem(2, "Task", "Sprint2 Item", "Active", iterationPath: @"Project\Sprint2");
+        var item3 = CreateWorkItem(3, "Task", "Sprint3 Item", "Active", iterationPath: @"Project\Sprint3");
+
+        await _repo.SaveAsync(item1);
+        await _repo.SaveAsync(item2);
+        await _repo.SaveAsync(item3);
+
+        var paths = new[]
+        {
+            IterationPath.Parse(@"Project\Sprint1").Value,
+            IterationPath.Parse(@"Project\Sprint3").Value,
+        };
+        var results = await _repo.GetByIterationsAsync(paths);
+        results.Count.ShouldBe(2);
+        results.Select(r => r.Id).ShouldBe(new[] { 1, 3 }, ignoreOrder: true);
+    }
+
+    [Fact]
+    public async Task GetByIterationsAsync_EmptyInput_ReturnsEmpty()
+    {
+        var item = CreateWorkItem(1, "Task", "Item 1", "Active", iterationPath: @"Project\Sprint1");
+        await _repo.SaveAsync(item);
+
+        var results = await _repo.GetByIterationsAsync(Array.Empty<IterationPath>());
+        results.Count.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task GetByIterationsAsync_SingleIteration_ReturnsSameAsGetByIteration()
+    {
+        var item1 = CreateWorkItem(1, "Task", "Sprint1 Item", "Active", iterationPath: @"Project\Sprint1");
+        var item2 = CreateWorkItem(2, "Task", "Sprint2 Item", "Active", iterationPath: @"Project\Sprint2");
+
+        await _repo.SaveAsync(item1);
+        await _repo.SaveAsync(item2);
+
+        var path = IterationPath.Parse(@"Project\Sprint1").Value;
+        var results = await _repo.GetByIterationsAsync(new[] { path });
+        results.Count.ShouldBe(1);
+        results[0].Id.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task GetByIterationsAsync_NoMatchingItems_ReturnsEmpty()
+    {
+        var item = CreateWorkItem(1, "Task", "Item 1", "Active", iterationPath: @"Project\Sprint1");
+        await _repo.SaveAsync(item);
+
+        var paths = new[]
+        {
+            IterationPath.Parse(@"Project\Sprint99").Value,
+        };
+        var results = await _repo.GetByIterationsAsync(paths);
+        results.Count.ShouldBe(0);
+    }
+
+    [Fact]
     public async Task GetParentChainAsync_Returns3LevelChain_RootToParent()
     {
         var root = CreateWorkItem(1, "Epic", "Root Epic", "Active");

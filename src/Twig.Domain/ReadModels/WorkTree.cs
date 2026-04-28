@@ -1,6 +1,5 @@
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
-using Twig.Domain.Services;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.ValueObjects;
 

@@ -1,6 +1,5 @@
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
-using Twig.Domain.Services;
 using Twig.Domain.Services.Sync;
 using Twig.Formatters;
 

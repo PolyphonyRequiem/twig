@@ -2,7 +2,6 @@ using Spectre.Console.Rendering;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.ReadModels;
-using Twig.Domain.Services;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.ValueObjects;
 

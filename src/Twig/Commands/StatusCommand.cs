@@ -3,7 +3,6 @@ using System.Globalization;
 using Twig.Domain.Extensions;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
-using Twig.Domain.Services;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Workspace;
@@ -332,4 +331,3 @@ public sealed class StatusCommand(
         }
     }
 }
-

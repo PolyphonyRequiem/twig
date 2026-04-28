@@ -36,6 +36,24 @@ public sealed class GroupedHelpTests
             .ShouldBeFalse("SeedNew should NOT be hidden — it is the canonical seed command");
     }
 
+    [Theory]
+    [InlineData(nameof(TwigCommands.Area))]
+    [InlineData(nameof(TwigCommands.AreaAdd))]
+    [InlineData(nameof(TwigCommands.AreaRemove))]
+    [InlineData(nameof(TwigCommands.AreaList))]
+    [InlineData(nameof(TwigCommands.AreaSync))]
+    public void DeprecatedAreaAlias_HasHiddenAttribute(string methodName)
+    {
+        var method = typeof(TwigCommands).GetMethod(
+            methodName,
+            BindingFlags.Public | BindingFlags.Instance);
+
+        method.ShouldNotBeNull($"TwigCommands.{methodName} method not found");
+        method.GetCustomAttributes()
+            .Any(a => a.GetType().Name == "HiddenAttribute")
+            .ShouldBeTrue($"{methodName} should have [Hidden] — 'workspace area' is the canonical namespace");
+    }
+
     [Fact]
     public void AllNonHiddenCommands_AppearInGroupedHelp()
     {
@@ -170,6 +188,12 @@ public sealed class GroupedHelpTests
     [InlineData("seed")]
     [InlineData("save")]
     [InlineData("refresh")]
+    // Hidden deprecated area aliases
+    [InlineData("area")]
+    [InlineData("area add")]
+    [InlineData("area remove")]
+    [InlineData("area list")]
+    [InlineData("area sync")]
     public void KnownCommands_ContainsExpectedCommand(string command)
     {
         GroupedHelp.KnownCommands.ShouldContain(command);

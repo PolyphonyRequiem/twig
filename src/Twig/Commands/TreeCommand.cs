@@ -6,7 +6,6 @@ using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
-using Twig.Infrastructure.Config;
 using Twig.Rendering;
 
 namespace Twig.Commands;
@@ -16,23 +15,20 @@ namespace Twig.Commands;
 /// After rendering cached tree, syncs the working set and revises if children/parent changed.
 /// </summary>
 public sealed class TreeCommand(
+    CommandContext ctx,
     IContextStore contextStore,
     IWorkItemRepository workItemRepo,
-    TwigConfiguration config,
-    OutputFormatterFactory formatterFactory,
     ActiveItemResolver activeItemResolver,
     WorkingSetService workingSetService,
     SyncCoordinatorFactory syncCoordinatorFactory,
-    IProcessTypeStore processTypeStore,
-    RenderingPipelineFactory? pipelineFactory = null,
-    ITelemetryClient? telemetryClient = null)
+    IProcessTypeStore processTypeStore)
 {
     /// <summary>Display the work item hierarchy as a tree.</summary>
     public async Task<int> ExecuteAsync(int? id = null, string outputFormat = OutputFormatterFactory.DefaultFormat, int? depth = null, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
         var exitCode = await ExecuteCoreAsync(id, outputFormat, depth, all, noLive, noRefresh, ct);
-        telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
+        ctx.TelemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
         {
             ["command"] = "tree",
             ["exit_code"] = exitCode.ToString(),
@@ -48,9 +44,7 @@ public sealed class TreeCommand(
 
     private async Task<int> ExecuteCoreAsync(int? id, string outputFormat, int? depth, bool all, bool noLive, bool noRefresh, CancellationToken ct)
     {
-        var (fmt, renderer) = pipelineFactory is not null
-            ? pipelineFactory.Resolve(outputFormat, noLive)
-            : (formatterFactory.GetFormatter(outputFormat), null);
+        var (fmt, renderer) = ctx.Resolve(outputFormat, noLive);
 
         var activeId = id ?? await contextStore.GetActiveWorkItemIdAsync();
         if (activeId is null)
@@ -62,7 +56,7 @@ public sealed class TreeCommand(
         // ITEM-158: Resolve tree depth — --all overrides to show everything,
         // --depth <n> takes precedence, otherwise use config default.
         var maxDepth = all ? int.MaxValue
-            : depth ?? config.Display.TreeDepth;
+            : depth ?? ctx.Config.Display.TreeDepth;
 
         // Resolve active item with auto-fetch on cache miss (G-3)
         var resolveResult = await activeItemResolver.ResolveByIdAsync(activeId.Value);
@@ -81,7 +75,7 @@ public sealed class TreeCommand(
             {
                 spectreRenderer.TypeLevelMap = BacklogHierarchyService.GetTypeLevelMap(processConfig);
                 spectreRenderer.ParentChildMap = BacklogHierarchyService.InferParentChildMap(processConfig);
-                spectreRenderer.WorkingLevelTypeName = config.Workspace.WorkingLevel;
+                spectreRenderer.WorkingLevelTypeName = ctx.Config.Workspace.WorkingLevel;
             }
 
             // Shared factory: build a sibling-count resolver for any root item and token
@@ -138,7 +132,7 @@ public sealed class TreeCommand(
                             activeId,
                             getSiblingCount,
                             cachedLinks,
-                            config.Display.CacheStaleMinutes),
+                            ctx.Config.Display.CacheStaleMinutes),
                         performSync: () => syncCoordinatorFactory.ReadOnly.SyncWorkingSetAsync(workingSet),
                         buildRevisedView: async _ =>
                         {
@@ -159,7 +153,7 @@ public sealed class TreeCommand(
                                 activeId,
                                 MakeSiblingCounter(freshItem, CancellationToken.None),
                                 cachedLinks,
-                                config.Display.CacheStaleMinutes);
+                                ctx.Config.Display.CacheStaleMinutes);
                         },
                         CancellationToken.None);
                 }
@@ -235,7 +229,7 @@ public sealed class TreeCommand(
             {
                 var typeLevelMap = BacklogHierarchyService.GetTypeLevelMap(treeProcessConfig);
                 var parentChildMap = BacklogHierarchyService.InferParentChildMap(treeProcessConfig);
-                Console.WriteLine(humanFmt.FormatTree(tree, maxDepth, activeId, typeLevelMap, parentChildMap, config.Workspace.WorkingLevel));
+                Console.WriteLine(humanFmt.FormatTree(tree, maxDepth, activeId, typeLevelMap, parentChildMap, ctx.Config.Workspace.WorkingLevel));
             }
             else
             {

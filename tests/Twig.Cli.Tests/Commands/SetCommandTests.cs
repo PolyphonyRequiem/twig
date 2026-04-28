@@ -11,6 +11,7 @@ using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
+using Twig.Rendering;
 using Twig.TestKit;
 using Xunit;
 
@@ -24,8 +25,8 @@ public sealed class SetCommandTests
     private readonly ActiveItemResolver _activeItemResolver;
     private readonly SyncCoordinatorFactory _syncCoordinatorFactory;
     private readonly WorkingSetService _workingSetService;
-    private readonly OutputFormatterFactory _formatterFactory;
-    private readonly HintEngine _hintEngine;
+    private readonly CommandContext _ctx;
+    private readonly StatusFieldConfigReader _statusFieldReader;
     private readonly SetCommand _cmd;
 
     public SetCommandTests()
@@ -41,11 +42,17 @@ public sealed class SetCommandTests
         iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
         _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, iterationService, null);
-        _formatterFactory = new OutputFormatterFactory(
+        var formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
-        _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
-        _cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory,
-            _workingSetService, _formatterFactory, _hintEngine);
+        var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
+        var pipelineFactory = new RenderingPipelineFactory(formatterFactory, null!, isOutputRedirected: () => true);
+        _ctx = new CommandContext(pipelineFactory, formatterFactory, hintEngine, new TwigConfiguration());
+        _statusFieldReader = new StatusFieldConfigReader(new TwigPaths(
+            Path.Combine(Path.GetTempPath(), ".twig-set-test"),
+            Path.Combine(Path.GetTempPath(), ".twig-set-test", "config"),
+            Path.Combine(Path.GetTempPath(), ".twig-set-test", "twig.db")));
+        _cmd = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory,
+            _workingSetService, _statusFieldReader);
     }
 
     [Fact]
@@ -204,8 +211,8 @@ public sealed class SetCommandTests
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
         var historyStore = Substitute.For<INavigationHistoryStore>();
 
-        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory,
-            _workingSetService, _formatterFactory, _hintEngine, historyStore: historyStore);
+        var cmd = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory,
+            _workingSetService, _statusFieldReader, historyStore: historyStore);
 
         var result = await cmd.ExecuteAsync("42");
 
@@ -387,8 +394,8 @@ public sealed class SetCommandTests
         var factory = new SyncCoordinatorFactory(_workItemRepo, _adoService, protectedWriter, pendingStore, null, 30, 30);
         var contextChangeService = new ContextChangeService(
             _workItemRepo, _adoService, factory.ReadWrite, protectedWriter);
-        return new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, factory,
-            _workingSetService, _formatterFactory, _hintEngine,
+        return new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver, factory,
+            _workingSetService, _statusFieldReader,
             contextChangeService: contextChangeService);
     }
 
@@ -407,8 +414,8 @@ public sealed class SetCommandTests
 
     private SetCommand CreateCommand(IProcessConfigurationProvider? processConfigProvider)
     {
-        return new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory,
-            _workingSetService, _formatterFactory, _hintEngine,
+        return new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory,
+            _workingSetService, _statusFieldReader,
             processConfigProvider: processConfigProvider);
     }
 

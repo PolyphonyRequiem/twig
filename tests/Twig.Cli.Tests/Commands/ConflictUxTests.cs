@@ -9,6 +9,7 @@ using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
+using Twig.Rendering;
 using Twig.TestKit;
 using Xunit;
 
@@ -27,7 +28,7 @@ public class ConflictUxTests
     private readonly IConsoleInput _consoleInput;
     private readonly IProcessConfigurationProvider _processConfigProvider;
     private readonly OutputFormatterFactory _formatterFactory;
-    private readonly HintEngine _hintEngine;
+    private readonly CommandContext _ctx;
     private readonly Domain.Services.Navigation.ActiveItemResolver _resolver;
 
     public ConflictUxTests()
@@ -44,7 +45,12 @@ public class ConflictUxTests
 
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
-        _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
+        var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
+        _ctx = new CommandContext(
+            new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true),
+            _formatterFactory,
+            hintEngine,
+            new TwigConfiguration());
         _resolver = new Domain.Services.Navigation.ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
     }
 
@@ -65,8 +71,8 @@ public class ConflictUxTests
         _consoleInput.ReadLine().Returns("l"); // keep local
 
         var cmd = new StateCommand(
-            _resolver, _workItemRepo, _adoService, _pendingChangeStore,
-            _processConfigProvider, _consoleInput, _formatterFactory, _hintEngine);
+            _ctx, _resolver, _workItemRepo, _adoService, _pendingChangeStore,
+            _processConfigProvider, _consoleInput);
 
         var result = await cmd.ExecuteAsync("c"); // c = Active
 
@@ -89,8 +95,8 @@ public class ConflictUxTests
         _consoleInput.ReadLine().Returns("r"); // keep remote
 
         var cmd = new StateCommand(
-            _resolver, _workItemRepo, _adoService, _pendingChangeStore,
-            _processConfigProvider, _consoleInput, _formatterFactory, _hintEngine);
+            _ctx, _resolver, _workItemRepo, _adoService, _pendingChangeStore,
+            _processConfigProvider, _consoleInput);
 
         var result = await cmd.ExecuteAsync("c"); // c = Active
 
@@ -113,8 +119,8 @@ public class ConflictUxTests
         _consoleInput.ReadLine().Returns("a"); // abort
 
         var cmd = new StateCommand(
-            _resolver, _workItemRepo, _adoService, _pendingChangeStore,
-            _processConfigProvider, _consoleInput, _formatterFactory, _hintEngine);
+            _ctx, _resolver, _workItemRepo, _adoService, _pendingChangeStore,
+            _processConfigProvider, _consoleInput);
 
         var result = await cmd.ExecuteAsync("c");
 

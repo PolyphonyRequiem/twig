@@ -9,6 +9,7 @@ using Twig.Domain.Services.Sync;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
+using Twig.Rendering;
 using Twig.TestKit;
 using Xunit;
 
@@ -24,9 +25,7 @@ public sealed class FlowStartCommand_ContextChangeTests : IDisposable
     private readonly IConsoleInput _consoleInput;
     private readonly ActiveItemResolver _activeItemResolver;
     private readonly ProtectedCacheWriter _protectedCacheWriter;
-    private readonly OutputFormatterFactory _formatterFactory;
-    private readonly HintEngine _hintEngine;
-    private readonly TwigConfiguration _config;
+    private readonly CommandContext _ctx;
     private readonly TextWriter _originalOut;
     private readonly TextWriter _originalErr;
 
@@ -50,15 +49,20 @@ public sealed class FlowStartCommand_ContextChangeTests : IDisposable
         _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<int>());
 
-        _formatterFactory = new OutputFormatterFactory(
+        var formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(),
             new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
-        _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
-        _config = new TwigConfiguration
+        var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
+        var config = new TwigConfiguration
         {
             User = new UserConfig { DisplayName = "Test User" },
             Git = new GitConfig { BranchTemplate = "feature/{id}-{title}", DefaultTarget = "main" },
         };
+        _ctx = new CommandContext(
+            new RenderingPipelineFactory(formatterFactory, null!, isOutputRedirected: () => true),
+            formatterFactory,
+            hintEngine,
+            config);
 
         _processConfigProvider.GetConfiguration().Returns(ProcessConfigBuilder.Agile());
     }
@@ -105,8 +109,8 @@ public sealed class FlowStartCommand_ContextChangeTests : IDisposable
         ArrangeItemResolution(item);
 
         var cmd = new FlowStartCommand(
-            _workItemRepo, _adoService, _contextStore, _activeItemResolver, _protectedCacheWriter,
-            _processConfigProvider, _consoleInput, _formatterFactory, _hintEngine, _config);
+            _ctx, _workItemRepo, _adoService, _contextStore, _activeItemResolver, _protectedCacheWriter,
+            _processConfigProvider, _consoleInput);
 
         var result = await cmd.ExecuteAsync("42", noBranch: true, noState: true, noAssign: true);
 
@@ -122,8 +126,8 @@ public sealed class FlowStartCommand_ContextChangeTests : IDisposable
         var contextChangeService = new ContextChangeService(
             _workItemRepo, _adoService, syncCoordinatorFactory.ReadWrite, _protectedCacheWriter);
         return new FlowStartCommand(
-            _workItemRepo, _adoService, _contextStore, _activeItemResolver, _protectedCacheWriter,
-            _processConfigProvider, _consoleInput, _formatterFactory, _hintEngine, _config,
+            _ctx, _workItemRepo, _adoService, _contextStore, _activeItemResolver, _protectedCacheWriter,
+            _processConfigProvider, _consoleInput,
             contextChangeService: contextChangeService);
     }
 

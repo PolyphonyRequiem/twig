@@ -8,7 +8,6 @@ using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
-using Twig.Hints;
 using Twig.Infrastructure.Config;
 using Twig.Rendering;
 
@@ -22,20 +21,16 @@ namespace Twig.Commands;
 /// On cache hit (Found), skips working set computation and syncs only the target + parents.
 /// </summary>
 public sealed class SetCommand(
+    CommandContext ctx,
     IWorkItemRepository workItemRepo,
     IContextStore contextStore,
     ActiveItemResolver activeItemResolver,
     SyncCoordinatorFactory syncCoordinatorFactory,
     WorkingSetService workingSetService,
-    OutputFormatterFactory formatterFactory,
-    HintEngine hintEngine,
-    // Optional — null for backward compat with tests that predate EPIC-005
-    RenderingPipelineFactory? pipelineFactory = null,
+    StatusFieldConfigReader statusFieldReader,
     IPromptStateWriter? promptStateWriter = null,
     INavigationHistoryStore? historyStore = null,
-    ITelemetryClient? telemetryClient = null,
     IPendingChangeStore? pendingChangeStore = null,
-    TwigPaths? paths = null,
     IFieldDefinitionStore? fieldDefinitionStore = null,
     IProcessConfigurationProvider? processConfigProvider = null,
     ContextChangeService? contextChangeService = null)
@@ -44,25 +39,13 @@ public sealed class SetCommand(
     {
         var startTimestamp = Stopwatch.GetTimestamp();
         var exitCode = await ExecuteCoreAsync(idOrPattern, outputFormat, ct);
-        telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
-        {
-            ["command"] = "set",
-            ["exit_code"] = exitCode.ToString(),
-            ["output_format"] = outputFormat,
-            ["twig_version"] = VersionHelper.GetVersion(),
-            ["os_platform"] = System.Runtime.InteropServices.RuntimeInformation.OSDescription
-        }, new Dictionary<string, double>
-        {
-            ["duration_ms"] = Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds
-        });
+        TelemetryHelper.TrackCommand(ctx.TelemetryClient, "set", outputFormat, exitCode, startTimestamp);
         return exitCode;
     }
 
     private async Task<int> ExecuteCoreAsync(string idOrPattern, string outputFormat, CancellationToken ct)
     {
-        var (fmt, renderer) = pipelineFactory is not null
-            ? pipelineFactory.Resolve(outputFormat)
-            : (formatterFactory.GetFormatter(outputFormat), null);
+        var (fmt, renderer) = ctx.Resolve(outputFormat);
 
         if (string.IsNullOrWhiteSpace(idOrPattern))
         {
@@ -165,16 +148,7 @@ public sealed class SetCommand(
             ? await fieldDefinitionStore.GetAllAsync(ct)
             : null;
 
-        IReadOnlyList<StatusFieldEntry>? statusFieldEntries = null;
-        if (paths is not null && File.Exists(paths.StatusFieldsPath))
-        {
-            try
-            {
-                var configContent = await File.ReadAllTextAsync(paths.StatusFieldsPath, ct);
-                statusFieldEntries = StatusFieldsConfig.Parse(configContent);
-            }
-            catch { /* best-effort */ }
-        }
+        var statusFieldEntries = await statusFieldReader.ReadAsync(ct);
 
         var childProgress = processConfigProvider.ComputeChildProgress(children);
 
@@ -250,7 +224,7 @@ public sealed class SetCommand(
             Console.Error.WriteLine($"warning: sync failed: {ex.Message}");
         }
 
-        var hints = hintEngine.GetHints("set",
+        var hints = ctx.HintEngine.GetHints("set",
             item: item,
             outputFormat: outputFormat);
         foreach (var hint in hints)

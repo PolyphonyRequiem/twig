@@ -26,10 +26,10 @@ public class SetCommandDisambiguationTests
     private readonly ActiveItemResolver _activeItemResolver;
     private readonly SyncCoordinatorFactory _syncCoordinatorFactory;
     private readonly OutputFormatterFactory _formatterFactory;
-    private readonly HintEngine _hintEngine;
     private readonly IAsyncRenderer _mockRenderer;
     private readonly ISeedLinkRepository _seedLinkRepo;
     private readonly IWorkItemLinkRepository _workItemLinkRepo;
+    private readonly StatusFieldConfigReader _statusFieldReader;
 
     public SetCommandDisambiguationTests()
     {
@@ -50,8 +50,11 @@ public class SetCommandDisambiguationTests
         _syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, protectedCacheWriter, pendingChangeStore, null, 30, 30);
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
-        _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         _mockRenderer = Substitute.For<IAsyncRenderer>();
+        _statusFieldReader = new StatusFieldConfigReader(new TwigPaths(
+            Path.Combine(Path.GetTempPath(), ".twig-disambig-test"),
+            Path.Combine(Path.GetTempPath(), ".twig-disambig-test", "config"),
+            Path.Combine(Path.GetTempPath(), ".twig-disambig-test", "twig.db")));
     }
 
     /// <summary>
@@ -75,8 +78,12 @@ public class SetCommandDisambiguationTests
         iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
         var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, iterationService, null);
-        return new(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory,
-            workingSetService, _formatterFactory, _hintEngine, pipelineFactory);
+        var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
+        var effectivePipeline = pipelineFactory
+            ?? new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true);
+        var ctx = new CommandContext(effectivePipeline, _formatterFactory, hintEngine, new TwigConfiguration());
+        return new(ctx, _workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory,
+            workingSetService, _statusFieldReader);
     }
 
     // ── SetCommand: Interactive disambiguation (TTY + human) ────────

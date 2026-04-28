@@ -60,8 +60,14 @@ public class NavigationCommandsInteractiveTests
         iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
         var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, iterationService, null);
-        _setCommand = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, syncCoordinatorFactory,
-            workingSetService, _formatterFactory, _hintEngine);
+        var pipelineFactory = new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true);
+        var ctx = new CommandContext(pipelineFactory, _formatterFactory, _hintEngine, new TwigConfiguration());
+        var statusFieldReader = new StatusFieldConfigReader(new TwigPaths(
+            Path.Combine(Path.GetTempPath(), ".twig-navint-test"),
+            Path.Combine(Path.GetTempPath(), ".twig-navint-test", "config"),
+            Path.Combine(Path.GetTempPath(), ".twig-navint-test", "twig.db")));
+        _setCommand = new SetCommand(ctx, _workItemRepo, _contextStore, _activeItemResolver, syncCoordinatorFactory,
+            workingSetService, statusFieldReader);
     }
 
     // ── Helper factories ────────────────────────────────────────────

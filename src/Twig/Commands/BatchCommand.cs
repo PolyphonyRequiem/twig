@@ -6,7 +6,6 @@ using Twig.Domain.Services.Process;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
-using Twig.Hints;
 using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Ado.Exceptions;
 using Twig.Infrastructure.Content;
@@ -31,20 +30,18 @@ public sealed record BatchItemResult(
 /// into a single CLI invocation with one fetch, one PATCH, and one cache resync per item.
 /// </summary>
 public sealed class BatchCommand(
+    CommandContext ctx,
     ActiveItemResolver activeItemResolver,
     IWorkItemRepository workItemRepo,
     IAdoWorkItemService adoService,
     IPendingChangeStore pendingChangeStore,
     IProcessConfigurationProvider processConfigProvider,
     IConsoleInput consoleInput,
-    OutputFormatterFactory formatterFactory,
-    HintEngine hintEngine,
     IPromptStateWriter? promptStateWriter = null,
-    TextWriter? stdout = null,
-    TextWriter? stderr = null)
+    TextWriter? stdout = null)
 {
     private readonly TextWriter _stdout = stdout ?? Console.Out;
-    private readonly TextWriter _stderr = stderr ?? Console.Error;
+    private readonly TextWriter _stderr = ctx.StderrWriter;
 
     /// <summary>
     /// Execute a batch of state transition, field updates, and/or note on one or more work items.
@@ -67,7 +64,7 @@ public sealed class BatchCommand(
         string? format = null,
         CancellationToken ct = default)
     {
-        var fmt = formatterFactory.GetFormatter(outputFormat);
+        var fmt = ctx.FormatterFactory.GetFormatter(outputFormat);
 
         // Validate: --id and --ids are mutually exclusive
         if (id.HasValue && !string.IsNullOrWhiteSpace(ids))
@@ -275,7 +272,7 @@ public sealed class BatchCommand(
 
     private void RenderHints(Domain.Aggregates.WorkItem item, string outputFormat, string? newStateName, IOutputFormatter fmt)
     {
-        var hints = hintEngine.GetHints("batch",
+        var hints = ctx.HintEngine.GetHints("batch",
             item: item,
             outputFormat: outputFormat,
             newStateName: newStateName);

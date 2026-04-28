@@ -54,9 +54,18 @@ public class WorkingSetCommandTests
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
     }
 
-    private SetCommand CreateCommand(RenderingPipelineFactory? pipelineFactory = null) =>
-        new(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory,
-            _workingSetService, _formatterFactory, _hintEngine, pipelineFactory);
+    private SetCommand CreateCommand(RenderingPipelineFactory? pipelineFactory = null)
+    {
+        var effectivePipeline = pipelineFactory
+            ?? new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true);
+        var ctx = new CommandContext(effectivePipeline, _formatterFactory, _hintEngine, new TwigConfiguration());
+        var statusFieldReader = new StatusFieldConfigReader(new TwigPaths(
+            Path.Combine(Path.GetTempPath(), ".twig-ws-test"),
+            Path.Combine(Path.GetTempPath(), ".twig-ws-test", "config"),
+            Path.Combine(Path.GetTempPath(), ".twig-ws-test", "twig.db")));
+        return new(ctx, _workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory,
+            _workingSetService, statusFieldReader);
+    }
 
     // ── (a) Cache miss → eviction fires ────────────────────────────
 

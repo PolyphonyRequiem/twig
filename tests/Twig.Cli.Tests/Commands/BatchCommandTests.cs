@@ -12,6 +12,7 @@ using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Ado.Exceptions;
 using Twig.Infrastructure.Config;
+using Twig.Rendering;
 using Twig.TestKit;
 using Xunit;
 
@@ -47,12 +48,18 @@ public class BatchCommandTests
             new HumanOutputFormatter(), new JsonOutputFormatter(),
             new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
+        var ctx = new CommandContext(
+            new RenderingPipelineFactory(formatterFactory, null!, isOutputRedirected: () => true),
+            formatterFactory,
+            hintEngine,
+            new TwigConfiguration(),
+            Stderr: _stderr);
 
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         _cmd = new BatchCommand(
-            resolver, _workItemRepo, _adoService,
+            ctx, resolver, _workItemRepo, _adoService,
             _pendingChangeStore, _processConfigProvider, _consoleInput,
-            formatterFactory, hintEngine, stdout: _stdout, stderr: _stderr);
+            stdout: _stdout);
     }
 
     // ── Validation ──────────────────────────────────────────────────

@@ -5,9 +5,7 @@ using Twig.Domain.Services.Process;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
-using Twig.Hints;
 using Twig.Infrastructure.Ado;
-using Twig.Infrastructure.Config;
 
 namespace Twig.Commands;
 
@@ -17,24 +15,22 @@ namespace Twig.Commands;
 /// and updates cache.
 /// </summary>
 public sealed class StateCommand(
+    CommandContext ctx,
     ActiveItemResolver activeItemResolver,
     IWorkItemRepository workItemRepo,
     IAdoWorkItemService adoService,
     IPendingChangeStore pendingChangeStore,
     IProcessConfigurationProvider processConfigProvider,
     IConsoleInput consoleInput,
-    OutputFormatterFactory formatterFactory,
-    HintEngine hintEngine,
     IPromptStateWriter? promptStateWriter = null,
-    TextWriter? stderr = null,
     ParentStatePropagationService? parentPropagationService = null)
 {
-    private readonly TextWriter _stderr = stderr ?? Console.Error;
+    private readonly TextWriter _stderr = ctx.StderrWriter;
 
     /// <summary>Change the state of the active work item by full or partial state name.</summary>
     public async Task<int> ExecuteAsync(string stateName, int? id = null, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
-        var fmt = formatterFactory.GetFormatter(outputFormat);
+        var fmt = ctx.FormatterFactory.GetFormatter(outputFormat);
 
         if (string.IsNullOrWhiteSpace(stateName))
         {
@@ -130,7 +126,7 @@ public sealed class StateCommand(
 
         Console.WriteLine(fmt.FormatSuccess($"#{item.Id} {item.Title} → {newState}"));
 
-        var hints = hintEngine.GetHints("state",
+        var hints = ctx.HintEngine.GetHints("state",
             item: item,
             outputFormat: outputFormat,
             newStateName: newState,

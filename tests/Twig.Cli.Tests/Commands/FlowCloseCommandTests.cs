@@ -10,7 +10,9 @@ using Twig.Domain.Services.Process;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
+using Twig.Hints;
 using Twig.Infrastructure.Config;
+using Twig.Rendering;
 using Twig.TestKit;
 using Xunit;
 
@@ -23,8 +25,7 @@ public class FlowCloseCommandTests
     private readonly IContextStore _contextStore;
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IConsoleInput _consoleInput;
-    private readonly OutputFormatterFactory _formatterFactory;
-    private readonly TwigConfiguration _config;
+    private readonly CommandContext _ctx;
     private readonly IGitService _gitService;
     private readonly IAdoGitService _adoGitService;
     private readonly FlowTransitionService _flowTransitionService;
@@ -47,12 +48,17 @@ public class FlowCloseCommandTests
         _flowTransitionService = new FlowTransitionService(
             activeItemResolver, _adoService, _processConfigProvider, protectedCacheWriter);
 
-        _formatterFactory = new OutputFormatterFactory(
+        var formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
-        _config = new TwigConfiguration
+        var config = new TwigConfiguration
         {
             Git = new GitConfig { DefaultTarget = "main" },
         };
+        _ctx = new CommandContext(
+            new RenderingPipelineFactory(formatterFactory, null!, isOutputRedirected: () => true),
+            formatterFactory,
+            new HintEngine(new DisplayConfig { Hints = false }),
+            config);
 
         // Default: non-TTY (IsOutputRedirected = true) to match typical test/CI behavior
         _consoleInput.IsOutputRedirected.Returns(true);
@@ -69,7 +75,7 @@ public class FlowCloseCommandTests
     }
 
     private FlowCloseCommand CreateCommand(IGitService? gitService = null, IAdoGitService? adoGitService = null) =>
-        new(_contextStore, _pendingChangeStore, _consoleInput, _formatterFactory, _config,
+        new(_ctx, _contextStore, _pendingChangeStore, _consoleInput,
             _flowTransitionService, _workItemRepo, _adoService, _processConfigProvider,
             gitService, adoGitService);
 

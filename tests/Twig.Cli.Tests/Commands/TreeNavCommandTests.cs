@@ -29,6 +29,7 @@ public class TreeNavCommandTests
     private readonly SetCommand _setCommand;
     private readonly ISeedLinkRepository _seedLinkRepo;
     private readonly IWorkItemLinkRepository _workItemLinkRepo;
+    private readonly CommandContext _ctx;
 
     public TreeNavCommandTests()
     {
@@ -58,12 +59,12 @@ public class TreeNavCommandTests
         _workingSetService = workingSetService;
         _processTypeStore = Substitute.For<IProcessTypeStore>();
         var pipelineFactory = new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true);
-        var ctx = new CommandContext(pipelineFactory, _formatterFactory, hintEngine, _config);
+        _ctx = new CommandContext(pipelineFactory, _formatterFactory, hintEngine, _config);
         var statusFieldReader = new StatusFieldConfigReader(new TwigPaths(
             Path.Combine(Path.GetTempPath(), ".twig-treenav-test"),
             Path.Combine(Path.GetTempPath(), ".twig-treenav-test", "config"),
             Path.Combine(Path.GetTempPath(), ".twig-treenav-test", "twig.db")));
-        _setCommand = new SetCommand(ctx, _workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory,
+        _setCommand = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory,
             workingSetService, statusFieldReader);
     }
 
@@ -82,7 +83,7 @@ public class TreeNavCommandTests
         _workItemRepo.GetChildrenAsync(2, Arg.Any<CancellationToken>())
             .Returns(new[] { child1, child2 });
 
-        var treeCmd = new TreeCommand(_contextStore, _workItemRepo, _config, _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore);
+        var treeCmd = new TreeCommand(_ctx, _contextStore, _workItemRepo, _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore);
         var result = await treeCmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -108,7 +109,7 @@ public class TreeNavCommandTests
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
             .Returns(new[] { seed });
 
-        var treeCmd = new TreeCommand(_contextStore, _workItemRepo, _config, _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore);
+        var treeCmd = new TreeCommand(_ctx, _contextStore, _workItemRepo, _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore);
         var result = await treeCmd.ExecuteAsync();
 
         result.ShouldBe(0);

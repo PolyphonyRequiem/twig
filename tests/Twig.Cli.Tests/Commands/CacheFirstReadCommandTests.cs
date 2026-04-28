@@ -286,9 +286,8 @@ public class CacheFirstReadCommandTests
         _workItemRepo.GetChildrenAsync(50, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var config = new TwigConfiguration();
-        var cmd = new TreeCommand(_contextStore, _workItemRepo, config,
-            _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore);
+        var cmd = new TreeCommand(_ctx, _contextStore, _workItemRepo,
+            _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore);
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -303,9 +302,8 @@ public class CacheFirstReadCommandTests
         _adoService.FetchAsync(50, Arg.Any<CancellationToken>())
             .Throws(new HttpRequestException("Network error"));
 
-        var config = new TwigConfiguration();
-        var cmd = new TreeCommand(_contextStore, _workItemRepo, config,
-            _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore);
+        var cmd = new TreeCommand(_ctx, _contextStore, _workItemRepo,
+            _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore);
 
         var result = await cmd.ExecuteAsync();
         result.ShouldBe(1);

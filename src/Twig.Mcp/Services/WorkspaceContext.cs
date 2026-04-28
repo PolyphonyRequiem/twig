@@ -108,6 +108,28 @@ public sealed class WorkspaceContext : IDisposable
         return (item, null);
     }
 
+    /// <summary>
+    /// Fetches children for <paramref name="parentId"/>: cache-first, ADO fallback on empty cache,
+    /// best-effort cache warm. ADO failures are swallowed; <see cref="OperationCanceledException"/> propagates.
+    /// </summary>
+    internal async Task<IReadOnlyList<WorkItem>> FetchChildrenWithFallbackAsync(int parentId, CancellationToken ct)
+    {
+        var children = await WorkItemRepo.GetChildrenAsync(parentId, ct);
+        if (children.Count > 0) return children;
+
+        try { children = await AdoService.FetchChildrenAsync(parentId, ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        { return []; }
+
+        if (children.Count > 0)
+        {
+            try { await WorkItemRepo.SaveBatchAsync(children, ct); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { }
+        }
+
+        return children;
+    }
+
     public void Dispose()
     {
         CacheStore.Dispose();

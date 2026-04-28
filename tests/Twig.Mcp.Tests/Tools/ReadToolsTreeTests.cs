@@ -366,6 +366,8 @@ public sealed class ReadToolsTreeTests : ReadToolsTestBase
         SetupActiveItem(focus);
         _workItemRepo.GetChildrenAsync(10, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
+        _adoService.FetchChildrenAsync(10, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
 
         // OperationCanceledException should NOT be caught by the best-effort handler
         _adoService.FetchWithLinksAsync(10, Arg.Any<CancellationToken>())
@@ -373,6 +375,110 @@ public sealed class ReadToolsTreeTests : ReadToolsTestBase
 
         await Should.ThrowAsync<OperationCanceledException>(
             () => CreateSut(_config).Tree());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  ADO fallback — cache miss for children
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Tree_ChildrenCacheMiss_FallsBackToAdoAndReturnsChildren()
+    {
+        var focus = new WorkItemBuilder(10, "Feature").AsFeature().InState("Active").Build();
+        var adoChild = new WorkItemBuilder(20, "ADO Task").AsTask().WithParent(10).Build();
+
+        SetupActiveItem(focus);
+        _workItemRepo.GetChildrenAsync(10, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _adoService.FetchChildrenAsync(10, Arg.Any<CancellationToken>())
+            .Returns(new[] { adoChild });
+
+        var result = await CreateSut(_config).Tree();
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+        root.GetProperty("totalChildren").GetInt32().ShouldBe(1);
+        root.GetProperty("children")[0].GetProperty("id").GetInt32().ShouldBe(20);
+    }
+
+    [Fact]
+    public async Task Tree_ChildrenCacheHit_DoesNotCallAdoForChildren()
+    {
+        var focus = new WorkItemBuilder(10, "Feature").AsFeature().InState("Active").Build();
+        var cached = new WorkItemBuilder(20, "Cached Task").AsTask().WithParent(10).Build();
+
+        SetupActiveItem(focus);
+        _workItemRepo.GetChildrenAsync(10, Arg.Any<CancellationToken>())
+            .Returns(new[] { cached });
+
+        var result = await CreateSut(_config).Tree();
+
+        result.IsError.ShouldBeNull();
+        await _adoService.DidNotReceive().FetchChildrenAsync(10, Arg.Any<CancellationToken>());
+        var root = ParseResult(result);
+        root.GetProperty("totalChildren").GetInt32().ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Tree_ChildrenAdoFails_ReturnsEmptyChildren()
+    {
+        var focus = new WorkItemBuilder(10, "Feature").AsFeature().InState("Active").Build();
+
+        SetupActiveItem(focus);
+        _workItemRepo.GetChildrenAsync(10, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _adoService.FetchChildrenAsync(10, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("Network error"));
+
+        var result = await CreateSut(_config).Tree();
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+        root.GetProperty("totalChildren").GetInt32().ShouldBe(0);
+        root.GetProperty("children").GetArrayLength().ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Tree_ChildrenAdoCancelled_PropagatesException()
+    {
+        var focus = new WorkItemBuilder(10, "Feature").AsFeature().InState("Active").Build();
+
+        SetupActiveItem(focus);
+        _workItemRepo.GetChildrenAsync(10, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _adoService.FetchChildrenAsync(10, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new OperationCanceledException());
+
+        await Should.ThrowAsync<OperationCanceledException>(
+            () => CreateSut(_config).Tree());
+    }
+
+    [Fact]
+    public async Task Tree_SiblingCountsUseFallback_WhenParentChildrenNotInCache()
+    {
+        var parent = new WorkItemBuilder(1, "Epic").AsEpic().InState("Active").Build();
+        var focus = new WorkItemBuilder(10, "Feature").AsFeature().InState("Active").WithParent(1).Build();
+        var sibling = new WorkItemBuilder(11, "Sibling Feature").AsFeature().WithParent(1).Build();
+
+        SetupActiveItem(focus);
+        _workItemRepo.GetParentChainAsync(1, Arg.Any<CancellationToken>())
+            .Returns([parent]);
+        _workItemRepo.GetChildrenAsync(10, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _adoService.FetchChildrenAsync(10, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        // Parent's children not in cache — ADO fallback for sibling count
+        _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _adoService.FetchChildrenAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { focus, sibling });
+
+        var result = await CreateSut(_config).Tree();
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+        var siblingCounts = root.GetProperty("siblingCounts");
+        siblingCounts.GetProperty("10").GetInt32().ShouldBe(2);
     }
 
     // ═══════════════════════════════════════════════════════════════

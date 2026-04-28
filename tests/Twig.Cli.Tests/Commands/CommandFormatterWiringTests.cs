@@ -10,6 +10,7 @@ using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
+using Twig.Rendering;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
@@ -165,13 +166,15 @@ public class CommandFormatterWiringTests
         services.AddSingleton(contextStore);
         services.AddSingleton(workItemRepo);
         services.AddSingleton(pendingChangeStore);
-        services.AddSingleton(new TwigConfiguration());
+        var config = new TwigConfiguration();
+        services.AddSingleton(config);
         services.AddSingleton(new HumanOutputFormatter());
         services.AddSingleton(new JsonOutputFormatter());
         services.AddSingleton(new JsonCompactOutputFormatter(new JsonOutputFormatter()));
         services.AddSingleton(new MinimalOutputFormatter());
         services.AddSingleton<OutputFormatterFactory>();
-        services.AddSingleton(new HintEngine(new DisplayConfig { Hints = false }));
+        var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
+        services.AddSingleton(hintEngine);
         var adoService = Substitute.For<IAdoWorkItemService>();
         var activeItemResolver = new ActiveItemResolver(contextStore, workItemRepo, adoService);
         services.AddSingleton(activeItemResolver);
@@ -184,7 +187,15 @@ public class CommandFormatterWiringTests
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
         var wss = new WorkingSetService(contextStore, workItemRepo, pendingChangeStore, iterSvc, null);
         services.AddSingleton(wss);
-        services.AddSingleton(new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db")));
+        var paths = new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db"));
+        services.AddSingleton(paths);
+        services.AddSingleton(new StatusFieldConfigReader(paths));
+        var formatterFactory = new OutputFormatterFactory(
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
+        var pipelineFactory = new RenderingPipelineFactory(formatterFactory,
+            new SpectreRenderer(new Spectre.Console.Testing.TestConsole(), new SpectreTheme(new DisplayConfig())),
+            isOutputRedirected: () => true);
+        services.AddSingleton(new CommandContext(pipelineFactory, formatterFactory, hintEngine, config));
         services.AddSingleton<StatusCommand>();
 
         var provider = services.BuildServiceProvider();
@@ -227,9 +238,12 @@ public class CommandFormatterWiringTests
         iterSvc.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
         var wss = new WorkingSetService(contextStore, workItemRepo, pcs, iterSvc, null);
-        return new StatusCommand(contextStore, workItemRepo, pendingChangeStore,
-            config, factory, hintEngine, activeItemResolver, wss, sc,
-            new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db")));
+        var paths = new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db"));
+        var statusFieldReader = new StatusFieldConfigReader(paths);
+        var redirectedPipeline = new RenderingPipelineFactory(factory, new SpectreRenderer(new Spectre.Console.Testing.TestConsole(), new SpectreTheme(new DisplayConfig())), isOutputRedirected: () => true);
+        var ctx = new CommandContext(redirectedPipeline, factory, hintEngine, config);
+        return new StatusCommand(ctx, contextStore, workItemRepo, pendingChangeStore,
+            activeItemResolver, wss, sc, statusFieldReader);
     }
 
     private static WorkItem CreateWorkItem(int id, string title)

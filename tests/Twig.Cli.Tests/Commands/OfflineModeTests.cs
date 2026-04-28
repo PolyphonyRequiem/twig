@@ -11,6 +11,7 @@ using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Ado.Exceptions;
 using Twig.Infrastructure.Config;
+using Twig.Rendering;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
@@ -84,11 +85,14 @@ public class OfflineModeTests
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var statusCmd = new StatusCommand(
+        var paths = new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db"));
+        var statusFieldReader = new StatusFieldConfigReader(paths);
+        var redirectedPipeline = new RenderingPipelineFactory(_formatterFactory, new SpectreRenderer(new Spectre.Console.Testing.TestConsole(), new SpectreTheme(new DisplayConfig())), isOutputRedirected: () => true);
+        var ctx = new CommandContext(redirectedPipeline, _formatterFactory, _hintEngine, new TwigConfiguration());
+        var statusCmd = new StatusCommand(ctx,
             _contextStore, _workItemRepo, _pendingChangeStore,
-            new TwigConfiguration(), _formatterFactory, _hintEngine,
             _activeItemResolver, _workingSetService, _syncCoordinatorFactory,
-            new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db")));
+            statusFieldReader);
         var result = await statusCmd.ExecuteAsync();
 
         result.ShouldBe(0);

@@ -31,6 +31,7 @@ public sealed class StatusCommand_CacheAwareTests : IDisposable
     private readonly SpectreRenderer _spectreRenderer;
     private readonly string _tempDir;
     private readonly TwigPaths _paths;
+    private readonly StatusFieldConfigReader _statusFieldReader;
 
     public StatusCommand_CacheAwareTests()
     {
@@ -54,6 +55,7 @@ public sealed class StatusCommand_CacheAwareTests : IDisposable
         _tempDir = Path.Combine(Path.GetTempPath(), "twig-test-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_tempDir);
         _paths = new TwigPaths(_tempDir, Path.Combine(_tempDir, "config"), Path.Combine(_tempDir, "twig.db"));
+        _statusFieldReader = new StatusFieldConfigReader(_paths);
 
         _testConsole = new TestConsole();
         _spectreRenderer = new SpectreRenderer(_testConsole, new SpectreTheme(new DisplayConfig()));
@@ -67,10 +69,13 @@ public sealed class StatusCommand_CacheAwareTests : IDisposable
     private RenderingPipelineFactory CreateTtyPipelineFactory() =>
         new(_formatterFactory, _spectreRenderer, isOutputRedirected: () => false);
 
-    private StatusCommand CreateCommandWithPipeline(RenderingPipelineFactory pipelineFactory, TextWriter? stderr = null) =>
-        new(_contextStore, _workItemRepo, _pendingChangeStore, _config,
-            _formatterFactory, _hintEngine, _activeItemResolver,
-            _workingSetService, _syncCoordinatorFactory, _paths, pipelineFactory, stderr: stderr);
+    private StatusCommand CreateCommandWithPipeline(RenderingPipelineFactory pipelineFactory, TextWriter? stderr = null)
+    {
+        var pipelineCtx = new CommandContext(pipelineFactory, _formatterFactory,
+            new HintEngine(new DisplayConfig { Hints = true }), _config, Stderr: stderr);
+        return new StatusCommand(pipelineCtx, _contextStore, _workItemRepo, _pendingChangeStore,
+            _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _statusFieldReader);
+    }
 
     private void SetupActiveItem(WorkItem item)
     {

@@ -152,4 +152,14 @@ public sealed class CommandRegistrationModuleTests
 
         command.ShouldNotBeNull();
     }
+
+    [Fact]
+    public void PatchCommand_AutoResolution_Resolves_Successfully()
+    {
+        using var provider = BuildProviderForCommands();
+
+        var command = provider.GetRequiredService<PatchCommand>();
+
+        command.ShouldNotBeNull();
+    }
 }

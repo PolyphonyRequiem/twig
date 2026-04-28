@@ -646,6 +646,15 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> Update([Argument] string field, [Argument] string? value = null, string output = OutputFormatterFactory.DefaultFormat, string? format = null, string? file = null, bool stdin = false, int? id = null, bool append = false, CancellationToken ct = default)
         => await services.GetRequiredService<UpdateCommand>().ExecuteAsync(field, value, output, format, file, stdin, id, append, ct);
 
+    /// <summary>Atomically patch multiple fields on a work item via JSON input.</summary>
+    /// <param name="json">JSON object with field name → value pairs (e.g., '{"System.Title":"New title"}').</param>
+    /// <param name="stdin">Read JSON from standard input instead of --json.</param>
+    /// <param name="format">Convert values before sending. Supported: "markdown" (converts Markdown to HTML).</param>
+    /// <param name="id">Work item ID to target; omit to use the active work item.</param>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    public async Task<int> Patch(string? json = null, bool stdin = false, string? format = null, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<PatchCommand>().ExecuteAsync(json, stdin, id, output, format, ct);
+
     /// <summary>Edit work item fields in an external editor.</summary>
     /// <param name="field">Specific field to edit; omit to edit all editable fields.</param>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>

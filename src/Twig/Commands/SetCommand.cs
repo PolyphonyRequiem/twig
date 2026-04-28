@@ -102,16 +102,6 @@ public sealed class SetCommand(
 
         Console.WriteLine(fmt.FormatSetConfirmation(item));
 
-        var hints = ctx.HintEngine.GetHints("set",
-            item: item,
-            outputFormat: outputFormat);
-        foreach (var hint in hints)
-        {
-            var formatted = fmt.FormatHint(hint);
-            if (!string.IsNullOrEmpty(formatted))
-                Console.WriteLine(formatted);
-        }
-
         return 0;
     }
 }

@@ -2,7 +2,9 @@ using System.ComponentModel;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Twig.Domain.Aggregates;
-using Twig.Domain.Services;
+using Twig.Domain.Services.Field;
+using Twig.Domain.Services.Navigation;
+using Twig.Domain.Services.Sync;
 using Twig.Domain.ValueObjects;
 using Twig.Mcp.Services;
 

@@ -2,6 +2,7 @@ using ModelContextProtocol.Protocol;
 using NSubstitute;
 using Shouldly;
 using Twig.Domain.Services;
+using Twig.Domain.Services.Seed;
 using Twig.Mcp.Services;
 using Twig.Mcp.Services.Batch;
 using Twig.Mcp.Tools;

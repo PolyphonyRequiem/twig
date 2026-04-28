@@ -1,6 +1,7 @@
 using Spectre.Console;
 using Twig.Domain.Enums;
-using Twig.Domain.Services;
+using Twig.Domain.Services.Process;
+using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Config;
 

@@ -7,6 +7,9 @@ using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Serialization;
 using Twig.Mcp.Services;
 using Xunit;
+using Twig.Domain.Services.Navigation;
+using Twig.Domain.Services.Sync;
+using Twig.Domain.Services.Workspace;
 
 namespace Twig.Mcp.Tests.Services;
 

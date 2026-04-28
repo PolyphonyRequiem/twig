@@ -5,6 +5,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
+using Twig.Domain.Services.Navigation;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -28,7 +29,7 @@ public class ConflictUxTests
     private readonly IProcessConfigurationProvider _processConfigProvider;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
-    private readonly Domain.Services.ActiveItemResolver _resolver;
+    private readonly Domain.Services.Navigation.ActiveItemResolver _resolver;
 
     public ConflictUxTests()
     {
@@ -45,7 +46,7 @@ public class ConflictUxTests
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
-        _resolver = new Domain.Services.ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        _resolver = new Domain.Services.Navigation.ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
     }
 
     [Fact]

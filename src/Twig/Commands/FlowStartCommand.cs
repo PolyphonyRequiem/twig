@@ -1,6 +1,9 @@
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
-using Twig.Domain.Services;
+using Twig.Domain.Services.Navigation;
+using Twig.Domain.Services.Process;
+using Twig.Domain.Services.Sync;
+using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;

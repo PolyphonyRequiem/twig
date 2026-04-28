@@ -1,6 +1,7 @@
 using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Services;
+using Twig.Domain.Services.Sync;
 using Xunit;
 
 namespace Twig.Cli.Tests.Formatters;

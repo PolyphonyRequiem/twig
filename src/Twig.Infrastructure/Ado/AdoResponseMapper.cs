@@ -110,13 +110,12 @@ internal static class AdoResponseMapper
     };
 
     /// <summary>
-    /// Maps a seed <see cref="WorkItem"/> to an ADO JSON Patch document for creation.
-    /// Includes optional parent link and all populated non-readonly fields from seed.Fields.
+    /// Maps a <see cref="CreateWorkItemRequest"/> to an ADO JSON Patch document for creation.
+    /// Includes optional parent link and all populated non-readonly fields from request.Fields.
     /// </summary>
     public static List<AdoPatchOperation> MapSeedToCreatePayload(
-        WorkItem seed,
-        string orgUrl,
-        int? parentId = null)
+        CreateWorkItemRequest request,
+        string orgUrl)
     {
         var operations = new List<AdoPatchOperation>
         {
@@ -124,31 +123,31 @@ internal static class AdoResponseMapper
             {
                 Op = "add",
                 Path = "/fields/System.Title",
-                Value = JsonValue.Create(seed.Title),
+                Value = JsonValue.Create(request.Title),
             },
         };
 
-        if (!string.IsNullOrEmpty(seed.AreaPath.Value))
+        if (!string.IsNullOrEmpty(request.AreaPath))
         {
             operations.Add(new AdoPatchOperation
             {
                 Op = "add",
                 Path = "/fields/System.AreaPath",
-                Value = JsonValue.Create(seed.AreaPath.Value),
+                Value = JsonValue.Create(request.AreaPath),
             });
         }
 
-        if (!string.IsNullOrEmpty(seed.IterationPath.Value))
+        if (!string.IsNullOrEmpty(request.IterationPath))
         {
             operations.Add(new AdoPatchOperation
             {
                 Op = "add",
                 Path = "/fields/System.IterationPath",
-                Value = JsonValue.Create(seed.IterationPath.Value),
+                Value = JsonValue.Create(request.IterationPath),
             });
         }
 
-        if (parentId.HasValue)
+        if (request.ParentId.HasValue)
         {
             operations.Add(new AdoPatchOperation
             {
@@ -157,13 +156,13 @@ internal static class AdoResponseMapper
                 Value = new JsonObject
                 {
                     ["rel"] = JsonValue.Create(ParentRelationType),
-                    ["url"] = JsonValue.Create($"{orgUrl}/_apis/wit/workitems/{parentId.Value}"),
+                    ["url"] = JsonValue.Create($"{orgUrl}/_apis/wit/workitems/{request.ParentId.Value}"),
                 },
             });
         }
 
-        // Include all populated, non-excluded fields from seed.Fields
-        foreach (var (refName, value) in seed.Fields)
+        // Include all populated, non-excluded fields from request.Fields
+        foreach (var (refName, value) in request.Fields)
         {
             if (string.IsNullOrEmpty(value)) continue;
             if (CreatePayloadExcludedFields.Contains(refName)) continue;

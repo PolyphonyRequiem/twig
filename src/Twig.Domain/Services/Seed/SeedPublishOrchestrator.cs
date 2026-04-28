@@ -1,4 +1,5 @@
 using Twig.Domain.Aggregates;
+using Twig.Domain.Extensions;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
@@ -124,7 +125,7 @@ public sealed class SeedPublishOrchestrator
         }
 
         // Step 7: Create in ADO
-        var newId = await _adoService.CreateAsync(seed, ct);
+        var newId = await _adoService.CreateAsync(seed.ToCreateRequest(), ct);
 
         // Step 8: Fetch back the full ADO-populated item
         var fetchedItem = await _adoService.FetchAsync(newId, ct);

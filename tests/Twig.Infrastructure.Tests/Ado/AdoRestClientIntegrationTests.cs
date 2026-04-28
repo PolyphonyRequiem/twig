@@ -1,5 +1,6 @@
 using Shouldly;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Extensions;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Ado.Exceptions;
@@ -60,7 +61,7 @@ public class AdoRestClientIntegrationTests
 
         // Create a work item first to avoid assuming ID 1 exists
         var seed = new WorkItemBuilder(-1, $"Fetch test {DateTimeOffset.UtcNow:O}").AsSeed().Build();
-        var id = await client.CreateAsync(seed);
+        var id = await client.CreateAsync(seed.ToCreateRequest());
 
         var item = await client.FetchAsync(id);
 
@@ -76,7 +77,7 @@ public class AdoRestClientIntegrationTests
         var (client, _) = CreateClients();
 
         var seed = new WorkItemBuilder(-1, $"Integration test task {DateTimeOffset.UtcNow:O}").AsSeed().Build();
-        var id = await client.CreateAsync(seed);
+        var id = await client.CreateAsync(seed.ToCreateRequest());
 
         id.ShouldBeGreaterThan(0);
     }
@@ -89,7 +90,7 @@ public class AdoRestClientIntegrationTests
 
         // Create a work item first, then patch it
         var seed = new WorkItemBuilder(-1, $"Patch test {DateTimeOffset.UtcNow:O}").AsSeed().Build();
-        var id = await client.CreateAsync(seed);
+        var id = await client.CreateAsync(seed.ToCreateRequest());
 
         var item = await client.FetchAsync(id);
         var changes = new List<FieldChange> { new("System.Title", item.Title, "Updated title") };
@@ -105,7 +106,7 @@ public class AdoRestClientIntegrationTests
         var (client, _) = CreateClients();
 
         var seed = new WorkItemBuilder(-1, $"Comment test {DateTimeOffset.UtcNow:O}").AsSeed().Build();
-        var id = await client.CreateAsync(seed);
+        var id = await client.CreateAsync(seed.ToCreateRequest());
 
         // Should not throw
         await client.AddCommentAsync(id, "Integration test comment.");

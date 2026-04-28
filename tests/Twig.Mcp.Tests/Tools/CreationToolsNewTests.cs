@@ -39,7 +39,7 @@ public sealed class CreationToolsNewTests : CreationToolsTestBase
 
         _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
         _processConfigProvider.GetConfiguration().Returns(processConfig);
-        _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>()).Returns(200);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(200);
         _adoService.FetchAsync(200, Arg.Any<CancellationToken>()).Returns(created);
 
         var result = await CreateCreationSut().New("Task", "New Task", parentId: 100);
@@ -52,9 +52,9 @@ public sealed class CreationToolsNewTests : CreationToolsTestBase
         json.GetProperty("url").GetString()!.ShouldContain("200");
 
         await _adoService.Received(1).CreateAsync(
-            Arg.Is<WorkItem>(wi =>
-                wi.AreaPath.ToString() == "Project\\Team" &&
-                wi.IterationPath.ToString() == "Project\\Sprint 1"),
+            Arg.Is<CreateWorkItemRequest>(r =>
+                r.AreaPath == "Project\\Team" &&
+                r.IterationPath == "Project\\Sprint 1"),
             Arg.Any<CancellationToken>());
         await _workItemRepo.Received(1).SaveAsync(created, Arg.Any<CancellationToken>());
     }
@@ -68,7 +68,7 @@ public sealed class CreationToolsNewTests : CreationToolsTestBase
     {
         var created = new WorkItemBuilder(300, "Standalone Bug").AsBug().Build();
 
-        _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>()).Returns(300);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(300);
         _adoService.FetchAsync(300, Arg.Any<CancellationToken>()).Returns(created);
 
         var result = await CreateCreationSut().New("Bug", "Standalone Bug");
@@ -178,7 +178,7 @@ public sealed class CreationToolsNewTests : CreationToolsTestBase
     [Fact]
     public async Task New_AdoCreateFails_ReturnsError()
     {
-        _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>())
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("ADO is down"));
 
         var result = await CreateCreationSut().New("Bug", "Will Fail");
@@ -196,7 +196,7 @@ public sealed class CreationToolsNewTests : CreationToolsTestBase
     [Fact]
     public async Task New_FetchBackFails_ReturnsErrorWithRecoveryHint()
     {
-        _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>()).Returns(500);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(500);
         _adoService.FetchAsync(500, Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("Fetch failed"));
 
@@ -218,7 +218,7 @@ public sealed class CreationToolsNewTests : CreationToolsTestBase
     {
         var created = new WorkItemBuilder(400, "Described Task").AsTask().Build();
 
-        _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>()).Returns(400);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(400);
         _adoService.FetchAsync(400, Arg.Any<CancellationToken>()).Returns(created);
 
         var result = await CreateCreationSut().New("Task", "Described Task", description: "**bold** text");
@@ -227,8 +227,8 @@ public sealed class CreationToolsNewTests : CreationToolsTestBase
 
         // Verify the seed passed to CreateAsync had HTML description
         await _adoService.Received(1).CreateAsync(
-            Arg.Is<WorkItem>(wi => wi.Fields.ContainsKey("System.Description")
-                && wi.Fields["System.Description"]!.Contains("<strong>bold</strong>")),
+            Arg.Is<CreateWorkItemRequest>(r => r.Fields.ContainsKey("System.Description")
+                && r.Fields["System.Description"]!.Contains("<strong>bold</strong>")),
             Arg.Any<CancellationToken>());
     }
 
@@ -241,7 +241,7 @@ public sealed class CreationToolsNewTests : CreationToolsTestBase
     {
         var created = new WorkItemBuilder(401, "Assigned Task").AsTask().AssignedTo("Jane Doe").Build();
 
-        _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>()).Returns(401);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(401);
         _adoService.FetchAsync(401, Arg.Any<CancellationToken>()).Returns(created);
 
         var result = await CreateCreationSut().New("Task", "Assigned Task", assignedTo: "Jane Doe");
@@ -249,7 +249,7 @@ public sealed class CreationToolsNewTests : CreationToolsTestBase
         result.IsError.ShouldBeNull();
 
         await _adoService.Received(1).CreateAsync(
-            Arg.Is<WorkItem>(wi => wi.AssignedTo == "Jane Doe"),
+            Arg.Is<CreateWorkItemRequest>(r => r.Fields.ContainsKey("System.AssignedTo") && r.Fields["System.AssignedTo"] == "Jane Doe"),
             Arg.Any<CancellationToken>());
     }
 
@@ -260,7 +260,7 @@ public sealed class CreationToolsNewTests : CreationToolsTestBase
     [Fact]
     public async Task New_CancellationRequested_PropagatesException()
     {
-        _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>())
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new OperationCanceledException());
 
         await Should.ThrowAsync<OperationCanceledException>(
@@ -276,7 +276,7 @@ public sealed class CreationToolsNewTests : CreationToolsTestBase
     {
         var created = new WorkItemBuilder(501, "Cache Fail").AsTask().Build();
 
-        _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>()).Returns(501);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(501);
         _adoService.FetchAsync(501, Arg.Any<CancellationToken>()).Returns(created);
         _workItemRepo.SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("SQLite error"));
@@ -313,7 +313,7 @@ public sealed class CreationToolsNewTests : CreationToolsTestBase
         _adoService.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
 
         _processConfigProvider.GetConfiguration().Returns(processConfig);
-        _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>()).Returns(201);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(201);
         _adoService.FetchAsync(201, Arg.Any<CancellationToken>()).Returns(created);
         _workItemRepo.SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("SQLite is locked"));
@@ -337,7 +337,7 @@ public sealed class CreationToolsNewTests : CreationToolsTestBase
     {
         var created = new WorkItemBuilder(600, "Case Test").AsTask().Build();
 
-        _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>()).Returns(600);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(600);
         _adoService.FetchAsync(600, Arg.Any<CancellationToken>()).Returns(created);
 
         var result = await CreateCreationSut().New(typeName, "Case Test");

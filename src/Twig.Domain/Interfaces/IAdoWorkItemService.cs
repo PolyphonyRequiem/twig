@@ -13,7 +13,7 @@ public interface IAdoWorkItemService
     Task<(WorkItem Item, IReadOnlyList<WorkItemLink> Links)> FetchWithLinksAsync(int id, CancellationToken ct = default);
     Task<IReadOnlyList<WorkItem>> FetchChildrenAsync(int parentId, CancellationToken ct = default);
     Task<int> PatchAsync(int id, IReadOnlyList<FieldChange> changes, int expectedRevision, CancellationToken ct = default);
-    Task<int> CreateAsync(WorkItem seed, CancellationToken ct = default);
+    Task<int> CreateAsync(CreateWorkItemRequest request, CancellationToken ct = default);
     Task AddCommentAsync(int id, string text, CancellationToken ct = default);
     Task<IReadOnlyList<int>> QueryByWiqlAsync(string wiql, CancellationToken ct = default);
     Task<IReadOnlyList<int>> QueryByWiqlAsync(string wiql, int top, CancellationToken ct = default);

@@ -152,7 +152,7 @@ public sealed class NewCommand_ContextChangeTests : IDisposable
 
     private void ArrangeCreateSuccess(int newId = 100, string title = "My Task")
     {
-        _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>())
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>())
             .Returns(newId);
         _adoService.FetchAsync(newId, Arg.Any<CancellationToken>())
             .Returns(new WorkItemBuilder(newId, title)

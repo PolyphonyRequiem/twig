@@ -1,39 +1,22 @@
 using System.Diagnostics;
-using Twig.Domain.Common;
-using Twig.Domain.Extensions;
 using Twig.Domain.Interfaces;
-using Twig.Domain.ReadModels;
 using Twig.Domain.Services.Navigation;
-using Twig.Domain.Services.Sync;
-using Twig.Domain.Services.Workspace;
-using Twig.Domain.ValueObjects;
 using Twig.Formatters;
-using Twig.Infrastructure.Config;
 using Twig.Rendering;
 
 namespace Twig.Commands;
 
 /// <summary>
 /// Implements <c>twig set &lt;idOrPattern&gt;</c>: resolves a work item by ID or title pattern,
-/// fetches from ADO if not cached, loads parent chain, and sets active context.
-/// On cache miss (FetchedFromAdo), computes the working set for eviction (FR-012),
-/// then syncs only the target item and parent chain via <see cref="SyncCoordinatorFactory"/>.
-/// On cache hit (Found), skips working set computation and syncs only the target + parents.
+/// fetches from ADO if not cached, sets active context, and emits a single confirmation line.
 /// </summary>
 public sealed class SetCommand(
     CommandContext ctx,
     IWorkItemRepository workItemRepo,
     IContextStore contextStore,
     ActiveItemResolver activeItemResolver,
-    SyncCoordinatorFactory syncCoordinatorFactory,
-    WorkingSetService workingSetService,
-    StatusFieldConfigReader statusFieldReader,
     IPromptStateWriter? promptStateWriter = null,
-    INavigationHistoryStore? historyStore = null,
-    IPendingChangeStore? pendingChangeStore = null,
-    IFieldDefinitionStore? fieldDefinitionStore = null,
-    IProcessConfigurationProvider? processConfigProvider = null,
-    ContextChangeService? contextChangeService = null)
+    INavigationHistoryStore? historyStore = null)
 {
     public async Task<int> ExecuteAsync(string idOrPattern, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
@@ -54,7 +37,6 @@ public sealed class SetCommand(
         }
 
         Domain.Aggregates.WorkItem? item = null;
-        var fetchedFromAdo = false;
 
         if (int.TryParse(idOrPattern, out var id))
         {
@@ -70,7 +52,6 @@ public sealed class SetCommand(
             if (result is ActiveItemResult.FetchedFromAdo)
             {
                 Console.WriteLine(fmt.FormatInfo($"Fetching work item {id} from ADO..."));
-                fetchedFromAdo = true;
             }
         }
         else
@@ -114,115 +95,12 @@ public sealed class SetCommand(
             }
         }
 
-        // Hydrate parent chain via ActiveItemResolver (auto-fetch on miss)
-        // Capture parent chain IDs for targeted sync (DD-1: sync scope = target + parents)
-        var parentChainIds = new List<int>();
-        if (item.ParentId.HasValue)
-        {
-            var parentChain = await workItemRepo.GetParentChainAsync(item.ParentId.Value, ct);
-            if (parentChain.Count == 0)
-            {
-                // Parent not in cache — auto-fetch via resolver (best-effort)
-                await activeItemResolver.ResolveByIdAsync(item.ParentId.Value, ct);
-                parentChain = await workItemRepo.GetParentChainAsync(item.ParentId.Value, ct);
-            }
-            parentChainIds.AddRange(parentChain.Select(p => p.Id));
-        }
-
         await contextStore.SetActiveWorkItemIdAsync(item.Id);
         if (historyStore is not null)
             await historyStore.RecordVisitAsync(item.Id, ct);
         if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
-        // Print item with rich rendering — same output as twig status (converged display)
-        var children = await workItemRepo.GetChildrenAsync(item.Id, ct);
-        Domain.Aggregates.WorkItem? parent = item.ParentId.HasValue
-            ? await workItemRepo.GetByIdAsync(item.ParentId.Value, ct)
-            : null;
-
-        IReadOnlyList<WorkItemLink> links = [];
-        try { links = await syncCoordinatorFactory.ReadWrite.SyncLinksAsync(item.Id, ct); }
-        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
-
-        var fieldDefs = fieldDefinitionStore is not null
-            ? await fieldDefinitionStore.GetAllAsync(ct)
-            : null;
-
-        var statusFieldEntries = await statusFieldReader.ReadAsync(ct);
-
-        var childProgress = processConfigProvider.ComputeChildProgress(children);
-
-        if (renderer is not null)
-        {
-            Func<Task<IReadOnlyList<PendingChangeRecord>>> pendingChanges = pendingChangeStore is not null
-                ? () => pendingChangeStore.GetChangesAsync(item.Id)
-                : () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>([]);
-
-            await renderer.RenderStatusAsync(
-                getItem: () => Task.FromResult<Domain.Aggregates.WorkItem?>(item),
-                getPendingChanges: pendingChanges,
-                ct: ct,
-                fieldDefinitions: fieldDefs,
-                statusFieldEntries: statusFieldEntries,
-                childProgress: childProgress,
-                links: links,
-                parent: parent,
-                children: children);
-        }
-        else if (fmt is HumanOutputFormatter humanFmt)
-        {
-            (int FieldCount, int NoteCount)? pendingCounts = null;
-            if (pendingChangeStore is not null)
-            {
-                var pending = await pendingChangeStore.GetChangesAsync(item.Id);
-                if (pending.Count > 0)
-                {
-                    var noteCount = 0;
-                    var fieldCount = 0;
-                    foreach (var change in pending)
-                    {
-                        if (string.Equals(change.ChangeType, "note", StringComparison.OrdinalIgnoreCase))
-                            noteCount++;
-                        else
-                            fieldCount++;
-                    }
-                    pendingCounts = (fieldCount, noteCount);
-                }
-            }
-            Console.WriteLine(humanFmt.FormatWorkItem(item, showDirty: false, fieldDefs, statusFieldEntries, childProgress, pendingCounts, links, parent, children));
-        }
-        else if (fmt is JsonOutputFormatter jsonFmt)
-        {
-            Console.WriteLine(jsonFmt.FormatWorkItem(item, showDirty: false, links, parent, children));
-        }
-        else
-        {
-            Console.WriteLine(fmt.FormatWorkItem(item, showDirty: false));
-        }
-
-        // Extend working set around the target item (fire-and-forget — never fails the command).
-        // Runs BEFORE eviction so the expanded cache is reflected in working set computation.
-        if (contextChangeService is not null)
-            await contextChangeService.ExtendWorkingSetAsync(item.Id, ct);
-
-        // Targeted sync — best-effort, never fails the command (DD-1, DD-2)
-        try
-        {
-            // Cache-miss path: compute working set for eviction (FR-012 unchanged)
-            if (fetchedFromAdo)
-            {
-                var workingSet = await workingSetService.ComputeAsync(item.IterationPath, ct);
-                await workItemRepo.EvictExceptAsync(workingSet.AllIds, ct);
-            }
-
-            // Sync target item + parent chain only (DD-2: SyncItemSetAsync skips full working set)
-            await syncCoordinatorFactory.ReadWrite.SyncItemSetAsync([item.Id, ..parentChainIds], ct);
-        }
-        catch (OperationCanceledException) { throw; }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"warning: sync failed: {ex.Message}");
-        }
+        Console.WriteLine(fmt.FormatSetConfirmation(item));
 
         var hints = ctx.HintEngine.GetHints("set",
             item: item,

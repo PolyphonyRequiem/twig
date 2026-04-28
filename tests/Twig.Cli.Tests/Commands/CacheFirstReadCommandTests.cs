@@ -84,7 +84,7 @@ public class CacheFirstReadCommandTests
         var item = CreateWorkItem(42, "Cached Item");
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        var cmd = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory, _workingSetService, _statusFieldReader);
+        var cmd = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver);
         var result = await cmd.ExecuteAsync("42");
 
         result.ShouldBe(0);
@@ -93,13 +93,11 @@ public class CacheFirstReadCommandTests
         await _adoService.DidNotReceive().FetchAsync(42, Arg.Any<CancellationToken>());
     }
 
-    // ── (b) Working set sync after setting context ────────────────
+    // ── (b) Stale item in cache — set doesn't sync (slimmed) ──────
 
     [Fact]
-    public async Task SetCommand_SyncsWorkingSet_AfterSettingContext()
+    public async Task SetCommand_StaleItem_DoesNotSync()
     {
-        var item = CreateWorkItem(42, "Item With Children");
-        // Item has stale LastSyncedAt so sync coordinator will re-fetch
         var staleItem = new WorkItem
         {
             Id = 42, Type = WorkItemType.Task, Title = "Item With Children", State = "New",
@@ -109,18 +107,13 @@ public class CacheFirstReadCommandTests
         };
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(staleItem);
 
-        // After SetActiveWorkItemIdAsync(42), GetActiveWorkItemIdAsync returns 42
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
-
-        // Working set sync fetches stale items via FetchAsync (not FetchChildrenAsync)
-        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
-
-        var cmd = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory, _workingSetService, _statusFieldReader);
+        var cmd = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver);
         var result = await cmd.ExecuteAsync("42");
 
         result.ShouldBe(0);
-        // SyncItemSetAsync fetches stale items individually via FetchAsync (not FetchChildrenAsync)
-        await _adoService.Received().FetchAsync(42, Arg.Any<CancellationToken>());
+        await _contextStore.Received().SetActiveWorkItemIdAsync(42, Arg.Any<CancellationToken>());
+        // Slimmed set does not sync — no ADO fetch for cached items
+        await _adoService.DidNotReceive().FetchAsync(42, Arg.Any<CancellationToken>());
     }
 
     // ── (c) Stale data + failed sync ───────────────────────────────
@@ -133,7 +126,7 @@ public class CacheFirstReadCommandTests
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
             .Throws(new HttpRequestException("Network unavailable"));
 
-        var cmd = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory, _workingSetService, _statusFieldReader);
+        var cmd = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver);
         var result = await cmd.ExecuteAsync("42");
 
         // Command still succeeds — sync failure is non-fatal
@@ -159,11 +152,11 @@ public class CacheFirstReadCommandTests
         // SyncItemSetAsync skips dirty items — dirty protection is enforced at write time
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        var cmd = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory, _workingSetService, _statusFieldReader);
+        var cmd = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver);
         var result = await cmd.ExecuteAsync("42");
 
         result.ShouldBe(0);
-        // Verify dirty child (ID 100) was NOT fetched — SyncItemSetAsync only syncs target + parent chain
+        // Verify dirty child (ID 100) was NOT fetched — slimmed SetCommand doesn't sync
         await _adoService.DidNotReceive().FetchAsync(100, Arg.Any<CancellationToken>());
     }
 
@@ -175,7 +168,7 @@ public class CacheFirstReadCommandTests
         var item = CreateWorkItem(42, "JSON Test Item");
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        var cmd = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory, _workingSetService, _statusFieldReader);
+        var cmd = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver);
 
         var result = await cmd.ExecuteAsync("42", "json");
         result.ShouldBe(0);
@@ -190,7 +183,7 @@ public class CacheFirstReadCommandTests
         var item = CreateWorkItem(42, "Fetched Item");
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        var cmd = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory, _workingSetService, _statusFieldReader);
+        var cmd = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver);
         var result = await cmd.ExecuteAsync("42");
 
         result.ShouldBe(0);
@@ -249,7 +242,7 @@ public class CacheFirstReadCommandTests
         _workItemRepo.GetChildrenAsync(2, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var setCmd = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory, _workingSetService, _statusFieldReader);
+        var setCmd = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver);
         var navCmd = new NavigationCommands(_contextStore, _workItemRepo, _seedLinkRepo, _workItemLinkRepo, setCmd, _formatterFactory,
             _activeItemResolver);
         var result = await navCmd.UpAsync();
@@ -267,32 +260,26 @@ public class CacheFirstReadCommandTests
         _adoService.FetchAsync(999, Arg.Any<CancellationToken>())
             .Throws(new HttpRequestException("Not found"));
 
-        var cmd = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory, _workingSetService, _statusFieldReader);
+        var cmd = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver);
         var result = await cmd.ExecuteAsync("999");
 
         result.ShouldBe(1);
     }
 
-    // ── SetCommand parent hydration via ActiveItemResolver ─────────
+    // ── SetCommand no longer hydrates parent chain ───────────────
 
     [Fact]
-    public async Task SetCommand_ParentNotInCache_AutoFetchesParent()
+    public async Task SetCommand_ParentNotInCache_DoesNotAutoFetch()
     {
         var item = CreateWorkItem(42, "Child Item", parentId: 100);
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
-        _workItemRepo.GetParentChainAsync(100, Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>()); // parent not in cache
 
-        var parent = CreateWorkItem(100, "Parent Item");
-        // First call for ID 100 from GetByIdAsync returns null (parent not cached)
-        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
-        _adoService.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
-
-        var cmd = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory, _workingSetService, _statusFieldReader);
+        var cmd = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver);
         var result = await cmd.ExecuteAsync("42");
 
         result.ShouldBe(0);
-        await _adoService.Received(1).FetchAsync(100, Arg.Any<CancellationToken>());
+        // Slimmed set does not hydrate parent chain
+        await _adoService.DidNotReceive().FetchAsync(100, Arg.Any<CancellationToken>());
     }
 
     // ── WorkspaceCommand auto-fetch on cache miss ──────────────────
@@ -335,8 +322,7 @@ public class CacheFirstReadCommandTests
         var item = CreateWorkItem(42, "Minimal Item");
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        var cmd = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory,
-            _workingSetService, _statusFieldReader);
+        var cmd = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver);
         var result = await cmd.ExecuteAsync("42", "minimal");
 
         result.ShouldBe(0);

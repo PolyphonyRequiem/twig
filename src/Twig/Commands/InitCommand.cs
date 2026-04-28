@@ -463,7 +463,7 @@ public sealed class InitCommand
                                    config.Defaults.ResolveAreaPaths() is not null;
 
         // Inline refresh: populate the cache with sprint items when workspace sources exist
-        if (hasConfiguredSources && currentIteration is not null && _httpClient is not null && _authProvider is not null)
+        if (hasConfiguredSources && _httpClient is not null && _authProvider is not null)
         {
             try
             {
@@ -472,9 +472,36 @@ public sealed class InitCommand
                 var workItemRepo = new Infrastructure.Persistence.SqliteWorkItemRepository(cacheStore, new WorkItemMapper());
                 var contextStore = new Infrastructure.Persistence.SqliteContextStore(cacheStore);
 
-                // Build WIQL query scoped to current iteration + area paths
-                var sanitizedPath = currentIteration.Value.Value.Replace("'", "''");
-                var wiql = $"SELECT [System.Id] FROM WorkItems WHERE [System.IterationPath] = '{sanitizedPath}'";
+                // Resolve configured sprint expressions to concrete iteration paths
+                var sprintEntries = config.Workspace.Sprints;
+                IReadOnlyList<IterationPath> resolvedIterations = [];
+                if (sprintEntries is { Count: > 0 })
+                {
+                    var sprintResolver = new SprintIterationResolver(iterationService, workItemRepo);
+                    var expressions = new List<IterationExpression>(sprintEntries.Count);
+                    foreach (var entry in sprintEntries)
+                    {
+                        var parseResult = IterationExpression.Parse(entry.Expression);
+                        if (parseResult.IsSuccess)
+                            expressions.Add(parseResult.Value);
+                    }
+                    if (expressions.Count > 0)
+                        resolvedIterations = await sprintResolver.ResolveAllAsync(expressions, ct);
+                }
+
+                // Build WIQL with multi-sprint OR-joined iteration clauses
+                var wiql = "SELECT [System.Id] FROM WorkItems";
+                var whereClauses = new List<string>();
+
+                if (resolvedIterations.Count > 0)
+                {
+                    var iterationClauses = resolvedIterations
+                        .Select(ip => $"[System.IterationPath] = '{ip.Value.Replace("'", "''")}'");
+                    var joined = string.Join(" OR ", iterationClauses);
+                    whereClauses.Add(resolvedIterations.Count == 1 ? joined : $"({joined})");
+                }
+
+                // Build area path filter: prefer AreaPathEntries (with IncludeChildren), fall back to AreaPaths
                 var areaPathEntries = config.Defaults?.AreaPathEntries;
                 if (areaPathEntries is { Count: > 0 })
                 {
@@ -485,7 +512,9 @@ public sealed class InitCommand
                             var op = entry.IncludeChildren ? "UNDER" : "=";
                             return $"[System.AreaPath] {op} '{escaped}'";
                         });
-                    wiql += $" AND ({string.Join(" OR ", clauses)})";
+                    whereClauses.Add(areaPathEntries.Count == 1
+                        ? clauses.First()
+                        : $"({string.Join(" OR ", clauses)})");
                 }
                 else
                 {
@@ -494,26 +523,41 @@ public sealed class InitCommand
                     {
                         var clauses = areaPaths
                             .Select(ap => $"[System.AreaPath] UNDER '{ap.Replace("'", "''")}'");
-                        wiql += $" AND ({string.Join(" OR ", clauses)})";
+                        whereClauses.Add(areaPaths.Count == 1
+                            ? clauses.First()
+                            : $"({string.Join(" OR ", clauses)})");
                     }
+                }
+
+                if (whereClauses.Count > 0)
+                {
+                    wiql += " WHERE " + string.Join(" AND ", whereClauses);
                 }
                 wiql += " ORDER BY [System.Id]";
 
-                var ids = await adoClient.QueryByWiqlAsync(wiql);
-                var realIds = ids.Where(id => id > 0).ToList();
-                if (realIds.Count > 0)
+                // Skip query when no WHERE clauses were generated (all expressions failed to resolve)
+                if (whereClauses.Count == 0)
                 {
-                    var sprintItems = await adoClient.FetchBatchAsync(realIds, ct);
-                    await workItemRepo.SaveBatchAsync(sprintItems);
-                    Console.WriteLine(fmt.FormatInfo($"  Cached {sprintItems.Count} sprint item(s)."));
+                    Console.WriteLine(fmt.FormatInfo("  No iterations or area paths resolved — skipping refresh."));
                 }
                 else
                 {
-                    Console.WriteLine(fmt.FormatInfo("  No items found in current iteration."));
-                }
+                    var ids = await adoClient.QueryByWiqlAsync(wiql);
+                    var realIds = ids.Where(id => id > 0).ToList();
+                    if (realIds.Count > 0)
+                    {
+                        var sprintItems = await adoClient.FetchBatchAsync(realIds, ct);
+                        await workItemRepo.SaveBatchAsync(sprintItems);
+                        Console.WriteLine(fmt.FormatInfo($"  Cached {sprintItems.Count} sprint item(s)."));
+                    }
+                    else
+                    {
+                        Console.WriteLine(fmt.FormatInfo("  No items found in configured iterations."));
+                    }
 
-                // Set cache freshness timestamp
-                await contextStore.SetValueAsync("last_refreshed_at", DateTimeOffset.UtcNow.ToString("O"));
+                    // Set cache freshness timestamp
+                    await contextStore.SetValueAsync("last_refreshed_at", DateTimeOffset.UtcNow.ToString("O"));
+                }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {

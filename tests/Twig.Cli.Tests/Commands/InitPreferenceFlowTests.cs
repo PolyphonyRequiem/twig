@@ -610,6 +610,62 @@ public sealed class InitPreferenceFlowTests : IDisposable
         loaded.Defaults.AreaPathEntries[2].IncludeChildren.ShouldBeTrue();
     }
 
+    // ── Inline refresh sprint resolution ──
+
+    [Fact]
+    public async Task NonInteractive_SprintFlag_SucceedsWhenCurrentIterationFails()
+    {
+        // When GetCurrentIterationAsync throws, init should still succeed because
+        // the inline refresh resolves sprints via SprintIterationResolver, not currentIteration.
+        _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
+            .ThrowsAsync(new Twig.Infrastructure.Ado.Exceptions.AdoException("No current iteration"));
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject",
+            sprint: "@current");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        loaded.Workspace.Sprints.ShouldNotBeNull();
+        loaded.Workspace.Sprints.Count.ShouldBe(1);
+        loaded.Workspace.Sprints[0].Expression.ShouldBe("@current");
+    }
+
+    [Fact]
+    public async Task NonInteractive_NoSources_DoesNotCallTeamIterations()
+    {
+        // When no sprints or area paths are configured, the inline refresh block
+        // should be skipped entirely — GetTeamIterationsAsync should not be called.
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        loaded.Workspace.Sprints.ShouldBeNull();
+        loaded.Defaults.AreaPathEntries.ShouldBeNull();
+        await _iterationService.DidNotReceive().GetTeamIterationsAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task NonInteractive_MultipleSprintFlags_AllPersisted()
+    {
+        // Multiple sprint expressions should all be persisted and available for
+        // the inline refresh to resolve into multi-sprint WIQL.
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject",
+            sprint: @"@current;@current-1;MyProject\Sprint 3");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        loaded.Workspace.Sprints.ShouldNotBeNull();
+        loaded.Workspace.Sprints.Count.ShouldBe(3);
+        loaded.Workspace.Sprints[0].Expression.ShouldBe("@current");
+        loaded.Workspace.Sprints[1].Expression.ShouldBe("@current-1");
+        loaded.Workspace.Sprints[2].Expression.ShouldBe(@"MyProject\Sprint 3");
+    }
+
     // ── Verify preference prompt does not run when area auto-detection fails ──
 
     [Fact]

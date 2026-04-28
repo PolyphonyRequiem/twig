@@ -16,7 +16,7 @@ namespace Twig.DependencyInjection;
 /// <summary>
 /// Registers command-support services: hint engine, editor launcher, console input,
 /// and shared domain services (<see cref="ActiveItemResolver"/>, <see cref="ProtectedCacheWriter"/>,
-/// <see cref="SyncCoordinatorFactory"/>).
+/// <see cref="SyncCoordinatorPair"/>).
 /// </summary>
 /// <remarks>
 /// Shared services are registered here (CLI layer) rather than in
@@ -47,12 +47,12 @@ public static class CommandServiceModule
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IPendingChangeStore>()));
 
-        // DD-13 + #1614: SyncCoordinatorFactory holds ReadOnly (longer TTL) and ReadWrite (shorter TTL)
+        // DD-13 + #1614: SyncCoordinatorPair holds ReadOnly (longer TTL) and ReadWrite (shorter TTL)
         // tiers. Accepts int primitives to avoid Domain → Infrastructure circular reference.
-        services.AddSingleton<SyncCoordinatorFactory>(sp =>
+        services.AddSingleton<SyncCoordinatorPair>(sp =>
         {
             var display = sp.GetRequiredService<TwigConfiguration>().Display;
-            return new SyncCoordinatorFactory(
+            return new SyncCoordinatorPair(
                 sp.GetRequiredService<IWorkItemRepository>(),
                 sp.GetRequiredService<IAdoWorkItemService>(),
                 sp.GetRequiredService<ProtectedCacheWriter>(),
@@ -63,7 +63,7 @@ public static class CommandServiceModule
         });
 
         // Backward compat — direct SyncCoordinator consumers resolve to pair.ReadWrite
-        services.AddSingleton(sp => sp.GetRequiredService<SyncCoordinatorFactory>().ReadWrite);
+        services.AddSingleton(sp => sp.GetRequiredService<SyncCoordinatorPair>().ReadWrite);
 
         // DD-02: WorkingSetService accepts string? userDisplayName primitive (same pattern)
         services.AddSingleton<WorkingSetService>(sp => new WorkingSetService(
@@ -111,7 +111,7 @@ public static class CommandServiceModule
             sp.GetRequiredService<IPendingChangeStore>(),
             sp.GetRequiredService<ProtectedCacheWriter>(),
             sp.GetRequiredService<WorkingSetService>(),
-            sp.GetRequiredService<SyncCoordinatorFactory>(),
+            sp.GetRequiredService<SyncCoordinatorPair>(),
             sp.GetRequiredService<IIterationService>(),
             sp.GetService<ITrackingService>()));
 

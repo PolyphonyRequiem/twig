@@ -19,7 +19,7 @@ public sealed class RefreshOrchestrator(
     IPendingChangeStore pendingChangeStore,
     ProtectedCacheWriter protectedCacheWriter,
     WorkingSetService workingSetService,
-    SyncCoordinatorFactory syncCoordinatorFactory,
+    SyncCoordinatorPair syncCoordinatorPair,
     IIterationService iterationService,
     ITrackingService? trackingService = null)
 {
@@ -125,7 +125,7 @@ public sealed class RefreshOrchestrator(
         if (trackingService is null)
             return 0;
 
-        return await trackingService.SyncTrackedTreesAsync(syncCoordinatorFactory.ReadWrite, ct);
+        return await trackingService.SyncTrackedTreesAsync(syncCoordinatorPair.ReadWrite, ct);
     }
 
     /// <summary>
@@ -147,7 +147,7 @@ public sealed class RefreshOrchestrator(
     public async Task SyncWorkingSetAsync(IterationPath iteration, CancellationToken ct = default)
     {
         var workingSet = await workingSetService.ComputeAsync(iteration, ct);
-        await syncCoordinatorFactory.ReadWrite.SyncWorkingSetAsync(workingSet, ct);
+        await syncCoordinatorPair.ReadWrite.SyncWorkingSetAsync(workingSet, ct);
     }
 
     private async Task<IReadOnlyList<RefreshConflict>> FindConflictsAsync(

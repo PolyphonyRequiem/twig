@@ -303,7 +303,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
 
             try
             {
-                await ctx.SyncCoordinatorFactory.ReadWrite.SyncItemSetAsync(idsToSync.Distinct().ToList(), ct);
+                await ctx.SyncCoordinatorPair.ReadWrite.SyncItemSetAsync(idsToSync.Distinct().ToList(), ct);
             }
             catch (OperationCanceledException) { throw; }
             catch { /* best-effort */ }

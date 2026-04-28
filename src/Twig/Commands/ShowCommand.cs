@@ -23,7 +23,7 @@ public sealed class ShowCommand(
     IWorkItemRepository workItemRepo,
     IWorkItemLinkRepository linkRepo,
     OutputFormatterFactory formatterFactory,
-    SyncCoordinatorFactory syncCoordinatorFactory,
+    SyncCoordinatorPair syncCoordinatorPair,
     TwigConfiguration config,
     RenderingPipelineFactory? pipelineFactory = null,
     TwigPaths? paths = null,
@@ -138,7 +138,7 @@ public sealed class ShowCommand(
                 {
                     await renderer.RenderWithSyncAsync(
                         buildCachedView: () => BuildView(item, parent, children, childProgress),
-                        performSync: () => syncCoordinatorFactory.ReadOnly.SyncItemSetAsync([id]),
+                        performSync: () => syncCoordinatorPair.ReadOnly.SyncItemSetAsync([id]),
                         buildRevisedView: async _ =>
                         {
                             var freshItem = await workItemRepo.GetByIdAsync(id, CancellationToken.None);

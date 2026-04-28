@@ -25,7 +25,7 @@ public sealed class WorkspaceContext : IDisposable
     public IIterationService IterationService { get; }
     public IProcessConfigurationProvider ProcessConfigProvider { get; }
     public ActiveItemResolver ActiveItemResolver { get; }
-    public SyncCoordinatorFactory SyncCoordinatorFactory { get; }
+    public SyncCoordinatorPair SyncCoordinatorPair { get; }
     public ContextChangeService ContextChangeService { get; }
     public WorkingSetService WorkingSetService { get; }
     public McpPendingChangeFlusher Flusher { get; }
@@ -52,7 +52,7 @@ public sealed class WorkspaceContext : IDisposable
         IIterationService iterationService,
         IProcessConfigurationProvider processConfigProvider,
         ActiveItemResolver activeItemResolver,
-        SyncCoordinatorFactory syncCoordinatorFactory,
+        SyncCoordinatorPair syncCoordinatorPair,
         ContextChangeService contextChangeService,
         WorkingSetService workingSetService,
         McpPendingChangeFlusher flusher,
@@ -72,7 +72,7 @@ public sealed class WorkspaceContext : IDisposable
         IterationService = iterationService;
         ProcessConfigProvider = processConfigProvider;
         ActiveItemResolver = activeItemResolver;
-        SyncCoordinatorFactory = syncCoordinatorFactory;
+        SyncCoordinatorPair = syncCoordinatorPair;
         ContextChangeService = contextChangeService;
         WorkingSetService = workingSetService;
         Flusher = flusher;

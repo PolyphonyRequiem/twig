@@ -22,7 +22,7 @@ public sealed class TreeCommand(
     OutputFormatterFactory formatterFactory,
     ActiveItemResolver activeItemResolver,
     WorkingSetService workingSetService,
-    SyncCoordinatorFactory syncCoordinatorFactory,
+    SyncCoordinatorPair syncCoordinatorPair,
     IProcessTypeStore processTypeStore,
     RenderingPipelineFactory? pipelineFactory = null,
     ITelemetryClient? telemetryClient = null)
@@ -109,7 +109,7 @@ public sealed class TreeCommand(
                 getSiblingCount: getSiblingCount,
                 getLinks: async () =>
                 {
-                    try { return await syncCoordinatorFactory.ReadOnly.SyncLinksAsync(resolvedItem.Id, ct); }
+                    try { return await syncCoordinatorPair.ReadOnly.SyncLinksAsync(resolvedItem.Id, ct); }
                     catch (Exception ex) when (ex is not OperationCanceledException) { return Array.Empty<WorkItemLink>(); }
                 });
 
@@ -124,7 +124,7 @@ public sealed class TreeCommand(
                     var cachedChildren = await workItemRepo.GetChildrenAsync(activeId.Value, ct);
 
                     IReadOnlyList<WorkItemLink> cachedLinks = Array.Empty<WorkItemLink>();
-                    try { cachedLinks = await syncCoordinatorFactory.ReadOnly.SyncLinksAsync(resolvedItem.Id, ct); }
+                    try { cachedLinks = await syncCoordinatorPair.ReadOnly.SyncLinksAsync(resolvedItem.Id, ct); }
                     catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
                     var workingSet = await workingSetService.ComputeAsync(resolvedItem.IterationPath);
@@ -139,7 +139,7 @@ public sealed class TreeCommand(
                             getSiblingCount,
                             cachedLinks,
                             config.Display.CacheStaleMinutes),
-                        performSync: () => syncCoordinatorFactory.ReadOnly.SyncWorkingSetAsync(workingSet),
+                        performSync: () => syncCoordinatorPair.ReadOnly.SyncWorkingSetAsync(workingSet),
                         buildRevisedView: async _ =>
                         {
                             // Rebuild tree from fresh cache data after sync completes
@@ -221,7 +221,7 @@ public sealed class TreeCommand(
         IReadOnlyList<WorkItemLink> links = Array.Empty<WorkItemLink>();
         try
         {
-            links = await syncCoordinatorFactory.ReadOnly.SyncLinksAsync(item.Id, ct);
+            links = await syncCoordinatorPair.ReadOnly.SyncLinksAsync(item.Id, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
@@ -253,7 +253,7 @@ public sealed class TreeCommand(
             try
             {
                 var syncWorkingSet = await workingSetService.ComputeAsync(item.IterationPath);
-                await syncCoordinatorFactory.ReadOnly.SyncWorkingSetAsync(syncWorkingSet);
+                await syncCoordinatorPair.ReadOnly.SyncWorkingSetAsync(syncWorkingSet);
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception) { /* sync is best-effort — don't fail the command */ }

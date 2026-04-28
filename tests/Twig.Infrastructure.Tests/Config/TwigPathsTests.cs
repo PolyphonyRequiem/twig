@@ -177,6 +177,27 @@ public class TwigPathsTests
         paths.DbPath.ShouldBe(Path.Combine(twigDir, "twig.db"));
     }
 
+    // ──────────────────────── TrackingFilePath ────────────────────────
+
+    [Fact]
+    public void TrackingFilePath_ReturnsCombinedPath()
+    {
+        var twigDir = Path.Combine("C:", "repo", ".twig");
+        var paths = new TwigPaths(twigDir, Path.Combine(twigDir, "config"), Path.Combine(twigDir, "twig.db"));
+
+        paths.TrackingFilePath.ShouldBe(Path.Combine(twigDir, "tracking.json"));
+    }
+
+    [Fact]
+    public void TrackingFilePath_ForContext_UsesRootTwigDir()
+    {
+        var twigDir = Path.Combine("C:", "repo", ".twig");
+        var paths = TwigPaths.ForContext(twigDir, "myorg", "myproj");
+
+        // TrackingFilePath lives at TwigDir level, not inside the org/project subdirectory
+        paths.TrackingFilePath.ShouldBe(Path.Combine(twigDir, "tracking.json"));
+    }
+
     // ──────────────────────── Constructor ────────────────────────
 
     [Fact]

@@ -507,6 +507,28 @@ internal static class McpResultBuilder
             WriteOptionalWorkspace(writer, workspace);
         });
 
+    public static CallToolResult FormatDeleteConfirmation(WorkItem item) =>
+        BuildJson(writer =>
+        {
+            writer.WriteBoolean("requiresConfirmation", true);
+            writer.WriteNumber("id", item.Id);
+            writer.WriteString("title", item.Title);
+            writer.WriteString("type", item.Type.ToString());
+            writer.WriteString("state", item.State);
+            writer.WriteString("warning",
+                "This action is PERMANENT and cannot be undone. " +
+                "Consider 'twig_state Closed' instead — it preserves history and is reversible. " +
+                "Re-invoke with confirmed: true to proceed.");
+        });
+
+    public static CallToolResult FormatDeleted(int id, string title) =>
+        BuildJson(writer =>
+        {
+            writer.WriteBoolean("deleted", true);
+            writer.WriteNumber("id", id);
+            writer.WriteString("title", title);
+        });
+
     public static CallToolResult FormatFlushSummary(McpFlushSummary summary) =>
         BuildJson(writer =>
         {

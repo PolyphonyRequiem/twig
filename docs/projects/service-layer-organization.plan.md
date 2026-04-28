@@ -2,12 +2,12 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | 📋 Planning |
+| **Status** | ✅ Taxonomy Confirmed |
 | **Work Item** | #2118 |
 | **Type** | Epic |
 | **Author** | Copilot |
-| **Plan Revision** | 2 |
-| **Revision Notes** | Revision 2: No blocking issues flagged (tech=76, read=97, blocking=0). Plan unchanged from revision 1. |
+| **Plan Revision** | 3 |
+| **Revision Notes** | Revision 3: Full codebase revalidation. All 56 service files read and re-categorized; 8-subfolder taxonomy confirmed accurate. Consumer audit refreshed (~160 files). Cross-subfolder dependency graph re-verified cycle-free. No changes to file classification or structure from revision 2. |
 
 ---
 
@@ -560,9 +560,19 @@ and document the classification rationale.
 | T1.3 | Review classification with stakeholders; resolve open questions | This plan document | Small |
 
 **Acceptance Criteria**:
-- [ ] All 56 files have a designated subfolder assignment
-- [ ] Cross-subfolder dependency graph has no cycles
-- [ ] Classification rationale documented for non-obvious placements
+- [x] All 56 files have a designated subfolder assignment
+- [x] Cross-subfolder dependency graph has no cycles
+- [x] Classification rationale documented for non-obvious placements
+
+**Audit Confirmation** (AB#2180):
+All 56 `.cs` files in `src/Twig.Domain/Services/` have been individually verified against
+the 8-subfolder taxonomy. The file count per subfolder matches the classification tables:
+Sync/ (10), Seed/ (10), Workspace/ (14), Navigation/ (5), Field/ (3), Process/ (6),
+Git/ (4), Rendering/ (3), Root (1). No orphans, no misclassifications. Ambiguous
+placements (DuplicateGuard→Seed/, DescendantVerificationService→Process/,
+TrackingService→Workspace/, WorkTreeFetcher→Workspace/, LinkTypeMapper→Root) have
+documented rationale in the Design Decisions section above. The cross-subfolder
+dependency graph remains cycle-free (verified in revision 3).
 
 ---
 

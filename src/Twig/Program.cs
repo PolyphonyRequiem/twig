@@ -332,10 +332,10 @@ public sealed class TwigCommands(IServiceProvider services)
         => await services.GetRequiredService<SetCommand>().ExecuteAsync(idOrPattern, output, ct);
 
     /// <summary>Display a work item without changing context. Syncs by default; use --no-refresh for cache-only.</summary>
-    /// <param name="id">Work item ID to display.</param>
+    /// <param name="id">Work item ID to display. Omit to show the active work item.</param>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     /// <param name="noRefresh">Skip the sync and show cached data only.</param>
-    public async Task<int> Show([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, bool noRefresh = false, CancellationToken ct = default)
+    public async Task<int> Show([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, bool noRefresh = false, CancellationToken ct = default)
         => await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, noRefresh, ct);
 
     /// <summary>Display multiple work items by ID (cache-only). Missing IDs are silently skipped.</summary>

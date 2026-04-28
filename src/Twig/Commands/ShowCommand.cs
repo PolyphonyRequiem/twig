@@ -14,7 +14,10 @@ using Twig.Rendering;
 namespace Twig.Commands;
 
 /// <summary>
-/// Implements <c>twig show &lt;id&gt;</c>: read-only work item lookup by integer ID.
+/// Implements <c>twig show [id]</c>: read-only work item display.
+/// When called with an ID, performs a cache-first lookup.
+/// When called without an ID, resolves the active work item from context.
+/// If no active item is set, emits a branch detection hint and exits 1.
 /// Unlike <see cref="SetCommand"/>, this command does not change active context or record
 /// navigation history. By default, renders cached data immediately then syncs the item
 /// and revises the display. Use <c>--no-refresh</c> to skip the sync pass.
@@ -39,7 +42,7 @@ public sealed class ShowCommand(
     private readonly IPendingChangeStore? _pendingChangeStore = pendingChangeStore;
     private readonly WorkingSetService? _workingSetService = workingSetService;
 
-    public async Task<int> ExecuteAsync(int id, string outputFormat = OutputFormatterFactory.DefaultFormat, bool noRefresh = false, CancellationToken ct = default)
+    public async Task<int> ExecuteAsync(int? id = null, string outputFormat = OutputFormatterFactory.DefaultFormat, bool noRefresh = false, CancellationToken ct = default)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
         var exitCode = await ExecuteCoreAsync(id, outputFormat, noRefresh, ct);
@@ -59,16 +62,52 @@ public sealed class ShowCommand(
         return exitCode;
     }
 
-    private async Task<int> ExecuteCoreAsync(int id, string outputFormat, bool noRefresh, CancellationToken ct)
+    private async Task<int> ExecuteCoreAsync(int? id, string outputFormat, bool noRefresh, CancellationToken ct)
     {
         var (fmt, renderer) = ctx.Resolve(outputFormat);
 
-        // Cache-first lookup — item must be in local cache
-        var item = await workItemRepo.GetByIdAsync(id, ct);
-        if (item is null)
+        Domain.Aggregates.WorkItem item;
+        int resolvedId;
+
+        if (id.HasValue)
         {
-            ctx.StderrWriter.WriteLine($"error: Work item #{id} not found in local cache. Run 'twig set {id}' to fetch it.");
-            return 1;
+            // ── By-ID path — cache-first lookup ──
+            resolvedId = id.Value;
+            var cached = await workItemRepo.GetByIdAsync(resolvedId, ct);
+            if (cached is null)
+            {
+                ctx.StderrWriter.WriteLine($"error: Work item #{resolvedId} not found in local cache. Run 'twig set {resolvedId}' to fetch it.");
+                return 1;
+            }
+            item = cached;
+        }
+        else
+        {
+            // ── No-args path — resolve from active context ──
+            if (_contextStore is null || _activeItemResolver is null)
+            {
+                ctx.StderrWriter.WriteLine("error: No work item ID specified and context services not available.");
+                return 1;
+            }
+
+            var result = await _activeItemResolver.GetActiveItemAsync(ct);
+            switch (result)
+            {
+                case ActiveItemResult.Found found:
+                    item = found.WorkItem;
+                    break;
+                case ActiveItemResult.FetchedFromAdo fetched:
+                    item = fetched.WorkItem;
+                    break;
+                case ActiveItemResult.Unreachable unreachable:
+                    ctx.StderrWriter.WriteLine($"error: Active work item #{unreachable.Id} is not reachable: {unreachable.Reason}");
+                    return 1;
+                case ActiveItemResult.NoContext:
+                default:
+                    EmitBranchDetectionHint();
+                    return 1;
+            }
+            resolvedId = item.Id;
         }
 
         // Enrichment — all cache-only, best-effort
@@ -101,10 +140,10 @@ public sealed class ShowCommand(
         {
             try
             {
-                await syncCoordinatorFactory.ReadOnly.SyncItemSetAsync([id]);
+                await syncCoordinatorFactory.ReadOnly.SyncItemSetAsync([resolvedId]);
 
                 // Reload data from cache after sync
-                var freshItem = await workItemRepo.GetByIdAsync(id, ct);
+                var freshItem = await workItemRepo.GetByIdAsync(resolvedId, ct);
                 if (freshItem is not null)
                 {
                     item = freshItem;
@@ -158,10 +197,10 @@ public sealed class ShowCommand(
                 {
                     await renderer.RenderWithSyncAsync(
                         buildCachedView: () => BuildView(item, parent, children, childProgress),
-                        performSync: () => syncCoordinatorFactory.ReadOnly.SyncItemSetAsync([id]),
+                        performSync: () => syncCoordinatorFactory.ReadOnly.SyncItemSetAsync([resolvedId]),
                         buildRevisedView: async _ =>
                         {
-                            var freshItem = await workItemRepo.GetByIdAsync(id, CancellationToken.None);
+                            var freshItem = await workItemRepo.GetByIdAsync(resolvedId, CancellationToken.None);
                             if (freshItem is null) return null;
 
                             var freshChildren = await workItemRepo.GetChildrenAsync(freshItem.Id, CancellationToken.None);
@@ -322,5 +361,50 @@ public sealed class ShowCommand(
         }
 
         return new GitContext(branch, prs);
+    }
+
+    /// <summary>
+    /// Emits an error message when no active work item is set, with a hint derived from
+    /// the current git branch name if it encodes a work item ID.
+    /// </summary>
+    private void EmitBranchDetectionHint()
+    {
+        ctx.StderrWriter.WriteLine("error: No active work item. Use 'twig set <id>' to set one.");
+
+        if (twigPaths is null)
+            return;
+
+        var repoRoot = Path.GetDirectoryName(twigPaths.TwigDir);
+        if (repoRoot is null)
+            return;
+
+        var branch = GitBranchReader.GetCurrentBranch(repoRoot);
+        if (branch is null)
+            return;
+
+        var detectedId = ExtractWorkItemIdFromBranch(branch);
+        if (detectedId.HasValue)
+        {
+            ctx.StderrWriter.WriteLine($"hint: Branch '{branch}' may reference work item #{detectedId.Value}.");
+            ctx.StderrWriter.WriteLine($"      Try: twig set {detectedId.Value}");
+        }
+    }
+
+    /// <summary>
+    /// Extracts a work item ID from a branch name by scanning path segments for leading digits.
+    /// Handles common conventions: <c>feature/1234-description</c>, <c>users/name/1234</c>,
+    /// <c>bug/1234</c>, etc.
+    /// </summary>
+    internal static int? ExtractWorkItemIdFromBranch(string branchName)
+    {
+        foreach (var segment in branchName.Split('/'))
+        {
+            var dashIndex = segment.IndexOf('-');
+            var candidate = dashIndex > 0 ? segment[..dashIndex] : segment;
+            if (int.TryParse(candidate, out var id) && id > 0)
+                return id;
+        }
+
+        return null;
     }
 }

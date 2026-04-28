@@ -216,7 +216,7 @@ additions.
 
 Each cached work item carries a `LastSyncedAt` timestamp. The `SyncCoordinator` checks
 staleness before making network calls. If the item was synced within the configured TTL,
-no network request is made. A `SyncCoordinatorFactory` produces two tiers:
+no network request is made. A `SyncCoordinatorPair` holds two tiers:
 
 - **Read-only** (30-minute TTL): Used for tree rendering and status queries where
   slightly stale data is acceptable. Minimizes ADO API calls during exploratory

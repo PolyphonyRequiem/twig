@@ -1,7 +1,7 @@
 # Command Layer Bloat Reduction
 
 > **Epic:** #2121 — Domain Critique: Command Layer Bloat Reduction
-> **Status**: 🔨 In Progress
+> **Status**: ✅ Done
 > **Revision:** 0 (Initial draft)
 
 ---
@@ -650,3 +650,17 @@ Applies the established pattern mechanically to the remaining nine commands (`Se
 - `CommandRegistrationModuleTests` — all 9 command factory lambdas resolve correctly
 - `CommandServiceModuleTests` — no regressions
 - `dotnet publish` with AOT profile — end-to-end AOT succeeds
+
+---
+
+## Completion
+
+> **Completed:** 2026-04-28
+> **Version Tag:** v0.61.0
+
+All 4 Issues and 15 Tasks completed across two PR groups:
+
+- **PG-1** (PR #116, merged 2026-04-28T02:40:03Z): Introduced `CommandContext`, `StatusFieldConfigReader`, and `TelemetryHelper` with full test coverage. Migrated `StatusCommand` as the pattern-setting exemplar.
+- **PG-2** (PR #119, merged 2026-04-28T04:08:25Z): Propagated the pattern to `SetCommand`, `ShowCommand`, `TreeCommand`, `WorkspaceCommand`, `FlowStartCommand`, `FlowCloseCommand`, `RefreshCommand`, `BatchCommand`, and `StateCommand`. All DI registrations and test files updated.
+
+Constructor parameter counts reduced as planned. No behavioral changes, all existing tests pass.

@@ -4,7 +4,9 @@ using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
+using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -24,6 +26,10 @@ public sealed class ShowCommandTests : IDisposable
     private readonly IFieldDefinitionStore _fieldDefinitionStore;
     private readonly IProcessConfigurationProvider _processConfigProvider;
     private readonly SyncCoordinatorFactory _syncCoordinatorFactory;
+    private readonly IContextStore _contextStore;
+    private readonly ActiveItemResolver _activeItemResolver;
+    private readonly IPendingChangeStore _pendingChangeStore;
+    private readonly WorkingSetService _workingSetService;
     private readonly CommandContext _ctx;
     private readonly StatusFieldConfigReader _statusFieldReader;
     private readonly string _tempDir;
@@ -36,11 +42,17 @@ public sealed class ShowCommandTests : IDisposable
         _telemetryClient = Substitute.For<ITelemetryClient>();
         _fieldDefinitionStore = Substitute.For<IFieldDefinitionStore>();
         _processConfigProvider = Substitute.For<IProcessConfigurationProvider>();
+        _contextStore = Substitute.For<IContextStore>();
+        _pendingChangeStore = Substitute.For<IPendingChangeStore>();
 
         var adoService = Substitute.For<IAdoWorkItemService>();
-        var pendingChangeStore = Substitute.For<IPendingChangeStore>();
-        var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, pendingChangeStore);
-        _syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, adoService, protectedCacheWriter, pendingChangeStore, null, 30, 30);
+        _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, adoService);
+
+        var iterationService = Substitute.For<IIterationService>();
+        _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, iterationService, null);
+
+        var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
+        _syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, adoService, protectedCacheWriter, _pendingChangeStore, null, 30, 30);
 
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(),
@@ -62,7 +74,11 @@ public sealed class ShowCommandTests : IDisposable
             _syncCoordinatorFactory,
             _statusFieldReader,
             fieldDefinitionStore: _fieldDefinitionStore,
-            processConfigProvider: _processConfigProvider);
+            processConfigProvider: _processConfigProvider,
+            contextStore: _contextStore,
+            activeItemResolver: _activeItemResolver,
+            pendingChangeStore: _pendingChangeStore,
+            workingSetService: _workingSetService);
     }
 
     public void Dispose()
@@ -80,7 +96,11 @@ public sealed class ShowCommandTests : IDisposable
         return new ShowCommand(pipelineCtx, _workItemRepo, _linkRepo,
             _syncCoordinatorFactory, _statusFieldReader,
             fieldDefinitionStore: _fieldDefinitionStore,
-            processConfigProvider: _processConfigProvider);
+            processConfigProvider: _processConfigProvider,
+            contextStore: _contextStore,
+            activeItemResolver: _activeItemResolver,
+            pendingChangeStore: _pendingChangeStore,
+            workingSetService: _workingSetService);
     }
 
     // ═══════════════════════════════════════════════════════════════

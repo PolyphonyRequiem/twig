@@ -26,8 +26,18 @@ public sealed class ShowCommand(
     SyncCoordinatorFactory syncCoordinatorFactory,
     StatusFieldConfigReader statusFieldReader,
     IFieldDefinitionStore? fieldDefinitionStore = null,
-    IProcessConfigurationProvider? processConfigProvider = null)
+    IProcessConfigurationProvider? processConfigProvider = null,
+    IContextStore? contextStore = null,
+    ActiveItemResolver? activeItemResolver = null,
+    IPendingChangeStore? pendingChangeStore = null,
+    WorkingSetService? workingSetService = null)
 {
+    // Wired for no-args mode (future tasks in this issue)
+    private readonly IContextStore? _contextStore = contextStore;
+    private readonly ActiveItemResolver? _activeItemResolver = activeItemResolver;
+    private readonly IPendingChangeStore? _pendingChangeStore = pendingChangeStore;
+    private readonly WorkingSetService? _workingSetService = workingSetService;
+
     public async Task<int> ExecuteAsync(int id, string outputFormat = OutputFormatterFactory.DefaultFormat, bool noRefresh = false, CancellationToken ct = default)
     {
         var startTimestamp = Stopwatch.GetTimestamp();

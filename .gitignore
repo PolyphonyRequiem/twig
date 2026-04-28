@@ -43,6 +43,7 @@ coverage/
 # Twig runtime files
 # Twig runtime files (databases excluded, config checked in)
 .twig/*/
+.twig/twig.db*
 .twig/prompt.json
 !.twig/config
 !.twig/status-fields

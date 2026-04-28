@@ -6,7 +6,6 @@ using Twig.DependencyInjection;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Formatters;
-using Twig.Hints;
 using Twig.Infrastructure.Config;
 using Twig.Rendering;
 using Xunit;
@@ -46,6 +45,8 @@ public sealed class CommandRegistrationModuleTests
         services.AddSingleton(Substitute.For<IWorkItemLinkRepository>());
         services.AddSingleton(Substitute.For<IPromptStateWriter>());
         services.AddSingleton(Substitute.For<INavigationHistoryStore>());
+        services.AddSingleton(Substitute.For<IIterationService>());
+        services.AddSingleton(Substitute.For<ITrackingRepository>());
 
         // Formatters
         services.AddSingleton(new OutputFormatterFactory(
@@ -60,6 +61,12 @@ public sealed class CommandRegistrationModuleTests
             Display = new DisplayConfig { CacheStaleMinutes = 30 },
             User = new UserConfig { DisplayName = "Test User" },
         });
+
+        // Paths (needed by StatusFieldConfigReader)
+        services.AddSingleton(new TwigPaths(
+            Path.Combine(Path.GetTempPath(), ".twig-test"),
+            Path.Combine(Path.GetTempPath(), ".twig-test", "config"),
+            Path.Combine(Path.GetTempPath(), ".twig-test", "twig.db")));
 
         // Rendering
         services.AddSingleton(Substitute.For<IAsyncRenderer>());
@@ -93,5 +100,18 @@ public sealed class CommandRegistrationModuleTests
 
         provider.GetService<ContextChangeService>()
             .ShouldNotBeNull("ContextChangeService must be registered");
+    }
+
+    [Fact]
+    public void StatusCommand_AutoResolution_Resolves_Successfully()
+    {
+        using var provider = BuildProviderForFlowCommands();
+
+        // StatusCommand uses auto-resolution (no factory lambda).
+        // This verifies CommandContext and StatusFieldConfigReader resolve
+        // correctly after the constructor was refactored.
+        var command = provider.GetRequiredService<StatusCommand>();
+
+        command.ShouldNotBeNull();
     }
 }

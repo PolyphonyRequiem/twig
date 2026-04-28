@@ -1,12 +1,10 @@
 using System.Diagnostics;
-using System.Globalization;
 using Twig.Domain.Extensions;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
-using Twig.Hints;
 using Twig.Infrastructure.Config;
 using Twig.Rendering;
 
@@ -17,68 +15,49 @@ namespace Twig.Commands;
 /// After rendering cached status, syncs the working set and revises the display if data changed.
 /// </summary>
 public sealed class StatusCommand(
+    CommandContext ctx,
     IContextStore contextStore,
     IWorkItemRepository workItemRepo,
     IPendingChangeStore pendingChangeStore,
-    TwigConfiguration config,
-    OutputFormatterFactory formatterFactory,
-    HintEngine hintEngine,
     ActiveItemResolver activeItemResolver,
     WorkingSetService workingSetService,
     SyncCoordinatorFactory syncCoordinatorFactory,
-    TwigPaths paths,
-    RenderingPipelineFactory? pipelineFactory = null,
+    StatusFieldConfigReader statusFieldReader,
     IGitService? gitService = null,
     IAdoGitService? adoGitService = null,
     IFieldDefinitionStore? fieldDefinitionStore = null,
-    ITelemetryClient? telemetryClient = null,
-    TextWriter? stderr = null,
     IProcessConfigurationProvider? processConfigProvider = null)
 {
-    private readonly TextWriter _stderr = stderr ?? Console.Error;
-
     public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool noLive = false, bool noRefresh = false, CancellationToken ct = default)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
         var exitCode = await ExecuteCoreAsync(outputFormat, noLive, noRefresh, ct);
-        telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
-        {
-            ["command"] = "status",
-            ["exit_code"] = exitCode.ToString(),
-            ["output_format"] = outputFormat,
-            ["twig_version"] = VersionHelper.GetVersion(),
-            ["os_platform"] = System.Runtime.InteropServices.RuntimeInformation.OSDescription
-        }, new Dictionary<string, double>
-        {
-            ["duration_ms"] = Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds
-        });
+        TelemetryHelper.TrackCommand(ctx.TelemetryClient, "status", outputFormat, exitCode, startTimestamp);
         return exitCode;
     }
 
     private async Task<int> ExecuteCoreAsync(string outputFormat, bool noLive, bool noRefresh, CancellationToken ct)
     {
-        var (fmt, renderer) = pipelineFactory is not null
-            ? pipelineFactory.Resolve(outputFormat, noLive)
-            : (formatterFactory.GetFormatter(outputFormat), null);
+        var (fmt, renderer) = ctx.Resolve(outputFormat, noLive);
 
         var activeId = await contextStore.GetActiveWorkItemIdAsync();
         if (activeId is null)
         {
             // Passive branch detection hint: suggest 'twig set' if branch matches a cached item
-            var branchHint = await hintEngine.GetBranchDetectionHintAsync(
+            var branchHint = await ctx.HintEngine.GetBranchDetectionHintAsync(
                 activeContextId: null,
                 gitService: gitService,
                 workItemRepo: workItemRepo,
-                branchPattern: config.Git.BranchPattern,
+                branchPattern: ctx.Config.Git.BranchPattern,
                 outputFormat: outputFormat);
             if (branchHint is not null)
             {
                 var formattedHint = fmt.FormatHint(branchHint);
                 if (!string.IsNullOrEmpty(formattedHint))
-                    _stderr.WriteLine(formattedHint);
+                    ctx.StderrWriter.WriteLine(formattedHint);
             }
 
-            _stderr.WriteLine(fmt.FormatError("No active work item. Run 'twig set <id>' first."));
+            ctx.StderrWriter.WriteLine(fmt.FormatError("No active work item. Run 'twig set <id>' first."));
             return 1;
         }
 
@@ -89,7 +68,7 @@ public sealed class StatusCommand(
             var errorMsg = unreachableId is not null
                 ? $"Work item #{unreachableId} not found in cache and could not be fetched. Run 'twig set {unreachableId}' to refresh."
                 : $"Work item #{activeId.Value} not found in cache. Run 'twig set {activeId.Value}' to refresh.";
-            _stderr.WriteLine(fmt.FormatError(errorMsg));
+            ctx.StderrWriter.WriteLine(fmt.FormatError(errorMsg));
             return 1;
         }
 
@@ -98,16 +77,7 @@ public sealed class StatusCommand(
             ? await fieldDefinitionStore.GetAllAsync(ct)
             : null;
 
-        IReadOnlyList<StatusFieldEntry>? statusFieldEntries = null;
-        if (File.Exists(paths.StatusFieldsPath))
-        {
-            try
-            {
-                var configContent = await File.ReadAllTextAsync(paths.StatusFieldsPath, ct);
-                statusFieldEntries = StatusFieldsConfig.Parse(configContent);
-            }
-            catch { /* best-effort — fall back to default behavior */ }
-        }
+        var statusFieldEntries = await statusFieldReader.ReadAsync(ct);
 
         if (renderer is not null)
         {
@@ -137,7 +107,7 @@ public sealed class StatusCommand(
                 links: links,
                 parent: parent,
                 children: children,
-                cacheStaleMinutes: config.Display.CacheStaleMinutes);
+                cacheStaleMinutes: ctx.Config.Display.CacheStaleMinutes);
 
             if (renderer is SpectreRenderer spectreRenderer && !noRefresh)
             {
@@ -154,7 +124,7 @@ public sealed class StatusCommand(
                             links: links,
                             parent: parent,
                             children: children,
-                            cacheStaleMinutes: config.Display.CacheStaleMinutes),
+                            cacheStaleMinutes: ctx.Config.Display.CacheStaleMinutes),
                         performSync: () => syncCoordinatorFactory.ReadOnly.SyncWorkingSetAsync(workingSet),
                         buildRevisedView: async _ =>
                         {
@@ -177,7 +147,7 @@ public sealed class StatusCommand(
                                 links: links,
                                 parent: freshParent,
                                 children: freshChildren,
-                                cacheStaleMinutes: config.Display.CacheStaleMinutes);
+                                cacheStaleMinutes: ctx.Config.Display.CacheStaleMinutes);
                         },
                         CancellationToken.None);
                 }
@@ -194,15 +164,15 @@ public sealed class StatusCommand(
 
             var seeds = await workItemRepo.GetSeedsAsync();
             var staleSeedCount = Workspace.Build(item, [], seeds)
-                .GetStaleSeeds(config.Seed.StaleDays).Count;
+                .GetStaleSeeds(ctx.Config.Seed.StaleDays).Count;
 
             // Check cache freshness (EPIC-006) and include stale hint if needed
             var lastRefreshedRaw = await contextStore.GetValueAsync("last_refreshed_at");
-            var staleHint = WorkspaceCommand.IsCacheStale(lastRefreshedRaw, config.Display.CacheStaleMinutes)
+            var staleHint = WorkspaceCommand.IsCacheStale(lastRefreshedRaw, ctx.Config.Display.CacheStaleMinutes)
                 ? "Data may be stale. Run 'twig sync' to update."
                 : null;
 
-            var hints = hintEngine.GetHints("status",
+            var hints = ctx.HintEngine.GetHints("status",
                 item: item,
                 outputFormat: outputFormat,
                 staleSeedCount: staleSeedCount);
@@ -252,15 +222,15 @@ public sealed class StatusCommand(
 
         var syncSeeds = await workItemRepo.GetSeedsAsync();
         var syncStaleSeedCount = Workspace.Build(item, [], syncSeeds)
-            .GetStaleSeeds(config.Seed.StaleDays).Count;
+            .GetStaleSeeds(ctx.Config.Seed.StaleDays).Count;
 
         // Check cache freshness (EPIC-006) and include stale hint if needed
         var syncLastRefreshedRaw = await contextStore.GetValueAsync("last_refreshed_at");
-        var syncStaleHint = WorkspaceCommand.IsCacheStale(syncLastRefreshedRaw, config.Display.CacheStaleMinutes)
+        var syncStaleHint = WorkspaceCommand.IsCacheStale(syncLastRefreshedRaw, ctx.Config.Display.CacheStaleMinutes)
             ? "Data may be stale. Run 'twig sync' to update."
             : null;
 
-        var syncHints = hintEngine.GetHints("status",
+        var syncHints = ctx.HintEngine.GetHints("status",
             item: item,
             outputFormat: outputFormat,
             staleSeedCount: syncStaleSeedCount);

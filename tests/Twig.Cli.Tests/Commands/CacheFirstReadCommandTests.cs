@@ -9,6 +9,7 @@ using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
+using Twig.Rendering;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
@@ -95,9 +96,12 @@ public class CacheFirstReadCommandTests
             .Returns(Array.Empty<WorkItem>());
 
         var config = new TwigConfiguration { Seed = new SeedConfig { StaleDays = 14 } };
-        var cmd = new StatusCommand(_contextStore, _workItemRepo, _pendingChangeStore,
-            config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinatorFactory,
-            new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db")));
+        var paths = new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db"));
+        var statusFieldReader = new StatusFieldConfigReader(paths);
+        var redirectedPipeline = new RenderingPipelineFactory(_formatterFactory, new SpectreRenderer(new Spectre.Console.Testing.TestConsole(), new SpectreTheme(new DisplayConfig())), isOutputRedirected: () => true);
+        var ctx = new CommandContext(redirectedPipeline, _formatterFactory, _hintEngine, config);
+        var cmd = new StatusCommand(ctx, _contextStore, _workItemRepo, _pendingChangeStore,
+            _activeItemResolver, _workingSetService, _syncCoordinatorFactory, statusFieldReader);
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -209,9 +213,12 @@ public class CacheFirstReadCommandTests
             .Returns(Array.Empty<WorkItem>());
 
         var config = new TwigConfiguration { Seed = new SeedConfig { StaleDays = 14 } };
-        var cmd = new StatusCommand(_contextStore, _workItemRepo, _pendingChangeStore,
-            config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinatorFactory,
-            new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db")));
+        var paths = new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db"));
+        var statusFieldReader = new StatusFieldConfigReader(paths);
+        var redirectedPipeline = new RenderingPipelineFactory(_formatterFactory, new SpectreRenderer(new Spectre.Console.Testing.TestConsole(), new SpectreTheme(new DisplayConfig())), isOutputRedirected: () => true);
+        var ctx = new CommandContext(redirectedPipeline, _formatterFactory, _hintEngine, config);
+        var cmd = new StatusCommand(ctx, _contextStore, _workItemRepo, _pendingChangeStore,
+            _activeItemResolver, _workingSetService, _syncCoordinatorFactory, statusFieldReader);
 
         var result = await cmd.ExecuteAsync("json");
         result.ShouldBe(0);
@@ -250,9 +257,12 @@ public class CacheFirstReadCommandTests
             .Returns(Array.Empty<WorkItem>());
 
         var config = new TwigConfiguration { Seed = new SeedConfig { StaleDays = 14 } };
-        var cmd = new StatusCommand(_contextStore, _workItemRepo, _pendingChangeStore,
-            config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinatorFactory,
-            new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db")));
+        var paths = new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db"));
+        var statusFieldReader = new StatusFieldConfigReader(paths);
+        var redirectedPipeline = new RenderingPipelineFactory(_formatterFactory, new SpectreRenderer(new Spectre.Console.Testing.TestConsole(), new SpectreTheme(new DisplayConfig())), isOutputRedirected: () => true);
+        var ctx = new CommandContext(redirectedPipeline, _formatterFactory, _hintEngine, config);
+        var cmd = new StatusCommand(ctx, _contextStore, _workItemRepo, _pendingChangeStore,
+            _activeItemResolver, _workingSetService, _syncCoordinatorFactory, statusFieldReader);
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -348,9 +358,12 @@ public class CacheFirstReadCommandTests
             .Throws(new HttpRequestException("Network error"));
 
         var config = new TwigConfiguration { Seed = new SeedConfig { StaleDays = 14 } };
-        var cmd = new StatusCommand(_contextStore, _workItemRepo, _pendingChangeStore,
-            config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinatorFactory,
-            new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db")));
+        var paths = new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db"));
+        var statusFieldReader = new StatusFieldConfigReader(paths);
+        var redirectedPipeline = new RenderingPipelineFactory(_formatterFactory, new SpectreRenderer(new Spectre.Console.Testing.TestConsole(), new SpectreTheme(new DisplayConfig())), isOutputRedirected: () => true);
+        var ctx = new CommandContext(redirectedPipeline, _formatterFactory, _hintEngine, config);
+        var cmd = new StatusCommand(ctx, _contextStore, _workItemRepo, _pendingChangeStore,
+            _activeItemResolver, _workingSetService, _syncCoordinatorFactory, statusFieldReader);
 
         var result = await cmd.ExecuteAsync();
         result.ShouldBe(1);

@@ -5,6 +5,7 @@ using Twig.Domain.Services;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
+using Twig.Rendering;
 
 namespace Twig.DependencyInjection;
 
@@ -125,6 +126,18 @@ public static class CommandServiceModule
             sp.GetRequiredService<IPendingChangeStore>(),
             sp.GetRequiredService<IConsoleInput>(),
             sp.GetRequiredService<OutputFormatterFactory>()));
+
+        // EPIC-2121: CommandContext parameter object — consolidates cross-cutting command deps
+        services.AddSingleton(sp => new CommandContext(
+            sp.GetRequiredService<RenderingPipelineFactory>(),
+            sp.GetRequiredService<OutputFormatterFactory>(),
+            sp.GetRequiredService<HintEngine>(),
+            sp.GetRequiredService<TwigConfiguration>(),
+            sp.GetService<ITelemetryClient>()));
+
+        // EPIC-2121: StatusFieldConfigReader — encapsulates File.Exists + ReadAllTextAsync + Parse
+        services.AddSingleton(sp => new StatusFieldConfigReader(
+            sp.GetRequiredService<TwigPaths>()));
 
         return services;
     }

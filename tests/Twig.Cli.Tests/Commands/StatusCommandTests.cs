@@ -33,6 +33,8 @@ public class StatusCommandTests : IDisposable
     private readonly StatusCommand _cmd;
     private readonly string _tempDir;
     private readonly TwigPaths _paths;
+    private readonly StatusFieldConfigReader _statusFieldReader;
+    private readonly CommandContext _ctx;
 
     public StatusCommandTests()
     {
@@ -56,12 +58,16 @@ public class StatusCommandTests : IDisposable
         _tempDir = Path.Combine(Path.GetTempPath(), "twig-test-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_tempDir);
         _paths = new TwigPaths(_tempDir, Path.Combine(_tempDir, "config"), Path.Combine(_tempDir, "twig.db"));
+        _statusFieldReader = new StatusFieldConfigReader(_paths);
 
         _testConsole = new TestConsole();
         _spectreRenderer = new SpectreRenderer(_testConsole, new SpectreTheme(new DisplayConfig()));
 
-        _cmd = new StatusCommand(_contextStore, _workItemRepo, _pendingChangeStore,
-            _config, _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _paths);
+        var redirectedPipeline = new RenderingPipelineFactory(_formatterFactory, _spectreRenderer, isOutputRedirected: () => true);
+        _ctx = new CommandContext(redirectedPipeline, _formatterFactory, _hintEngine, _config);
+
+        _cmd = new StatusCommand(_ctx, _contextStore, _workItemRepo, _pendingChangeStore,
+            _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _statusFieldReader);
     }
 
     public void Dispose()
@@ -77,15 +83,18 @@ public class StatusCommandTests : IDisposable
     private RenderingPipelineFactory CreateRedirectedPipelineFactory() =>
         new(_formatterFactory, _spectreRenderer, isOutputRedirected: () => true);
 
-    private StatusCommand CreateCommandWithPipeline(RenderingPipelineFactory pipelineFactory, TextWriter? stderr = null) =>
-        new(_contextStore, _workItemRepo, _pendingChangeStore, _config,
-            _formatterFactory, new HintEngine(new DisplayConfig { Hints = true }), _activeItemResolver,
-            _workingSetService, _syncCoordinatorFactory, _paths, pipelineFactory, stderr: stderr);
+    private StatusCommand CreateCommandWithPipeline(RenderingPipelineFactory pipelineFactory, TextWriter? stderr = null)
+    {
+        var pipelineCtx = new CommandContext(pipelineFactory, _formatterFactory,
+            new HintEngine(new DisplayConfig { Hints = true }), _config, Stderr: stderr);
+        return new StatusCommand(pipelineCtx, _contextStore, _workItemRepo, _pendingChangeStore,
+            _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _statusFieldReader);
+    }
 
     private StatusCommand CreateCommandWithGit(IGitService? git = null, IAdoGitService? adoGit = null) =>
-        new(_contextStore, _workItemRepo, _pendingChangeStore, _config,
-            _formatterFactory, _hintEngine, _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _paths,
-            pipelineFactory: null, gitService: git, adoGitService: adoGit);
+        new(_ctx, _contextStore, _workItemRepo, _pendingChangeStore,
+            _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _statusFieldReader,
+            gitService: git, adoGitService: adoGit);
 
     // ── Core command behavior ───────────────────────────────────────
 
@@ -173,14 +182,16 @@ public class StatusCommandTests : IDisposable
         gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
         gitService.GetCurrentBranchAsync(Arg.Any<CancellationToken>()).Returns("feature/12345-login");
 
-        var cmd = new StatusCommand(_contextStore, _workItemRepo, _pendingChangeStore,
-            new TwigConfiguration
-            {
-                Seed = new SeedConfig { StaleDays = 14 },
-                Git = new GitConfig { BranchPattern = BranchNameTemplate.DefaultPattern },
-            },
-            _formatterFactory, new HintEngine(new DisplayConfig { Hints = true }),
-            _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _paths, gitService: gitService);
+        var branchConfig = new TwigConfiguration
+        {
+            Seed = new SeedConfig { StaleDays = 14 },
+            Git = new GitConfig { BranchPattern = BranchNameTemplate.DefaultPattern },
+        };
+        var branchCtx = new CommandContext(
+            new RenderingPipelineFactory(_formatterFactory, _spectreRenderer, isOutputRedirected: () => true),
+            _formatterFactory, new HintEngine(new DisplayConfig { Hints = true }), branchConfig);
+        var cmd = new StatusCommand(branchCtx, _contextStore, _workItemRepo, _pendingChangeStore,
+            _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _statusFieldReader, gitService: gitService);
 
         var result = await cmd.ExecuteAsync();
 
@@ -196,14 +207,16 @@ public class StatusCommandTests : IDisposable
         gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
         gitService.GetCurrentBranchAsync(Arg.Any<CancellationToken>()).Returns("main");
 
-        var cmd = new StatusCommand(_contextStore, _workItemRepo, _pendingChangeStore,
-            new TwigConfiguration
-            {
-                Seed = new SeedConfig { StaleDays = 14 },
-                Git = new GitConfig { BranchPattern = BranchNameTemplate.DefaultPattern },
-            },
-            _formatterFactory, new HintEngine(new DisplayConfig { Hints = true }),
-            _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _paths, gitService: gitService);
+        var branchConfig = new TwigConfiguration
+        {
+            Seed = new SeedConfig { StaleDays = 14 },
+            Git = new GitConfig { BranchPattern = BranchNameTemplate.DefaultPattern },
+        };
+        var branchCtx = new CommandContext(
+            new RenderingPipelineFactory(_formatterFactory, _spectreRenderer, isOutputRedirected: () => true),
+            _formatterFactory, new HintEngine(new DisplayConfig { Hints = true }), branchConfig);
+        var cmd = new StatusCommand(branchCtx, _contextStore, _workItemRepo, _pendingChangeStore,
+            _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _statusFieldReader, gitService: gitService);
 
         var result = await cmd.ExecuteAsync();
 

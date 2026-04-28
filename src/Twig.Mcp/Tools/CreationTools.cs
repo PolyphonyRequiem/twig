@@ -169,6 +169,28 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         return McpResultBuilder.FormatLinked(sourceId, targetId, linkType, warning);
     }
 
+    [McpServerTool(Name = "twig_link_branch"), Description("Link a git branch to a work item as an ADO artifact link")]
+    public async Task<CallToolResult> LinkBranch(
+        [Description("Work item ID to link the branch to")] int workItemId,
+        [Description("Branch name (e.g. feature/123-fix-login)")] string branchName,
+        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        CancellationToken ct = default)
+    {
+        if (workItemId <= 0)
+            return McpResultBuilder.ToError($"workItemId must be a positive work item ID (got {workItemId}).");
+
+        if (string.IsNullOrWhiteSpace(branchName))
+            return McpResultBuilder.ToError("branchName is required.");
+
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+
+        if (ctx.BranchLinkService is null)
+            return McpResultBuilder.ToError("Git context is not configured for this workspace.");
+
+        var result = await ctx.BranchLinkService.LinkBranchAsync(workItemId, branchName, ct);
+        return McpResultBuilder.FormatBranchLinked(result);
+    }
+
     [McpServerTool(Name = "twig_link_artifact"), Description("Add an artifact link (URL or vstfs:// URI) to a work item")]
     public async Task<CallToolResult> LinkArtifact(
         [Description("Work item ID to link the artifact to")] int workItemId,

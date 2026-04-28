@@ -137,26 +137,6 @@ public sealed class HintEngine
                 hints.Add("Run 'twig workspace' to see your sprint, or 'twig set <id>' to focus on an item.");
                 break;
 
-            case "branch":
-                hints.Add("Try: twig commit, twig status");
-                break;
-
-            case "commit":
-                hints.Add("Try: twig pr, twig status");
-                break;
-
-            case "pr":
-                hints.Add("PR created. Try: twig status, twig flow-done");
-                break;
-
-            case "hooks":
-                hints.Add("Try: twig context, twig branch, twig commit");
-                break;
-
-            case "context":
-                hints.Add("Try: twig set <id>, twig branch, twig hooks install");
-                break;
-
             case "workspace":
                 if (workspace is not null)
                 {

@@ -10,6 +10,8 @@ namespace Twig.Mcp.Tools;
 /// <summary>
 /// MCP tools for context management: twig_set, twig_status.
 /// Resolves per-workspace services via <see cref="WorkspaceResolver"/>.
+/// Status snapshot logic (active item resolution, pending changes, seeds) is inlined
+/// directly — no intermediate orchestrator.
 /// </summary>
 [McpServerToolType]
 public sealed class ContextTools(WorkspaceResolver resolver)
@@ -97,10 +99,27 @@ public sealed class ContextTools(WorkspaceResolver resolver)
         catch (Exception ex) when (ex is FormatException or KeyNotFoundException or AmbiguousWorkspaceException)
         { return McpResultBuilder.ToError(ex.Message); }
 
-        var snapshot = await ctx.StatusOrchestrator.GetSnapshotAsync(ct);
-
-        if (!snapshot.HasContext)
+        var activeId = await ctx.ContextStore.GetActiveWorkItemIdAsync(ct);
+        if (activeId is null)
             return McpResultBuilder.ToError("No active work item. Use twig_set to set context.");
+
+        var resolveResult = await ctx.ActiveItemResolver.GetActiveItemAsync(ct);
+        if (!resolveResult.TryGetWorkItem(out var item, out var unreachableId, out var unreachableReason))
+            return McpResultBuilder.FormatStatus(
+                StatusSnapshot.Unreachable(activeId.Value, unreachableId, unreachableReason),
+                ctx.Key.ToString());
+
+        var pending = await ctx.PendingChangeStore.GetChangesAsync(item.Id, ct);
+        var seeds = await ctx.WorkItemRepo.GetSeedsAsync(ct);
+
+        var snapshot = new StatusSnapshot
+        {
+            HasContext = true,
+            ActiveId = activeId.Value,
+            Item = item,
+            PendingChanges = pending,
+            Seeds = seeds,
+        };
 
         return McpResultBuilder.FormatStatus(snapshot, ctx.Key.ToString());
     }

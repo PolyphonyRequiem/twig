@@ -143,14 +143,6 @@ public sealed class WorkspaceContextFactory : IWorkspaceContextFactory, IDisposa
             config.User.DisplayName,
             trackingRepo);
 
-        var statusOrchestrator = new StatusOrchestrator(
-            contextStore,
-            workItemRepo,
-            pendingChangeStore,
-            activeItemResolver,
-            workingSetService,
-            syncCoordinatorFactory);
-
         var flusher = new McpPendingChangeFlusher(workItemRepo, adoService, pendingChangeStore);
 
         var parentPropagationService = new ParentStatePropagationService(
@@ -196,7 +188,6 @@ public sealed class WorkspaceContextFactory : IWorkspaceContextFactory, IDisposa
             activeItemResolver,
             syncCoordinatorFactory,
             contextChangeService,
-            statusOrchestrator,
             workingSetService,
             flusher,
             promptStateWriter,

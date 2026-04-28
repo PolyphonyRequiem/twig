@@ -142,9 +142,6 @@ public abstract class ReadToolsTestBase
         var workingSet = new WorkingSetService(
             contextStore, workItemRepo, pendingChangeStore, iterationService,
             config.User.DisplayName);
-        var statusOrch = new StatusOrchestrator(
-            contextStore, workItemRepo, pendingChangeStore, activeItemResolver,
-            workingSet, syncFactory);
         var flusher = new McpPendingChangeFlusher(workItemRepo, adoService, pendingChangeStore);
         var parentPropagation = new ParentStatePropagationService(
             workItemRepo, adoService, processConfigProvider, protectedWriter);
@@ -156,7 +153,7 @@ public abstract class ReadToolsTestBase
             workItemRepo, contextStore, pendingChangeStore,
             adoService, iterationService, processConfigProvider,
             activeItemResolver, syncFactory, contextChange,
-            statusOrch, workingSet, flusher, promptStateWriter, parentPropagation,
+            workingSet, flusher, promptStateWriter, parentPropagation,
             trackingRepo,
             branchLinkService);
     }

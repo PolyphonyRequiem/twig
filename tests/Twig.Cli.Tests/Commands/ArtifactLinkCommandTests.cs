@@ -3,7 +3,6 @@ using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Interfaces;
-using Twig.Domain.Services;
 using Twig.Domain.Services.Navigation;
 using Twig.Formatters;
 using Twig.TestKit;

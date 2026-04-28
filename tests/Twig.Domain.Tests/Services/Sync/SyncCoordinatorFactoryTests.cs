@@ -1,7 +1,6 @@
 using NSubstitute;
 using Shouldly;
 using Twig.Domain.Interfaces;
-using Twig.Domain.Services;
 using Twig.Domain.Services.Sync;
 using Twig.TestKit;
 using Xunit;

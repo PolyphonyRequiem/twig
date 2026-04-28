@@ -3,7 +3,6 @@ using Spectre.Console;
 using Spectre.Console.Testing;
 using Twig.Domain.Aggregates;
 using Twig.Domain.ReadModels;
-using Twig.Domain.Services;
 using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Config;

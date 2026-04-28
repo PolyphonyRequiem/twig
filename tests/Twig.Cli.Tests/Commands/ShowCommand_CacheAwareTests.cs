@@ -4,7 +4,6 @@ using Spectre.Console.Testing;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
-using Twig.Domain.Services;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;

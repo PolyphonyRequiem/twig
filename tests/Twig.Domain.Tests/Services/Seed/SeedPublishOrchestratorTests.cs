@@ -2,7 +2,6 @@ using NSubstitute;
 using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
-using Twig.Domain.Services;
 using Twig.Domain.Services.Workspace;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.ValueObjects;

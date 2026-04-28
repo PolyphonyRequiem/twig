@@ -52,7 +52,7 @@ public sealed class BranchCommand(
         if (!isValid) return exitCode;
 
         // 3. Generate branch name and create/checkout
-        var branchName = BranchNamingService.Generate(item, config.Git.BranchTemplate, config.Git.TypeMap);
+        var branchName = BranchNameTemplate.Generate(config.Git.BranchTemplate, item.Id, item.Type.Value, item.Title);
 
         bool branchCreated;
         try

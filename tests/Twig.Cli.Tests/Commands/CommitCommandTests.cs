@@ -82,7 +82,7 @@ public class CommitCommandTests
 
         // Commit was called with formatted message
         await _gitService.Received().CommitAsync(
-            "feat(#12345): implement auth",
+            "implement auth",
             Arg.Any<bool>(), Arg.Any<CancellationToken>());
 
         // Artifact link added
@@ -111,7 +111,7 @@ public class CommitCommandTests
 
         result.ShouldBe(0);
         await _gitService.Received().CommitAsync(
-            "fix(#42): fix null ref",
+            "fix null ref",
             Arg.Any<bool>(), Arg.Any<CancellationToken>());
     }
 
@@ -278,7 +278,7 @@ public class CommitCommandTests
     // ── Empty message ───────────────────────────────────────────────
 
     [Fact]
-    public async Task EmptyMessage_StillFormatsTemplate()
+    public async Task EmptyMessage_PassesEmptyString()
     {
         var item = CreateWorkItem(12345, "Add login");
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(12345);
@@ -291,7 +291,7 @@ public class CommitCommandTests
 
         result.ShouldBe(0);
         await _gitService.Received().CommitAsync(
-            "feat(#12345): ",
+            "",
             Arg.Any<bool>(), Arg.Any<CancellationToken>());
     }
 
@@ -364,7 +364,7 @@ public class CommitCommandTests
 
         result.ShouldBe(0);
         await _gitService.Received().CommitWithArgsAsync(
-            "feat(#12345): test",
+            "test",
             Arg.Is<IReadOnlyList<string>>(args => args.Count == 1 && args[0] == "--amend"),
             Arg.Any<CancellationToken>());
         // Should NOT call the simple CommitAsync
@@ -385,7 +385,7 @@ public class CommitCommandTests
 
         result.ShouldBe(0);
         await _gitService.Received().CommitAsync(
-            "feat(#12345): test",
+            "test",
             Arg.Any<bool>(), Arg.Any<CancellationToken>());
         await _gitService.DidNotReceive().CommitWithArgsAsync(
             Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>());
@@ -407,7 +407,7 @@ public class CommitCommandTests
 
         result.ShouldBe(0);
         await _gitService.Received().CommitAsync(
-            "feat(#12345): test",
+            "test",
             Arg.Any<bool>(), Arg.Any<CancellationToken>());
         await _gitService.DidNotReceive().CommitWithArgsAsync(
             Arg.Any<string>(), Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>());

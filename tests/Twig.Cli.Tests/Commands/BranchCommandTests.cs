@@ -474,9 +474,9 @@ public class BranchCommandTests
         var result = await cmd.ExecuteAsync(noLink: true, noTransition: true);
 
         result.ShouldBe(0);
-        // "User Story" maps to "feature" via the default type map in BranchNamingService
+        // Raw type "User Story" is slugified to "user-story" by BranchNameTemplate
         await _gitService.Received().CreateBranchAsync(
-            Arg.Is<string>(s => s.StartsWith("users/feature/42-")),
+            Arg.Is<string>(s => s.StartsWith("users/user-story/42-")),
             Arg.Any<CancellationToken>());
     }
 

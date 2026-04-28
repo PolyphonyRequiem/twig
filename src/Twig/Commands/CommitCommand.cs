@@ -48,8 +48,7 @@ public sealed class CommitCommand(
 
         // 3. Format commit message
         var userMessage = message ?? string.Empty;
-        var formattedMessage = CommitMessageService.Format(
-            item, userMessage, config.Git.CommitTemplate, config.Git.TypeMap);
+        var formattedMessage = userMessage;
 
         // 4. Execute git commit with formatted message and pass-through args
         string commitHash;

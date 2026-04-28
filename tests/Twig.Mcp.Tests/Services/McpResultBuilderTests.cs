@@ -1094,6 +1094,55 @@ public sealed class McpResultBuilderTests
         result.IsError.ShouldBeNull();
     }
 
+    // ── FormatDiscarded ─────────────────────────────────────────────
+
+    [Fact]
+    public void FormatDiscarded_WritesExpectedJson()
+    {
+        var result = McpResultBuilder.FormatDiscarded(42, notesDiscarded: 3, fieldEditsDiscarded: 2);
+        var root = ParseJson(result);
+
+        result.IsError.ShouldBeNull();
+        root.GetProperty("discarded").GetBoolean().ShouldBeTrue();
+        root.GetProperty("id").GetInt32().ShouldBe(42);
+        root.GetProperty("notesDiscarded").GetInt32().ShouldBe(3);
+        root.GetProperty("fieldEditsDiscarded").GetInt32().ShouldBe(2);
+    }
+
+    [Fact]
+    public void FormatDiscarded_ZeroCounts_WritesBothZeros()
+    {
+        var result = McpResultBuilder.FormatDiscarded(1, notesDiscarded: 0, fieldEditsDiscarded: 0);
+        var root = ParseJson(result);
+
+        root.GetProperty("discarded").GetBoolean().ShouldBeTrue();
+        root.GetProperty("notesDiscarded").GetInt32().ShouldBe(0);
+        root.GetProperty("fieldEditsDiscarded").GetInt32().ShouldBe(0);
+    }
+
+    // ── FormatDiscardedNone ─────────────────────────────────────────
+
+    [Fact]
+    public void FormatDiscardedNone_WritesExpectedJson()
+    {
+        var result = McpResultBuilder.FormatDiscardedNone(42, "My Task Title");
+        var root = ParseJson(result);
+
+        result.IsError.ShouldBeNull();
+        root.GetProperty("discarded").GetBoolean().ShouldBeFalse();
+        root.GetProperty("id").GetInt32().ShouldBe(42);
+        root.GetProperty("message").GetString()!.ShouldContain("#42");
+        root.GetProperty("message").GetString()!.ShouldContain("My Task Title");
+    }
+
+    [Fact]
+    public void FormatDiscardedNone_ResultIsNotError()
+    {
+        var result = McpResultBuilder.FormatDiscardedNone(7, "Some Item");
+
+        result.IsError.ShouldBeNull();
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────
 
     private static JsonElement ParseJson(CallToolResult result)

@@ -21,6 +21,7 @@ public class LinkCommandTests : IDisposable
     private readonly IWorkItemLinkRepository _linkRepo;
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly OutputFormatterFactory _formatterFactory;
+    private readonly ITelemetryClient _telemetryClient;
     private readonly StringWriter _stderr;
     private readonly StringWriter _stdout;
     private readonly TextWriter _originalOut;
@@ -32,6 +33,7 @@ public class LinkCommandTests : IDisposable
         _adoService = Substitute.For<IAdoWorkItemService>();
         _linkRepo = Substitute.For<IWorkItemLinkRepository>();
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
+        _telemetryClient = Substitute.For<ITelemetryClient>();
 
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(),
@@ -54,7 +56,7 @@ public class LinkCommandTests : IDisposable
         var syncCoordinatorFactory = new SyncCoordinatorFactory(
             _workItemRepo, _adoService, protectedWriter, _pendingChangeStore, _linkRepo,
             readOnlyStaleMinutes: 30, readWriteStaleMinutes: 30);
-        return new LinkCommand(resolver, _adoService, _linkRepo, syncCoordinatorFactory, _formatterFactory, _stderr);
+        return new LinkCommand(resolver, _adoService, _linkRepo, syncCoordinatorFactory, _formatterFactory, _telemetryClient, _stderr);
     }
 
     /// <summary>
@@ -501,6 +503,91 @@ public class LinkCommandTests : IDisposable
         result.ShouldBe(0);
         // Verify links are fetched and output contains link info
         await _linkRepo.Received(1).GetLinksAsync(42, Arg.Any<CancellationToken>());
+    }
+
+    // ── ParentAsync telemetry tests ────────────────────────────────
+
+    [Fact]
+    public async Task ParentAsync_Success_EmitsTelemetryWithExitCodeZero()
+    {
+        var child = new WorkItemBuilder(42, "Child Item").InState("Active").Build();
+        var parent = new WorkItemBuilder(100, "Parent Item").InState("Active").Build();
+
+        SetActiveItem(child);
+        SetResolvable(parent);
+        SetupResyncForItem(42);
+        SetupResyncForItem(100);
+        _linkRepo.GetLinksAsync(42, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItemLink>());
+
+        var cmd = CreateCommand();
+        await cmd.ParentAsync(100);
+
+        _telemetryClient.Received(1).TrackEvent(
+            "CommandExecuted",
+            Arg.Is<Dictionary<string, string>>(p =>
+                p["command"] == "link-parent" &&
+                p["exit_code"] == "0"),
+            Arg.Is<Dictionary<string, double>>(m =>
+                m.ContainsKey("duration_ms")));
+    }
+
+    [Fact]
+    public async Task ParentAsync_NoActiveItem_EmitsTelemetryWithExitCodeOne()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+
+        var cmd = CreateCommand();
+        await cmd.ParentAsync(100);
+
+        _telemetryClient.Received(1).TrackEvent(
+            "CommandExecuted",
+            Arg.Is<Dictionary<string, string>>(p =>
+                p["command"] == "link-parent" &&
+                p["exit_code"] == "1"),
+            Arg.Is<Dictionary<string, double>>(m =>
+                m.ContainsKey("duration_ms")));
+    }
+
+    [Fact]
+    public async Task ParentAsync_SelfParent_EmitsTelemetryWithExitCodeOne()
+    {
+        var item = new WorkItemBuilder(42, "Self Item").InState("Active").Build();
+        SetActiveItem(item);
+
+        var cmd = CreateCommand();
+        await cmd.ParentAsync(42);
+
+        _telemetryClient.Received(1).TrackEvent(
+            "CommandExecuted",
+            Arg.Is<Dictionary<string, string>>(p =>
+                p["command"] == "link-parent" &&
+                p["exit_code"] == "1"),
+            Arg.Is<Dictionary<string, double>>(m =>
+                m.ContainsKey("duration_ms")));
+    }
+
+    [Fact]
+    public async Task ParentAsync_NullTelemetryClient_DoesNotThrow()
+    {
+        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var protectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
+        var syncCoordinatorFactory = new SyncCoordinatorFactory(
+            _workItemRepo, _adoService, protectedWriter, _pendingChangeStore, _linkRepo,
+            readOnlyStaleMinutes: 30, readWriteStaleMinutes: 30);
+        var cmd = new LinkCommand(resolver, _adoService, _linkRepo, syncCoordinatorFactory, _formatterFactory, telemetryClient: null, stderr: _stderr);
+
+        var child = new WorkItemBuilder(42, "Child Item").InState("Active").Build();
+        var parent = new WorkItemBuilder(100, "Parent Item").InState("Active").Build();
+
+        SetActiveItem(child);
+        SetResolvable(parent);
+        SetupResyncForItem(42);
+        SetupResyncForItem(100);
+        _linkRepo.GetLinksAsync(42, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItemLink>());
+
+        var result = await cmd.ParentAsync(100);
+
+        result.ShouldBe(0);
     }
 
     public void Dispose()

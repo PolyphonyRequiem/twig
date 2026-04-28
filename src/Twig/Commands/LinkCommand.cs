@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Navigation;
@@ -17,6 +18,7 @@ public sealed class LinkCommand(
     IWorkItemLinkRepository linkRepo,
     SyncCoordinatorFactory syncCoordinatorFactory,
     OutputFormatterFactory formatterFactory,
+    ITelemetryClient? telemetryClient = null,
     TextWriter? stderr = null)
 {
     private const string HierarchyReverse = "System.LinkTypes.Hierarchy-Reverse";
@@ -27,6 +29,17 @@ public sealed class LinkCommand(
         int targetId,
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
+    {
+        var startTimestamp = Stopwatch.GetTimestamp();
+        var exitCode = await ParentCoreAsync(targetId, outputFormat, ct);
+        TelemetryHelper.TrackCommand(telemetryClient, "link-parent", outputFormat, exitCode, startTimestamp);
+        return exitCode;
+    }
+
+    private async Task<int> ParentCoreAsync(
+        int targetId,
+        string outputFormat,
+        CancellationToken ct)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 

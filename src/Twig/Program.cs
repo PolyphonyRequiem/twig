@@ -622,14 +622,6 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> LinkArtifact([Argument] string url, string? name = null, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ArtifactLinkCommand>().ExecuteAsync(url, name, id, output, ct);
 
-    /// <summary>Link an existing git branch to a work item as an ADO artifact link.</summary>
-    /// <param name="branchName">Branch name (short form, e.g. 'feature/123-fix').</param>
-    /// <param name="id">Target a specific work item by ID instead of the active item.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
-    [Command("link branch")]
-    public async Task<int> LinkBranch([Argument] string branchName, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<LinkBranchCommand>().ExecuteAsync(branchName, id, output, ct);
-
     /// <summary>Batch state transitions, field updates, and notes in a single call.</summary>
     /// <param name="state">Target state name (e.g. Active, Closed).</param>
     /// <param name="set">Field updates as key=value pairs. Repeatable.</param>
@@ -808,60 +800,6 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> ConfigStatusFields(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ConfigStatusFieldsCommand>().ExecuteAsync(output, ct);
 
-    /// <summary>Create/checkout a branch for the active work item and optionally link it.</summary>
-    /// <param name="noLink">Skip linking the branch to the work item in ADO.</param>
-    /// <param name="noTransition">Skip transitioning the work item state.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
-    public async Task<int> Branch(bool noLink = false, bool noTransition = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<BranchCommand>().ExecuteAsync(noLink, noTransition, output, ct);
-
-    /// <summary>Commit with a work-item-enriched message and optionally link the commit.</summary>
-    /// <param name="message">Commit message; auto-generated from the work item if omitted.</param>
-    /// <param name="noLink">Skip linking the commit to the work item.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
-    /// <param name="passthrough">Additional arguments forwarded to git commit.</param>
-    public async Task<int> Commit([Argument] string? message = null, bool noLink = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, params string[] passthrough)
-        => await services.GetRequiredService<CommitCommand>().ExecuteAsync(message, noLink, passthrough, output, ct);
-
-    /// <summary>Create an ADO pull request linked to the active work item.</summary>
-    /// <param name="target">Target branch for the pull request (defaults to main).</param>
-    /// <param name="title">PR title; auto-generated from the work item if omitted.</param>
-    /// <param name="draft">Create the pull request as a draft.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
-    public async Task<int> Pr(string? target = null, string? title = null, bool draft = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<PrCommand>().ExecuteAsync(target, title, draft, output, ct);
-
-    /// <summary>Stash changes with work item context in the stash message.</summary>
-    /// <param name="message">Stash message; auto-generated with work item context if omitted.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
-    [Command("stash")]
-    public async Task<int> Stash([Argument] string? message = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<StashCommand>().ExecuteAsync(message, output, ct);
-
-    /// <summary>Pop the most recent stash and restore Twig context.</summary>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
-    [Command("stash pop")]
-    public async Task<int> StashPop(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<StashCommand>().PopAsync(output, ct);
-
-    /// <summary>Show annotated git log with work item context.</summary>
-    /// <param name="count">Number of log entries to display.</param>
-    /// <param name="workItem">Filter log entries by work item ID.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
-    public async Task<int> Log(int count = 20, int? workItem = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<LogCommand>().ExecuteAsync(count, workItem, output, ct);
-
-    /// <summary>Show git context: branch, work item, and PR linkage.</summary>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
-    public async Task<int> Context(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<GitContextCommand>().ExecuteAsync(output, ct);
-
-    /// <summary>Internal hook handler invoked by git hook scripts.</summary>
-    [Hidden]
-    [Command("_hook")]
-    public async Task<int> Hook([Argument] string hookName, CancellationToken ct = default, params string[] args)
-        => await services.GetRequiredService<HookHandlerCommand>().ExecuteAsync(hookName, args, ct);
-
     /// <summary>Show the current version.</summary>
     public Task<int> Version()
     {
@@ -1033,7 +971,6 @@ internal static class GroupedHelp
         "link unparent",
         "link reparent",
         "link artifact",
-        "link branch",
 
         // Seeds
         "seed new",
@@ -1047,17 +984,6 @@ internal static class GroupedHelp
         "seed validate",
         "seed publish",
         "seed reconcile",
-
-        // Git
-        "branch",
-        "commit",
-        "pr",
-        "stash",
-        "stash pop",
-        "log",
-        "context",
-        "hooks install",
-        "hooks uninstall",
 
         // System
         "config",
@@ -1086,17 +1012,15 @@ internal static class GroupedHelp
         "seed",
         "save",
         "refresh",
-        "_hook",
 
         // Group prefixes for compound commands without standalone handlers
         "link",
-        "hooks",
     ];
 
     /// <summary>
     /// Returns <c>true</c> when <paramref name="args"/> begins with a recognized
     /// command name. All compound sub-command prefixes (e.g. <c>nav</c>, <c>seed</c>,
-    /// <c>link</c>, <c>hooks</c>) are already top-level entries in <see cref="KnownCommands"/>,
+    /// <c>link</c>) are already top-level entries in <see cref="KnownCommands"/>,
     /// so checking <c>args[0]</c> is sufficient.
     /// </summary>
     public static bool IsKnownCommand(string[] args)
@@ -1168,7 +1092,6 @@ Work Items:
   link unparent        Remove the parent link from the active item.
   link reparent <id>   Remove current parent and set a new one.
   link artifact <url>  Add an artifact link (URL or vstfs://) to an item.
-  link branch <name>   Link an existing git branch to a work item.
   discard <id>         Drop pending changes for a work item.
   discard --all        Drop all pending changes (excludes seeds).
   sync                 Flush pending changes then refresh from ADO.
@@ -1188,17 +1111,6 @@ Seeds:
   seed publish --all   Publish all seeds in dependency order.
   seed publish --all --link-branch <name>  Publish all and link to a branch.
   seed reconcile       Repair stale links after partial publishes.
-
-Git:
-  branch               Create/checkout a branch and link it.
-  commit [message]     Commit with a work-item-enriched message.
-  pr                   Create an ADO pull request.
-  stash [message]      Stash changes with work item context.
-  stash pop            Pop the most recent stash and restore context.
-  log                  Show annotated git log.
-  context              Show branch, work item, and PR linkage.
-  hooks install        Install Twig-managed git hooks.
-  hooks uninstall      Uninstall Twig-managed git hooks.
 
 System:
   config <key> [val]   Read or set a configuration value.

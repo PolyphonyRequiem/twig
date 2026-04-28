@@ -318,85 +318,11 @@ public class TwigConfigurationTests : IDisposable
     // --- GitConfig SetValue tests ---
 
     [Fact]
-    public void SetValue_GitBranchTemplate_SetsValue()
-    {
-        var config = new TwigConfiguration();
-        config.SetValue("git.branchtemplate", "bug/{id}-{title}").ShouldBeTrue();
-        config.Git.BranchTemplate.ShouldBe("bug/{id}-{title}");
-    }
-
-    [Fact]
     public void SetValue_GitBranchPattern_SetsValue()
     {
         var config = new TwigConfiguration();
         config.SetValue("git.branchpattern", @"^feature/(?<id>\d+)").ShouldBeTrue();
         config.Git.BranchPattern.ShouldBe(@"^feature/(?<id>\d+)");
-    }
-
-    [Fact]
-    public void SetValue_GitDefaultTarget_SetsValue()
-    {
-        var config = new TwigConfiguration();
-        config.SetValue("git.defaulttarget", "develop").ShouldBeTrue();
-        config.Git.DefaultTarget.ShouldBe("develop");
-    }
-
-    [Fact]
-    public void SetValue_GitCommitTemplate_SetsValue()
-    {
-        var config = new TwigConfiguration();
-        config.SetValue("git.committemplate", "fix(#{id}): {message}").ShouldBeTrue();
-        config.Git.CommitTemplate.ShouldBe("fix(#{id}): {message}");
-    }
-
-    [Fact]
-    public void SetValue_GitAutoLink_True()
-    {
-        var config = new TwigConfiguration();
-        config.Git.AutoLink = false; // start from non-default
-        config.SetValue("git.autolink", "true").ShouldBeTrue();
-        config.Git.AutoLink.ShouldBeTrue();
-    }
-
-    [Fact]
-    public void SetValue_GitAutoLink_False()
-    {
-        var config = new TwigConfiguration();
-        config.SetValue("git.autolink", "false").ShouldBeTrue();
-        config.Git.AutoLink.ShouldBeFalse();
-    }
-
-    [Fact]
-    public void SetValue_GitAutoLink_Invalid_ReturnsFalse()
-    {
-        var config = new TwigConfiguration();
-        config.SetValue("git.autolink", "yes").ShouldBeFalse();
-        config.Git.AutoLink.ShouldBeTrue(); // unchanged from default
-    }
-
-    [Fact]
-    public void SetValue_GitAutoTransition_True()
-    {
-        var config = new TwigConfiguration();
-        config.Git.AutoTransition = false; // start from non-default
-        config.SetValue("git.autotransition", "true").ShouldBeTrue();
-        config.Git.AutoTransition.ShouldBeTrue();
-    }
-
-    [Fact]
-    public void SetValue_GitAutoTransition_False()
-    {
-        var config = new TwigConfiguration();
-        config.SetValue("git.autotransition", "false").ShouldBeTrue();
-        config.Git.AutoTransition.ShouldBeFalse();
-    }
-
-    [Fact]
-    public void SetValue_GitAutoTransition_Invalid_ReturnsFalse()
-    {
-        var config = new TwigConfiguration();
-        config.SetValue("git.autotransition", "maybe").ShouldBeFalse();
-        config.Git.AutoTransition.ShouldBeTrue(); // unchanged from default
     }
 
     // --- GitConfig defaults ---
@@ -406,17 +332,7 @@ public class TwigConfigurationTests : IDisposable
     {
         var config = new TwigConfiguration();
         config.Git.ShouldNotBeNull();
-        config.Git.BranchTemplate.ShouldBe("feature/{id}-{title}");
         config.Git.BranchPattern.ShouldBe(@"(?:^|/)(?<id>\d{3,})(?:-|/|$)");
-        config.Git.CommitTemplate.ShouldBe("{type}(#{id}): {message}");
-        config.Git.DefaultTarget.ShouldBe("main");
-        config.Git.AutoLink.ShouldBeTrue();
-        config.Git.AutoTransition.ShouldBeTrue();
-        config.Git.TypeMap.ShouldBeNull();
-        config.Git.Hooks.ShouldNotBeNull();
-        config.Git.Hooks.PrepareCommitMsg.ShouldBeTrue();
-        config.Git.Hooks.CommitMsg.ShouldBeTrue();
-        config.Git.Hooks.PostCheckout.ShouldBeTrue();
     }
 
     // --- GitConfig round-trip serialization ---
@@ -431,23 +347,9 @@ public class TwigConfigurationTests : IDisposable
             Project = "testproj",
             Git = new GitConfig
             {
-                BranchTemplate = "bug/{id}-{title}",
                 BranchPattern = @"^fix/(?<id>\d+)",
-                CommitTemplate = "fix(#{id}): {message}",
-                DefaultTarget = "develop",
-                AutoLink = false,
-                AutoTransition = false,
-                TypeMap = new Dictionary<string, string>
-                {
-                    ["Bug"] = "fix",
-                    ["User Story"] = "feat",
-                },
-                Hooks = new HooksConfig
-                {
-                    PrepareCommitMsg = false,
-                    CommitMsg = true,
-                    PostCheckout = false,
-                },
+                Project = "GitProject",
+                Repository = "my-repo",
             },
         };
 
@@ -455,19 +357,9 @@ public class TwigConfigurationTests : IDisposable
         var loaded = await TwigConfiguration.LoadAsync(configPath);
 
         loaded.Git.ShouldNotBeNull();
-        loaded.Git.BranchTemplate.ShouldBe("bug/{id}-{title}");
         loaded.Git.BranchPattern.ShouldBe(@"^fix/(?<id>\d+)");
-        loaded.Git.CommitTemplate.ShouldBe("fix(#{id}): {message}");
-        loaded.Git.DefaultTarget.ShouldBe("develop");
-        loaded.Git.AutoLink.ShouldBeFalse();
-        loaded.Git.AutoTransition.ShouldBeFalse();
-        loaded.Git.TypeMap.ShouldNotBeNull();
-        loaded.Git.TypeMap!["Bug"].ShouldBe("fix");
-        loaded.Git.TypeMap["User Story"].ShouldBe("feat");
-        loaded.Git.Hooks.ShouldNotBeNull();
-        loaded.Git.Hooks.PrepareCommitMsg.ShouldBeFalse();
-        loaded.Git.Hooks.CommitMsg.ShouldBeTrue();
-        loaded.Git.Hooks.PostCheckout.ShouldBeFalse();
+        loaded.Git.Project.ShouldBe("GitProject");
+        loaded.Git.Repository.ShouldBe("my-repo");
     }
 
     [Fact]
@@ -479,8 +371,7 @@ public class TwigConfigurationTests : IDisposable
         var config = await TwigConfiguration.LoadAsync(configPath);
 
         config.Git.ShouldNotBeNull();
-        config.Git.BranchTemplate.ShouldBe("feature/{id}-{title}");
-        config.Git.DefaultTarget.ShouldBe("main");
+        config.Git.BranchPattern.ShouldBe(@"(?:^|/)(?<id>\d{3,})(?:-|/|$)");
     }
 
     [Fact]
@@ -622,8 +513,6 @@ public class TwigConfigurationTests : IDisposable
             {
                 Project = "GitProject",
                 Repository = "my-repo",
-                BranchTemplate = "feature/{id}-{title}",
-                DefaultTarget = "main",
             },
         };
 
@@ -633,107 +522,20 @@ public class TwigConfigurationTests : IDisposable
         loaded.Git.ShouldNotBeNull();
         loaded.Git.Project.ShouldBe("GitProject");
         loaded.Git.Repository.ShouldBe("my-repo");
-        loaded.Git.BranchTemplate.ShouldBe("feature/{id}-{title}");
-        loaded.Git.DefaultTarget.ShouldBe("main");
     }
 
     [Fact]
     public async Task GitConfig_ProjectAndRepository_DefaultToNull_WhenMissing()
     {
         var configPath = Path.Combine(_tempDir, "no_git_project.json");
-        await File.WriteAllTextAsync(configPath, """{"organization":"org","project":"proj","git":{"branchTemplate":"feature/{id}-{title}"}}""");
+        await File.WriteAllTextAsync(configPath, """{"organization":"org","project":"proj","git":{"branchPattern":"(?:^|/)(?<id>\\d{3,})(?:-|/|$)"}}""");
 
         var config = await TwigConfiguration.LoadAsync(configPath);
 
         config.Git.ShouldNotBeNull();
         config.Git.Project.ShouldBeNull();
         config.Git.Repository.ShouldBeNull();
-        config.Git.BranchTemplate.ShouldBe("feature/{id}-{title}");
-    }
-
-    // --- git.hooks.* SetValue tests ---
-
-    [Fact]
-    public void SetValue_GitHooksPrepareCommitMsg_False()
-    {
-        var config = new TwigConfiguration();
-        config.SetValue("git.hooks.preparecommitmsg", "false").ShouldBeTrue();
-        config.Git.Hooks.PrepareCommitMsg.ShouldBeFalse();
-    }
-
-    [Fact]
-    public void SetValue_GitHooksPrepareCommitMsg_True()
-    {
-        var config = new TwigConfiguration();
-        config.Git.Hooks.PrepareCommitMsg = false;
-        config.SetValue("git.hooks.preparecommitmsg", "true").ShouldBeTrue();
-        config.Git.Hooks.PrepareCommitMsg.ShouldBeTrue();
-    }
-
-    [Fact]
-    public void SetValue_GitHooksPrepareCommitMsg_Invalid_ReturnsFalse()
-    {
-        var config = new TwigConfiguration();
-        config.SetValue("git.hooks.preparecommitmsg", "yes").ShouldBeFalse();
-        config.Git.Hooks.PrepareCommitMsg.ShouldBeTrue(); // unchanged from default
-    }
-
-    [Fact]
-    public void SetValue_GitHooksCommitMsg_False()
-    {
-        var config = new TwigConfiguration();
-        config.SetValue("git.hooks.commitmsg", "false").ShouldBeTrue();
-        config.Git.Hooks.CommitMsg.ShouldBeFalse();
-    }
-
-    [Fact]
-    public void SetValue_GitHooksCommitMsg_True()
-    {
-        var config = new TwigConfiguration();
-        config.Git.Hooks.CommitMsg = false;
-        config.SetValue("git.hooks.commitmsg", "true").ShouldBeTrue();
-        config.Git.Hooks.CommitMsg.ShouldBeTrue();
-    }
-
-    [Fact]
-    public void SetValue_GitHooksCommitMsg_Invalid_ReturnsFalse()
-    {
-        var config = new TwigConfiguration();
-        config.SetValue("git.hooks.commitmsg", "no").ShouldBeFalse();
-        config.Git.Hooks.CommitMsg.ShouldBeTrue(); // unchanged from default
-    }
-
-    [Fact]
-    public void SetValue_GitHooksPostCheckout_False()
-    {
-        var config = new TwigConfiguration();
-        config.SetValue("git.hooks.postcheckout", "false").ShouldBeTrue();
-        config.Git.Hooks.PostCheckout.ShouldBeFalse();
-    }
-
-    [Fact]
-    public void SetValue_GitHooksPostCheckout_True()
-    {
-        var config = new TwigConfiguration();
-        config.Git.Hooks.PostCheckout = false;
-        config.SetValue("git.hooks.postcheckout", "true").ShouldBeTrue();
-        config.Git.Hooks.PostCheckout.ShouldBeTrue();
-    }
-
-    [Fact]
-    public void SetValue_GitHooksPostCheckout_Invalid_ReturnsFalse()
-    {
-        var config = new TwigConfiguration();
-        config.SetValue("git.hooks.postcheckout", "maybe").ShouldBeFalse();
-        config.Git.Hooks.PostCheckout.ShouldBeTrue(); // unchanged from default
-    }
-
-    [Fact]
-    public void SetValue_GitHooks_CaseInsensitiveKey()
-    {
-        var config = new TwigConfiguration();
-        config.SetValue("GIT.HOOKS.PREPARECOMMITMSG", "false").ShouldBeTrue();
-        config.Git.Hooks.PrepareCommitMsg.ShouldBeFalse();
+        config.Git.BranchPattern.ShouldBe(@"(?:^|/)(?<id>\d{3,})(?:-|/|$)");
     }
 
     // --- EPIC-004 display.fillRateThreshold, display.maxExtraColumns, display.columns.* ---

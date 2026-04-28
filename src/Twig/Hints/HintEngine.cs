@@ -4,7 +4,6 @@ using Twig.Domain.Extensions;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
 using Twig.Domain.Services.Process;
-using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Config;
 
 namespace Twig.Hints;
@@ -183,61 +182,6 @@ public sealed class HintEngine
         }
 
         return hints;
-    }
-
-    /// <summary>
-    /// Checks the current git branch name for a matching work item ID in the local cache.
-    /// Returns a hint string if the branch matches a known work item and no active context is set.
-    /// Returns null if no hint should be shown.
-    /// </summary>
-    /// <param name="activeContextId">The current active context work item ID, or null if none.</param>
-    /// <param name="gitService">Git service for branch detection. If null, returns null.</param>
-    /// <param name="workItemRepo">Repository for checking if the ID exists in cache.</param>
-    /// <param name="branchPattern">Regex pattern for extracting work item IDs from branch names.</param>
-    /// <param name="outputFormat">The output format being used.</param>
-    public async Task<string?> GetBranchDetectionHintAsync(
-        int? activeContextId,
-        IGitService? gitService,
-        IWorkItemRepository workItemRepo,
-        string branchPattern,
-        string outputFormat = "human")
-    {
-        if (!_hintsEnabled)
-            return null;
-
-        if (string.Equals(outputFormat, "json", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(outputFormat, "minimal", StringComparison.OrdinalIgnoreCase))
-            return null;
-
-        // Only emit when no active context is set
-        if (activeContextId.HasValue)
-            return null;
-
-        if (gitService is null)
-            return null;
-
-        try
-        {
-            var isInWorkTree = await gitService.IsInsideWorkTreeAsync();
-            if (!isInWorkTree)
-                return null;
-
-            var branchName = await gitService.GetCurrentBranchAsync();
-            var extractedId = BranchNameTemplate.ExtractWorkItemId(branchName, branchPattern);
-            if (extractedId is null)
-                return null;
-
-            var exists = await workItemRepo.ExistsByIdAsync(extractedId.Value);
-            if (!exists)
-                return null;
-
-            return $"Tip: branch matches #{extractedId.Value}. Run 'twig set {extractedId.Value}' to set context.";
-        }
-        catch (Exception)
-        {
-            // Git operations are best-effort — never fail on hint detection
-            return null;
-        }
     }
 
 }

@@ -193,11 +193,6 @@ internal static class CommandExamples
             "twig link artifact vstfs:///Git/Commit/p/r/abc123         Add an artifact link",
             "twig link artifact https://example.com --id 42            Link to a specific item",
         ],
-        ["link branch"] =
-        [
-            "twig link branch feature/my-branch       Link an existing branch to the active item",
-            "twig link branch feature/my-branch --id 42  Link a branch to a specific item",
-        ],
         ["note"] =
         [
             "twig note --text \"Investigated root cause\"   Add a note to the active item",
@@ -294,41 +289,6 @@ internal static class CommandExamples
         [
             "twig config status-fields                    Show configured status fields",
             "twig config status-fields --output json      Output status fields as JSON",
-        ],
-        ["branch"] =
-        [
-            "twig branch                Create a branch name from the active work item",
-            "twig branch --no-transition  Create branch without transitioning work item state",
-        ],
-        ["commit"] =
-        [
-            "twig commit                Create a commit message from the active work item",
-            "twig commit \"fix: my message\"  Commit with a custom message",
-        ],
-        ["pr"] =
-        [
-            "twig pr                    Open or create a PR for the current branch",
-            "twig pr --output json      Output PR info as JSON",
-        ],
-        ["stash"] =
-        [
-            "twig stash                 Stash pending changes on the active item",
-            "twig stash \"WIP: my changes\"  Stash with a descriptive message",
-        ],
-        ["stash pop"] =
-        [
-            "twig stash pop             Restore the most recently stashed changes",
-            "twig stash pop --output json  Output the restored stash details as JSON",
-        ],
-        ["log"] =
-        [
-            "twig log                   Show the change log for the active work item",
-            "twig log --output json     Output the change log as JSON",
-        ],
-        ["context"] =
-        [
-            "twig context               Show the current twig context (workspace, active item)",
-            "twig context --output json  Output context as JSON",
         ],
         ["version"] =
         [

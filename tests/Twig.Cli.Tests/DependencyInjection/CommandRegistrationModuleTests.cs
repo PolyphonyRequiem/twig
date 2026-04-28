@@ -114,4 +114,17 @@ public sealed class CommandRegistrationModuleTests
 
         command.ShouldNotBeNull();
     }
+
+    [Fact]
+    public void SetCommand_AutoResolution_Resolves_Successfully()
+    {
+        using var provider = BuildProviderForFlowCommands();
+
+        // SetCommand uses auto-resolution (no factory lambda).
+        // This verifies CommandContext and StatusFieldConfigReader resolve
+        // correctly after the constructor was refactored.
+        var command = provider.GetRequiredService<SetCommand>();
+
+        command.ShouldNotBeNull();
+    }
 }

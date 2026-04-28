@@ -10,6 +10,7 @@ using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
+using Twig.Rendering;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
@@ -21,7 +22,6 @@ public class TreeNavCommandTests
     private readonly IAdoWorkItemService _adoService;
     private readonly TwigConfiguration _config;
     private readonly OutputFormatterFactory _formatterFactory;
-    private readonly HintEngine _hintEngine;
     private readonly ActiveItemResolver _activeItemResolver;
     private readonly WorkingSetService _workingSetService;
     private readonly SyncCoordinatorFactory _syncCoordinatorFactory;
@@ -44,7 +44,7 @@ public class TreeNavCommandTests
         _config = new TwigConfiguration();
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
-        _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
+        var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         _adoService.FetchChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
@@ -57,8 +57,14 @@ public class TreeNavCommandTests
         var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, iterationService, null);
         _workingSetService = workingSetService;
         _processTypeStore = Substitute.For<IProcessTypeStore>();
-        _setCommand = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory,
-            workingSetService, _formatterFactory, _hintEngine);
+        var pipelineFactory = new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true);
+        var ctx = new CommandContext(pipelineFactory, _formatterFactory, hintEngine, _config);
+        var statusFieldReader = new StatusFieldConfigReader(new TwigPaths(
+            Path.Combine(Path.GetTempPath(), ".twig-treenav-test"),
+            Path.Combine(Path.GetTempPath(), ".twig-treenav-test", "config"),
+            Path.Combine(Path.GetTempPath(), ".twig-treenav-test", "twig.db")));
+        _setCommand = new SetCommand(ctx, _workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory,
+            workingSetService, statusFieldReader);
     }
 
     [Fact]

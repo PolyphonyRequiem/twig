@@ -13,6 +13,7 @@ using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
+using Twig.Rendering;
 using Twig.TestKit;
 using Xunit;
 
@@ -117,8 +118,11 @@ public class PromptStateIntegrationTests : IDisposable
         iterService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
         var wsService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, iterService, null);
-        var cmd = new SetCommand(_workItemRepo, _contextStore, resolver, syncCoordFactory,
-            wsService, _formatterFactory, _hintEngine, promptStateWriter: writer);
+        var pipelineFactory = new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true);
+        var ctx = new CommandContext(pipelineFactory, _formatterFactory, _hintEngine, _config);
+        var statusFieldReader = new StatusFieldConfigReader(_paths);
+        var cmd = new SetCommand(ctx, _workItemRepo, _contextStore, resolver, syncCoordFactory,
+            wsService, statusFieldReader, promptStateWriter: writer);
 
         var result = await cmd.ExecuteAsync("12345");
 
@@ -318,8 +322,11 @@ public class PromptStateIntegrationTests : IDisposable
         iterService2.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
         var wsService2 = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, iterService2, null);
-        var cmd = new SetCommand(_workItemRepo, _contextStore, resolver2, syncCoordFactory2,
-            wsService2, _formatterFactory, _hintEngine, promptStateWriter: failWriter);
+        var pipelineFactory2 = new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true);
+        var ctx2 = new CommandContext(pipelineFactory2, _formatterFactory, _hintEngine, _config);
+        var statusFieldReader2 = new StatusFieldConfigReader(badPaths);
+        var cmd = new SetCommand(ctx2, _workItemRepo, _contextStore, resolver2, syncCoordFactory2,
+            wsService2, statusFieldReader2, promptStateWriter: failWriter);
 
         var result = await cmd.ExecuteAsync("42");
 

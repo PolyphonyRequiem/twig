@@ -10,6 +10,7 @@ using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
+using Twig.Rendering;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
@@ -47,8 +48,14 @@ public class NextPrevCommandTests
         iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
         var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, iterationService, null);
-        var setCommand = new SetCommand(_workItemRepo, _contextStore, activeItemResolver, syncCoordinatorFactory,
-            workingSetService, formatterFactory, hintEngine);
+        var pipelineFactory = new RenderingPipelineFactory(formatterFactory, null!, isOutputRedirected: () => true);
+        var ctx = new CommandContext(pipelineFactory, formatterFactory, hintEngine, new TwigConfiguration());
+        var statusFieldReader = new StatusFieldConfigReader(new TwigPaths(
+            Path.Combine(Path.GetTempPath(), ".twig-nextprev-test"),
+            Path.Combine(Path.GetTempPath(), ".twig-nextprev-test", "config"),
+            Path.Combine(Path.GetTempPath(), ".twig-nextprev-test", "twig.db")));
+        var setCommand = new SetCommand(ctx, _workItemRepo, _contextStore, activeItemResolver, syncCoordinatorFactory,
+            workingSetService, statusFieldReader);
         _navCmd = new NavigationCommands(_contextStore, _workItemRepo, _seedLinkRepo, _workItemLinkRepo, setCommand, formatterFactory, activeItemResolver);
     }
 

@@ -139,7 +139,13 @@ public class CommandFormatterWiringTests
         iterService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
         var wsService = new WorkingSetService(contextStore, workItemRepo, pendingChangeStore, iterService, null);
-        var cmd = new SetCommand(workItemRepo, contextStore, resolver, syncCoordFactory, wsService, factory, hintEngine);
+        var pipelineFactory = new RenderingPipelineFactory(factory, null!, isOutputRedirected: () => true);
+        var ctx = new CommandContext(pipelineFactory, factory, hintEngine, new TwigConfiguration());
+        var statusFieldReader = new StatusFieldConfigReader(new TwigPaths(
+            Path.Combine(Path.GetTempPath(), ".twig-fmtwire-test"),
+            Path.Combine(Path.GetTempPath(), ".twig-fmtwire-test", "config"),
+            Path.Combine(Path.GetTempPath(), ".twig-fmtwire-test", "twig.db")));
+        var cmd = new SetCommand(ctx, workItemRepo, contextStore, resolver, syncCoordFactory, wsService, statusFieldReader);
 
         var result = await cmd.ExecuteAsync("42", "human");
 

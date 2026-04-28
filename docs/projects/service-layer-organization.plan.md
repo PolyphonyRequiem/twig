@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | ✅ Taxonomy Confirmed |
+| **Status** | ✅ Done |
 | **Work Item** | #2118 |
 | **Type** | Epic |
 | **Author** | Copilot |

@@ -90,7 +90,7 @@ public class SeedPublishCommandTests : IDisposable
     {
         var seed = new WorkItemBuilder(-5, "My Task").AsSeed().WithParent(100).Build();
         _workItemRepo.GetByIdAsync(-5, Arg.Any<CancellationToken>()).Returns(seed);
-        _adoService.CreateAsync(seed, Arg.Any<CancellationToken>()).Returns(42);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(42);
 
         var published = new WorkItemBuilder(42, "My Task").WithParent(100).Build();
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(published);
@@ -163,7 +163,7 @@ public class SeedPublishCommandTests : IDisposable
         result.ShouldBe(0);
         writer.ToString().ShouldContain("dry-run");
         writer.ToString().ShouldContain("Dry Run Seed");
-        await _adoService.DidNotReceive().CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -176,7 +176,7 @@ public class SeedPublishCommandTests : IDisposable
         // A seed with empty title would normally fail validation
         var seed = new WorkItemBuilder(-5, "").AsSeed().WithParent(100).Build();
         _workItemRepo.GetByIdAsync(-5, Arg.Any<CancellationToken>()).Returns(seed);
-        _adoService.CreateAsync(seed, Arg.Any<CancellationToken>()).Returns(50);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(50);
 
         var published = new WorkItemBuilder(50, "").WithParent(100).Build();
         _adoService.FetchAsync(50, Arg.Any<CancellationToken>()).Returns(published);
@@ -209,7 +209,7 @@ public class SeedPublishCommandTests : IDisposable
 
         result.ShouldBe(1);
         writer.ToString().ShouldContain("failed validation");
-        await _adoService.DidNotReceive().CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -244,7 +244,7 @@ public class SeedPublishCommandTests : IDisposable
 
         // Parent publish
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(parent);
-        _adoService.CreateAsync(parent, Arg.Any<CancellationToken>()).Returns(200);
+        _adoService.CreateAsync(Arg.Is<CreateWorkItemRequest>(r => r.Title == "Parent Seed"), Arg.Any<CancellationToken>()).Returns(200);
         var publishedParent = new WorkItemBuilder(200, "Parent Seed").WithParent(100).Build();
         _adoService.FetchAsync(200, Arg.Any<CancellationToken>()).Returns(publishedParent);
         _seedLinkRepo.GetLinksForItemAsync(200, Arg.Any<CancellationToken>())
@@ -253,7 +253,7 @@ public class SeedPublishCommandTests : IDisposable
         // After parent publishes, child's parent ID is remapped to 200
         var remappedChild = new WorkItemBuilder(-2, "Child Seed").AsSeed().WithParent(200).Build();
         _workItemRepo.GetByIdAsync(-2, Arg.Any<CancellationToken>()).Returns(remappedChild);
-        _adoService.CreateAsync(remappedChild, Arg.Any<CancellationToken>()).Returns(201);
+        _adoService.CreateAsync(Arg.Is<CreateWorkItemRequest>(r => r.Title == "Child Seed"), Arg.Any<CancellationToken>()).Returns(201);
         var publishedChild = new WorkItemBuilder(201, "Child Seed").WithParent(200).Build();
         _adoService.FetchAsync(201, Arg.Any<CancellationToken>()).Returns(publishedChild);
         _seedLinkRepo.GetLinksForItemAsync(201, Arg.Any<CancellationToken>())
@@ -310,7 +310,7 @@ public class SeedPublishCommandTests : IDisposable
 
         result.ShouldBe(0);
         writer.ToString().ShouldContain("dry-run");
-        await _adoService.DidNotReceive().CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -322,7 +322,7 @@ public class SeedPublishCommandTests : IDisposable
     {
         var seed = new WorkItemBuilder(-5, "JSON Seed").AsSeed().WithParent(100).Build();
         _workItemRepo.GetByIdAsync(-5, Arg.Any<CancellationToken>()).Returns(seed);
-        _adoService.CreateAsync(seed, Arg.Any<CancellationToken>()).Returns(42);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(42);
 
         var published = new WorkItemBuilder(42, "JSON Seed").WithParent(100).Build();
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(published);
@@ -350,7 +350,7 @@ public class SeedPublishCommandTests : IDisposable
     {
         var seed = new WorkItemBuilder(-5, "Min Seed").AsSeed().WithParent(100).Build();
         _workItemRepo.GetByIdAsync(-5, Arg.Any<CancellationToken>()).Returns(seed);
-        _adoService.CreateAsync(seed, Arg.Any<CancellationToken>()).Returns(42);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(42);
 
         var published = new WorkItemBuilder(42, "Min Seed").WithParent(100).Build();
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(published);
@@ -379,7 +379,7 @@ public class SeedPublishCommandTests : IDisposable
         _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>())
             .Returns(new List<SeedLink>());
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
-        _adoService.CreateAsync(seed, Arg.Any<CancellationToken>()).Returns(200);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(200);
         var published = new WorkItemBuilder(200, "Batch Branch Seed").WithParent(100).Build();
         _adoService.FetchAsync(200, Arg.Any<CancellationToken>()).Returns(published);
         _seedLinkRepo.GetLinksForItemAsync(200, Arg.Any<CancellationToken>())
@@ -401,7 +401,7 @@ public class SeedPublishCommandTests : IDisposable
         // still publish seeds successfully when --link-branch is passed.
         var seed = new WorkItemBuilder(-5, "No Git Seed").AsSeed().WithParent(100).Build();
         _workItemRepo.GetByIdAsync(-5, Arg.Any<CancellationToken>()).Returns(seed);
-        _adoService.CreateAsync(seed, Arg.Any<CancellationToken>()).Returns(42);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(42);
 
         var published = new WorkItemBuilder(42, "No Git Seed").WithParent(100).Build();
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(published);
@@ -449,7 +449,7 @@ public class SeedPublishCommandTests : IDisposable
 
         var seed = new WorkItemBuilder(-5, "Link Seed").AsSeed().WithParent(100).Build();
         _workItemRepo.GetByIdAsync(-5, Arg.Any<CancellationToken>()).Returns(seed);
-        _adoService.CreateAsync(seed, Arg.Any<CancellationToken>()).Returns(42);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(42);
 
         var published = new WorkItemBuilder(42, "Link Seed").WithParent(100).Build();
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(published);
@@ -486,14 +486,14 @@ public class SeedPublishCommandTests : IDisposable
             .Returns(new List<SeedLink>());
 
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed1);
-        _adoService.CreateAsync(seed1, Arg.Any<CancellationToken>()).Returns(200);
+        _adoService.CreateAsync(Arg.Is<CreateWorkItemRequest>(r => r.Title == "Seed A"), Arg.Any<CancellationToken>()).Returns(200);
         var pub1 = new WorkItemBuilder(200, "Seed A").WithParent(100).Build();
         _adoService.FetchAsync(200, Arg.Any<CancellationToken>()).Returns(pub1);
         _seedLinkRepo.GetLinksForItemAsync(200, Arg.Any<CancellationToken>())
             .Returns(new List<SeedLink>());
 
         _workItemRepo.GetByIdAsync(-2, Arg.Any<CancellationToken>()).Returns(seed2);
-        _adoService.CreateAsync(seed2, Arg.Any<CancellationToken>()).Returns(201);
+        _adoService.CreateAsync(Arg.Is<CreateWorkItemRequest>(r => r.Title == "Seed B"), Arg.Any<CancellationToken>()).Returns(201);
         var pub2 = new WorkItemBuilder(201, "Seed B").WithParent(100).Build();
         _adoService.FetchAsync(201, Arg.Any<CancellationToken>()).Returns(pub2);
         _seedLinkRepo.GetLinksForItemAsync(201, Arg.Any<CancellationToken>())
@@ -530,7 +530,7 @@ public class SeedPublishCommandTests : IDisposable
 
         var seed = new WorkItemBuilder(-5, "Fail Link Seed").AsSeed().WithParent(100).Build();
         _workItemRepo.GetByIdAsync(-5, Arg.Any<CancellationToken>()).Returns(seed);
-        _adoService.CreateAsync(seed, Arg.Any<CancellationToken>()).Returns(42);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(42);
 
         var published = new WorkItemBuilder(42, "Fail Link Seed").WithParent(100).Build();
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(published);
@@ -579,7 +579,7 @@ public class SeedPublishCommandTests : IDisposable
 
         var seed = new WorkItemBuilder(-5, "NullProj Seed").AsSeed().WithParent(100).Build();
         _workItemRepo.GetByIdAsync(-5, Arg.Any<CancellationToken>()).Returns(seed);
-        _adoService.CreateAsync(seed, Arg.Any<CancellationToken>()).Returns(42);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(42);
 
         var published = new WorkItemBuilder(42, "NullProj Seed").WithParent(100).Build();
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(published);
@@ -628,14 +628,14 @@ public class SeedPublishCommandTests : IDisposable
             .Returns(new List<SeedLink>());
 
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed1);
-        _adoService.CreateAsync(seed1, Arg.Any<CancellationToken>()).Returns(200);
+        _adoService.CreateAsync(Arg.Is<CreateWorkItemRequest>(r => r.Title == "Seed 1"), Arg.Any<CancellationToken>()).Returns(200);
         _adoService.FetchAsync(200, Arg.Any<CancellationToken>())
             .Returns(new WorkItemBuilder(200, "Seed 1").WithParent(100).Build());
         _seedLinkRepo.GetLinksForItemAsync(200, Arg.Any<CancellationToken>())
             .Returns(new List<SeedLink>());
 
         _workItemRepo.GetByIdAsync(-2, Arg.Any<CancellationToken>()).Returns(seed2);
-        _adoService.CreateAsync(seed2, Arg.Any<CancellationToken>()).Returns(201);
+        _adoService.CreateAsync(Arg.Is<CreateWorkItemRequest>(r => r.Title == "Seed 2"), Arg.Any<CancellationToken>()).Returns(201);
         _adoService.FetchAsync(201, Arg.Any<CancellationToken>())
             .Returns(new WorkItemBuilder(201, "Seed 2").WithParent(100).Build());
         _seedLinkRepo.GetLinksForItemAsync(201, Arg.Any<CancellationToken>())
@@ -662,7 +662,7 @@ public class SeedPublishCommandTests : IDisposable
 
         var seed = new WorkItemBuilder(-5, "No Link Seed").AsSeed().WithParent(100).Build();
         _workItemRepo.GetByIdAsync(-5, Arg.Any<CancellationToken>()).Returns(seed);
-        _adoService.CreateAsync(seed, Arg.Any<CancellationToken>()).Returns(42);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(42);
 
         var published = new WorkItemBuilder(42, "No Link Seed").WithParent(100).Build();
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(published);
@@ -694,7 +694,7 @@ public class SeedPublishCommandTests : IDisposable
         _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>())
             .Returns(new List<SeedLink>());
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
-        _adoService.CreateAsync(seed, Arg.Any<CancellationToken>()).Returns(200);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(200);
         _adoService.FetchAsync(200, Arg.Any<CancellationToken>())
             .Returns(new WorkItemBuilder(200, "Batch No Link").WithParent(100).Build());
         _seedLinkRepo.GetLinksForItemAsync(200, Arg.Any<CancellationToken>())
@@ -725,7 +725,7 @@ public class SeedPublishCommandTests : IDisposable
 
         var seed = new WorkItemBuilder(-5, "NullRepo Seed").AsSeed().WithParent(100).Build();
         _workItemRepo.GetByIdAsync(-5, Arg.Any<CancellationToken>()).Returns(seed);
-        _adoService.CreateAsync(seed, Arg.Any<CancellationToken>()).Returns(42);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(42);
 
         var published = new WorkItemBuilder(42, "NullRepo Seed").WithParent(100).Build();
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(published);
@@ -772,14 +772,14 @@ public class SeedPublishCommandTests : IDisposable
             .Returns(new List<SeedLink>());
 
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed1);
-        _adoService.CreateAsync(seed1, Arg.Any<CancellationToken>()).Returns(200);
+        _adoService.CreateAsync(Arg.Is<CreateWorkItemRequest>(r => r.Title == "Seed OK"), Arg.Any<CancellationToken>()).Returns(200);
         _adoService.FetchAsync(200, Arg.Any<CancellationToken>())
             .Returns(new WorkItemBuilder(200, "Seed OK").WithParent(100).Build());
         _seedLinkRepo.GetLinksForItemAsync(200, Arg.Any<CancellationToken>())
             .Returns(new List<SeedLink>());
 
         _workItemRepo.GetByIdAsync(-2, Arg.Any<CancellationToken>()).Returns(seed2);
-        _adoService.CreateAsync(seed2, Arg.Any<CancellationToken>()).Returns(201);
+        _adoService.CreateAsync(Arg.Is<CreateWorkItemRequest>(r => r.Title == "Seed Fail"), Arg.Any<CancellationToken>()).Returns(201);
         _adoService.FetchAsync(201, Arg.Any<CancellationToken>())
             .Returns(new WorkItemBuilder(201, "Seed Fail").WithParent(100).Build());
         _seedLinkRepo.GetLinksForItemAsync(201, Arg.Any<CancellationToken>())
@@ -840,7 +840,7 @@ public class SeedPublishCommandTests : IDisposable
 
         var seed = new WorkItemBuilder(-5, "Encoded Seed").AsSeed().WithParent(100).Build();
         _workItemRepo.GetByIdAsync(-5, Arg.Any<CancellationToken>()).Returns(seed);
-        _adoService.CreateAsync(seed, Arg.Any<CancellationToken>()).Returns(42);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(42);
 
         var published = new WorkItemBuilder(42, "Encoded Seed").WithParent(100).Build();
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(published);

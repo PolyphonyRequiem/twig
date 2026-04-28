@@ -3,6 +3,7 @@ using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
+using Twig.Domain.Extensions;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.Services.Sync;
@@ -85,7 +86,7 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
             seed.SetField("System.Description", MarkdownConverter.ToHtml(description));
 
         int newId;
-        try { newId = await ctx.AdoService.CreateAsync(seed, ct); }
+        try { newId = await ctx.AdoService.CreateAsync(seed.ToCreateRequest(), ct); }
         catch (Exception ex) when (ex is not OperationCanceledException)
         { return McpResultBuilder.ToError($"Create failed: {ex.Message}"); }
 
@@ -266,7 +267,7 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
             seed.SetField("System.Description", MarkdownConverter.ToHtml(description));
 
         int newId;
-        try { newId = await ctx.AdoService.CreateAsync(seed, ct); }
+        try { newId = await ctx.AdoService.CreateAsync(seed.ToCreateRequest(), ct); }
         catch (Exception ex) when (ex is not OperationCanceledException)
         { return McpResultBuilder.ToError($"Create failed: {ex.Message}"); }
 

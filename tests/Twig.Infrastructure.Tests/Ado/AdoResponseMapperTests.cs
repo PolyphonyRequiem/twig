@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Shouldly;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Extensions;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Ado.Dtos;
@@ -325,7 +326,7 @@ public class AdoResponseMapperTests
     {
         var seed = new WorkItemBuilder(-1, "New Task").AsSeed().Build();
 
-        var result = AdoResponseMapper.MapSeedToCreatePayload(seed, "https://dev.azure.com/myorg");
+        var result = AdoResponseMapper.MapSeedToCreatePayload(seed.ToCreateRequest(), "https://dev.azure.com/myorg");
 
         result.ShouldNotBeEmpty();
         result.ShouldContain(op => op.Path == "/fields/System.Title" && op.Value != null && op.Value.GetValue<string>() == "New Task");
@@ -338,7 +339,7 @@ public class AdoResponseMapperTests
     {
         var seed = new WorkItemBuilder(-1, "Child Task").WithParent(42).AsSeed().Build();
 
-        var result = AdoResponseMapper.MapSeedToCreatePayload(seed, "https://dev.azure.com/myorg", parentId: 42);
+        var result = AdoResponseMapper.MapSeedToCreatePayload(seed.ToCreateRequest(), "https://dev.azure.com/myorg");
 
         result.ShouldContain(op => op.Path == "/relations/-");
         result.ShouldContain(op => op.Path == "/fields/System.Tags" && op.Value!.GetValue<string>() == "twig");
@@ -354,7 +355,7 @@ public class AdoResponseMapperTests
             .AsSeed()
             .Build();
 
-        var result = AdoResponseMapper.MapSeedToCreatePayload(seed, "https://dev.azure.com/org");
+        var result = AdoResponseMapper.MapSeedToCreatePayload(seed.ToCreateRequest(), "https://dev.azure.com/org");
 
         result.ShouldContain(op => op.Path == "/fields/System.AreaPath");
         result.ShouldContain(op => op.Path == "/fields/System.IterationPath");
@@ -371,7 +372,7 @@ public class AdoResponseMapperTests
             ["Microsoft.VSTS.Common.Priority"] = "1",
         });
 
-        var result = AdoResponseMapper.MapSeedToCreatePayload(seed, "https://dev.azure.com/org");
+        var result = AdoResponseMapper.MapSeedToCreatePayload(seed.ToCreateRequest(), "https://dev.azure.com/org");
 
         result.ShouldContain(op => op.Path == "/fields/System.Description" && op.Value!.GetValue<string>() == "A description");
         result.ShouldContain(op => op.Path == "/fields/Microsoft.VSTS.Common.Priority" && op.Value!.GetValue<string>() == "1");
@@ -388,7 +389,7 @@ public class AdoResponseMapperTests
             ["Microsoft.VSTS.Common.Priority"] = null,
         });
 
-        var result = AdoResponseMapper.MapSeedToCreatePayload(seed, "https://dev.azure.com/org");
+        var result = AdoResponseMapper.MapSeedToCreatePayload(seed.ToCreateRequest(), "https://dev.azure.com/org");
 
         result.ShouldNotContain(op => op.Path == "/fields/System.Description");
         result.ShouldNotContain(op => op.Path == "/fields/Microsoft.VSTS.Common.Priority");
@@ -412,7 +413,7 @@ public class AdoResponseMapperTests
             ["System.WorkItemType"] = "Task",
         });
 
-        var result = AdoResponseMapper.MapSeedToCreatePayload(seed, "https://dev.azure.com/org");
+        var result = AdoResponseMapper.MapSeedToCreatePayload(seed.ToCreateRequest(), "https://dev.azure.com/org");
 
         result.ShouldNotContain(op => op.Path == "/fields/System.Id");
         result.ShouldNotContain(op => op.Path == "/fields/System.Rev");
@@ -442,7 +443,7 @@ public class AdoResponseMapperTests
             ["Microsoft.VSTS.Common.Priority"] = "2",
         });
 
-        var result = AdoResponseMapper.MapSeedToCreatePayload(seed, "https://dev.azure.com/org");
+        var result = AdoResponseMapper.MapSeedToCreatePayload(seed.ToCreateRequest(), "https://dev.azure.com/org");
 
         // Title, AreaPath, IterationPath, Tags should appear exactly once each
         result.Count(op => op.Path == "/fields/System.Title").ShouldBe(1);
@@ -464,7 +465,7 @@ public class AdoResponseMapperTests
             ["System.Tags"] = "frontend; api",
         });
 
-        var result = AdoResponseMapper.MapSeedToCreatePayload(seed, "https://dev.azure.com/org");
+        var result = AdoResponseMapper.MapSeedToCreatePayload(seed.ToCreateRequest(), "https://dev.azure.com/org");
 
         result.Count(op => op.Path == "/fields/System.Tags").ShouldBe(1);
         var tagOp = result.Single(op => op.Path == "/fields/System.Tags");
@@ -480,7 +481,7 @@ public class AdoResponseMapperTests
             ["System.Tags"] = "frontend; twig",
         });
 
-        var result = AdoResponseMapper.MapSeedToCreatePayload(seed, "https://dev.azure.com/org");
+        var result = AdoResponseMapper.MapSeedToCreatePayload(seed.ToCreateRequest(), "https://dev.azure.com/org");
 
         result.Count(op => op.Path == "/fields/System.Tags").ShouldBe(1);
         var tagOp = result.Single(op => op.Path == "/fields/System.Tags");
@@ -496,7 +497,7 @@ public class AdoResponseMapperTests
             ["System.Tags"] = "Twig; backend",
         });
 
-        var result = AdoResponseMapper.MapSeedToCreatePayload(seed, "https://dev.azure.com/org");
+        var result = AdoResponseMapper.MapSeedToCreatePayload(seed.ToCreateRequest(), "https://dev.azure.com/org");
 
         result.Count(op => op.Path == "/fields/System.Tags").ShouldBe(1);
         var tagOp = result.Single(op => op.Path == "/fields/System.Tags");

@@ -103,11 +103,11 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         return dto.Rev;
     }
 
-    public async Task<int> CreateAsync(WorkItem seed, CancellationToken ct = default)
+    public async Task<int> CreateAsync(CreateWorkItemRequest request, CancellationToken ct = default)
     {
-        var typeName = Uri.EscapeDataString(seed.Type.Value);
+        var typeName = Uri.EscapeDataString(request.TypeName);
         var url = $"{_orgUrl}/{_project}/_apis/wit/workitems/${typeName}?api-version={ApiVersion}";
-        var patchDoc = AdoResponseMapper.MapSeedToCreatePayload(seed, _orgUrl, seed.ParentId);
+        var patchDoc = AdoResponseMapper.MapSeedToCreatePayload(request, _orgUrl);
         var json = JsonSerializer.Serialize(patchDoc, TwigJsonContext.Default.ListAdoPatchOperation);
         var content = new StringContent(json, Encoding.UTF8, JsonPatchMediaType);
 

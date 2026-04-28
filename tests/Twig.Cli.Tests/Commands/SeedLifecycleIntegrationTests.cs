@@ -2,6 +2,7 @@ using NSubstitute;
 using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Extensions;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Workspace;
 using Twig.Domain.Services.Navigation;
@@ -301,7 +302,7 @@ public class SeedLifecycleIntegrationTests : IDisposable
         validateWriter.ToString().ShouldContain("✔");
 
         // ── Step 3: twig seed publish ──────────────────────────────────
-        _adoService.CreateAsync(savedSeed, Arg.Any<CancellationToken>()).Returns(500);
+        _adoService.CreateAsync(Arg.Is<CreateWorkItemRequest>(r => r.Title == savedSeed.Title), Arg.Any<CancellationToken>()).Returns(500);
         var fetchedItem = new WorkItemBuilder(500, "Publishable Seed").WithParent(100).Build();
         _adoService.FetchAsync(500, Arg.Any<CancellationToken>()).Returns(fetchedItem);
         _seedLinkRepo.GetLinksForItemAsync(500, Arg.Any<CancellationToken>())
@@ -351,7 +352,7 @@ public class SeedLifecycleIntegrationTests : IDisposable
 
         // Parent publish
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(parentSeed);
-        _adoService.CreateAsync(parentSeed, Arg.Any<CancellationToken>()).Returns(600);
+        _adoService.CreateAsync(Arg.Is<CreateWorkItemRequest>(r => r.Title == "Parent Seed"), Arg.Any<CancellationToken>()).Returns(600);
         var fetchedParent = new WorkItemBuilder(600, "Parent Seed").WithParent(100).Build();
         _adoService.FetchAsync(600, Arg.Any<CancellationToken>()).Returns(fetchedParent);
         _seedLinkRepo.GetLinksForItemAsync(600, Arg.Any<CancellationToken>())
@@ -360,7 +361,7 @@ public class SeedLifecycleIntegrationTests : IDisposable
         // After parent is published, child's ParentId gets remapped to 600
         var remappedChild = new WorkItemBuilder(-2, "Child Seed").AsSeed().WithParent(600).Build();
         _workItemRepo.GetByIdAsync(-2, Arg.Any<CancellationToken>()).Returns(remappedChild);
-        _adoService.CreateAsync(remappedChild, Arg.Any<CancellationToken>()).Returns(601);
+        _adoService.CreateAsync(Arg.Is<CreateWorkItemRequest>(r => r.Title == "Child Seed"), Arg.Any<CancellationToken>()).Returns(601);
         var fetchedChild = new WorkItemBuilder(601, "Child Seed").WithParent(600).Build();
         _adoService.FetchAsync(601, Arg.Any<CancellationToken>()).Returns(fetchedChild);
         _seedLinkRepo.GetLinksForItemAsync(601, Arg.Any<CancellationToken>())
@@ -387,8 +388,8 @@ public class SeedLifecycleIntegrationTests : IDisposable
             .Where(c => c.GetMethodInfo().Name == "CreateAsync")
             .ToList();
         createCalls.Count.ShouldBe(2);
-        ((WorkItem)createCalls[0].GetArguments()[0]!).Title.ShouldBe("Parent Seed");
-        ((WorkItem)createCalls[1].GetArguments()[0]!).Title.ShouldBe("Child Seed");
+        ((CreateWorkItemRequest)createCalls[0].GetArguments()[0]!).Title.ShouldBe("Parent Seed");
+        ((CreateWorkItemRequest)createCalls[1].GetArguments()[0]!).Title.ShouldBe("Child Seed");
     }
 }
 

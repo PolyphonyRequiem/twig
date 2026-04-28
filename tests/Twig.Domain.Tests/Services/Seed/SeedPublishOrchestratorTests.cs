@@ -58,7 +58,7 @@ public class SeedPublishOrchestratorTests
         result.IsSuccess.ShouldBeTrue();
 
         // No ADO calls should be made
-        await _adoService.DidNotReceive().CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -127,7 +127,7 @@ public class SeedPublishOrchestratorTests
         result.IsSuccess.ShouldBeFalse();
 
         // No ADO calls
-        await _adoService.DidNotReceive().CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -164,7 +164,7 @@ public class SeedPublishOrchestratorTests
         result.IsSuccess.ShouldBeTrue();
 
         // No ADO calls
-        await _adoService.DidNotReceive().CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -204,7 +204,7 @@ public class SeedPublishOrchestratorTests
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
 
         var fetchedItem = new WorkItemBuilder(500, "Seed").Build(); // IsSeed = false from ADO
-        _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>()).Returns(500);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(500);
         _adoService.FetchAsync(500, Arg.Any<CancellationToken>()).Returns(fetchedItem);
 
         var result = await _orchestrator.PublishAsync(-1);
@@ -284,7 +284,7 @@ public class SeedPublishOrchestratorTests
         var result = await _orchestrator.PublishAsync(-1, force: true, dryRun: true);
 
         result.Status.ShouldBe(SeedPublishStatus.DryRun);
-        await _adoService.DidNotReceive().CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
     }
 
     // ── Helpers ──────────────────────────────────────────────────────
@@ -292,7 +292,7 @@ public class SeedPublishOrchestratorTests
     private void SetupSuccessfulAdoFlow(int seedId, int newId)
     {
         var fetchedItem = new WorkItemBuilder(newId, "Fetched").Build();
-        _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>()).Returns(newId);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(newId);
         _adoService.FetchAsync(newId, Arg.Any<CancellationToken>()).Returns(fetchedItem);
     }
 
@@ -384,9 +384,9 @@ public class SeedPublishOrchestratorTests
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(childAfterRemap);
 
         // ADO flows
-        _adoService.CreateAsync(Arg.Is<WorkItem>(w => w.Id == -2), Arg.Any<CancellationToken>()).Returns(200);
+        _adoService.CreateAsync(Arg.Is<CreateWorkItemRequest>(r => r.Title == "Parent"), Arg.Any<CancellationToken>()).Returns(200);
         _adoService.FetchAsync(200, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(200, "Parent").Build());
-        _adoService.CreateAsync(Arg.Is<WorkItem>(w => w.Id == -1), Arg.Any<CancellationToken>()).Returns(201);
+        _adoService.CreateAsync(Arg.Is<CreateWorkItemRequest>(r => r.Title == "Child"), Arg.Any<CancellationToken>()).Returns(201);
         _adoService.FetchAsync(201, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(201, "Child").Build());
 
         // No links to promote
@@ -454,11 +454,11 @@ public class SeedPublishOrchestratorTests
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed1);
 
         // ADO flows with unique IDs
-        _adoService.CreateAsync(Arg.Is<WorkItem>(w => w.Id == -3), Arg.Any<CancellationToken>()).Returns(300);
+        _adoService.CreateAsync(Arg.Is<CreateWorkItemRequest>(r => r.Title == "Root"), Arg.Any<CancellationToken>()).Returns(300);
         _adoService.FetchAsync(300, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(300, "Root").Build());
-        _adoService.CreateAsync(Arg.Is<WorkItem>(w => w.Id == -2), Arg.Any<CancellationToken>()).Returns(301);
+        _adoService.CreateAsync(Arg.Is<CreateWorkItemRequest>(r => r.Title == "Mid"), Arg.Any<CancellationToken>()).Returns(301);
         _adoService.FetchAsync(301, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(301, "Mid").Build());
-        _adoService.CreateAsync(Arg.Is<WorkItem>(w => w.Id == -1), Arg.Any<CancellationToken>()).Returns(302);
+        _adoService.CreateAsync(Arg.Is<CreateWorkItemRequest>(r => r.Title == "Leaf"), Arg.Any<CancellationToken>()).Returns(302);
         _adoService.FetchAsync(302, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(302, "Leaf").Build());
 
         _seedLinkRepo.GetLinksForItemAsync(Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(Array.Empty<SeedLink>());
@@ -487,7 +487,7 @@ public class SeedPublishOrchestratorTests
 
         result.Results.Count.ShouldBe(1);
         result.Results[0].Status.ShouldBe(SeedPublishStatus.DryRun);
-        await _adoService.DidNotReceive().CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -505,7 +505,7 @@ public class SeedPublishOrchestratorTests
         fetchedItem.MarkSynced(1);
         var refreshedItem = new WorkItemBuilder(500, "Refreshed").Build();
         refreshedItem.MarkSynced(3);
-        _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>()).Returns(500);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(500);
         _adoService.FetchAsync(500, Arg.Any<CancellationToken>()).Returns(fetchedItem, refreshedItem);
 
         var result = await _orchestrator.PublishAsync(-1);
@@ -532,7 +532,7 @@ public class SeedPublishOrchestratorTests
 
         var fetchedItem = new WorkItemBuilder(500, "Fetched").Build();
         fetchedItem.MarkSynced(1);
-        _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>()).Returns(500);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(500);
 
         // First FetchAsync succeeds (step 8), second throws (step 12b post-publish refresh)
         _adoService.FetchAsync(500, Arg.Any<CancellationToken>())
@@ -559,7 +559,7 @@ public class SeedPublishOrchestratorTests
 
         var fetchedItem = new WorkItemBuilder(500, "Fetched").Build();
         var refreshedItem = new WorkItemBuilder(500, "Refreshed").Build();
-        _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>()).Returns(500);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(500);
         _adoService.FetchAsync(500, Arg.Any<CancellationToken>()).Returns(fetchedItem, refreshedItem);
 
         // First SaveAsync succeeds (step 10e in transaction), second throws (step 12b refresh)

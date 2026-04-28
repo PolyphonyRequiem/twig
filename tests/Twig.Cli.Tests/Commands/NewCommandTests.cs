@@ -85,10 +85,10 @@ public class NewCommandTests : IDisposable
         result.ShouldBe(0);
 
         await _adoService.Received(1).CreateAsync(
-            Arg.Is<WorkItem>(w =>
-                w.Title == "My Epic" &&
-                w.Type == WorkItemType.Epic &&
-                w.ParentId == null),
+            Arg.Is<CreateWorkItemRequest>(r =>
+                r.Title == "My Epic" &&
+                r.TypeName == "Epic" &&
+                r.ParentId == null),
             Arg.Any<CancellationToken>());
 
         await _adoService.Received(1).FetchAsync(100, Arg.Any<CancellationToken>());
@@ -106,9 +106,9 @@ public class NewCommandTests : IDisposable
         await _cmd.ExecuteAsync("My Epic", "Epic");
 
         await _adoService.Received(1).CreateAsync(
-            Arg.Is<WorkItem>(w =>
-                w.AreaPath.Value == "TestProject\\Area1" &&
-                w.IterationPath.Value == "TestProject\\Sprint 1"),
+            Arg.Is<CreateWorkItemRequest>(r =>
+                r.AreaPath == "TestProject\\Area1" &&
+                r.IterationPath == "TestProject\\Sprint 1"),
             Arg.Any<CancellationToken>());
     }
 
@@ -120,7 +120,7 @@ public class NewCommandTests : IDisposable
         await _cmd.ExecuteAsync("My Epic", "Epic", area: "Custom\\Path");
 
         await _adoService.Received(1).CreateAsync(
-            Arg.Is<WorkItem>(w => w.AreaPath.Value == "Custom\\Path"),
+            Arg.Is<CreateWorkItemRequest>(r => r.AreaPath == "Custom\\Path"),
             Arg.Any<CancellationToken>());
     }
 
@@ -132,7 +132,7 @@ public class NewCommandTests : IDisposable
         await _cmd.ExecuteAsync("My Epic", "Epic", iteration: "Custom\\Sprint 5");
 
         await _adoService.Received(1).CreateAsync(
-            Arg.Is<WorkItem>(w => w.IterationPath.Value == "Custom\\Sprint 5"),
+            Arg.Is<CreateWorkItemRequest>(r => r.IterationPath == "Custom\\Sprint 5"),
             Arg.Any<CancellationToken>());
     }
 
@@ -144,7 +144,7 @@ public class NewCommandTests : IDisposable
         await _cmd.ExecuteAsync("My Epic", "Epic");
 
         await _adoService.Received(1).CreateAsync(
-            Arg.Is<WorkItem>(w => w.AssignedTo == "Test User"),
+            Arg.Is<CreateWorkItemRequest>(r => r.Fields.ContainsKey("System.AssignedTo") && r.Fields["System.AssignedTo"] == "Test User"),
             Arg.Any<CancellationToken>());
     }
 
@@ -165,7 +165,7 @@ public class NewCommandTests : IDisposable
     public async Task New_SuccessOutput_UsesFetchedTitle_NotSeedTitle()
     {
         // ADO may normalize the title; output should reflect what ADO returned
-        _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>())
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>())
             .Returns(99);
         _adoService.FetchAsync(99, Arg.Any<CancellationToken>())
             .Returns(new WorkItemBuilder(99, "Server-Normalized Title")
@@ -212,8 +212,8 @@ public class NewCommandTests : IDisposable
         await _cmd.ExecuteAsync("My Epic", "Epic", description: "This is a test description");
 
         await _adoService.Received(1).CreateAsync(
-            Arg.Is<WorkItem>(w => w.Fields.ContainsKey("System.Description")
-                && w.Fields["System.Description"] == "This is a test description"),
+            Arg.Is<CreateWorkItemRequest>(r => r.Fields.ContainsKey("System.Description")
+                && r.Fields["System.Description"] == "This is a test description"),
             Arg.Any<CancellationToken>());
     }
 
@@ -258,16 +258,16 @@ public class NewCommandTests : IDisposable
         await cmd.ExecuteAsync("My Epic", "Epic");
 
         await _adoService.Received(1).CreateAsync(
-            Arg.Is<WorkItem>(w =>
-                w.AreaPath.Value == "MyProject" &&
-                w.IterationPath.Value == "MyProject"),
+            Arg.Is<CreateWorkItemRequest>(r =>
+                r.AreaPath == "MyProject" &&
+                r.IterationPath == "MyProject"),
             Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task New_CreateFailure_Returns1()
     {
-        _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>())
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new HttpRequestException("Service unavailable"));
 
         var errWriter = new StringWriter();
@@ -289,7 +289,7 @@ public class NewCommandTests : IDisposable
     [Fact]
     public async Task New_FetchFailureAfterCreate_ReturnsErrorWithAdoId()
     {
-        _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>())
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>())
             .Returns(42);
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
             .ThrowsAsync(new HttpRequestException("Fetch failed"));
@@ -313,7 +313,7 @@ public class NewCommandTests : IDisposable
 
     private void ArrangeCreateSuccess(int newId = 100, string title = "My Epic", int? parentId = null)
     {
-        _adoService.CreateAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>())
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>())
             .Returns(newId);
         var builder = new WorkItemBuilder(newId, title)
             .AsEpic()
@@ -339,7 +339,7 @@ public class NewCommandTests : IDisposable
         errWriter.ToString().ShouldContain("--parent must be a positive work-item ID");
 
         await _adoService.DidNotReceive().CreateAsync(
-            Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+            Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -356,7 +356,7 @@ public class NewCommandTests : IDisposable
         stderr.ShouldContain("or provide --parent to infer type");
 
         await _adoService.DidNotReceive().CreateAsync(
-            Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+            Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -374,7 +374,7 @@ public class NewCommandTests : IDisposable
         stderr.ShouldNotContain("or provide --parent to infer type");
 
         await _adoService.DidNotReceive().CreateAsync(
-            Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+            Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -386,7 +386,7 @@ public class NewCommandTests : IDisposable
 
         result.ShouldBe(0);
         await _adoService.Received(1).CreateAsync(
-            Arg.Is<WorkItem>(w => w.ParentId == 42),
+            Arg.Is<CreateWorkItemRequest>(r => r.ParentId == 42),
             Arg.Any<CancellationToken>());
         await _workItemRepo.Received(1).SaveAsync(
             Arg.Is<WorkItem>(w => w.ParentId == 42 && w.Id == 200),
@@ -405,7 +405,7 @@ public class NewCommandTests : IDisposable
 
         result.ShouldBe(0);
         await _adoService.Received(1).CreateAsync(
-            Arg.Is<WorkItem>(w => w.ParentId == 55),
+            Arg.Is<CreateWorkItemRequest>(r => r.ParentId == 55),
             Arg.Any<CancellationToken>());
         await _workItemRepo.Received(1).SaveAsync(
             Arg.Is<WorkItem>(w => w.ParentId == 55 && w.Id == 300),

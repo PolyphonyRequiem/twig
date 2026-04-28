@@ -1,5 +1,6 @@
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
+using Twig.Domain.Extensions;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Seed;
@@ -121,7 +122,7 @@ public sealed class NewCommand(
         int newId;
         try
         {
-            newId = await adoService.CreateAsync(seed, ct);
+            newId = await adoService.CreateAsync(seed.ToCreateRequest(), ct);
         }
         catch (Exception ex)
         {

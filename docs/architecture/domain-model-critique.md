@@ -179,19 +179,48 @@ removal, or retention.
 
 **Severity**: Medium | **Blast Radius**: Cross-cutting (all services/commands)
 
+> **Convention document**: [`docs/architecture/result-type-conventions.md`](result-type-conventions.md)
+> establishes the three-tier taxonomy (Discriminated Union / `Result<T>` / Data Bag)
+> and decision matrix for choosing between them.
+
 The codebase has 9+ distinct result types with incompatible patterns: `Result<T>`,
-`ActiveItemResult` (DU, 4 cases), `SyncResult` (DU, 5 cases),
-`FlowResolveResult`/`FlowTransitionResult` (ad-hoc classes), `StatusSnapshot`
+`ActiveItemResult` (DU, 4 cases), `SyncResult` (DU, 5 cases), `StatusSnapshot`
 (boolean tri-state), `RefreshFetchResult`, and three Seed result types.
+
+### Resolved
+
+- **`FlowResolveResult` / `FlowTransitionResult`** — removed during prior
+  refactoring (git/flow command deletion). No longer exist in the codebase.
+  These items from the original critique are fully resolved.
+
+### In Progress
+
+- **`StatusSnapshot`** — boolean tri-state with nullable fields. Scheduled for
+  migration to a discriminated union (`StatusResult`) with `NoContext`,
+  `Unreachable`, and `Success` subtypes. See the convention document for the
+  target pattern.
+- **`BranchLinkResult`** — enum+class hybrid (`BranchLinkStatus` enum alongside
+  a sealed record). Scheduled for migration to a DU with `Linked`,
+  `AlreadyLinked`, `GitContextUnavailable`, and `Failed` subtypes.
+
+### Deferred
+
+- **Seed result types** (`SeedPublishResult`, `SeedValidationResult`,
+  `SeedReconcileResult`, `SeedPublishBatchResult`) — data bags with many
+  properties and wide formatter surface area (4 formatter implementations each).
+  Converting to DUs would touch 40+ files for marginal benefit. Candidates for
+  a future epic.
+- **`RefreshFetchResult`** — pure data bag (counters + conflict list) with a
+  single consumer. No distinct outcome paths — not a DU candidate.
 
 ### Containment Practices
 
-- Establish a convention: discriminated unions (abstract record) for operations
-  with distinct outcome paths; `Result<T>` for simple success/fail.
+- Follow the convention document's three-tier taxonomy when choosing a result
+  pattern for new code.
 - Migrate one result type at a time per PR. Do **not** attempt a bulk
   unification — the blast radius is enormous.
 - Start with `StatusSnapshot` → convert to discriminated union pattern matching
-  `ActiveItemResult`'s style.
+  `ActiveItemResult`'s style, then proceed to `BranchLinkResult`.
 
 ---
 
@@ -275,7 +304,7 @@ methods on a read model. Read models should be inert projections.
 5. **Item 2** (Command queue simplification) — medium scope
 6. **Item 1** (WorkItem consolidation) — high impact, needs care
 7. **Item 5** (Service folder structure) — namespace-only
-8. **Item 7** (Result type convention) — incremental
+8. **Item 7** (Result type convention) — 🔨 in progress (convention document established; `StatusSnapshot` and `BranchLinkResult` migrations pending)
 9. **Item 6** (Orchestrator audit) — ✅ completed April 2026
 10. **Item 8** (Command bloat) — after orchestrator cleanup
 11. **Item 9** (DTO boundary) — last, highest risk

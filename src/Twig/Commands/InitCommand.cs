@@ -367,7 +367,7 @@ public sealed class InitCommand
             {
                 Console.WriteLine(fmt.FormatInfo("Refreshing sprint items..."));
                 var adoClient = new AdoRestClient(_httpClient, _authProvider, org, project, new WorkItemMapper());
-                var workItemRepo = new Infrastructure.Persistence.SqliteWorkItemRepository(cacheStore);
+                var workItemRepo = new Infrastructure.Persistence.SqliteWorkItemRepository(cacheStore, new WorkItemMapper());
                 var contextStore = new Infrastructure.Persistence.SqliteContextStore(cacheStore);
 
                 // Build WIQL query scoped to current iteration + area paths

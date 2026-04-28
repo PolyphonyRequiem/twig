@@ -1,5 +1,6 @@
 using Shouldly;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Persistence;
 using Xunit;
@@ -23,7 +24,7 @@ public class SeedPublishTransactionIntegrationTests : IDisposable
     public SeedPublishTransactionIntegrationTests()
     {
         _store = new SqliteCacheStore("Data Source=:memory:");
-        _workItemRepo = new SqliteWorkItemRepository(_store);
+        _workItemRepo = new SqliteWorkItemRepository(_store, new WorkItemMapper());
         _seedLinkRepo = new SqliteSeedLinkRepository(_store);
         _publishIdMapRepo = new SqlitePublishIdMapRepository(_store);
         _unitOfWork = new SqliteUnitOfWork(_store);

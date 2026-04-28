@@ -1,5 +1,6 @@
 using Shouldly;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Persistence;
 using Xunit;
@@ -19,7 +20,7 @@ public class SqlitePendingChangeStoreTests : IDisposable
     {
         _store = new SqliteCacheStore("Data Source=:memory:");
         _changeStore = new SqlitePendingChangeStore(_store);
-        _workItemRepo = new SqliteWorkItemRepository(_store);
+        _workItemRepo = new SqliteWorkItemRepository(_store, new WorkItemMapper());
     }
 
     public void Dispose() => _store.Dispose();

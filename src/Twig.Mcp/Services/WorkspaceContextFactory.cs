@@ -84,7 +84,7 @@ public sealed class WorkspaceContextFactory : IWorkspaceContextFactory, IDisposa
         // Persistence layer — one SqliteCacheStore per workspace
         var cacheStore = new SqliteCacheStore($"Data Source={paths.DbPath}");
 
-        var workItemRepo = new SqliteWorkItemRepository(cacheStore);
+        var workItemRepo = new SqliteWorkItemRepository(cacheStore, new WorkItemMapper());
         var contextStore = new SqliteContextStore(cacheStore);
         var pendingChangeStore = new SqlitePendingChangeStore(cacheStore);
         var linkRepo = new SqliteWorkItemLinkRepository(cacheStore);

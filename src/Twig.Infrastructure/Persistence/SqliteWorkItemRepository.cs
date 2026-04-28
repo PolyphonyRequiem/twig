@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Serialization;
 
@@ -14,10 +15,12 @@ namespace Twig.Infrastructure.Persistence;
 public sealed class SqliteWorkItemRepository : IWorkItemRepository
 {
     private readonly SqliteCacheStore _store;
+    private readonly WorkItemMapper _mapper;
 
-    public SqliteWorkItemRepository(SqliteCacheStore store)
+    public SqliteWorkItemRepository(SqliteCacheStore store, WorkItemMapper mapper)
     {
         _store = store;
+        _mapper = mapper;
     }
 
     public Task<WorkItem?> GetByIdAsync(int id, CancellationToken ct = default)
@@ -28,8 +31,24 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         cmd.Parameters.AddWithValue("@id", id);
 
         using var reader = cmd.ExecuteReader();
-        var item = reader.Read() ? MapRow(reader) : null;
+        var item = reader.Read() ? _mapper.Map(MapRowToSnapshot(reader)) : null;
         return Task.FromResult(item);
+    }
+
+    /// <summary>
+    /// Returns the raw <see cref="WorkItemSnapshot"/> for a given ID without mapping to a domain object.
+    /// Exposed as internal for persistence-layer tests that need to verify the snapshot intermediate step.
+    /// </summary>
+    internal Task<WorkItemSnapshot?> GetSnapshotByIdAsync(int id, CancellationToken ct = default)
+    {
+        var conn = _store.GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT * FROM work_items WHERE id = @id;";
+        cmd.Parameters.AddWithValue("@id", id);
+
+        using var reader = cmd.ExecuteReader();
+        var snapshot = reader.Read() ? MapRowToSnapshot(reader) : null;
+        return Task.FromResult(snapshot);
     }
 
     public Task<IReadOnlyList<WorkItem>> GetByIdsAsync(IEnumerable<int> ids, CancellationToken ct = default)
@@ -114,7 +133,7 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
             if (!reader.Read())
                 break;
 
-            var item = MapRow(reader);
+            var item = _mapper.Map(MapRowToSnapshot(reader));
             chain.Add(item);
             currentId = item.ParentId;
         }
@@ -425,42 +444,34 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         return JsonSerializer.Deserialize(json, TwigJsonContext.Default.DictionaryStringString);
     }
 
-    private static List<WorkItem> ReadAll(SqliteCommand cmd)
+    private List<WorkItem> ReadAll(SqliteCommand cmd)
     {
         var items = new List<WorkItem>();
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
         {
-            items.Add(MapRow(reader));
+            items.Add(_mapper.Map(MapRowToSnapshot(reader)));
         }
         return items;
     }
 
-    private static WorkItem MapRow(SqliteDataReader reader)
+    private static WorkItemSnapshot MapRowToSnapshot(SqliteDataReader reader)
     {
-        var typeResult = WorkItemType.Parse(reader.GetString(reader.GetOrdinal("type")));
-        var iterResult = IterationPath.Parse(reader.IsDBNull(reader.GetOrdinal("iteration_path"))
-            ? "Unknown"
-            : reader.GetString(reader.GetOrdinal("iteration_path")));
-        var areaResult = AreaPath.Parse(reader.IsDBNull(reader.GetOrdinal("area_path"))
-            ? "Unknown"
-            : reader.GetString(reader.GetOrdinal("area_path")));
-
         var seedCreatedAtStr = reader.IsDBNull(reader.GetOrdinal("seed_created_at"))
             ? null
             : reader.GetString(reader.GetOrdinal("seed_created_at"));
-
-        var fieldsJson = reader.GetString(reader.GetOrdinal("fields_json"));
-        var fields = DeserializeFields(fieldsJson);
 
         var lastSyncedAtStr = reader.IsDBNull(reader.GetOrdinal("last_synced_at"))
             ? null
             : reader.GetString(reader.GetOrdinal("last_synced_at"));
 
-        var item = new WorkItem
+        var fieldsJson = reader.GetString(reader.GetOrdinal("fields_json"));
+        var fields = DeserializeFields(fieldsJson) ?? new Dictionary<string, string?>();
+
+        return new WorkItemSnapshot
         {
             Id = reader.GetInt32(reader.GetOrdinal("id")),
-            Type = typeResult.IsSuccess ? typeResult.Value : WorkItemType.Task,
+            TypeName = reader.GetString(reader.GetOrdinal("type")),
             Title = reader.GetString(reader.GetOrdinal("title")),
             State = reader.GetString(reader.GetOrdinal("state")),
             ParentId = reader.IsDBNull(reader.GetOrdinal("parent_id"))
@@ -469,8 +480,13 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
             AssignedTo = reader.IsDBNull(reader.GetOrdinal("assigned_to"))
                 ? null
                 : reader.GetString(reader.GetOrdinal("assigned_to")),
-            IterationPath = iterResult.IsSuccess ? iterResult.Value : default,
-            AreaPath = areaResult.IsSuccess ? areaResult.Value : default,
+            IterationPath = reader.IsDBNull(reader.GetOrdinal("iteration_path"))
+                ? null
+                : reader.GetString(reader.GetOrdinal("iteration_path")),
+            AreaPath = reader.IsDBNull(reader.GetOrdinal("area_path"))
+                ? null
+                : reader.GetString(reader.GetOrdinal("area_path")),
+            Revision = reader.GetInt32(reader.GetOrdinal("revision")),
             IsSeed = reader.GetInt32(reader.GetOrdinal("is_seed")) == 1,
             SeedCreatedAt = seedCreatedAtStr is not null
                 ? DateTimeOffset.Parse(seedCreatedAtStr, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind)
@@ -478,33 +494,8 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
             LastSyncedAt = lastSyncedAtStr is not null
                 ? DateTimeOffset.Parse(lastSyncedAtStr, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind)
                 : null,
+            IsDirty = reader.GetInt32(reader.GetOrdinal("is_dirty")) == 1,
+            Fields = fields,
         };
-
-        // Restore revision and dirty flag via domain methods
-        var revision = reader.GetInt32(reader.GetOrdinal("revision"));
-        var isDirty = reader.GetInt32(reader.GetOrdinal("is_dirty")) == 1;
-
-        // Use MarkSynced to set revision (it also clears dirty, so we set dirty after if needed)
-        if (revision > 0)
-        {
-            item.MarkSynced(revision);
-        }
-
-        // Restore fields from JSON
-        if (fields is not null)
-        {
-            foreach (var kvp in fields)
-            {
-                item.SetField(kvp.Key, kvp.Value);
-            }
-        }
-
-        // Restore dirty flag directly — no side effects on fields or command queue
-        if (isDirty)
-        {
-            item.SetDirty();
-        }
-
-        return item;
     }
 }

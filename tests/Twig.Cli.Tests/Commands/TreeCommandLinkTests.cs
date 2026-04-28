@@ -25,7 +25,7 @@ public class TreeCommandLinkTests
     private readonly TwigConfiguration _config;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly WorkingSetService _workingSetService;
-    private readonly SyncCoordinatorPair _SyncCoordinatorPair;
+    private readonly SyncCoordinatorPair _syncCoordinatorPair;
     private readonly IProcessTypeStore _processTypeStore;
     private readonly TestConsole _testConsole;
     private readonly SpectreRenderer _spectreRenderer;
@@ -42,7 +42,7 @@ public class TreeCommandLinkTests
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, pendingChangeStore);
         var linkRepo = Substitute.For<IWorkItemLinkRepository>();
-        _SyncCoordinatorPair = new SyncCoordinatorPair(_workItemRepo, _adoService, protectedCacheWriter, pendingChangeStore, linkRepo, 30, 30);
+        _syncCoordinatorPair = new SyncCoordinatorPair(_workItemRepo, _adoService, protectedCacheWriter, pendingChangeStore, linkRepo, 30, 30);
         var iterationService = Substitute.For<IIterationService>();
         iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
@@ -58,7 +58,7 @@ public class TreeCommandLinkTests
 
     private TreeCommand CreateCommand(RenderingPipelineFactory? pipelineFactory = null) =>
         new(_contextStore, _workItemRepo, _config, _formatterFactory, _activeItemResolver,
-            _workingSetService, _SyncCoordinatorPair, _processTypeStore, pipelineFactory);
+            _workingSetService, _syncCoordinatorPair, _processTypeStore, pipelineFactory);
 
     // ── HumanOutputFormatter Links section tests ────────────────────
 

@@ -140,13 +140,13 @@ public sealed class SetCommand_ContextChangeTests : IDisposable
     private SetCommand CreateCommand(bool withContextChange = true)
     {
         var protectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        var SyncCoordinatorPair = new SyncCoordinatorPair(
+        var syncCoordinatorPair = new SyncCoordinatorPair(
             _workItemRepo, _adoService, protectedWriter, _pendingChangeStore, null, 30, 30);
         var contextChangeService = withContextChange
-            ? new ContextChangeService(_workItemRepo, _adoService, SyncCoordinatorPair.ReadWrite, protectedWriter)
+            ? new ContextChangeService(_workItemRepo, _adoService, syncCoordinatorPair.ReadWrite, protectedWriter)
             : null;
         return new SetCommand(
-            _workItemRepo, _contextStore, _activeItemResolver, SyncCoordinatorPair,
+            _workItemRepo, _contextStore, _activeItemResolver, syncCoordinatorPair,
             _workingSetService, _formatterFactory, _hintEngine,
             contextChangeService: contextChangeService);
     }

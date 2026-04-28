@@ -57,7 +57,7 @@ Services already available on `WorkspaceContext` that the new tools will consume
 | `WiqlQueryBuilder` | `Build(QueryParameters)` | twig_query |
 | `LinkTypeMapper` | `TryResolve`, `Resolve`, `SupportedTypes` | twig_link |
 | `SeedFactory` | `Create`, `CreateUnparented` | twig_new |
-| `SyncCoordinatorFactory` | `ReadOnly.SyncLinksAsync` | twig_link |
+| `SyncCoordinatorPair` | `ReadOnly.SyncLinksAsync` | twig_link |
 | `ActiveItemResolver` | `GetActiveItemAsync`, `ResolveByIdAsync` | twig_show (does NOT use this — reads by explicit ID) |
 
 ### Call-Site Audit: McpResultBuilder
@@ -257,7 +257,7 @@ public sealed class CreationTools(WorkspaceResolver resolver)
   1. Validate `linkType` via `LinkTypeMapper.TryResolve(linkType, out adoType)`
   2. If invalid, return error listing `LinkTypeMapper.SupportedTypes`
   3. Call `AdoService.AddLinkAsync(sourceId, targetId, adoType)`
-  4. Best-effort: sync links via `SyncCoordinatorFactory.ReadOnly.SyncLinksAsync`
+  4. Best-effort: sync links via `SyncCoordinatorPair.ReadOnly.SyncLinksAsync`
 - Returns: sourceId, targetId, linkType, success confirmation
 
 #### 3. McpResultBuilder Extensions (additive only)

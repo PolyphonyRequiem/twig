@@ -21,7 +21,7 @@ public class RefreshOrchestratorTests
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly ProtectedCacheWriter _protectedCacheWriter;
     private readonly WorkingSetService _workingSetService;
-    private readonly SyncCoordinatorPair _SyncCoordinatorPair;
+    private readonly SyncCoordinatorPair _syncCoordinatorPair;
     private readonly ITrackingService _trackingService;
     private readonly RefreshOrchestrator _orchestrator;
 
@@ -37,12 +37,12 @@ public class RefreshOrchestratorTests
         _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
         _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, _iterationService, null);
-        _SyncCoordinatorPair = new SyncCoordinatorPair(_workItemRepo, _adoService, _protectedCacheWriter, _pendingChangeStore, null, 30, 30);
+        _syncCoordinatorPair = new SyncCoordinatorPair(_workItemRepo, _adoService, _protectedCacheWriter, _pendingChangeStore, null, 30, 30);
         _trackingService = Substitute.For<ITrackingService>();
 
         _orchestrator = new RefreshOrchestrator(
             _contextStore, _workItemRepo, _adoService,
-            _pendingChangeStore, _protectedCacheWriter, _workingSetService, _SyncCoordinatorPair,
+            _pendingChangeStore, _protectedCacheWriter, _workingSetService, _syncCoordinatorPair,
             _iterationService,
             _trackingService);
     }
@@ -326,7 +326,7 @@ public class RefreshOrchestratorTests
     {
         var orchestratorWithoutTracking = new RefreshOrchestrator(
             _contextStore, _workItemRepo, _adoService,
-            _pendingChangeStore, _protectedCacheWriter, _workingSetService, _SyncCoordinatorPair,
+            _pendingChangeStore, _protectedCacheWriter, _workingSetService, _syncCoordinatorPair,
             _iterationService,
             trackingService: null);
 
@@ -363,7 +363,7 @@ public class RefreshOrchestratorTests
         await _orchestrator.SyncTrackedTreesAsync();
 
         receivedCoordinator.ShouldNotBeNull();
-        receivedCoordinator.ShouldBeSameAs(_SyncCoordinatorPair.ReadWrite);
+        receivedCoordinator.ShouldBeSameAs(_syncCoordinatorPair.ReadWrite);
     }
 
     // ── ApplyCleanupPolicyAsync tests ────────────────────────────────
@@ -383,7 +383,7 @@ public class RefreshOrchestratorTests
     {
         var orchestratorWithoutTracking = new RefreshOrchestrator(
             _contextStore, _workItemRepo, _adoService,
-            _pendingChangeStore, _protectedCacheWriter, _workingSetService, _SyncCoordinatorPair,
+            _pendingChangeStore, _protectedCacheWriter, _workingSetService, _syncCoordinatorPair,
             _iterationService,
             trackingService: null);
 

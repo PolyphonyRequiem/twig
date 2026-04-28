@@ -31,7 +31,7 @@ public class OfflineModeTests
     private readonly IConsoleInput _consoleInput;
     private readonly ActiveItemResolver _activeItemResolver;
     private readonly WorkingSetService _workingSetService;
-    private readonly SyncCoordinatorPair _SyncCoordinatorPair;
+    private readonly SyncCoordinatorPair _syncCoordinatorPair;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
 
@@ -44,7 +44,7 @@ public class OfflineModeTests
         _consoleInput = Substitute.For<IConsoleInput>();
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        _SyncCoordinatorPair = new SyncCoordinatorPair(_workItemRepo, _adoService, protectedCacheWriter, _pendingChangeStore, null, 30, 30);
+        _syncCoordinatorPair = new SyncCoordinatorPair(_workItemRepo, _adoService, protectedCacheWriter, _pendingChangeStore, null, 30, 30);
         var iterationService = Substitute.For<IIterationService>();
         iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
@@ -93,7 +93,7 @@ public class OfflineModeTests
         var ctx = new CommandContext(redirectedPipeline, _formatterFactory, _hintEngine, new TwigConfiguration());
         var statusCmd = new StatusCommand(ctx,
             _contextStore, _workItemRepo, _pendingChangeStore,
-            _activeItemResolver, _workingSetService, _SyncCoordinatorPair,
+            _activeItemResolver, _workingSetService, _syncCoordinatorPair,
             statusFieldReader);
         var result = await statusCmd.ExecuteAsync();
 

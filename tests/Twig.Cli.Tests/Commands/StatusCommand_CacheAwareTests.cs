@@ -25,7 +25,7 @@ public sealed class StatusCommand_CacheAwareTests : IDisposable
     private readonly IAdoWorkItemService _adoService;
     private readonly ActiveItemResolver _activeItemResolver;
     private readonly WorkingSetService _workingSetService;
-    private readonly SyncCoordinatorPair _SyncCoordinatorPair;
+    private readonly SyncCoordinatorPair _syncCoordinatorPair;
     private readonly TwigConfiguration _config;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
@@ -43,7 +43,7 @@ public sealed class StatusCommand_CacheAwareTests : IDisposable
         _adoService = Substitute.For<IAdoWorkItemService>();
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        _SyncCoordinatorPair = new SyncCoordinatorPair(_workItemRepo, _adoService, protectedCacheWriter, _pendingChangeStore, null, 30, 30);
+        _syncCoordinatorPair = new SyncCoordinatorPair(_workItemRepo, _adoService, protectedCacheWriter, _pendingChangeStore, null, 30, 30);
         var iterationService = Substitute.For<IIterationService>();
         iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
@@ -76,7 +76,7 @@ public sealed class StatusCommand_CacheAwareTests : IDisposable
         var pipelineCtx = new CommandContext(pipelineFactory, _formatterFactory,
             new HintEngine(new DisplayConfig { Hints = true }), _config, Stderr: stderr);
         return new StatusCommand(pipelineCtx, _contextStore, _workItemRepo, _pendingChangeStore,
-            _activeItemResolver, _workingSetService, _SyncCoordinatorPair, _statusFieldReader);
+            _activeItemResolver, _workingSetService, _syncCoordinatorPair, _statusFieldReader);
     }
 
     private void SetupActiveItem(WorkItem item)

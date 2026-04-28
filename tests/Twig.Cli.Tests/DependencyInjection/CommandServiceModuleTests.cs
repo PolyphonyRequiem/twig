@@ -81,10 +81,10 @@ public sealed class CommandServiceModuleTests
     {
         using var provider = BuildFullProvider();
 
-        var factory = provider.GetRequiredService<SyncCoordinatorPair>();
+        var pair = provider.GetRequiredService<SyncCoordinatorPair>();
         var coordinator = provider.GetRequiredService<SyncCoordinator>();
 
-        coordinator.ShouldBeSameAs(factory.ReadWrite);
+        coordinator.ShouldBeSameAs(pair.ReadWrite);
     }
 
     [Fact]

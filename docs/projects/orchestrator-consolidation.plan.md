@@ -4,7 +4,7 @@
 
 ## Executive Summary
 
-Five orchestrator/coordinator patterns exist in the twig domain layer with overlapping dependency subsets: `StatusOrchestrator`, `SyncCoordinator`, `SyncCoordinatorFactory`, `RefreshOrchestrator`, and `SeedPublishOrchestrator`. A comprehensive call-site audit reveals that the actionable consolidation targets are narrow: **`StatusOrchestrator` should be absorbed** into its sole consumer (MCP `ContextTools.Status()`), and **`SyncCoordinatorFactory` should be renamed** to `SyncCoordinatorPair` to accurately reflect its pair-holder semantics. The remaining three orchestrators (`SyncCoordinator`, `RefreshOrchestrator`, `SeedPublishOrchestrator`) are well-factored 1:1 delegations with substantial business logic and should be left untouched. This plan eliminates the identified duplication between `StatusOrchestrator` and `ActiveItemResolver`, fixes the misleading factory naming, and documents the audit findings — all via separate, purely structural PRs with no behavioral changes.
+Five orchestrator/coordinator patterns exist in the twig domain layer with overlapping dependency subsets: `StatusOrchestrator`, `SyncCoordinator`, `SyncCoordinatorPair`, `RefreshOrchestrator`, and `SeedPublishOrchestrator`. A comprehensive call-site audit reveals that the actionable consolidation targets are narrow: **`StatusOrchestrator` should be absorbed** into its sole consumer (MCP `ContextTools.Status()`), and **`SyncCoordinatorPair` should be renamed** to `SyncCoordinatorPair` to accurately reflect its pair-holder semantics. The remaining three orchestrators (`SyncCoordinator`, `RefreshOrchestrator`, `SeedPublishOrchestrator`) are well-factored 1:1 delegations with substantial business logic and should be left untouched. This plan eliminates the identified duplication between `StatusOrchestrator` and `ActiveItemResolver`, fixes the misleading factory naming, and documents the audit findings — all via separate, purely structural PRs with no behavioral changes.
 
 ## Background
 
@@ -15,7 +15,7 @@ The domain layer (`Twig.Domain`) contains six orchestrator/coordinator services 
 | Component | Location | Lines | Deps | Consumers | Role |
 |-----------|----------|-------|------|-----------|------|
 | `SyncCoordinator` | `Services/Sync/` | 211 | 6 | 20+ sites | Core cache sync with ADO (staleness, batch fetch, protected writes) |
-| `SyncCoordinatorFactory` | `Services/Sync/` | 43 | 7 | 14 src files | Two-tier TTL pair holder (ReadOnly / ReadWrite) |
+| `SyncCoordinatorPair` | `Services/Sync/` | 43 | 7 | 14 src files | Two-tier TTL pair holder (ReadOnly / ReadWrite) |
 | `RefreshOrchestrator` | `Services/Sync/` | 193 | 9 | 1 (RefreshCommand) | Full refresh lifecycle: WIQL fetch, conflicts, ancestor hydration |
 | `SeedPublishOrchestrator` | `Services/Seed/` | 245 | 7+1 | 1 (SeedPublishCommand) | Transactional seed publish with topological ordering |
 | `StatusOrchestrator` | `Services/Workspace/` | 88 | 6 | 1 (MCP ContextTools) | Thin wrapper: active item + pending changes + seeds |
@@ -46,11 +46,11 @@ This work implements Item 6 from `docs/architecture/domain-model-critique.md`, w
 
 **Secondary finding**: `StatusOrchestrator.SyncWorkingSetAsync()` is **dead code** — no production caller invokes it. Only one test exercises it.
 
-#### SyncCoordinatorFactory Call Sites (Source — 14 files)
+#### SyncCoordinatorPair Call Sites (Source — 14 files)
 
 | File | Usage |
 |------|-------|
-| `src/Twig.Domain/Services/Sync/SyncCoordinatorFactory.cs` | Class definition |
+| `src/Twig.Domain/Services/Sync/SyncCoordinatorPair.cs` | Class definition |
 | `src/Twig.Domain/Services/Sync/RefreshOrchestrator.cs` | Constructor dependency |
 | `src/Twig.Domain/Services/Workspace/StatusOrchestrator.cs` | Constructor dependency |
 | `src/Twig/DependencyInjection/CommandServiceModule.cs` | DI registration (6 refs) |
@@ -61,13 +61,13 @@ This work implements Item 6 from `docs/architecture/domain-model-critique.md`, w
 | `src/Twig/Commands/LinkCommand.cs` | Constructor dependency |
 | `src/Twig.Mcp/Services/WorkspaceContext.cs` | Property (3 refs) |
 | `src/Twig.Mcp/Services/WorkspaceContextFactory.cs` | Construction |
-| `src/Twig.Mcp/Tools/ReadTools.cs` | Via `ctx.SyncCoordinatorFactory` |
-| `src/Twig.Mcp/Tools/MutationTools.cs` | Via `ctx.SyncCoordinatorFactory` |
-| `src/Twig.Mcp/Tools/CreationTools.cs` | Via `ctx.SyncCoordinatorFactory` (2 refs) |
+| `src/Twig.Mcp/Tools/ReadTools.cs` | Via `ctx.SyncCoordinatorPair` |
+| `src/Twig.Mcp/Tools/MutationTools.cs` | Via `ctx.SyncCoordinatorPair` |
+| `src/Twig.Mcp/Tools/CreationTools.cs` | Via `ctx.SyncCoordinatorPair` (2 refs) |
 
-#### SyncCoordinatorFactory Call Sites (Tests — 33 files)
+#### SyncCoordinatorPair Call Sites (Tests — 33 files)
 
-All test files construct `SyncCoordinatorFactory` as part of test harness setup. Key files include `SyncCoordinatorFactoryTests.cs` (5 dedicated tests), `StatusOrchestratorTests.cs`, `RefreshOrchestratorTests.cs`, `ReadToolsTestBase.cs`, and 25+ command test files that build the factory for command-level testing.
+All test files construct `SyncCoordinatorPair` as part of test harness setup. Key files include `SyncCoordinatorPairTests.cs` (5 dedicated tests), `StatusOrchestratorTests.cs`, `RefreshOrchestratorTests.cs`, `ReadToolsTestBase.cs`, and 25+ command test files that build the factory for command-level testing.
 
 **Total impact of rename: ~47 files** across source and test projects. All changes are mechanical identifier substitution.
 
@@ -91,7 +91,7 @@ All test files construct `SyncCoordinatorFactory` as part of test harness setup.
 | `IPendingChangeStore` | ✅ | ✅ | ✅ | ✅ | — |
 | `IContextStore` | ✅ | — | — | ✅ | — |
 | `ProtectedCacheWriter` | — | ✅ | ✅ | ✅ | — |
-| `SyncCoordinatorFactory` | ✅ | — | (self) | ✅ | — |
+| `SyncCoordinatorPair` | ✅ | — | (self) | ✅ | — |
 | `WorkingSetService` | ✅ | — | — | ✅ | — |
 | `ActiveItemResolver` | ✅ | — | — | — | — |
 | `IIterationService` | — | — | — | ✅ | — |
@@ -106,7 +106,7 @@ Three specific issues exist in the current orchestrator layer:
 
 1. **StatusOrchestrator duplication**: `StatusOrchestrator.GetSnapshotAsync()` (~20 lines of unique logic) wraps `ActiveItemResolver.GetActiveItemAsync()` with pending change and seed loading, producing a `StatusSnapshot`. The CLI `StatusCommand` performs identical work inline without using the orchestrator. The orchestrator's only consumer is MCP `ContextTools.Status()`. This creates a maintenance hazard: changes to status logic must be synchronized between two independent code paths.
 
-2. **SyncCoordinatorFactory misnaming**: The class holds two pre-built `SyncCoordinator` instances with different `cacheStaleMinutes` values (ReadOnly = longer TTL for display, ReadWrite = shorter TTL for mutations). The "Factory" name implies a creation pattern (create-on-demand), but the class is actually a named pair with clamping logic. This mismatch between name and behavior confuses new contributors.
+2. **SyncCoordinatorPair misnaming**: The class holds two pre-built `SyncCoordinator` instances with different `cacheStaleMinutes` values (ReadOnly = longer TTL for display, ReadWrite = shorter TTL for mutations). The "Factory" name implies a creation pattern (create-on-demand), but the class is actually a named pair with clamping logic. This mismatch between name and behavior confuses new contributors.
 
 3. **StatusOrchestrator dead code**: `SyncWorkingSetAsync()` on `StatusOrchestrator` has zero production callers. It's a 4-line method tested by one unit test but never invoked.
 
@@ -115,7 +115,7 @@ Three specific issues exist in the current orchestrator layer:
 ### Goals
 
 1. **Eliminate the StatusOrchestrator class** by inlining its ~20 lines of data-gathering logic into MCP `ContextTools.Status()`, reducing the class count and removing the maintenance hazard of duplicated status resolution paths.
-2. **Rename SyncCoordinatorFactory to SyncCoordinatorPair** so the type name accurately reflects its pair-holder semantics rather than implying a factory pattern.
+2. **Rename SyncCoordinatorPair to SyncCoordinatorPair** so the type name accurately reflects its pair-holder semantics rather than implying a factory pattern.
 3. **Remove dead code** — the unused `StatusOrchestrator.SyncWorkingSetAsync()` method and its test.
 4. **Document the orchestrator audit findings** by updating architecture docs with the call-site inventory and rationale for keeping the three healthy orchestrators.
 5. **Preserve all existing behavior** — zero behavioral changes, purely structural refactoring.
@@ -135,7 +135,7 @@ Three specific issues exist in the current orchestrator layer:
 1. MCP `twig_status` tool must produce identical JSON output before and after the change.
 2. All existing tests must pass without behavioral modifications (test structure may change, assertions must not).
 3. `StatusSnapshot` type must remain available for `McpResultBuilder.FormatStatus()`.
-4. `SyncCoordinatorPair.ReadOnly` and `.ReadWrite` properties must maintain identical semantics to the current `SyncCoordinatorFactory`.
+4. `SyncCoordinatorPair.ReadOnly` and `.ReadWrite` properties must maintain identical semantics to the current `SyncCoordinatorPair`.
 
 ### Non-Functional
 
@@ -168,7 +168,7 @@ AFTER:
 For the factory rename:
 
 ```
-BEFORE: SyncCoordinatorFactory { ReadOnly, ReadWrite }
+BEFORE: SyncCoordinatorPair { ReadOnly, ReadWrite }
 AFTER:  SyncCoordinatorPair    { ReadOnly, ReadWrite }
 ```
 
@@ -199,7 +199,7 @@ The `StatusOrchestrator` property and constructor parameter are removed. All rem
 
 #### 4. SyncCoordinatorPair (renamed)
 
-The class, file, XML doc comments, and doc references are updated from `SyncCoordinatorFactory` to `SyncCoordinatorPair`. No changes to properties, constructor logic, or clamping behavior.
+The class, file, XML doc comments, and doc references are updated from `SyncCoordinatorPair` to `SyncCoordinatorPair`. No changes to properties, constructor logic, or clamping behavior.
 
 ### Design Decisions
 
@@ -249,7 +249,7 @@ Register `StatusOrchestrator` in CLI DI and refactor `StatusCommand` to delegate
 |------|:----------:|:------:|------------|
 | MCP `twig_status` behavior regression | Low | High | ContextToolsStatusTests (9 tests) validate identical JSON output. No assertion changes needed — only setup wiring changes. |
 | Merge conflicts between PG-1 and PG-2 | Medium | Low | Both touch overlapping files. The second PR to merge resolves trivially (remove a deleted property vs rename a type). |
-| SyncCoordinatorFactory rename breaks downstream forks | Low | Low | No known forks. All references are internal. |
+| SyncCoordinatorPair rename breaks downstream forks | Low | Low | No known forks. All references are internal. |
 | Missed call site for StatusOrchestrator | Very Low | Medium | Exhaustive grep confirms exactly 1 production consumer (MCP ContextTools). The type is not registered in CLI DI at all. |
 
 ## Open Questions
@@ -258,7 +258,7 @@ Register `StatusOrchestrator` in CLI DI and refactor `StatusCommand` to delegate
 |---|----------|----------|--------|
 | 1 | Should `StatusSnapshot` gain a `WorkspaceKey` property now that it's being restructured, or defer to a future PR? | Low | Defer — the workspace is passed separately to `FormatStatus()` and that pattern is consistent across all MCP result builders. |
 | 2 | Should the `SyncCoordinatorPair` rename also update the DI backward-compat registration (`services.AddSingleton<SyncCoordinator>(sp => sp.GetRequiredService<SyncCoordinatorPair>().ReadWrite)`)? | Low | Yes — the registration comment should reference the new name. The registration itself stays. |
-| 3 | Should the 6 architecture docs referencing `SyncCoordinatorFactory` be updated in PG-2 or a separate docs-only PR? | Low | Include in PG-2 — the rename is mechanical and docs should stay in sync. |
+| 3 | Should the 6 architecture docs referencing `SyncCoordinatorPair` be updated in PG-2 or a separate docs-only PR? | Low | Include in PG-2 — the rename is mechanical and docs should stay in sync. |
 
 ## Files Affected
 
@@ -276,26 +276,26 @@ Register `StatusOrchestrator` in CLI DI and refactor `StatusCommand` to delegate
 | `src/Twig.Mcp/Services/WorkspaceContext.cs` | Remove `StatusOrchestrator` property + constructor param |
 | `src/Twig.Mcp/Services/WorkspaceContextFactory.cs` | Remove `StatusOrchestrator` construction |
 | `src/Twig.Mcp/Services/McpResultBuilder.cs` | Update `using` for `StatusSnapshot` new location (if namespace changes) |
-| `src/Twig.Domain/Services/Sync/SyncCoordinatorFactory.cs` | Rename class to `SyncCoordinatorPair` |
-| `src/Twig.Domain/Services/Sync/RefreshOrchestrator.cs` | Update `SyncCoordinatorFactory` → `SyncCoordinatorPair` |
+| `src/Twig.Domain/Services/Sync/SyncCoordinatorPair.cs` | Rename class to `SyncCoordinatorPair` |
+| `src/Twig.Domain/Services/Sync/RefreshOrchestrator.cs` | Update `SyncCoordinatorPair` → `SyncCoordinatorPair` |
 | `src/Twig/DependencyInjection/CommandServiceModule.cs` | Update DI registration type names |
-| `src/Twig/Commands/StatusCommand.cs` | `SyncCoordinatorFactory` → `SyncCoordinatorPair` |
-| `src/Twig/Commands/SetCommand.cs` | `SyncCoordinatorFactory` → `SyncCoordinatorPair` |
-| `src/Twig/Commands/ShowCommand.cs` | `SyncCoordinatorFactory` → `SyncCoordinatorPair` |
-| `src/Twig/Commands/TreeCommand.cs` | `SyncCoordinatorFactory` → `SyncCoordinatorPair` |
-| `src/Twig/Commands/LinkCommand.cs` | `SyncCoordinatorFactory` → `SyncCoordinatorPair` |
-| `src/Twig.Mcp/Tools/ReadTools.cs` | `SyncCoordinatorFactory` → `SyncCoordinatorPair` |
-| `src/Twig.Mcp/Tools/MutationTools.cs` | `SyncCoordinatorFactory` → `SyncCoordinatorPair` |
-| `src/Twig.Mcp/Tools/CreationTools.cs` | `SyncCoordinatorFactory` → `SyncCoordinatorPair` |
+| `src/Twig/Commands/StatusCommand.cs` | `SyncCoordinatorPair` → `SyncCoordinatorPair` |
+| `src/Twig/Commands/SetCommand.cs` | `SyncCoordinatorPair` → `SyncCoordinatorPair` |
+| `src/Twig/Commands/ShowCommand.cs` | `SyncCoordinatorPair` → `SyncCoordinatorPair` |
+| `src/Twig/Commands/TreeCommand.cs` | `SyncCoordinatorPair` → `SyncCoordinatorPair` |
+| `src/Twig/Commands/LinkCommand.cs` | `SyncCoordinatorPair` → `SyncCoordinatorPair` |
+| `src/Twig.Mcp/Tools/ReadTools.cs` | `SyncCoordinatorPair` → `SyncCoordinatorPair` |
+| `src/Twig.Mcp/Tools/MutationTools.cs` | `SyncCoordinatorPair` → `SyncCoordinatorPair` |
+| `src/Twig.Mcp/Tools/CreationTools.cs` | `SyncCoordinatorPair` → `SyncCoordinatorPair` |
 | `tests/Twig.Mcp.Tests/Tools/ReadToolsTestBase.cs` | Remove `StatusOrchestrator` construction; rename factory |
 | `tests/Twig.Mcp.Tests/Tools/ContextToolsStatusTests.cs` | Test wiring updates (assertions unchanged) |
 | `tests/Twig.Mcp.Tests/Services/WorkspaceContextFactoryTests.cs` | Remove `StatusOrchestrator` assertions; rename factory |
 | `tests/Twig.Mcp.Tests/Tools/MultiWorkspaceIsolationTests.cs` | Indirect update via base class changes |
 | `tests/Twig.Mcp.Tests/Services/McpResultBuilderTests.cs` | Update `using` for `StatusSnapshot` |
-| `tests/Twig.Domain.Tests/Services/Sync/SyncCoordinatorFactoryTests.cs` | Rename references |
+| `tests/Twig.Domain.Tests/Services/Sync/SyncCoordinatorPairTests.cs` | Rename references |
 | `tests/Twig.Domain.Tests/Services/Sync/RefreshOrchestratorTests.cs` | Rename references |
 | `tests/Twig.Domain.Tests/Services/Workspace/StatusOrchestratorTests.cs` | Rename references (only for PG-2 if PG-1 hasn't deleted it yet) |
-| ~25 additional CLI test files | Mechanical `SyncCoordinatorFactory` → `SyncCoordinatorPair` rename |
+| ~25 additional CLI test files | Mechanical `SyncCoordinatorPair` → `SyncCoordinatorPair` rename |
 | `docs/architecture/domain-model-critique.md` | Update with audit findings; rename references |
 | `docs/architecture/overview.md` | Rename references |
 | `docs/architecture/mcp-server.md` | Rename references |
@@ -334,7 +334,7 @@ Register `StatusOrchestrator` in CLI DI and refactor `StatusCommand` to delegate
 - [ ] No new warnings (`TreatWarningsAsErrors`)
 - [ ] `dotnet build` succeeds with AOT publish
 
-### Issue 2: Rename SyncCoordinatorFactory to SyncCoordinatorPair
+### Issue 2: Rename SyncCoordinatorPair to SyncCoordinatorPair
 
 **Goal**: Rename the class to accurately reflect its pair-holder semantics. The class holds two pre-built `SyncCoordinator` instances with different TTLs — it does not create coordinators on demand.
 
@@ -344,13 +344,13 @@ Register `StatusOrchestrator` in CLI DI and refactor `StatusCommand` to delegate
 
 | Task ID | Description | Files | Effort |
 |---------|-------------|-------|--------|
-| T2.1 | Rename class and file: `SyncCoordinatorFactory` → `SyncCoordinatorPair`, `SyncCoordinatorFactory.cs` → `SyncCoordinatorPair.cs`. Update XML doc comments. | 1 file (rename) | S |
+| T2.1 | Rename class and file: `SyncCoordinatorPair` → `SyncCoordinatorPair`, `SyncCoordinatorPair.cs` → `SyncCoordinatorPair.cs`. Update XML doc comments. | 1 file (rename) | S |
 | T2.2 | Update all source references across `src/` (~14 files): domain services, CLI commands, MCP tools, DI registration, `WorkspaceContext` | 14 source files | M |
 | T2.3 | Update all test references across `tests/` (~33 files): test bases, command tests, domain tests, MCP tests | 33 test files | M |
-| T2.4 | Update architecture docs referencing `SyncCoordinatorFactory` | 4 doc files | S |
+| T2.4 | Update architecture docs referencing `SyncCoordinatorPair` | 4 doc files | S |
 
 **Acceptance Criteria**:
-- [ ] No file or symbol named `SyncCoordinatorFactory` exists in the codebase
+- [ ] No file or symbol named `SyncCoordinatorPair` exists in the codebase
 - [ ] `SyncCoordinatorPair.ReadOnly` and `.ReadWrite` behave identically to before
 - [ ] All existing tests pass with zero assertion changes
 - [ ] `dotnet build` succeeds
@@ -366,7 +366,7 @@ Register `StatusOrchestrator` in CLI DI and refactor `StatusCommand` to delegate
 
 | Task ID | Description | Files | Effort |
 |---------|-------------|-------|--------|
-| T3.1 | Update `domain-model-critique.md` Item 6 with audit findings: mark StatusOrchestrator as resolved, SyncCoordinatorFactory rename as resolved, document why RefreshOrchestrator/SeedPublishOrchestrator/SeedReconcileOrchestrator are retained | `domain-model-critique.md` | S |
+| T3.1 | Update `domain-model-critique.md` Item 6 with audit findings: mark StatusOrchestrator as resolved, SyncCoordinatorPair rename as resolved, document why RefreshOrchestrator/SeedPublishOrchestrator/SeedReconcileOrchestrator are retained | `domain-model-critique.md` | S |
 | T3.2 | Add summary doc comments to retained orchestrators explaining their scope, consumer count, and why they exist as separate classes | `RefreshOrchestrator.cs`, `SeedPublishOrchestrator.cs`, `SeedReconcileOrchestrator.cs` | S |
 
 **Acceptance Criteria**:
@@ -384,7 +384,7 @@ Register `StatusOrchestrator` in CLI DI and refactor `StatusCommand` to delegate
 **Files**: ≤12
 **Successors**: PG-3
 
-### PG-2: SyncCoordinatorFactory → SyncCoordinatorPair Rename
+### PG-2: SyncCoordinatorPair → SyncCoordinatorPair Rename
 
 **Issues covered**: Issue 2 (all tasks)
 **Classification**: **Wide** — many files (~51), mechanical rename
@@ -418,7 +418,7 @@ PG-1 and PG-2 are fully independent and can be developed/reviewed/merged in para
 | Group | Name | Issues/Tasks | Dependencies | Type |
 |-------|------|-------------|--------------|------|
 | PG-1 | StatusOrchestrator Absorption | Issue 1 (T1.1–T1.5) | None | Deep |
-| PG-2 | SyncCoordinatorFactory Rename | Issue 2 (T2.1–T2.4) | None | Wide |
+| PG-2 | SyncCoordinatorPair Rename | Issue 2 (T2.1–T2.4) | None | Wide |
 | PG-3 | Audit Documentation | Issue 3 (T3.1–T3.2) | PG-1, PG-2 | Deep |
 
 ### Execution Order
@@ -426,7 +426,7 @@ PG-1 and PG-2 are fully independent and can be developed/reviewed/merged in para
 ```
 PG-1 (StatusOrchestrator Absorption) ──┐
                                         ├──→ PG-3 (Audit Documentation)
-PG-2 (SyncCoordinatorFactory Rename) ──┘
+PG-2 (SyncCoordinatorPair Rename) ──┘
 ```
 
 PG-1 and PG-2 are fully independent and can be developed, reviewed, and merged in parallel. PG-3 documents the post-consolidation state and therefore depends on both PG-1 and PG-2 being merged first.
@@ -436,15 +436,15 @@ PG-1 and PG-2 are fully independent and can be developed, reviewed, and merged i
 **PG-1 — StatusOrchestrator Absorption**
 - `dotnet build` must succeed with no warnings (AOT + trim)
 - `ContextToolsStatusTests` (9 tests) must pass with zero assertion changes — they validate that `twig_status` JSON output is identical
-- `SyncCoordinatorFactoryTests`, `RefreshOrchestratorTests`, all CLI command tests must continue to pass (unchanged by this PG)
+- `SyncCoordinatorPairTests`, `RefreshOrchestratorTests`, all CLI command tests must continue to pass (unchanged by this PG)
 - `StatusOrchestratorTests.cs` is deleted — its coverage is subsumed by the MCP integration tests
 - Confirm `StatusOrchestrator.cs` is deleted and `StatusSnapshot.cs` exists
 
-**PG-2 — SyncCoordinatorFactory Rename**
+**PG-2 — SyncCoordinatorPair Rename**
 - `dotnet build` must succeed with no warnings
 - Full test suite must pass with zero assertion changes (only identifier substitutions)
-- `grep -r "SyncCoordinatorFactory" src/ tests/` must return zero results
-- Confirm `SyncCoordinatorPair.ReadOnly` and `.ReadWrite` behave identically (covered by existing `SyncCoordinatorFactoryTests` renamed to `SyncCoordinatorPairTests`)
+- `grep -r "SyncCoordinatorPair" src/ tests/` must return zero results
+- Confirm `SyncCoordinatorPair.ReadOnly` and `.ReadWrite` behave identically (covered by existing `SyncCoordinatorPairTests` renamed to `SyncCoordinatorPairTests`)
 
 **PG-3 — Audit Documentation**
 - `dotnet build` must succeed (XML doc comment validity)
@@ -455,5 +455,5 @@ PG-1 and PG-2 are fully independent and can be developed, reviewed, and merged i
 
 - `docs/architecture/domain-model-critique.md` — Item 6: Orchestrator/Coordinator proliferation
 - Epic #2119 — Domain Critique: Orchestrator Consolidation
-- Issue #1614 — Original tiered TTL implementation (created `SyncCoordinatorFactory`)
+- Issue #1614 — Original tiered TTL implementation (created `SyncCoordinatorPair`)
 

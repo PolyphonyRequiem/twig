@@ -51,12 +51,12 @@ public abstract class RefreshCommandTestBase : IDisposable
         _fieldDefinitionStore = Substitute.For<IFieldDefinitionStore>();
 
         _protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        var SyncCoordinatorPair = new SyncCoordinatorPair(_workItemRepo, _adoService, _protectedCacheWriter, _pendingChangeStore, null, 30, 30);
+        var syncCoordinatorPair = new SyncCoordinatorPair(_workItemRepo, _adoService, _protectedCacheWriter, _pendingChangeStore, null, 30, 30);
         var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, _iterationService, null);
         _trackingService = Substitute.For<ITrackingService>();
         _orchestrator = new RefreshOrchestrator(
             _contextStore, _workItemRepo, _adoService,
-            _pendingChangeStore, _protectedCacheWriter, workingSetService, SyncCoordinatorPair,
+            _pendingChangeStore, _protectedCacheWriter, workingSetService, syncCoordinatorPair,
             _iterationService,
             _trackingService);
 

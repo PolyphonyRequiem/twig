@@ -22,7 +22,7 @@ public sealed class SetCommandTests
     private readonly IAdoWorkItemService _adoService;
     private readonly IContextStore _contextStore;
     private readonly ActiveItemResolver _activeItemResolver;
-    private readonly SyncCoordinatorPair _SyncCoordinatorPair;
+    private readonly SyncCoordinatorPair _syncCoordinatorPair;
     private readonly WorkingSetService _workingSetService;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
@@ -36,7 +36,7 @@ public sealed class SetCommandTests
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, pendingChangeStore);
-        _SyncCoordinatorPair = new SyncCoordinatorPair(_workItemRepo, _adoService, protectedCacheWriter, pendingChangeStore, null, 30, 30);
+        _syncCoordinatorPair = new SyncCoordinatorPair(_workItemRepo, _adoService, protectedCacheWriter, pendingChangeStore, null, 30, 30);
         var iterationService = Substitute.For<IIterationService>();
         iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
@@ -44,7 +44,7 @@ public sealed class SetCommandTests
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
-        _cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _SyncCoordinatorPair,
+        _cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorPair,
             _workingSetService, _formatterFactory, _hintEngine);
     }
 
@@ -204,7 +204,7 @@ public sealed class SetCommandTests
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
         var historyStore = Substitute.For<INavigationHistoryStore>();
 
-        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _SyncCoordinatorPair,
+        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorPair,
             _workingSetService, _formatterFactory, _hintEngine, historyStore: historyStore);
 
         var result = await cmd.ExecuteAsync("42");
@@ -407,7 +407,7 @@ public sealed class SetCommandTests
 
     private SetCommand CreateCommand(IProcessConfigurationProvider? processConfigProvider)
     {
-        return new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _SyncCoordinatorPair,
+        return new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorPair,
             _workingSetService, _formatterFactory, _hintEngine,
             processConfigProvider: processConfigProvider);
     }

@@ -376,7 +376,7 @@ public sealed class TrackingServiceTests
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task SyncTrackedTreesAsync_TreeItem_SyncsRootAndChildren()
+    public async Task SyncTrackedTreesAsync_TreeItem_SyncsRootParentsChildrenAndLinks()
     {
         var sut = CreateSut();
         var items = new List<TrackedItem>
@@ -389,9 +389,16 @@ public sealed class TrackingServiceTests
         var adoService = Substitute.For<IAdoWorkItemService>();
 
         // SyncItemAsync path: item not in cache → fetch from ADO
-        workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
-        var fetched = new WorkItemBuilder(42, "Root").InState("Active").Build();
+        var fetched = new WorkItemBuilder(42, "Root").InState("Active").WithParent(99).Build();
+        // First call (SyncItemAsync staleness check): null → triggers fetch
+        // Second call (SyncParentChainAsync root lookup): cached → reads ParentId locally
+        workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
+            .Returns((WorkItem?)null, fetched);
         adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(fetched);
+
+        // SyncParentChainAsync path: root has parent 99, fetch it
+        var parent = new WorkItemBuilder(99, "Parent").InState("Active").Build();
+        adoService.FetchAsync(99, Arg.Any<CancellationToken>()).Returns(parent);
 
         // SyncChildrenAsync path: return children
         var children = new[] { new WorkItemBuilder(100, "Child").InState("Active").Build() };
@@ -402,6 +409,8 @@ public sealed class TrackingServiceTests
 
         result.ShouldBe(0); // no items untracked
         await adoService.Received(1).FetchAsync(42, Arg.Any<CancellationToken>());
+        // Parent chain fetched (root 42 has parent 99)
+        await adoService.Received(1).FetchAsync(99, Arg.Any<CancellationToken>());
         await adoService.Received(1).FetchChildrenAsync(42, Arg.Any<CancellationToken>());
         // Root links synced via FetchWithLinksAsync
         await adoService.Received(1).FetchWithLinksAsync(42, Arg.Any<CancellationToken>());
@@ -457,7 +466,7 @@ public sealed class TrackingServiceTests
     }
 
     [Fact]
-    public async Task SyncTrackedTreesAsync_DeletedItem_SkipsRootLinks()
+    public async Task SyncTrackedTreesAsync_DeletedItem_SkipsParentChainAndRootLinks()
     {
         var sut = CreateSut();
         var items = new List<TrackedItem>
@@ -478,6 +487,7 @@ public sealed class TrackingServiceTests
 
         result.ShouldBe(1);
         await adoService.DidNotReceive().FetchWithLinksAsync(42, Arg.Any<CancellationToken>());
+        await adoService.DidNotReceive().FetchChildrenAsync(42, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -494,11 +504,17 @@ public sealed class TrackingServiceTests
         var workItemRepo = Substitute.For<IWorkItemRepository>();
         var adoService = Substitute.For<IAdoWorkItemService>();
 
-        workItemRepo.GetByIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
-        adoService.FetchAsync(10, Arg.Any<CancellationToken>())
-            .Returns(new WorkItemBuilder(10, "Root 10").InState("Active").Build());
-        adoService.FetchAsync(20, Arg.Any<CancellationToken>())
-            .Returns(new WorkItemBuilder(20, "Root 20").InState("Active").Build());
+        var item10 = new WorkItemBuilder(10, "Root 10").InState("Active").Build();
+        var item20 = new WorkItemBuilder(20, "Root 20").InState("Active").Build();
+
+        // First call per item: null (SyncItemAsync staleness); second: cached (SyncParentChainAsync)
+        workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>())
+            .Returns((WorkItem?)null, item10);
+        workItemRepo.GetByIdAsync(20, Arg.Any<CancellationToken>())
+            .Returns((WorkItem?)null, item20);
+
+        adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(item10);
+        adoService.FetchAsync(20, Arg.Any<CancellationToken>()).Returns(item20);
         adoService.FetchChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 

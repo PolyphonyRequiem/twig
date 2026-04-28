@@ -134,7 +134,7 @@ public class CommandFormatterWiringTests
         var resolver = new ActiveItemResolver(contextStore, workItemRepo, adoService);
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
         var protectedWriter = new ProtectedCacheWriter(workItemRepo, pendingChangeStore);
-        var syncCoordFactory = new SyncCoordinatorFactory(workItemRepo, adoService, protectedWriter, pendingChangeStore, null, 30, 30);
+        var syncCoordFactory = new SyncCoordinatorPair(workItemRepo, adoService, protectedWriter, pendingChangeStore, null, 30, 30);
         var iterService = Substitute.For<IIterationService>();
         iterService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
@@ -181,7 +181,7 @@ public class CommandFormatterWiringTests
         var activeItemResolver = new ActiveItemResolver(contextStore, workItemRepo, adoService);
         services.AddSingleton(activeItemResolver);
         var pcw = new ProtectedCacheWriter(workItemRepo, pendingChangeStore);
-        var scf = new SyncCoordinatorFactory(workItemRepo, adoService, pcw, pendingChangeStore, null, 30, 30);
+        var scf = new SyncCoordinatorPair(workItemRepo, adoService, pcw, pendingChangeStore, null, 30, 30);
         services.AddSingleton(scf.ReadWrite);
         services.AddSingleton(scf);
         var iterSvc = Substitute.For<IIterationService>();
@@ -235,7 +235,7 @@ public class CommandFormatterWiringTests
         var activeItemResolver = new ActiveItemResolver(contextStore, workItemRepo, adoService);
         var pcs = Substitute.For<IPendingChangeStore>();
         var pcw = new ProtectedCacheWriter(workItemRepo, pcs);
-        var sc = new SyncCoordinatorFactory(workItemRepo, adoService, pcw, pcs, null, 30, 30);
+        var sc = new SyncCoordinatorPair(workItemRepo, adoService, pcw, pcs, null, 30, 30);
         var iterSvc= Substitute.For<IIterationService>();
         iterSvc.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);

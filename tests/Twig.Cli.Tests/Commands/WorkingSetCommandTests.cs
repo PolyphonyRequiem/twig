@@ -30,7 +30,7 @@ public class WorkingSetCommandTests
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IIterationService _iterationService;
     private readonly ActiveItemResolver _activeItemResolver;
-    private readonly SyncCoordinatorFactory _syncCoordinatorFactory;
+    private readonly SyncCoordinatorPair _SyncCoordinatorPair;
     private readonly WorkingSetService _workingSetService;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
@@ -46,7 +46,7 @@ public class WorkingSetCommandTests
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        _syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, protectedCacheWriter, _pendingChangeStore, null, 30, 30);
+        _SyncCoordinatorPair = new SyncCoordinatorPair(_workItemRepo, _adoService, protectedCacheWriter, _pendingChangeStore, null, 30, 30);
         _workingSetService = new WorkingSetService(
             _contextStore, _workItemRepo, _pendingChangeStore, _iterationService, null);
         _formatterFactory = new OutputFormatterFactory(
@@ -55,7 +55,7 @@ public class WorkingSetCommandTests
     }
 
     private SetCommand CreateCommand(RenderingPipelineFactory? pipelineFactory = null) =>
-        new(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory,
+        new(_workItemRepo, _contextStore, _activeItemResolver, _SyncCoordinatorPair,
             _workingSetService, _formatterFactory, _hintEngine, pipelineFactory);
 
     // ── (a) Cache miss → eviction fires ────────────────────────────

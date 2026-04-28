@@ -55,12 +55,12 @@ public class NavigationCommandsInteractiveTests
 
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, pendingChangeStore);
-        var syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, protectedCacheWriter, pendingChangeStore, null, 30, 30);
+        var SyncCoordinatorPair = new SyncCoordinatorPair(_workItemRepo, _adoService, protectedCacheWriter, pendingChangeStore, null, 30, 30);
         var iterationService = Substitute.For<IIterationService>();
         iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
         var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, iterationService, null);
-        _setCommand = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, syncCoordinatorFactory,
+        _setCommand = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, SyncCoordinatorPair,
             workingSetService, _formatterFactory, _hintEngine);
     }
 

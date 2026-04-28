@@ -51,10 +51,10 @@ public class LinkCommandTests : IDisposable
     {
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var protectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        var syncCoordinatorFactory = new SyncCoordinatorFactory(
+        var SyncCoordinatorPair = new SyncCoordinatorPair(
             _workItemRepo, _adoService, protectedWriter, _pendingChangeStore, _linkRepo,
             readOnlyStaleMinutes: 30, readWriteStaleMinutes: 30);
-        return new LinkCommand(resolver, _adoService, _linkRepo, syncCoordinatorFactory, _formatterFactory, _stderr);
+        return new LinkCommand(resolver, _adoService, _linkRepo, SyncCoordinatorPair, _formatterFactory, _stderr);
     }
 
     /// <summary>

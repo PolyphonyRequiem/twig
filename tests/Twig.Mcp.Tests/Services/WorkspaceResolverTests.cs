@@ -447,7 +447,7 @@ public sealed class WorkspaceResolverTests
             iterationService: null!,
             processConfigProvider: null!,
             activeItemResolver: null!,
-            syncCoordinatorFactory: null!,
+            syncCoordinatorPair: null!,
             contextChangeService: null!,
             workingSetService: null!,
             flusher: null!,

@@ -40,9 +40,9 @@ public class ContextChangeServiceTests
 
         var protectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingStore);
 
-        var syncFactoryWithLinks = new SyncCoordinatorFactory(
+        var syncFactoryWithLinks = new SyncCoordinatorPair(
             _workItemRepo, _adoService, protectedWriter, _pendingStore, _linkRepo, readOnlyStaleMinutes: CacheStaleMinutes, readWriteStaleMinutes: CacheStaleMinutes);
-        var syncFactoryWithoutLinks = new SyncCoordinatorFactory(
+        var syncFactoryWithoutLinks = new SyncCoordinatorPair(
             _workItemRepo, _adoService, protectedWriter, _pendingStore, null, readOnlyStaleMinutes: CacheStaleMinutes, readWriteStaleMinutes: CacheStaleMinutes);
 
         _sut = new ContextChangeService(

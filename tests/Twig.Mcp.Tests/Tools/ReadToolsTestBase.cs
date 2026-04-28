@@ -132,7 +132,7 @@ public abstract class ReadToolsTestBase
     {
         var activeItemResolver = new ActiveItemResolver(contextStore, workItemRepo, adoService);
         var protectedWriter = new ProtectedCacheWriter(workItemRepo, pendingChangeStore);
-        var syncFactory = new SyncCoordinatorFactory(
+        var syncFactory = new SyncCoordinatorPair(
             workItemRepo, adoService, protectedWriter, pendingChangeStore,
             linkRepo,
             readOnlyStaleMinutes: config.Display.CacheStaleMinutes,

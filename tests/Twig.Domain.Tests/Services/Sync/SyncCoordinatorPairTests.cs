@@ -7,7 +7,7 @@ using Xunit;
 
 namespace Twig.Domain.Tests.Services.Sync;
 
-public class SyncCoordinatorFactoryTests
+public class SyncCoordinatorPairTests
 {
     private readonly IWorkItemRepository _workItemRepo = Substitute.For<IWorkItemRepository>();
     private readonly IAdoWorkItemService _adoService = Substitute.For<IAdoWorkItemService>();
@@ -17,7 +17,7 @@ public class SyncCoordinatorFactoryTests
     private ProtectedCacheWriter CreateProtectedWriter() =>
         new(_workItemRepo, _pendingStore);
 
-    private SyncCoordinatorFactory CreateFactory(int readOnlyMinutes, int readWriteMinutes) =>
+    private SyncCoordinatorPair CreateFactory(int readOnlyMinutes, int readWriteMinutes) =>
         new(_workItemRepo, _adoService, CreateProtectedWriter(), _pendingStore, _linkRepo,
             readOnlyMinutes, readWriteMinutes);
 
@@ -94,7 +94,7 @@ public class SyncCoordinatorFactoryTests
     [Fact]
     public void Constructor_WithNullLinkRepo_DoesNotThrow()
     {
-        var factory = new SyncCoordinatorFactory(
+        var factory = new SyncCoordinatorPair(
             _workItemRepo, _adoService, CreateProtectedWriter(), _pendingStore,
             null, readOnlyStaleMinutes: 15, readWriteStaleMinutes: 5);
 

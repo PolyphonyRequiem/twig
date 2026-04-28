@@ -112,7 +112,7 @@ public class PromptStateIntegrationTests : IDisposable
         var writer = CreateWriter();
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var protectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        var syncCoordFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, protectedWriter, _pendingChangeStore, null, 30, 30);
+        var syncCoordFactory = new SyncCoordinatorPair(_workItemRepo, _adoService, protectedWriter, _pendingChangeStore, null, 30, 30);
         var iterService = Substitute.For<IIterationService>();
         iterService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
@@ -313,7 +313,7 @@ public class PromptStateIntegrationTests : IDisposable
 
         var resolver2 = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var protectedWriter2 = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        var syncCoordFactory2 = new SyncCoordinatorFactory(_workItemRepo, _adoService, protectedWriter2, _pendingChangeStore, null, 30, 30);
+        var syncCoordFactory2 = new SyncCoordinatorPair(_workItemRepo, _adoService, protectedWriter2, _pendingChangeStore, null, 30, 30);
         var iterService2 = Substitute.For<IIterationService>();
         iterService2.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
@@ -501,10 +501,10 @@ public class PromptStateIntegrationTests : IDisposable
 
         var writer = CreateWriter();
         var refreshProtectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        var refreshSyncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, refreshProtectedWriter, _pendingChangeStore, null, 30, 30);
+        var refreshSyncCoordinatorPair = new SyncCoordinatorPair(_workItemRepo, _adoService, refreshProtectedWriter, _pendingChangeStore, null, 30, 30);
         var refreshWorkingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, iterationService, null);
         var refreshOrchestrator = new RefreshOrchestrator(_contextStore, _workItemRepo, _adoService,
-            _pendingChangeStore, refreshProtectedWriter, refreshWorkingSetService, refreshSyncCoordinatorFactory,
+            _pendingChangeStore, refreshProtectedWriter, refreshWorkingSetService, refreshSyncCoordinatorPair,
             iterationService,
             Substitute.For<ITrackingService>());
         var cmd = new RefreshCommand(_contextStore, iterationService, _config, _paths, _processTypeStore, _fieldDefinitionStore,

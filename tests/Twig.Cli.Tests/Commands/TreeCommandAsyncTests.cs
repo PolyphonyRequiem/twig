@@ -24,7 +24,7 @@ public class TreeCommandAsyncTests
     private readonly TwigConfiguration _config;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly WorkingSetService _workingSetService;
-    private readonly SyncCoordinatorFactory _syncCoordinatorFactory;
+    private readonly SyncCoordinatorPair _SyncCoordinatorPair;
     private readonly IProcessTypeStore _processTypeStore;
     private readonly TestConsole _testConsole;
     private readonly SpectreRenderer _spectreRenderer;
@@ -40,7 +40,7 @@ public class TreeCommandAsyncTests
             new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, pendingChangeStore);
-        _syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, protectedCacheWriter, pendingChangeStore, null, 30, 30);
+        _SyncCoordinatorPair = new SyncCoordinatorPair(_workItemRepo, _adoService, protectedCacheWriter, pendingChangeStore, null, 30, 30);
         var iterationService = Substitute.For<IIterationService>();
         iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
@@ -56,7 +56,7 @@ public class TreeCommandAsyncTests
 
     private TreeCommand CreateCommand(RenderingPipelineFactory? pipelineFactory = null) =>
         new(_contextStore, _workItemRepo, _config, _formatterFactory, _activeItemResolver,
-            _workingSetService, _syncCoordinatorFactory, _processTypeStore, pipelineFactory);
+            _workingSetService, _SyncCoordinatorPair, _processTypeStore, pipelineFactory);
 
     // ── Sibling count rendering tests ───────────────────────────────
 

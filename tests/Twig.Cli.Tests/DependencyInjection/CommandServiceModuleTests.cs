@@ -68,12 +68,12 @@ public sealed class CommandServiceModuleTests
     }
 
     [Fact]
-    public void SyncCoordinatorFactory_Resolves_WithBothTiers()
+    public void SyncCoordinatorPair_Resolves_WithBothTiers()
     {
         using var provider = BuildFullProvider();
 
         // GetRequiredService throws if the registration is missing
-        provider.GetRequiredService<SyncCoordinatorFactory>();
+        provider.GetRequiredService<SyncCoordinatorPair>();
     }
 
     [Fact]
@@ -81,7 +81,7 @@ public sealed class CommandServiceModuleTests
     {
         using var provider = BuildFullProvider();
 
-        var factory = provider.GetRequiredService<SyncCoordinatorFactory>();
+        var factory = provider.GetRequiredService<SyncCoordinatorPair>();
         var coordinator = provider.GetRequiredService<SyncCoordinator>();
 
         coordinator.ShouldBeSameAs(factory.ReadWrite);

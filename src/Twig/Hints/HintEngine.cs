@@ -34,7 +34,7 @@ public sealed class HintEngine
     /// <param name="newStateName">The resolved state name (for "state" command).</param>
     /// <param name="createdId">The ID of a newly created item (for "seed" command).</param>
     /// <param name="siblings">Sibling work items (for "state d" hint about all siblings done).</param>
-    /// <param name="staleSeedCount">Number of stale seeds (for "status" command).</param>
+    /// <param name="staleSeedCount">Number of stale seeds (for "show" command).</param>
     public IReadOnlyList<string> GetHints(
         string commandName,
         WorkItem? item = null,
@@ -123,6 +123,14 @@ public sealed class HintEngine
 
             case "edit":
                 hints.Add("Changes staged locally. Run twig save to persist to ADO");
+                break;
+
+            case "show":
+                if (staleSeedCount > 0)
+                {
+                    var noun = staleSeedCount == 1 ? "seed" : "seeds";
+                    hints.Add($"⚠ {staleSeedCount} stale {noun}. Run 'twig seed view' to review.");
+                }
                 break;
 
             case "init":

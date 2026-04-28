@@ -424,6 +424,41 @@ public sealed class HintEngineTests
         hints[2].ShouldContain("--output ids");
     }
 
+    // ── delete command ────────────────────────────────────────────────
+
+    [Fact]
+    public void GetHints_Delete_RecommendsClosed()
+    {
+        var engine = CreateEngine();
+
+        var hints = engine.GetHints("delete");
+
+        hints.Count.ShouldBe(1);
+        hints[0].ShouldContain("twig state Closed");
+        hints[0].ShouldContain("reversible");
+    }
+
+    [Fact]
+    public void GetHints_Delete_HintsDisabled_ReturnsEmpty()
+    {
+        var config = new DisplayConfig { Hints = false };
+        var engine = new HintEngine(config);
+
+        var hints = engine.GetHints("delete");
+
+        hints.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void GetHints_Delete_JsonFormat_ReturnsEmpty()
+    {
+        var engine = CreateEngine();
+
+        var hints = engine.GetHints("delete", outputFormat: "json");
+
+        hints.ShouldBeEmpty();
+    }
+
     // ── removed git/flow commands ───────────────────────────────────
 
     [Theory]

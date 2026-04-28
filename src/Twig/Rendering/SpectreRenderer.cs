@@ -888,7 +888,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
     /// <summary>
     /// Builds the complete status view as a composite <see cref="IRenderable"/> without
-    /// writing to the console. Used by <see cref="StatusCommand"/> to compose the status
+    /// writing to the console. Composes the status
     /// view inside a <see cref="RenderWithSyncAsync"/> Live region, preventing border
     /// corruption when the sync indicator clears.
     /// </summary>

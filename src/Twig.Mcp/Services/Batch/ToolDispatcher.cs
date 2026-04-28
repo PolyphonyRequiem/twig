@@ -40,8 +40,6 @@ internal sealed class ToolDispatcher(
                 GetRequiredString(args, "idOrPattern"),
                 workspace, ct),
 
-            "twig_status" => contextTools.Status(workspace, ct),
-
             // Read tools
             "twig_tree" => readTools.Tree(
                 GetNullableInt(args, "depth"),

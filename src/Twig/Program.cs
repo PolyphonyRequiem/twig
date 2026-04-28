@@ -111,11 +111,11 @@ if (args.Length == 1 && args[0] is "-h" or "--help" or "help")
 }
 if (args.Length == 0)
 {
-    // Smart landing: route to status if workspace is initialized, otherwise show help
+    // Smart landing: route to show if workspace is initialized, otherwise show help
     var twigDirCheck = WorkspaceDiscovery.FindTwigDir();
     if (twigDirCheck is not null)
     {
-        args = ["status"];
+        args = ["show"];
         // Fall through to app.Run(args)
     }
     else
@@ -360,13 +360,6 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     public async Task<int> Query([Argument] string? searchText = null, string? title = null, string? description = null, string? type = null, string? state = null, string? assignedTo = null, string? areaPath = null, string? iterationPath = null, string? createdSince = null, string? changedSince = null, int top = 25, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<QueryCommand>().ExecuteAsync(searchText, title, description, type, state, assignedTo, areaPath, iterationPath, createdSince, changedSince, top, output, ct);
-
-    /// <summary>Show status of the active work item.</summary>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
-    /// <param name="noLive">Disable live-refresh and render a static snapshot.</param>
-    /// <param name="noRefresh">Skip the sync and show cached data only.</param>
-    public async Task<int> Status(string output = OutputFormatterFactory.DefaultFormat, bool noLive = false, bool noRefresh = false, CancellationToken ct = default)
-        => await services.GetRequiredService<StatusCommand>().ExecuteAsync(output, noLive, noRefresh, ct);
 
     /// <summary>Change the state of the active work item by name.</summary>
     /// <param name="name">Target state name (e.g., Active, Resolved, Closed).</param>
@@ -923,7 +916,6 @@ internal static class GroupedHelp
         "sync",
 
         // Views
-        "status",
         "tree",
         "sprint",
 
@@ -1046,7 +1038,6 @@ Getting Started:
   sync                 Flush pending changes then refresh from ADO.
 
 Views:
-  status               Active item detail and pending changes.
   tree                 Work item hierarchy (parent → active → children).
   sprint               My sprint items, grouped by assignee.  (--all for team)
   area                 Area-filtered view of work items.

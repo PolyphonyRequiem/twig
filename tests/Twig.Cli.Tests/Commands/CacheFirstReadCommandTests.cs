@@ -93,31 +93,6 @@ public class CacheFirstReadCommandTests
         await _adoService.DidNotReceive().FetchAsync(42, Arg.Any<CancellationToken>());
     }
 
-    [Fact]
-    public async Task StatusCommand_CachedItem_DisplaysFromCache()
-    {
-        var item = CreateWorkItem(1, "Cached Status Item");
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
-        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
-        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<Domain.Common.PendingChangeRecord>());
-        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>());
-
-        var config = new TwigConfiguration { Seed = new SeedConfig { StaleDays = 14 } };
-        var paths = new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db"));
-        var statusFieldReader = new StatusFieldConfigReader(paths);
-        var redirectedPipeline = new RenderingPipelineFactory(_formatterFactory, new SpectreRenderer(new Spectre.Console.Testing.TestConsole(), new SpectreTheme(new DisplayConfig())), isOutputRedirected: () => true);
-        var ctx = new CommandContext(redirectedPipeline, _formatterFactory, _hintEngine, config);
-        var cmd = new StatusCommand(ctx, _contextStore, _workItemRepo, _pendingChangeStore,
-            _activeItemResolver, _workingSetService, _syncCoordinatorFactory, statusFieldReader);
-        var result = await cmd.ExecuteAsync();
-
-        result.ShouldBe(0);
-        // No ADO fetch calls since item was in cache
-        await _adoService.DidNotReceive().FetchAsync(1, Arg.Any<CancellationToken>());
-    }
-
     // ── (b) Working set sync after setting context ────────────────
 
     [Fact]
@@ -206,29 +181,6 @@ public class CacheFirstReadCommandTests
         result.ShouldBe(0);
     }
 
-    [Fact]
-    public async Task StatusCommand_JsonOutput_ProducesExpectedFormat()
-    {
-        var item = CreateWorkItem(1, "JSON Status Item");
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
-        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
-        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<Domain.Common.PendingChangeRecord>());
-        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>());
-
-        var config = new TwigConfiguration { Seed = new SeedConfig { StaleDays = 14 } };
-        var paths = new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db"));
-        var statusFieldReader = new StatusFieldConfigReader(paths);
-        var redirectedPipeline = new RenderingPipelineFactory(_formatterFactory, new SpectreRenderer(new Spectre.Console.Testing.TestConsole(), new SpectreTheme(new DisplayConfig())), isOutputRedirected: () => true);
-        var ctx = new CommandContext(redirectedPipeline, _formatterFactory, _hintEngine, config);
-        var cmd = new StatusCommand(ctx, _contextStore, _workItemRepo, _pendingChangeStore,
-            _activeItemResolver, _workingSetService, _syncCoordinatorFactory, statusFieldReader);
-
-        var result = await cmd.ExecuteAsync("json");
-        result.ShouldBe(0);
-    }
-
     // ── (f) Auto-fetch on cache miss ───────────────────────────────
 
     [Fact]
@@ -245,34 +197,6 @@ public class CacheFirstReadCommandTests
         await _adoService.Received().FetchAsync(42, Arg.Any<CancellationToken>());
         await _workItemRepo.Received().SaveAsync(item, Arg.Any<CancellationToken>());
         await _contextStore.Received().SetActiveWorkItemIdAsync(42, Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task StatusCommand_CacheMiss_AutoFetchesFromAdo()
-    {
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(99);
-        _workItemRepo.GetByIdAsync(99, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
-
-        var item = CreateWorkItem(99, "Auto-Fetched Item");
-        _adoService.FetchAsync(99, Arg.Any<CancellationToken>()).Returns(item);
-        _pendingChangeStore.GetChangesAsync(99, Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<Domain.Common.PendingChangeRecord>());
-        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>());
-
-        var config = new TwigConfiguration { Seed = new SeedConfig { StaleDays = 14 } };
-        var paths = new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db"));
-        var statusFieldReader = new StatusFieldConfigReader(paths);
-        var redirectedPipeline = new RenderingPipelineFactory(_formatterFactory, new SpectreRenderer(new Spectre.Console.Testing.TestConsole(), new SpectreTheme(new DisplayConfig())), isOutputRedirected: () => true);
-        var ctx = new CommandContext(redirectedPipeline, _formatterFactory, _hintEngine, config);
-        var cmd = new StatusCommand(ctx, _contextStore, _workItemRepo, _pendingChangeStore,
-            _activeItemResolver, _workingSetService, _syncCoordinatorFactory, statusFieldReader);
-        var result = await cmd.ExecuteAsync();
-
-        result.ShouldBe(0);
-        // FetchAsync called at least once: initial cache-miss auto-fetch via ActiveItemResolver
-        // (may also be called by SyncWorkingSetAsync for stale items)
-        await _adoService.Received().FetchAsync(99, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -346,26 +270,6 @@ public class CacheFirstReadCommandTests
         var cmd = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory, _workingSetService, _statusFieldReader);
         var result = await cmd.ExecuteAsync("999");
 
-        result.ShouldBe(1);
-    }
-
-    [Fact]
-    public async Task StatusCommand_Unreachable_ReturnsError()
-    {
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(999);
-        _workItemRepo.GetByIdAsync(999, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
-        _adoService.FetchAsync(999, Arg.Any<CancellationToken>())
-            .Throws(new HttpRequestException("Network error"));
-
-        var config = new TwigConfiguration { Seed = new SeedConfig { StaleDays = 14 } };
-        var paths = new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db"));
-        var statusFieldReader = new StatusFieldConfigReader(paths);
-        var redirectedPipeline = new RenderingPipelineFactory(_formatterFactory, new SpectreRenderer(new Spectre.Console.Testing.TestConsole(), new SpectreTheme(new DisplayConfig())), isOutputRedirected: () => true);
-        var ctx = new CommandContext(redirectedPipeline, _formatterFactory, _hintEngine, config);
-        var cmd = new StatusCommand(ctx, _contextStore, _workItemRepo, _pendingChangeStore,
-            _activeItemResolver, _workingSetService, _syncCoordinatorFactory, statusFieldReader);
-
-        var result = await cmd.ExecuteAsync();
         result.ShouldBe(1);
     }
 

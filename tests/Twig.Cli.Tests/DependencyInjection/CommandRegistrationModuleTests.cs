@@ -84,19 +84,6 @@ public sealed class CommandRegistrationModuleTests
     }
 
     [Fact]
-    public void StatusCommand_AutoResolution_Resolves_Successfully()
-    {
-        using var provider = BuildProviderForCommands();
-
-        // StatusCommand uses auto-resolution (no factory lambda).
-        // This verifies CommandContext and StatusFieldConfigReader resolve
-        // correctly after the constructor was refactored.
-        var command = provider.GetRequiredService<StatusCommand>();
-
-        command.ShouldNotBeNull();
-    }
-
-    [Fact]
     public void SetCommand_AutoResolution_Resolves_Successfully()
     {
         using var provider = BuildProviderForCommands();

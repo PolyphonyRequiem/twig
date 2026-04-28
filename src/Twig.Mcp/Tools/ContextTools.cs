@@ -8,10 +8,8 @@ using Twig.Mcp.Services;
 namespace Twig.Mcp.Tools;
 
 /// <summary>
-/// MCP tools for context management: twig_set, twig_status.
+/// MCP tools for context management: twig_set.
 /// Resolves per-workspace services via <see cref="WorkspaceResolver"/>.
-/// Status snapshot logic (active item resolution, pending changes, seeds) is inlined
-/// directly — no intermediate orchestrator.
 /// </summary>
 [McpServerToolType]
 public sealed class ContextTools(WorkspaceResolver resolver)
@@ -87,33 +85,5 @@ public sealed class ContextTools(WorkspaceResolver resolver)
         }
         var children = await ctx.WorkItemRepo.GetChildrenAsync(item.Id, ct);
         return McpResultBuilder.FormatWorkItemWithWorkingSet(item, parentChainCount, children.Count, ctx.Key.ToString());
-    }
-
-    [McpServerTool(Name = "twig_status"), Description("Show the active work item status")]
-    public async Task<CallToolResult> Status(
-        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
-        CancellationToken ct = default)
-    {
-        WorkspaceContext ctx;
-        try { ctx = resolver.Resolve(workspace); }
-        catch (Exception ex) when (ex is FormatException or KeyNotFoundException or AmbiguousWorkspaceException)
-        { return McpResultBuilder.ToError(ex.Message); }
-
-        var activeId = await ctx.ContextStore.GetActiveWorkItemIdAsync(ct);
-        if (activeId is null)
-            return McpResultBuilder.ToError("No active work item. Use twig_set to set context.");
-
-        var resolveResult = await ctx.ActiveItemResolver.GetActiveItemAsync(ct);
-        if (!resolveResult.TryGetWorkItem(out var item, out var unreachableId, out var unreachableReason))
-            return McpResultBuilder.FormatStatus(
-                new StatusResult.Unreachable(activeId.Value, unreachableId ?? activeId.Value, unreachableReason ?? "Unknown"),
-                ctx.Key.ToString());
-
-        var pending = await ctx.PendingChangeStore.GetChangesAsync(item.Id, ct);
-        var seeds = await ctx.WorkItemRepo.GetSeedsAsync(ct);
-
-        return McpResultBuilder.FormatStatus(
-            new StatusResult.Success(item, pending, seeds),
-            ctx.Key.ToString());
     }
 }

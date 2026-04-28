@@ -37,11 +37,6 @@ internal static class CommandExamples
             "twig query \"login bug\"              Search title & description",
             "twig query --state Doing --top 50    Filter by state, limit results",
         ],
-        ["status"] =
-        [
-            "twig status                Show status of the active work item",
-            "twig status --output json  Show status as JSON (for scripting)",
-        ],
         ["state"] =
         [
             "twig state Active          Transition active item to Active",

@@ -1,7 +1,7 @@
 /// <summary>
 /// Per-command usage examples appended to <c>--help</c> output after ConsoleAppFramework's
 /// built-in help text. Handles compound commands (e.g. <c>nav up</c>, <c>seed new</c>) and
-/// single-token commands (e.g. <c>set</c>, <c>flow-start</c>).
+/// single-token commands (e.g. <c>set</c>, <c>show-batch</c>).
 /// </summary>
 internal static class CommandExamples
 {

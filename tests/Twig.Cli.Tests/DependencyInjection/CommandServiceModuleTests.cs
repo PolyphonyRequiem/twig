@@ -1,11 +1,13 @@
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using Shouldly;
+using Twig.Commands;
 using Twig.DependencyInjection;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Formatters;
 using Twig.Infrastructure.Config;
+using Twig.Rendering;
 using Xunit;
 
 namespace Twig.Cli.Tests.DependencyInjection;
@@ -35,6 +37,12 @@ public sealed class CommandServiceModuleTests
             new JsonOutputFormatter(),
             new JsonCompactOutputFormatter(new JsonOutputFormatter()),
             new MinimalOutputFormatter()));
+        services.AddSingleton(Substitute.For<IAsyncRenderer>());
+        services.AddSingleton<RenderingPipelineFactory>();
+        services.AddSingleton(new TwigPaths(
+            Path.Combine(Path.GetTempPath(), ".twig-test"),
+            Path.Combine(Path.GetTempPath(), ".twig-test", "config"),
+            Path.Combine(Path.GetTempPath(), ".twig-test", "twig.db")));
 
         services.AddSingleton(config);
         services.AddTwigCommandServices();
@@ -76,6 +84,40 @@ public sealed class CommandServiceModuleTests
         var coordinator = provider.GetRequiredService<SyncCoordinator>();
 
         coordinator.ShouldBeSameAs(factory.ReadWrite);
+    }
+
+    [Fact]
+    public void CommandContext_Resolves_WithAllDependencies()
+    {
+        using var provider = BuildFullProvider();
+
+        var ctx = provider.GetRequiredService<CommandContext>();
+
+        ctx.ShouldNotBeNull();
+        ctx.PipelineFactory.ShouldNotBeNull();
+        ctx.FormatterFactory.ShouldNotBeNull();
+        ctx.HintEngine.ShouldNotBeNull();
+        ctx.Config.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void CommandContext_TelemetryClient_IsNullWhenNotRegistered()
+    {
+        using var provider = BuildFullProvider();
+
+        var ctx = provider.GetRequiredService<CommandContext>();
+
+        ctx.TelemetryClient.ShouldBeNull();
+    }
+
+    [Fact]
+    public void StatusFieldConfigReader_Resolves_WithAllDependencies()
+    {
+        using var provider = BuildFullProvider();
+
+        var reader = provider.GetRequiredService<StatusFieldConfigReader>();
+
+        reader.ShouldNotBeNull();
     }
 
 }

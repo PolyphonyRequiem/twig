@@ -1,7 +1,7 @@
 # Command Layer Bloat Reduction
 
 > **Epic:** #2121 — Domain Critique: Command Layer Bloat Reduction
-> **Status**: ✅ Approved
+> **Status**: 🔨 In Progress
 > **Revision:** 0 (Initial draft)
 
 ---
@@ -16,13 +16,13 @@ CLI commands in Twig suffer from constructor parameter explosion (up to 17 param
 
 ### Current State
 
-All 43 CLI commands are standalone `sealed class` types using C# 12 primary constructors. There is no base class, no shared interface, and no parameter objects. Dependencies are injected flat — every command receives each dependency as a separate constructor parameter.
+All 46 CLI commands are standalone `sealed class` types using C# 12 primary constructors. There is no base class, no shared interface, and no parameter objects. Dependencies are injected flat — every command receives each dependency as a separate constructor parameter.
 
 The `RenderingPipelineFactory` (introduced in EPIC-005) already consolidates the formatter/renderer resolution into a single service, but 10 commands still carry both `OutputFormatterFactory` and `RenderingPipelineFactory?` because the pipeline factory is optional for backward compatibility with pre-EPIC-005 tests.
 
 ### Dependency Frequency Analysis
 
-The following dependencies appear across 8+ of the 43 commands:
+The following dependencies appear across 8+ of the 46 commands:
 
 | Dependency | Usage Count | Category |
 |---|---|---|

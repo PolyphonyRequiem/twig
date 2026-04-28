@@ -81,6 +81,16 @@ public sealed class LinkCommand(
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
     {
+        var startTimestamp = Stopwatch.GetTimestamp();
+        var exitCode = await UnparentCoreAsync(outputFormat, ct);
+        TelemetryHelper.TrackCommand(telemetryClient, "link-unparent", outputFormat, exitCode, startTimestamp);
+        return exitCode;
+    }
+
+    private async Task<int> UnparentCoreAsync(
+        string outputFormat,
+        CancellationToken ct)
+    {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
         var resolved = await activeItemResolver.GetActiveItemAsync(ct);

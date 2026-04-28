@@ -590,6 +590,87 @@ public class LinkCommandTests : IDisposable
         result.ShouldBe(0);
     }
 
+    // ── UnparentAsync telemetry tests ─────────────────────────────
+
+    [Fact]
+    public async Task UnparentAsync_Success_EmitsTelemetryWithExitCodeZero()
+    {
+        var child = new WorkItemBuilder(42, "Child Item").InState("Active").WithParent(100).Build();
+
+        SetActiveItem(child);
+        SetupResyncForItem(42);
+        SetupResyncForItem(100);
+        _linkRepo.GetLinksAsync(42, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItemLink>());
+
+        var cmd = CreateCommand();
+        await cmd.UnparentAsync();
+
+        _telemetryClient.Received(1).TrackEvent(
+            "CommandExecuted",
+            Arg.Is<Dictionary<string, string>>(p =>
+                p["command"] == "link-unparent" &&
+                p["exit_code"] == "0"),
+            Arg.Is<Dictionary<string, double>>(m =>
+                m.ContainsKey("duration_ms")));
+    }
+
+    [Fact]
+    public async Task UnparentAsync_NoActiveItem_EmitsTelemetryWithExitCodeOne()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+
+        var cmd = CreateCommand();
+        await cmd.UnparentAsync();
+
+        _telemetryClient.Received(1).TrackEvent(
+            "CommandExecuted",
+            Arg.Is<Dictionary<string, string>>(p =>
+                p["command"] == "link-unparent" &&
+                p["exit_code"] == "1"),
+            Arg.Is<Dictionary<string, double>>(m =>
+                m.ContainsKey("duration_ms")));
+    }
+
+    [Fact]
+    public async Task UnparentAsync_NoParent_EmitsTelemetryWithExitCodeOne()
+    {
+        var item = new WorkItemBuilder(42, "No Parent Item").InState("Active").Build();
+        SetActiveItem(item);
+
+        var cmd = CreateCommand();
+        await cmd.UnparentAsync();
+
+        _telemetryClient.Received(1).TrackEvent(
+            "CommandExecuted",
+            Arg.Is<Dictionary<string, string>>(p =>
+                p["command"] == "link-unparent" &&
+                p["exit_code"] == "1"),
+            Arg.Is<Dictionary<string, double>>(m =>
+                m.ContainsKey("duration_ms")));
+    }
+
+    [Fact]
+    public async Task UnparentAsync_NullTelemetryClient_DoesNotThrow()
+    {
+        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var protectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
+        var syncCoordinatorFactory = new SyncCoordinatorFactory(
+            _workItemRepo, _adoService, protectedWriter, _pendingChangeStore, _linkRepo,
+            readOnlyStaleMinutes: 30, readWriteStaleMinutes: 30);
+        var cmd = new LinkCommand(resolver, _adoService, _linkRepo, syncCoordinatorFactory, _formatterFactory, telemetryClient: null, stderr: _stderr);
+
+        var child = new WorkItemBuilder(42, "Child Item").InState("Active").WithParent(100).Build();
+
+        SetActiveItem(child);
+        SetupResyncForItem(42);
+        SetupResyncForItem(100);
+        _linkRepo.GetLinksAsync(42, Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItemLink>());
+
+        var result = await cmd.UnparentAsync();
+
+        result.ShouldBe(0);
+    }
+
     // ── ReparentAsync telemetry tests ─────────────────────────────
 
     [Fact]

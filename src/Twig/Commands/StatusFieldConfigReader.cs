@@ -1,4 +1,4 @@
-using Twig.Domain.Services;
+using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Config;
 

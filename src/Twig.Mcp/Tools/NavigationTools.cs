@@ -105,7 +105,7 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
     {
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
 
-        var children = await ctx.WorkItemRepo.GetChildrenAsync(id, ct);
+        var children = await ctx.FetchChildrenWithFallbackAsync(id, ct);
         return McpResultBuilder.FormatChildren(id, children, ctx.Key.ToString());
     }
 

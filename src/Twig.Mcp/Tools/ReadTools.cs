@@ -43,19 +43,19 @@ public sealed class ReadTools(WorkspaceResolver resolver)
             : Array.Empty<WorkItem>();
 
         var maxDepth = depth ?? ctx.Config.Display.TreeDepth;
-        var allChildren = await ctx.WorkItemRepo.GetChildrenAsync(item.Id, ct);
+        var allChildren = await ctx.FetchChildrenWithFallbackAsync(item.Id, ct);
         var totalChildCount = allChildren.Count;
         var children = allChildren;
 
         // Recursively fetch descendants up to maxChildren depth for deep tree output
         var descendantsByParentId = new Dictionary<int, IReadOnlyList<WorkItem>>();
-        await WorkTreeFetcher.FetchDescendantsAsync(ctx.WorkItemRepo, children, maxDepth - 1, descendantsByParentId, ct);
+        await WorkTreeFetcher.FetchDescendantsAsync(ctx.FetchChildrenWithFallbackAsync, children, maxDepth - 1, descendantsByParentId, ct);
 
         // Compute sibling counts for parent chain + focused item
         var siblingCounts = new Dictionary<int, int?>();
         foreach (var node in parentChain.Append(item))
             siblingCounts[node.Id] = node.ParentId.HasValue
-                ? (await ctx.WorkItemRepo.GetChildrenAsync(node.ParentId.Value, ct)).Count
+                ? (await ctx.FetchChildrenWithFallbackAsync(node.ParentId.Value, ct)).Count
                 : null;
 
         // Best-effort link sync

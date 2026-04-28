@@ -1,6 +1,6 @@
 using Twig.Domain.Interfaces;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Seed;
 
 /// <summary>
 /// Thread-safe seed ID counter using <see cref="Interlocked"/> operations.

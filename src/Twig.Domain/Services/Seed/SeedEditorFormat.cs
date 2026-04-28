@@ -2,7 +2,7 @@ using System.Text;
 using Twig.Domain.Aggregates;
 using Twig.Domain.ValueObjects;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Seed;
 
 /// <summary>
 /// Generates and parses a section-header editor format for seed work items.

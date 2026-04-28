@@ -3,7 +3,7 @@ using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Seed;
 
 /// <summary>
 /// Creates seed work items, validating parent/child rules via <see cref="ProcessConfiguration"/>

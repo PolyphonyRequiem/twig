@@ -1,7 +1,7 @@
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Seed;
 
 /// <summary>
 /// Repairs orphaned and stale seed_links and parent_id references using the publish_id_map.

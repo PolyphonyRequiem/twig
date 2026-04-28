@@ -1,7 +1,7 @@
 using Twig.Domain.ValueObjects;
 using Twig.Domain.Services.Navigation;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Seed;
 
 /// <summary>
 /// Maps <see cref="SeedLinkTypes"/> constants to ADO relation type reference names.

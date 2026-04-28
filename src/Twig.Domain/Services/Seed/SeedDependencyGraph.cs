@@ -1,7 +1,7 @@
 using Twig.Domain.Aggregates;
 using Twig.Domain.ValueObjects;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Seed;
 
 /// <summary>
 /// Produces a topological publish order from seed links and ParentId edges.

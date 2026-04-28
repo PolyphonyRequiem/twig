@@ -52,8 +52,8 @@ builder.Services.AddSingleton<IWorkspaceRegistry>(registry);
 builder.Services.AddSingleton(resolver);
 
 // Seed factory — singleton counter for consistent negative ID generation across MCP tool calls.
-builder.Services.AddSingleton<Twig.Domain.Interfaces.ISeedIdCounter, Twig.Domain.Services.SeedIdCounter>();
-builder.Services.AddSingleton<Twig.Domain.Services.SeedFactory>();
+builder.Services.AddSingleton<Twig.Domain.Interfaces.ISeedIdCounter, Twig.Domain.Services.Seed.SeedIdCounter>();
+builder.Services.AddSingleton<Twig.Domain.Services.Seed.SeedFactory>();
 
 // Batch dispatch — interface enables BatchExecutionEngine to be tested in isolation (NFR-7).
 builder.Services.AddSingleton<IToolDispatcher, ToolDispatcher>();

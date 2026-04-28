@@ -2,7 +2,7 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
 using Twig.Domain.Services.Navigation;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Seed;
 
 /// <summary>
 /// Promotes virtual seed links to ADO relations after a seed is published.

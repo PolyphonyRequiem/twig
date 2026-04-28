@@ -2,7 +2,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Seed;
 
 /// <summary>
 /// Checks for existing work items with matching title, type, and parent

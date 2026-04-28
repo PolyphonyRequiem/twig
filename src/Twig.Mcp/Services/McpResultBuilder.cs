@@ -426,17 +426,42 @@ internal static class McpResultBuilder
                 : $"Artifact link added to #{workItemId}.");
         });
 
-    public static CallToolResult FormatBranchLinked(BranchLinkResult result) =>
-        BuildJson(writer =>
+    public static CallToolResult FormatBranchLinked(BranchLinkResult result) => result switch
+    {
+        BranchLinkResult.AlreadyLinked al => BuildJson(writer =>
         {
-            writer.WriteNumber("workItemId", result.WorkItemId);
-            writer.WriteString("branchName", result.BranchName);
-            writer.WriteString("artifactUri", result.ArtifactUri);
-            writer.WriteBoolean("alreadyLinked", result.Status == BranchLinkStatus.AlreadyLinked);
-            writer.WriteString("message", result.Status == BranchLinkStatus.AlreadyLinked
-                ? $"Branch '{result.BranchName}' already linked to #{result.WorkItemId}."
-                : $"Branch '{result.BranchName}' linked to #{result.WorkItemId}.");
-        });
+            writer.WriteNumber("workItemId", al.WorkItemId);
+            writer.WriteString("branchName", al.BranchName);
+            writer.WriteString("artifactUri", al.ArtifactUri);
+            writer.WriteBoolean("alreadyLinked", true);
+            writer.WriteString("message", $"Branch '{al.BranchName}' already linked to #{al.WorkItemId}.");
+        }),
+        BranchLinkResult.Linked l => BuildJson(writer =>
+        {
+            writer.WriteNumber("workItemId", l.WorkItemId);
+            writer.WriteString("branchName", l.BranchName);
+            writer.WriteString("artifactUri", l.ArtifactUri);
+            writer.WriteBoolean("alreadyLinked", false);
+            writer.WriteString("message", $"Branch '{l.BranchName}' linked to #{l.WorkItemId}.");
+        }),
+        BranchLinkResult.GitContextUnavailable g => BuildErrorJson(writer =>
+        {
+            writer.WriteString("status", "git-context-unavailable");
+            writer.WriteNumber("workItemId", g.WorkItemId);
+            writer.WriteString("branchName", g.BranchName);
+            writer.WriteString("errorMessage", g.ErrorMessage);
+        }),
+        BranchLinkResult.Failed f => BuildErrorJson(writer =>
+        {
+            writer.WriteString("status", "failed");
+            writer.WriteNumber("workItemId", f.WorkItemId);
+            writer.WriteString("branchName", f.BranchName);
+            writer.WriteString("artifactUri", f.ArtifactUri);
+            writer.WriteString("errorMessage", f.ErrorMessage);
+        }),
+        _ => throw new System.Diagnostics.UnreachableException(
+            $"Unhandled BranchLinkResult: {result.GetType().Name}"),
+    };
 
     public static CallToolResult FormatVerification(DescendantVerificationResult result, string? workspace) =>
         BuildJson(writer =>
@@ -491,6 +516,21 @@ internal static class McpResultBuilder
         writer.WriteEndObject();
         writer.Flush();
         return ToResult(Encoding.UTF8.GetString(stream.ToArray()));
+    }
+
+    private static CallToolResult BuildErrorJson(Action<Utf8JsonWriter> write)
+    {
+        using var stream = new MemoryStream();
+        using var writer = new Utf8JsonWriter(stream, WriterOptions);
+        writer.WriteStartObject();
+        write(writer);
+        writer.WriteEndObject();
+        writer.Flush();
+        return new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = Encoding.UTF8.GetString(stream.ToArray()) }],
+            IsError = true,
+        };
     }
 
     private static void WriteWorkItemArray(Utf8JsonWriter writer, string name, IEnumerable<WorkItem> items)

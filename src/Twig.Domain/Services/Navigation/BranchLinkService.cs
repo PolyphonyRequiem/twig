@@ -38,24 +38,14 @@ public sealed class BranchLinkService(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return new BranchLinkResult
-            {
-                Status = BranchLinkStatus.GitContextUnavailable,
-                WorkItemId = workItemId,
-                BranchName = branchName,
-                ErrorMessage = $"Failed to resolve git context: {ex.Message}",
-            };
+            return new BranchLinkResult.GitContextUnavailable(
+                workItemId, branchName, $"Failed to resolve git context: {ex.Message}");
         }
 
         if (string.IsNullOrWhiteSpace(projectId) || string.IsNullOrWhiteSpace(repoId))
         {
-            return new BranchLinkResult
-            {
-                Status = BranchLinkStatus.GitContextUnavailable,
-                WorkItemId = workItemId,
-                BranchName = branchName,
-                ErrorMessage = "Git project ID or repository ID could not be resolved.",
-            };
+            return new BranchLinkResult.GitContextUnavailable(
+                workItemId, branchName, "Git project ID or repository ID could not be resolved.");
         }
 
         var artifactUri = BuildArtifactUri(projectId, repoId, branchName);
@@ -65,24 +55,14 @@ public sealed class BranchLinkService(
             var alreadyExisted = await adoWorkItemService.AddArtifactLinkAsync(
                 workItemId, artifactUri, "Branch", ct);
 
-            return new BranchLinkResult
-            {
-                Status = alreadyExisted ? BranchLinkStatus.AlreadyLinked : BranchLinkStatus.Linked,
-                WorkItemId = workItemId,
-                BranchName = branchName,
-                ArtifactUri = artifactUri,
-            };
+            return alreadyExisted
+                ? new BranchLinkResult.AlreadyLinked(workItemId, branchName, artifactUri)
+                : new BranchLinkResult.Linked(workItemId, branchName, artifactUri);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return new BranchLinkResult
-            {
-                Status = BranchLinkStatus.Failed,
-                WorkItemId = workItemId,
-                BranchName = branchName,
-                ArtifactUri = artifactUri,
-                ErrorMessage = $"Failed to add artifact link: {ex.Message}",
-            };
+            return new BranchLinkResult.Failed(
+                workItemId, branchName, artifactUri, $"Failed to add artifact link: {ex.Message}");
         }
     }
 

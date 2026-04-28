@@ -218,9 +218,6 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
 
         var result = await ctx.BranchLinkService.LinkBranchAsync(workItemId, branchName, ct);
 
-        if (!result.IsSuccess)
-            return McpResultBuilder.ToError(result.ErrorMessage);
-
         return McpResultBuilder.FormatBranchLinked(result);
     }
 

@@ -175,6 +175,71 @@ public sealed class McpResultBuilderTests
         itemJson.TryGetProperty("iterationPath", out _).ShouldBeTrue();
     }
 
+    // ── FormatBranchLinked ──────────────────────────────────────────
+
+    [Fact]
+    public void FormatBranchLinked_Linked_ProducesExpectedJson()
+    {
+        var linked = new BranchLinkResult.Linked(42, "feature/42-login", "vstfs:///Git/Ref/p/r/GBfeature%2F42-login");
+
+        var result = McpResultBuilder.FormatBranchLinked(linked);
+        var root = ParseJson(result);
+
+        result.IsError.ShouldBeNull();
+        root.GetProperty("workItemId").GetInt32().ShouldBe(42);
+        root.GetProperty("branchName").GetString().ShouldBe("feature/42-login");
+        root.GetProperty("artifactUri").GetString().ShouldBe("vstfs:///Git/Ref/p/r/GBfeature%2F42-login");
+        root.GetProperty("alreadyLinked").GetBoolean().ShouldBeFalse();
+        root.GetProperty("message").GetString()!.ShouldContain("#42");
+    }
+
+    [Fact]
+    public void FormatBranchLinked_AlreadyLinked_SetsAlreadyLinkedTrue()
+    {
+        var already = new BranchLinkResult.AlreadyLinked(7, "main", "vstfs:///Git/Ref/p/r/GBmain");
+
+        var result = McpResultBuilder.FormatBranchLinked(already);
+        var root = ParseJson(result);
+
+        result.IsError.ShouldBeNull();
+        root.GetProperty("workItemId").GetInt32().ShouldBe(7);
+        root.GetProperty("branchName").GetString().ShouldBe("main");
+        root.GetProperty("artifactUri").GetString().ShouldBe("vstfs:///Git/Ref/p/r/GBmain");
+        root.GetProperty("alreadyLinked").GetBoolean().ShouldBeTrue();
+        root.GetProperty("message").GetString()!.ShouldContain("already linked");
+    }
+
+    [Fact]
+    public void FormatBranchLinked_GitContextUnavailable_ReturnsError()
+    {
+        var unavailable = new BranchLinkResult.GitContextUnavailable(42, "feature/test", "Project ID could not be resolved");
+
+        var result = McpResultBuilder.FormatBranchLinked(unavailable);
+        var root = ParseJson(result);
+
+        result.IsError.ShouldBe(true);
+        root.GetProperty("status").GetString().ShouldBe("git-context-unavailable");
+        root.GetProperty("workItemId").GetInt32().ShouldBe(42);
+        root.GetProperty("branchName").GetString().ShouldBe("feature/test");
+        root.GetProperty("errorMessage").GetString().ShouldBe("Project ID could not be resolved");
+    }
+
+    [Fact]
+    public void FormatBranchLinked_Failed_ReturnsErrorWithArtifactUri()
+    {
+        var failed = new BranchLinkResult.Failed(42, "feature/test", "vstfs:///Git/Ref/p/r/GBfeature%2Ftest", "HTTP 400 Bad Request");
+
+        var result = McpResultBuilder.FormatBranchLinked(failed);
+        var root = ParseJson(result);
+
+        result.IsError.ShouldBe(true);
+        root.GetProperty("status").GetString().ShouldBe("failed");
+        root.GetProperty("workItemId").GetInt32().ShouldBe(42);
+        root.GetProperty("branchName").GetString().ShouldBe("feature/test");
+        root.GetProperty("artifactUri").GetString().ShouldBe("vstfs:///Git/Ref/p/r/GBfeature%2Ftest");
+        root.GetProperty("errorMessage").GetString().ShouldBe("HTTP 400 Bad Request");
+    }
+
     // ── FormatTree ──────────────────────────────────────────────────
 
     [Fact]

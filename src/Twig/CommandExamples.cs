@@ -198,6 +198,12 @@ internal static class CommandExamples
             "twig update System.Title \"New title\"           Update the title field",
             "twig update System.Description \"<p>…</p>\" --format markdown  Update description",
         ],
+        ["patch"] =
+        [
+            "twig patch --json '{\"System.Title\":\"New title\",\"System.State\":\"Doing\"}'  Patch multiple fields at once",
+            "twig patch --stdin --format markdown   Read JSON from stdin, converting values from Markdown to HTML",
+            "twig patch --json '{\"System.Title\":\"Fix\"}' --id 1234   Patch a specific work item by ID",
+        ],
         ["edit"] =
         [
             "twig edit                  Open the active item's description in an editor",

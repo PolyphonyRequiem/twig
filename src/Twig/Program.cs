@@ -949,6 +949,7 @@ internal static class GroupedHelp
         "batch",
         "note",
         "update",
+        "patch",
         "edit",
         "new",
         "link parent",
@@ -1068,6 +1069,7 @@ Work Items:
   batch                Batch state, field, and note changes in one call.
   note                 Add a note to the active work item.
   update <field> <v>   Update a field on the active work item.
+  patch --json '<json>'  Atomically patch multiple fields via JSON.
   edit                 Edit work item fields in an external editor.
   new                  Create a new work item.
   link parent <id>     Set the parent of the active work item.

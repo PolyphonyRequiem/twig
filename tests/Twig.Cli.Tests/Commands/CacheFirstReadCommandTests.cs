@@ -4,6 +4,7 @@ using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.Services.Workspace;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
@@ -416,7 +417,8 @@ public class CacheFirstReadCommandTests
             new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true),
             _formatterFactory, _hintEngine, config);
         var cmd = new WorkspaceCommand(wsCtx, _contextStore, _workItemRepo, iterationService,
-            processTypeStore, fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder());
+            processTypeStore, fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder(),
+            new SprintIterationResolver(iterationService, _workItemRepo));
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);

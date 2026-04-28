@@ -6,6 +6,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
+using Twig.Domain.Services;
 using Twig.Domain.Services.Workspace;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
@@ -83,7 +84,8 @@ public class WorkspaceCommandTests
 
     private WorkspaceCommand CreateCommand(RenderingPipelineFactory? pipelineFactory = null, HintEngine? hintEngine = null) =>
         new(CreateCtx(pipelineFactory, hintEngine), _contextStore, _workItemRepo, _iterationService,
-            _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder());
+            _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder(),
+            new SprintIterationResolver(_iterationService, _workItemRepo));
 
     private WorkspaceCommand CreateCommandWithPipeline(RenderingPipelineFactory pipelineFactory) =>
         CreateCommand(pipelineFactory, new HintEngine(new DisplayConfig { Hints = true }));
@@ -335,7 +337,8 @@ public class WorkspaceCommandTests
             _formatterFactory, Substitute.For<IAsyncRenderer>());
         var cmdWithPipeline = new WorkspaceCommand(CreateCtx(pipelineFactory), _contextStore, _workItemRepo, _iterationService,
             _processTypeStore, _fieldDefinitionStore,
-            _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder());
+            _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder(),
+            new SprintIterationResolver(_iterationService, _workItemRepo));
 
         var resultWith = await cmdWithPipeline.ExecuteAsync("json");
         resultWith.ShouldBe(0);
@@ -364,7 +367,8 @@ public class WorkspaceCommandTests
         var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService, null);
 
         var cmd = new WorkspaceCommand(CreateCtx(), _contextStore, _workItemRepo, _iterationService,
-            _processTypeStore, _fieldDefinitionStore, _activeItemResolver, workingSetService, _trackingService, new SprintHierarchyBuilder());
+            _processTypeStore, _fieldDefinitionStore, _activeItemResolver, workingSetService, _trackingService, new SprintHierarchyBuilder(),
+            new SprintIterationResolver(_iterationService, _workItemRepo));
 
         var result = await cmd.ExecuteAsync("human");
         result.ShouldBe(0);
@@ -389,7 +393,8 @@ public class WorkspaceCommandTests
         var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService, null);
 
         var cmd = new WorkspaceCommand(CreateCtx(), _contextStore, _workItemRepo, _iterationService,
-            _processTypeStore, _fieldDefinitionStore, _activeItemResolver, workingSetService, _trackingService, new SprintHierarchyBuilder());
+            _processTypeStore, _fieldDefinitionStore, _activeItemResolver, workingSetService, _trackingService, new SprintHierarchyBuilder(),
+            new SprintIterationResolver(_iterationService, _workItemRepo));
 
         var result = await cmd.ExecuteAsync("human");
         result.ShouldBe(0);
@@ -415,7 +420,8 @@ public class WorkspaceCommandTests
         var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService, null);
 
         var cmd = new WorkspaceCommand(CreateCtx(), _contextStore, _workItemRepo, _iterationService,
-            _processTypeStore, _fieldDefinitionStore, _activeItemResolver, workingSetService, _trackingService, new SprintHierarchyBuilder());
+            _processTypeStore, _fieldDefinitionStore, _activeItemResolver, workingSetService, _trackingService, new SprintHierarchyBuilder(),
+            new SprintIterationResolver(_iterationService, _workItemRepo));
 
         var result = await cmd.ExecuteAsync("human");
         result.ShouldBe(0);
@@ -443,7 +449,8 @@ public class WorkspaceCommandTests
         var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, _iterationService, null);
 
         var cmd = new WorkspaceCommand(CreateCtx(), _contextStore, _workItemRepo, _iterationService,
-            _processTypeStore, _fieldDefinitionStore, _activeItemResolver, workingSetService, _trackingService, new SprintHierarchyBuilder());
+            _processTypeStore, _fieldDefinitionStore, _activeItemResolver, workingSetService, _trackingService, new SprintHierarchyBuilder(),
+            new SprintIterationResolver(_iterationService, _workItemRepo));
 
         var result = await cmd.ExecuteAsync("json");
         result.ShouldBe(0);
@@ -507,7 +514,8 @@ public class WorkspaceCommandTests
         var pipelineFactory = CreateTtyPipelineFactory();
         var cmd = new WorkspaceCommand(CreateCtx(pipelineFactory, hintEngine), _contextStore, _workItemRepo, _iterationService,
             _processTypeStore, _fieldDefinitionStore,
-            _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder());
+            _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder(),
+            new SprintIterationResolver(_iterationService, _workItemRepo));
 
         var result = await cmd.ExecuteAsync("human");
 
@@ -1108,5 +1116,191 @@ public class WorkspaceCommandTests
         var result = await _cmd.ExecuteAsync();
 
         result.ShouldBe(0);
+    }
+
+    // ── Configured sprint resolution tests ──────────────────────────
+
+    [Fact]
+    public async Task SyncPath_ConfiguredSprints_UsesResolvedIterations()
+    {
+        // Configure sprints in workspace config
+        _config.Workspace.Sprints = [
+            new SprintEntry { Expression = "@current" },
+            new SprintEntry { Expression = "@current-1" },
+        ];
+
+        var sprint1Item = CreateWorkItem(1, "Sprint 1 Item");
+        var sprint0Item = CreateWorkItem(2, "Sprint 0 Item");
+
+        // Set up team iterations for resolution
+        _iterationService.GetTeamIterationsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<TeamIteration>
+            {
+                new("Project\\Sprint 0", DateTimeOffset.UtcNow.AddDays(-28), DateTimeOffset.UtcNow.AddDays(-14)),
+                new("Project\\Sprint 1", DateTimeOffset.UtcNow.AddDays(-14), DateTimeOffset.UtcNow),
+            });
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+
+        // GetByIterationAsync returns items for each sprint
+        _workItemRepo.GetByIterationAsync(
+            Arg.Is<IterationPath>(ip => ip.Value == "Project\\Sprint 1"), Arg.Any<CancellationToken>())
+            .Returns(new[] { sprint1Item });
+        _workItemRepo.GetByIterationAsync(
+            Arg.Is<IterationPath>(ip => ip.Value == "Project\\Sprint 0"), Arg.Any<CancellationToken>())
+            .Returns(new[] { sprint0Item });
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var result = await _cmd.ExecuteAsync();
+        result.ShouldBe(0);
+
+        // Should NOT call GetCurrentIterationAsync for sprint item resolution
+        // because configured sprints are available
+        await _workItemRepo.Received(1).GetByIterationAsync(
+            Arg.Is<IterationPath>(ip => ip.Value == "Project\\Sprint 1"), Arg.Any<CancellationToken>());
+        await _workItemRepo.Received(1).GetByIterationAsync(
+            Arg.Is<IterationPath>(ip => ip.Value == "Project\\Sprint 0"), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SyncPath_NoConfiguredSprints_FallsBackToCurrentIteration()
+    {
+        // No configured sprints — workspace.sprints is null/empty
+        _config.Workspace.Sprints = null;
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var result = await _cmd.ExecuteAsync();
+        result.ShouldBe(0);
+
+        // Should use GetCurrentIterationAsync as fallback
+        await _iterationService.Received().GetCurrentIterationAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SyncPath_EmptyConfiguredSprints_FallsBackToCurrentIteration()
+    {
+        _config.Workspace.Sprints = [];
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var result = await _cmd.ExecuteAsync();
+        result.ShouldBe(0);
+
+        await _iterationService.Received().GetCurrentIterationAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SyncPath_ConfiguredSprints_AllMode_ShowsAllUsers()
+    {
+        _config.Workspace.Sprints = [new SprintEntry { Expression = "@current" }];
+        _config.User.DisplayName = "Alice Smith";
+
+        _iterationService.GetTeamIterationsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<TeamIteration>
+            {
+                new("Project\\Sprint 1", DateTimeOffset.UtcNow.AddDays(-14), DateTimeOffset.UtcNow),
+            });
+
+        var aliceItem = CreateWorkItem(1, "Alice Task");
+        var bobItem = CreateWorkItem(2, "Bob Task");
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { aliceItem, bobItem });
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var result = await _cmd.ExecuteAsync(all: true);
+        result.ShouldBe(0);
+
+        // With --all and configured sprints, should use GetByIterationAsync (all users), not assignee-filtered
+        await _workItemRepo.Received().GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>());
+        await _workItemRepo.DidNotReceive().GetByIterationAndAssigneeAsync(
+            Arg.Any<IterationPath>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SyncPath_ConfiguredSprints_UserScoped_FiltersToUser()
+    {
+        _config.Workspace.Sprints = [new SprintEntry { Expression = "@current" }];
+        _config.User.DisplayName = "Alice Smith";
+
+        _iterationService.GetTeamIterationsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<TeamIteration>
+            {
+                new("Project\\Sprint 1", DateTimeOffset.UtcNow.AddDays(-14), DateTimeOffset.UtcNow),
+            });
+
+        var aliceItem = CreateWorkItem(1, "Alice Task");
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIterationAndAssigneeAsync(Arg.Any<IterationPath>(), "Alice Smith", Arg.Any<CancellationToken>())
+            .Returns(new[] { aliceItem });
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var result = await _cmd.ExecuteAsync();
+        result.ShouldBe(0);
+
+        // Without --all, should use GetByIterationAndAssigneeAsync for user scoping
+        await _workItemRepo.Received().GetByIterationAndAssigneeAsync(
+            Arg.Any<IterationPath>(), "Alice Smith", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SyncPath_ConfiguredSprints_DeduplicatesItems()
+    {
+        // Both sprints resolve to same iteration (simulate duplicate via same expression)
+        _config.Workspace.Sprints = [
+            new SprintEntry { Expression = "@current" },
+            new SprintEntry { Expression = "Project\\Sprint 1" },
+        ];
+
+        _iterationService.GetTeamIterationsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<TeamIteration>
+            {
+                new("Project\\Sprint 1", DateTimeOffset.UtcNow.AddDays(-14), DateTimeOffset.UtcNow),
+            });
+
+        var item = CreateWorkItem(1, "Shared Item");
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        // Both iterations return the same item
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { item });
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var result = await _cmd.ExecuteAsync();
+        result.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task SyncPath_InvalidSprintExpression_SkipsAndFallsBack()
+    {
+        // Invalid expression that won't parse
+        _config.Workspace.Sprints = [new SprintEntry { Expression = "" }];
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var result = await _cmd.ExecuteAsync();
+        result.ShouldBe(0);
+
+        // Invalid expression → empty resolution → falls back to GetCurrentIterationAsync
+        await _iterationService.Received().GetCurrentIterationAsync(Arg.Any<CancellationToken>());
     }
 }

@@ -6,6 +6,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
+using Twig.Domain.Services;
 using Twig.Domain.Services.Workspace;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
@@ -307,7 +308,8 @@ public sealed class WorkspaceSectionsWiringTests
     private WorkspaceCommand CreateDefaultCommand() =>
         new(CreateCtx(), _contextStore, _workItemRepo, _iterationService,
             _processTypeStore, _fieldDefinitionStore,
-            _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder());
+            _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder(),
+            new SprintIterationResolver(_iterationService, _workItemRepo));
 
     private WorkspaceCommand CreateCommandWithTtyPipeline()
     {
@@ -315,7 +317,8 @@ public sealed class WorkspaceSectionsWiringTests
             _formatterFactory, _spectreRenderer, isOutputRedirected: () => false);
         return new WorkspaceCommand(CreateCtx(pipelineFactory), _contextStore, _workItemRepo, _iterationService,
             _processTypeStore, _fieldDefinitionStore,
-            _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder());
+            _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder(),
+            new SprintIterationResolver(_iterationService, _workItemRepo));
     }
 
     private static WorkItem CreateWorkItem(int id, string title) =>

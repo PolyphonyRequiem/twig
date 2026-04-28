@@ -3,6 +3,7 @@ using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.Services.Workspace;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
@@ -67,7 +68,8 @@ public class UserScopedWorkspaceTests
 
     private WorkspaceCommand CreateCommand(TwigConfiguration config) =>
         new(CreateCtx(config), _contextStore, _workItemRepo, _iterationService,
-            _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder());
+            _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder(),
+            new SprintIterationResolver(_iterationService, _workItemRepo));
 
     [Fact]
     public async Task Ws_DefaultMode_FiltersToUserWhenConfigured()

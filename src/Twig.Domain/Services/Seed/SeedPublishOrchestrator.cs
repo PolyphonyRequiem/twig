@@ -9,7 +9,7 @@ namespace Twig.Domain.Services.Seed;
 
 /// <summary>
 /// Executes transactional seed publishing with topological dependency ordering.
-/// 245 lines, 8 dependencies, 1 consumer (<see cref="SeedPublishCommand"/>).
+/// 8 dependencies, 1 consumer (<see cref="SeedPublishCommand"/>).
 /// Retained as a separate orchestrator — the largest orchestrator by line count with complex transactional logic.
 /// </summary>
 public sealed class SeedPublishOrchestrator

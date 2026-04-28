@@ -8,7 +8,7 @@ namespace Twig.Domain.Services.Sync;
 
 /// <summary>
 /// Manages the full refresh lifecycle: WIQL sprint fetch, conflict resolution, and ancestor hydration.
-/// 193 lines, 9 dependencies, 1 consumer (<see cref="RefreshCommand"/>).
+/// 9 dependencies, 1 consumer (<see cref="RefreshCommand"/>).
 /// Retained as a separate orchestrator — substantial business logic with a single, well-defined responsibility.
 /// </summary>
 public sealed class RefreshOrchestrator(

@@ -143,10 +143,6 @@ removal, or retention.
   logic. The orchestrator was a thin wrapper that duplicated resolution already
   available in `ActiveItemResolver`. `StatusSnapshot` is retained as a
   standalone DTO in `Services/Workspace/StatusSnapshot.cs`.
-- **`SyncCoordinatorFactory`** — Renamed to `SyncCoordinatorPair` to accurately
-  reflect its pair-holder semantics. The original name implied a factory pattern
-  that did not match the actual behavior (holding two pre-configured
-  `SyncCoordinator` instances).
 
 ### Retained (with rationale)
 
@@ -154,6 +150,11 @@ removal, or retention.
   Load-bearing cache/ADO sync infrastructure with no consolidation target.
   Its broad usage and distinct responsibility (bidirectional sync lifecycle)
   make it unsuitable for inlining or merging.
+- **`SyncCoordinatorFactory`** — 13+ call sites. The name implies a factory
+  pattern but the class is a pair-holder for two pre-configured `SyncCoordinator`
+  instances. A rename to `SyncCoordinatorPair` would better reflect its semantics,
+  but the rename is deferred — the class is load-bearing and the cost/risk of
+  updating all call sites is not justified in a documentation-only change.
 - **`RefreshOrchestrator`** — 193 lines, 9 dependencies, 1 consumer
   (`RefreshCommand`). Manages the full refresh lifecycle: WIQL fetch, conflict
   resolution, and ancestor hydration. Substantial logic with clean 1:1

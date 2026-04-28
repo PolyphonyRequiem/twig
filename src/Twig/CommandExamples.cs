@@ -324,16 +324,34 @@ internal static class CommandExamples
 
     /// <summary>
     /// Resolves the command name from <paramref name="args"/> and prints usage examples
-    /// if any are registered. When <c>args.Length &gt;= 2</c>, tries the compound key
-    /// <c>"{args[0]} {args[1]}"</c> first (e.g. <c>"nav up"</c>), then falls back to
-    /// <c>args[0]</c> (e.g. <c>"set"</c>). Does nothing if no examples match.
+    /// if any are registered. Tries the longest compound key first
+    /// (e.g. <c>"workspace area add"</c>), then two-token (e.g. <c>"nav up"</c>),
+    /// then single-token (e.g. <c>"set"</c>). Does nothing if no examples match.
     /// </summary>
     internal static void ShowIfPresent(string[] args)
     {
         if (args.Length == 0) return;
 
-        var compound = args.Length >= 2 ? $"{args[0]} {args[1]}" : null;
-        var key = compound is not null && Examples.ContainsKey(compound) ? compound : args[0];
+        string? key = null;
+
+        // Try 3-token compound first (e.g. "workspace area add")
+        if (args.Length >= 3)
+        {
+            var triple = $"{args[0]} {args[1]} {args[2]}";
+            if (Examples.ContainsKey(triple))
+                key = triple;
+        }
+
+        // Try 2-token compound (e.g. "nav up", "workspace area")
+        if (key is null && args.Length >= 2)
+        {
+            var compound = $"{args[0]} {args[1]}";
+            if (Examples.ContainsKey(compound))
+                key = compound;
+        }
+
+        // Fall back to single token
+        key ??= args[0];
 
         if (!Examples.TryGetValue(key, out var examples))
             return;

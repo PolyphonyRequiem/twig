@@ -100,6 +100,45 @@ public sealed class CommandExamplesTests
         lines.Count(l => l.TrimStart().StartsWith("twig")).ShouldBe(2);
     }
 
+    [Fact]
+    public void ShowIfPresent_TripleCompoundCommand_MatchesThreeTokenKeyFirst()
+    {
+        // "workspace area add" should match the 3-token key, not "workspace area" or "workspace"
+        var output = CaptureShowIfPresent(["workspace", "area", "add", "--help"],
+            ("workspace area add", ["twig workspace area add \"P\\T\"   Add area path"]),
+            ("workspace area", ["twig workspace area               Show area view"]),
+            ("workspace", ["twig workspace                     Show workspace"]));
+
+        output.ShouldContain("Add area path");
+        output.ShouldNotContain("Show area view");
+        output.ShouldNotContain("Show workspace");
+    }
+
+    [Fact]
+    public void ShowIfPresent_TripleCompoundFallsBackToDouble_WhenTripleNotFound()
+    {
+        // "workspace area foo" triple not registered — falls back to "workspace area"
+        var output = CaptureShowIfPresent(["workspace", "area", "foo"],
+            ("workspace area", ["twig workspace area               Show area view"]),
+            ("workspace", ["twig workspace                     Show workspace"]));
+
+        output.ShouldContain("Show area view");
+        output.ShouldNotContain("Show workspace");
+    }
+
+    [Fact]
+    public void WorkspaceAreaSubcommands_HaveExamples()
+    {
+        // All workspace area sub-commands must have their own example entries
+        var subcommands = new[] { "workspace area add", "workspace area remove", "workspace area list", "workspace area sync" };
+        foreach (var cmd in subcommands)
+        {
+            CommandExamples.Examples.ShouldContainKey(cmd, $"'{cmd}' should have registered examples");
+            CommandExamples.Examples[cmd].Length.ShouldBeGreaterThanOrEqualTo(2,
+                $"'{cmd}' should have at least 2 examples");
+        }
+    }
+
     /// <summary>
     /// Helper that temporarily replaces <see cref="CommandExamples.Examples"/> with test data,
     /// captures console output from <see cref="CommandExamples.ShowIfPresent"/>, and restores the

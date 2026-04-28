@@ -674,4 +674,324 @@ public sealed class FileTrackingRepositoryTests : IDisposable
         tracked.ShouldBeEmpty();
         File.Exists(_paths.TrackingFilePath).ShouldBeFalse();
     }
+
+    [Fact]
+    public async Task Migration_SqliteOnlyTrackedTable_MigratesTrackedItems()
+    {
+        // Create a SQLite DB with only tracked_items (no excluded_items table at all)
+        var dbDir = Path.GetDirectoryName(_paths.DbPath);
+        if (!string.IsNullOrEmpty(dbDir))
+            Directory.CreateDirectory(dbDir);
+
+        using var connection = new SqliteConnection($"Data Source={_paths.DbPath}");
+        connection.Open();
+        using var schemaCmd = connection.CreateCommand();
+        schemaCmd.CommandText = """
+            CREATE TABLE tracked_items (
+                id INTEGER PRIMARY KEY,
+                mode TEXT NOT NULL DEFAULT 'single',
+                created_at TEXT NOT NULL
+            );
+            """;
+        schemaCmd.ExecuteNonQuery();
+        using var insertCmd = connection.CreateCommand();
+        insertCmd.CommandText = "INSERT INTO tracked_items (id, mode, created_at) VALUES (42, 'tree', '2026-01-01T00:00:00Z');";
+        insertCmd.ExecuteNonQuery();
+        connection.Close();
+
+        var repo = CreateRepo();
+        var tracked = await repo.GetAllTrackedAsync();
+        var excluded = await repo.GetAllExcludedAsync();
+
+        tracked.Count.ShouldBe(1);
+        tracked[0].WorkItemId.ShouldBe(42);
+        tracked[0].Mode.ShouldBe(TrackingMode.Tree);
+        excluded.ShouldBeEmpty();
+        File.Exists(_paths.TrackingFilePath).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Migration_SqliteOnlyExcludedTable_MigratesExcludedItems()
+    {
+        // Create a SQLite DB with only excluded_items (no tracked_items table at all)
+        var dbDir = Path.GetDirectoryName(_paths.DbPath);
+        if (!string.IsNullOrEmpty(dbDir))
+            Directory.CreateDirectory(dbDir);
+
+        using var connection = new SqliteConnection($"Data Source={_paths.DbPath}");
+        connection.Open();
+        using var schemaCmd = connection.CreateCommand();
+        schemaCmd.CommandText = """
+            CREATE TABLE excluded_items (
+                id INTEGER PRIMARY KEY,
+                created_at TEXT NOT NULL
+            );
+            """;
+        schemaCmd.ExecuteNonQuery();
+        using var insertCmd = connection.CreateCommand();
+        insertCmd.CommandText = "INSERT INTO excluded_items (id, created_at) VALUES (99, '2026-02-01T00:00:00Z');";
+        insertCmd.ExecuteNonQuery();
+        connection.Close();
+
+        var repo = CreateRepo();
+        var tracked = await repo.GetAllTrackedAsync();
+        var excluded = await repo.GetAllExcludedAsync();
+
+        tracked.ShouldBeEmpty();
+        excluded.Count.ShouldBe(1);
+        excluded[0].WorkItemId.ShouldBe(99);
+        File.Exists(_paths.TrackingFilePath).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Migration_ModeNormalizedToLowercase()
+    {
+        // SQLite data may have mixed-case mode strings; migration should normalize
+        CreateSqliteWithTrackingData(
+            _paths.DbPath,
+            tracked: [(1, "TREE", "2026-01-01T00:00:00Z"), (2, "Single", "2026-01-02T00:00:00Z")]);
+
+        var repo = CreateRepo();
+        var tracked = await repo.GetAllTrackedAsync();
+
+        tracked.Count.ShouldBe(2);
+        tracked[0].Mode.ShouldBe(TrackingMode.Tree);
+        tracked[1].Mode.ShouldBe(TrackingMode.Single);
+
+        // Verify stored JSON has lowercase mode strings
+        var json = File.ReadAllText(_paths.TrackingFilePath);
+        var file = JsonSerializer.Deserialize(json, TwigJsonContext.Default.TrackingFile)!;
+        file.Tracked[0].Mode.ShouldBe("tree");
+        file.Tracked[1].Mode.ShouldBe("single");
+    }
+
+    // ──────────────────────── Ordering edge cases ────────────────────────
+
+    [Fact]
+    public async Task GetAllTrackedAsync_SameTimestamp_OrdersById()
+    {
+        // Pre-create file with entries sharing the same timestamp
+        var file = new TrackingFile
+        {
+            Tracked =
+            [
+                new TrackingFileEntry { Id = 30, Mode = "single", AddedAt = "2026-01-01T00:00:00Z" },
+                new TrackingFileEntry { Id = 10, Mode = "tree", AddedAt = "2026-01-01T00:00:00Z" },
+                new TrackingFileEntry { Id = 20, Mode = "single", AddedAt = "2026-01-01T00:00:00Z" }
+            ]
+        };
+        var json = JsonSerializer.Serialize(file, TwigJsonContext.Default.TrackingFile);
+        File.WriteAllText(_paths.TrackingFilePath, json);
+
+        var repo = CreateRepo();
+        var tracked = await repo.GetAllTrackedAsync();
+
+        tracked.Count.ShouldBe(3);
+        tracked[0].WorkItemId.ShouldBe(10);
+        tracked[1].WorkItemId.ShouldBe(20);
+        tracked[2].WorkItemId.ShouldBe(30);
+    }
+
+    [Fact]
+    public async Task GetAllExcludedAsync_SameTimestamp_OrdersById()
+    {
+        var file = new TrackingFile
+        {
+            Excluded =
+            [
+                new ExclusionFileEntry { Id = 30, AddedAt = "2026-01-01T00:00:00Z" },
+                new ExclusionFileEntry { Id = 10, AddedAt = "2026-01-01T00:00:00Z" },
+                new ExclusionFileEntry { Id = 20, AddedAt = "2026-01-01T00:00:00Z" }
+            ]
+        };
+        var json = JsonSerializer.Serialize(file, TwigJsonContext.Default.TrackingFile);
+        File.WriteAllText(_paths.TrackingFilePath, json);
+
+        var repo = CreateRepo();
+        var excluded = await repo.GetAllExcludedAsync();
+
+        excluded.Count.ShouldBe(3);
+        excluded[0].WorkItemId.ShouldBe(10);
+        excluded[1].WorkItemId.ShouldBe(20);
+        excluded[2].WorkItemId.ShouldBe(30);
+    }
+
+    // ──────────────────────── Caching ────────────────────────
+
+    [Fact]
+    public async Task Caching_MultipleOperationsAccumulate()
+    {
+        var repo = CreateRepo();
+        await repo.UpsertTrackedAsync(1, TrackingMode.Single);
+        await repo.UpsertTrackedAsync(2, TrackingMode.Tree);
+        await repo.AddExcludedAsync(3);
+
+        var tracked = await repo.GetAllTrackedAsync();
+        var excluded = await repo.GetAllExcludedAsync();
+
+        tracked.Count.ShouldBe(2);
+        excluded.Count.ShouldBe(1);
+
+        // Remove and verify cache reflects the change
+        await repo.RemoveTrackedAsync(1);
+        tracked = await repo.GetAllTrackedAsync();
+        tracked.Count.ShouldBe(1);
+        tracked[0].WorkItemId.ShouldBe(2);
+    }
+
+    // ──────────────────────── Mode storage ────────────────────────
+
+    [Fact]
+    public async Task UpsertTrackedAsync_StoresModeLowercase()
+    {
+        var repo = CreateRepo();
+        await repo.UpsertTrackedAsync(1, TrackingMode.Tree);
+
+        var json = File.ReadAllText(_paths.TrackingFilePath);
+        var file = JsonSerializer.Deserialize(json, TwigJsonContext.Default.TrackingFile)!;
+
+        file.Tracked[0].Mode.ShouldBe("tree");
+    }
+
+    [Fact]
+    public async Task MixedCaseMode_InFile_ParsesCorrectly()
+    {
+        // Simulate a hand-edited file with mixed-case mode
+        var file = new TrackingFile
+        {
+            Tracked =
+            [
+                new TrackingFileEntry { Id = 1, Mode = "TREE", AddedAt = "2026-01-01T00:00:00Z" },
+                new TrackingFileEntry { Id = 2, Mode = "Single", AddedAt = "2026-01-02T00:00:00Z" }
+            ]
+        };
+        var json = JsonSerializer.Serialize(file, TwigJsonContext.Default.TrackingFile);
+        File.WriteAllText(_paths.TrackingFilePath, json);
+
+        var repo = CreateRepo();
+        var tracked = await repo.GetAllTrackedAsync();
+
+        tracked[0].Mode.ShouldBe(TrackingMode.Tree);
+        tracked[1].Mode.ShouldBe(TrackingMode.Single);
+    }
+
+    // ──────────────────────── Excluded timestamp preservation ────────────────────────
+
+    [Fact]
+    public async Task AddExcludedAsync_SetsValidTimestamp()
+    {
+        var repo = CreateRepo();
+        var before = DateTimeOffset.UtcNow;
+
+        await repo.AddExcludedAsync(1);
+
+        var excluded = await repo.GetAllExcludedAsync();
+        excluded.Count.ShouldBe(1);
+        excluded[0].ExcludedAt.ShouldBeGreaterThanOrEqualTo(before);
+        excluded[0].ExcludedAt.ShouldBeLessThanOrEqualTo(DateTimeOffset.UtcNow.AddSeconds(1));
+    }
+
+    [Fact]
+    public async Task UpsertTrackedAsync_SetsValidTimestamp()
+    {
+        var repo = CreateRepo();
+        var before = DateTimeOffset.UtcNow;
+
+        await repo.UpsertTrackedAsync(1, TrackingMode.Single);
+
+        var tracked = await repo.GetAllTrackedAsync();
+        tracked.Count.ShouldBe(1);
+        tracked[0].TrackedAt.ShouldBeGreaterThanOrEqualTo(before);
+        tracked[0].TrackedAt.ShouldBeLessThanOrEqualTo(DateTimeOffset.UtcNow.AddSeconds(1));
+    }
+
+    // ──────────────────────── Migration output validation ────────────────────────
+
+    [Fact]
+    public async Task Migration_WritesValidJsonReadableByNewInstance()
+    {
+        CreateSqliteWithTrackingData(
+            _paths.DbPath,
+            tracked: [(1, "single", "2026-03-01T00:00:00Z"), (2, "tree", "2026-03-02T00:00:00Z")],
+            excluded: [(3, "2026-03-03T00:00:00Z")]);
+
+        // First instance migrates
+        var repo1 = CreateRepo();
+        await repo1.GetAllTrackedAsync();
+
+        // Second instance reads the migrated file
+        var repo2 = CreateRepo();
+        var tracked = await repo2.GetAllTrackedAsync();
+        var excluded = await repo2.GetAllExcludedAsync();
+
+        tracked.Count.ShouldBe(2);
+        tracked[0].WorkItemId.ShouldBe(1);
+        tracked[1].WorkItemId.ShouldBe(2);
+        excluded.Count.ShouldBe(1);
+        excluded[0].WorkItemId.ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task Migration_MigratedDataCanBeModified()
+    {
+        CreateSqliteWithTrackingData(
+            _paths.DbPath,
+            tracked: [(10, "single", "2026-01-01T00:00:00Z")]);
+
+        var repo = CreateRepo();
+        var tracked = await repo.GetAllTrackedAsync();
+        tracked.Count.ShouldBe(1);
+
+        // Add more items after migration
+        await repo.UpsertTrackedAsync(20, TrackingMode.Tree);
+        await repo.AddExcludedAsync(30);
+
+        tracked = await repo.GetAllTrackedAsync();
+        var excluded = await repo.GetAllExcludedAsync();
+
+        tracked.Count.ShouldBe(2);
+        tracked.ShouldContain(t => t.WorkItemId == 10);
+        tracked.ShouldContain(t => t.WorkItemId == 20);
+        excluded.Count.ShouldBe(1);
+        excluded[0].WorkItemId.ShouldBe(30);
+    }
+
+    // ──────────────────────── RemoveTrackedAsync edge cases ────────────────────────
+
+    [Fact]
+    public async Task RemoveTrackedAsync_FromMultipleItems_LeavesOthersIntact()
+    {
+        var repo = CreateRepo();
+        await repo.UpsertTrackedAsync(1, TrackingMode.Single);
+        await repo.UpsertTrackedAsync(2, TrackingMode.Tree);
+        await repo.UpsertTrackedAsync(3, TrackingMode.Single);
+
+        await repo.RemoveTrackedAsync(2);
+
+        var items = await repo.GetAllTrackedAsync();
+        items.Count.ShouldBe(2);
+        items.ShouldContain(t => t.WorkItemId == 1);
+        items.ShouldContain(t => t.WorkItemId == 3);
+    }
+
+    // ──────────────────────── Empty AddedAt handling ────────────────────────
+
+    [Fact]
+    public async Task EmptyAddedAt_InFile_ParsesAsMinValue()
+    {
+        var file = new TrackingFile
+        {
+            Tracked = [new TrackingFileEntry { Id = 1, Mode = "single", AddedAt = "" }],
+            Excluded = [new ExclusionFileEntry { Id = 2, AddedAt = "" }]
+        };
+        var json = JsonSerializer.Serialize(file, TwigJsonContext.Default.TrackingFile);
+        File.WriteAllText(_paths.TrackingFilePath, json);
+
+        var repo = CreateRepo();
+        var tracked = await repo.GetAllTrackedAsync();
+        var excluded = await repo.GetAllExcludedAsync();
+
+        tracked[0].TrackedAt.ShouldBe(DateTimeOffset.MinValue);
+        excluded[0].ExcludedAt.ShouldBe(DateTimeOffset.MinValue);
+    }
 }

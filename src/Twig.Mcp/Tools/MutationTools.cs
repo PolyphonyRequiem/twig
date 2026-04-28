@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text.Json;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Twig.Domain.Aggregates;
@@ -10,12 +11,13 @@ using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Ado.Exceptions;
 using Twig.Infrastructure.Content;
+using Twig.Infrastructure.Serialization;
 using Twig.Mcp.Services;
 
 namespace Twig.Mcp.Tools;
 
 /// <summary>
-/// MCP tools for mutations: twig_state, twig_update, twig_note, twig_sync.
+/// MCP tools for mutations: twig_state, twig_update, twig_patch, twig_note, twig_sync.
 /// Resolves per-workspace services via <see cref="WorkspaceResolver"/>.
 /// </summary>
 [McpServerToolType]
@@ -169,6 +171,90 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
         return McpResultBuilder.FormatFieldUpdate(updated, field, value);
+    }
+
+    [McpServerTool(Name = "twig_patch"), Description("Atomically patch multiple fields on the active work item")]
+    public async Task<CallToolResult> Patch(
+        [Description("JSON object with field reference name → value pairs (e.g. {\"System.Title\":\"New\",\"System.Description\":\"Desc\"})")] string fields,
+        [Description("Convert values before sending. Supported: \"markdown\" (converts Markdown to HTML)")] string? format = null,
+        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(fields))
+            return McpResultBuilder.ToError("Usage: twig_patch requires a non-empty JSON object of field name → value pairs.");
+
+        if (format is not null && !string.Equals(format, "markdown", StringComparison.OrdinalIgnoreCase))
+            return McpResultBuilder.ToError($"Unknown format '{format}'. Supported formats: markdown");
+
+        // Parse JSON into field dictionary (AOT-safe via source-generated context)
+        Dictionary<string, string>? fieldMap;
+        try
+        {
+            fieldMap = JsonSerializer.Deserialize(fields, TwigJsonContext.Default.DictionaryStringString);
+        }
+        catch (JsonException ex)
+        {
+            return McpResultBuilder.ToError($"Invalid JSON: {ex.Message}");
+        }
+
+        if (fieldMap is null || fieldMap.Count == 0)
+            return McpResultBuilder.ToError("JSON must be a non-empty object with field name → value pairs.");
+
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+
+        var resolved = await ctx.ActiveItemResolver.GetActiveItemAsync(ct);
+        if (resolved is ActiveItemResult.NoContext)
+            return McpResultBuilder.ToError("No active work item. Use twig_set to set context.");
+        if (resolved is ActiveItemResult.Unreachable u)
+            return McpResultBuilder.ToError($"Work item #{u.Id} not found in cache.");
+
+        var item = resolved is ActiveItemResult.Found f
+            ? f.WorkItem
+            : ((ActiveItemResult.FetchedFromAdo)resolved).WorkItem;
+
+        // Build FieldChange[] with optional markdown conversion
+        var changes = new List<FieldChange>(fieldMap.Count);
+        var fieldChanges = new Dictionary<string, (string? OldValue, string? NewValue)>(fieldMap.Count);
+        foreach (var (key, value) in fieldMap)
+        {
+            var effectiveValue = string.Equals(format, "markdown", StringComparison.OrdinalIgnoreCase)
+                ? MarkdownConverter.ToHtml(value)
+                : value;
+            changes.Add(new FieldChange(key, null, effectiveValue));
+            fieldChanges[key] = (null, effectiveValue);
+        }
+
+        // Fetch remote and PATCH with conflict retry
+        WorkItem remote;
+        try
+        {
+            remote = await ctx.AdoService.FetchAsync(item.Id, ct);
+            await ConflictRetryHelper.PatchWithRetryAsync(ctx.AdoService, item.Id, changes, remote.Revision, ct);
+        }
+        catch (AdoException ex)
+        {
+            return McpResultBuilder.ToError(ex.Message);
+        }
+
+        try { await AutoPushNotesHelper.PushAndClearAsync(item.Id, ctx.PendingChangeStore, ctx.AdoService); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
+
+        // Resync cache — best-effort, non-fatal
+        WorkItem updated;
+        try
+        {
+            updated = await ctx.AdoService.FetchAsync(item.Id, ct);
+            await ctx.WorkItemRepo.SaveAsync(updated, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            updated = item;
+        }
+
+        try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
+
+        return McpResultBuilder.FormatPatch(updated, fieldChanges);
     }
 
     [McpServerTool(Name = "twig_note"), Description("Add a comment/note to the active work item")]

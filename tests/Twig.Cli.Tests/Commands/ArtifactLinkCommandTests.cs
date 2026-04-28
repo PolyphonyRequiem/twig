@@ -16,6 +16,7 @@ public sealed class ArtifactLinkCommandTests : IDisposable
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IAdoWorkItemService _adoService;
     private readonly OutputFormatterFactory _formatterFactory;
+    private readonly ITelemetryClient _telemetryClient;
     private readonly StringWriter _stderr;
     private readonly StringWriter _stdout;
     private readonly TextWriter _originalOut;
@@ -25,6 +26,7 @@ public sealed class ArtifactLinkCommandTests : IDisposable
         _contextStore = Substitute.For<IContextStore>();
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _adoService = Substitute.For<IAdoWorkItemService>();
+        _telemetryClient = Substitute.For<ITelemetryClient>();
 
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(),
@@ -41,7 +43,7 @@ public sealed class ArtifactLinkCommandTests : IDisposable
     private ArtifactLinkCommand CreateCommand()
     {
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        return new ArtifactLinkCommand(resolver, _adoService, _formatterFactory, _stderr);
+        return new ArtifactLinkCommand(resolver, _adoService, _formatterFactory, _telemetryClient, _stderr);
     }
 
     private void SetActiveItem(int id, string title = "Test Item")
@@ -207,6 +209,91 @@ public sealed class ArtifactLinkCommandTests : IDisposable
 
         result.ShouldBe(0);
         _stdout.ToString().Length.ShouldBeGreaterThan(0);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Telemetry — success
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ExecuteAsync_Success_EmitsTelemetryWithExitCodeZero()
+    {
+        SetActiveItem(42);
+        _adoService.AddArtifactLinkAsync(
+                Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(false);
+
+        await CreateCommand().ExecuteAsync("https://example.com");
+
+        _telemetryClient.Received(1).TrackEvent(
+            "CommandExecuted",
+            Arg.Is<Dictionary<string, string>>(p =>
+                p["command"] == "link-artifact" &&
+                p["exit_code"] == "0"),
+            Arg.Is<Dictionary<string, double>>(m =>
+                m.ContainsKey("duration_ms")));
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Telemetry — error (no active item)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ExecuteAsync_NoActiveItem_EmitsTelemetryWithExitCodeOne()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+
+        await CreateCommand().ExecuteAsync("https://example.com");
+
+        _telemetryClient.Received(1).TrackEvent(
+            "CommandExecuted",
+            Arg.Is<Dictionary<string, string>>(p =>
+                p["command"] == "link-artifact" &&
+                p["exit_code"] == "1"),
+            Arg.Is<Dictionary<string, double>>(m =>
+                m.ContainsKey("duration_ms")));
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Telemetry — error (ADO throws)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ExecuteAsync_AdoThrows_EmitsTelemetryWithExitCodeOne()
+    {
+        SetActiveItem(42);
+        _adoService.AddArtifactLinkAsync(
+                Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("Network error"));
+
+        await CreateCommand().ExecuteAsync("https://example.com");
+
+        _telemetryClient.Received(1).TrackEvent(
+            "CommandExecuted",
+            Arg.Is<Dictionary<string, string>>(p =>
+                p["command"] == "link-artifact" &&
+                p["exit_code"] == "1"),
+            Arg.Is<Dictionary<string, double>>(m =>
+                m.ContainsKey("duration_ms")));
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Telemetry — null client is safe
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ExecuteAsync_NullTelemetryClient_DoesNotThrow()
+    {
+        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var cmd = new ArtifactLinkCommand(resolver, _adoService, _formatterFactory, telemetryClient: null, stderr: _stderr);
+        SetActiveItem(42);
+        _adoService.AddArtifactLinkAsync(
+                Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(false);
+
+        var result = await cmd.ExecuteAsync("https://example.com");
+
+        result.ShouldBe(0);
     }
 
     public void Dispose()

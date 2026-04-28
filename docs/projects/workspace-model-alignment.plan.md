@@ -1,6 +1,6 @@
 # Workspace Model Alignment — Sprint, Area, and Tracking Overhaul
 
-> **Epic:** #2146 · **Status:** Draft · **Revision:** 1
+> **Epic:** #2146 · **Status:** 🔨 In Progress · **Revision:** 1
 
 ## Executive Summary
 

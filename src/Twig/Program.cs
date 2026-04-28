@@ -743,40 +743,55 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> WorkspaceExclusions(string output = OutputFormatterFactory.DefaultFormat, bool clear = false, int? remove = null, CancellationToken ct = default)
         => await services.GetRequiredService<TrackingCommand>().ExclusionsAsync(output, clear, remove, ct);
 
-    // ── Area Path Management ───────────────────────────────────────────
+    // ── Area Path Management (deprecated aliases — use 'workspace area' instead) ──
 
-    /// <summary>Show the area-filtered workspace view with configured area paths.</summary>
+    /// <summary>Show the area-filtered workspace view. Deprecated — use 'twig workspace area' instead.</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     [Command("area")]
     public async Task<int> Area(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<AreaCommand>().ViewAsync(output, ct);
+    {
+        await Console.Error.WriteLineAsync("hint: 'twig area' is deprecated. Use 'twig workspace area' instead.");
+        return await services.GetRequiredService<AreaCommand>().ViewAsync(output, ct);
+    }
 
-    /// <summary>Add an area path to the workspace configuration.</summary>
+    /// <summary>Add an area path. Deprecated — use 'twig workspace area add' instead.</summary>
     /// <param name="path">Area path to add (e.g., "Project\Team A").</param>
     /// <param name="exact">Use exact match semantics instead of subtree (under).</param>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     [Command("area add")]
     public async Task<int> AreaAdd([Argument] string path, bool exact = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<AreaCommand>().AddAsync(path, exact, output, ct);
+    {
+        await Console.Error.WriteLineAsync("hint: 'twig area add' is deprecated. Use 'twig workspace area add' instead.");
+        return await services.GetRequiredService<AreaCommand>().AddAsync(path, exact, output, ct);
+    }
 
-    /// <summary>Remove an area path from the workspace configuration.</summary>
+    /// <summary>Remove an area path. Deprecated — use 'twig workspace area remove' instead.</summary>
     /// <param name="path">Area path to remove.</param>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     [Command("area remove")]
     public async Task<int> AreaRemove([Argument] string path, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<AreaCommand>().RemoveAsync(path, output, ct);
+    {
+        await Console.Error.WriteLineAsync("hint: 'twig area remove' is deprecated. Use 'twig workspace area remove' instead.");
+        return await services.GetRequiredService<AreaCommand>().RemoveAsync(path, output, ct);
+    }
 
-    /// <summary>List all configured area paths with their match semantics.</summary>
+    /// <summary>List configured area paths. Deprecated — use 'twig workspace area list' instead.</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     [Command("area list")]
     public async Task<int> AreaList(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<AreaCommand>().ListAsync(output, ct);
+    {
+        await Console.Error.WriteLineAsync("hint: 'twig area list' is deprecated. Use 'twig workspace area list' instead.");
+        return await services.GetRequiredService<AreaCommand>().ListAsync(output, ct);
+    }
 
-    /// <summary>Fetch team area paths from ADO and replace the current configuration.</summary>
+    /// <summary>Fetch team area paths from ADO. Deprecated — use 'twig workspace area sync' instead.</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     [Command("area sync")]
     public async Task<int> AreaSync(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<AreaCommand>().SyncAsync(output, ct);
+    {
+        await Console.Error.WriteLineAsync("hint: 'twig area sync' is deprecated. Use 'twig workspace area sync' instead.");
+        return await services.GetRequiredService<AreaCommand>().SyncAsync(output, ct);
+    }
 
     /// <summary>Show sprint items, grouped by assignee. Defaults to your items; use --all for the full team.</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>

@@ -99,7 +99,7 @@ public static class TwigServiceRegistration
         services.AddSingleton<IWorkItemLinkRepository>(sp => new SqliteWorkItemLinkRepository(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<ISeedLinkRepository>(sp => new SqliteSeedLinkRepository(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<IPublishIdMapRepository>(sp => new SqlitePublishIdMapRepository(sp.GetRequiredService<SqliteCacheStore>()));
-        services.AddSingleton<ITrackingRepository>(sp => new SqliteTrackingRepository(sp.GetRequiredService<SqliteCacheStore>()));
+        services.AddSingleton<ITrackingRepository>(sp => new FileTrackingRepository(sp.GetRequiredService<TwigPaths>()));
         services.AddSingleton<ITrackingService>(sp => new TrackingService(
             sp.GetRequiredService<ITrackingRepository>(),
             sp.GetRequiredService<IWorkItemRepository>(),

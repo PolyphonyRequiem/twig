@@ -135,7 +135,7 @@ public sealed class WorkspaceContextFactory : IWorkspaceContextFactory, IDisposa
             protectedCacheWriter,
             linkRepo);
 
-        var trackingRepo = new SqliteTrackingRepository(cacheStore);
+        var trackingRepo = new FileTrackingRepository(paths);
 
         var workingSetService = new WorkingSetService(
             contextStore,

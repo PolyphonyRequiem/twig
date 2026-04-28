@@ -1214,4 +1214,165 @@ public class SyncCoordinatorTests
         await _workItemRepo.DidNotReceive().DeleteByIdAsync(10, Arg.Any<CancellationToken>());
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncParentChainAsync — root in cache with two ancestors
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncParentChainAsync_RootInCacheWithTwoAncestors_ReturnUpdatedTwo()
+    {
+        // Root (100) → parent (200) → grandparent (300, no parent)
+        var root = new WorkItemBuilder(100, "Root").InState("Active").WithParent(200).Build();
+        _workItemRepo.GetByIdAsync(100).Returns(root);
+
+        var parent = new WorkItemBuilder(200, "Parent").InState("Active").WithParent(300).Build();
+        var grandparent = new WorkItemBuilder(300, "Grandparent").InState("Active").Build();
+        _adoService.FetchAsync(200, Arg.Any<CancellationToken>()).Returns(parent);
+        _adoService.FetchAsync(300, Arg.Any<CancellationToken>()).Returns(grandparent);
+
+        var result = await _sut.SyncParentChainAsync(100);
+
+        result.ShouldBeOfType<SyncResult.Updated>()
+              .ChangedCount.ShouldBe(2);
+        await _adoService.Received(1).FetchAsync(200, Arg.Any<CancellationToken>());
+        await _adoService.Received(1).FetchAsync(300, Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().FetchAsync(100, Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncParentChainAsync — root in cache with no parent → UpToDate
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncParentChainAsync_RootInCacheNoParent_ReturnsUpToDate()
+    {
+        var root = new WorkItemBuilder(100, "Root").InState("Active").Build();
+        _workItemRepo.GetByIdAsync(100).Returns(root);
+
+        var result = await _sut.SyncParentChainAsync(100);
+
+        result.ShouldBeOfType<SyncResult.UpToDate>();
+        await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncParentChainAsync — root not in cache → fetches root + parents
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncParentChainAsync_RootNotInCache_FetchesRootAndParents()
+    {
+        _workItemRepo.GetByIdAsync(100).Returns((WorkItem?)null);
+
+        var root = new WorkItemBuilder(100, "Root").InState("Active").WithParent(200).Build();
+        var parent = new WorkItemBuilder(200, "Parent").InState("Active").Build();
+        _adoService.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(root);
+        _adoService.FetchAsync(200, Arg.Any<CancellationToken>()).Returns(parent);
+
+        var result = await _sut.SyncParentChainAsync(100);
+
+        result.ShouldBeOfType<SyncResult.Updated>()
+              .ChangedCount.ShouldBe(2); // root + parent
+        await _adoService.Received(1).FetchAsync(100, Arg.Any<CancellationToken>());
+        await _adoService.Received(1).FetchAsync(200, Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncParentChainAsync — root not in cache, no parent → Updated(1)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncParentChainAsync_RootNotInCacheNoParent_ReturnsUpdatedOne()
+    {
+        _workItemRepo.GetByIdAsync(100).Returns((WorkItem?)null);
+
+        var root = new WorkItemBuilder(100, "Root").InState("Active").Build();
+        _adoService.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(root);
+
+        var result = await _sut.SyncParentChainAsync(100);
+
+        result.ShouldBeOfType<SyncResult.Updated>()
+              .ChangedCount.ShouldBe(1);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncParentChainAsync — cycle detection prevents infinite loop
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncParentChainAsync_CycleInParentChain_StopsAtCycle()
+    {
+        // 100 → 200 → 100 (cycle)
+        var root = new WorkItemBuilder(100, "Root").InState("Active").WithParent(200).Build();
+        _workItemRepo.GetByIdAsync(100).Returns(root);
+
+        var parent = new WorkItemBuilder(200, "Parent").InState("Active").WithParent(100).Build();
+        _adoService.FetchAsync(200, Arg.Any<CancellationToken>()).Returns(parent);
+
+        var result = await _sut.SyncParentChainAsync(100);
+
+        result.ShouldBeOfType<SyncResult.Updated>()
+              .ChangedCount.ShouldBe(1); // only parent 200, stops before re-visiting 100
+        await _adoService.Received(1).FetchAsync(200, Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().FetchAsync(100, Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncParentChainAsync — fetch failure → Failed
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncParentChainAsync_FetchFails_ReturnsFailed()
+    {
+        var root = new WorkItemBuilder(100, "Root").InState("Active").WithParent(200).Build();
+        _workItemRepo.GetByIdAsync(100).Returns(root);
+
+        _adoService.FetchAsync(200, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("Connection refused"));
+
+        var result = await _sut.SyncParentChainAsync(100);
+
+        result.ShouldBeOfType<SyncResult.Failed>()
+              .Reason.ShouldContain("Connection refused");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncParentChainAsync — cancellation propagates
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncParentChainAsync_Cancellation_PropagatesException()
+    {
+        var root = new WorkItemBuilder(100, "Root").InState("Active").WithParent(200).Build();
+        _workItemRepo.GetByIdAsync(100).Returns(root);
+
+        _adoService.FetchAsync(200, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new OperationCanceledException());
+
+        await Should.ThrowAsync<OperationCanceledException>(
+            () => _sut.SyncParentChainAsync(100));
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncParentChainAsync — protected items skipped
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncParentChainAsync_ProtectedParent_SkippedByWriter()
+    {
+        var root = new WorkItemBuilder(100, "Root").InState("Active").WithParent(200).Build();
+        _workItemRepo.GetByIdAsync(100).Returns(root);
+
+        var parent = new WorkItemBuilder(200, "Parent").InState("Active").Build();
+        _adoService.FetchAsync(200, Arg.Any<CancellationToken>()).Returns(parent);
+
+        // Parent 200 is protected
+        _pendingStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(new[] { 200 });
+
+        var result = await _sut.SyncParentChainAsync(100);
+
+        result.ShouldBeOfType<SyncResult.Updated>()
+              .ChangedCount.ShouldBe(0); // fetched but skipped by writer
+    }
+
 }

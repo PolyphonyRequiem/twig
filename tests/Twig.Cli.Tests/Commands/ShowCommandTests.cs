@@ -4,7 +4,9 @@ using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
+using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -24,6 +26,10 @@ public sealed class ShowCommandTests : IDisposable
     private readonly IFieldDefinitionStore _fieldDefinitionStore;
     private readonly IProcessConfigurationProvider _processConfigProvider;
     private readonly SyncCoordinatorFactory _syncCoordinatorFactory;
+    private readonly IContextStore _contextStore;
+    private readonly ActiveItemResolver _activeItemResolver;
+    private readonly IPendingChangeStore _pendingChangeStore;
+    private readonly WorkingSetService _workingSetService;
     private readonly CommandContext _ctx;
     private readonly StatusFieldConfigReader _statusFieldReader;
     private readonly string _tempDir;
@@ -36,11 +42,19 @@ public sealed class ShowCommandTests : IDisposable
         _telemetryClient = Substitute.For<ITelemetryClient>();
         _fieldDefinitionStore = Substitute.For<IFieldDefinitionStore>();
         _processConfigProvider = Substitute.For<IProcessConfigurationProvider>();
+        _contextStore = Substitute.For<IContextStore>();
+        _pendingChangeStore = Substitute.For<IPendingChangeStore>();
+        _pendingChangeStore.GetChangesAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
 
         var adoService = Substitute.For<IAdoWorkItemService>();
-        var pendingChangeStore = Substitute.For<IPendingChangeStore>();
-        var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, pendingChangeStore);
-        _syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, adoService, protectedCacheWriter, pendingChangeStore, null, 30, 30);
+        _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, adoService);
+
+        var iterationService = Substitute.For<IIterationService>();
+        _workingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, iterationService, null);
+
+        var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
+        _syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, adoService, protectedCacheWriter, _pendingChangeStore, null, 30, 30);
 
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(),
@@ -62,7 +76,11 @@ public sealed class ShowCommandTests : IDisposable
             _syncCoordinatorFactory,
             _statusFieldReader,
             fieldDefinitionStore: _fieldDefinitionStore,
-            processConfigProvider: _processConfigProvider);
+            processConfigProvider: _processConfigProvider,
+            contextStore: _contextStore,
+            activeItemResolver: _activeItemResolver,
+            pendingChangeStore: _pendingChangeStore,
+            workingSetService: _workingSetService);
     }
 
     public void Dispose()
@@ -80,7 +98,11 @@ public sealed class ShowCommandTests : IDisposable
         return new ShowCommand(pipelineCtx, _workItemRepo, _linkRepo,
             _syncCoordinatorFactory, _statusFieldReader,
             fieldDefinitionStore: _fieldDefinitionStore,
-            processConfigProvider: _processConfigProvider);
+            processConfigProvider: _processConfigProvider,
+            contextStore: _contextStore,
+            activeItemResolver: _activeItemResolver,
+            pendingChangeStore: _pendingChangeStore,
+            workingSetService: _workingSetService);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -138,8 +160,8 @@ public sealed class ShowCommandTests : IDisposable
         var result = await _cmd.ExecuteAsync(42);
 
         result.ShouldBe(0);
-        // GetByIdAsync called once for the item itself, not for a parent
-        await _workItemRepo.Received(1).GetByIdAsync(42, Arg.Any<CancellationToken>());
+        // No parent lookup — GetByIdAsync never called with an ID other than the item itself
+        await _workItemRepo.DidNotReceive().GetByIdAsync(Arg.Is<int>(id => id != 42), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -261,13 +283,15 @@ public sealed class ShowCommandTests : IDisposable
             Arg.Any<(int Done, int Total)?>(),
             Arg.Any<IReadOnlyList<WorkItemLink>?>(),
             Arg.Any<WorkItem?>(),
-            Arg.Any<IReadOnlyList<WorkItem>?>());
+            Arg.Any<IReadOnlyList<WorkItem>?>(),
+            Arg.Any<int>(),
+            Arg.Any<GitContext?>());
     }
 
     [Fact]
-    public async Task Show_TtyPath_PassesEmptyPendingChangesFactory()
+    public async Task Show_TtyPath_QueriesPendingChangeStore()
     {
-        var item = new WorkItemBuilder(42, "TTY Empty Pending").Build();
+        var item = new WorkItemBuilder(42, "TTY Pending Query").Build();
         SetupCachedItem(item);
         Func<Task<IReadOnlyList<PendingChangeRecord>>>? capturedFactory = null;
         var mockRenderer = Substitute.For<IAsyncRenderer>();
@@ -280,7 +304,9 @@ public sealed class ShowCommandTests : IDisposable
             Arg.Any<(int Done, int Total)?>(),
             Arg.Any<IReadOnlyList<WorkItemLink>?>(),
             Arg.Any<WorkItem?>(),
-            Arg.Any<IReadOnlyList<WorkItem>?>()).Returns(Task.CompletedTask);
+            Arg.Any<IReadOnlyList<WorkItem>?>(),
+            Arg.Any<int>(),
+            Arg.Any<GitContext?>()).Returns(Task.CompletedTask);
         var ttyPipeline = new RenderingPipelineFactory(
             _formatterFactory, mockRenderer, isOutputRedirected: () => false);
         var cmd = CreateCommandWithPipeline(ttyPipeline);
@@ -290,6 +316,89 @@ public sealed class ShowCommandTests : IDisposable
         capturedFactory.ShouldNotBeNull();
         var pendingChanges = await capturedFactory!();
         pendingChanges.ShouldBeEmpty();
+        await _pendingChangeStore.Received().GetChangesAsync(42, Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Pending changes enrichment
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Show_JsonFormat_IncludesPendingChangesWhenPresent()
+    {
+        var item = new WorkItemBuilder(42, "Pending Item").Build();
+        SetupCachedItem(item);
+        _pendingChangeStore.GetChangesAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new PendingChangeRecord[]
+            {
+                new(42, "set_field", "System.Title", "Old", "New"),
+                new(42, "set_field", "System.State", "Active", "Resolved"),
+                new(42, "note", null, null, "A note"),
+            });
+
+        var output = await CaptureStdout(() => _cmd.ExecuteAsync(42, "json"));
+
+        output.ShouldContain("\"pendingChanges\"");
+        output.ShouldContain("\"fieldEditCount\": 2");
+        output.ShouldContain("\"noteCount\": 1");
+    }
+
+    [Fact]
+    public async Task Show_JsonFormat_OmitsPendingChangesWhenNone()
+    {
+        var item = new WorkItemBuilder(42, "Clean Item").Build();
+        SetupCachedItem(item);
+
+        var output = await CaptureStdout(() => _cmd.ExecuteAsync(42, "json"));
+
+        output.ShouldNotContain("pendingChanges");
+    }
+
+    [Fact]
+    public async Task Show_HumanFormat_Redirected_IncludesPendingCounts()
+    {
+        var item = new WorkItemBuilder(42, "Human Pending").Build();
+        SetupCachedItem(item);
+        _pendingChangeStore.GetChangesAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new PendingChangeRecord[]
+            {
+                new(42, "set_field", "System.Title", "Old", "New"),
+                new(42, "note", null, null, "Note text"),
+            });
+
+        var output = await CaptureStdout(() => _cmd.ExecuteAsync(42, "human"));
+
+        output.ShouldContain("1 field change");
+        output.ShouldContain("1 note staged");
+    }
+
+    [Fact]
+    public async Task Show_ById_QueriesPendingChangeStoreForCorrectId()
+    {
+        var item = new WorkItemBuilder(99, "Query ID Check").Build();
+        SetupCachedItem(item);
+
+        await _cmd.ExecuteAsync(99, "json");
+
+        await _pendingChangeStore.Received().GetChangesAsync(99, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Show_NoPendingChangeStore_StillWorks()
+    {
+        var item = new WorkItemBuilder(42, "No Store").Build();
+        SetupCachedItem(item);
+        var minCtx = new CommandContext(
+            new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true),
+            _formatterFactory, new HintEngine(new DisplayConfig { Hints = false }),
+            new TwigConfiguration());
+        var cmd = new ShowCommand(minCtx, _workItemRepo, _linkRepo, _syncCoordinatorFactory, _statusFieldReader,
+            fieldDefinitionStore: _fieldDefinitionStore, processConfigProvider: _processConfigProvider);
+
+        var output = await CaptureStdout(() => cmd.ExecuteAsync(42, "json"));
+
+        output.ShouldContain("\"id\": 42");
+        output.ShouldNotContain("pendingChanges");
     }
 
     // ═══════════════════════════════════════════════════════════════

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
@@ -14,6 +15,7 @@ public sealed class ArtifactLinkCommand(
     ActiveItemResolver activeItemResolver,
     IAdoWorkItemService adoService,
     OutputFormatterFactory formatterFactory,
+    ITelemetryClient? telemetryClient = null,
     TextWriter? stderr = null)
 {
     private readonly TextWriter _stderr = stderr ?? Console.Error;
@@ -25,6 +27,19 @@ public sealed class ArtifactLinkCommand(
         int? id = null,
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
+    {
+        var startTimestamp = Stopwatch.GetTimestamp();
+        var exitCode = await ExecuteCoreAsync(url, name, id, outputFormat, ct);
+        TelemetryHelper.TrackCommand(telemetryClient, "link-artifact", outputFormat, exitCode, startTimestamp);
+        return exitCode;
+    }
+
+    private async Task<int> ExecuteCoreAsync(
+        string url,
+        string? name,
+        int? id,
+        string outputFormat,
+        CancellationToken ct)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 

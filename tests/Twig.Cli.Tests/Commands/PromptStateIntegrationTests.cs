@@ -113,17 +113,10 @@ public class PromptStateIntegrationTests : IDisposable
 
         var writer = CreateWriter();
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        var protectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        var syncCoordFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, protectedWriter, _pendingChangeStore, null, 30, 30);
-        var iterService = Substitute.For<IIterationService>();
-        iterService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
-            .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
-        var wsService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, iterService, null);
         var pipelineFactory = new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true);
         var ctx = new CommandContext(pipelineFactory, _formatterFactory, _hintEngine, _config);
-        var statusFieldReader = new StatusFieldConfigReader(_paths);
-        var cmd = new SetCommand(ctx, _workItemRepo, _contextStore, resolver, syncCoordFactory,
-            wsService, statusFieldReader, promptStateWriter: writer);
+        var cmd = new SetCommand(ctx, _workItemRepo, _contextStore, resolver,
+            promptStateWriter: writer);
 
         var result = await cmd.ExecuteAsync("12345");
 
@@ -161,44 +154,6 @@ public class PromptStateIntegrationTests : IDisposable
             promptStateWriter: writer);
 
         var result = await cmd.ExecuteAsync("Resolved");
-
-        result.ShouldBe(0);
-        File.Exists(PromptJsonPath).ShouldBeTrue();
-    }
-
-    // ── (e) twig save updates isDirty in prompt.json ───────────────────
-
-    [Fact]
-    public async Task SaveCommand_WritesPromptJson_AfterDirtyCleared()
-    {
-        var item = CreateWorkItem(55, "Dirty story", isDirty: true);
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(55);
-        _workItemRepo.GetByIdAsync(55, Arg.Any<CancellationToken>()).Returns(item);
-
-        var remote = CreateWorkItem(55, "Dirty story");
-        _adoService.FetchAsync(55, Arg.Any<CancellationToken>()).Returns(remote);
-        _adoService.PatchAsync(55, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(2);
-
-        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
-            .Returns(new[] { 55 });
-        _pendingChangeStore.GetChangesAsync(55, Arg.Any<CancellationToken>())
-            .Returns(new[] { new PendingChangeRecord(55, "field", "System.Title", "old", "new") });
-
-        _workItemRepo.GetChildrenAsync(55, Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>());
-
-        // After save completes, the writer reads clean state
-        var cleanItem = CreateWorkItem(55, "Dirty story", isDirty: false);
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(55);
-
-        var writer = CreateWriter();
-        var saveResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        var flusher = new PendingChangeFlusher(_workItemRepo, _adoService, _pendingChangeStore, _consoleInput, _formatterFactory);
-        var cmd = new SaveCommand(_workItemRepo, _pendingChangeStore, flusher,
-            saveResolver, _formatterFactory, writer);
-
-        var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
         File.Exists(PromptJsonPath).ShouldBeTrue();
@@ -256,17 +211,10 @@ public class PromptStateIntegrationTests : IDisposable
         var failWriter = new PromptStateWriter(_contextStore, _workItemRepo, _config, badPaths, _processTypeStore);
 
         var resolver2 = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        var protectedWriter2 = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        var syncCoordFactory2 = new SyncCoordinatorFactory(_workItemRepo, _adoService, protectedWriter2, _pendingChangeStore, null, 30, 30);
-        var iterService2 = Substitute.For<IIterationService>();
-        iterService2.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
-            .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
-        var wsService2 = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, iterService2, null);
         var pipelineFactory2 = new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true);
         var ctx2 = new CommandContext(pipelineFactory2, _formatterFactory, _hintEngine, _config);
-        var statusFieldReader2 = new StatusFieldConfigReader(badPaths);
-        var cmd = new SetCommand(ctx2, _workItemRepo, _contextStore, resolver2, syncCoordFactory2,
-            wsService2, statusFieldReader2, promptStateWriter: failWriter);
+        var cmd = new SetCommand(ctx2, _workItemRepo, _contextStore, resolver2,
+            promptStateWriter: failWriter);
 
         var result = await cmd.ExecuteAsync("42");
 

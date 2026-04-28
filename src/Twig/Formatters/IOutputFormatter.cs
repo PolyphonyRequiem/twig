@@ -21,6 +21,16 @@ public interface IOutputFormatter
     string FormatHint(string hint);
     string FormatInfo(string message);
 
+    // ── Set confirmation formatting ─────────────────────────────────
+
+    /// <summary>
+    /// Returns a one-line confirmation after <c>twig set</c> switches the active work item.
+    /// Human: <c>Set active item: #42 Fix login bug [Active]</c>.
+    /// JSON/JsonCompact: <c>{"id":42,"title":"...","state":"...","type":"..."}</c>.
+    /// Minimal: <c>#42</c>.
+    /// </summary>
+    string FormatSetConfirmation(WorkItem item);
+
     // ── Git context formatting (EPIC-006) ───────────────────────────
 
     /// <summary>Formats a branch info row for status enrichment.</summary>

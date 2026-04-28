@@ -1,12 +1,9 @@
 using NSubstitute;
-using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
-using Twig.Domain.Services.Workspace;
 using Twig.Domain.Services.Navigation;
-using Twig.Domain.Services.Sync;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -17,16 +14,18 @@ using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
 
+/// <summary>
+/// Tests verifying SetCommand's slimmed context-switch-only behavior.
+/// After the slim-down, SetCommand no longer extends the working set or syncs —
+/// these tests confirm the command remains a fast context mutation.
+/// </summary>
 public sealed class SetCommand_ContextChangeTests : IDisposable
 {
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IAdoWorkItemService _adoService;
     private readonly IContextStore _contextStore;
-    private readonly IPendingChangeStore _pendingChangeStore;
     private readonly ActiveItemResolver _activeItemResolver;
     private readonly CommandContext _ctx;
-    private readonly StatusFieldConfigReader _statusFieldReader;
-    private readonly WorkingSetService _workingSetService;
     private readonly TextWriter _originalOut;
     private readonly TextWriter _originalErr;
 
@@ -40,20 +39,8 @@ public sealed class SetCommand_ContextChangeTests : IDisposable
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _adoService = Substitute.For<IAdoWorkItemService>();
         _contextStore = Substitute.For<IContextStore>();
-        _pendingChangeStore = Substitute.For<IPendingChangeStore>();
 
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-
-        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<int>());
-
-        // Default: no children, no dirty items
-        _workItemRepo.GetDirtyItemsAsync(Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>());
-        _workItemRepo.GetChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>());
-        _adoService.FetchChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>());
 
         var formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(),
@@ -61,16 +48,6 @@ public sealed class SetCommand_ContextChangeTests : IDisposable
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         var pipelineFactory = new RenderingPipelineFactory(formatterFactory, null!, isOutputRedirected: () => true);
         _ctx = new CommandContext(pipelineFactory, formatterFactory, hintEngine, new TwigConfiguration());
-        _statusFieldReader = new StatusFieldConfigReader(new TwigPaths(
-            Path.Combine(Path.GetTempPath(), ".twig-ctxchange-test"),
-            Path.Combine(Path.GetTempPath(), ".twig-ctxchange-test", "config"),
-            Path.Combine(Path.GetTempPath(), ".twig-ctxchange-test", "twig.db")));
-
-        var iterationService = Substitute.For<IIterationService>();
-        iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
-            .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
-        _workingSetService = new WorkingSetService(
-            _contextStore, _workItemRepo, _pendingChangeStore, iterationService, null);
     }
 
     public void Dispose()
@@ -79,12 +56,8 @@ public sealed class SetCommand_ContextChangeTests : IDisposable
         Console.SetError(_originalErr);
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  Wiring smoke test — confirms SetCommand calls ExtendWorkingSetAsync
-    // ═══════════════════════════════════════════════════════════════
-
     [Fact]
-    public async Task Set_WithContextChange_FetchesTwoLevelsOfChildren()
+    public async Task Set_SetsContextWithoutSyncing()
     {
         var item = new WorkItemBuilder(100, "Parent Story")
             .AsUserStory().WithIterationPath("Project\\Sprint 1").Build();
@@ -95,67 +68,62 @@ public sealed class SetCommand_ContextChangeTests : IDisposable
         var result = await cmd.ExecuteAsync("100");
 
         result.ShouldBe(0);
-        // Level 1: SyncChildrenAsync calls FetchChildrenAsync(100)
-        await _adoService.Received().FetchChildrenAsync(100, Arg.Any<CancellationToken>());
+        await _contextStore.Received().SetActiveWorkItemIdAsync(100, Arg.Any<CancellationToken>());
+        // No child fetching — slimmed set doesn't extend working set
+        await _adoService.DidNotReceive().FetchChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    //  Scenario 2: Network failure during extension → command succeeds
-    // ═══════════════════════════════════════════════════════════════
-
     [Fact]
-    public async Task Set_ExtensionNetworkFailure_CommandStillSucceeds()
+    public async Task Set_EmitsConfirmationLine()
     {
         var item = new WorkItemBuilder(100, "Test Item")
             .AsTask().WithIterationPath("Project\\Sprint 1").Build();
 
         ArrangeItemInCache(item);
-        _adoService.FetchChildrenAsync(100, Arg.Any<CancellationToken>())
-            .ThrowsAsync(new InvalidOperationException("Network unreachable"));
+
+        var originalOut = Console.Out;
+        using var sw = new StringWriter();
+        Console.SetOut(sw);
+        try
+        {
+            var cmd = CreateCommand();
+            var result = await cmd.ExecuteAsync("100");
+            result.ShouldBe(0);
+
+            var output = sw.ToString();
+            output.ShouldContain("#100");
+            output.ShouldContain("Test Item");
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+        }
+    }
+
+    [Fact]
+    public async Task Set_DoesNotFetchChildrenOrSync()
+    {
+        var item = new WorkItemBuilder(100, "Test Item")
+            .AsTask().WithIterationPath("Project\\Sprint 1").Build();
+
+        ArrangeItemInCache(item);
 
         var cmd = CreateCommand();
         var result = await cmd.ExecuteAsync("100");
 
         result.ShouldBe(0);
-        await _contextStore.Received().SetActiveWorkItemIdAsync(100, Arg.Any<CancellationToken>());
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  Scenario 3: Null service → extension skipped
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task Set_NullContextChangeService_DoesNotCallExtension()
-    {
-        var item = new WorkItemBuilder(100, "Test Item")
-            .AsTask().WithIterationPath("Project\\Sprint 1").Build();
-
-        ArrangeItemInCache(item);
-
-        var cmd = CreateCommand(withContextChange: false);
-        var result = await cmd.ExecuteAsync("100");
-
-        result.ShouldBe(0);
-        // FetchChildrenAsync is only called by extension — should not fire
-        await _adoService.DidNotReceive().FetchChildrenAsync(100, Arg.Any<CancellationToken>());
+        // No child fetching or sync operations
+        await _adoService.DidNotReceive().FetchChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _workItemRepo.DidNotReceive().GetChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════
     //  Helpers
     // ═══════════════════════════════════════════════════════════════
 
-    private SetCommand CreateCommand(bool withContextChange = true)
+    private SetCommand CreateCommand()
     {
-        var protectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        var syncCoordinatorFactory = new SyncCoordinatorFactory(
-            _workItemRepo, _adoService, protectedWriter, _pendingChangeStore, null, 30, 30);
-        var contextChangeService = withContextChange
-            ? new ContextChangeService(_workItemRepo, _adoService, syncCoordinatorFactory.ReadWrite, protectedWriter)
-            : null;
-        return new SetCommand(
-            _ctx, _workItemRepo, _contextStore, _activeItemResolver, syncCoordinatorFactory,
-            _workingSetService, _statusFieldReader,
-            contextChangeService: contextChangeService);
+        return new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver);
     }
 
     private void ArrangeItemInCache(WorkItem item)

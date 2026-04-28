@@ -110,30 +110,6 @@ public sealed class MultiWorkspaceIsolationTests : ReadToolsTestBase
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  Status: workspace A status does not leak to workspace B
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task Status_WorkspaceA_DoesNotQueryWorkspaceB()
-    {
-        var (resolver, mocks) = BuildMultiResolver(DefaultConfig, WsAlpha, WsBeta);
-
-        // Set up active item in workspace A and set it as active
-        var item = new WorkItemBuilder(42, "Alpha Feature").AsFeature().InState("Active").Build();
-        mocks[WsAlpha].WorkItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
-        mocks[WsBeta].WorkItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
-
-        var contextTools = new ContextTools(resolver);
-        await contextTools.Set("42");
-
-        // Now query status — should use workspace A (the active workspace)
-        var statusResult = await contextTools.Status();
-
-        // Workspace B's context store should not be queried
-        await mocks[WsBeta].ContextStore.DidNotReceive().GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>());
-    }
-
-    // ═══════════════════════════════════════════════════════════════
     //  Prompt state: each workspace writes its own prompt state
     // ═══════════════════════════════════════════════════════════════
 
@@ -151,26 +127,6 @@ public sealed class MultiWorkspaceIsolationTests : ReadToolsTestBase
 
         await mocks[WsAlpha].PromptStateWriter.Received(1).WritePromptStateAsync();
         await mocks[WsBeta].PromptStateWriter.DidNotReceive().WritePromptStateAsync();
-    }
-
-    // ═══════════════════════════════════════════════════════════════
-    //  Explicit workspace: status queries correct workspace
-    // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task Status_ExplicitWorkspace_QueriesCorrectWorkspace()
-    {
-        var (resolver, mocks) = BuildMultiResolver(DefaultConfig, WsAlpha, WsBeta);
-        var sut = new ContextTools(resolver);
-
-        // Query status with explicit workspace B — should return error (no active item) but
-        // should query B, not A
-        var result = await sut.Status(workspace: "orgB/projectB");
-
-        result.IsError.ShouldBe(true);
-        // The error comes from the inlined status logic querying workspace B, proving it was queried
-        var text = result.Content[0].ShouldBeOfType<TextContentBlock>().Text;
-        text.ShouldContain("No active work item");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -204,27 +160,4 @@ public sealed class MultiWorkspaceIsolationTests : ReadToolsTestBase
     //  Resolver fallback: after twig_set, other tools use active ws
     // ═══════════════════════════════════════════════════════════════
 
-    [Fact]
-    public async Task OtherTools_UseActiveWorkspace_AfterSet()
-    {
-        var (resolver, mocks) = BuildMultiResolver(DefaultConfig, WsAlpha, WsBeta);
-
-        // Set context to workspace A
-        var item = new WorkItemBuilder(42, "Alpha Feature").AsFeature().InState("Active").Build();
-        mocks[WsAlpha].WorkItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
-        mocks[WsBeta].WorkItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
-
-        var contextTools = new ContextTools(resolver);
-        await contextTools.Set("42");
-
-        // Now call status without workspace param — should use active workspace (A)
-        mocks[WsAlpha].ContextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
-        mocks[WsAlpha].PendingChangeStore.GetChangeSummaryAsync(42, Arg.Any<CancellationToken>())
-            .Returns((0, 0));
-
-        var statusResult = await contextTools.Status();
-
-        // Should have queried workspace A's context store
-        await mocks[WsAlpha].ContextStore.Received().GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>());
-    }
 }

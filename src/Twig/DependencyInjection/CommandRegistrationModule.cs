@@ -41,7 +41,6 @@ public static class CommandRegistrationModule
             sp.GetService<ITelemetryClient>()));
         services.AddSingleton<SetCommand>();
         services.AddSingleton<ShowCommand>();
-        services.AddSingleton<StatusCommand>();
         services.AddSingleton<StateCommand>();
         services.AddSingleton<TreeCommand>();
         services.AddSingleton<NavigationCommands>();
@@ -66,10 +65,12 @@ public static class CommandRegistrationModule
         services.AddSingleton<WebCommand>();
         services.AddSingleton<NoteCommand>();
         services.AddSingleton<UpdateCommand>();
+        services.AddSingleton<PatchCommand>();
         services.AddSingleton<EditCommand>();
-        services.AddSingleton<SaveCommand>();
+
         services.AddSingleton<RefreshCommand>();
         services.AddSingleton<DiscardCommand>();
+        services.AddSingleton<DeleteCommand>();
         services.AddSingleton<SyncCommand>();
         services.AddSingleton<WorkspaceCommand>();
         services.AddSingleton<ConfigCommand>();

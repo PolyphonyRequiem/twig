@@ -2,6 +2,7 @@ using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Common;
 using Twig.TestKit;
 using Xunit;
 
@@ -172,5 +173,113 @@ public sealed class NavigationToolsShowTests : NavigationToolsTestBase
 
         await Should.ThrowAsync<OperationCanceledException>(
             () => CreateSut().Show(1));
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Pending changes — active item includes pendingChanges array
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Show_ActiveItemWithPendingChanges_IncludesPendingChangesArray()
+    {
+        var item = new WorkItemBuilder(42, "Active Task").AsTask().InState("Doing").Build();
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
+            .Returns(item);
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>())
+            .Returns(42);
+
+        var changes = new List<PendingChangeRecord>
+        {
+            new(42, "set_field", "System.Title", "Old Title", "Active Task"),
+            new(42, "add_note", null, null, "A note"),
+        };
+        _pendingChangeStore.GetChangesAsync(42, Arg.Any<CancellationToken>())
+            .Returns(changes);
+
+        var result = await CreateSut().Show(42);
+
+        result.IsError.ShouldBeNull();
+        var json = ParseResult(result);
+        json.TryGetProperty("pendingChanges", out var pending).ShouldBeTrue();
+        pending.GetArrayLength().ShouldBe(2);
+
+        var first = pending[0];
+        first.GetProperty("workItemId").GetInt32().ShouldBe(42);
+        first.GetProperty("changeType").GetString().ShouldBe("set_field");
+        first.GetProperty("fieldName").GetString().ShouldBe("System.Title");
+        first.GetProperty("oldValue").GetString().ShouldBe("Old Title");
+        first.GetProperty("newValue").GetString().ShouldBe("Active Task");
+
+        var second = pending[1];
+        second.GetProperty("changeType").GetString().ShouldBe("add_note");
+        second.GetProperty("fieldName").GetString().ShouldBe("");
+        second.GetProperty("newValue").GetString().ShouldBe("A note");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Pending changes — non-active item omits pendingChanges
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Show_NonActiveItem_OmitsPendingChanges()
+    {
+        var item = new WorkItemBuilder(42, "Some Task").AsTask().Build();
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
+            .Returns(item);
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>())
+            .Returns(99); // Different active item
+
+        var result = await CreateSut().Show(42);
+
+        result.IsError.ShouldBeNull();
+        var json = ParseResult(result);
+        json.TryGetProperty("pendingChanges", out _).ShouldBeFalse();
+
+        // Should NOT have queried pending changes for non-active item
+        await _pendingChangeStore.DidNotReceive()
+            .GetChangesAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Pending changes — no active item (null context) omits array
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Show_NoActiveContext_OmitsPendingChanges()
+    {
+        var item = new WorkItemBuilder(42, "Some Task").AsTask().Build();
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
+            .Returns(item);
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>())
+            .Returns((int?)null);
+
+        var result = await CreateSut().Show(42);
+
+        result.IsError.ShouldBeNull();
+        var json = ParseResult(result);
+        json.TryGetProperty("pendingChanges", out _).ShouldBeFalse();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Pending changes — active item with empty changes returns empty array
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Show_ActiveItemWithNoPendingChanges_ReturnsEmptyArray()
+    {
+        var item = new WorkItemBuilder(42, "Clean Task").AsTask().Build();
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
+            .Returns(item);
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>())
+            .Returns(42);
+        _pendingChangeStore.GetChangesAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new List<PendingChangeRecord>());
+
+        var result = await CreateSut().Show(42);
+
+        result.IsError.ShouldBeNull();
+        var json = ParseResult(result);
+        json.TryGetProperty("pendingChanges", out var pending).ShouldBeTrue();
+        pending.GetArrayLength().ShouldBe(0);
     }
 }

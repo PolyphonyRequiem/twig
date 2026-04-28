@@ -103,10 +103,8 @@ public sealed class ToolDispatcherTests
     // error results (not "Unknown tool" errors) — proving routing was correct.
 
     [Theory]
-    [InlineData("twig_status")]
     [InlineData("twig_tree")]
     [InlineData("twig_workspace")]
-    [InlineData("twig_discard")]
     [InlineData("twig_sync")]
     [InlineData("twig_sprint")]
     [InlineData("twig_query")]
@@ -139,7 +137,7 @@ public sealed class ToolDispatcherTests
         // step-level workspace wins over batch-level; both are invalid so
         // workspace resolution produces an error referencing the step-level value.
         var result = await _dispatcher.DispatchAsync(
-            "twig_status",
+            "twig_tree",
             Args(("workspace", "step/ws")),
             "batch/ws",
             CancellationToken.None);
@@ -153,7 +151,7 @@ public sealed class ToolDispatcherTests
     public async Task DispatchAsync_NullBatchWorkspace_PassesNullWhenNoStepWorkspace()
     {
         var result = await _dispatcher.DispatchAsync(
-            "twig_status", Args(), null, CancellationToken.None);
+            "twig_tree", Args(), null, CancellationToken.None);
 
         // With no workspace and no registered workspaces, should fail
         result.IsError.ShouldBe(true);

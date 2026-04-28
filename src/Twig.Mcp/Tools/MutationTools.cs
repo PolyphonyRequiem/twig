@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text.Json;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Twig.Domain.Aggregates;
@@ -10,12 +11,13 @@ using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Ado.Exceptions;
 using Twig.Infrastructure.Content;
+using Twig.Infrastructure.Serialization;
 using Twig.Mcp.Services;
 
 namespace Twig.Mcp.Tools;
 
 /// <summary>
-/// MCP tools for mutations: twig_state, twig_update, twig_note, twig_discard, twig_sync.
+/// MCP tools for mutations: twig_state, twig_update, twig_patch, twig_note, twig_delete, twig_sync.
 /// Resolves per-workspace services via <see cref="WorkspaceResolver"/>.
 /// </summary>
 [McpServerToolType]
@@ -171,6 +173,90 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         return McpResultBuilder.FormatFieldUpdate(updated, field, value);
     }
 
+    [McpServerTool(Name = "twig_patch"), Description("Atomically patch multiple fields on the active work item")]
+    public async Task<CallToolResult> Patch(
+        [Description("JSON object with field reference name → value pairs (e.g. {\"System.Title\":\"New\",\"System.Description\":\"Desc\"})")] string fields,
+        [Description("Convert values before sending. Supported: \"markdown\" (converts Markdown to HTML)")] string? format = null,
+        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(fields))
+            return McpResultBuilder.ToError("Usage: twig_patch requires a non-empty JSON object of field name → value pairs.");
+
+        if (format is not null && !string.Equals(format, "markdown", StringComparison.OrdinalIgnoreCase))
+            return McpResultBuilder.ToError($"Unknown format '{format}'. Supported formats: markdown");
+
+        // Parse JSON into field dictionary (AOT-safe via source-generated context)
+        Dictionary<string, string>? fieldMap;
+        try
+        {
+            fieldMap = JsonSerializer.Deserialize(fields, TwigJsonContext.Default.DictionaryStringString);
+        }
+        catch (JsonException ex)
+        {
+            return McpResultBuilder.ToError($"Invalid JSON: {ex.Message}");
+        }
+
+        if (fieldMap is null || fieldMap.Count == 0)
+            return McpResultBuilder.ToError("JSON must be a non-empty object with field name → value pairs.");
+
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+
+        var resolved = await ctx.ActiveItemResolver.GetActiveItemAsync(ct);
+        if (resolved is ActiveItemResult.NoContext)
+            return McpResultBuilder.ToError("No active work item. Use twig_set to set context.");
+        if (resolved is ActiveItemResult.Unreachable u)
+            return McpResultBuilder.ToError($"Work item #{u.Id} not found in cache.");
+
+        var item = resolved is ActiveItemResult.Found f
+            ? f.WorkItem
+            : ((ActiveItemResult.FetchedFromAdo)resolved).WorkItem;
+
+        // Build FieldChange[] with optional markdown conversion
+        var changes = new List<FieldChange>(fieldMap.Count);
+        var fieldChanges = new Dictionary<string, (string? OldValue, string? NewValue)>(fieldMap.Count);
+        foreach (var (key, value) in fieldMap)
+        {
+            var effectiveValue = string.Equals(format, "markdown", StringComparison.OrdinalIgnoreCase)
+                ? MarkdownConverter.ToHtml(value)
+                : value;
+            changes.Add(new FieldChange(key, null, effectiveValue));
+            fieldChanges[key] = (null, effectiveValue);
+        }
+
+        // Fetch remote and PATCH with conflict retry
+        WorkItem remote;
+        try
+        {
+            remote = await ctx.AdoService.FetchAsync(item.Id, ct);
+            await ConflictRetryHelper.PatchWithRetryAsync(ctx.AdoService, item.Id, changes, remote.Revision, ct);
+        }
+        catch (AdoException ex)
+        {
+            return McpResultBuilder.ToError(ex.Message);
+        }
+
+        try { await AutoPushNotesHelper.PushAndClearAsync(item.Id, ctx.PendingChangeStore, ctx.AdoService); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
+
+        // Resync cache — best-effort, non-fatal
+        WorkItem updated;
+        try
+        {
+            updated = await ctx.AdoService.FetchAsync(item.Id, ct);
+            await ctx.WorkItemRepo.SaveAsync(updated, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            updated = item;
+        }
+
+        try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
+
+        return McpResultBuilder.FormatPatch(updated, fieldChanges);
+    }
+
     [McpServerTool(Name = "twig_note"), Description("Add a comment/note to the active work item")]
     public async Task<CallToolResult> Note(
         [Description("Note text to add as a comment")] string text,
@@ -226,53 +312,109 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         return McpResultBuilder.FormatNoteAdded(item.Id, item.Title, isPending);
     }
 
-    [McpServerTool(Name = "twig_discard"), Description("Discard pending changes for a work item")]
-    public async Task<CallToolResult> Discard(
-        [Description("Work item ID to discard changes for (defaults to active item)")] int? id = null,
+    [McpServerTool(Name = "twig_delete"), Description("Permanently delete a work item from Azure DevOps (two-phase: first call returns confirmation prompt, second call with confirmed=true executes deletion)")]
+    public async Task<CallToolResult> Delete(
+        [Description("The work item ID to delete")] int id,
+        [Description("Set to true to confirm and execute the deletion. Omit or set false for the confirmation prompt.")] bool confirmed = false,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
         CancellationToken ct = default)
     {
+        if (id <= 0)
+            return McpResultBuilder.ToError("Usage: twig_delete requires a positive work item ID.");
+
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
 
-        // Resolve target: explicit ID or active item
-        WorkItem cached;
-        if (id.HasValue)
+        // Resolve item from cache or ADO
+        var (item, fetchError) = await ctx.FetchWithFallbackAsync(id, ct);
+        if (item is null)
+            return McpResultBuilder.ToError(fetchError ?? $"Work item #{id} not found.");
+
+        // Seed guard
+        if (item.IsSeed)
+            return McpResultBuilder.ToError($"#{id} is a seed. Use 'twig seed discard {id}' instead.");
+
+        // Fresh fetch with links from ADO
+        WorkItem freshItem;
+        IReadOnlyList<WorkItemLink> links;
+        IReadOnlyList<WorkItem> children;
+        try
         {
-            var found = await ctx.WorkItemRepo.GetByIdAsync(id.Value, ct);
-            if (found is null)
-                return McpResultBuilder.ToError($"Work item #{id.Value} not found in cache.");
-            cached = found;
+            (freshItem, links) = await ctx.AdoService.FetchWithLinksAsync(id, ct);
+            children = await ctx.AdoService.FetchChildrenAsync(id, ct);
         }
-        else
+        catch (AdoException ex)
         {
-            var resolved = await ctx.ActiveItemResolver.GetActiveItemAsync(ct);
-            if (resolved is ActiveItemResult.NoContext)
-                return McpResultBuilder.ToError("No active work item. Use twig_set to set context, or pass an explicit id.");
-            if (resolved is ActiveItemResult.Unreachable u)
-                return McpResultBuilder.ToError($"Work item #{u.Id} not found in cache.");
-
-            cached = resolved is ActiveItemResult.Found f
-                ? f.WorkItem
-                : ((ActiveItemResult.FetchedFromAdo)resolved).WorkItem;
+            return McpResultBuilder.ToError(ex.Message);
         }
 
-        // Get change summary — return early if nothing to discard
-        var (notes, fieldEdits) = await ctx.PendingChangeStore.GetChangeSummaryAsync(cached.Id, ct);
-        if (notes == 0 && fieldEdits == 0)
-            return McpResultBuilder.FormatDiscardNone(cached.Id, cached.Title);
+        // Link guard — refuse if any links exist
+        var linkCount = (freshItem.ParentId.HasValue ? 1 : 0) + children.Count + links.Count;
+        if (linkCount > 0)
+        {
+            var parts = new List<string>();
+            if (freshItem.ParentId.HasValue) parts.Add("1 parent");
+            if (children.Count > 0) parts.Add($"{children.Count} child{(children.Count != 1 ? "ren" : "")}");
+            if (links.Count > 0)
+            {
+                var byType = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                foreach (var link in links)
+                {
+                    byType.TryGetValue(link.LinkType, out var c);
+                    byType[link.LinkType] = c + 1;
+                }
+                foreach (var (lt, c) in byType)
+                    parts.Add($"{c} {lt.ToLowerInvariant()}");
+            }
 
-        // Clear pending changes and dirty flag
-        await ctx.PendingChangeStore.ClearChangesAsync(cached.Id, ct);
-        await ctx.WorkItemRepo.ClearDirtyFlagAsync(cached.Id, ct);
+            return McpResultBuilder.ToError(
+                $"Cannot delete #{id} '{freshItem.Title}' — it has {linkCount} link(s): {string.Join(", ", parts)}. " +
+                "Remove all links before deleting. Consider 'twig_state Closed' instead — it preserves history and is reversible.");
+        }
 
-        // Update prompt state — best-effort
+        // Phase 1: Confirmation prompt
+        if (!confirmed)
+            return McpResultBuilder.FormatDeleteConfirmation(freshItem);
+
+        // Phase 2: Execute deletion
+
+        // Audit trail — best-effort note on parent
+        if (freshItem.ParentId.HasValue)
+        {
+            try
+            {
+                await ctx.AdoService.AddCommentAsync(
+                    freshItem.ParentId.Value,
+                    $"Child work item #{id} '{freshItem.Title}' ({freshItem.Type}) was deleted via twig.",
+                    ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Best-effort — parent may be inaccessible
+            }
+        }
+
+        // Delete from ADO
+        try
+        {
+            await ctx.AdoService.DeleteAsync(id, ct);
+        }
+        catch (AdoException ex)
+        {
+            return McpResultBuilder.ToError($"Delete failed: {ex.Message}");
+        }
+
+        // Cache cleanup
+        await ctx.WorkItemRepo.DeleteByIdAsync(id, ct);
+        await ctx.PendingChangeStore.ClearChangesAsync(id, ct);
+
+        // Prompt state refresh — best-effort
         try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
-        return McpResultBuilder.FormatDiscard(cached.Id, cached.Title, notes, fieldEdits);
+        return McpResultBuilder.FormatDeleted(id, freshItem.Title);
     }
 
-    [McpServerTool(Name = "twig_sync"), Description("Flush pending local changes to ADO then refresh the local cache from ADO")]
+    [McpServerTool(Name = "twig_sync"),Description("Flush pending local changes to ADO then refresh the local cache from ADO")]
     public async Task<CallToolResult> Sync(
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
         CancellationToken ct = default)

@@ -111,11 +111,11 @@ if (args.Length == 1 && args[0] is "-h" or "--help" or "help")
 }
 if (args.Length == 0)
 {
-    // Smart landing: route to status if workspace is initialized, otherwise show help
+    // Smart landing: route to show if workspace is initialized, otherwise show help
     var twigDirCheck = WorkspaceDiscovery.FindTwigDir();
     if (twigDirCheck is not null)
     {
-        args = ["status"];
+        args = ["show"];
         // Fall through to app.Run(args)
     }
     else
@@ -334,10 +334,10 @@ public sealed class TwigCommands(IServiceProvider services)
         => await services.GetRequiredService<SetCommand>().ExecuteAsync(idOrPattern, output, ct);
 
     /// <summary>Display a work item without changing context. Syncs by default; use --no-refresh for cache-only.</summary>
-    /// <param name="id">Work item ID to display.</param>
+    /// <param name="id">Work item ID to display. Omit to show the active work item.</param>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     /// <param name="noRefresh">Skip the sync and show cached data only.</param>
-    public async Task<int> Show([Argument] int id, string output = OutputFormatterFactory.DefaultFormat, bool noRefresh = false, CancellationToken ct = default)
+    public async Task<int> Show([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, bool noRefresh = false, CancellationToken ct = default)
         => await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, noRefresh, ct);
 
     /// <summary>Display multiple work items by ID (cache-only). Missing IDs are silently skipped.</summary>
@@ -362,13 +362,6 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     public async Task<int> Query([Argument] string? searchText = null, string? title = null, string? description = null, string? type = null, string? state = null, string? assignedTo = null, string? areaPath = null, string? iterationPath = null, string? createdSince = null, string? changedSince = null, int top = 25, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<QueryCommand>().ExecuteAsync(searchText, title, description, type, state, assignedTo, areaPath, iterationPath, createdSince, changedSince, top, output, ct);
-
-    /// <summary>Show status of the active work item.</summary>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
-    /// <param name="noLive">Disable live-refresh and render a static snapshot.</param>
-    /// <param name="noRefresh">Skip the sync and show cached data only.</param>
-    public async Task<int> Status(string output = OutputFormatterFactory.DefaultFormat, bool noLive = false, bool noRefresh = false, CancellationToken ct = default)
-        => await services.GetRequiredService<StatusCommand>().ExecuteAsync(output, noLive, noRefresh, ct);
 
     /// <summary>Change the state of the active work item by name.</summary>
     /// <param name="name">Target state name (e.g., Active, Resolved, Closed).</param>
@@ -655,6 +648,15 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> Update([Argument] string field, [Argument] string? value = null, string output = OutputFormatterFactory.DefaultFormat, string? format = null, string? file = null, bool stdin = false, int? id = null, bool append = false, CancellationToken ct = default)
         => await services.GetRequiredService<UpdateCommand>().ExecuteAsync(field, value, output, format, file, stdin, id, append, ct);
 
+    /// <summary>Atomically patch multiple fields on a work item via JSON input.</summary>
+    /// <param name="json">JSON object with field name → value pairs (e.g., '{"System.Title":"New title"}').</param>
+    /// <param name="stdin">Read JSON from standard input instead of --json.</param>
+    /// <param name="format">Convert values before sending. Supported: "markdown" (converts Markdown to HTML).</param>
+    /// <param name="id">Work item ID to target; omit to use the active work item.</param>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    public async Task<int> Patch(string? json = null, bool stdin = false, string? format = null, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<PatchCommand>().ExecuteAsync(json, stdin, id, output, format, ct);
+
     /// <summary>Edit work item fields in an external editor.</summary>
     /// <param name="field">Specific field to edit; omit to edit all editable fields.</param>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
@@ -669,6 +671,14 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> Discard([Argument] int? id = null, bool all = false, bool yes = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<DiscardCommand>().ExecuteAsync(id, all, yes, output, ct);
 
+    /// <summary>Permanently delete a work item from Azure DevOps. This is irreversible — consider 'twig state Closed' instead.</summary>
+    /// <param name="id">Work item ID to delete (required).</param>
+    /// <param name="force">Skip the interactive confirmation prompt.</param>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    [Command("delete")]
+    public async Task<int> Delete([Argument] int id, bool force = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<DeleteCommand>().ExecuteAsync(id, force, output, ct);
+
     /// <summary>Push pending changes to Azure DevOps. Deprecated — use 'twig sync' instead.</summary>
     [Hidden]
     public async Task<int> Save([Argument] int? id = null, bool all = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
@@ -676,6 +686,7 @@ public sealed class TwigCommands(IServiceProvider services)
         await Console.Error.WriteLineAsync("hint: 'twig save' is deprecated. Use 'twig sync' instead.");
         return await services.GetRequiredService<SaveCommand>().ExecuteAsync(id, all, output, ct: ct);
     }
+
 
     /// <summary>Flush pending changes then refresh the local cache.</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
@@ -1002,7 +1013,6 @@ internal static class GroupedHelp
         "sync",
 
         // Views
-        "status",
         "tree",
         "sprint",
 
@@ -1046,8 +1056,10 @@ internal static class GroupedHelp
         "batch",
         "note",
         "update",
+        "patch",
         "edit",
         "new",
+        "delete",
         "discard",
         "link parent",
         "link unparent",
@@ -1092,7 +1104,6 @@ internal static class GroupedHelp
         "fore",
         "history",
         "seed",
-        "save",
         "refresh",
         "area",
         "area add",
@@ -1133,7 +1144,6 @@ Getting Started:
   sync                 Flush pending changes then refresh from ADO.
 
 Views:
-  status               Active item detail and pending changes.
   tree                 Work item hierarchy (parent → active → children).
   sprint               My sprint items, grouped by assignee.  (--all for team)
 
@@ -1176,6 +1186,7 @@ Work Items:
   batch                Batch state, field, and note changes in one call.
   note                 Add a note to the active work item.
   update <field> <v>   Update a field on the active work item.
+  patch --json '<json>'  Atomically patch multiple fields via JSON.
   edit                 Edit work item fields in an external editor.
   new                  Create a new work item.
   link parent <id>     Set the parent of the active work item.
@@ -1184,6 +1195,8 @@ Work Items:
   link artifact <url>  Add an artifact link (URL or vstfs://) to an item.
   discard <id>         Drop pending changes for a work item.
   discard --all        Drop all pending changes (excludes seeds).
+  delete <id>          ⚠ Permanently delete a work item (irreversible).
+  delete <id> --force  Delete without confirmation prompt.
   sync                 Flush pending changes then refresh from ADO.
 
 Seeds:

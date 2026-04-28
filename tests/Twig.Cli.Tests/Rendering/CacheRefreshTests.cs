@@ -419,62 +419,6 @@ public class CacheRefreshTests
         config.SetValue("display.cacheStaleMinutes", "-1").ShouldBeFalse();
     }
 
-    // ── StatusCommand stale hint tests ──────────────────────────────
-
-    [Fact]
-    public async Task StatusCommand_StaleCache_ShowsStaleHint()
-    {
-        var pendingChangeStore = Substitute.For<IPendingChangeStore>();
-        var item = CreateWorkItem(1, "Active Item");
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
-        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
-        pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<PendingChangeRecord>());
-        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>());
-
-        // Stale timestamp
-        _contextStore.GetValueAsync("last_refreshed_at", Arg.Any<CancellationToken>())
-            .Returns(DateTimeOffset.UtcNow.AddMinutes(-10).ToString("O"));
-
-        var paths = new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db"));
-        var statusFieldReader = new StatusFieldConfigReader(paths);
-        var staleCtx = new CommandContext(CreateTtyPipelineFactory(), _formatterFactory, _hintEngine, _config);
-        var cmd = new StatusCommand(staleCtx, _contextStore, _workItemRepo, pendingChangeStore, _activeItemResolver, _workingSetService, new SyncCoordinatorFactory(_workItemRepo, _adoService, new ProtectedCacheWriter(_workItemRepo, pendingChangeStore), pendingChangeStore, null, 30, 30), statusFieldReader);
-        var result = await cmd.ExecuteAsync("human");
-
-        result.ShouldBe(0);
-        var output = _testConsole.Output;
-        output.ShouldContain("stale");
-    }
-
-    [Fact]
-    public async Task StatusCommand_FreshCache_NoStaleHint()
-    {
-        var pendingChangeStore = Substitute.For<IPendingChangeStore>();
-        var item = CreateWorkItem(1, "Active Item");
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
-        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
-        pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<PendingChangeRecord>());
-        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>());
-
-        // Fresh timestamp
-        _contextStore.GetValueAsync("last_refreshed_at", Arg.Any<CancellationToken>())
-            .Returns(DateTimeOffset.UtcNow.AddMinutes(-1).ToString("O"));
-
-        var freshPaths = new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db"));
-        var freshReader = new StatusFieldConfigReader(freshPaths);
-        var freshCtx = new CommandContext(CreateTtyPipelineFactory(), _formatterFactory, _hintEngine, _config);
-        var cmd = new StatusCommand(freshCtx, _contextStore, _workItemRepo, pendingChangeStore, _activeItemResolver, _workingSetService, new SyncCoordinatorFactory(_workItemRepo, _adoService, new ProtectedCacheWriter(_workItemRepo, pendingChangeStore), pendingChangeStore, null, 30, 30), freshReader);
-        var result = await cmd.ExecuteAsync("human");
-
-        result.ShouldBe(0);
-        var output = _testConsole.Output;
-        output.ShouldNotContain("stale");
-    }
-
     // ── Stage 4 error handling tests ────────────────────────────────
 
     [Fact]

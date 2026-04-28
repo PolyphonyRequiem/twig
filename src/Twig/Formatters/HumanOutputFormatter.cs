@@ -85,6 +85,12 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         return $"#{item.Id} {Cyan}●{Reset} {typeColor}{badge} {item.Type}{Reset} — {item.Title} [{stateColor}{item.State}{Reset}]{cacheAgeSuffix}";
     }
 
+    public string FormatSetConfirmation(WorkItem item)
+    {
+        var stateColor = GetStateColor(item.State);
+        return $"Set active item: #{item.Id} {item.Title} [{stateColor}{item.State}{Reset}]";
+    }
+
     public string FormatWorkItem(WorkItem item, bool showDirty)
     {
         return FormatWorkItem(item, showDirty, fieldDefinitions: null);
@@ -98,7 +104,8 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         IReadOnlyList<WorkItemLink>? links = null,
         WorkItem? parent = null,
         IReadOnlyList<WorkItem>? children = null,
-        IReadOnlyList<PendingChangeRecord>? pendingChangeRecords = null)
+        IReadOnlyList<PendingChangeRecord>? pendingChangeRecords = null,
+        GitContext? gitContext = null)
     {
         var sb = new StringBuilder();
         var stateColor = GetStateColor(item.State);
@@ -220,6 +227,31 @@ public sealed class HumanOutputFormatter : IOutputFormatter
             {
                 foreach (var link in links)
                     sb.AppendLine($"  {Blue}{link.LinkType}{Reset}: #{link.TargetId}");
+            }
+
+            // Remove trailing newline
+            if (sb.Length > 0 && sb[sb.Length - 1] == '\n')
+                sb.Length -= 1;
+            if (sb.Length > 0 && sb[sb.Length - 1] == '\r')
+                sb.Length -= 1;
+        }
+
+        // Git context section — branch + linked PRs
+        if (gitContext is { HasData: true })
+        {
+            sb.AppendLine();
+            sb.AppendLine($"  {Dim}── Git ───────────────────────{Reset}");
+
+            if (gitContext.CurrentBranch is not null)
+                sb.AppendLine($"  {Dim}Branch:{Reset}  {Blue}{gitContext.CurrentBranch}{Reset}");
+
+            if (gitContext.LinkedPullRequests is { Count: > 0 })
+            {
+                foreach (var pr in gitContext.LinkedPullRequests)
+                {
+                    var statusColor = pr.Status.Equals("active", StringComparison.OrdinalIgnoreCase) ? Green : Dim;
+                    sb.AppendLine($"  {Dim}PR:{Reset}      {Blue}!{pr.PullRequestId}{Reset} {pr.Title} {statusColor}[{pr.Status}]{Reset}");
+                }
             }
 
             // Remove trailing newline

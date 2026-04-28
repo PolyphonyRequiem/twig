@@ -74,60 +74,7 @@ public class OfflineModeTests
         }
     }
 
-    [Fact]
-    public async Task Status_ReadsFromCache_WhenAdoUnavailable()
-    {
-        // Status command reads from cache and should succeed even when ADO is down
-        // (status doesn't call ADO directly — it reads from local cache)
-        var item = CreateWorkItem(1, "Cached Item");
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
-        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
-        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<PendingChangeRecord>());
-        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>());
 
-        var paths = new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db"));
-        var statusFieldReader = new StatusFieldConfigReader(paths);
-        var redirectedPipeline = new RenderingPipelineFactory(_formatterFactory, new SpectreRenderer(new Spectre.Console.Testing.TestConsole(), new SpectreTheme(new DisplayConfig())), isOutputRedirected: () => true);
-        var ctx = new CommandContext(redirectedPipeline, _formatterFactory, _hintEngine, new TwigConfiguration());
-        var statusCmd = new StatusCommand(ctx,
-            _contextStore, _workItemRepo, _pendingChangeStore,
-            _activeItemResolver, _workingSetService, _syncCoordinatorFactory,
-            statusFieldReader);
-        var result = await statusCmd.ExecuteAsync();
-
-        result.ShouldBe(0);
-    }
-
-    [Fact]
-    public async Task Save_OfflineAdoThrows_LogsErrorAndReturnsFailure()
-    {
-        var item = CreateWorkItem(1, "Item");
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
-        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
-        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
-            .Returns(new[] { 1 });
-        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
-            .Returns(new[] { new PendingChangeRecord(1, "field", "System.Title", "Old", "New") });
-
-        // ADO throws AdoOfflineException when trying to fetch
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>())
-            .ThrowsAsync(new AdoOfflineException(new HttpRequestException("Connection refused")));
-
-        var stderr = new StringWriter();
-        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        var flusher = new PendingChangeFlusher(_workItemRepo, _adoService, _pendingChangeStore, _consoleInput, _formatterFactory, stderr);
-        var saveCmd = new SaveCommand(_workItemRepo, _pendingChangeStore, flusher,
-            resolver, _formatterFactory, stderr: stderr);
-
-        // FR-7: Exception is caught and logged, returns error code instead of propagating
-        var result = await saveCmd.ExecuteAsync(all: true);
-
-        result.ShouldBe(1);
-        stderr.ToString().ShouldContain("#1");
-        stderr.ToString().ShouldContain("ADO unreachable");
-    }
 
     private static WorkItem CreateWorkItem(int id, string title) => new()
     {

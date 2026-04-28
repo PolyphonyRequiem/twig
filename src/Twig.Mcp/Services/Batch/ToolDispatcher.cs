@@ -40,8 +40,6 @@ internal sealed class ToolDispatcher(
                 GetRequiredString(args, "idOrPattern"),
                 workspace, ct),
 
-            "twig_status" => contextTools.Status(workspace, ct),
-
             // Read tools
             "twig_tree" => readTools.Tree(
                 GetNullableInt(args, "depth"),
@@ -67,11 +65,7 @@ internal sealed class ToolDispatcher(
                 GetRequiredString(args, "text"),
                 workspace, ct),
 
-            "twig_discard" => mutationTools.Discard(
-                GetNullableInt(args, "id"),
-                workspace, ct),
-
-            "twig_sync" => mutationTools.Sync(workspace, ct),
+            "twig_sync"=> mutationTools.Sync(workspace, ct),
 
             // Creation tools
             "twig_new" => creationTools.New(

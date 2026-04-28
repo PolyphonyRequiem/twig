@@ -186,7 +186,6 @@ public sealed class GroupedHelpTests
     [InlineData("fore")]
     [InlineData("history")]
     [InlineData("seed")]
-    [InlineData("save")]
     [InlineData("refresh")]
     // Hidden deprecated area aliases
     [InlineData("area")]
@@ -256,7 +255,6 @@ public sealed class GroupedHelpTests
     }
 
     [Theory]
-    [InlineData("status")]
     [InlineData("set")]
     [InlineData("help")]
     [InlineData("nav")]
@@ -308,7 +306,6 @@ public sealed class GroupedHelpTests
 
     [Theory]
     [InlineData("set", "123")]
-    [InlineData("status", "--all")]
     public void IsKnownCommand_FallsBackToTopLevelWhenCompoundUnknown(string first, string second)
     {
         // "set 123" is not a compound command, but "set" is a top-level command

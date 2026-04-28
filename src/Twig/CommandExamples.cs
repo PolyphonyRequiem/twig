@@ -37,11 +37,6 @@ internal static class CommandExamples
             "twig query \"login bug\"              Search title & description",
             "twig query --state Doing --top 50    Filter by state, limit results",
         ],
-        ["status"] =
-        [
-            "twig status                Show status of the active work item",
-            "twig status --output json  Show status as JSON (for scripting)",
-        ],
         ["state"] =
         [
             "twig state Active          Transition active item to Active",
@@ -203,10 +198,21 @@ internal static class CommandExamples
             "twig update System.Title \"New title\"           Update the title field",
             "twig update System.Description \"<p>…</p>\" --format markdown  Update description",
         ],
+        ["patch"] =
+        [
+            "twig patch --json '{\"System.Title\":\"New title\",\"System.State\":\"Doing\"}'  Patch multiple fields at once",
+            "twig patch --stdin --format markdown   Read JSON from stdin, converting values from Markdown to HTML",
+            "twig patch --json '{\"System.Title\":\"Fix\"}' --id 1234   Patch a specific work item by ID",
+        ],
         ["edit"] =
         [
             "twig edit                  Open the active item's description in an editor",
             "twig edit System.Title     Open the Title field for editing",
+        ],
+        ["delete"] =
+        [
+            "twig delete 1234           Permanently delete work item #1234 from ADO",
+            "twig delete 1234 --force   Delete without confirmation prompt",
         ],
         ["discard"] =
         [

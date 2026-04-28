@@ -34,7 +34,7 @@ public sealed class HintEngine
     /// <param name="newStateName">The resolved state name (for "state" command).</param>
     /// <param name="createdId">The ID of a newly created item (for "seed" command).</param>
     /// <param name="siblings">Sibling work items (for "state d" hint about all siblings done).</param>
-    /// <param name="staleSeedCount">Number of stale seeds (for "status" command).</param>
+    /// <param name="staleSeedCount">Number of stale seeds (for "show" command).</param>
     public IReadOnlyList<string> GetHints(
         string commandName,
         WorkItem? item = null,
@@ -58,7 +58,7 @@ public sealed class HintEngine
         switch (commandName.ToLowerInvariant())
         {
             case "set":
-                hints.Add("Try: twig status, twig tree, twig state <name>");
+                hints.Add("Try: twig show, twig tree, twig state <name>");
                 if (item?.ParentId.HasValue == true)
                     hints.Add("Siblings: twig next, twig prev");
                 break;
@@ -125,7 +125,7 @@ public sealed class HintEngine
                 hints.Add("Changes staged locally. Run twig save to persist to ADO");
                 break;
 
-            case "status":
+            case "show":
                 if (staleSeedCount > 0)
                 {
                     var noun = staleSeedCount == 1 ? "seed" : "seeds";
@@ -155,9 +155,13 @@ public sealed class HintEngine
                 hints.Add("Use '--output ids' to pipe IDs to other commands.");
                 break;
 
+            case "delete":
+                hints.Add("Tip: For items you no longer need, consider 'twig state Closed' — it preserves history and is reversible.");
+                break;
+
             case "next":
             case "prev":
-                hints.Add("Try: twig next, twig prev, twig up, twig status");
+                hints.Add("Try: twig next, twig prev, twig up, twig show");
                 break;
         }
 

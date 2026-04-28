@@ -22,13 +22,30 @@ public sealed class JsonOutputFormatter : IOutputFormatter
 
     public string FormatStatusSummary(WorkItem item) => string.Empty;
 
+    public string FormatSetConfirmation(WorkItem item)
+    {
+        using var stream = new MemoryStream();
+        using var writer = new Utf8JsonWriter(stream, WriterOptions);
+
+        writer.WriteStartObject();
+        writer.WriteNumber("id", item.Id);
+        writer.WriteString("title", item.Title);
+        writer.WriteString("state", item.State);
+        writer.WriteString("type", item.Type.ToString());
+        writer.WriteEndObject();
+
+        writer.Flush();
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
     public string FormatWorkItem(WorkItem item, bool showDirty)
     {
         return FormatWorkItem(item, showDirty, links: null);
     }
 
     public string FormatWorkItem(WorkItem item, bool showDirty, IReadOnlyList<WorkItemLink>? links,
-        WorkItem? parent = null, IReadOnlyList<WorkItem>? children = null)
+        WorkItem? parent = null, IReadOnlyList<WorkItem>? children = null, GitContext? gitContext = null,
+        (int FieldCount, int NoteCount)? pendingChanges = null)
     {
         using var stream = new MemoryStream();
         using var writer = new Utf8JsonWriter(stream, WriterOptions);
@@ -76,6 +93,9 @@ public sealed class JsonOutputFormatter : IOutputFormatter
             }
             writer.WriteEndArray();
         }
+
+        WritePendingChanges(writer, pendingChanges);
+        WriteGitContext(writer, gitContext);
 
         writer.WriteEndObject();
 
@@ -703,6 +723,42 @@ public sealed class JsonOutputFormatter : IOutputFormatter
     {
         item.Fields.TryGetValue("System.Tags", out var tags);
         return tags ?? "";
+    }
+
+    private static void WritePendingChanges(Utf8JsonWriter writer, (int FieldCount, int NoteCount)? pendingChanges)
+    {
+        if (pendingChanges is not { } pc || (pc.FieldCount == 0 && pc.NoteCount == 0))
+            return;
+
+        writer.WriteStartObject("pendingChanges");
+        writer.WriteNumber("fieldEditCount", pc.FieldCount);
+        writer.WriteNumber("noteCount", pc.NoteCount);
+        writer.WriteEndObject();
+    }
+
+    private static void WriteGitContext(Utf8JsonWriter writer, GitContext? gitContext)
+    {
+        if (gitContext is not { HasData: true })
+            return;
+
+        writer.WriteStartObject("gitContext");
+        writer.WriteString("currentBranch", gitContext.CurrentBranch ?? "");
+
+        writer.WriteStartArray("linkedPullRequests");
+        foreach (var pr in gitContext.LinkedPullRequests)
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("pullRequestId", pr.PullRequestId);
+            writer.WriteString("title", pr.Title);
+            writer.WriteString("status", pr.Status);
+            writer.WriteString("sourceBranch", pr.SourceBranch);
+            writer.WriteString("targetBranch", pr.TargetBranch);
+            writer.WriteString("url", pr.Url);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+
+        writer.WriteEndObject();
     }
 
     /// <summary>

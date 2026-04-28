@@ -60,12 +60,7 @@ public class TreeNavCommandTests
         _processTypeStore = Substitute.For<IProcessTypeStore>();
         var pipelineFactory = new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true);
         _ctx = new CommandContext(pipelineFactory, _formatterFactory, hintEngine, _config);
-        var statusFieldReader = new StatusFieldConfigReader(new TwigPaths(
-            Path.Combine(Path.GetTempPath(), ".twig-treenav-test"),
-            Path.Combine(Path.GetTempPath(), ".twig-treenav-test", "config"),
-            Path.Combine(Path.GetTempPath(), ".twig-treenav-test", "twig.db")));
-        _setCommand = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory,
-            workingSetService, statusFieldReader);
+        _setCommand = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver);
     }
 
     [Fact]

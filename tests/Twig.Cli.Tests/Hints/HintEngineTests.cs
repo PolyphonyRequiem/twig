@@ -58,7 +58,7 @@ public sealed class HintEngineTests
         var hints = engine.GetHints("set");
 
         hints.Count.ShouldBe(1);
-        hints[0].ShouldContain("twig status");
+        hints[0].ShouldContain("twig show");
         hints[0].ShouldContain("twig tree");
         hints[0].ShouldContain("twig state");
     }
@@ -313,6 +313,43 @@ public sealed class HintEngineTests
         hints[0].ShouldContain("twig save");
     }
 
+    // ── show command ──────────────────────────────────────────────
+
+    [Fact]
+    public void GetHints_Show_NoStaleSeeds_ReturnsEmpty()
+    {
+        var engine = CreateEngine();
+
+        var hints = engine.GetHints("show", staleSeedCount: 0);
+
+        hints.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void GetHints_Show_OneStale_UsesSingularNoun()
+    {
+        var engine = CreateEngine();
+
+        var hints = engine.GetHints("show", staleSeedCount: 1);
+
+        hints.Count.ShouldBe(1);
+        hints[0].ShouldContain("1 stale seed");
+        hints[0].ShouldNotContain("seeds");
+        hints[0].ShouldContain("twig seed view");
+    }
+
+    [Fact]
+    public void GetHints_Show_MultipleStale_UsesPluralNoun()
+    {
+        var engine = CreateEngine();
+
+        var hints = engine.GetHints("show", staleSeedCount: 3);
+
+        hints.Count.ShouldBe(1);
+        hints[0].ShouldContain("3 stale seeds");
+        hints[0].ShouldContain("twig seed view");
+    }
+
     // ── edit command ────────────────────────────────────────────────
 
     [Fact]
@@ -325,41 +362,6 @@ public sealed class HintEngineTests
         hints.Count.ShouldBe(1);
         hints[0].ShouldContain("Changes staged locally");
         hints[0].ShouldContain("twig save");
-    }
-
-    // ── status command ──────────────────────────────────────────────
-
-    [Fact]
-    public void GetHints_Status_StaleSeeds_WarnsAboutSeeds()
-    {
-        var engine = CreateEngine();
-
-        var hints = engine.GetHints("status", staleSeedCount: 3);
-
-        hints.Count.ShouldBe(1);
-        hints[0].ShouldContain("3 stale seeds");
-    }
-
-    [Fact]
-    public void GetHints_Status_SingleStaleSeed_UsesSingularGrammar()
-    {
-        var engine = CreateEngine();
-
-        var hints = engine.GetHints("status", staleSeedCount: 1);
-
-        hints.Count.ShouldBe(1);
-        hints[0].ShouldContain("1 stale seed");
-        hints[0].ShouldNotContain("1 stale seeds");
-    }
-
-    [Fact]
-    public void GetHints_Status_NoStaleSeeds_ReturnsEmpty()
-    {
-        var engine = CreateEngine();
-
-        var hints = engine.GetHints("status", staleSeedCount: 0);
-
-        hints.ShouldBeEmpty();
     }
 
     // ── workspace command ───────────────────────────────────────────
@@ -420,6 +422,41 @@ public sealed class HintEngineTests
         hints[0].ShouldContain("twig set <id>");
         hints[1].ShouldContain("twig show <id>");
         hints[2].ShouldContain("--output ids");
+    }
+
+    // ── delete command ────────────────────────────────────────────────
+
+    [Fact]
+    public void GetHints_Delete_RecommendsClosed()
+    {
+        var engine = CreateEngine();
+
+        var hints = engine.GetHints("delete");
+
+        hints.Count.ShouldBe(1);
+        hints[0].ShouldContain("twig state Closed");
+        hints[0].ShouldContain("reversible");
+    }
+
+    [Fact]
+    public void GetHints_Delete_HintsDisabled_ReturnsEmpty()
+    {
+        var config = new DisplayConfig { Hints = false };
+        var engine = new HintEngine(config);
+
+        var hints = engine.GetHints("delete");
+
+        hints.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void GetHints_Delete_JsonFormat_ReturnsEmpty()
+    {
+        var engine = CreateEngine();
+
+        var hints = engine.GetHints("delete", outputFormat: "json");
+
+        hints.ShouldBeEmpty();
     }
 
     // ── removed git/flow commands ───────────────────────────────────

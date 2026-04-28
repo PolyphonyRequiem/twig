@@ -47,6 +47,8 @@ public sealed class CommandRegistrationModuleTests
         services.AddSingleton(Substitute.For<INavigationHistoryStore>());
         services.AddSingleton(Substitute.For<IIterationService>());
         services.AddSingleton(Substitute.For<ITrackingRepository>());
+        services.AddSingleton(Substitute.For<ITrackingService>());
+        services.AddSingleton(Substitute.For<ISprintHierarchyBuilder>());
 
         // Formatters
         services.AddSingleton(new OutputFormatterFactory(
@@ -177,6 +179,26 @@ public sealed class CommandRegistrationModuleTests
         using var provider = BuildProviderForFlowCommands();
 
         var command = provider.GetRequiredService<FlowCloseCommand>();
+
+        command.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void TreeCommand_AutoResolution_Resolves_Successfully()
+    {
+        using var provider = BuildProviderForFlowCommands();
+
+        var command = provider.GetRequiredService<TreeCommand>();
+
+        command.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void WorkspaceCommand_AutoResolution_Resolves_Successfully()
+    {
+        using var provider = BuildProviderForFlowCommands();
+
+        var command = provider.GetRequiredService<WorkspaceCommand>();
 
         command.ShouldNotBeNull();
     }

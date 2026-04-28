@@ -1,6 +1,6 @@
 # Orchestrator Consolidation — Epic #2119
 
-> **Status**: 🔨 In Progress
+> **Status**: ✅ Done
 
 ## Executive Summary
 
@@ -456,4 +456,15 @@ PG-1 and PG-2 are fully independent and can be developed, reviewed, and merged i
 - `docs/architecture/domain-model-critique.md` — Item 6: Orchestrator/Coordinator proliferation
 - Epic #2119 — Domain Critique: Orchestrator Consolidation
 - Issue #1614 — Original tiered TTL implementation (created `SyncCoordinatorPair`)
+
+## Completion
+
+**Completed:** 2026-04-28
+
+All three PR groups merged successfully:
+- **PG-1** (PR #121): Absorbed `StatusOrchestrator` — extracted `StatusSnapshot` to standalone file, inlined `GetSnapshotAsync` logic into MCP `ContextTools.Status()`, removed orchestrator from `WorkspaceContext` and DI, cleaned up tests.
+- **PG-2** (PR #122): Renamed `SyncCoordinatorFactory` → `SyncCoordinatorPair` across ~47 files (src + tests + docs).
+- **PG-3** (PR #124): Documented audit findings in `domain-model-critique.md` Item 6, added XML doc comments to retained orchestrators.
+
+All Issues (2214, 2215, 2216) and Tasks transitioned to Done. Epic #2119 closed.
 

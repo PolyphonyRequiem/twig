@@ -652,8 +652,6 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> Edit(string? field = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<EditCommand>().ExecuteAsync(field, output, ct);
 
-
-
     /// <summary>Flush pending changes then refresh the local cache.</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     /// <param name="force">Force a full refresh even if the cache is current.</param>
@@ -944,7 +942,6 @@ internal static class GroupedHelp
         "update",
         "edit",
         "new",
-
         "link parent",
         "link unparent",
         "link reparent",
@@ -988,7 +985,6 @@ internal static class GroupedHelp
         "fore",
         "history",
         "seed",
-
         "refresh",
 
         // Group prefixes for compound commands without standalone handlers
@@ -1069,7 +1065,6 @@ Work Items:
   link unparent        Remove the parent link from the active item.
   link reparent <id>   Remove current parent and set a new one.
   link artifact <url>  Add an artifact link (URL or vstfs://) to an item.
-  syncFlush pending changes then refresh from ADO.
 
 Seeds:
   seed new <title>     Create a new local seed (child work item).

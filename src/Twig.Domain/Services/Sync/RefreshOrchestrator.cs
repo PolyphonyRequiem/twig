@@ -7,10 +7,9 @@ using Twig.Domain.ValueObjects;
 namespace Twig.Domain.Services.Sync;
 
 /// <summary>
-/// Encapsulates the core refresh logic: ADO fetch → conflict detection → batch save →
-/// ancestor hydration → working set sync.
-/// <c>RefreshCommand</c> builds the WIQL string (which depends on Infrastructure config)
-/// and delegates the rest to this service.
+/// Manages the full refresh lifecycle: WIQL sprint fetch, conflict resolution, and ancestor hydration.
+/// 193 lines, 9 dependencies, 1 consumer (<see cref="RefreshCommand"/>).
+/// Retained as a separate orchestrator — substantial business logic with a single, well-defined responsibility.
 /// </summary>
 public sealed class RefreshOrchestrator(
     IContextStore contextStore,

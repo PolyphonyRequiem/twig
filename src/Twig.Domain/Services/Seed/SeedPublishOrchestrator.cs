@@ -8,9 +8,9 @@ using Twig.Domain.ValueObjects;
 namespace Twig.Domain.Services.Seed;
 
 /// <summary>
-/// Orchestrates the single-seed publish flow: validate → create in ADO → fetch back →
-/// transactional local update (remap IDs, remap ParentId, delete+save) → link promotion → publish ID map.
-/// Also supports batch publish via <see cref="PublishAllAsync"/> with topological ordering.
+/// Executes transactional seed publishing with topological dependency ordering.
+/// 245 lines, 8 dependencies, 1 consumer (<see cref="SeedPublishCommand"/>).
+/// Retained as a separate orchestrator — the largest orchestrator by line count with complex transactional logic.
 /// </summary>
 public sealed class SeedPublishOrchestrator
 {

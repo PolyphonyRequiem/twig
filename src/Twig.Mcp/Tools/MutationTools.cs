@@ -414,6 +414,52 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         return McpResultBuilder.FormatDeleted(id, freshItem.Title);
     }
 
+    [McpServerTool(Name = "twig_discard"), Description("Discard pending local changes for a work item")]
+    public async Task<CallToolResult> Discard(
+        [Description("Work item ID (optional — defaults to the active work item)")] int? id = null,
+        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        CancellationToken ct = default)
+    {
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+
+        int itemId;
+        if (id.HasValue)
+        {
+            itemId = id.Value;
+        }
+        else
+        {
+            var activeId = await ctx.ContextStore.GetActiveWorkItemIdAsync(ct);
+            if (activeId is null)
+                return McpResultBuilder.ToError("No active work item. Use twig_set to set context.");
+            itemId = activeId.Value;
+        }
+
+        // Resolve item: cache-first, ADO fallback
+        var item = await ctx.WorkItemRepo.GetByIdAsync(itemId, ct);
+        if (item is null)
+        {
+            try { item = await ctx.AdoService.FetchAsync(itemId, ct); }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                return McpResultBuilder.ToError($"Work item #{itemId} could not be resolved: {ex.Message}");
+            }
+        }
+
+        var (notes, fieldEdits) = await ctx.PendingChangeStore.GetChangeSummaryAsync(itemId, ct);
+
+        if (notes == 0 && fieldEdits == 0)
+            return McpResultBuilder.FormatDiscardedNone(itemId, item.Title);
+
+        await ctx.PendingChangeStore.ClearChangesAsync(itemId, ct);
+        await ctx.WorkItemRepo.ClearDirtyFlagAsync(itemId, ct);
+
+        try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
+
+        return McpResultBuilder.FormatDiscarded(itemId, notes, fieldEdits);
+    }
+
     [McpServerTool(Name = "twig_sync"),Description("Flush pending local changes to ADO then refresh the local cache from ADO")]
     public async Task<CallToolResult> Sync(
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,

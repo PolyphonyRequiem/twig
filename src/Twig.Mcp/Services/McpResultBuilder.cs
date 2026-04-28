@@ -545,6 +545,23 @@ internal static class McpResultBuilder
             writer.WriteEndArray();
         });
 
+    public static CallToolResult FormatDiscarded(int id, int notesDiscarded, int fieldEditsDiscarded) =>
+        BuildJson(writer =>
+        {
+            writer.WriteBoolean("discarded", true);
+            writer.WriteNumber("id", id);
+            writer.WriteNumber("notesDiscarded", notesDiscarded);
+            writer.WriteNumber("fieldEditsDiscarded", fieldEditsDiscarded);
+        });
+
+    public static CallToolResult FormatDiscardedNone(int id, string title) =>
+        BuildJson(writer =>
+        {
+            writer.WriteBoolean("discarded", false);
+            writer.WriteNumber("id", id);
+            writer.WriteString("message", $"No pending changes for #{id} '{title}'.");
+        });
+
     private static CallToolResult BuildJson(Action<Utf8JsonWriter> write)
     {
         using var stream = new MemoryStream();

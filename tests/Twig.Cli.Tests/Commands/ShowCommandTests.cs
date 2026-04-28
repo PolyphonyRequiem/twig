@@ -7,6 +7,7 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
+using Twig.Hints;
 using Twig.Infrastructure.Config;
 using Twig.Rendering;
 using Twig.TestKit;
@@ -23,9 +24,9 @@ public sealed class ShowCommandTests : IDisposable
     private readonly IFieldDefinitionStore _fieldDefinitionStore;
     private readonly IProcessConfigurationProvider _processConfigProvider;
     private readonly SyncCoordinatorFactory _syncCoordinatorFactory;
-    private readonly TwigConfiguration _config;
+    private readonly CommandContext _ctx;
+    private readonly StatusFieldConfigReader _statusFieldReader;
     private readonly string _tempDir;
-    private readonly TwigPaths _paths;
     private readonly ShowCommand _cmd;
 
     public ShowCommandTests()
@@ -40,7 +41,6 @@ public sealed class ShowCommandTests : IDisposable
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, pendingChangeStore);
         _syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, adoService, protectedCacheWriter, pendingChangeStore, null, 30, 30);
-        _config = new TwigConfiguration();
 
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(),
@@ -48,18 +48,21 @@ public sealed class ShowCommandTests : IDisposable
 
         _tempDir = Path.Combine(Path.GetTempPath(), "twig-show-test-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_tempDir);
-        _paths = new TwigPaths(_tempDir, Path.Combine(_tempDir, "config"), Path.Combine(_tempDir, "twig.db"));
+        var paths = new TwigPaths(_tempDir, Path.Combine(_tempDir, "config"), Path.Combine(_tempDir, "twig.db"));
+
+        var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
+        var pipelineFactory = new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true);
+        _ctx = new CommandContext(pipelineFactory, _formatterFactory, hintEngine, new TwigConfiguration(), TelemetryClient: _telemetryClient);
+        _statusFieldReader = new StatusFieldConfigReader(paths);
 
         _cmd = new ShowCommand(
+            _ctx,
             _workItemRepo,
             _linkRepo,
-            _formatterFactory,
             _syncCoordinatorFactory,
-            _config,
-            paths: _paths,
+            _statusFieldReader,
             fieldDefinitionStore: _fieldDefinitionStore,
-            processConfigProvider: _processConfigProvider,
-            telemetryClient: _telemetryClient);
+            processConfigProvider: _processConfigProvider);
     }
 
     public void Dispose()
@@ -69,14 +72,16 @@ public sealed class ShowCommandTests : IDisposable
 
     // ── Factory helpers ─────────────────────────────────────────────
 
-    private ShowCommand CreateCommandWithPipeline(RenderingPipelineFactory pipelineFactory, TextWriter? stderr = null) =>
-        new(_workItemRepo, _linkRepo, _formatterFactory,
-            _syncCoordinatorFactory, _config,
-            pipelineFactory: pipelineFactory, paths: _paths,
+    private ShowCommand CreateCommandWithPipeline(RenderingPipelineFactory pipelineFactory, TextWriter? stderr = null)
+    {
+        var pipelineCtx = new CommandContext(pipelineFactory, _formatterFactory,
+            new HintEngine(new DisplayConfig { Hints = false }), new TwigConfiguration(),
+            TelemetryClient: _telemetryClient, Stderr: stderr);
+        return new ShowCommand(pipelineCtx, _workItemRepo, _linkRepo,
+            _syncCoordinatorFactory, _statusFieldReader,
             fieldDefinitionStore: _fieldDefinitionStore,
-            processConfigProvider: _processConfigProvider,
-            telemetryClient: _telemetryClient,
-            stderr: stderr);
+            processConfigProvider: _processConfigProvider);
+    }
 
     // ═══════════════════════════════════════════════════════════════
     //  Cache miss: item not found
@@ -87,9 +92,12 @@ public sealed class ShowCommandTests : IDisposable
     {
         _workItemRepo.GetByIdAsync(999, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
         var stderrWriter = new StringWriter();
-        var cmd = new ShowCommand(_workItemRepo, _linkRepo, _formatterFactory,
-            _syncCoordinatorFactory, _config,
-            telemetryClient: _telemetryClient, stderr: stderrWriter);
+        var stderrCtx = new CommandContext(
+            new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true),
+            _formatterFactory, new HintEngine(new DisplayConfig { Hints = false }),
+            new TwigConfiguration(), TelemetryClient: _telemetryClient, Stderr: stderrWriter);
+        var cmd = new ShowCommand(stderrCtx, _workItemRepo, _linkRepo,
+            _syncCoordinatorFactory, _statusFieldReader);
 
         var result = await cmd.ExecuteAsync(999);
 
@@ -332,7 +340,11 @@ public sealed class ShowCommandTests : IDisposable
     {
         var item = new WorkItemBuilder(42, "Minimal Deps").Build();
         SetupCachedItem(item);
-        var cmd = new ShowCommand(_workItemRepo, _linkRepo, _formatterFactory, _syncCoordinatorFactory, _config);
+        var minCtx = new CommandContext(
+            new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true),
+            _formatterFactory, new HintEngine(new DisplayConfig { Hints = false }),
+            new TwigConfiguration());
+        var cmd = new ShowCommand(minCtx, _workItemRepo, _linkRepo, _syncCoordinatorFactory, _statusFieldReader);
 
         var output = await CaptureStdout(() => cmd.ExecuteAsync(42, "json"));
 

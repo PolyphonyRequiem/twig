@@ -20,24 +20,20 @@ namespace Twig.Commands;
 /// and revises the display. Use <c>--no-refresh</c> to skip the sync pass.
 /// </summary>
 public sealed class ShowCommand(
+    CommandContext ctx,
     IWorkItemRepository workItemRepo,
     IWorkItemLinkRepository linkRepo,
-    OutputFormatterFactory formatterFactory,
     SyncCoordinatorFactory syncCoordinatorFactory,
-    TwigConfiguration config,
-    RenderingPipelineFactory? pipelineFactory = null,
-    TwigPaths? paths = null,
+    StatusFieldConfigReader statusFieldReader,
     IFieldDefinitionStore? fieldDefinitionStore = null,
-    IProcessConfigurationProvider? processConfigProvider = null,
-    ITelemetryClient? telemetryClient = null,
-    TextWriter? stderr = null)
+    IProcessConfigurationProvider? processConfigProvider = null)
 {
-    private readonly TextWriter _stderr = stderr ?? Console.Error;
-
     public async Task<int> ExecuteAsync(int id, string outputFormat = OutputFormatterFactory.DefaultFormat, bool noRefresh = false, CancellationToken ct = default)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
-        return TrackAndReturn("show", outputFormat, await ExecuteCoreAsync(id, outputFormat, noRefresh, ct), startTimestamp);
+        var exitCode = await ExecuteCoreAsync(id, outputFormat, noRefresh, ct);
+        TelemetryHelper.TrackCommand(ctx.TelemetryClient, "show", outputFormat, exitCode, startTimestamp);
+        return exitCode;
     }
 
     /// <summary>
@@ -47,36 +43,20 @@ public sealed class ShowCommand(
     public async Task<int> ExecuteBatchAsync(string batch, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
-        return TrackAndReturn("show-batch", outputFormat, await ExecuteBatchCoreAsync(batch, outputFormat, ct), startTimestamp);
-    }
-
-    private int TrackAndReturn(string commandName, string outputFormat, int exitCode, long startTimestamp)
-    {
-        telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
-        {
-            ["command"] = commandName,
-            ["exit_code"] = exitCode.ToString(),
-            ["output_format"] = outputFormat,
-            ["twig_version"] = VersionHelper.GetVersion(),
-            ["os_platform"] = System.Runtime.InteropServices.RuntimeInformation.OSDescription
-        }, new Dictionary<string, double>
-        {
-            ["duration_ms"] = Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds
-        });
+        var exitCode = await ExecuteBatchCoreAsync(batch, outputFormat, ct);
+        TelemetryHelper.TrackCommand(ctx.TelemetryClient, "show-batch", outputFormat, exitCode, startTimestamp);
         return exitCode;
     }
 
     private async Task<int> ExecuteCoreAsync(int id, string outputFormat, bool noRefresh, CancellationToken ct)
     {
-        var (fmt, renderer) = pipelineFactory is not null
-            ? pipelineFactory.Resolve(outputFormat)
-            : (formatterFactory.GetFormatter(outputFormat), null);
+        var (fmt, renderer) = ctx.Resolve(outputFormat);
 
         // Cache-first lookup — item must be in local cache
         var item = await workItemRepo.GetByIdAsync(id, ct);
         if (item is null)
         {
-            _stderr.WriteLine($"error: Work item #{id} not found in local cache. Run 'twig set {id}' to fetch it.");
+            ctx.StderrWriter.WriteLine($"error: Work item #{id} not found in local cache. Run 'twig set {id}' to fetch it.");
             return 1;
         }
 
@@ -94,16 +74,7 @@ public sealed class ShowCommand(
             ? await fieldDefinitionStore.GetAllAsync(ct)
             : null;
 
-        IReadOnlyList<StatusFieldEntry>? statusFieldEntries = null;
-        if (paths is not null && File.Exists(paths.StatusFieldsPath))
-        {
-            try
-            {
-                var configContent = await File.ReadAllTextAsync(paths.StatusFieldsPath, ct);
-                statusFieldEntries = StatusFieldsConfig.Parse(configContent);
-            }
-            catch { /* best-effort */ }
-        }
+        var statusFieldEntries = await statusFieldReader.ReadAsync(ct);
 
         var childProgress = processConfigProvider.ComputeChildProgress(children);
 
@@ -119,7 +90,7 @@ public sealed class ShowCommand(
                 links: links,
                 parent: parent,
                 children: children,
-                cacheStaleMinutes: config.Display.CacheStaleMinutes);
+                cacheStaleMinutes: ctx.Config.Display.CacheStaleMinutes);
 
             if (renderer is SpectreRenderer spectreRenderer && !noRefresh)
             {
@@ -132,7 +103,7 @@ public sealed class ShowCommand(
                         links: links,
                         parent: pa,
                         children: ch,
-                        cacheStaleMinutes: config.Display.CacheStaleMinutes);
+                        cacheStaleMinutes: ctx.Config.Display.CacheStaleMinutes);
 
                 try
                 {
@@ -161,7 +132,7 @@ public sealed class ShowCommand(
                                 links: freshLinks,
                                 parent: freshParent,
                                 children: freshChildren,
-                                cacheStaleMinutes: config.Display.CacheStaleMinutes);
+                                cacheStaleMinutes: ctx.Config.Display.CacheStaleMinutes);
                         },
                         CancellationToken.None);
                 }
@@ -204,7 +175,7 @@ public sealed class ShowCommand(
                 items.Add(item);
         }
 
-        var fmt = formatterFactory.GetFormatter(outputFormat);
+        var fmt = ctx.FormatterFactory.GetFormatter(outputFormat);
 
         if (fmt is JsonOutputFormatter jsonFmt)
         {

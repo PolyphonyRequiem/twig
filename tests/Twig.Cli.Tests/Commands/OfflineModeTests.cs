@@ -74,34 +74,7 @@ public class OfflineModeTests
         }
     }
 
-    [Fact]
-    public async Task Save_OfflineAdoThrows_LogsErrorAndReturnsFailure()
-    {
-        var item = CreateWorkItem(1, "Item");
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
-        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
-        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
-            .Returns(new[] { 1 });
-        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
-            .Returns(new[] { new PendingChangeRecord(1, "field", "System.Title", "Old", "New") });
 
-        // ADO throws AdoOfflineException when trying to fetch
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>())
-            .ThrowsAsync(new AdoOfflineException(new HttpRequestException("Connection refused")));
-
-        var stderr = new StringWriter();
-        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        var flusher = new PendingChangeFlusher(_workItemRepo, _adoService, _pendingChangeStore, _consoleInput, _formatterFactory, stderr);
-        var saveCmd = new SaveCommand(_workItemRepo, _pendingChangeStore, flusher,
-            resolver, _formatterFactory, stderr: stderr);
-
-        // FR-7: Exception is caught and logged, returns error code instead of propagating
-        var result = await saveCmd.ExecuteAsync(all: true);
-
-        result.ShouldBe(1);
-        stderr.ToString().ShouldContain("#1");
-        stderr.ToString().ShouldContain("ADO unreachable");
-    }
 
     private static WorkItem CreateWorkItem(int id, string title) => new()
     {

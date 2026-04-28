@@ -5,7 +5,7 @@ namespace Twig.Commands;
 
 /// <summary>
 /// Shared helper for formatting conflict data as JSON.
-/// Extracted from StateCommand, UpdateCommand, and SaveCommand to eliminate duplication (I-004).
+/// Extracted from StateCommand and UpdateCommand to eliminate duplication (I-004).
 /// </summary>
 internal static class JsonConflictFormatter
 {

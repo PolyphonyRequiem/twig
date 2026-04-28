@@ -20,7 +20,7 @@ internal enum ConflictOutcome
 
 /// <summary>
 /// Encapsulates the CLI-layer conflict resolution orchestration shared by
-/// StateCommand, UpdateCommand, and SaveCommand.
+/// StateCommand and UpdateCommand.
 /// </summary>
 internal static class ConflictResolutionFlow
 {

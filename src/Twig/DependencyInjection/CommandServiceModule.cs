@@ -117,7 +117,7 @@ public static class CommandServiceModule
             sp.GetRequiredService<ProtectedCacheWriter>(),
             sp.GetService<IWorkItemLinkRepository>()));
 
-        // PendingChangeFlusher — flush loop shared by SaveCommand and SyncCommand
+        // PendingChangeFlusher — flush loop shared by SyncCommand
         services.AddSingleton<IPendingChangeFlusher>(sp => new PendingChangeFlusher(
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IAdoWorkItemService>(),

@@ -501,58 +501,6 @@ public sealed class McpResultBuilderTests
         result.IsError.ShouldBeNull();
     }
 
-    // ── FormatDiscardNone ──────────────────────────────────────────
-
-    [Fact]
-    public void FormatDiscardNone_ProducesExpectedFields()
-    {
-        var result = McpResultBuilder.FormatDiscardNone(42, "My work item");
-        var root = ParseJson(result);
-
-        root.GetProperty("id").GetInt32().ShouldBe(42);
-        root.GetProperty("title").GetString().ShouldBe("My work item");
-        root.GetProperty("discarded").GetBoolean().ShouldBe(false);
-        root.GetProperty("message").GetString()!.ShouldContain("No pending changes");
-    }
-
-    [Fact]
-    public void FormatDiscardNone_TitleWithControlCharacters_ProducesValidJson()
-    {
-        var result = McpResultBuilder.FormatDiscardNone(99, "My\nTask\twith\rcontrols");
-        var root = ParseJson(result);
-
-        root.GetProperty("discarded").GetBoolean().ShouldBe(false);
-        root.GetProperty("id").GetInt32().ShouldBe(99);
-        root.GetProperty("title").GetString()!.ShouldContain("My");
-    }
-
-    // ── FormatDiscard ───────────────────────────────────────────────
-
-    [Fact]
-    public void FormatDiscard_ProducesExpectedFields()
-    {
-        var result = McpResultBuilder.FormatDiscard(7, "Fix bug", notes: 2, fieldEdits: 1);
-        var root = ParseJson(result);
-
-        root.GetProperty("id").GetInt32().ShouldBe(7);
-        root.GetProperty("title").GetString().ShouldBe("Fix bug");
-        root.GetProperty("discarded").GetBoolean().ShouldBe(true);
-        root.GetProperty("notesDiscarded").GetInt32().ShouldBe(2);
-        root.GetProperty("fieldEditsDiscarded").GetInt32().ShouldBe(1);
-    }
-
-    [Fact]
-    public void FormatDiscard_TitleWithControlCharacters_ProducesValidJson()
-    {
-        var result = McpResultBuilder.FormatDiscard(50, "Line1\nLine2\t\r", notes: 0, fieldEdits: 3);
-        var root = ParseJson(result);
-
-        root.GetProperty("discarded").GetBoolean().ShouldBe(true);
-        root.GetProperty("id").GetInt32().ShouldBe(50);
-        root.GetProperty("title").GetString()!.ShouldContain("Line1");
-        root.GetProperty("fieldEditsDiscarded").GetInt32().ShouldBe(3);
-    }
-
     // ── FormatWorkItem ─────────────────────────────────────────────
 
     [Fact]

@@ -676,6 +676,7 @@ public sealed class TwigCommands(IServiceProvider services)
         return await services.GetRequiredService<SaveCommand>().ExecuteAsync(id, all, output, ct: ct);
     }
 
+
     /// <summary>Flush pending changes then refresh the local cache.</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     /// <param name="force">Force a full refresh even if the cache is current.</param>
@@ -1011,7 +1012,6 @@ internal static class GroupedHelp
         "fore",
         "history",
         "seed",
-        "save",
         "refresh",
 
         // Group prefixes for compound commands without standalone handlers

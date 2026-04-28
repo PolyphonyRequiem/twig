@@ -65,11 +65,7 @@ internal sealed class ToolDispatcher(
                 GetRequiredString(args, "text"),
                 workspace, ct),
 
-            "twig_discard" => mutationTools.Discard(
-                GetNullableInt(args, "id"),
-                workspace, ct),
-
-            "twig_sync" => mutationTools.Sync(workspace, ct),
+            "twig_sync"=> mutationTools.Sync(workspace, ct),
 
             // Creation tools
             "twig_new" => creationTools.New(

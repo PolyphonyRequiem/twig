@@ -3,14 +3,14 @@ using Twig.Domain.Interfaces;
 namespace Twig.Domain.Services.Sync;
 
 /// <summary>
-/// Holds two pre-built <see cref="SyncCoordinator"/> instances with different cache staleness
+/// Holds a pair of pre-built <see cref="SyncCoordinator"/> instances with different cache staleness
 /// thresholds: <see cref="ReadOnly"/> for display commands (longer TTL) and <see cref="ReadWrite"/>
 /// for mutating commands (shorter TTL). Preserves the <see cref="SyncCoordinator"/> constructor
 /// signature (DD-13) while enabling tiered TTLs (Issue #1614).
 /// </summary>
-public sealed class SyncCoordinatorFactory
+public sealed class SyncCoordinatorPair
 {
-    public SyncCoordinatorFactory(
+    public SyncCoordinatorPair(
         IWorkItemRepository workItemRepo,
         IAdoWorkItemService adoService,
         ProtectedCacheWriter protectedCacheWriter,

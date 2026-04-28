@@ -62,7 +62,7 @@ public static class CommandServiceModule
                 display.CacheStaleMinutes);
         });
 
-        // Backward compat — direct SyncCoordinator consumers resolve to factory.ReadWrite
+        // Backward compat — direct SyncCoordinator consumers resolve to pair.ReadWrite
         services.AddSingleton(sp => sp.GetRequiredService<SyncCoordinatorFactory>().ReadWrite);
 
         // DD-02: WorkingSetService accepts string? userDisplayName primitive (same pattern)

@@ -420,6 +420,35 @@ internal static class McpResultBuilder
             writer.WriteBoolean("timedOut", batch.TimedOut);
         });
 
+    public static CallToolResult FormatLinkBatch(IReadOnlyList<LinkBatchItemResult> results) =>
+        BuildJson(writer =>
+        {
+            var succeeded = 0;
+            var failed = 0;
+            foreach (var r in results)
+            {
+                if (r.Success) succeeded++;
+                else failed++;
+            }
+
+            writer.WriteNumber("totalOperations", results.Count);
+            writer.WriteNumber("succeeded", succeeded);
+            writer.WriteNumber("failed", failed);
+
+            writer.WriteStartArray("operations");
+            foreach (var r in results)
+            {
+                writer.WriteStartObject();
+                writer.WriteNumber("itemId", r.ItemId);
+                writer.WriteString("op", r.Op);
+                writer.WriteBoolean("success", r.Success);
+                if (r.Error is not null)
+                    writer.WriteString("error", r.Error);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+        });
+
     public static CallToolResult FormatLinked(int sourceId, int targetId, string linkType, string? warning = null) =>
         BuildJson(writer =>
         {
@@ -711,3 +740,5 @@ public sealed record McpFlushItemFailure
     public int WorkItemId { get; init; }
     public string Reason { get; init; } = string.Empty;
 }
+
+public sealed record LinkBatchItemResult(int ItemId, string Op, bool Success, string? Error = null);

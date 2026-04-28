@@ -1,7 +1,7 @@
 # Context Commands Realignment
 
 > **Epic:** #2149 — Context Commands Realignment — Remove Status, Slim Set, Enhance Show
-> **Status**: ✅ Approved
+> **Status**: 🔨 In Progress
 > **Revision:** 0 (Initial draft)
 > **Spec:** [docs/specs/context-commands.spec.md](../specs/context-commands.spec.md)
 

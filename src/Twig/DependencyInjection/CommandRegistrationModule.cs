@@ -41,7 +41,6 @@ public static class CommandRegistrationModule
             sp.GetService<ITelemetryClient>()));
         services.AddSingleton<SetCommand>();
         services.AddSingleton<ShowCommand>();
-        services.AddSingleton<StatusCommand>();
         services.AddSingleton<StateCommand>();
         services.AddSingleton<TreeCommand>();
         services.AddSingleton<NavigationCommands>();

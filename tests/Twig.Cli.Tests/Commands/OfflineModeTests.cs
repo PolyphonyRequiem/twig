@@ -75,32 +75,6 @@ public class OfflineModeTests
     }
 
     [Fact]
-    public async Task Status_ReadsFromCache_WhenAdoUnavailable()
-    {
-        // Status command reads from cache and should succeed even when ADO is down
-        // (status doesn't call ADO directly — it reads from local cache)
-        var item = CreateWorkItem(1, "Cached Item");
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
-        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
-        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<PendingChangeRecord>());
-        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>());
-
-        var paths = new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db"));
-        var statusFieldReader = new StatusFieldConfigReader(paths);
-        var redirectedPipeline = new RenderingPipelineFactory(_formatterFactory, new SpectreRenderer(new Spectre.Console.Testing.TestConsole(), new SpectreTheme(new DisplayConfig())), isOutputRedirected: () => true);
-        var ctx = new CommandContext(redirectedPipeline, _formatterFactory, _hintEngine, new TwigConfiguration());
-        var statusCmd = new StatusCommand(ctx,
-            _contextStore, _workItemRepo, _pendingChangeStore,
-            _activeItemResolver, _workingSetService, _syncCoordinatorFactory,
-            statusFieldReader);
-        var result = await statusCmd.ExecuteAsync();
-
-        result.ShouldBe(0);
-    }
-
-    [Fact]
     public async Task Save_OfflineAdoThrows_LogsErrorAndReturnsFailure()
     {
         var item = CreateWorkItem(1, "Item");

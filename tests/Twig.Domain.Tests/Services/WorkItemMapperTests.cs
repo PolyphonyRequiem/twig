@@ -1,3 +1,4 @@
+using System.Reflection;
 using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Services;
@@ -254,5 +255,294 @@ public sealed class WorkItemMapperTests
         // MarkSynced clears dirty, then SetDirty re-enables it
         result.IsDirty.ShouldBeTrue();
         result.Revision.ShouldBe(5);
+    }
+
+    // ── Property-preservation theory ────────────────────────────────
+
+    [Fact]
+    public void Map_PopulatesAllInitOnlyProperties()
+    {
+        // Discover all init-only properties on WorkItem via reflection.
+        // If a new init property is added to WorkItem, this test fails —
+        // prompting the developer to update WorkItemSnapshot, WorkItemMapper, and this list.
+        var initPropertyNames = typeof(WorkItem)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Where(IsInitOnly)
+            .Select(p => p.Name)
+            .OrderBy(n => n)
+            .ToList();
+
+        initPropertyNames.ShouldBe(
+        [
+            "AreaPath",
+            "AssignedTo",
+            "Id",
+            "IsSeed",
+            "IterationPath",
+            "LastSyncedAt",
+            "ParentId",
+            "SeedCreatedAt",
+            "Title",
+            "Type",
+        ]);
+
+        // Map a fully-populated snapshot and verify each init property was set
+        var snapshot = new WorkItemSnapshot
+        {
+            Id = 99,
+            Revision = 7,
+            TypeName = "Epic",
+            Title = "Theory Test Item",
+            State = "Active",
+            AssignedTo = "Test User",
+            IterationPath = @"Project\Sprint 1",
+            AreaPath = @"Project\Team A",
+            ParentId = 42,
+            IsSeed = true,
+            SeedCreatedAt = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
+            LastSyncedAt = new DateTimeOffset(2026, 1, 2, 0, 0, 0, TimeSpan.Zero),
+        };
+
+        var result = _mapper.Map(snapshot);
+
+        result.Id.ShouldBe(99);
+        result.Type.ShouldBe(WorkItemType.Epic);
+        result.Title.ShouldBe("Theory Test Item");
+        result.AssignedTo.ShouldBe("Test User");
+        result.IterationPath.Value.ShouldBe(@"Project\Sprint 1");
+        result.AreaPath.Value.ShouldBe(@"Project\Team A");
+        result.ParentId.ShouldBe(42);
+        result.IsSeed.ShouldBeTrue();
+        result.SeedCreatedAt.ShouldBe(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        result.LastSyncedAt.ShouldBe(new DateTimeOffset(2026, 1, 2, 0, 0, 0, TimeSpan.Zero));
+    }
+
+    // ── Round-trip validation ───────────────────────────────────────
+
+    [Fact]
+    public void Map_FullyPopulatedSnapshot_RoundTripPreservesAllValues()
+    {
+        var seedCreated = new DateTimeOffset(2026, 3, 15, 10, 30, 0, TimeSpan.Zero);
+        var lastSynced = new DateTimeOffset(2026, 3, 16, 8, 0, 0, TimeSpan.Zero);
+        var fields = new Dictionary<string, string?>
+        {
+            ["Microsoft.VSTS.Common.Priority"] = "1",
+            ["System.Description"] = "Full round-trip description",
+            ["Custom.NullField"] = null,
+        };
+
+        var snapshot = new WorkItemSnapshot
+        {
+            Id = 100,
+            Revision = 12,
+            TypeName = "User Story",
+            Title = "Round-Trip Test Story",
+            State = "Resolved",
+            AssignedTo = "Jane Smith",
+            IterationPath = @"MyProject\Release 2\Sprint 5",
+            AreaPath = @"MyProject\Backend\API",
+            ParentId = 50,
+            IsSeed = true,
+            SeedCreatedAt = seedCreated,
+            LastSyncedAt = lastSynced,
+            IsDirty = true,
+            Fields = fields,
+        };
+
+        var result = _mapper.Map(snapshot);
+
+        // Identity & metadata
+        result.Id.ShouldBe(100);
+        result.Type.ShouldBe(WorkItemType.UserStory);
+        result.Title.ShouldBe("Round-Trip Test Story");
+        result.State.ShouldBe("Resolved");
+        result.AssignedTo.ShouldBe("Jane Smith");
+        result.IterationPath.Value.ShouldBe(@"MyProject\Release 2\Sprint 5");
+        result.AreaPath.Value.ShouldBe(@"MyProject\Backend\API");
+        result.ParentId.ShouldBe(50);
+
+        // Revision & sync state
+        result.Revision.ShouldBe(12);
+        result.IsDirty.ShouldBeTrue();
+
+        // Seed properties
+        result.IsSeed.ShouldBeTrue();
+        result.SeedCreatedAt.ShouldBe(seedCreated);
+        result.LastSyncedAt.ShouldBe(lastSynced);
+
+        // Fields — including null value preservation
+        result.Fields.Count.ShouldBe(3);
+        result.Fields["Microsoft.VSTS.Common.Priority"].ShouldBe("1");
+        result.Fields["System.Description"].ShouldBe("Full round-trip description");
+        result.Fields.ShouldContainKey("Custom.NullField");
+        result.Fields["Custom.NullField"].ShouldBeNull();
+    }
+
+    // ── Edge cases ──────────────────────────────────────────────────
+
+    [Fact]
+    public void Map_NullFieldsDictionary_Throws()
+    {
+        var snapshot = new WorkItemSnapshot
+        {
+            Id = 1,
+            Revision = 1,
+            TypeName = "Task",
+            Title = "Test",
+            State = "New",
+            Fields = null!,
+        };
+
+        Should.Throw<NullReferenceException>(() => _mapper.Map(snapshot));
+    }
+
+    [Fact]
+    public void Map_NullTypeName_FallsBackToTask()
+    {
+        var snapshot = new WorkItemSnapshot
+        {
+            Id = 1,
+            Revision = 1,
+            TypeName = null!,
+            Title = "Test",
+            State = "New",
+        };
+
+        var result = _mapper.Map(snapshot);
+
+        result.Type.ShouldBe(WorkItemType.Task);
+    }
+
+    [Fact]
+    public void Map_WhitespaceTypeName_FallsBackToTask()
+    {
+        var snapshot = new WorkItemSnapshot
+        {
+            Id = 1,
+            Revision = 1,
+            TypeName = "   ",
+            Title = "Test",
+            State = "New",
+        };
+
+        var result = _mapper.Map(snapshot);
+
+        result.Type.ShouldBe(WorkItemType.Task);
+    }
+
+    [Fact]
+    public void Map_EmptyStringIterationPath_ReturnsDefault()
+    {
+        var snapshot = new WorkItemSnapshot
+        {
+            Id = 1,
+            Revision = 1,
+            TypeName = "Task",
+            Title = "Test",
+            State = "New",
+            IterationPath = "",
+        };
+
+        var result = _mapper.Map(snapshot);
+
+        result.IterationPath.ShouldBe(default(IterationPath));
+    }
+
+    [Fact]
+    public void Map_EmptyStringAreaPath_ReturnsDefault()
+    {
+        var snapshot = new WorkItemSnapshot
+        {
+            Id = 1,
+            Revision = 1,
+            TypeName = "Task",
+            Title = "Test",
+            State = "New",
+            AreaPath = "",
+        };
+
+        var result = _mapper.Map(snapshot);
+
+        result.AreaPath.ShouldBe(default(AreaPath));
+    }
+
+    [Fact]
+    public void Map_EmptyFieldsDictionary_ProducesEmptyFields()
+    {
+        var snapshot = new WorkItemSnapshot
+        {
+            Id = 1,
+            Revision = 1,
+            TypeName = "Task",
+            Title = "Test",
+            State = "New",
+            Fields = new Dictionary<string, string?>(),
+        };
+
+        var result = _mapper.Map(snapshot);
+
+        result.Fields.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Map_UnknownTypeName_PreservesAsCustomType()
+    {
+        var snapshot = new WorkItemSnapshot
+        {
+            Id = 1,
+            Revision = 1,
+            TypeName = "Completely Unknown Widget",
+            Title = "Test",
+            State = "New",
+        };
+
+        var result = _mapper.Map(snapshot);
+
+        result.Type.Value.ShouldBe("Completely Unknown Widget");
+    }
+
+    [Fact]
+    public void Map_ZeroId_IsPreserved()
+    {
+        var snapshot = new WorkItemSnapshot
+        {
+            Id = 0,
+            Revision = 0,
+            TypeName = "Task",
+            Title = "Zero ID item",
+            State = "New",
+        };
+
+        var result = _mapper.Map(snapshot);
+
+        result.Id.ShouldBe(0);
+    }
+
+    [Fact]
+    public void Map_NullParentId_PreservesNull()
+    {
+        var snapshot = new WorkItemSnapshot
+        {
+            Id = 1,
+            Revision = 1,
+            TypeName = "Task",
+            Title = "Test",
+            State = "New",
+            ParentId = null,
+        };
+
+        var result = _mapper.Map(snapshot);
+
+        result.ParentId.ShouldBeNull();
+    }
+
+    // ── Helpers ─────────────────────────────────────────────────────
+
+    private static bool IsInitOnly(PropertyInfo property)
+    {
+        var setter = property.SetMethod;
+        if (setter is null) return false;
+        return setter.ReturnParameter.GetRequiredCustomModifiers()
+            .Any(t => t.FullName == "System.Runtime.CompilerServices.IsExternalInit");
     }
 }

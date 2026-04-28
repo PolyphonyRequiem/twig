@@ -17,7 +17,7 @@ using Twig.Mcp.Services;
 namespace Twig.Mcp.Tools;
 
 /// <summary>
-/// MCP tools for mutations: twig_state, twig_update, twig_patch, twig_note, twig_sync.
+/// MCP tools for mutations: twig_state, twig_update, twig_patch, twig_note, twig_delete, twig_sync.
 /// Resolves per-workspace services via <see cref="WorkspaceResolver"/>.
 /// </summary>
 [McpServerToolType]
@@ -310,6 +310,108 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         await ctx.PromptStateWriter.WritePromptStateAsync();
 
         return McpResultBuilder.FormatNoteAdded(item.Id, item.Title, isPending);
+    }
+
+    [McpServerTool(Name = "twig_delete"), Description("Permanently delete a work item from Azure DevOps (two-phase: first call returns confirmation prompt, second call with confirmed=true executes deletion)")]
+    public async Task<CallToolResult> Delete(
+        [Description("The work item ID to delete")] int id,
+        [Description("Set to true to confirm and execute the deletion. Omit or set false for the confirmation prompt.")] bool confirmed = false,
+        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        CancellationToken ct = default)
+    {
+        if (id <= 0)
+            return McpResultBuilder.ToError("Usage: twig_delete requires a positive work item ID.");
+
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+
+        // Resolve item from cache or ADO
+        var (item, fetchError) = await ctx.FetchWithFallbackAsync(id, ct);
+        if (item is null)
+            return McpResultBuilder.ToError(fetchError ?? $"Work item #{id} not found.");
+
+        // Seed guard
+        if (item.IsSeed)
+            return McpResultBuilder.ToError($"#{id} is a seed. Use 'twig seed discard {id}' instead.");
+
+        // Fresh fetch with links from ADO
+        WorkItem freshItem;
+        IReadOnlyList<WorkItemLink> links;
+        IReadOnlyList<WorkItem> children;
+        try
+        {
+            (freshItem, links) = await ctx.AdoService.FetchWithLinksAsync(id, ct);
+            children = await ctx.AdoService.FetchChildrenAsync(id, ct);
+        }
+        catch (AdoException ex)
+        {
+            return McpResultBuilder.ToError(ex.Message);
+        }
+
+        // Link guard — refuse if any links exist
+        var linkCount = (freshItem.ParentId.HasValue ? 1 : 0) + children.Count + links.Count;
+        if (linkCount > 0)
+        {
+            var parts = new List<string>();
+            if (freshItem.ParentId.HasValue) parts.Add("1 parent");
+            if (children.Count > 0) parts.Add($"{children.Count} child{(children.Count != 1 ? "ren" : "")}");
+            if (links.Count > 0)
+            {
+                var byType = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                foreach (var link in links)
+                {
+                    byType.TryGetValue(link.LinkType, out var c);
+                    byType[link.LinkType] = c + 1;
+                }
+                foreach (var (lt, c) in byType)
+                    parts.Add($"{c} {lt.ToLowerInvariant()}");
+            }
+
+            return McpResultBuilder.ToError(
+                $"Cannot delete #{id} '{freshItem.Title}' — it has {linkCount} link(s): {string.Join(", ", parts)}. " +
+                "Remove all links before deleting. Consider 'twig_state Closed' instead — it preserves history and is reversible.");
+        }
+
+        // Phase 1: Confirmation prompt
+        if (!confirmed)
+            return McpResultBuilder.FormatDeleteConfirmation(freshItem);
+
+        // Phase 2: Execute deletion
+
+        // Audit trail — best-effort note on parent
+        if (freshItem.ParentId.HasValue)
+        {
+            try
+            {
+                await ctx.AdoService.AddCommentAsync(
+                    freshItem.ParentId.Value,
+                    $"Child work item #{id} '{freshItem.Title}' ({freshItem.Type}) was deleted via twig.",
+                    ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Best-effort — parent may be inaccessible
+            }
+        }
+
+        // Delete from ADO
+        try
+        {
+            await ctx.AdoService.DeleteAsync(id, ct);
+        }
+        catch (AdoException ex)
+        {
+            return McpResultBuilder.ToError($"Delete failed: {ex.Message}");
+        }
+
+        // Cache cleanup
+        await ctx.WorkItemRepo.DeleteByIdAsync(id, ct);
+        await ctx.PendingChangeStore.ClearChangesAsync(id, ct);
+
+        // Prompt state refresh — best-effort
+        try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
+        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
+
+        return McpResultBuilder.FormatDeleted(id, freshItem.Title);
     }
 
     [McpServerTool(Name = "twig_sync"),Description("Flush pending local changes to ADO then refresh the local cache from ADO")]

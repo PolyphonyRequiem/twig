@@ -524,6 +524,390 @@ public class DeleteCommandTests
         await _adoService.DidNotReceive().DeleteAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task Execute_ConfirmationEmptyString_CancelsDeletion()
+    {
+        var item = new WorkItemBuilder(42, "Test Item").Build();
+        SetupResolveAndFetch(item);
+        _consoleInput.IsOutputRedirected.Returns(false);
+        _consoleInput.ReadLine().Returns("");
+
+        var (result, stdout) = await StdoutCapture.RunAsync(
+            () => _cmd.ExecuteAsync(42));
+
+        result.ShouldBe(0);
+        stdout.ShouldContain("cancelled");
+        await _adoService.DidNotReceive().DeleteAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Confirmation — whitespace-padded 'yes' is accepted
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Execute_ConfirmationWithWhitespace_Accepted()
+    {
+        var item = new WorkItemBuilder(42, "Test Item").Build();
+        SetupResolveAndFetch(item);
+        _consoleInput.IsOutputRedirected.Returns(false);
+        _consoleInput.ReadLine().Returns("  yes  ");
+
+        var (result, stdout) = await StdoutCapture.RunAsync(
+            () => _cmd.ExecuteAsync(42));
+
+        result.ShouldBe(0);
+        stdout.ShouldContain("Deleted #42");
+        await _adoService.Received(1).DeleteAsync(42, Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Confirmation — mixed case 'Yes' is accepted
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Execute_ConfirmationMixedCase_Accepted()
+    {
+        var item = new WorkItemBuilder(42, "Test Item").Build();
+        SetupResolveAndFetch(item);
+        _consoleInput.IsOutputRedirected.Returns(false);
+        _consoleInput.ReadLine().Returns("Yes");
+
+        var (result, stdout) = await StdoutCapture.RunAsync(
+            () => _cmd.ExecuteAsync(42));
+
+        result.ShouldBe(0);
+        stdout.ShouldContain("Deleted #42");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Confirmation prompt — displays item details and warning
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Execute_ConfirmationPrompt_ShowsItemDetailsAndWarning()
+    {
+        var item = new WorkItemBuilder(42, "Prompt Detail Item")
+            .AsTask()
+            .InState("Active")
+            .Build();
+        SetupResolveAndFetch(item);
+        _consoleInput.IsOutputRedirected.Returns(false);
+        _consoleInput.ReadLine().Returns("no");
+
+        var (result, stdout) = await StdoutCapture.RunAsync(
+            () => _cmd.ExecuteAsync(42));
+
+        result.ShouldBe(0);
+        stdout.ShouldContain("#42");
+        stdout.ShouldContain("Prompt Detail Item");
+        stdout.ShouldContain("Task");
+        stdout.ShouldContain("Active");
+        stdout.ShouldContain("PERMANENT");
+        stdout.ShouldContain("twig state Closed");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Link guard — single child uses singular form
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Execute_SingleChild_UsesSingularForm()
+    {
+        var item = new WorkItemBuilder(10, "Parent Item").Build();
+        SetupResolveAndFetch(item, children: [
+            new WorkItemBuilder(11, "Only Child").Build()
+        ]);
+
+        var result = await _cmd.ExecuteAsync(10, force: true);
+
+        result.ShouldBe(1);
+        var stderr = _stderr.ToString();
+        stderr.ShouldContain("1 child");
+        stderr.ShouldNotContain("1 children");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  FetchWithLinksAsync throws — surfaced as error
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Execute_FetchWithLinksThrows_ReturnsError()
+    {
+        var item = new WorkItemBuilder(42, "Test Item").Build();
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.FetchWithLinksAsync(42, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new Exception("ADO unreachable"));
+
+        var result = await _cmd.ExecuteAsync(42, force: true);
+
+        result.ShouldBe(1);
+        _stderr.ToString().ShouldContain("Delete failed");
+        _stderr.ToString().ShouldContain("ADO unreachable");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  FetchChildrenAsync throws — surfaced as error
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Execute_FetchChildrenThrows_ReturnsError()
+    {
+        var item = new WorkItemBuilder(42, "Test Item").Build();
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.FetchWithLinksAsync(42, Arg.Any<CancellationToken>())
+            .Returns((item, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
+        _adoService.FetchChildrenAsync(42, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new Exception("Children fetch failed"));
+
+        var result = await _cmd.ExecuteAsync(42, force: true);
+
+        result.ShouldBe(1);
+        _stderr.ToString().ShouldContain("Delete failed");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Item unreachable — error message includes reason
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Execute_ItemUnreachable_ShowsReasonInError()
+    {
+        _workItemRepo.GetByIdAsync(77, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        _adoService.FetchAsync(77, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new Exception("401 Unauthorized"));
+
+        var result = await _cmd.ExecuteAsync(77, force: true);
+
+        result.ShouldBe(1);
+        var stderr = _stderr.ToString();
+        stderr.ShouldContain("#77");
+        stderr.ShouldContain("not found");
+        stderr.ShouldContain("twig state Closed");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  JSON output format — success
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Execute_JsonFormat_SuccessOutputsJsonStructure()
+    {
+        var item = new WorkItemBuilder(42, "JSON Item").Build();
+        SetupResolveAndFetch(item);
+
+        var (result, stdout) = await StdoutCapture.RunAsync(
+            () => _cmd.ExecuteAsync(42, force: true, outputFormat: "json"));
+
+        result.ShouldBe(0);
+        stdout.ShouldContain("\"message\"");
+        stdout.ShouldContain("Deleted #42");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  JSON output format — error
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Execute_JsonFormat_ErrorOutputsJsonErrorStructure()
+    {
+        var seed = new WorkItemBuilder(42, "Seed Item").AsSeed().Build();
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(seed);
+
+        var result = await _cmd.ExecuteAsync(42, force: true, outputFormat: "json");
+
+        result.ShouldBe(1);
+        var stderr = _stderr.ToString();
+        stderr.ShouldContain("\"error\"");
+        stderr.ShouldContain("seed");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Minimal output format — success
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Execute_MinimalFormat_SuccessOutputsPlainMessage()
+    {
+        var item = new WorkItemBuilder(42, "Minimal Item").Build();
+        SetupResolveAndFetch(item);
+
+        var (result, stdout) = await StdoutCapture.RunAsync(
+            () => _cmd.ExecuteAsync(42, force: true, outputFormat: "minimal"));
+
+        result.ShouldBe(0);
+        stdout.ShouldContain("Deleted #42");
+        stdout.ShouldNotContain("\"message\"");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Minimal output format — error
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Execute_MinimalFormat_ErrorOutputsErrorPrefix()
+    {
+        var seed = new WorkItemBuilder(42, "Seed Item").AsSeed().Build();
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(seed);
+
+        var result = await _cmd.ExecuteAsync(42, force: true, outputFormat: "minimal");
+
+        result.ShouldBe(1);
+        var stderr = _stderr.ToString();
+        stderr.ShouldContain("error:");
+        stderr.ShouldContain("seed");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Telemetry — force=false is tracked
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Execute_WithoutForce_TracksTelemetryForceAsFalse()
+    {
+        var item = new WorkItemBuilder(42, "Test Item").Build();
+        SetupResolveAndFetch(item);
+        _consoleInput.IsOutputRedirected.Returns(false);
+        _consoleInput.ReadLine().Returns("yes");
+
+        var (result, _) = await StdoutCapture.RunAsync(
+            () => _cmd.ExecuteAsync(42));
+
+        result.ShouldBe(0);
+        _telemetryClient.Received(1).TrackEvent(
+            "CommandExecuted",
+            Arg.Is<Dictionary<string, string>>(d =>
+                d["command"] == "delete" && d["used_force"] == "False"),
+            Arg.Any<Dictionary<string, double>>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Telemetry — confirmation cancelled still tracks
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Execute_ConfirmationCancelled_TracksTelemetryExitCode0()
+    {
+        var item = new WorkItemBuilder(42, "Test Item").Build();
+        SetupResolveAndFetch(item);
+        _consoleInput.IsOutputRedirected.Returns(false);
+        _consoleInput.ReadLine().Returns("no");
+
+        var (result, _) = await StdoutCapture.RunAsync(
+            () => _cmd.ExecuteAsync(42));
+
+        result.ShouldBe(0);
+        _telemetryClient.Received(1).TrackEvent(
+            "CommandExecuted",
+            Arg.Is<Dictionary<string, string>>(d =>
+                d["command"] == "delete" && d["exit_code"] == "0"),
+            Arg.Any<Dictionary<string, double>>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Null PromptStateWriter — no crash
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Execute_NullPromptStateWriter_DoesNotThrow()
+    {
+        var formatterFactory = new OutputFormatterFactory(
+            new HumanOutputFormatter(), new JsonOutputFormatter(),
+            new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
+        var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
+        var stderr = new StringWriter();
+        var ctx = new CommandContext(
+            new RenderingPipelineFactory(formatterFactory, null!, isOutputRedirected: () => true),
+            formatterFactory,
+            hintEngine,
+            new TwigConfiguration(),
+            TelemetryClient: _telemetryClient,
+            Stderr: stderr);
+        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var cmd = new DeleteCommand(resolver, _adoService, _workItemRepo, _linkRepo,
+            _pendingChangeStore, _consoleInput, ctx, promptStateWriter: null);
+
+        var item = new WorkItemBuilder(42, "No Writer Item").Build();
+        SetupResolveAndFetch(item);
+
+        var (result, stdout) = await StdoutCapture.RunAsync(
+            () => cmd.ExecuteAsync(42, force: true));
+
+        result.ShouldBe(0);
+        stdout.ShouldContain("Deleted #42");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Delete does not invoke ADO when seed guard blocks
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Execute_SeedGuard_DoesNotCallAdoDelete()
+    {
+        var seed = new WorkItemBuilder(42, "My Seed").AsSeed().Build();
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(seed);
+
+        await _cmd.ExecuteAsync(42, force: true);
+
+        await _adoService.DidNotReceive().DeleteAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().FetchWithLinksAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Link guard does not invoke ADO delete
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Execute_LinkGuard_DoesNotCallAdoDelete()
+    {
+        var item = new WorkItemBuilder(10, "Linked Item").WithParent(5).Build();
+        SetupResolveAndFetch(item, hasParent: true, parentId: 5);
+
+        await _cmd.ExecuteAsync(10, force: true);
+
+        await _adoService.DidNotReceive().DeleteAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Multiple link types grouped — each type counted independently
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Execute_MultipleRelatedAndPredecessor_CountsEachType()
+    {
+        var item = new WorkItemBuilder(10, "Multi-Link Item").Build();
+        SetupResolveAndFetch(item, links: [
+            new WorkItemLink(10, 20, LinkTypes.Related),
+            new WorkItemLink(10, 30, LinkTypes.Related),
+            new WorkItemLink(10, 40, LinkTypes.Predecessor)
+        ]);
+
+        var result = await _cmd.ExecuteAsync(10, force: true);
+
+        result.ShouldBe(1);
+        var stderr = _stderr.ToString();
+        stderr.ShouldContain("3 link(s)");
+        stderr.ShouldContain("2 related");
+        stderr.ShouldContain("1 predecessor");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Success — output includes item title
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Execute_Success_OutputIncludesTitle()
+    {
+        var item = new WorkItemBuilder(99, "Unique Title Here").Build();
+        SetupResolveAndFetch(item);
+
+        var (result, stdout) = await StdoutCapture.RunAsync(
+            () => _cmd.ExecuteAsync(99, force: true));
+
+        result.ShouldBe(0);
+        stdout.ShouldContain("Deleted #99");
+        stdout.ShouldContain("Unique Title Here");
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //  Helpers
     // ═══════════════════════════════════════════════════════════════

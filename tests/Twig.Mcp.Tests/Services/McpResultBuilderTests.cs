@@ -969,6 +969,131 @@ public sealed class McpResultBuilderTests
         childNode.GetProperty("parentId").GetInt32().ShouldBe(1);
     }
 
+    // ── FormatPatch ────────────────────────────────────────────────
+
+    [Fact]
+    public void FormatPatch_WritesWorkItemCoreAndUpdatedFields()
+    {
+        var item = new WorkItemBuilder(42, "Patched Item")
+            .AsTask()
+            .InState("Active")
+            .AssignedTo("Alice")
+            .Build();
+
+        var fieldChanges = new Dictionary<string, (string? OldValue, string? NewValue)>
+        {
+            ["System.Title"] = ("Old Title", "Patched Item"),
+            ["System.Description"] = (null, "New description"),
+        };
+
+        var result = McpResultBuilder.FormatPatch(item, fieldChanges);
+        var root = ParseJson(result);
+
+        root.GetProperty("id").GetInt32().ShouldBe(42);
+        root.GetProperty("title").GetString().ShouldBe("Patched Item");
+        root.GetProperty("type").GetString().ShouldBe("Task");
+        root.GetProperty("state").GetString().ShouldBe("Active");
+
+        var fields = root.GetProperty("updatedFields");
+        var titleChange = fields.GetProperty("System.Title");
+        titleChange.GetProperty("old").GetString().ShouldBe("Old Title");
+        titleChange.GetProperty("new").GetString().ShouldBe("Patched Item");
+
+        var descChange = fields.GetProperty("System.Description");
+        descChange.GetProperty("old").ValueKind.ShouldBe(JsonValueKind.Null);
+        descChange.GetProperty("new").GetString().ShouldBe("New description");
+
+        root.GetProperty("fieldCount").GetInt32().ShouldBe(2);
+    }
+
+    [Fact]
+    public void FormatPatch_EmptyFieldChanges_WritesEmptyObject()
+    {
+        var item = WorkItemBuilder.Simple(1, "No Changes");
+        var fieldChanges = new Dictionary<string, (string? OldValue, string? NewValue)>();
+
+        var result = McpResultBuilder.FormatPatch(item, fieldChanges);
+        var root = ParseJson(result);
+
+        root.GetProperty("updatedFields").EnumerateObject().Count().ShouldBe(0);
+        root.GetProperty("fieldCount").GetInt32().ShouldBe(0);
+    }
+
+    [Fact]
+    public void FormatPatch_WithWorkspace_IncludesWorkspace()
+    {
+        var item = WorkItemBuilder.Simple(1, "Item");
+        var fieldChanges = new Dictionary<string, (string? OldValue, string? NewValue)>
+        {
+            ["System.Title"] = ("A", "B"),
+        };
+
+        var result = McpResultBuilder.FormatPatch(item, fieldChanges, workspace: "org/proj");
+        var root = ParseJson(result);
+
+        root.GetProperty("workspace").GetString().ShouldBe("org/proj");
+    }
+
+    [Fact]
+    public void FormatPatch_NullWorkspace_WritesNullWorkspace()
+    {
+        var item = WorkItemBuilder.Simple(1, "Item");
+        var fieldChanges = new Dictionary<string, (string? OldValue, string? NewValue)>
+        {
+            ["System.Title"] = ("A", "B"),
+        };
+
+        var result = McpResultBuilder.FormatPatch(item, fieldChanges);
+        var root = ParseJson(result);
+
+        root.GetProperty("workspace").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public void FormatPatch_BothOldAndNewNull_WritesNullValues()
+    {
+        var item = WorkItemBuilder.Simple(1, "Item");
+        var fieldChanges = new Dictionary<string, (string? OldValue, string? NewValue)>
+        {
+            ["Custom.Field"] = (null, null),
+        };
+
+        var result = McpResultBuilder.FormatPatch(item, fieldChanges);
+        var root = ParseJson(result);
+
+        var field = root.GetProperty("updatedFields").GetProperty("Custom.Field");
+        field.GetProperty("old").ValueKind.ShouldBe(JsonValueKind.Null);
+        field.GetProperty("new").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public void FormatPatch_SingleField_FieldCountIsOne()
+    {
+        var item = WorkItemBuilder.Simple(1, "Item");
+        var fieldChanges = new Dictionary<string, (string? OldValue, string? NewValue)>
+        {
+            ["System.Title"] = ("Old", "New"),
+        };
+
+        var result = McpResultBuilder.FormatPatch(item, fieldChanges);
+        var root = ParseJson(result);
+
+        root.GetProperty("fieldCount").GetInt32().ShouldBe(1);
+    }
+
+    [Fact]
+    public void FormatPatch_ResultIsNotError()
+    {
+        var item = WorkItemBuilder.Simple(1, "Item");
+        var fieldChanges = new Dictionary<string, (string? OldValue, string? NewValue)>
+        {
+            ["System.Title"] = ("A", "B"),
+        };
+
+        var result = McpResultBuilder.FormatPatch(item, fieldChanges);
+        result.IsError.ShouldBeNull();
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────
 
     private static JsonElement ParseJson(CallToolResult result)

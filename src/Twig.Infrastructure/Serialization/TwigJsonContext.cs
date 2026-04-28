@@ -6,6 +6,7 @@ using Twig.Infrastructure.Ado.Dtos;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.GitHub;
+using Twig.Infrastructure.Persistence;
 using Twig.Infrastructure.Telemetry;
 
 namespace Twig.Infrastructure.Serialization;
@@ -105,6 +106,12 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(TrackingCleanupPolicy))]
 // Descendant verification read models (Epic — SDLC close-out drill-down)
 [JsonSerializable(typeof(DescendantVerificationResult))]
+// File-backed tracking persistence POCOs (Epic — tracking-persistence-migration)
+[JsonSerializable(typeof(TrackingFile))]
+[JsonSerializable(typeof(TrackingFileEntry))]
+[JsonSerializable(typeof(List<TrackingFileEntry>))]
+[JsonSerializable(typeof(ExclusionFileEntry))]
+[JsonSerializable(typeof(List<ExclusionFileEntry>))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]

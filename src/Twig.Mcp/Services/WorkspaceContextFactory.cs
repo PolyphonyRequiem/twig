@@ -135,7 +135,7 @@ public sealed class WorkspaceContextFactory : IWorkspaceContextFactory, IDisposa
             protectedCacheWriter,
             linkRepo);
 
-        var trackingRepo = new SqliteTrackingRepository(cacheStore);
+        var trackingRepo = new FileTrackingRepository(paths);
 
         var workingSetService = new WorkingSetService(
             contextStore,
@@ -149,6 +149,8 @@ public sealed class WorkspaceContextFactory : IWorkspaceContextFactory, IDisposa
 
         var parentPropagationService = new ParentStatePropagationService(
             workItemRepo, adoService, processConfigProvider, protectedCacheWriter);
+
+        var sprintIterationResolver = new SprintIterationResolver(iterationService, workItemRepo);
 
         var promptStateWriter = new PromptStateWriter(
             contextStore,
@@ -194,6 +196,7 @@ public sealed class WorkspaceContextFactory : IWorkspaceContextFactory, IDisposa
             flusher,
             promptStateWriter,
             parentPropagationService,
+            sprintIterationResolver,
             trackingRepo,
             branchLinkService);
     }

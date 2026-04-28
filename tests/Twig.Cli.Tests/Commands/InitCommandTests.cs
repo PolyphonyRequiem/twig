@@ -191,13 +191,19 @@ public class InitCommandTests : IDisposable
     [Fact]
     public async Task Init_StoresTeamAreaPaths_InConfig()
     {
+        Directory.CreateDirectory(Path.Combine(_testDir, ".git"));
         _iterationService.GetTeamAreaPathsAsync(Arg.Any<CancellationToken>())
             .Returns(new List<(string Path, bool IncludeChildren)>
             {
                 ("MyProject\\TeamA", true),
                 ("MyProject\\TeamB", false)
             });
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        // Area path auto-detection only runs in interactive mode (DD-8)
+        var consoleInput = Substitute.For<IConsoleInput>();
+        consoleInput.IsOutputRedirected.Returns(false);
+        // Mode prompt → default (sprint), Preference prompt → "2" (area paths only)
+        consoleInput.ReadLine().Returns("", "2");
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -219,9 +225,15 @@ public class InitCommandTests : IDisposable
     [Fact]
     public async Task Init_GracefulFallback_WhenAreaPathApiFails()
     {
+        Directory.CreateDirectory(Path.Combine(_testDir, ".git"));
         _iterationService.GetTeamAreaPathsAsync(Arg.Any<CancellationToken>())
             .ThrowsAsync(new Twig.Infrastructure.Ado.Exceptions.AdoException("Team field values not found"));
-        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+        // Area path detection only runs in interactive mode (DD-8)
+        var consoleInput = Substitute.For<IConsoleInput>();
+        consoleInput.IsOutputRedirected.Returns(false);
+        // Mode prompt → default, Preference prompt → "2" (area paths only — exercises area detection path)
+        consoleInput.ReadLine().Returns("", "2");
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
 
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
@@ -593,6 +605,425 @@ public class InitCommandTests : IDisposable
         result.ShouldBe(0);
         Directory.Exists(_twigDir).ShouldBeTrue();
     }
-}
 
-// InferParentChildMap tests moved to Twig.Domain.Tests/Services/BacklogHierarchyServiceTests.cs
+    // --- --sprint / --area flag tests ---
+
+    [Fact]
+    public async Task Init_SprintFlag_AddsSingleExpression()
+    {
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", sprint: "@current");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        loaded.Workspace.Sprints.ShouldNotBeNull();
+        loaded.Workspace.Sprints.Count.ShouldBe(1);
+        loaded.Workspace.Sprints[0].Expression.ShouldBe("@current");
+    }
+
+    [Fact]
+    public async Task Init_SprintFlag_AddsMultipleExpressions()
+    {
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", sprint: "@current;@current-1");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        loaded.Workspace.Sprints.ShouldNotBeNull();
+        loaded.Workspace.Sprints.Count.ShouldBe(2);
+        loaded.Workspace.Sprints[0].Expression.ShouldBe("@current");
+        loaded.Workspace.Sprints[1].Expression.ShouldBe("@current-1");
+    }
+
+    [Fact]
+    public async Task Init_SprintFlag_RejectsInvalidExpression()
+    {
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", sprint: "@invalid");
+
+        result.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Init_AreaFlag_AddsSinglePath()
+    {
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", area: @"MyProject\TeamA");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        loaded.Defaults.AreaPathEntries.ShouldNotBeNull();
+        loaded.Defaults.AreaPathEntries.Count.ShouldBe(1);
+        loaded.Defaults.AreaPathEntries[0].Path.ShouldBe(@"MyProject\TeamA");
+        loaded.Defaults.AreaPathEntries[0].IncludeChildren.ShouldBeTrue();
+        // Backward-compat AreaPaths also populated
+        loaded.Defaults.AreaPaths.ShouldNotBeNull();
+        loaded.Defaults.AreaPaths.ShouldContain(@"MyProject\TeamA");
+    }
+
+    [Fact]
+    public async Task Init_AreaFlag_AddsMultiplePaths()
+    {
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", area: @"MyProject\TeamA;MyProject\TeamB");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        loaded.Defaults.AreaPathEntries.ShouldNotBeNull();
+        loaded.Defaults.AreaPathEntries.Count.ShouldBe(2);
+        loaded.Defaults.AreaPathEntries[0].Path.ShouldBe(@"MyProject\TeamA");
+        loaded.Defaults.AreaPathEntries[1].Path.ShouldBe(@"MyProject\TeamB");
+    }
+
+    [Fact]
+    public async Task Init_AreaFlag_SupportsExactSuffix()
+    {
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", area: @"MyProject\TeamA:exact");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        loaded.Defaults.AreaPathEntries.ShouldNotBeNull();
+        loaded.Defaults.AreaPathEntries.Count.ShouldBe(1);
+        loaded.Defaults.AreaPathEntries[0].Path.ShouldBe(@"MyProject\TeamA");
+        loaded.Defaults.AreaPathEntries[0].IncludeChildren.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Init_AreaFlag_RejectsInvalidPath()
+    {
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", area: "");
+
+        // Empty string after whitespace trim → no entries → treated as no-op (not error)
+        result.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Init_BothFlags_ConfigureSprintAndArea()
+    {
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject",
+            sprint: "@current", area: @"MyProject\TeamA");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        loaded.Workspace.Sprints.ShouldNotBeNull();
+        loaded.Workspace.Sprints.Count.ShouldBe(1);
+        loaded.Workspace.Sprints[0].Expression.ShouldBe("@current");
+        loaded.Defaults.AreaPathEntries.ShouldNotBeNull();
+        loaded.Defaults.AreaPathEntries.Count.ShouldBe(1);
+        loaded.Defaults.AreaPathEntries[0].Path.ShouldBe(@"MyProject\TeamA");
+    }
+
+    [Fact]
+    public async Task Init_SprintFlag_OverridesAutoDetectedAreas_NotSprints()
+    {
+        // Verify --area flag overrides auto-detected team area paths
+        _iterationService.GetTeamAreaPathsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<(string Path, bool IncludeChildren)>
+            {
+                ("MyProject\\AutoTeam", true)
+            });
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject",
+            area: @"MyProject\ManualTeam");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        // --area flag should override the auto-detected areas
+        loaded.Defaults.AreaPathEntries.ShouldNotBeNull();
+        loaded.Defaults.AreaPathEntries.Count.ShouldBe(1);
+        loaded.Defaults.AreaPathEntries[0].Path.ShouldBe(@"MyProject\ManualTeam");
+    }
+
+    [Fact]
+    public async Task Init_SprintFlag_AcceptsAbsolutePath()
+    {
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject",
+            sprint: @"MyProject\Sprint 5");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        loaded.Workspace.Sprints.ShouldNotBeNull();
+        loaded.Workspace.Sprints.Count.ShouldBe(1);
+        loaded.Workspace.Sprints[0].Expression.ShouldBe(@"MyProject\Sprint 5");
+    }
+
+    // --- Workspace preference prompt tests ---
+
+    [Fact]
+    public async Task Init_PreferencePrompt_SprintOnly_AddsSprint_ClearsAreas()
+    {
+        Directory.CreateDirectory(Path.Combine(_testDir, ".git"));
+        _iterationService.GetTeamAreaPathsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<(string Path, bool IncludeChildren)> { ("MyProject\\TeamA", true) });
+        var consoleInput = Substitute.For<IConsoleInput>();
+        consoleInput.IsOutputRedirected.Returns(false);
+        // First ReadLine for mode prompt → "", second for preference prompt → "1"
+        consoleInput.ReadLine().Returns("", "1");
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        loaded.Workspace.Sprints.ShouldNotBeNull();
+        loaded.Workspace.Sprints.Count.ShouldBe(1);
+        loaded.Workspace.Sprints[0].Expression.ShouldBe("@current");
+        loaded.Defaults.AreaPathEntries.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Init_PreferencePrompt_AreaOnly_KeepsAreas_NoSprints()
+    {
+        Directory.CreateDirectory(Path.Combine(_testDir, ".git"));
+        _iterationService.GetTeamAreaPathsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<(string Path, bool IncludeChildren)> { ("MyProject\\TeamA", true) });
+        var consoleInput = Substitute.For<IConsoleInput>();
+        consoleInput.IsOutputRedirected.Returns(false);
+        consoleInput.ReadLine().Returns("", "2");
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        loaded.Workspace.Sprints.ShouldBeNull();
+        loaded.Defaults.AreaPathEntries.ShouldNotBeNull();
+        loaded.Defaults.AreaPathEntries.Count.ShouldBe(1);
+        loaded.Defaults.AreaPathEntries[0].Path.ShouldBe("MyProject\\TeamA");
+    }
+
+    [Fact]
+    public async Task Init_PreferencePrompt_Both_AddsSprint_KeepsAreas()
+    {
+        Directory.CreateDirectory(Path.Combine(_testDir, ".git"));
+        _iterationService.GetTeamAreaPathsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<(string Path, bool IncludeChildren)> { ("MyProject\\TeamA", true) });
+        var consoleInput = Substitute.For<IConsoleInput>();
+        consoleInput.IsOutputRedirected.Returns(false);
+        consoleInput.ReadLine().Returns("", "3");
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        loaded.Workspace.Sprints.ShouldNotBeNull();
+        loaded.Workspace.Sprints.Count.ShouldBe(1);
+        loaded.Workspace.Sprints[0].Expression.ShouldBe("@current");
+        loaded.Defaults.AreaPathEntries.ShouldNotBeNull();
+        loaded.Defaults.AreaPathEntries.Count.ShouldBe(1);
+        loaded.Defaults.AreaPathEntries[0].Path.ShouldBe("MyProject\\TeamA");
+    }
+
+    [Fact]
+    public async Task Init_PreferencePrompt_Neither_ClearsAreas_NoSprints()
+    {
+        Directory.CreateDirectory(Path.Combine(_testDir, ".git"));
+        _iterationService.GetTeamAreaPathsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<(string Path, bool IncludeChildren)> { ("MyProject\\TeamA", true) });
+        var consoleInput = Substitute.For<IConsoleInput>();
+        consoleInput.IsOutputRedirected.Returns(false);
+        consoleInput.ReadLine().Returns("", "4");
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        loaded.Workspace.Sprints.ShouldBeNull();
+        loaded.Defaults.AreaPathEntries.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Init_PreferencePrompt_DefaultsToNeither_WhenEnterPressed()
+    {
+        Directory.CreateDirectory(Path.Combine(_testDir, ".git"));
+        _iterationService.GetTeamAreaPathsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<(string Path, bool IncludeChildren)> { ("MyProject\\TeamA", true) });
+        var consoleInput = Substitute.For<IConsoleInput>();
+        consoleInput.IsOutputRedirected.Returns(false);
+        // Both prompts get "" (Enter)
+        consoleInput.ReadLine().Returns("");
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        loaded.Workspace.Sprints.ShouldBeNull();
+        loaded.Defaults.AreaPathEntries.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Init_PreferencePrompt_SkippedInNonTTY()
+    {
+        Directory.CreateDirectory(Path.Combine(_testDir, ".git"));
+        _iterationService.GetTeamAreaPathsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<(string Path, bool IncludeChildren)> { ("MyProject\\TeamA", true) });
+        var consoleInput = Substitute.For<IConsoleInput>();
+        consoleInput.IsOutputRedirected.Returns(true);
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        // DD-8: Non-interactive init starts with empty workspace — area paths not auto-detected
+        loaded.Defaults.AreaPathEntries.ShouldBeNull();
+        loaded.Workspace.Sprints.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Init_PreferencePrompt_SkippedWhenSprintFlagProvided()
+    {
+        Directory.CreateDirectory(Path.Combine(_testDir, ".git"));
+        _iterationService.GetTeamAreaPathsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<(string Path, bool IncludeChildren)> { ("MyProject\\TeamA", true) });
+        var consoleInput = Substitute.For<IConsoleInput>();
+        consoleInput.IsOutputRedirected.Returns(false);
+        // Only one ReadLine for mode prompt; preference prompt should be skipped
+        consoleInput.ReadLine().Returns("");
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", sprint: "@current");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        // Sprint from flag, not from prompt
+        loaded.Workspace.Sprints.ShouldNotBeNull();
+        loaded.Workspace.Sprints.Count.ShouldBe(1);
+        // Area paths kept (not cleared by prompt since prompt was skipped)
+        loaded.Defaults.AreaPathEntries.ShouldNotBeNull();
+        loaded.Defaults.AreaPathEntries.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Init_PreferencePrompt_SkippedWhenAreaFlagProvided()
+    {
+        Directory.CreateDirectory(Path.Combine(_testDir, ".git"));
+        var consoleInput = Substitute.For<IConsoleInput>();
+        consoleInput.IsOutputRedirected.Returns(false);
+        consoleInput.ReadLine().Returns("");
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", area: @"MyProject\ManualTeam");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        // Area from flag, not from prompt
+        loaded.Defaults.AreaPathEntries.ShouldNotBeNull();
+        loaded.Defaults.AreaPathEntries.Count.ShouldBe(1);
+        loaded.Defaults.AreaPathEntries[0].Path.ShouldBe(@"MyProject\ManualTeam");
+        // No sprints
+        loaded.Workspace.Sprints.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Init_PreferencePrompt_InvalidInput_DefaultsToNeither()
+    {
+        Directory.CreateDirectory(Path.Combine(_testDir, ".git"));
+        _iterationService.GetTeamAreaPathsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<(string Path, bool IncludeChildren)> { ("MyProject\\TeamA", true) });
+        var consoleInput = Substitute.For<IConsoleInput>();
+        consoleInput.IsOutputRedirected.Returns(false);
+        consoleInput.ReadLine().Returns("", "xyz");
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine, consoleInput: consoleInput);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        loaded.Workspace.Sprints.ShouldBeNull();
+        loaded.Defaults.AreaPathEntries.ShouldBeEmpty();
+    }
+
+    // --- DD-8: Non-interactive empty workspace tests ---
+
+    [Fact]
+    public async Task Init_NonInteractive_StartsEmpty_NoAreaPaths_NoSprints()
+    {
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        // DD-8: Non-interactive init starts with empty workspace
+        loaded.Defaults.AreaPathEntries.ShouldBeNull();
+        loaded.Defaults.AreaPaths.ShouldBeNull();
+        loaded.Workspace.Sprints.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Init_NonInteractive_SkipsAreaAutoDetection()
+    {
+        // Even when the API would return area paths, non-interactive mode skips detection
+        _iterationService.GetTeamAreaPathsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<(string Path, bool IncludeChildren)> { ("MyProject\\TeamA", true) });
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        // Area paths should NOT be auto-detected in non-interactive mode
+        loaded.Defaults.AreaPathEntries.ShouldBeNull();
+        loaded.Defaults.AreaPaths.ShouldBeNull();
+        // GetTeamAreaPathsAsync should not have been called
+        await _iterationService.DidNotReceive().GetTeamAreaPathsAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Init_NonInteractive_WithSprintFlag_ConfiguresSprint_NoAreaPaths()
+    {
+        _iterationService.GetTeamAreaPathsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<(string Path, bool IncludeChildren)> { ("MyProject\\TeamA", true) });
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", sprint: "@current");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        // Sprint flag applied
+        loaded.Workspace.Sprints.ShouldNotBeNull();
+        loaded.Workspace.Sprints.Count.ShouldBe(1);
+        loaded.Workspace.Sprints[0].Expression.ShouldBe("@current");
+        // Area paths NOT auto-detected (non-interactive skips detection)
+        loaded.Defaults.AreaPathEntries.ShouldBeNull();
+        await _iterationService.DidNotReceive().GetTeamAreaPathsAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Init_NonInteractive_WithAreaFlag_ConfiguresArea_NoAutoDetection()
+    {
+        _iterationService.GetTeamAreaPathsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<(string Path, bool IncludeChildren)> { ("MyProject\\AutoTeam", true) });
+        var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
+
+        var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject",
+            area: @"MyProject\ManualTeam");
+
+        result.ShouldBe(0);
+        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        // Area from flag, not from auto-detection
+        loaded.Defaults.AreaPathEntries.ShouldNotBeNull();
+        loaded.Defaults.AreaPathEntries.Count.ShouldBe(1);
+        loaded.Defaults.AreaPathEntries[0].Path.ShouldBe(@"MyProject\ManualTeam");
+        // Auto-detection was not called
+        await _iterationService.DidNotReceive().GetTeamAreaPathsAsync(Arg.Any<CancellationToken>());
+    }
+}

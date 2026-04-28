@@ -15,7 +15,7 @@ public sealed record WorkingSet
     public IReadOnlyList<int> SeedIds { get; init; } = [];
     public IReadOnlySet<int> DirtyItemIds { get; init; } = new HashSet<int>();
     public IReadOnlyList<int> TrackedItemIds { get; init; } = [];
-    public IterationPath IterationPath { get; init; }
+    public IReadOnlyList<IterationPath> IterationPaths { get; init; } = [];
 
     /// <summary>
     /// Union of all ID sets. Computed fresh on each access to avoid stale results after <c>with</c> expressions.

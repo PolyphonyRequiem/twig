@@ -1,5 +1,6 @@
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Workspace;
@@ -34,6 +35,11 @@ public sealed class WorkspaceContext : IDisposable
     public ITrackingRepository? TrackingRepo { get; }
 
     /// <summary>
+    /// Resolves sprint iteration expressions and aggregates items across multiple iterations.
+    /// </summary>
+    public SprintIterationResolver SprintIterationResolver { get; }
+
+    /// <summary>
     /// Branch-to-work-item linking service. Null when git project/repository are not configured.
     /// </summary>
     public BranchLinkService? BranchLinkService { get; }
@@ -58,6 +64,7 @@ public sealed class WorkspaceContext : IDisposable
         McpPendingChangeFlusher flusher,
         IPromptStateWriter promptStateWriter,
         ParentStatePropagationService parentPropagationService,
+        SprintIterationResolver sprintIterationResolver,
         ITrackingRepository? trackingRepo = null,
         BranchLinkService? branchLinkService = null)
     {
@@ -78,6 +85,7 @@ public sealed class WorkspaceContext : IDisposable
         Flusher = flusher;
         PromptStateWriter = promptStateWriter;
         ParentPropagationService = parentPropagationService;
+        SprintIterationResolver = sprintIterationResolver;
         TrackingRepo = trackingRepo;
         BranchLinkService = branchLinkService;
     }

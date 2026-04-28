@@ -1,3 +1,4 @@
+using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
 using Twig.Domain.Services.Sync;
@@ -38,11 +39,11 @@ public sealed class WorkingSetService
 
     /// <summary>
     /// Computes the current working set from cache state.
-    /// When <paramref name="iterationPath"/> is provided it is used directly (no ADO call);
-    /// otherwise <see cref="IIterationService.GetCurrentIterationAsync"/> is called.
+    /// When <paramref name="iterationPaths"/> is provided it is used directly (no ADO call);
+    /// otherwise <see cref="IIterationService.GetCurrentIterationAsync"/> is called to get a single iteration.
     /// </summary>
     public async Task<WorkingSet> ComputeAsync(
-        IterationPath? iterationPath = null, CancellationToken ct = default)
+        IReadOnlyList<IterationPath>? iterationPaths = null, CancellationToken ct = default)
     {
         // 1. Read active ID from context
         var activeId = await _contextStore.GetActiveWorkItemIdAsync(ct);
@@ -57,13 +58,21 @@ public sealed class WorkingSetService
             ? await _workItemRepo.GetChildrenAsync(activeId.Value, ct)
             : [];
 
-        // 4. Resolve iteration path
-        var iteration = iterationPath ?? await _iterationService.GetCurrentIterationAsync(ct);
+        // 4. Resolve iteration paths
+        var iterations = iterationPaths
+            ?? [await _iterationService.GetCurrentIterationAsync(ct)];
 
         // 5. Query sprint items (filtered by assignee when configured)
-        var sprintItems = _userDisplayName is not null
-            ? await _workItemRepo.GetByIterationAndAssigneeAsync(iteration, _userDisplayName, ct)
-            : await _workItemRepo.GetByIterationAsync(iteration, ct);
+        var sprintItems = iterations.Count == 0
+            ? (IReadOnlyList<WorkItem>)[]
+            : await _workItemRepo.GetByIterationsAsync(iterations, ct);
+
+        if (_userDisplayName is not null && sprintItems.Count > 0)
+        {
+            sprintItems = sprintItems
+                .Where(w => string.Equals(w.AssignedTo, _userDisplayName, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
 
         // 6. Query seeds
         var seeds = await _workItemRepo.GetSeedsAsync(ct);
@@ -85,7 +94,7 @@ public sealed class WorkingSetService
             SeedIds = seeds.Select(w => w.Id).ToList(),
             DirtyItemIds = dirtyIds,
             TrackedItemIds = trackedItemIds,
-            IterationPath = iteration,
+            IterationPaths = iterations,
         };
     }
 }

@@ -52,6 +52,7 @@ public class WorkingSetCommandTests
         var item = CreateWorkItem(42, "New Item");
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
+
         var cmd = CreateCommand();
         var result = await cmd.ExecuteAsync("42");
 

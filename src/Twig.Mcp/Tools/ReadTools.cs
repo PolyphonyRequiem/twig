@@ -6,6 +6,7 @@ using Twig.Domain.ReadModels;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.ValueObjects;
+using Twig.Infrastructure.Config;
 using Twig.Mcp.Services;
 
 namespace Twig.Mcp.Tools;
@@ -84,18 +85,40 @@ public sealed class ReadTools(WorkspaceResolver resolver)
             ? await ctx.WorkItemRepo.GetByIdAsync(contextId.Value, ct)
             : null;
 
-        // 2. Current iteration
-        var iteration = await ctx.IterationService.GetCurrentIterationAsync(ct);
+        // 2. Sprint items — use configured sprints when available, else fall back to current iteration
+        var sprintEntries = ctx.Config.Workspace.Sprints;
+        IReadOnlyList<WorkItem> sprintItems;
 
-        // 3. Sprint items — filter by user when all=false and display name is configured
-        var sprintItems = !all && ctx.Config.User.DisplayName is not null
-            ? await ctx.WorkItemRepo.GetByIterationAndAssigneeAsync(iteration, ctx.Config.User.DisplayName, ct)
-            : await ctx.WorkItemRepo.GetByIterationAsync(iteration, ct);
+        if (sprintEntries is { Count: > 0 })
+        {
+            // Resolve configured sprint expressions via SprintIterationResolver
+            var expressions = new List<IterationExpression>(sprintEntries.Count);
+            foreach (var entry in sprintEntries)
+            {
+                var parseResult = IterationExpression.Parse(entry.Expression);
+                if (parseResult.IsSuccess)
+                    expressions.Add(parseResult.Value);
+            }
 
-        // 4. Seeds
+            sprintItems = await ctx.SprintIterationResolver.GetSprintItemsAsync(
+                expressions,
+                ctx.Config.User.DisplayName,
+                allUsers: all,
+                ct);
+        }
+        else
+        {
+            // No configured sprints — fall back to current iteration
+            var iteration = await ctx.IterationService.GetCurrentIterationAsync(ct);
+            sprintItems = !all && ctx.Config.User.DisplayName is not null
+                ? await ctx.WorkItemRepo.GetByIterationAndAssigneeAsync(iteration, ctx.Config.User.DisplayName, ct)
+                : await ctx.WorkItemRepo.GetByIterationAsync(iteration, ct);
+        }
+
+        // 3. Seeds
         var seeds = await ctx.WorkItemRepo.GetSeedsAsync(ct);
 
-        // 5. Tracked items and exclusions
+        // 4. Tracked items and exclusions
         var trackedItems = ctx.TrackingRepo is not null
             ? await ctx.TrackingRepo.GetAllTrackedAsync(ct)
             : Array.Empty<TrackedItem>();
@@ -104,11 +127,11 @@ public sealed class ReadTools(WorkspaceResolver resolver)
             : Array.Empty<ExcludedItem>();
         var excludedIds = excludedItems.Select(e => e.WorkItemId).ToList();
 
-        // 6. Build workspace
+        // 5. Build workspace
         var ws = Domain.ReadModels.Workspace.Build(contextItem, sprintItems, seeds,
             trackedItems: trackedItems, excludedIds: excludedIds);
 
-        // 7. Format result
+        // 6. Format result
         return McpResultBuilder.FormatWorkspace(ws, ctx.Config.Seed.StaleDays, ctx.Key.ToString(), excludedItems);
     }
 }

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.Services.Field;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Process;
@@ -23,6 +24,7 @@ public sealed class RefreshCommand(
     IProcessTypeStore processTypeStore,
     IFieldDefinitionStore fieldDefinitionStore,
     RefreshOrchestrator orchestrator,
+    SprintIterationResolver sprintResolver,
     IGlobalProfileStore? globalProfileStore = null,
     IPromptStateWriter? promptStateWriter = null)
 {
@@ -49,14 +51,36 @@ public sealed class RefreshCommand(
 
         Console.WriteLine(fmt.FormatInfo("Refreshing from ADO..."));
 
-        // Get current iteration
-        var iteration = await iterationService.GetCurrentIterationAsync();
-        Console.WriteLine(fmt.FormatInfo($"  Iteration: {iteration}"));
+        // Resolve configured sprint expressions to concrete iteration paths
+        var sprintEntries = ctx.Config.Workspace.Sprints;
+        var resolvedIterations = await ResolveSprintIterationsAsync(sprintEntries, ct);
 
-        // Query all items in the current sprint, scoped to team area paths if configured
-        // Escape single quotes to prevent WIQL injection from unusual iteration/area path values.
-        var sanitizedPath = iteration.Value.Replace("'", "''");
-        var wiql = $"SELECT [System.Id] FROM WorkItems WHERE [System.IterationPath] = '{sanitizedPath}'";
+        // Fall back to current iteration for SyncWorkingSetAsync (task 3.5 will update this)
+        var iteration = resolvedIterations.Count > 0
+            ? resolvedIterations[0]
+            : await iterationService.GetCurrentIterationAsync(ct);
+
+        if (resolvedIterations.Count > 0)
+        {
+            foreach (var ri in resolvedIterations)
+                Console.WriteLine(fmt.FormatInfo($"  Iteration: {ri}"));
+        }
+        else
+        {
+            Console.WriteLine(fmt.FormatInfo($"  Iteration: {iteration}"));
+        }
+
+        // Build WIQL with multi-sprint OR-joined iteration clauses (or skip when empty)
+        var wiql = "SELECT [System.Id] FROM WorkItems";
+        var whereClauses = new List<string>();
+
+        if (resolvedIterations.Count > 0)
+        {
+            var iterationClauses = resolvedIterations
+                .Select(ip => $"[System.IterationPath] = '{ip.Value.Replace("'", "''")}'");
+            var joined = string.Join(" OR ", iterationClauses);
+            whereClauses.Add(resolvedIterations.Count == 1 ? joined : $"({joined})");
+        }
 
         // Build area path filter: prefer AreaPathEntries (with IncludeChildren), fall back to AreaPaths/AreaPath
         var areaPathEntries = ctx.Config.Defaults?.AreaPathEntries;
@@ -69,7 +93,9 @@ public sealed class RefreshCommand(
                     var op = entry.IncludeChildren ? "UNDER" : "=";
                     return $"[System.AreaPath] {op} '{escaped}'";
                 });
-            wiql += $" AND ({string.Join(" OR ", clauses)})";
+            whereClauses.Add(areaPathEntries.Count == 1
+                ? clauses.First()
+                : $"({string.Join(" OR ", clauses)})");
         }
         else
         {
@@ -85,9 +111,14 @@ public sealed class RefreshCommand(
             {
                 var clauses = areaPaths
                     .Select(ap => $"[System.AreaPath] UNDER '{ap.Replace("'", "''")}'");
-                wiql += $" AND ({string.Join(" OR ", clauses)})";
+                whereClauses.Add(areaPaths.Count == 1
+                    ? clauses.First()
+                    : $"({string.Join(" OR ", clauses)})");
             }
         }
+
+        if (whereClauses.Count > 0)
+            wiql += $" WHERE {string.Join(" AND ", whereClauses)}";
 
         wiql += " ORDER BY [System.Id]";
 
@@ -217,5 +248,29 @@ public sealed class RefreshCommand(
         if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
         return (0, telemetryItemCount, telemetryHashChanged);
+    }
+
+    /// <summary>
+    /// Resolves configured sprint entries to concrete <see cref="IterationPath"/> values.
+    /// Returns an empty list when no sprints are configured or none resolve successfully.
+    /// </summary>
+    private async Task<IReadOnlyList<IterationPath>> ResolveSprintIterationsAsync(
+        List<SprintEntry>? sprintEntries, CancellationToken ct)
+    {
+        if (sprintEntries is null or { Count: 0 })
+            return [];
+
+        var expressions = new List<IterationExpression>(sprintEntries.Count);
+        foreach (var entry in sprintEntries)
+        {
+            var parseResult = IterationExpression.Parse(entry.Expression);
+            if (parseResult.IsSuccess)
+                expressions.Add(parseResult.Value);
+        }
+
+        if (expressions.Count == 0)
+            return [];
+
+        return await sprintResolver.ResolveAllAsync(expressions, ct);
     }
 }

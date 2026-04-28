@@ -2,12 +2,14 @@ using System.Globalization;
 using System.Runtime.CompilerServices;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
+using Twig.Domain.Services;
 using Twig.Domain.Services.Field;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
+using Twig.Infrastructure.Config;
 using Twig.Rendering;
 
 namespace Twig.Commands;
@@ -29,7 +31,8 @@ public sealed class WorkspaceCommand(
     ActiveItemResolver activeItemResolver,
     WorkingSetService workingSetService,
     ITrackingService trackingService,
-    ISprintHierarchyBuilder sprintHierarchyBuilder)
+    ISprintHierarchyBuilder sprintHierarchyBuilder,
+    SprintIterationResolver sprintIterationResolver)
 {
     public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default, bool sprintLayout = false, bool flat = false)
     {
@@ -88,13 +91,22 @@ public sealed class WorkspaceCommand(
                 }
                 yield return new WorkspaceDataChunk.ContextLoaded(contextItem);
 
-                // Stage 2: Sprint items
-                var iteration = await iterationService.GetCurrentIterationAsync(ct);
+                // Stage 2: Sprint items — use configured sprints when available, else fall back to current iteration
+                var resolvedIterations = await ResolveSprintIterationsAsync(ctx.Config.Workspace.Sprints, ct);
                 var userDisplayName = ctx.Config.User.DisplayName;
-                if (!string.IsNullOrWhiteSpace(userDisplayName))
-                    sprintItems = await workItemRepo.GetByIterationAndAssigneeAsync(iteration, userDisplayName, ct);
+                if (resolvedIterations.Count > 0)
+                {
+                    sprintItems = await GetSprintItemsFromResolvedIterationsAsync(
+                        resolvedIterations, userDisplayName, allUsers: false, ct);
+                }
                 else
-                    sprintItems = await workItemRepo.GetByIterationAsync(iteration, ct);
+                {
+                    var iteration = await iterationService.GetCurrentIterationAsync(ct);
+                    if (!string.IsNullOrWhiteSpace(userDisplayName))
+                        sprintItems = await workItemRepo.GetByIterationAndAssigneeAsync(iteration, userDisplayName, ct);
+                    else
+                        sprintItems = await workItemRepo.GetByIterationAsync(iteration, ct);
+                }
                 var treeRoots = await BuildTreeRootsAsync(sprintItems, ct);
                 yield return new WorkspaceDataChunk.SprintItemsLoaded(sprintItems, WorkspaceSections.Build(sprintItems, excludedIds: excludedIds, treeRoots: treeRoots));
 
@@ -118,12 +130,21 @@ public sealed class WorkspaceCommand(
 
                         try
                         {
-                            // Re-fetch sprint items via fresh ADO iteration resolution
-                            var freshIteration = await iterationService.GetCurrentIterationAsync(ct);
-                            if (!string.IsNullOrWhiteSpace(userDisplayName))
-                                refreshedSprintItems = await workItemRepo.GetByIterationAndAssigneeAsync(freshIteration, userDisplayName, ct);
+                            // Re-fetch sprint items using configured sprints or current iteration
+                            var freshIterations = await ResolveSprintIterationsAsync(ctx.Config.Workspace.Sprints, ct);
+                            if (freshIterations.Count > 0)
+                            {
+                                refreshedSprintItems = await GetSprintItemsFromResolvedIterationsAsync(
+                                    freshIterations, userDisplayName, allUsers: false, ct);
+                            }
                             else
-                                refreshedSprintItems = await workItemRepo.GetByIterationAsync(freshIteration, ct);
+                            {
+                                var freshIteration = await iterationService.GetCurrentIterationAsync(ct);
+                                if (!string.IsNullOrWhiteSpace(userDisplayName))
+                                    refreshedSprintItems = await workItemRepo.GetByIterationAndAssigneeAsync(freshIteration, userDisplayName, ct);
+                                else
+                                    refreshedSprintItems = await workItemRepo.GetByIterationAsync(freshIteration, ct);
+                            }
 
                             // Re-fetch seeds
                             refreshedSeeds = await workItemRepo.GetSeedsAsync(ct);
@@ -186,18 +207,27 @@ public sealed class WorkspaceCommand(
             resolveResult.TryGetWorkItem(out contextItem, out _, out _);
         }
 
-        // Get current iteration items — scoped to user by default, all team items with --all
-        var iteration = await iterationService.GetCurrentIterationAsync();
+        // Get sprint items — use configured sprints when available, else fall back to current iteration
+        var resolvedIterations = await ResolveSprintIterationsAsync(ctx.Config.Workspace.Sprints);
         IReadOnlyList<Domain.Aggregates.WorkItem> sprintItems;
 
         var userDisplayName = ctx.Config.User.DisplayName;
-        if (!all && !string.IsNullOrWhiteSpace(userDisplayName))
+        if (resolvedIterations.Count > 0)
         {
-            sprintItems = await workItemRepo.GetByIterationAndAssigneeAsync(iteration, userDisplayName);
+            sprintItems = await GetSprintItemsFromResolvedIterationsAsync(
+                resolvedIterations, userDisplayName, allUsers: all);
         }
         else
         {
-            sprintItems = await workItemRepo.GetByIterationAsync(iteration);
+            var iteration = await iterationService.GetCurrentIterationAsync();
+            if (!all && !string.IsNullOrWhiteSpace(userDisplayName))
+            {
+                sprintItems = await workItemRepo.GetByIterationAndAssigneeAsync(iteration, userDisplayName);
+            }
+            else
+            {
+                sprintItems = await workItemRepo.GetByIterationAsync(iteration);
+            }
         }
 
         // Get seeds
@@ -287,7 +317,14 @@ public sealed class WorkspaceCommand(
         // Dirty orphans: items with unsaved changes not in sprint/seed scope (EPIC-004)
         if (!all && fmt is not JsonOutputFormatter && fmt is not MinimalOutputFormatter)
         {
-            var workingSet = await workingSetService.ComputeAsync(iteration);
+            // Use resolved iterations for dirty orphan scope; fall back to current iteration
+            IReadOnlyList<IterationPath> orphanIterations = resolvedIterations;
+            if (orphanIterations.Count == 0)
+            {
+                var fallbackIteration = await iterationService.GetCurrentIterationAsync();
+                orphanIterations = [fallbackIteration];
+            }
+            var workingSet = await workingSetService.ComputeAsync(orphanIterations);
             if (workingSet.DirtyItemIds.Count > 0)
             {
                 var sprintItemIds = new HashSet<int>(sprintItems.Select(s => s.Id));
@@ -440,5 +477,59 @@ public sealed class WorkspaceCommand(
         }
 
         return roots.Count > 0 ? roots : null;
+    }
+
+    /// <summary>
+    /// Resolves configured sprint expressions to concrete <see cref="IterationPath"/> values.
+    /// Returns an empty list when no sprints are configured or none resolve successfully.
+    /// </summary>
+    private async Task<IReadOnlyList<IterationPath>> ResolveSprintIterationsAsync(
+        List<SprintEntry>? sprintEntries, CancellationToken ct = default)
+    {
+        if (sprintEntries is null or { Count: 0 })
+            return [];
+
+        var expressions = new List<IterationExpression>(sprintEntries.Count);
+        foreach (var entry in sprintEntries)
+        {
+            var parseResult = IterationExpression.Parse(entry.Expression);
+            if (parseResult.IsSuccess)
+                expressions.Add(parseResult.Value);
+        }
+
+        if (expressions.Count == 0)
+            return [];
+
+        return await sprintIterationResolver.ResolveAllAsync(expressions, ct);
+    }
+
+    /// <summary>
+    /// Fetches work items across all resolved iterations, deduplicated by work item ID.
+    /// When <paramref name="allUsers"/> is <c>false</c> and a display name is available,
+    /// items are scoped to the configured user.
+    /// </summary>
+    private async Task<IReadOnlyList<Domain.Aggregates.WorkItem>> GetSprintItemsFromResolvedIterationsAsync(
+        IReadOnlyList<IterationPath> resolvedIterations,
+        string? userDisplayName,
+        bool allUsers,
+        CancellationToken ct = default)
+    {
+        var seenIds = new HashSet<int>();
+        var result = new List<Domain.Aggregates.WorkItem>();
+
+        foreach (var path in resolvedIterations)
+        {
+            var items = allUsers || string.IsNullOrWhiteSpace(userDisplayName)
+                ? await workItemRepo.GetByIterationAsync(path, ct)
+                : await workItemRepo.GetByIterationAndAssigneeAsync(path, userDisplayName, ct);
+
+            foreach (var item in items)
+            {
+                if (seenIds.Add(item.Id))
+                    result.Add(item);
+            }
+        }
+
+        return result;
     }
 }

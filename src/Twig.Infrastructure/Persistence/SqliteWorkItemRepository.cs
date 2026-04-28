@@ -105,6 +105,27 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         return Task.FromResult<IReadOnlyList<WorkItem>>(items);
     }
 
+    public Task<IReadOnlyList<WorkItem>> GetByIterationsAsync(IReadOnlyList<IterationPath> iterationPaths, CancellationToken ct = default)
+    {
+        if (iterationPaths.Count == 0)
+            return Task.FromResult<IReadOnlyList<WorkItem>>(Array.Empty<WorkItem>());
+
+        var conn = _store.GetConnection();
+        using var cmd = conn.CreateCommand();
+
+        var paramNames = new string[iterationPaths.Count];
+        for (var i = 0; i < iterationPaths.Count; i++)
+        {
+            paramNames[i] = $"@ip{i}";
+            cmd.Parameters.AddWithValue(paramNames[i], iterationPaths[i].Value);
+        }
+
+        cmd.CommandText = $"SELECT * FROM work_items WHERE iteration_path IN ({string.Join(", ", paramNames)});";
+
+        var items = ReadAll(cmd);
+        return Task.FromResult<IReadOnlyList<WorkItem>>(items);
+    }
+
     public Task<IReadOnlyList<WorkItem>> GetByIterationAndAssigneeAsync(IterationPath iterationPath, string assignee, CancellationToken ct = default)
     {
         var conn = _store.GetConnection();

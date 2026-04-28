@@ -6,6 +6,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
+using Twig.Domain.Services;
 using Twig.Domain.Services.Workspace;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
@@ -74,7 +75,8 @@ public class CacheRefreshTests
         new(new CommandContext(pipelineFactory, _formatterFactory, _hintEngine, _config),
             _contextStore, _workItemRepo, _iterationService,
             _processTypeStore, _fieldDefinitionStore,
-            _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder());
+            _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder(),
+            new SprintIterationResolver(_iterationService, _workItemRepo));
 
     // ── IsCacheStale unit tests ─────────────────────────────────────
 

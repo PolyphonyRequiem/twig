@@ -625,4 +625,153 @@ public class RefreshCommandTests : RefreshCommandTestBase
         sw.ToString().ShouldNotContain("Auto-untracked");
     }
 
+    [Fact]
+    public async Task Refresh_WithConfiguredSprints_BuildsOrJoinedIterationWiql()
+    {
+        _config.Workspace.Sprints = new List<SprintEntry>
+        {
+            new() { Expression = "@current" },
+            new() { Expression = "@current-1" }
+        };
+
+        // Override current iteration to Sprint 2 so @current-1 resolves to Sprint 1
+        _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
+            .Returns(IterationPath.Parse("Project\\Sprint 2").Value);
+        _iterationService.GetTeamIterationsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<TeamIteration>
+            {
+                new("Project\\Sprint 1", DateTimeOffset.UtcNow.AddDays(-14), DateTimeOffset.UtcNow.AddDays(-1)),
+                new("Project\\Sprint 2", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(13)),
+            });
+
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+
+        var result = await _cmd.ExecuteAsync();
+
+        result.ShouldBe(0);
+        await _adoService.Received(1).QueryByWiqlAsync(
+            Arg.Is<string>(wiql =>
+                wiql.Contains("([System.IterationPath] = 'Project\\Sprint 2' OR [System.IterationPath] = 'Project\\Sprint 1')") &&
+                wiql.Contains("WHERE")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Refresh_WithSingleConfiguredSprint_BuildsSingleIterationClause()
+    {
+        _config.Workspace.Sprints = new List<SprintEntry>
+        {
+            new() { Expression = "@current" }
+        };
+
+        _iterationService.GetTeamIterationsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<TeamIteration>
+            {
+                new("Project\\Sprint 1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(13)),
+            });
+
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+
+        var result = await _cmd.ExecuteAsync();
+
+        result.ShouldBe(0);
+        await _adoService.Received(1).QueryByWiqlAsync(
+            Arg.Is<string>(wiql =>
+                wiql.Contains("[System.IterationPath] = 'Project\\Sprint 1'") &&
+                !wiql.Contains(" OR ") &&
+                wiql.Contains("WHERE")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Refresh_WithEmptySprintsConfig_SkipsIterationClause()
+    {
+        _config.Workspace.Sprints = new List<SprintEntry>();
+
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+
+        var result = await _cmd.ExecuteAsync();
+
+        result.ShouldBe(0);
+        await _adoService.Received(1).QueryByWiqlAsync(
+            Arg.Is<string>(wiql => !wiql.Contains("IterationPath")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Refresh_WithNullSprintsConfig_SkipsIterationClause()
+    {
+        _config.Workspace.Sprints = null;
+
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+
+        var result = await _cmd.ExecuteAsync();
+
+        result.ShouldBe(0);
+        await _adoService.Received(1).QueryByWiqlAsync(
+            Arg.Is<string>(wiql => !wiql.Contains("IterationPath")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Refresh_WithSprintsAndAreaPaths_CombinesBothClauses()
+    {
+        _config.Workspace.Sprints = new List<SprintEntry>
+        {
+            new() { Expression = "@current" }
+        };
+        _config.Defaults.AreaPathEntries = new List<AreaPathEntry>
+        {
+            new() { Path = "MyProject\\TeamA", IncludeChildren = true }
+        };
+
+        _iterationService.GetTeamIterationsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<TeamIteration>
+            {
+                new("Project\\Sprint 1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(13)),
+            });
+
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+
+        var result = await _cmd.ExecuteAsync();
+
+        result.ShouldBe(0);
+        await _adoService.Received(1).QueryByWiqlAsync(
+            Arg.Is<string>(wiql =>
+                wiql.Contains("[System.IterationPath] = 'Project\\Sprint 1'") &&
+                wiql.Contains("[System.AreaPath] UNDER 'MyProject\\TeamA'") &&
+                wiql.Contains(" AND ")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Refresh_WithSprintContainingQuote_EscapesInWiql()
+    {
+        _config.Workspace.Sprints = new List<SprintEntry>
+        {
+            new() { Expression = "Project\\Sprint's 1" }
+        };
+
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+
+        var result = await _cmd.ExecuteAsync();
+
+        result.ShouldBe(0);
+        await _adoService.Received(1).QueryByWiqlAsync(
+            Arg.Is<string>(wiql => wiql.Contains("[System.IterationPath] = 'Project\\Sprint''s 1'")),
+            Arg.Any<CancellationToken>());
+    }
+
 }

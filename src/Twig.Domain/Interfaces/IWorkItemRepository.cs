@@ -14,6 +14,7 @@ public interface IWorkItemRepository
     Task<IReadOnlyList<WorkItem>> GetChildrenAsync(int parentId, CancellationToken ct = default);
     Task<IReadOnlyList<WorkItem>> GetRootItemsAsync(CancellationToken ct = default);
     Task<IReadOnlyList<WorkItem>> GetByIterationAsync(IterationPath iterationPath, CancellationToken ct = default);
+    Task<IReadOnlyList<WorkItem>> GetByIterationsAsync(IReadOnlyList<IterationPath> iterationPaths, CancellationToken ct = default);
     Task<IReadOnlyList<WorkItem>> GetByIterationAndAssigneeAsync(IterationPath iterationPath, string assignee, CancellationToken ct = default);
     Task<IReadOnlyList<WorkItem>> GetParentChainAsync(int id, CancellationToken ct = default);
     Task<IReadOnlyList<WorkItem>> FindByPatternAsync(string pattern, CancellationToken ct = default);

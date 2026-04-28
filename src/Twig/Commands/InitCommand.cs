@@ -69,10 +69,10 @@ public sealed class InitCommand
         _telemetryClient = telemetryClient;
     }
 
-    public async Task<int> ExecuteAsync(string org, string project, string? team = null, string? gitProject = null, bool force = false, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    public async Task<int> ExecuteAsync(string org, string project, string? team = null, string? gitProject = null, bool force = false, string outputFormat = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, CancellationToken ct = default)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
-        var (exitCode, hadGlobalProfile, fieldCount) = await ExecuteCoreAsync(org, project, team, gitProject, force, outputFormat, ct);
+        var (exitCode, hadGlobalProfile, fieldCount) = await ExecuteCoreAsync(org, project, team, gitProject, force, outputFormat, sprint, area, ct);
         _telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
         {
             ["command"] = "init",
@@ -89,7 +89,7 @@ public sealed class InitCommand
         return exitCode;
     }
 
-    private async Task<(int ExitCode, bool HadGlobalProfile, int FieldCount)> ExecuteCoreAsync(string org, string project, string? team, string? gitProject, bool force, string outputFormat, CancellationToken ct)
+    private async Task<(int ExitCode, bool HadGlobalProfile, int FieldCount)> ExecuteCoreAsync(string org, string project, string? team, string? gitProject, bool force, string outputFormat, string? sprint, string? area, CancellationToken ct)
     {
         var fmt = _formatterFactory.GetFormatter(outputFormat);
         var telemetryHadGlobalProfile = false;
@@ -189,6 +189,8 @@ public sealed class InitCommand
         var iterationService = _iterationService
             ?? new AdoIterationService(_httpClient!, _authProvider!, org, project, effectiveTeam);
 
+        var isInteractive = _consoleInput is not null && !_consoleInput.IsOutputRedirected;
+
         var template = await iterationService.DetectTemplateNameAsync();
         config.ProcessTemplate = template ?? string.Empty;
 
@@ -207,26 +209,31 @@ public sealed class InitCommand
         config.TypeAppearances = typeAppearances;
         Console.WriteLine(fmt.FormatInfo($"  Loaded {appearances.Count} type appearance(s)."));
 
-        Console.WriteLine(fmt.FormatInfo("Fetching team area paths..."));
-        try
+        // DD-8/FR-17: Only auto-detect area paths in interactive mode.
+        // Non-interactive init starts empty; use --area flag for explicit config.
+        if (isInteractive)
         {
-            var areaPaths = await iterationService.GetTeamAreaPathsAsync();
-            if (areaPaths.Count > 0)
+            Console.WriteLine(fmt.FormatInfo("Fetching team area paths..."));
+            try
             {
-                config.Defaults.AreaPathEntries = areaPaths
-                    .Select(ap => new AreaPathEntry { Path = ap.Path, IncludeChildren = ap.IncludeChildren })
-                    .ToList();
-                // Also populate AreaPaths for backward compatibility
-                config.Defaults.AreaPaths = areaPaths.Select(ap => ap.Path).ToList();
-                foreach (var ap in areaPaths)
-                    Console.WriteLine(fmt.FormatInfo($"  Area path: {ap.Path}{(ap.IncludeChildren ? " (include children)" : "")}"));
+                var areaPaths = await iterationService.GetTeamAreaPathsAsync();
+                if (areaPaths.Count > 0)
+                {
+                    config.Defaults.AreaPathEntries = areaPaths
+                        .Select(ap => new AreaPathEntry { Path = ap.Path, IncludeChildren = ap.IncludeChildren })
+                        .ToList();
+                    // Also populate AreaPaths for backward compatibility
+                    config.Defaults.AreaPaths = areaPaths.Select(ap => ap.Path).ToList();
+                    foreach (var ap in areaPaths)
+                        Console.WriteLine(fmt.FormatInfo($"  Area path: {ap.Path}{(ap.IncludeChildren ? " (include children)" : "")}"));
+                }
             }
-        }
-        catch (Exception ex) when (ex is Twig.Infrastructure.Ado.Exceptions.AdoNotFoundException
-                                     or Twig.Infrastructure.Ado.Exceptions.AdoException)
-        {
-            Console.WriteLine(fmt.FormatInfo($"  \u26a0 Could not detect team area paths: {ex.Message}"));
-            Console.WriteLine(fmt.FormatHint("You can set it later with: twig config defaults.areapaths 'Path1;Path2'"));
+            catch (Exception ex) when (ex is Twig.Infrastructure.Ado.Exceptions.AdoNotFoundException
+                                         or Twig.Infrastructure.Ado.Exceptions.AdoException)
+            {
+                Console.WriteLine(fmt.FormatInfo($"  \u26a0 Could not detect team area paths: {ex.Message}"));
+                Console.WriteLine(fmt.FormatHint("You can set it later with: twig config defaults.areapaths 'Path1;Path2'"));
+            }
         }
 
         Console.WriteLine(fmt.FormatInfo("Getting current iteration..."));
@@ -265,12 +272,102 @@ public sealed class InitCommand
         }
 
         // Prompt for workspace mode (TTY only; default to sprint in non-TTY)
-        if (_consoleInput is not null && !_consoleInput.IsOutputRedirected)
+        if (isInteractive)
         {
             Console.Write("Default workspace mode? [sprint/workspace] (sprint): ");
-            var modeResponse = _consoleInput.ReadLine()?.Trim().ToLowerInvariant();
+            var modeResponse = _consoleInput!.ReadLine()?.Trim().ToLowerInvariant();
             if (modeResponse is "workspace")
                 config.Defaults.Mode = "workspace";
+        }
+
+        // Prompt for workspace sources (TTY only; skip if --sprint or --area flags provided)
+        if (isInteractive
+            && string.IsNullOrWhiteSpace(sprint) && string.IsNullOrWhiteSpace(area))
+        {
+            Console.WriteLine("Workspace sources \u2014 what should be included in your workspace?");
+            Console.WriteLine("  1. Sprint only (@Current)");
+            Console.WriteLine("  2. Area paths only (sync from team)");
+            Console.WriteLine("  3. Both sprint and area paths");
+            Console.WriteLine("  4. Neither (start empty, configure later)");
+            Console.Write("Choose [1-4] (4): ");
+            var prefResponse = _consoleInput!.ReadLine()?.Trim();
+
+            switch (prefResponse)
+            {
+                case "1": // Sprint only
+                    config.Workspace.Sprints = [new SprintEntry { Expression = "@current" }];
+                    config.Defaults.AreaPathEntries = [];
+                    config.Defaults.AreaPaths = [];
+                    Console.WriteLine(fmt.FormatInfo("  Sprint: @current"));
+                    break;
+                case "2": // Area paths only — keep auto-detected areas
+                    Console.WriteLine(fmt.FormatInfo("  Keeping team area paths"));
+                    break;
+                case "3": // Both
+                    config.Workspace.Sprints = [new SprintEntry { Expression = "@current" }];
+                    Console.WriteLine(fmt.FormatInfo("  Sprint: @current"));
+                    Console.WriteLine(fmt.FormatInfo("  Keeping team area paths"));
+                    break;
+                default: // "4" or any other input → Neither (start empty)
+                    config.Defaults.AreaPathEntries = [];
+                    config.Defaults.AreaPaths = [];
+                    Console.WriteLine(fmt.FormatInfo("  Starting empty \u2014 configure later with workspace commands"));
+                    break;
+            }
+        }
+
+        // --sprint flag: add sprint expressions to workspace.sprints[]
+        if (!string.IsNullOrWhiteSpace(sprint))
+        {
+            var expressions = sprint.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var sprintEntries = new List<SprintEntry>();
+            foreach (var expr in expressions)
+            {
+                var parsed = IterationExpression.Parse(expr);
+                if (!parsed.IsSuccess)
+                {
+                    Console.Error.WriteLine(fmt.FormatError($"Invalid sprint expression '{expr}': {parsed.Error}"));
+                    return (1, telemetryHadGlobalProfile, 0);
+                }
+                sprintEntries.Add(new SprintEntry { Expression = expr });
+            }
+            config.Workspace.Sprints = sprintEntries;
+            foreach (var entry in sprintEntries)
+                Console.WriteLine(fmt.FormatInfo($"  Sprint: {entry.Expression}"));
+        }
+
+        // --area flag: add area path entries to defaults.areapathentries[]
+        if (!string.IsNullOrWhiteSpace(area))
+        {
+            var areaParts = area.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var areaEntries = new List<AreaPathEntry>();
+            foreach (var raw in areaParts)
+            {
+                string pathPart;
+                bool includeChildren;
+                if (raw.EndsWith(":exact", StringComparison.OrdinalIgnoreCase))
+                {
+                    pathPart = raw[..^":exact".Length];
+                    includeChildren = false;
+                }
+                else
+                {
+                    pathPart = raw;
+                    includeChildren = true;
+                }
+
+                var parsed = AreaPath.Parse(pathPart);
+                if (!parsed.IsSuccess)
+                {
+                    Console.Error.WriteLine(fmt.FormatError($"Invalid area path '{pathPart}': {parsed.Error}"));
+                    return (1, telemetryHadGlobalProfile, 0);
+                }
+                areaEntries.Add(new AreaPathEntry { Path = pathPart, IncludeChildren = includeChildren });
+            }
+            config.Defaults.AreaPathEntries = areaEntries;
+            config.Defaults.AreaPaths = areaEntries.Select(e => e.Path).ToList();
+            foreach (var entry in areaEntries)
+                Console.WriteLine(fmt.FormatInfo($"  Area: {entry.Path}{(entry.IncludeChildren ? "" : " (exact)")}"));
         }
 
         await config.SaveAsync(configPath);
@@ -360,8 +457,13 @@ public sealed class InitCommand
         // SEC-001: Append .twig/ to .gitignore
         AppendToGitignore();
 
-        // Inline refresh: populate the cache with sprint items so the workspace isn't empty after init
-        if (currentIteration is not null && _httpClient is not null && _authProvider is not null)
+        // DD-8/FR-17: Only inline-refresh when workspace has configured sources.
+        // Non-interactive init with no flags starts empty; interactive "Neither" also skips.
+        var hasConfiguredSources = (config.Workspace.Sprints is { Count: > 0 }) ||
+                                   config.Defaults.ResolveAreaPaths() is not null;
+
+        // Inline refresh: populate the cache with sprint items when workspace sources exist
+        if (hasConfiguredSources && _httpClient is not null && _authProvider is not null)
         {
             try
             {
@@ -370,9 +472,36 @@ public sealed class InitCommand
                 var workItemRepo = new Infrastructure.Persistence.SqliteWorkItemRepository(cacheStore, new WorkItemMapper());
                 var contextStore = new Infrastructure.Persistence.SqliteContextStore(cacheStore);
 
-                // Build WIQL query scoped to current iteration + area paths
-                var sanitizedPath = currentIteration.Value.Value.Replace("'", "''");
-                var wiql = $"SELECT [System.Id] FROM WorkItems WHERE [System.IterationPath] = '{sanitizedPath}'";
+                // Resolve configured sprint expressions to concrete iteration paths
+                var sprintEntries = config.Workspace.Sprints;
+                IReadOnlyList<IterationPath> resolvedIterations = [];
+                if (sprintEntries is { Count: > 0 })
+                {
+                    var sprintResolver = new SprintIterationResolver(iterationService, workItemRepo);
+                    var expressions = new List<IterationExpression>(sprintEntries.Count);
+                    foreach (var entry in sprintEntries)
+                    {
+                        var parseResult = IterationExpression.Parse(entry.Expression);
+                        if (parseResult.IsSuccess)
+                            expressions.Add(parseResult.Value);
+                    }
+                    if (expressions.Count > 0)
+                        resolvedIterations = await sprintResolver.ResolveAllAsync(expressions, ct);
+                }
+
+                // Build WIQL with multi-sprint OR-joined iteration clauses
+                var wiql = "SELECT [System.Id] FROM WorkItems";
+                var whereClauses = new List<string>();
+
+                if (resolvedIterations.Count > 0)
+                {
+                    var iterationClauses = resolvedIterations
+                        .Select(ip => $"[System.IterationPath] = '{ip.Value.Replace("'", "''")}'");
+                    var joined = string.Join(" OR ", iterationClauses);
+                    whereClauses.Add(resolvedIterations.Count == 1 ? joined : $"({joined})");
+                }
+
+                // Build area path filter: prefer AreaPathEntries (with IncludeChildren), fall back to AreaPaths
                 var areaPathEntries = config.Defaults?.AreaPathEntries;
                 if (areaPathEntries is { Count: > 0 })
                 {
@@ -383,7 +512,9 @@ public sealed class InitCommand
                             var op = entry.IncludeChildren ? "UNDER" : "=";
                             return $"[System.AreaPath] {op} '{escaped}'";
                         });
-                    wiql += $" AND ({string.Join(" OR ", clauses)})";
+                    whereClauses.Add(areaPathEntries.Count == 1
+                        ? clauses.First()
+                        : $"({string.Join(" OR ", clauses)})");
                 }
                 else
                 {
@@ -392,26 +523,41 @@ public sealed class InitCommand
                     {
                         var clauses = areaPaths
                             .Select(ap => $"[System.AreaPath] UNDER '{ap.Replace("'", "''")}'");
-                        wiql += $" AND ({string.Join(" OR ", clauses)})";
+                        whereClauses.Add(areaPaths.Count == 1
+                            ? clauses.First()
+                            : $"({string.Join(" OR ", clauses)})");
                     }
+                }
+
+                if (whereClauses.Count > 0)
+                {
+                    wiql += " WHERE " + string.Join(" AND ", whereClauses);
                 }
                 wiql += " ORDER BY [System.Id]";
 
-                var ids = await adoClient.QueryByWiqlAsync(wiql);
-                var realIds = ids.Where(id => id > 0).ToList();
-                if (realIds.Count > 0)
+                // Skip query when no WHERE clauses were generated (all expressions failed to resolve)
+                if (whereClauses.Count == 0)
                 {
-                    var sprintItems = await adoClient.FetchBatchAsync(realIds, ct);
-                    await workItemRepo.SaveBatchAsync(sprintItems);
-                    Console.WriteLine(fmt.FormatInfo($"  Cached {sprintItems.Count} sprint item(s)."));
+                    Console.WriteLine(fmt.FormatInfo("  No iterations or area paths resolved — skipping refresh."));
                 }
                 else
                 {
-                    Console.WriteLine(fmt.FormatInfo("  No items found in current iteration."));
-                }
+                    var ids = await adoClient.QueryByWiqlAsync(wiql);
+                    var realIds = ids.Where(id => id > 0).ToList();
+                    if (realIds.Count > 0)
+                    {
+                        var sprintItems = await adoClient.FetchBatchAsync(realIds, ct);
+                        await workItemRepo.SaveBatchAsync(sprintItems);
+                        Console.WriteLine(fmt.FormatInfo($"  Cached {sprintItems.Count} sprint item(s)."));
+                    }
+                    else
+                    {
+                        Console.WriteLine(fmt.FormatInfo("  No items found in configured iterations."));
+                    }
 
-                // Set cache freshness timestamp
-                await contextStore.SetValueAsync("last_refreshed_at", DateTimeOffset.UtcNow.ToString("O"));
+                    // Set cache freshness timestamp
+                    await contextStore.SetValueAsync("last_refreshed_at", DateTimeOffset.UtcNow.ToString("O"));
+                }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {

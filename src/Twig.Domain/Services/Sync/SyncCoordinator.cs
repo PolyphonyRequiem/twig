@@ -196,6 +196,76 @@ public sealed class SyncCoordinator
     }
 
     /// <summary>
+    /// Walks the parent chain from <paramref name="rootId"/> upward, fetching each ancestor
+    /// from ADO and saving through the protected cache writer. Stops when an item has no
+    /// parent or when a cycle is detected. If the <paramref name="rootId"/> item is already
+    /// in the cache, its <see cref="WorkItem.ParentId"/> is read locally; otherwise the item
+    /// is fetched from ADO first.
+    /// </summary>
+    public async Task<SyncResult> SyncParentChainAsync(int rootId, CancellationToken ct = default)
+    {
+        try
+        {
+            var visited = new HashSet<int> { rootId };
+            var fetched = new List<WorkItem>();
+
+            var root = await _workItemRepo.GetByIdAsync(rootId, ct);
+            int? nextId;
+
+            if (root is not null)
+            {
+                nextId = root.ParentId;
+            }
+            else
+            {
+                var item = await _adoService.FetchAsync(rootId, ct);
+                fetched.Add(item);
+                nextId = item.ParentId;
+            }
+
+            while (nextId is > 0 && visited.Add(nextId.Value))
+            {
+                var parent = await _adoService.FetchAsync(nextId.Value, ct);
+                fetched.Add(parent);
+                nextId = parent.ParentId;
+            }
+
+            if (fetched.Count == 0) return new SyncResult.UpToDate();
+
+            var skippedIds = await _protectedCacheWriter.SaveBatchProtectedAsync(fetched, ct);
+            var savedCount = fetched.Count - skippedIds.Count;
+            return new SyncResult.Updated(savedCount);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return new SyncResult.Failed(ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Syncs the non-hierarchy link targets for a root item. Fetches fresh links from ADO
+    /// (storing them in <c>work_item_links</c> via <see cref="SyncLinksAsync"/>), then
+    /// materializes each link target via <see cref="SyncItemSetAsync"/>.
+    /// Link targets are fetched one level deep only — no further recursion.
+    /// </summary>
+    public async Task<SyncResult> SyncRootLinksAsync(int rootId, CancellationToken ct = default)
+    {
+        try
+        {
+            var links = await SyncLinksAsync(rootId, ct);
+
+            if (links.Count == 0) return new SyncResult.UpToDate();
+
+            var targetIds = links.Select(l => l.TargetId).Distinct().ToList();
+            return await SyncItemSetAsync(targetIds, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return new SyncResult.Failed(ex.Message);
+        }
+    }
+
+    /// <summary>
     /// Fetches a work item with its non-hierarchy links from ADO, persists both,
     /// and returns the links. Requires <see cref="IWorkItemLinkRepository"/> to be
     /// provided via the 5-parameter constructor.

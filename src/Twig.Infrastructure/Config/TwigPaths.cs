@@ -27,6 +27,9 @@ public sealed class TwigPaths
     /// <summary>Path to the status-fields configuration file: <c>.twig/status-fields</c>.</summary>
     public string StatusFieldsPath => Path.Combine(TwigDir, "status-fields");
 
+    /// <summary>Path to the tracking file: <c>.twig/tracking.json</c>.</summary>
+    public string TrackingFilePath => Path.Combine(TwigDir, "tracking.json");
+
     public TwigPaths(string twigDir, string configPath, string dbPath, string? startDir = null)
     {
         TwigDir = twigDir;

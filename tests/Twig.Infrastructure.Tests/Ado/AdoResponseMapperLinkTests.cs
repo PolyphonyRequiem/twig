@@ -12,7 +12,7 @@ namespace Twig.Infrastructure.Tests.Ado;
 /// <see cref="AdoResponseMapper.MapToSnapshotWithLinks"/>.
 /// No network calls — all DTOs constructed manually.
 /// </summary>
-public class AdoResponseMapperLinkTests
+public sealed class AdoResponseMapperLinkTests
 {
     // ── ExtractNonHierarchyLinks ─────────────────────────────────────
 

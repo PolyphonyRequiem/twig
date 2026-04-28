@@ -14,7 +14,7 @@ namespace Twig.Infrastructure.Tests.Ado;
 /// Unit tests for <see cref="AdoResponseMapper"/>.
 /// No network calls — all DTOs constructed manually.
 /// </summary>
-public class AdoResponseMapperTests
+public sealed class AdoResponseMapperTests
 {
     // ── MapToSnapshot ──────────────────────────────────────────────────
 
@@ -504,6 +504,19 @@ public class AdoResponseMapperTests
         var result = AdoResponseMapper.MergeTwigTag(existing, tag);
 
         result.ShouldBe(expected);
+    }
+
+    [Fact]
+    public void MapToSnapshot_DefaultSeedProperties()
+    {
+        var dto = CreateWorkItemDto(id: 1, rev: 1, type: "Task", title: "Test", state: "New");
+
+        var result = AdoResponseMapper.MapToSnapshot(dto);
+
+        result.IsSeed.ShouldBeFalse();
+        result.SeedCreatedAt.ShouldBeNull();
+        result.LastSyncedAt.ShouldBeNull();
+        result.IsDirty.ShouldBeFalse();
     }
 
     // ── Field Import Loop (MapToSnapshot with field population) ────────

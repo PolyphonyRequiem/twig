@@ -1,5 +1,6 @@
 using Shouldly;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Persistence;
 using Twig.TestKit;
@@ -19,7 +20,7 @@ public class SqliteWorkItemRepositoryTests : IDisposable
     public SqliteWorkItemRepositoryTests()
     {
         _store = new SqliteCacheStore("Data Source=:memory:");
-        _repo = new SqliteWorkItemRepository(_store);
+        _repo = new SqliteWorkItemRepository(_store, new WorkItemMapper());
     }
 
     public void Dispose() => _store.Dispose();
@@ -337,14 +338,14 @@ public class SqliteWorkItemRepositoryTests : IDisposable
         {
             // Create the database and seed one item that the reader will query
             using var writerStore = new SqliteCacheStore($"Data Source={dbPath}");
-            var writerRepo = new SqliteWorkItemRepository(writerStore);
+            var writerRepo = new SqliteWorkItemRepository(writerStore, new WorkItemMapper());
 
             var seedItem = CreateWorkItem(999, "Task", "Seed Item", "Active");
             await writerRepo.SaveAsync(seedItem);
 
             // Create a second connection for reading (simulates concurrent access)
             using var readerStore = new SqliteCacheStore($"Data Source={dbPath}");
-            var readerRepo = new SqliteWorkItemRepository(readerStore);
+            var readerRepo = new SqliteWorkItemRepository(readerStore, new WorkItemMapper());
 
             // Prepare a large batch for the writer
             var largeBatch = Enumerable.Range(1, 100)
@@ -403,7 +404,7 @@ public class SqliteWorkItemRepositoryTests : IDisposable
         try
         {
             using var store = new SqliteCacheStore($"Data Source={dbPath}");
-            var repo = new SqliteWorkItemRepository(store);
+            var repo = new SqliteWorkItemRepository(store, new WorkItemMapper());
 
             // Add a trigger that rejects inserts for item with id=7
             var conn = store.GetConnection();

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.Services.Process;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.Services.Sync;
@@ -81,7 +82,7 @@ public static class TwigServiceRegistration
             return new SqliteCacheStore($"Data Source={paths.DbPath}");
         });
 
-        services.AddSingleton<IWorkItemRepository>(sp => new SqliteWorkItemRepository(sp.GetRequiredService<SqliteCacheStore>()));
+        services.AddSingleton<IWorkItemRepository>(sp => new SqliteWorkItemRepository(sp.GetRequiredService<SqliteCacheStore>(), new WorkItemMapper()));
         services.AddSingleton<IContextStore>(sp => new SqliteContextStore(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<INavigationHistoryStore>(sp => new SqliteNavigationHistoryStore(sp.GetRequiredService<SqliteCacheStore>()));
         services.AddSingleton<IPendingChangeStore>(sp => new SqlitePendingChangeStore(sp.GetRequiredService<SqliteCacheStore>()));

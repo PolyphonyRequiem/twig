@@ -133,18 +133,43 @@ and the "where does this go?" problem grows with every addition.
 
 **Severity**: Medium | **Blast Radius**: Multiple orchestrators + commands
 
-Five orchestrator/coordinator patterns exist with overlapping dependency subsets:
-`SyncCoordinator`, `SyncCoordinatorPair`, `RefreshOrchestrator`,
-`StatusOrchestrator`, `SeedPublishOrchestrator`. `StatusOrchestrator` duplicates
-logic already in `ActiveItemResolver`. `SyncCoordinatorPair` is just two
-instances with different `int` config.
+Five orchestrator/coordinator patterns existed with overlapping dependency subsets.
+An audit was performed in April 2026 to evaluate each one for consolidation,
+removal, or retention.
+
+### Resolved
+
+- **`StatusOrchestrator`** — Absorbed into `ContextTools.Status()` as inline
+  logic. The orchestrator was a thin wrapper that duplicated resolution already
+  available in `ActiveItemResolver`. `StatusSnapshot` is retained as a
+  standalone DTO in `Services/Workspace/StatusSnapshot.cs`.
+- **`SyncCoordinatorFactory`** — Renamed to `SyncCoordinatorPair` to accurately
+  reflect its pair-holder semantics. The original name implied a factory pattern
+  that did not match the actual behavior (holding two pre-configured
+  `SyncCoordinator` instances).
+
+### Retained (with rationale)
+
+- **`SyncCoordinator`** — 211 lines, 6 dependencies, 20+ call sites.
+  Load-bearing cache/ADO sync infrastructure with no consolidation target.
+  Its broad usage and distinct responsibility (bidirectional sync lifecycle)
+  make it unsuitable for inlining or merging.
+- **`RefreshOrchestrator`** — 193 lines, 9 dependencies, 1 consumer
+  (`RefreshCommand`). Manages the full refresh lifecycle: WIQL fetch, conflict
+  resolution, and ancestor hydration. Substantial logic with clean 1:1
+  command delegation — not a thin wrapper.
+- **`SeedPublishOrchestrator`** — 245 lines, 8 dependencies, 1 consumer
+  (`SeedPublishCommand`). Handles transactional seed publish with topological
+  ordering. Complex enough to justify its own orchestration boundary.
+- **`SeedReconcileOrchestrator`** — 110 lines, 3 dependencies, 1 consumer
+  (`SeedReconcileCommand`). Performs orphan detection and stale link repair.
+  Appropriate scope with no overlap with other services.
 
 ### Containment Practices
 
-- Audit each orchestrator's actual call sites before merging or removing.
-- `StatusOrchestrator` may be absorbable into `ActiveItemResolver` + the command.
-- `SyncCoordinatorPair` is arguably fine as-is (it's simple); the critique is
-  about naming, not functionality.
+- Future orchestrator additions should follow the pattern established by the
+  retained orchestrators: substantial logic, clean 1:1 command delegation,
+  and no overlap with existing services.
 - Do not consolidate orchestrators in the same PR as behavioral changes.
 
 ---
@@ -250,6 +275,6 @@ methods on a read model. Read models should be inert projections.
 6. **Item 1** (WorkItem consolidation) — high impact, needs care
 7. **Item 5** (Service folder structure) — namespace-only
 8. **Item 7** (Result type convention) — incremental
-9. **Item 6** (Orchestrator audit) — after services reorganized
+9. **Item 6** (Orchestrator audit) — ✅ completed April 2026
 10. **Item 8** (Command bloat) — after orchestrator cleanup
 11. **Item 9** (DTO boundary) — last, highest risk

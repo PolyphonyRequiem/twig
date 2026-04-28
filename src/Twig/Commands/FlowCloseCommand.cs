@@ -6,7 +6,6 @@ using Twig.Domain.Services.Process;
 using Twig.Domain.Services.Sync;
 using Twig.Formatters;
 using Twig.Infrastructure.Ado;
-using Twig.Infrastructure.Config;
 
 namespace Twig.Commands;
 
@@ -15,11 +14,10 @@ namespace Twig.Commands;
 /// transitions to Completed, deletes the local branch, and clears the active context.
 /// </summary>
 public sealed class FlowCloseCommand(
+    CommandContext ctx,
     IContextStore contextStore,
     IPendingChangeStore pendingChangeStore,
     IConsoleInput consoleInput,
-    OutputFormatterFactory formatterFactory,
-    TwigConfiguration config,
     FlowTransitionService flowTransitionService,
     IWorkItemRepository workItemRepo,
     IAdoWorkItemService adoService,
@@ -36,7 +34,7 @@ public sealed class FlowCloseCommand(
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
     {
-        var fmt = formatterFactory.GetFormatter(outputFormat);
+        var fmt = ctx.FormatterFactory.GetFormatter(outputFormat);
 
         // 1. Resolve target via FlowTransitionService
         var resolveResult = await flowTransitionService.ResolveItemAsync(id, ct);
@@ -198,7 +196,7 @@ public sealed class FlowCloseCommand(
                 else
                 {
                     currentBranch ??= await gitService.GetCurrentBranchAsync();
-                    var defaultTarget = config.Git.DefaultTarget;
+                    var defaultTarget = ctx.Config.Git.DefaultTarget;
 
                     // Only delete if not already on the default branch
                     if (!string.Equals(currentBranch, defaultTarget, StringComparison.OrdinalIgnoreCase))

@@ -16,20 +16,17 @@ namespace Twig.Commands;
 /// to <see cref="RefreshOrchestrator"/>, then runs post-refresh metadata and UI updates.
 /// </summary>
 public sealed class RefreshCommand(
+    CommandContext ctx,
     IContextStore contextStore,
     IIterationService iterationService,
-    TwigConfiguration config,
     TwigPaths paths,
     IProcessTypeStore processTypeStore,
     IFieldDefinitionStore fieldDefinitionStore,
-    OutputFormatterFactory formatterFactory,
     RefreshOrchestrator orchestrator,
     IGlobalProfileStore? globalProfileStore = null,
-    IPromptStateWriter? promptStateWriter = null,
-    ITelemetryClient? telemetryClient = null,
-    TextWriter? stderr = null)
+    IPromptStateWriter? promptStateWriter = null)
 {
-    private readonly TextWriter _stderr = stderr ?? Console.Error;
+    private readonly TextWriter _stderr = ctx.StderrWriter;
 
     /// <summary>Refresh the local cache from Azure DevOps.</summary>
     /// <param name="outputFormat">Output format: human, json, or minimal.</param>
@@ -38,25 +35,15 @@ public sealed class RefreshCommand(
     {
         var startTimestamp = Stopwatch.GetTimestamp();
         var (exitCode, itemCount, hashChanged) = await ExecuteCoreAsync(outputFormat, force, ct);
-        telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
-        {
-            ["command"] = "refresh",
-            ["exit_code"] = exitCode.ToString(),
-            ["output_format"] = outputFormat,
-            ["twig_version"] = VersionHelper.GetVersion(),
-            ["os_platform"] = System.Runtime.InteropServices.RuntimeInformation.OSDescription,
-            ["hash_changed"] = hashChanged.ToString()
-        }, new Dictionary<string, double>
-        {
-            ["duration_ms"] = Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds,
-            ["item_count"] = itemCount
-        });
+        TelemetryHelper.TrackCommand(ctx.TelemetryClient, "refresh", outputFormat, exitCode, startTimestamp,
+            extraProperties: new Dictionary<string, string> { ["hash_changed"] = hashChanged.ToString() },
+            extraMetrics: new Dictionary<string, double> { ["item_count"] = itemCount });
         return exitCode;
     }
 
     private async Task<(int ExitCode, int ItemCount, bool HashChanged)> ExecuteCoreAsync(string outputFormat, bool force, CancellationToken ct)
     {
-        var fmt = formatterFactory.GetFormatter(outputFormat);
+        var fmt = ctx.FormatterFactory.GetFormatter(outputFormat);
         var telemetryItemCount = 0;
         var telemetryHashChanged = false;
 
@@ -72,7 +59,7 @@ public sealed class RefreshCommand(
         var wiql = $"SELECT [System.Id] FROM WorkItems WHERE [System.IterationPath] = '{sanitizedPath}'";
 
         // Build area path filter: prefer AreaPathEntries (with IncludeChildren), fall back to AreaPaths/AreaPath
-        var areaPathEntries = config.Defaults?.AreaPathEntries;
+        var areaPathEntries = ctx.Config.Defaults?.AreaPathEntries;
         if (areaPathEntries is { Count: > 0 })
         {
             var clauses = areaPathEntries
@@ -86,10 +73,10 @@ public sealed class RefreshCommand(
         }
         else
         {
-            var areaPaths = config.Defaults?.AreaPaths;
+            var areaPaths = ctx.Config.Defaults?.AreaPaths;
             if (areaPaths is null || areaPaths.Count == 0)
             {
-                var singlePath = config.Defaults?.AreaPath;
+                var singlePath = ctx.Config.Defaults?.AreaPath;
                 if (!string.IsNullOrWhiteSpace(singlePath))
                     areaPaths = [singlePath];
             }
@@ -132,7 +119,7 @@ public sealed class RefreshCommand(
         await orchestrator.SyncTrackedTreesAsync(ct);
 
         // Apply cleanup policy after tree sync — parse kebab-case config string to enum
-        var policyStr = config.Tracking.CleanupPolicy.Replace("-", "");
+        var policyStr = ctx.Config.Tracking.CleanupPolicy.Replace("-", "");
         if (Enum.TryParse<Twig.Domain.Enums.TrackingCleanupPolicy>(policyStr, ignoreCase: true, out var cleanupPolicy))
         {
             var removed = await orchestrator.ApplyCleanupPolicyAsync(cleanupPolicy, ct);
@@ -144,14 +131,14 @@ public sealed class RefreshCommand(
         await orchestrator.SyncWorkingSetAsync(iteration, ct);
 
         // Refresh user display name if not yet set
-        if (string.IsNullOrWhiteSpace(config.User.DisplayName))
+        if (string.IsNullOrWhiteSpace(ctx.Config.User.DisplayName))
         {
             try
             {
                 var displayName = await iterationService.GetAuthenticatedUserDisplayNameAsync();
                 if (!string.IsNullOrWhiteSpace(displayName))
                 {
-                    config.User.DisplayName = displayName;
+                    ctx.Config.User.DisplayName = displayName;
                     Console.WriteLine(fmt.FormatInfo($"  User: {displayName}"));
                 }
             }
@@ -163,10 +150,10 @@ public sealed class RefreshCommand(
 
         // Fetch and persist type appearances (always, regardless of work item count)
         var appearances = await iterationService.GetWorkItemTypeAppearancesAsync();
-        config.TypeAppearances = appearances
+        ctx.Config.TypeAppearances = appearances
             .Select(a => new TypeAppearanceConfig { Name = a.Name, Color = a.Color ?? string.Empty, IconId = a.IconId })
             .ToList();
-        await config.SaveAsync(paths.ConfigPath);
+        await ctx.Config.SaveAsync(paths.ConfigPath);
 
         // Sync process types and field definitions concurrently (FR-5)
         await Task.WhenAll(
@@ -181,7 +168,7 @@ public sealed class RefreshCommand(
         }
 
         // Update global profile metadata with current field definition hash
-        if (globalProfileStore is not null && !string.IsNullOrWhiteSpace(config.ProcessTemplate))
+        if (globalProfileStore is not null && !string.IsNullOrWhiteSpace(ctx.Config.ProcessTemplate))
         {
             try
             {
@@ -190,7 +177,7 @@ public sealed class RefreshCommand(
                 {
                     var currentHash = FieldDefinitionHasher.ComputeFieldHash(allFields);
                     var existing = await globalProfileStore.LoadMetadataAsync(
-                        config.Organization, config.ProcessTemplate, ct);
+                        ctx.Config.Organization, ctx.Config.ProcessTemplate, ct);
 
                     if (existing is not null)
                     {
@@ -205,7 +192,7 @@ public sealed class RefreshCommand(
                                 currentHash,
                                 allFields.Count);
                             await globalProfileStore.SaveMetadataAsync(
-                                config.Organization, config.ProcessTemplate, updated, ct);
+                                ctx.Config.Organization, ctx.Config.ProcessTemplate, updated, ct);
                             _stderr.WriteLine(fmt.FormatInfo(
                                 "ℹ Field definitions changed since last profile sync"));
                         }
@@ -213,7 +200,7 @@ public sealed class RefreshCommand(
                         {
                             var refreshed = existing with { LastSyncedAt = now };
                             await globalProfileStore.SaveMetadataAsync(
-                                config.Organization, config.ProcessTemplate, refreshed, ct);
+                                ctx.Config.Organization, ctx.Config.ProcessTemplate, refreshed, ct);
                         }
                     }
                 }

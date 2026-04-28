@@ -11,6 +11,7 @@ using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
+using Twig.Rendering;
 using Twig.TestKit;
 using Xunit;
 
@@ -23,8 +24,8 @@ public sealed class SetCommand_ContextChangeTests : IDisposable
     private readonly IContextStore _contextStore;
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly ActiveItemResolver _activeItemResolver;
-    private readonly OutputFormatterFactory _formatterFactory;
-    private readonly HintEngine _hintEngine;
+    private readonly CommandContext _ctx;
+    private readonly StatusFieldConfigReader _statusFieldReader;
     private readonly WorkingSetService _workingSetService;
     private readonly TextWriter _originalOut;
     private readonly TextWriter _originalErr;
@@ -54,10 +55,16 @@ public sealed class SetCommand_ContextChangeTests : IDisposable
         _adoService.FetchChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        _formatterFactory = new OutputFormatterFactory(
+        var formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(),
             new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
-        _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
+        var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
+        var pipelineFactory = new RenderingPipelineFactory(formatterFactory, null!, isOutputRedirected: () => true);
+        _ctx = new CommandContext(pipelineFactory, formatterFactory, hintEngine, new TwigConfiguration());
+        _statusFieldReader = new StatusFieldConfigReader(new TwigPaths(
+            Path.Combine(Path.GetTempPath(), ".twig-ctxchange-test"),
+            Path.Combine(Path.GetTempPath(), ".twig-ctxchange-test", "config"),
+            Path.Combine(Path.GetTempPath(), ".twig-ctxchange-test", "twig.db")));
 
         var iterationService = Substitute.For<IIterationService>();
         iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
@@ -140,14 +147,14 @@ public sealed class SetCommand_ContextChangeTests : IDisposable
     private SetCommand CreateCommand(bool withContextChange = true)
     {
         var protectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        var syncCoordinatorPair = new SyncCoordinatorPair(
+        var syncCoordinatorFactory = new SyncCoordinatorFactory(
             _workItemRepo, _adoService, protectedWriter, _pendingChangeStore, null, 30, 30);
         var contextChangeService = withContextChange
-            ? new ContextChangeService(_workItemRepo, _adoService, syncCoordinatorPair.ReadWrite, protectedWriter)
+            ? new ContextChangeService(_workItemRepo, _adoService, syncCoordinatorFactory.ReadWrite, protectedWriter)
             : null;
         return new SetCommand(
-            _workItemRepo, _contextStore, _activeItemResolver, syncCoordinatorPair,
-            _workingSetService, _formatterFactory, _hintEngine,
+            _ctx, _workItemRepo, _contextStore, _activeItemResolver, syncCoordinatorFactory,
+            _workingSetService, _statusFieldReader,
             contextChangeService: contextChangeService);
     }
 

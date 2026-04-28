@@ -7,7 +7,9 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
+using Twig.Hints;
 using Twig.Infrastructure.Config;
+using Twig.Rendering;
 using Twig.TestKit;
 
 using Xunit;
@@ -20,8 +22,7 @@ public sealed class ShowBatchTests
     private readonly IWorkItemLinkRepository _linkRepo;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly ITelemetryClient _telemetryClient;
-    private readonly SyncCoordinatorPair _syncCoordinatorPair;
-    private readonly TwigConfiguration _config;
+    private readonly SyncCoordinatorFactory _syncCoordinatorFactory;
     private readonly ShowCommand _cmd;
 
     public ShowBatchTests()
@@ -33,20 +34,26 @@ public sealed class ShowBatchTests
         var adoService = Substitute.For<IAdoWorkItemService>();
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, pendingChangeStore);
-        _syncCoordinatorPair = new SyncCoordinatorPair(_workItemRepo, adoService, protectedCacheWriter, pendingChangeStore, _linkRepo, 30, 30);
-        _config = new TwigConfiguration();
+        _syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, adoService, protectedCacheWriter, pendingChangeStore, _linkRepo, 30, 30);
 
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(),
             new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
 
+        var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
+        var pipelineFactory = new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true);
+        var ctx = new CommandContext(pipelineFactory, _formatterFactory, hintEngine, new TwigConfiguration(), TelemetryClient: _telemetryClient);
+
+        var tempDir = Path.Combine(Path.GetTempPath(), "twig-showbatch-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        var statusFieldReader = new StatusFieldConfigReader(new TwigPaths(tempDir, Path.Combine(tempDir, "config"), Path.Combine(tempDir, "twig.db")));
+
         _cmd = new ShowCommand(
+            ctx,
             _workItemRepo,
             _linkRepo,
-            _formatterFactory,
-            _syncCoordinatorPair,
-            _config,
-            telemetryClient: _telemetryClient);
+            _syncCoordinatorFactory,
+            statusFieldReader);
     }
 
     // ═══════════════════════════════════════════════════════════════

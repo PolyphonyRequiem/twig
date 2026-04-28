@@ -23,7 +23,7 @@ public sealed class StatusCommand(
     IPendingChangeStore pendingChangeStore,
     ActiveItemResolver activeItemResolver,
     WorkingSetService workingSetService,
-    SyncCoordinatorPair syncCoordinatorPair,
+    SyncCoordinatorFactory syncCoordinatorFactory,
     StatusFieldConfigReader statusFieldReader,
     IGitService? gitService = null,
     IAdoGitService? adoGitService = null,
@@ -94,7 +94,7 @@ public sealed class StatusCommand(
 
             // Fetch related links (best-effort — same pattern as TreeCommand)
             IReadOnlyList<Domain.ValueObjects.WorkItemLink> links = [];
-            try { links = await syncCoordinatorPair.ReadOnly.SyncLinksAsync(item.Id, ct); }
+            try { links = await syncCoordinatorFactory.ReadOnly.SyncLinksAsync(item.Id, ct); }
             catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
             // FIX-002: two-pass render (SpectreRenderer + network): show cached data immediately,
@@ -127,7 +127,7 @@ public sealed class StatusCommand(
                             parent: parent,
                             children: children,
                             cacheStaleMinutes: ctx.Config.Display.CacheStaleMinutes),
-                        performSync: () => syncCoordinatorPair.ReadOnly.SyncWorkingSetAsync(workingSet),
+                        performSync: () => syncCoordinatorFactory.ReadOnly.SyncWorkingSetAsync(workingSet),
                         buildRevisedView: async _ =>
                         {
                             // Rebuild status view from fresh cache data after sync completes
@@ -194,7 +194,7 @@ public sealed class StatusCommand(
 
         // Fetch related links (best-effort — same pattern as TreeCommand)
         IReadOnlyList<Domain.ValueObjects.WorkItemLink> syncLinks = [];
-        try { syncLinks = await syncCoordinatorPair.ReadOnly.SyncLinksAsync(item.Id, ct); }
+        try { syncLinks = await syncCoordinatorFactory.ReadOnly.SyncLinksAsync(item.Id, ct); }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
         // Fetch parent item for hierarchy display (best-effort)
@@ -253,7 +253,7 @@ public sealed class StatusCommand(
             try
             {
                 var syncWorkingSet = await workingSetService.ComputeAsync(item.IterationPath);
-                await syncCoordinatorPair.ReadOnly.SyncWorkingSetAsync(syncWorkingSet);
+                await syncCoordinatorFactory.ReadOnly.SyncWorkingSetAsync(syncWorkingSet);
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception) { /* sync is best-effort — don't fail the command */ }

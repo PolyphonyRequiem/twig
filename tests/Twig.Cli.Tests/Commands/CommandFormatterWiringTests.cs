@@ -134,12 +134,18 @@ public class CommandFormatterWiringTests
         var resolver = new ActiveItemResolver(contextStore, workItemRepo, adoService);
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
         var protectedWriter = new ProtectedCacheWriter(workItemRepo, pendingChangeStore);
-        var syncCoordFactory = new SyncCoordinatorPair(workItemRepo, adoService, protectedWriter, pendingChangeStore, null, 30, 30);
+        var syncCoordFactory = new SyncCoordinatorFactory(workItemRepo, adoService, protectedWriter, pendingChangeStore, null, 30, 30);
         var iterService = Substitute.For<IIterationService>();
         iterService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
         var wsService = new WorkingSetService(contextStore, workItemRepo, pendingChangeStore, iterService, null);
-        var cmd = new SetCommand(workItemRepo, contextStore, resolver, syncCoordFactory, wsService, factory, hintEngine);
+        var pipelineFactory = new RenderingPipelineFactory(factory, null!, isOutputRedirected: () => true);
+        var ctx = new CommandContext(pipelineFactory, factory, hintEngine, new TwigConfiguration());
+        var statusFieldReader = new StatusFieldConfigReader(new TwigPaths(
+            Path.Combine(Path.GetTempPath(), ".twig-fmtwire-test"),
+            Path.Combine(Path.GetTempPath(), ".twig-fmtwire-test", "config"),
+            Path.Combine(Path.GetTempPath(), ".twig-fmtwire-test", "twig.db")));
+        var cmd = new SetCommand(ctx, workItemRepo, contextStore, resolver, syncCoordFactory, wsService, statusFieldReader);
 
         var result = await cmd.ExecuteAsync("42", "human");
 
@@ -181,7 +187,7 @@ public class CommandFormatterWiringTests
         var activeItemResolver = new ActiveItemResolver(contextStore, workItemRepo, adoService);
         services.AddSingleton(activeItemResolver);
         var pcw = new ProtectedCacheWriter(workItemRepo, pendingChangeStore);
-        var scf = new SyncCoordinatorPair(workItemRepo, adoService, pcw, pendingChangeStore, null, 30, 30);
+        var scf = new SyncCoordinatorFactory(workItemRepo, adoService, pcw, pendingChangeStore, null, 30, 30);
         services.AddSingleton(scf.ReadWrite);
         services.AddSingleton(scf);
         var iterSvc = Substitute.For<IIterationService>();
@@ -235,7 +241,7 @@ public class CommandFormatterWiringTests
         var activeItemResolver = new ActiveItemResolver(contextStore, workItemRepo, adoService);
         var pcs = Substitute.For<IPendingChangeStore>();
         var pcw = new ProtectedCacheWriter(workItemRepo, pcs);
-        var sc = new SyncCoordinatorPair(workItemRepo, adoService, pcw, pcs, null, 30, 30);
+        var sc = new SyncCoordinatorFactory(workItemRepo, adoService, pcw, pcs, null, 30, 30);
         var iterSvc= Substitute.For<IIterationService>();
         iterSvc.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);

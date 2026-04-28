@@ -157,8 +157,8 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         string? warning = null;
         try
         {
-            await ctx.SyncCoordinatorPair.ReadOnly.SyncLinksAsync(sourceId, ct);
-            await ctx.SyncCoordinatorPair.ReadOnly.SyncLinksAsync(targetId, ct);
+            await ctx.SyncCoordinatorFactory.ReadOnly.SyncLinksAsync(sourceId, ct);
+            await ctx.SyncCoordinatorFactory.ReadOnly.SyncLinksAsync(targetId, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

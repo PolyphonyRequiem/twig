@@ -10,6 +10,7 @@ using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
+using Twig.Rendering;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
@@ -58,6 +59,16 @@ public class UserScopedWorkspaceTests
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
     }
 
+    private CommandContext CreateCtx(TwigConfiguration config) =>
+        new(new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true),
+            _formatterFactory,
+            _hintEngine,
+            config);
+
+    private WorkspaceCommand CreateCommand(TwigConfiguration config) =>
+        new(CreateCtx(config), _contextStore, _workItemRepo, _iterationService,
+            _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder());
+
     [Fact]
     public async Task Ws_DefaultMode_FiltersToUserWhenConfigured()
     {
@@ -74,8 +85,7 @@ public class UserScopedWorkspaceTests
             Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
             .Returns(new[] { aliceItem, bobItem });
 
-        var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService,
-            config, _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder());
+        var cmd = CreateCommand(config);
 
         var result = await cmd.ExecuteAsync();
 
@@ -99,8 +109,7 @@ public class UserScopedWorkspaceTests
             Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
             .Returns(new[] { aliceItem, bobItem });
 
-        var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService,
-            config, _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder());
+        var cmd = CreateCommand(config);
 
         var result = await cmd.ExecuteAsync(all: true);
 
@@ -124,8 +133,7 @@ public class UserScopedWorkspaceTests
             Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
             .Returns(new[] { aliceItem, bobItem });
 
-        var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService,
-            config, _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder());
+        var cmd = CreateCommand(config);
 
         var result = await cmd.ExecuteAsync();
 
@@ -148,8 +156,7 @@ public class UserScopedWorkspaceTests
             Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
             .Returns(new[] { aliceItem, bobItem });
 
-        var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService,
-            config, _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder());
+        var cmd = CreateCommand(config);
 
         // Use StringWriter to capture output without modifying global Console.Out.
         // FormatSprintView returns a string; we call it directly to avoid Console.SetOut.
@@ -182,8 +189,7 @@ public class UserScopedWorkspaceTests
             Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService,
-            config, _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder());
+        var cmd = CreateCommand(config);
 
         var result = await cmd.ExecuteAsync();
 
@@ -205,8 +211,7 @@ public class UserScopedWorkspaceTests
             Arg.Any<IterationPath>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new[] { contextItem });
 
-        var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService,
-            config, _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder());
+        var cmd = CreateCommand(config);
 
         var result = await cmd.ExecuteAsync();
         result.ShouldBe(0);

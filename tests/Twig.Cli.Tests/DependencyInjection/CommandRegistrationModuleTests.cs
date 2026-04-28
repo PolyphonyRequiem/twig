@@ -47,6 +47,8 @@ public sealed class CommandRegistrationModuleTests
         services.AddSingleton(Substitute.For<INavigationHistoryStore>());
         services.AddSingleton(Substitute.For<IIterationService>());
         services.AddSingleton(Substitute.For<ITrackingRepository>());
+        services.AddSingleton(Substitute.For<ITrackingService>());
+        services.AddSingleton(Substitute.For<ISprintHierarchyBuilder>());
 
         // Formatters
         services.AddSingleton(new OutputFormatterFactory(
@@ -111,6 +113,92 @@ public sealed class CommandRegistrationModuleTests
         // This verifies CommandContext and StatusFieldConfigReader resolve
         // correctly after the constructor was refactored.
         var command = provider.GetRequiredService<StatusCommand>();
+
+        command.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void SetCommand_AutoResolution_Resolves_Successfully()
+    {
+        using var provider = BuildProviderForFlowCommands();
+
+        // SetCommand uses auto-resolution (no factory lambda).
+        // This verifies CommandContext and StatusFieldConfigReader resolve
+        // correctly after the constructor was refactored.
+        var command = provider.GetRequiredService<SetCommand>();
+
+        command.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void ShowCommand_AutoResolution_Resolves_Successfully()
+    {
+        using var provider = BuildProviderForFlowCommands();
+
+        // ShowCommand uses auto-resolution (no factory lambda).
+        // This verifies CommandContext and StatusFieldConfigReader resolve
+        // correctly after the constructor was refactored.
+        var command = provider.GetRequiredService<ShowCommand>();
+
+        command.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void StateCommand_AutoResolution_Resolves_Successfully()
+    {
+        using var provider = BuildProviderForFlowCommands();
+
+        var command = provider.GetRequiredService<StateCommand>();
+
+        command.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void BatchCommand_AutoResolution_Resolves_Successfully()
+    {
+        using var provider = BuildProviderForFlowCommands();
+
+        var command = provider.GetRequiredService<BatchCommand>();
+
+        command.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void RefreshCommand_AutoResolution_Resolves_Successfully()
+    {
+        using var provider = BuildProviderForFlowCommands();
+
+        var command = provider.GetRequiredService<RefreshCommand>();
+
+        command.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void FlowCloseCommand_AutoResolution_Resolves_Successfully()
+    {
+        using var provider = BuildProviderForFlowCommands();
+
+        var command = provider.GetRequiredService<FlowCloseCommand>();
+
+        command.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void TreeCommand_AutoResolution_Resolves_Successfully()
+    {
+        using var provider = BuildProviderForFlowCommands();
+
+        var command = provider.GetRequiredService<TreeCommand>();
+
+        command.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void WorkspaceCommand_AutoResolution_Resolves_Successfully()
+    {
+        using var provider = BuildProviderForFlowCommands();
+
+        var command = provider.GetRequiredService<WorkspaceCommand>();
 
         command.ShouldNotBeNull();
     }

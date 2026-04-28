@@ -9,6 +9,7 @@ using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
+using Twig.Hints;
 using Twig.Infrastructure.Config;
 using Twig.Rendering;
 using Xunit;
@@ -24,7 +25,7 @@ public class TreeCommandAsyncTests
     private readonly TwigConfiguration _config;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly WorkingSetService _workingSetService;
-    private readonly SyncCoordinatorPair _syncCoordinatorPair;
+    private readonly SyncCoordinatorFactory _syncCoordinatorFactory;
     private readonly IProcessTypeStore _processTypeStore;
     private readonly TestConsole _testConsole;
     private readonly SpectreRenderer _spectreRenderer;
@@ -40,7 +41,7 @@ public class TreeCommandAsyncTests
             new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, pendingChangeStore);
-        _syncCoordinatorPair = new SyncCoordinatorPair(_workItemRepo, _adoService, protectedCacheWriter, pendingChangeStore, null, 30, 30);
+        _syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, protectedCacheWriter, pendingChangeStore, null, 30, 30);
         var iterationService = Substitute.For<IIterationService>();
         iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
@@ -54,9 +55,15 @@ public class TreeCommandAsyncTests
     private RenderingPipelineFactory CreateTtyPipelineFactory() =>
         new(_formatterFactory, _spectreRenderer, isOutputRedirected: () => false);
 
+    private CommandContext CreateCtx(RenderingPipelineFactory? pipelineFactory = null) =>
+        new(pipelineFactory ?? new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true),
+            _formatterFactory,
+            new HintEngine(new DisplayConfig { Hints = false }),
+            _config);
+
     private TreeCommand CreateCommand(RenderingPipelineFactory? pipelineFactory = null) =>
-        new(_contextStore, _workItemRepo, _config, _formatterFactory, _activeItemResolver,
-            _workingSetService, _syncCoordinatorPair, _processTypeStore, pipelineFactory);
+        new(CreateCtx(pipelineFactory), _contextStore, _workItemRepo, _activeItemResolver,
+            _workingSetService, _syncCoordinatorFactory, _processTypeStore);
 
     // ── Sibling count rendering tests ───────────────────────────────
 

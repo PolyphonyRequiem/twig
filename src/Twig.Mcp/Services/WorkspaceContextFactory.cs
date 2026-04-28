@@ -115,7 +115,7 @@ public sealed class WorkspaceContextFactory : IWorkspaceContextFactory, IDisposa
         var protectedCacheWriter = new ProtectedCacheWriter(workItemRepo, pendingChangeStore);
 
         var staleMinutes = config.Display.CacheStaleMinutes;
-        var syncCoordinatorPair = new SyncCoordinatorPair(
+        var syncCoordinatorFactory = new SyncCoordinatorFactory(
             workItemRepo,
             adoService,
             protectedCacheWriter,
@@ -129,7 +129,7 @@ public sealed class WorkspaceContextFactory : IWorkspaceContextFactory, IDisposa
         var contextChangeService = new ContextChangeService(
             workItemRepo,
             adoService,
-            syncCoordinatorPair.ReadWrite,
+            syncCoordinatorFactory.ReadWrite,
             protectedCacheWriter,
             linkRepo);
 
@@ -186,7 +186,7 @@ public sealed class WorkspaceContextFactory : IWorkspaceContextFactory, IDisposa
             iterationService,
             processConfigProvider,
             activeItemResolver,
-            syncCoordinatorPair,
+            syncCoordinatorFactory,
             contextChangeService,
             workingSetService,
             flusher,

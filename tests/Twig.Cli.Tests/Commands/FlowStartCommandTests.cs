@@ -25,8 +25,7 @@ public class FlowStartCommandTests
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IProcessConfigurationProvider _processConfigProvider;
     private readonly IConsoleInput _consoleInput;
-    private readonly OutputFormatterFactory _formatterFactory;
-    private readonly HintEngine _hintEngine;
+    private readonly CommandContext _ctx;
     private readonly TwigConfiguration _config;
     private readonly IGitService _gitService;
     private readonly IIterationService _iterationService;
@@ -48,38 +47,46 @@ public class FlowStartCommandTests
         // Default: no dirty items (for ProtectedCacheWriter)
         _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());
 
-        _formatterFactory = new OutputFormatterFactory(
+        var formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
-        _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
+        var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         _config = new TwigConfiguration
         {
             User = new UserConfig { DisplayName = "Test User" },
             Git = new GitConfig { BranchTemplate = "feature/{id}-{title}", DefaultTarget = "main" },
         };
+        _ctx = new CommandContext(
+            new RenderingPipelineFactory(formatterFactory, null!, isOutputRedirected: () => true),
+            formatterFactory,
+            hintEngine,
+            _config);
 
         _processConfigProvider.GetConfiguration().Returns(ProcessConfigBuilder.Agile());
     }
 
     private FlowStartCommand CreateCommand(IGitService? gitService = null, IIterationService? iterationService = null) =>
-        new(_workItemRepo, _adoService, _contextStore, _activeItemResolver, _protectedCacheWriter,
-            _processConfigProvider, _consoleInput, _formatterFactory, _hintEngine, _config,
-            pipelineFactory: null, gitService: gitService, iterationService: iterationService);
+        new(_ctx, _workItemRepo, _adoService, _contextStore, _activeItemResolver, _protectedCacheWriter,
+            _processConfigProvider, _consoleInput,
+            gitService: gitService, iterationService: iterationService);
 
     private FlowStartCommand CreateCommandWithPropagation(IGitService? gitService = null) =>
-        new(_workItemRepo, _adoService, _contextStore, _activeItemResolver, _protectedCacheWriter,
-            _processConfigProvider, _consoleInput, _formatterFactory, _hintEngine, _config,
-            pipelineFactory: null, gitService: gitService,
+        new(_ctx, _workItemRepo, _adoService, _contextStore, _activeItemResolver, _protectedCacheWriter,
+            _processConfigProvider, _consoleInput, gitService: gitService,
             parentPropagationService: new ParentStatePropagationService(
                 _workItemRepo, _adoService, _processConfigProvider, _protectedCacheWriter));
 
     private FlowStartCommand CreateCommandWithRenderer(
         IAsyncRenderer renderer, IGitService? gitService = null, IIterationService? iterationService = null)
     {
+        var formatterFactory = new OutputFormatterFactory(
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
         var pipelineFactory = new RenderingPipelineFactory(
-            _formatterFactory, renderer, isOutputRedirected: () => false);
-        return new(_workItemRepo, _adoService, _contextStore, _activeItemResolver, _protectedCacheWriter,
-            _processConfigProvider, _consoleInput, _formatterFactory, _hintEngine, _config,
-            pipelineFactory: pipelineFactory, gitService: gitService, iterationService: iterationService);
+            formatterFactory, renderer, isOutputRedirected: () => false);
+        var rendererCtx = new CommandContext(pipelineFactory, formatterFactory,
+            new HintEngine(new DisplayConfig { Hints = false }), _config);
+        return new(rendererCtx, _workItemRepo, _adoService, _contextStore, _activeItemResolver, _protectedCacheWriter,
+            _processConfigProvider, _consoleInput,
+            gitService: gitService, iterationService: iterationService);
     }
 
     private static WorkItem CreateWorkItem(int id, string title, string state, string? assignedTo = null) => new()
@@ -487,10 +494,9 @@ public class FlowStartCommandTests
         _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
 
         var historyStore = Substitute.For<INavigationHistoryStore>();
-        var cmd = new FlowStartCommand(_workItemRepo, _adoService, _contextStore, _activeItemResolver, _protectedCacheWriter,
-            _processConfigProvider, _consoleInput, _formatterFactory, _hintEngine, _config,
-            pipelineFactory: null, gitService: null, iterationService: null,
-            promptStateWriter: null, historyStore: historyStore);
+        var cmd = new FlowStartCommand(_ctx, _workItemRepo, _adoService, _contextStore, _activeItemResolver, _protectedCacheWriter,
+            _processConfigProvider, _consoleInput,
+            historyStore: historyStore);
 
         var result = await cmd.ExecuteAsync("1");
 

@@ -7,6 +7,7 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
+using Twig.Hints;
 using Twig.Infrastructure.Config;
 using Twig.Rendering;
 using Xunit;
@@ -18,9 +19,9 @@ public sealed class ShowCommand_CacheAwareTests
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IWorkItemLinkRepository _linkRepo;
     private readonly IAdoWorkItemService _adoService;
-    private readonly SyncCoordinatorPair _syncCoordinatorPair;
-    private readonly TwigConfiguration _config;
+    private readonly SyncCoordinatorFactory _syncCoordinatorFactory;
     private readonly OutputFormatterFactory _formatterFactory;
+    private readonly StatusFieldConfigReader _statusFieldReader;
     private readonly TestConsole _testConsole;
     private readonly SpectreRenderer _spectreRenderer;
 
@@ -31,10 +32,13 @@ public sealed class ShowCommand_CacheAwareTests
         _adoService = Substitute.For<IAdoWorkItemService>();
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, pendingChangeStore);
-        _syncCoordinatorPair = new SyncCoordinatorPair(_workItemRepo, _adoService, protectedCacheWriter, pendingChangeStore, null, 30, 30);
-        _config = new TwigConfiguration();
+        _syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, protectedCacheWriter, pendingChangeStore, null, 30, 30);
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
+
+        var tempDir = Path.Combine(Path.GetTempPath(), "twig-show-cache-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+        _statusFieldReader = new StatusFieldConfigReader(new TwigPaths(tempDir, Path.Combine(tempDir, "config"), Path.Combine(tempDir, "twig.db")));
 
         _testConsole = new TestConsole();
         _spectreRenderer = new SpectreRenderer(_testConsole, new SpectreTheme(new DisplayConfig()));
@@ -44,9 +48,13 @@ public sealed class ShowCommand_CacheAwareTests
     private RenderingPipelineFactory CreateTtyPipelineFactory() =>
         new(_formatterFactory, _spectreRenderer, isOutputRedirected: () => false);
 
-    private ShowCommand CreateCommand(RenderingPipelineFactory? pipelineFactory = null, TextWriter? stderr = null) =>
-        new(_workItemRepo, _linkRepo, _formatterFactory, _syncCoordinatorPair, _config,
-            pipelineFactory: pipelineFactory, stderr: stderr);
+    private ShowCommand CreateCommand(RenderingPipelineFactory? pipelineFactory = null, TextWriter? stderr = null)
+    {
+        var pipeline = pipelineFactory ?? new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true);
+        var ctx = new CommandContext(pipeline, _formatterFactory,
+            new HintEngine(new DisplayConfig { Hints = false }), new TwigConfiguration(), Stderr: stderr);
+        return new ShowCommand(ctx, _workItemRepo, _linkRepo, _syncCoordinatorFactory, _statusFieldReader);
+    }
 
     private void SetupCachedItem(WorkItem item)
     {

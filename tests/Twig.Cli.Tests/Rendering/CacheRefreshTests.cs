@@ -71,9 +71,10 @@ public class CacheRefreshTests
         new(_formatterFactory, _spectreRenderer, isOutputRedirected: () => false);
 
     private WorkspaceCommand CreateCommand(RenderingPipelineFactory pipelineFactory) =>
-        new(_contextStore, _workItemRepo, _iterationService, _config,
-            _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore,
-            _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder(), pipelineFactory);
+        new(new CommandContext(pipelineFactory, _formatterFactory, _hintEngine, _config),
+            _contextStore, _workItemRepo, _iterationService,
+            _processTypeStore, _fieldDefinitionStore,
+            _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder());
 
     // ── IsCacheStale unit tests ─────────────────────────────────────
 
@@ -437,7 +438,7 @@ public class CacheRefreshTests
         var paths = new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db"));
         var statusFieldReader = new StatusFieldConfigReader(paths);
         var staleCtx = new CommandContext(CreateTtyPipelineFactory(), _formatterFactory, _hintEngine, _config);
-        var cmd = new StatusCommand(staleCtx, _contextStore, _workItemRepo, pendingChangeStore, _activeItemResolver, _workingSetService, new SyncCoordinatorPair(_workItemRepo, _adoService, new ProtectedCacheWriter(_workItemRepo, pendingChangeStore), pendingChangeStore, null, 30, 30), statusFieldReader);
+        var cmd = new StatusCommand(staleCtx, _contextStore, _workItemRepo, pendingChangeStore, _activeItemResolver, _workingSetService, new SyncCoordinatorFactory(_workItemRepo, _adoService, new ProtectedCacheWriter(_workItemRepo, pendingChangeStore), pendingChangeStore, null, 30, 30), statusFieldReader);
         var result = await cmd.ExecuteAsync("human");
 
         result.ShouldBe(0);
@@ -464,7 +465,7 @@ public class CacheRefreshTests
         var freshPaths = new TwigPaths(Path.GetTempPath(), Path.Combine(Path.GetTempPath(), "config"), Path.Combine(Path.GetTempPath(), "twig.db"));
         var freshReader = new StatusFieldConfigReader(freshPaths);
         var freshCtx = new CommandContext(CreateTtyPipelineFactory(), _formatterFactory, _hintEngine, _config);
-        var cmd = new StatusCommand(freshCtx, _contextStore, _workItemRepo, pendingChangeStore, _activeItemResolver, _workingSetService, new SyncCoordinatorPair(_workItemRepo, _adoService, new ProtectedCacheWriter(_workItemRepo, pendingChangeStore), pendingChangeStore, null, 30, 30), freshReader);
+        var cmd = new StatusCommand(freshCtx, _contextStore, _workItemRepo, pendingChangeStore, _activeItemResolver, _workingSetService, new SyncCoordinatorFactory(_workItemRepo, _adoService, new ProtectedCacheWriter(_workItemRepo, pendingChangeStore), pendingChangeStore, null, 30, 30), freshReader);
         var result = await cmd.ExecuteAsync("human");
 
         result.ShouldBe(0);

@@ -29,12 +29,14 @@ public class CacheFirstReadCommandTests
     private readonly IContextStore _contextStore;
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly ActiveItemResolver _activeItemResolver;
-    private readonly SyncCoordinatorPair _syncCoordinatorPair;
+    private readonly SyncCoordinatorFactory _syncCoordinatorFactory;
     private readonly WorkingSetService _workingSetService;
     private readonly ITrackingService _trackingService;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
     private readonly IProcessTypeStore _processTypeStore;
+    private readonly CommandContext _ctx;
+    private readonly StatusFieldConfigReader _statusFieldReader;
     private readonly ISeedLinkRepository _seedLinkRepo;
     private readonly IWorkItemLinkRepository _workItemLinkRepo;
 
@@ -52,7 +54,7 @@ public class CacheFirstReadCommandTests
             .Returns(Array.Empty<WorkItemLink>());
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        _syncCoordinatorPair = new SyncCoordinatorPair(_workItemRepo, _adoService, protectedCacheWriter, _pendingChangeStore, null, 30, 30);
+        _syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, protectedCacheWriter, _pendingChangeStore, null, 30, 30);
         var iterationService = Substitute.For<IIterationService>();
         iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
@@ -66,6 +68,12 @@ public class CacheFirstReadCommandTests
             new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         _processTypeStore = Substitute.For<IProcessTypeStore>();
+        var pipelineFactory = new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true);
+        _ctx = new CommandContext(pipelineFactory, _formatterFactory, _hintEngine, new TwigConfiguration());
+        _statusFieldReader = new StatusFieldConfigReader(new TwigPaths(
+            Path.Combine(Path.GetTempPath(), ".twig-cacheread-test"),
+            Path.Combine(Path.GetTempPath(), ".twig-cacheread-test", "config"),
+            Path.Combine(Path.GetTempPath(), ".twig-cacheread-test", "twig.db")));
     }
 
     // ── (a) Cached data displayed immediately ──────────────────────
@@ -76,8 +84,7 @@ public class CacheFirstReadCommandTests
         var item = CreateWorkItem(42, "Cached Item");
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorPair,
-            _workingSetService, _formatterFactory, _hintEngine);
+        var cmd = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory, _workingSetService, _statusFieldReader);
         var result = await cmd.ExecuteAsync("42");
 
         result.ShouldBe(0);
@@ -103,7 +110,7 @@ public class CacheFirstReadCommandTests
         var redirectedPipeline = new RenderingPipelineFactory(_formatterFactory, new SpectreRenderer(new Spectre.Console.Testing.TestConsole(), new SpectreTheme(new DisplayConfig())), isOutputRedirected: () => true);
         var ctx = new CommandContext(redirectedPipeline, _formatterFactory, _hintEngine, config);
         var cmd = new StatusCommand(ctx, _contextStore, _workItemRepo, _pendingChangeStore,
-            _activeItemResolver, _workingSetService, _syncCoordinatorPair, statusFieldReader);
+            _activeItemResolver, _workingSetService, _syncCoordinatorFactory, statusFieldReader);
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -133,8 +140,7 @@ public class CacheFirstReadCommandTests
         // Working set sync fetches stale items via FetchAsync (not FetchChildrenAsync)
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorPair,
-            _workingSetService, _formatterFactory, _hintEngine);
+        var cmd = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory, _workingSetService, _statusFieldReader);
         var result = await cmd.ExecuteAsync("42");
 
         result.ShouldBe(0);
@@ -152,8 +158,7 @@ public class CacheFirstReadCommandTests
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
             .Throws(new HttpRequestException("Network unavailable"));
 
-        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorPair,
-            _workingSetService, _formatterFactory, _hintEngine);
+        var cmd = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory, _workingSetService, _statusFieldReader);
         var result = await cmd.ExecuteAsync("42");
 
         // Command still succeeds — sync failure is non-fatal
@@ -179,8 +184,7 @@ public class CacheFirstReadCommandTests
         // SyncItemSetAsync skips dirty items — dirty protection is enforced at write time
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorPair,
-            _workingSetService, _formatterFactory, _hintEngine);
+        var cmd = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory, _workingSetService, _statusFieldReader);
         var result = await cmd.ExecuteAsync("42");
 
         result.ShouldBe(0);
@@ -196,8 +200,7 @@ public class CacheFirstReadCommandTests
         var item = CreateWorkItem(42, "JSON Test Item");
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorPair,
-            _workingSetService, _formatterFactory, _hintEngine);
+        var cmd = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory, _workingSetService, _statusFieldReader);
 
         var result = await cmd.ExecuteAsync("42", "json");
         result.ShouldBe(0);
@@ -220,7 +223,7 @@ public class CacheFirstReadCommandTests
         var redirectedPipeline = new RenderingPipelineFactory(_formatterFactory, new SpectreRenderer(new Spectre.Console.Testing.TestConsole(), new SpectreTheme(new DisplayConfig())), isOutputRedirected: () => true);
         var ctx = new CommandContext(redirectedPipeline, _formatterFactory, _hintEngine, config);
         var cmd = new StatusCommand(ctx, _contextStore, _workItemRepo, _pendingChangeStore,
-            _activeItemResolver, _workingSetService, _syncCoordinatorPair, statusFieldReader);
+            _activeItemResolver, _workingSetService, _syncCoordinatorFactory, statusFieldReader);
 
         var result = await cmd.ExecuteAsync("json");
         result.ShouldBe(0);
@@ -235,8 +238,7 @@ public class CacheFirstReadCommandTests
         var item = CreateWorkItem(42, "Fetched Item");
         _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorPair,
-            _workingSetService, _formatterFactory, _hintEngine);
+        var cmd = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory, _workingSetService, _statusFieldReader);
         var result = await cmd.ExecuteAsync("42");
 
         result.ShouldBe(0);
@@ -264,7 +266,7 @@ public class CacheFirstReadCommandTests
         var redirectedPipeline = new RenderingPipelineFactory(_formatterFactory, new SpectreRenderer(new Spectre.Console.Testing.TestConsole(), new SpectreTheme(new DisplayConfig())), isOutputRedirected: () => true);
         var ctx = new CommandContext(redirectedPipeline, _formatterFactory, _hintEngine, config);
         var cmd = new StatusCommand(ctx, _contextStore, _workItemRepo, _pendingChangeStore,
-            _activeItemResolver, _workingSetService, _syncCoordinatorPair, statusFieldReader);
+            _activeItemResolver, _workingSetService, _syncCoordinatorFactory, statusFieldReader);
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -284,9 +286,8 @@ public class CacheFirstReadCommandTests
         _workItemRepo.GetChildrenAsync(50, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var config = new TwigConfiguration();
-        var cmd = new TreeCommand(_contextStore, _workItemRepo, config,
-            _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinatorPair, _processTypeStore);
+        var cmd = new TreeCommand(_ctx, _contextStore, _workItemRepo,
+            _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore);
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -301,9 +302,8 @@ public class CacheFirstReadCommandTests
         _adoService.FetchAsync(50, Arg.Any<CancellationToken>())
             .Throws(new HttpRequestException("Network error"));
 
-        var config = new TwigConfiguration();
-        var cmd = new TreeCommand(_contextStore, _workItemRepo, config,
-            _formatterFactory, _activeItemResolver, _workingSetService, _syncCoordinatorPair, _processTypeStore);
+        var cmd = new TreeCommand(_ctx, _contextStore, _workItemRepo,
+            _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore);
 
         var result = await cmd.ExecuteAsync();
         result.ShouldBe(1);
@@ -325,8 +325,7 @@ public class CacheFirstReadCommandTests
         _workItemRepo.GetChildrenAsync(2, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var setCmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorPair,
-            _workingSetService, _formatterFactory, _hintEngine);
+        var setCmd = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory, _workingSetService, _statusFieldReader);
         var navCmd = new NavigationCommands(_contextStore, _workItemRepo, _seedLinkRepo, _workItemLinkRepo, setCmd, _formatterFactory,
             _activeItemResolver);
         var result = await navCmd.UpAsync();
@@ -344,8 +343,7 @@ public class CacheFirstReadCommandTests
         _adoService.FetchAsync(999, Arg.Any<CancellationToken>())
             .Throws(new HttpRequestException("Not found"));
 
-        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorPair,
-            _workingSetService, _formatterFactory, _hintEngine);
+        var cmd = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory, _workingSetService, _statusFieldReader);
         var result = await cmd.ExecuteAsync("999");
 
         result.ShouldBe(1);
@@ -365,7 +363,7 @@ public class CacheFirstReadCommandTests
         var redirectedPipeline = new RenderingPipelineFactory(_formatterFactory, new SpectreRenderer(new Spectre.Console.Testing.TestConsole(), new SpectreTheme(new DisplayConfig())), isOutputRedirected: () => true);
         var ctx = new CommandContext(redirectedPipeline, _formatterFactory, _hintEngine, config);
         var cmd = new StatusCommand(ctx, _contextStore, _workItemRepo, _pendingChangeStore,
-            _activeItemResolver, _workingSetService, _syncCoordinatorPair, statusFieldReader);
+            _activeItemResolver, _workingSetService, _syncCoordinatorFactory, statusFieldReader);
 
         var result = await cmd.ExecuteAsync();
         result.ShouldBe(1);
@@ -386,8 +384,7 @@ public class CacheFirstReadCommandTests
         _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
         _adoService.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
 
-        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorPair,
-            _workingSetService, _formatterFactory, _hintEngine);
+        var cmd = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory, _workingSetService, _statusFieldReader);
         var result = await cmd.ExecuteAsync("42");
 
         result.ShouldBe(0);
@@ -415,8 +412,11 @@ public class CacheFirstReadCommandTests
         var processTypeStore = Substitute.For<IProcessTypeStore>();
         var fieldDefinitionStore = Substitute.For<IFieldDefinitionStore>();
         var config = new TwigConfiguration();
-        var cmd = new WorkspaceCommand(_contextStore, _workItemRepo, iterationService, config,
-            _formatterFactory, _hintEngine, processTypeStore, fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder());
+        var wsCtx = new CommandContext(
+            new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true),
+            _formatterFactory, _hintEngine, config);
+        var cmd = new WorkspaceCommand(wsCtx, _contextStore, _workItemRepo, iterationService,
+            processTypeStore, fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder());
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -431,8 +431,8 @@ public class CacheFirstReadCommandTests
         var item = CreateWorkItem(42, "Minimal Item");
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        var cmd = new SetCommand(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorPair,
-            _workingSetService, _formatterFactory, _hintEngine);
+        var cmd = new SetCommand(_ctx, _workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory,
+            _workingSetService, _statusFieldReader);
         var result = await cmd.ExecuteAsync("42", "minimal");
 
         result.ShouldBe(0);

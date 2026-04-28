@@ -77,7 +77,7 @@ public sealed class WorkspaceContextFactoryTests : IDisposable
         context.IterationService.ShouldNotBeNull();
         context.ProcessConfigProvider.ShouldNotBeNull();
         context.ActiveItemResolver.ShouldNotBeNull();
-        context.SyncCoordinatorPair.ShouldNotBeNull();
+        context.SyncCoordinatorFactory.ShouldNotBeNull();
         context.ContextChangeService.ShouldNotBeNull();
         context.WorkingSetService.ShouldNotBeNull();
         context.Flusher.ShouldNotBeNull();

@@ -8,9 +8,9 @@ namespace Twig.Domain.Services.Sync;
 /// for mutating commands (shorter TTL). Preserves the <see cref="SyncCoordinator"/> constructor
 /// signature (DD-13) while enabling tiered TTLs (Issue #1614).
 /// </summary>
-public sealed class SyncCoordinatorPair
+public sealed class SyncCoordinatorFactory
 {
-    public SyncCoordinatorPair(
+    public SyncCoordinatorFactory(
         IWorkItemRepository workItemRepo,
         IAdoWorkItemService adoService,
         ProtectedCacheWriter protectedCacheWriter,

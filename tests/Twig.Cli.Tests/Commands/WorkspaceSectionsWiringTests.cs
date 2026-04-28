@@ -298,18 +298,24 @@ public sealed class WorkspaceSectionsWiringTests
             .Returns(DateTimeOffset.UtcNow.ToString("O"));
     }
 
+    private CommandContext CreateCtx(RenderingPipelineFactory? pipelineFactory = null) =>
+        new(pipelineFactory ?? new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true),
+            _formatterFactory,
+            _hintEngine,
+            _config);
+
     private WorkspaceCommand CreateDefaultCommand() =>
-        new(_contextStore, _workItemRepo, _iterationService, _config,
-            _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore,
+        new(CreateCtx(), _contextStore, _workItemRepo, _iterationService,
+            _processTypeStore, _fieldDefinitionStore,
             _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder());
 
     private WorkspaceCommand CreateCommandWithTtyPipeline()
     {
         var pipelineFactory = new RenderingPipelineFactory(
             _formatterFactory, _spectreRenderer, isOutputRedirected: () => false);
-        return new WorkspaceCommand(_contextStore, _workItemRepo, _iterationService, _config,
-            _formatterFactory, _hintEngine, _processTypeStore, _fieldDefinitionStore,
-            _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder(), pipelineFactory);
+        return new WorkspaceCommand(CreateCtx(pipelineFactory), _contextStore, _workItemRepo, _iterationService,
+            _processTypeStore, _fieldDefinitionStore,
+            _activeItemResolver, _workingSetService, _trackingService, new SprintHierarchyBuilder());
     }
 
     private static WorkItem CreateWorkItem(int id, string title) =>

@@ -10,6 +10,7 @@ using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
+using Twig.Rendering;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
@@ -42,13 +43,19 @@ public class NextPrevCommandTests
         var activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var pendingChangeStore = Substitute.For<IPendingChangeStore>();
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, pendingChangeStore);
-        var syncCoordinatorPair = new SyncCoordinatorPair(_workItemRepo, _adoService, protectedCacheWriter, pendingChangeStore, null, 30, 30);
+        var syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, protectedCacheWriter, pendingChangeStore, null, 30, 30);
         var iterationService = Substitute.For<IIterationService>();
         iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
         var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, iterationService, null);
-        var setCommand = new SetCommand(_workItemRepo, _contextStore, activeItemResolver, syncCoordinatorPair,
-            workingSetService, formatterFactory, hintEngine);
+        var pipelineFactory = new RenderingPipelineFactory(formatterFactory, null!, isOutputRedirected: () => true);
+        var ctx = new CommandContext(pipelineFactory, formatterFactory, hintEngine, new TwigConfiguration());
+        var statusFieldReader = new StatusFieldConfigReader(new TwigPaths(
+            Path.Combine(Path.GetTempPath(), ".twig-nextprev-test"),
+            Path.Combine(Path.GetTempPath(), ".twig-nextprev-test", "config"),
+            Path.Combine(Path.GetTempPath(), ".twig-nextprev-test", "twig.db")));
+        var setCommand = new SetCommand(ctx, _workItemRepo, _contextStore, activeItemResolver, syncCoordinatorFactory,
+            workingSetService, statusFieldReader);
         _navCmd = new NavigationCommands(_contextStore, _workItemRepo, _seedLinkRepo, _workItemLinkRepo, setCommand, formatterFactory, activeItemResolver);
     }
 

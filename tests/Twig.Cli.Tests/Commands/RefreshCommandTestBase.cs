@@ -6,7 +6,9 @@ using Twig.Domain.Services.Workspace;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
+using Twig.Hints;
 using Twig.Infrastructure.Config;
+using Twig.Rendering;
 
 namespace Twig.Cli.Tests.Commands;
 
@@ -51,12 +53,12 @@ public abstract class RefreshCommandTestBase : IDisposable
         _fieldDefinitionStore = Substitute.For<IFieldDefinitionStore>();
 
         _protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        var syncCoordinatorPair = new SyncCoordinatorPair(_workItemRepo, _adoService, _protectedCacheWriter, _pendingChangeStore, null, 30, 30);
+        var syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, _protectedCacheWriter, _pendingChangeStore, null, 30, 30);
         var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, _pendingChangeStore, _iterationService, null);
         _trackingService = Substitute.For<ITrackingService>();
         _orchestrator = new RefreshOrchestrator(
             _contextStore, _workItemRepo, _adoService,
-            _pendingChangeStore, _protectedCacheWriter, workingSetService, syncCoordinatorPair,
+            _pendingChangeStore, _protectedCacheWriter, workingSetService, syncCoordinatorFactory,
             _iterationService,
             _trackingService);
 
@@ -85,9 +87,18 @@ public abstract class RefreshCommandTestBase : IDisposable
             new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
     }
 
-    protected RefreshCommand CreateRefreshCommand(TextWriter? stderr = null, IGlobalProfileStore? profileStore = null) =>
-        new(_contextStore, _iterationService, _config, _paths, _processTypeStore, _fieldDefinitionStore,
-            _formatterFactory, _orchestrator, profileStore, stderr: stderr);
+    protected RefreshCommand CreateRefreshCommand(TextWriter? stderr = null, IGlobalProfileStore? profileStore = null)
+    {
+        var ctx = new CommandContext(
+            new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true),
+            _formatterFactory,
+            new HintEngine(new DisplayConfig { Hints = false }),
+            _config,
+            Stderr: stderr);
+        return new RefreshCommand(
+            ctx, _contextStore, _iterationService, _paths, _processTypeStore, _fieldDefinitionStore,
+            _orchestrator, profileStore);
+    }
 
     protected static WorkItem CreateWorkItem(int id, string title, int revision = 0)
     {

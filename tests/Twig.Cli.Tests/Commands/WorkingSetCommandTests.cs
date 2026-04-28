@@ -30,7 +30,7 @@ public class WorkingSetCommandTests
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IIterationService _iterationService;
     private readonly ActiveItemResolver _activeItemResolver;
-    private readonly SyncCoordinatorPair _syncCoordinatorPair;
+    private readonly SyncCoordinatorFactory _syncCoordinatorFactory;
     private readonly WorkingSetService _workingSetService;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly HintEngine _hintEngine;
@@ -46,7 +46,7 @@ public class WorkingSetCommandTests
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
-        _syncCoordinatorPair = new SyncCoordinatorPair(_workItemRepo, _adoService, protectedCacheWriter, _pendingChangeStore, null, 30, 30);
+        _syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, protectedCacheWriter, _pendingChangeStore, null, 30, 30);
         _workingSetService = new WorkingSetService(
             _contextStore, _workItemRepo, _pendingChangeStore, _iterationService, null);
         _formatterFactory = new OutputFormatterFactory(
@@ -54,9 +54,18 @@ public class WorkingSetCommandTests
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
     }
 
-    private SetCommand CreateCommand(RenderingPipelineFactory? pipelineFactory = null) =>
-        new(_workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorPair,
-            _workingSetService, _formatterFactory, _hintEngine, pipelineFactory);
+    private SetCommand CreateCommand(RenderingPipelineFactory? pipelineFactory = null)
+    {
+        var effectivePipeline = pipelineFactory
+            ?? new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true);
+        var ctx = new CommandContext(effectivePipeline, _formatterFactory, _hintEngine, new TwigConfiguration());
+        var statusFieldReader = new StatusFieldConfigReader(new TwigPaths(
+            Path.Combine(Path.GetTempPath(), ".twig-ws-test"),
+            Path.Combine(Path.GetTempPath(), ".twig-ws-test", "config"),
+            Path.Combine(Path.GetTempPath(), ".twig-ws-test", "twig.db")));
+        return new(ctx, _workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory,
+            _workingSetService, statusFieldReader);
+    }
 
     // ── (a) Cache miss → eviction fires ────────────────────────────
 

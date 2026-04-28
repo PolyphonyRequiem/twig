@@ -61,7 +61,7 @@ public sealed class ReadTools(WorkspaceResolver resolver)
         IReadOnlyList<WorkItemLink> links = Array.Empty<WorkItemLink>();
         try
         {
-            links = await ctx.SyncCoordinatorPair.ReadOnly.SyncLinksAsync(item.Id, ct);
+            links = await ctx.SyncCoordinatorFactory.ReadOnly.SyncLinksAsync(item.Id, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 

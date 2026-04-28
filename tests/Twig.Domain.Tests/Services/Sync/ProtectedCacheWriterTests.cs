@@ -219,10 +219,10 @@ public class ProtectedCacheWriterTests
             });
 
         // 1. Start the sync (uses SyncCoordinator via factory, which calls ProtectedCacheWriter)
-        var syncCoordinatorPair = new SyncCoordinatorPair(
+        var syncCoordinatorFactory = new SyncCoordinatorFactory(
             _workItemRepo, _adoService, _sut, _pendingStore, null,
             readOnlyStaleMinutes: 30, readWriteStaleMinutes: 30);
-        var syncCoordinator = syncCoordinatorPair.ReadWrite;
+        var syncCoordinator = syncCoordinatorFactory.ReadWrite;
 
         var stale = DateTimeOffset.UtcNow.AddMinutes(-60);
         for (var i = 1; i <= 5; i++)

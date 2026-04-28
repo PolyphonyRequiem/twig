@@ -2,7 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Twig.Domain.ValueObjects;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Field;
 
 /// <summary>
 /// Computes a deterministic hash of a set of field definitions.

@@ -1,6 +1,6 @@
 using Twig.Domain.ValueObjects;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Field;
 
 /// <summary>
 /// Extracts work item IDs from branch names using configurable regex patterns.

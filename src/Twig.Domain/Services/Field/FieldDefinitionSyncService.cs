@@ -1,6 +1,6 @@
 using Twig.Domain.Interfaces;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Field;
 
 /// <summary>
 /// Fetches field definitions from ADO and persists them to the local store.

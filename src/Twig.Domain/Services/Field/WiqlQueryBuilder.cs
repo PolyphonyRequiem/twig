@@ -1,7 +1,7 @@
 using System.Text;
 using Twig.Domain.ValueObjects;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Field;
 
 /// <summary>
 /// Builds WIQL SELECT statements from a <see cref="QueryParameters"/> instance.

@@ -1,6 +1,6 @@
 using Twig.Domain.ValueObjects;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Field;
 
 /// <summary>
 /// Determines whether a given ADO field should be imported into <c>WorkItem.Fields</c>.

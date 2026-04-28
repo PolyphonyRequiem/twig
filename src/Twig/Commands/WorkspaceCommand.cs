@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
 using Twig.Domain.Services;
+using Twig.Domain.Services.Field;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -387,7 +388,7 @@ public sealed class WorkspaceCommand(
         if (sprintItems is null || sprintItems.Count == 0)
             return Array.Empty<Domain.ValueObjects.ColumnSpec>();
 
-        var profiles = Domain.Services.FieldProfileService.ComputeProfiles(sprintItems);
+        var profiles = FieldProfileService.ComputeProfiles(sprintItems);
         return Domain.Services.ColumnResolver.Resolve(
             profiles,
             fieldDefs,

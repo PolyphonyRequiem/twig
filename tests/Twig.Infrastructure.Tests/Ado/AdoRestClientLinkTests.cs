@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Shouldly;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Infrastructure.Ado;
 using Xunit;
 
@@ -96,7 +97,7 @@ public sealed class AdoRestClientLinkTests
     {
         var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
         var auth = new FakeAuthProvider();
-        return new AdoRestClient(http, auth, OrgUrl, Project);
+        return new AdoRestClient(http, auth, OrgUrl, Project, new WorkItemMapper());
     }
 
     private sealed class FakeAuthProvider : IAuthenticationProvider

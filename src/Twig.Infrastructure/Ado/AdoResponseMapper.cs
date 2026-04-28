@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Services;
 using Twig.Domain.Services.Field;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.ValueObjects;
@@ -59,6 +60,52 @@ internal static class AdoResponseMapper
         workItem.MarkSynced(dto.Rev);
 
         return workItem;
+    }
+
+    /// <summary>
+    /// Maps an ADO work item response DTO to an immutable <see cref="WorkItemSnapshot"/>.
+    /// Produces raw/primitive data — value object parsing is deferred to <see cref="WorkItemMapper"/>.
+    /// </summary>
+    public static WorkItemSnapshot MapToSnapshot(AdoWorkItemResponse dto,
+        IReadOnlyDictionary<string, FieldDefinition>? fieldDefLookup = null)
+    {
+        var fields = dto.Fields ?? new Dictionary<string, object?>();
+
+        var filteredFields = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var kvp in fields)
+        {
+            FieldDefinition? fieldDef = null;
+            fieldDefLookup?.TryGetValue(kvp.Key, out fieldDef);
+            if (!FieldImportFilter.ShouldImport(kvp.Key, fieldDef)) continue;
+            var value = ParseFieldValue(kvp.Value);
+            if (value is not null) filteredFields[kvp.Key] = value;
+        }
+
+        return new WorkItemSnapshot
+        {
+            Id = dto.Id,
+            Revision = dto.Rev,
+            TypeName = GetStringField(fields, "System.WorkItemType") ?? string.Empty,
+            Title = GetStringField(fields, "System.Title") ?? string.Empty,
+            State = GetStringField(fields, "System.State") ?? string.Empty,
+            AssignedTo = ParseAssignedTo(fields),
+            IterationPath = GetStringField(fields, "System.IterationPath"),
+            AreaPath = GetStringField(fields, "System.AreaPath"),
+            ParentId = ExtractParentId(dto.Relations),
+            Fields = filteredFields,
+        };
+    }
+
+    /// <summary>
+    /// Maps an ADO work item response DTO to a <see cref="WorkItemSnapshot"/> plus non-hierarchy links.
+    /// </summary>
+    public static (WorkItemSnapshot Snapshot, IReadOnlyList<WorkItemLink> Links) MapToSnapshotWithLinks(
+        AdoWorkItemResponse dto,
+        IReadOnlyDictionary<string, FieldDefinition>? fieldDefLookup = null)
+    {
+        var snapshot = MapToSnapshot(dto, fieldDefLookup);
+        var links = ExtractNonHierarchyLinks(dto.Id, dto.Relations);
+        return (snapshot, links);
     }
 
     /// <summary>

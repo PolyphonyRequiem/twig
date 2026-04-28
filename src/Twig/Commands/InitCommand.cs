@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Microsoft.Data.Sqlite;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.Services.Field;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Process;
@@ -365,7 +366,7 @@ public sealed class InitCommand
             try
             {
                 Console.WriteLine(fmt.FormatInfo("Refreshing sprint items..."));
-                var adoClient = new AdoRestClient(_httpClient, _authProvider, org, project);
+                var adoClient = new AdoRestClient(_httpClient, _authProvider, org, project, new WorkItemMapper());
                 var workItemRepo = new Infrastructure.Persistence.SqliteWorkItemRepository(cacheStore);
                 var contextStore = new Infrastructure.Persistence.SqliteContextStore(cacheStore);
 

@@ -41,21 +41,9 @@ public class NextPrevCommandTests
         _adoService.FetchChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
         var activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        var pendingChangeStore = Substitute.For<IPendingChangeStore>();
-        var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, pendingChangeStore);
-        var syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, protectedCacheWriter, pendingChangeStore, null, 30, 30);
-        var iterationService = Substitute.For<IIterationService>();
-        iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
-            .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
-        var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, iterationService, null);
         var pipelineFactory = new RenderingPipelineFactory(formatterFactory, null!, isOutputRedirected: () => true);
         var ctx = new CommandContext(pipelineFactory, formatterFactory, hintEngine, new TwigConfiguration());
-        var statusFieldReader = new StatusFieldConfigReader(new TwigPaths(
-            Path.Combine(Path.GetTempPath(), ".twig-nextprev-test"),
-            Path.Combine(Path.GetTempPath(), ".twig-nextprev-test", "config"),
-            Path.Combine(Path.GetTempPath(), ".twig-nextprev-test", "twig.db")));
-        var setCommand = new SetCommand(ctx, _workItemRepo, _contextStore, activeItemResolver, syncCoordinatorFactory,
-            workingSetService, statusFieldReader);
+        var setCommand = new SetCommand(ctx, _workItemRepo, _contextStore, activeItemResolver);
         _navCmd = new NavigationCommands(_contextStore, _workItemRepo, _seedLinkRepo, _workItemLinkRepo, setCommand, formatterFactory, activeItemResolver);
     }
 

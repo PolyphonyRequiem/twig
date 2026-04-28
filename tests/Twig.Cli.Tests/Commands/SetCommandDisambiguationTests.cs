@@ -1,14 +1,10 @@
 using NSubstitute;
 using Shouldly;
-using Spectre.Console;
-using Spectre.Console.Rendering;
 using Spectre.Console.Testing;
 using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
-using Twig.Domain.Services.Workspace;
 using Twig.Domain.Services.Navigation;
-using Twig.Domain.Services.Sync;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -24,12 +20,10 @@ public class SetCommandDisambiguationTests
     private readonly IAdoWorkItemService _adoService;
     private readonly IContextStore _contextStore;
     private readonly ActiveItemResolver _activeItemResolver;
-    private readonly SyncCoordinatorFactory _syncCoordinatorFactory;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly IAsyncRenderer _mockRenderer;
     private readonly ISeedLinkRepository _seedLinkRepo;
     private readonly IWorkItemLinkRepository _workItemLinkRepo;
-    private readonly StatusFieldConfigReader _statusFieldReader;
 
     public SetCommandDisambiguationTests()
     {
@@ -45,16 +39,9 @@ public class SetCommandDisambiguationTests
         _adoService.FetchChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        var pendingChangeStore = Substitute.For<IPendingChangeStore>();
-        var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, pendingChangeStore);
-        _syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, protectedCacheWriter, pendingChangeStore, null, 30, 30);
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
         _mockRenderer = Substitute.For<IAsyncRenderer>();
-        _statusFieldReader = new StatusFieldConfigReader(new TwigPaths(
-            Path.Combine(Path.GetTempPath(), ".twig-disambig-test"),
-            Path.Combine(Path.GetTempPath(), ".twig-disambig-test", "config"),
-            Path.Combine(Path.GetTempPath(), ".twig-disambig-test", "twig.db")));
     }
 
     /// <summary>
@@ -73,17 +60,11 @@ public class SetCommandDisambiguationTests
 
     private SetCommand CreateCommand(RenderingPipelineFactory? pipelineFactory = null)
     {
-        var pendingChangeStore = Substitute.For<IPendingChangeStore>();
-        var iterationService = Substitute.For<IIterationService>();
-        iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
-            .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
-        var workingSetService = new WorkingSetService(_contextStore, _workItemRepo, pendingChangeStore, iterationService, null);
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         var effectivePipeline = pipelineFactory
             ?? new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true);
         var ctx = new CommandContext(effectivePipeline, _formatterFactory, hintEngine, new TwigConfiguration());
-        return new(ctx, _workItemRepo, _contextStore, _activeItemResolver, _syncCoordinatorFactory,
-            workingSetService, _statusFieldReader);
+        return new(ctx, _workItemRepo, _contextStore, _activeItemResolver);
     }
 
     // ── SetCommand: Interactive disambiguation (TTY + human) ────────

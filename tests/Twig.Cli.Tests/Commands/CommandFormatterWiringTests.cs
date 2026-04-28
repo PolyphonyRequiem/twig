@@ -34,27 +34,14 @@ public class CommandFormatterWiringTests
 
         var item = CreateWorkItem(42, "Test Item");
         workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
-        adoService.FetchChildrenAsync(42, Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>());
 
         var factory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = true });
         var resolver = new ActiveItemResolver(contextStore, workItemRepo, adoService);
-        var pendingChangeStore = Substitute.For<IPendingChangeStore>();
-        var protectedWriter = new ProtectedCacheWriter(workItemRepo, pendingChangeStore);
-        var syncCoordFactory = new SyncCoordinatorFactory(workItemRepo, adoService, protectedWriter, pendingChangeStore, null, 30, 30);
-        var iterService = Substitute.For<IIterationService>();
-        iterService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
-            .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
-        var wsService = new WorkingSetService(contextStore, workItemRepo, pendingChangeStore, iterService, null);
         var pipelineFactory = new RenderingPipelineFactory(factory, null!, isOutputRedirected: () => true);
         var ctx = new CommandContext(pipelineFactory, factory, hintEngine, new TwigConfiguration());
-        var statusFieldReader = new StatusFieldConfigReader(new TwigPaths(
-            Path.Combine(Path.GetTempPath(), ".twig-fmtwire-test"),
-            Path.Combine(Path.GetTempPath(), ".twig-fmtwire-test", "config"),
-            Path.Combine(Path.GetTempPath(), ".twig-fmtwire-test", "twig.db")));
-        var cmd = new SetCommand(ctx, workItemRepo, contextStore, resolver, syncCoordFactory, wsService, statusFieldReader);
+        var cmd = new SetCommand(ctx, workItemRepo, contextStore, resolver);
 
         var result = await cmd.ExecuteAsync("42", "human");
 

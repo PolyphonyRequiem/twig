@@ -885,4 +885,44 @@ public class JsonOutputFormatterTests
         var filterEl = root.GetProperty("filters")[0];
         filterEl.GetProperty("includeChildren").GetBoolean().ShouldBeFalse();
     }
+
+    // ── Pending changes in work item output ─────────────────────────
+
+    [Fact]
+    public void FormatWorkItem_IncludesPendingChanges_WhenPresent()
+    {
+        var item = new WorkItemBuilder(42, "Pending Item").Build();
+        var result = _formatter.FormatWorkItem(item, showDirty: false, links: null,
+            pendingChanges: (FieldCount: 3, NoteCount: 1));
+
+        var doc = JsonDocument.Parse(result);
+        var root = doc.RootElement;
+        root.TryGetProperty("pendingChanges", out var pc).ShouldBeTrue();
+        pc.GetProperty("fieldEditCount").GetInt32().ShouldBe(3);
+        pc.GetProperty("noteCount").GetInt32().ShouldBe(1);
+    }
+
+    [Fact]
+    public void FormatWorkItem_OmitsPendingChanges_WhenNull()
+    {
+        var item = new WorkItemBuilder(42, "Clean Item").Build();
+        var result = _formatter.FormatWorkItem(item, showDirty: false, links: null,
+            pendingChanges: null);
+
+        var doc = JsonDocument.Parse(result);
+        var root = doc.RootElement;
+        root.TryGetProperty("pendingChanges", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void FormatWorkItem_OmitsPendingChanges_WhenBothZero()
+    {
+        var item = new WorkItemBuilder(42, "Zero Pending").Build();
+        var result = _formatter.FormatWorkItem(item, showDirty: false, links: null,
+            pendingChanges: (FieldCount: 0, NoteCount: 0));
+
+        var doc = JsonDocument.Parse(result);
+        var root = doc.RootElement;
+        root.TryGetProperty("pendingChanges", out _).ShouldBeFalse();
+    }
 }

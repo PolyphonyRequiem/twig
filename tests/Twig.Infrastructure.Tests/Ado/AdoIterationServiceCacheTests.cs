@@ -237,6 +237,39 @@ public sealed class AdoIterationServiceCacheTests
         handler.GetCallCount("/_apis/wit/fields").ShouldBe(1);
     }
 
+    // ── TeamIterations cache ───────────────────────────────────────
+
+    [Fact]
+    public async Task GetTeamIterationsAsync_MultipleCalls_OnlyOneHttpCall()
+    {
+        var handler = new CountingHandler();
+        handler.SetRawResponse("/_apis/work/teamsettings/iterations",
+            """{"count":2,"value":[{"id":"g1","name":"Sprint 1","path":"testproject\\Sprint 1","attributes":{"startDate":"2026-01-01","finishDate":"2026-01-14"}},{"id":"g2","name":"Sprint 2","path":"testproject\\Sprint 2","attributes":{"startDate":"2026-01-15","finishDate":"2026-01-28"}}]}""");
+        var service = CreateService(handler);
+
+        _ = await service.GetTeamIterationsAsync();
+        _ = await service.GetTeamIterationsAsync();
+        _ = await service.GetTeamIterationsAsync();
+
+        handler.GetCallCount("/_apis/work/teamsettings/iterations").ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task GetTeamIterationsAsync_ReturnsSameData_FromCache()
+    {
+        var handler = new CountingHandler();
+        handler.SetRawResponse("/_apis/work/teamsettings/iterations",
+            """{"count":1,"value":[{"id":"g1","name":"Sprint 1","path":"testproject\\Sprint 1","attributes":{"startDate":"2026-01-01","finishDate":"2026-01-14"}}]}""");
+        var service = CreateService(handler);
+
+        var first = await service.GetTeamIterationsAsync();
+        var second = await service.GetTeamIterationsAsync();
+
+        first.Count.ShouldBe(1);
+        first[0].Path.ShouldBe(@"testproject\Sprint 1");
+        ReferenceEquals(first, second).ShouldBeTrue();
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     private static AdoIterationService CreateService(CountingHandler handler) =>

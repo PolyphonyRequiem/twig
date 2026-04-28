@@ -25,6 +25,7 @@ internal sealed class AdoIterationService : IIterationService
     private Task<AdoWorkItemTypeListResponse?>? _workItemTypesCache;
     private Task<ProcessConfigurationData>? _processConfigCache;
     private Task<IReadOnlyList<FieldDefinition>>? _fieldDefinitionsCache;
+    private Task<IReadOnlyList<TeamIteration>>? _teamIterationsCache;
 
     public AdoIterationService(
         HttpClient httpClient,
@@ -175,6 +176,9 @@ internal sealed class AdoIterationService : IIterationService
 
     public Task<IReadOnlyList<FieldDefinition>> GetFieldDefinitionsAsync(CancellationToken ct = default) =>
         _fieldDefinitionsCache ??= FetchFieldDefinitionsAsync(ct);
+
+    public Task<IReadOnlyList<TeamIteration>> GetTeamIterationsAsync(CancellationToken ct = default) =>
+        _teamIterationsCache ??= FetchTeamIterationsAsync(ct);
 
     public async Task<IReadOnlyList<(string Path, bool IncludeChildren)>> GetTeamAreaPathsAsync(CancellationToken ct = default)
     {
@@ -331,6 +335,42 @@ internal sealed class AdoIterationService : IIterationService
             Console.Error.WriteLine($"⚠ Could not fetch field definitions: {ex.Message}. Dynamic columns will use derived display names.");
             return Array.Empty<FieldDefinition>();
         }
+    }
+
+    private async Task<IReadOnlyList<TeamIteration>> FetchTeamIterationsAsync(CancellationToken ct)
+    {
+        var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/{Uri.EscapeDataString(_team)}/_apis/work/teamsettings/iterations?api-version={ApiVersion}";
+        using var response = await SendAsync(url, ct);
+
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        var result = await JsonSerializer.DeserializeAsync(stream, TwigJsonContext.Default.AdoIterationListResponse, ct);
+
+        if (result?.Value is null || result.Value.Count == 0)
+            return Array.Empty<TeamIteration>();
+
+        var iterations = new List<TeamIteration>(result.Value.Count);
+        foreach (var item in result.Value)
+        {
+            if (item.Path is null)
+                continue;
+
+            DateTimeOffset? startDate = ParseDate(item.Attributes?.StartDate);
+            DateTimeOffset? endDate = ParseDate(item.Attributes?.FinishDate);
+
+            iterations.Add(new TeamIteration(item.Path, startDate, endDate));
+        }
+
+        return iterations;
+    }
+
+    private static DateTimeOffset? ParseDate(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return null;
+
+        return DateTimeOffset.TryParse(value, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var parsed)
+            ? parsed
+            : null;
     }
 
     private async Task<HttpResponseMessage> SendAsync(string url, CancellationToken ct)

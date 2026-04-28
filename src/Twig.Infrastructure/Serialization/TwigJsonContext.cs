@@ -95,6 +95,8 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(WorkspaceConfig))]
 [JsonSerializable(typeof(TrackingConfig))]
 [JsonSerializable(typeof(AreasConfig))]
+[JsonSerializable(typeof(SprintEntry))]
+[JsonSerializable(typeof(List<SprintEntry>))]
 [JsonSerializable(typeof(TrackedItem))]
 [JsonSerializable(typeof(List<TrackedItem>))]
 [JsonSerializable(typeof(ExcludedItem))]

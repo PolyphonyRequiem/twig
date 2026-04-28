@@ -835,6 +835,111 @@ public class TwigConfigurationTests : IDisposable
         loaded.Workspace.WorkingLevel.ShouldBe("Issue");
     }
 
+    // ── workspace.sprints ──
+
+    [Fact]
+    public void SetValue_WorkspaceSprints_ParsesSemicolonDelimited()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("workspace.sprints", "@current;@current-1").ShouldBeTrue();
+        config.Workspace.Sprints.ShouldNotBeNull();
+        config.Workspace.Sprints!.Count.ShouldBe(2);
+        config.Workspace.Sprints[0].Expression.ShouldBe("@current");
+        config.Workspace.Sprints[1].Expression.ShouldBe("@current-1");
+    }
+
+    [Fact]
+    public void SetValue_WorkspaceSprints_SingleExpression()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("workspace.sprints", "@current").ShouldBeTrue();
+        config.Workspace.Sprints.ShouldNotBeNull();
+        config.Workspace.Sprints!.Count.ShouldBe(1);
+        config.Workspace.Sprints[0].Expression.ShouldBe("@current");
+    }
+
+    [Fact]
+    public void SetValue_WorkspaceSprints_AbsolutePath()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("workspace.sprints", @"Project\Sprint 5").ShouldBeTrue();
+        config.Workspace.Sprints.ShouldNotBeNull();
+        config.Workspace.Sprints!.Count.ShouldBe(1);
+        config.Workspace.Sprints[0].Expression.ShouldBe(@"Project\Sprint 5");
+    }
+
+    [Fact]
+    public void SetValue_WorkspaceSprints_MixedExpressions()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("workspace.sprints", @"@current;@current-1;Project\Sprint 5").ShouldBeTrue();
+        config.Workspace.Sprints.ShouldNotBeNull();
+        config.Workspace.Sprints!.Count.ShouldBe(3);
+        config.Workspace.Sprints[0].Expression.ShouldBe("@current");
+        config.Workspace.Sprints[1].Expression.ShouldBe("@current-1");
+        config.Workspace.Sprints[2].Expression.ShouldBe(@"Project\Sprint 5");
+    }
+
+    [Fact]
+    public void SetValue_WorkspaceSprints_TrimsWhitespace()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("workspace.sprints", " @current ; @current-1 ").ShouldBeTrue();
+        config.Workspace.Sprints.ShouldNotBeNull();
+        config.Workspace.Sprints!.Count.ShouldBe(2);
+        config.Workspace.Sprints[0].Expression.ShouldBe("@current");
+        config.Workspace.Sprints[1].Expression.ShouldBe("@current-1");
+    }
+
+    [Fact]
+    public void SetValue_WorkspaceSprints_EmptyString_ReturnsFalse()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("workspace.sprints", "").ShouldBeFalse();
+        config.Workspace.Sprints.ShouldBeNull();
+    }
+
+    [Fact]
+    public void SetValue_WorkspaceSprints_WhitespaceOnly_ReturnsFalse()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("workspace.sprints", "   ").ShouldBeFalse();
+        config.Workspace.Sprints.ShouldBeNull();
+    }
+
+    [Fact]
+    public void SetValue_WorkspaceSprints_ReplacesExistingList()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("workspace.sprints", "@current;@current-1").ShouldBeTrue();
+        config.Workspace.Sprints!.Count.ShouldBe(2);
+
+        config.SetValue("workspace.sprints", "@current+1").ShouldBeTrue();
+        config.Workspace.Sprints!.Count.ShouldBe(1);
+        config.Workspace.Sprints[0].Expression.ShouldBe("@current+1");
+    }
+
+    [Fact]
+    public async Task WorkspaceSprints_SerializationRoundTrip()
+    {
+        var configPath = Path.Combine(_tempDir, "config_sprints.json");
+        var config = new TwigConfiguration
+        {
+            Organization = "testorg",
+            Project = "testproj",
+        };
+        config.SetValue("workspace.sprints", @"@current;@current-1;Project\Sprint 5");
+
+        await config.SaveAsync(configPath);
+        var loaded = await TwigConfiguration.LoadAsync(configPath);
+
+        loaded.Workspace.Sprints.ShouldNotBeNull();
+        loaded.Workspace.Sprints!.Count.ShouldBe(3);
+        loaded.Workspace.Sprints[0].Expression.ShouldBe("@current");
+        loaded.Workspace.Sprints[1].Expression.ShouldBe("@current-1");
+        loaded.Workspace.Sprints[2].Expression.ShouldBe(@"Project\Sprint 5");
+    }
+
     // ── EPIC-003: Error resilience — malformed JSON and permission denied ──
 
     [Fact]

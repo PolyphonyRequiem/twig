@@ -140,4 +140,44 @@ public sealed class CommandRegistrationModuleTests
 
         command.ShouldNotBeNull();
     }
+
+    [Fact]
+    public void StateCommand_AutoResolution_Resolves_Successfully()
+    {
+        using var provider = BuildProviderForFlowCommands();
+
+        var command = provider.GetRequiredService<StateCommand>();
+
+        command.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void BatchCommand_AutoResolution_Resolves_Successfully()
+    {
+        using var provider = BuildProviderForFlowCommands();
+
+        var command = provider.GetRequiredService<BatchCommand>();
+
+        command.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void RefreshCommand_AutoResolution_Resolves_Successfully()
+    {
+        using var provider = BuildProviderForFlowCommands();
+
+        var command = provider.GetRequiredService<RefreshCommand>();
+
+        command.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void FlowCloseCommand_AutoResolution_Resolves_Successfully()
+    {
+        using var provider = BuildProviderForFlowCommands();
+
+        var command = provider.GetRequiredService<FlowCloseCommand>();
+
+        command.ShouldNotBeNull();
+    }
 }

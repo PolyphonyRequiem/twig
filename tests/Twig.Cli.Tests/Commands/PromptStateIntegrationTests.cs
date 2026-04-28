@@ -182,9 +182,10 @@ public class PromptStateIntegrationTests : IDisposable
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
         var flowTransitionService = new FlowTransitionService(
             activeItemResolver, _adoService, _processConfigProvider, protectedCacheWriter);
-        var cmd = new FlowCloseCommand(_contextStore,
+        var cmd = new FlowCloseCommand(
+            new CommandContext(new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true), _formatterFactory, _hintEngine, _config),
+            _contextStore,
             _pendingChangeStore, _consoleInput,
-            _formatterFactory, _config,
             flowTransitionService,
             _workItemRepo, _adoService, _processConfigProvider,
             promptStateWriter: writer);
@@ -216,9 +217,11 @@ public class PromptStateIntegrationTests : IDisposable
 
         var writer = CreateWriter();
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        var cmd = new StateCommand(resolver, _workItemRepo, _adoService,
+        var cmd = new StateCommand(
+            new CommandContext(new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true), _formatterFactory, _hintEngine, _config),
+            resolver, _workItemRepo, _adoService,
             _pendingChangeStore, _processConfigProvider, _consoleInput,
-            _formatterFactory, _hintEngine, writer);
+            promptStateWriter: writer);
 
         var result = await cmd.ExecuteAsync("Resolved");
 
@@ -514,8 +517,10 @@ public class PromptStateIntegrationTests : IDisposable
             _pendingChangeStore, refreshProtectedWriter, refreshWorkingSetService, refreshSyncCoordinatorFactory,
             iterationService,
             Substitute.For<ITrackingService>());
-        var cmd = new RefreshCommand(_contextStore, iterationService, _config, _paths, _processTypeStore, _fieldDefinitionStore,
-            _formatterFactory, refreshOrchestrator, promptStateWriter: writer);
+        var cmd = new RefreshCommand(
+            new CommandContext(new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true), _formatterFactory, _hintEngine, _config),
+            _contextStore, iterationService, _paths, _processTypeStore, _fieldDefinitionStore,
+            refreshOrchestrator, promptStateWriter: writer);
 
         var result = await cmd.ExecuteAsync();
 

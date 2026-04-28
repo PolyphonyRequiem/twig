@@ -49,17 +49,7 @@ public static class CommandRegistrationModule
         services.AddSingleton<SetCommand>();
         services.AddSingleton<ShowCommand>();
         services.AddSingleton<StatusCommand>();
-        services.AddSingleton<StateCommand>(sp => new StateCommand(
-            sp.GetRequiredService<Domain.Services.Navigation.ActiveItemResolver>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
-            sp.GetRequiredService<IPendingChangeStore>(),
-            sp.GetRequiredService<IProcessConfigurationProvider>(),
-            sp.GetRequiredService<IConsoleInput>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
-            sp.GetRequiredService<IPromptStateWriter>(),
-            parentPropagationService: sp.GetRequiredService<Domain.Services.Navigation.ParentStatePropagationService>()));
+        services.AddSingleton<StateCommand>();
         services.AddSingleton<TreeCommand>();
         services.AddSingleton<NavigationCommands>();
         services.AddSingleton<NavigationHistoryCommands>();
@@ -209,19 +199,7 @@ public static class CommandRegistrationModule
             sp.GetService<IGitService>(),
             sp.GetService<IAdoGitService>(),
             sp.GetRequiredService<IPromptStateWriter>()));
-        services.AddSingleton<FlowCloseCommand>(sp => new FlowCloseCommand(
-            sp.GetRequiredService<IContextStore>(),
-            sp.GetRequiredService<IPendingChangeStore>(),
-            sp.GetRequiredService<IConsoleInput>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetRequiredService<Domain.Services.Process.FlowTransitionService>(),
-            sp.GetRequiredService<IWorkItemRepository>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
-            sp.GetRequiredService<IProcessConfigurationProvider>(),
-            sp.GetService<IGitService>(),
-            sp.GetService<IAdoGitService>(),
-            sp.GetRequiredService<IPromptStateWriter>()));
+        services.AddSingleton<FlowCloseCommand>();
     }
 
     private static void AddSelfUpdateCommands(IServiceCollection services)

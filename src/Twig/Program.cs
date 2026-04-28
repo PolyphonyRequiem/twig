@@ -778,6 +778,28 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> WorkspaceAreaSync(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<AreaCommand>().SyncAsync(output, ct);
 
+    // ── Workspace Sprint Iteration Management ──
+
+    /// <summary>Add a sprint iteration expression to workspace configuration.</summary>
+    /// <param name="expression">Sprint expression (e.g., "@current", "@current-1", "Project\Sprint 5").</param>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    [Command("workspace sprint add")]
+    public async Task<int> WorkspaceSprintAdd([Argument] string expression, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<SprintCommand>().AddAsync(expression, output, ct);
+
+    /// <summary>Remove a sprint iteration expression from workspace configuration.</summary>
+    /// <param name="expression">Sprint expression to remove.</param>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    [Command("workspace sprint remove")]
+    public async Task<int> WorkspaceSprintRemove([Argument] string expression, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<SprintCommand>().RemoveAsync(expression, output, ct);
+
+    /// <summary>List configured sprint iteration expressions.</summary>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    [Command("workspace sprint list")]
+    public async Task<int> WorkspaceSprintList(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<SprintCommand>().ListAsync(output, ct);
+
     // ── Area Path Management (deprecated aliases — use 'workspace area' instead) ──
 
     /// <summary>Show the area-filtered workspace view. Deprecated — use 'twig workspace area' instead.</summary>
@@ -995,6 +1017,9 @@ internal static class GroupedHelp
         "workspace area remove",
         "workspace area list",
         "workspace area sync",
+        "workspace sprint add",
+        "workspace sprint remove",
+        "workspace sprint list",
 
         // Context
         "set",
@@ -1122,6 +1147,9 @@ Workspace:
   workspace area remove <path>  Remove a configured area path.
   workspace area list        List configured area paths with match semantics.
   workspace area sync        Fetch team area paths from ADO and replace config.
+  workspace sprint add <expr>  Add a sprint iteration expression.
+  workspace sprint remove <expr>  Remove a sprint iteration expression.
+  workspace sprint list      List configured sprint expressions.
 
 Context:
   set <id|pattern>     Set the active work item.

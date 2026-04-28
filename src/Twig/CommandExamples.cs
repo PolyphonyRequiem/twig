@@ -275,6 +275,21 @@ internal static class CommandExamples
             "twig workspace area sync                          Fetch team area paths from ADO",
             "twig workspace area sync -o json                  Sync and output result as JSON",
         ],
+        ["workspace sprint add"] =
+        [
+            @"twig workspace sprint add @current               Subscribe to the current sprint",
+            @"twig workspace sprint add @current-1             Subscribe to the previous sprint",
+        ],
+        ["workspace sprint remove"] =
+        [
+            @"twig workspace sprint remove @current            Unsubscribe from the current sprint",
+            @"twig workspace sprint remove ""Project\Sprint 5""  Remove an absolute sprint path",
+        ],
+        ["workspace sprint list"] =
+        [
+            "twig workspace sprint list                        List configured sprint expressions",
+            "twig workspace sprint list -o json                List sprint expressions as JSON",
+        ],
         ["sprint"] =
         [
             "twig sprint                Show the current sprint summary",

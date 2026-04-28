@@ -10,6 +10,7 @@ using Xunit;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Workspace;
+using Twig.Infrastructure.Persistence;
 
 namespace Twig.Mcp.Tests.Services;
 
@@ -83,6 +84,18 @@ public sealed class WorkspaceContextFactoryTests : IDisposable
         context.Flusher.ShouldNotBeNull();
         context.PromptStateWriter.ShouldNotBeNull();
         context.SprintIterationResolver.ShouldNotBeNull();
+        context.TrackingRepo.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void GetOrCreate_TrackingRepo_Is_FileTrackingRepository()
+    {
+        var key = WriteWorkspace("orgA", "proj1");
+        using var factory = CreateFactory();
+
+        var context = factory.GetOrCreate(key);
+
+        context.TrackingRepo.ShouldBeOfType<FileTrackingRepository>();
     }
 
     [Fact]
@@ -185,6 +198,7 @@ public sealed class WorkspaceContextFactoryTests : IDisposable
         ReferenceEquals(ctx1.PendingChangeStore, ctx2.PendingChangeStore).ShouldBeFalse();
         ReferenceEquals(ctx1.ActiveItemResolver, ctx2.ActiveItemResolver).ShouldBeFalse();
         ReferenceEquals(ctx1.Flusher, ctx2.Flusher).ShouldBeFalse();
+        ReferenceEquals(ctx1.TrackingRepo, ctx2.TrackingRepo).ShouldBeFalse();
     }
 
     [Fact]

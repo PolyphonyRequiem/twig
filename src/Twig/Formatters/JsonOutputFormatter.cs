@@ -28,7 +28,8 @@ public sealed class JsonOutputFormatter : IOutputFormatter
     }
 
     public string FormatWorkItem(WorkItem item, bool showDirty, IReadOnlyList<WorkItemLink>? links,
-        WorkItem? parent = null, IReadOnlyList<WorkItem>? children = null, GitContext? gitContext = null)
+        WorkItem? parent = null, IReadOnlyList<WorkItem>? children = null, GitContext? gitContext = null,
+        (int FieldCount, int NoteCount)? pendingChanges = null)
     {
         using var stream = new MemoryStream();
         using var writer = new Utf8JsonWriter(stream, WriterOptions);
@@ -77,6 +78,7 @@ public sealed class JsonOutputFormatter : IOutputFormatter
             writer.WriteEndArray();
         }
 
+        WritePendingChanges(writer, pendingChanges);
         WriteGitContext(writer, gitContext);
 
         writer.WriteEndObject();
@@ -705,6 +707,17 @@ public sealed class JsonOutputFormatter : IOutputFormatter
     {
         item.Fields.TryGetValue("System.Tags", out var tags);
         return tags ?? "";
+    }
+
+    private static void WritePendingChanges(Utf8JsonWriter writer, (int FieldCount, int NoteCount)? pendingChanges)
+    {
+        if (pendingChanges is not { } pc || (pc.FieldCount == 0 && pc.NoteCount == 0))
+            return;
+
+        writer.WriteStartObject("pendingChanges");
+        writer.WriteNumber("fieldEditCount", pc.FieldCount);
+        writer.WriteNumber("noteCount", pc.NoteCount);
+        writer.WriteEndObject();
     }
 
     private static void WriteGitContext(Utf8JsonWriter writer, GitContext? gitContext)

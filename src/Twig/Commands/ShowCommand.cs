@@ -34,7 +34,6 @@ public sealed class ShowCommand(
     TwigPaths? twigPaths = null,
     IAdoGitService? adoGitService = null)
 {
-    // Wired for no-args mode (future tasks in this issue)
     private readonly IContextStore? _contextStore = contextStore;
     private readonly ActiveItemResolver? _activeItemResolver = activeItemResolver;
     private readonly IPendingChangeStore? _pendingChangeStore = pendingChangeStore;
@@ -92,11 +91,15 @@ public sealed class ShowCommand(
 
         var gitContext = await BuildGitContextAsync(ct);
 
+        Func<Task<IReadOnlyList<PendingChangeRecord>>> getPendingChanges = _pendingChangeStore is not null
+            ? () => _pendingChangeStore.GetChangesAsync(item.Id)
+            : () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>([]);
+
         if (renderer is not null)
         {
             Task RenderStaticAsync() => renderer.RenderStatusAsync(
                 getItem: () => Task.FromResult<Domain.Aggregates.WorkItem?>(item),
-                getPendingChanges: () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>([]),
+                getPendingChanges: getPendingChanges,
                 ct: CancellationToken.None,
                 fieldDefinitions: fieldDefs,
                 statusFieldEntries: statusFieldEntries,
@@ -111,7 +114,7 @@ public sealed class ShowCommand(
             {
                 Task<IRenderable> BuildView(Domain.Aggregates.WorkItem wi, Domain.Aggregates.WorkItem? pa, IReadOnlyList<Domain.Aggregates.WorkItem> ch, (int Done, int Total)? progress)
                     => spectreRenderer.BuildStatusViewAsync(wi,
-                        getPendingChanges: () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>([]),
+                        getPendingChanges: getPendingChanges,
                         fieldDefinitions: fieldDefs,
                         statusFieldEntries: statusFieldEntries,
                         childProgress: progress,
@@ -141,7 +144,7 @@ public sealed class ShowCommand(
                             catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
                             return await spectreRenderer.BuildStatusViewAsync(freshItem,
-                                getPendingChanges: () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>([]),
+                                getPendingChanges: getPendingChanges,
                                 fieldDefinitions: fieldDefs,
                                 statusFieldEntries: statusFieldEntries,
                                 childProgress: processConfigProvider.ComputeChildProgress(freshChildren),
@@ -166,11 +169,47 @@ public sealed class ShowCommand(
         }
         else if (fmt is HumanOutputFormatter humanFmt)
         {
-            Console.WriteLine(humanFmt.FormatWorkItem(item, showDirty: false, fieldDefs, statusFieldEntries, childProgress, pendingChanges: null, links, parent, children, gitContext: gitContext));
+            (int FieldCount, int NoteCount)? pendingCounts = null;
+            if (_pendingChangeStore is not null)
+            {
+                var pending = await _pendingChangeStore.GetChangesAsync(item.Id);
+                if (pending.Count > 0)
+                {
+                    var noteCount = 0;
+                    var fieldCount = 0;
+                    foreach (var change in pending)
+                    {
+                        if (string.Equals(change.ChangeType, "note", StringComparison.OrdinalIgnoreCase))
+                            noteCount++;
+                        else
+                            fieldCount++;
+                    }
+                    pendingCounts = (fieldCount, noteCount);
+                }
+            }
+            Console.WriteLine(humanFmt.FormatWorkItem(item, showDirty: false, fieldDefs, statusFieldEntries, childProgress, pendingCounts, links, parent, children, gitContext: gitContext));
         }
         else if (fmt is JsonOutputFormatter jsonFmt)
         {
-            Console.WriteLine(jsonFmt.FormatWorkItem(item, showDirty: false, links, parent, children, gitContext: gitContext));
+            (int FieldCount, int NoteCount)? pendingCounts = null;
+            if (_pendingChangeStore is not null)
+            {
+                var pending = await _pendingChangeStore.GetChangesAsync(item.Id);
+                if (pending.Count > 0)
+                {
+                    var noteCount = 0;
+                    var fieldCount = 0;
+                    foreach (var change in pending)
+                    {
+                        if (string.Equals(change.ChangeType, "note", StringComparison.OrdinalIgnoreCase))
+                            noteCount++;
+                        else
+                            fieldCount++;
+                    }
+                    pendingCounts = (fieldCount, noteCount);
+                }
+            }
+            Console.WriteLine(jsonFmt.FormatWorkItem(item, showDirty: false, links, parent, children, gitContext: gitContext, pendingChanges: pendingCounts));
         }
         else
         {

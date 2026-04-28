@@ -3,6 +3,7 @@ using ModelContextProtocol.Protocol;
 using NSubstitute;
 using Shouldly;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Workspace;
@@ -145,6 +146,7 @@ public abstract class ReadToolsTestBase
         var flusher = new McpPendingChangeFlusher(workItemRepo, adoService, pendingChangeStore);
         var parentPropagation = new ParentStatePropagationService(
             workItemRepo, adoService, processConfigProvider, protectedWriter);
+        var sprintIterationResolver = new SprintIterationResolver(iterationService, workItemRepo);
         var paths = TwigPaths.ForContext(Path.GetTempPath(), key.Org, key.Project);
         var cacheStore = new SqliteCacheStore("Data Source=:memory:");
 
@@ -154,6 +156,7 @@ public abstract class ReadToolsTestBase
             adoService, iterationService, processConfigProvider,
             activeItemResolver, syncFactory, contextChange,
             workingSet, flusher, promptStateWriter, parentPropagation,
+            sprintIterationResolver,
             trackingRepo,
             branchLinkService);
     }

@@ -150,6 +150,8 @@ public sealed class WorkspaceContextFactory : IWorkspaceContextFactory, IDisposa
         var parentPropagationService = new ParentStatePropagationService(
             workItemRepo, adoService, processConfigProvider, protectedCacheWriter);
 
+        var sprintIterationResolver = new SprintIterationResolver(iterationService, workItemRepo);
+
         var promptStateWriter = new PromptStateWriter(
             contextStore,
             workItemRepo,
@@ -194,6 +196,7 @@ public sealed class WorkspaceContextFactory : IWorkspaceContextFactory, IDisposa
             flusher,
             promptStateWriter,
             parentPropagationService,
+            sprintIterationResolver,
             trackingRepo,
             branchLinkService);
     }

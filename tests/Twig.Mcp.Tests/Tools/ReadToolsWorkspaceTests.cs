@@ -507,4 +507,236 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
         var item = root.GetProperty("trackedItems")[0];
         item.GetProperty("trackedAt").GetString().ShouldBe("2026-03-10T14:30:00.0000000+00:00");
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Configured sprints — uses SprintIterationResolver
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Workspace_ConfiguredSprints_UsesResolverInsteadOfCurrentIteration()
+    {
+        var sprint1 = IterationPath.Parse("Project\\Sprint 1").Value;
+        var sprint2 = IterationPath.Parse("Project\\Sprint 2").Value;
+
+        var configWithSprints = new TwigConfiguration
+        {
+            Display = new DisplayConfig { TreeDepth = 10, CacheStaleMinutes = 5 },
+            Seed = new SeedConfig { StaleDays = 14 },
+            User = new UserConfig { DisplayName = "Test User" },
+            Workspace = new WorkspaceConfig
+            {
+                Sprints = [new SprintEntry { Expression = "@current" }, new SprintEntry { Expression = "@current-1" }]
+            },
+        };
+
+        // Setup team iterations for resolver
+        _iterationService.GetTeamIterationsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<TeamIteration>
+            {
+                new("Project\\Sprint 1", DateTimeOffset.UtcNow.AddDays(-14), DateTimeOffset.UtcNow.AddDays(-1)),
+                new("Project\\Sprint 2", DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(13)),
+            });
+        _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
+            .Returns(sprint2);
+
+        // Items in sprint 1 (previous) and sprint 2 (current)
+        var item1 = new WorkItemBuilder(10, "Old Sprint Item").AsTask().InState("Closed").AssignedTo("Test User").Build();
+        var item2 = new WorkItemBuilder(20, "Current Sprint Item").AsTask().InState("Active").AssignedTo("Test User").Build();
+        _workItemRepo.GetByIterationAndAssigneeAsync(sprint1, "Test User", Arg.Any<CancellationToken>())
+            .Returns([item1]);
+        _workItemRepo.GetByIterationAndAssigneeAsync(sprint2, "Test User", Arg.Any<CancellationToken>())
+            .Returns([item2]);
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
+
+        var result = await CreateSut(configWithSprints).Workspace(all: false);
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+        root.GetProperty("sprintItems").GetArrayLength().ShouldBe(2);
+
+        // Should NOT have called GetCurrentIterationAsync for the fallback path
+        // (it may be called by the resolver internally, but not by the old single-iteration path)
+        await _workItemRepo.DidNotReceive()
+            .GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Workspace_ConfiguredSprints_AllTrue_FetchesAllUsers()
+    {
+        var sprint1 = IterationPath.Parse("Project\\Sprint 1").Value;
+
+        var configWithSprints = new TwigConfiguration
+        {
+            Display = new DisplayConfig { TreeDepth = 10, CacheStaleMinutes = 5 },
+            Seed = new SeedConfig { StaleDays = 14 },
+            User = new UserConfig { DisplayName = "Test User" },
+            Workspace = new WorkspaceConfig
+            {
+                Sprints = [new SprintEntry { Expression = "@current" }]
+            },
+        };
+
+        _iterationService.GetTeamIterationsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<TeamIteration>
+            {
+                new("Project\\Sprint 1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(14)),
+            });
+        _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
+            .Returns(sprint1);
+
+        var item1 = new WorkItemBuilder(10, "User A Item").AsTask().InState("Active").AssignedTo("User A").Build();
+        var item2 = new WorkItemBuilder(20, "User B Item").AsTask().InState("Active").AssignedTo("User B").Build();
+        _workItemRepo.GetByIterationAsync(sprint1, Arg.Any<CancellationToken>())
+            .Returns([item1, item2]);
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
+
+        var result = await CreateSut(configWithSprints).Workspace(all: true);
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+        root.GetProperty("sprintItems").GetArrayLength().ShouldBe(2);
+
+        // Should have used unfiltered method (all=true)
+        await _workItemRepo.Received(1)
+            .GetByIterationAsync(sprint1, Arg.Any<CancellationToken>());
+        await _workItemRepo.DidNotReceive()
+            .GetByIterationAndAssigneeAsync(Arg.Any<IterationPath>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Workspace_NoConfiguredSprints_FallsBackToCurrentIteration()
+    {
+        // Config with null Sprints (default)
+        var configNoSprints = new TwigConfiguration
+        {
+            Display = new DisplayConfig { TreeDepth = 10, CacheStaleMinutes = 5 },
+            Seed = new SeedConfig { StaleDays = 14 },
+            User = new UserConfig { DisplayName = "Test User" },
+            Workspace = new WorkspaceConfig { Sprints = null },
+        };
+
+        SetupIteration();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+
+        var item = new WorkItemBuilder(50, "Fallback Item").AsTask().InState("Active").AssignedTo("Test User").Build();
+        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+            .Returns([item]);
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
+
+        var result = await CreateSut(configNoSprints).Workspace(all: false);
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+        root.GetProperty("sprintItems").GetArrayLength().ShouldBe(1);
+
+        // Verify fallback path used current iteration
+        await _workItemRepo.Received(1)
+            .GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Workspace_EmptyConfiguredSprints_FallsBackToCurrentIteration()
+    {
+        var configEmptySprints = new TwigConfiguration
+        {
+            Display = new DisplayConfig { TreeDepth = 10, CacheStaleMinutes = 5 },
+            Seed = new SeedConfig { StaleDays = 14 },
+            User = new UserConfig { DisplayName = "Test User" },
+            Workspace = new WorkspaceConfig { Sprints = [] },
+        };
+
+        SetupIteration();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+
+        var item = new WorkItemBuilder(51, "Fallback Item 2").AsTask().InState("Active").AssignedTo("Test User").Build();
+        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+            .Returns([item]);
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
+
+        var result = await CreateSut(configEmptySprints).Workspace(all: false);
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+        root.GetProperty("sprintItems").GetArrayLength().ShouldBe(1);
+
+        await _workItemRepo.Received(1)
+            .GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Workspace_ConfiguredSprints_InvalidExpressionSkipped()
+    {
+        var sprint1 = IterationPath.Parse("Project\\Sprint 1").Value;
+
+        var configWithBadExpr = new TwigConfiguration
+        {
+            Display = new DisplayConfig { TreeDepth = 10, CacheStaleMinutes = 5 },
+            Seed = new SeedConfig { StaleDays = 14 },
+            User = new UserConfig { DisplayName = "Test User" },
+            Workspace = new WorkspaceConfig
+            {
+                // One valid, one invalid (empty expression)
+                Sprints = [new SprintEntry { Expression = "@current" }, new SprintEntry { Expression = "" }]
+            },
+        };
+
+        _iterationService.GetTeamIterationsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<TeamIteration>
+            {
+                new("Project\\Sprint 1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(14)),
+            });
+        _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
+            .Returns(sprint1);
+
+        var item = new WorkItemBuilder(10, "Good Item").AsTask().InState("Active").AssignedTo("Test User").Build();
+        _workItemRepo.GetByIterationAndAssigneeAsync(sprint1, "Test User", Arg.Any<CancellationToken>())
+            .Returns([item]);
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
+
+        var result = await CreateSut(configWithBadExpr).Workspace(all: false);
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+        // Only the valid expression resolves, so we get items from it
+        root.GetProperty("sprintItems").GetArrayLength().ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Workspace_ConfiguredSprints_AllResolveToNull_ReturnsEmptyItems()
+    {
+        var configWithOutOfBounds = new TwigConfiguration
+        {
+            Display = new DisplayConfig { TreeDepth = 10, CacheStaleMinutes = 5 },
+            Seed = new SeedConfig { StaleDays = 14 },
+            User = new UserConfig { DisplayName = "Test User" },
+            Workspace = new WorkspaceConfig
+            {
+                // @current+99 will resolve to null (out of bounds)
+                Sprints = [new SprintEntry { Expression = "@current+99" }]
+            },
+        };
+
+        _iterationService.GetTeamIterationsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<TeamIteration>
+            {
+                new("Project\\Sprint 1", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(14)),
+            });
+        _iterationService.GetCurrentIterationAsync(Arg.Any<CancellationToken>())
+            .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
+
+        var result = await CreateSut(configWithOutOfBounds).Workspace(all: false);
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+        root.GetProperty("sprintItems").GetArrayLength().ShouldBe(0);
+    }
 }

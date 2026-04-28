@@ -452,7 +452,8 @@ public sealed class WorkspaceResolverTests
             workingSetService: null!,
             flusher: null!,
             promptStateWriter: null!,
-            parentPropagationService: null!);
+            parentPropagationService: null!,
+            sprintIterationResolver: null!);
     }
 
     private static void SetupCacheHit(WorkspaceContext ctx, int id)

@@ -82,6 +82,7 @@ public sealed class WorkspaceContextFactoryTests : IDisposable
         context.WorkingSetService.ShouldNotBeNull();
         context.Flusher.ShouldNotBeNull();
         context.PromptStateWriter.ShouldNotBeNull();
+        context.SprintIterationResolver.ShouldNotBeNull();
     }
 
     [Fact]

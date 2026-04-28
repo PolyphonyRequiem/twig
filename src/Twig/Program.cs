@@ -1080,8 +1080,8 @@ internal static class GroupedHelp
     /// <summary>
     /// Returns <c>true</c> when <paramref name="args"/> begins with a recognized
     /// command name. All compound sub-command prefixes (e.g. <c>nav</c>, <c>seed</c>,
-    /// <c>link</c>) are already top-level entries in <see cref="KnownCommands"/>,
-    /// so checking <c>args[0]</c> is sufficient.
+    /// <c>link</c>, <c>workspace</c>, <c>area</c>) are already top-level entries
+    /// in <see cref="KnownCommands"/>, so checking <c>args[0]</c> is sufficient.
     /// </summary>
     public static bool IsKnownCommand(string[] args)
         => args.Length > 0 && KnownCommands.Contains(args[0]);

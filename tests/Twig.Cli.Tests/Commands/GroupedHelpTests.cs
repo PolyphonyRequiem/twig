@@ -225,6 +225,25 @@ public sealed class GroupedHelpTests
         stdout.ShouldContain("Seeds:");
     }
 
+    [Fact]
+    public void HelpText_AreaCommandsAreUnderWorkspaceSection()
+    {
+        var helpOutput = CaptureHelp();
+
+        var workspaceIdx = helpOutput.IndexOf("Workspace:");
+        var contextIdx = helpOutput.IndexOf("Context:");
+
+        workspaceIdx.ShouldBeGreaterThan(-1, "Help text should contain 'Workspace:' section");
+        contextIdx.ShouldBeGreaterThan(workspaceIdx, "'Context:' section should come after 'Workspace:'");
+
+        var workspaceSection = helpOutput[workspaceIdx..contextIdx];
+        workspaceSection.ShouldContain("workspace area");
+        workspaceSection.ShouldContain("workspace area add");
+        workspaceSection.ShouldContain("workspace area remove");
+        workspaceSection.ShouldContain("workspace area list");
+        workspaceSection.ShouldContain("workspace area sync");
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("some-weird-cmd")]
@@ -254,9 +273,21 @@ public sealed class GroupedHelpTests
     [InlineData("seed", "edit")]
     [InlineData("link", "parent")]
     [InlineData("ohmyposh", "init")]
+    [InlineData("workspace", "area")]
+    [InlineData("workspace", "track")]
     public void IsKnownCommand_RecognizesCompoundCommands(string first, string second)
     {
         GroupedHelp.IsKnownCommand([first, second]).ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData("workspace", "area", "add")]
+    [InlineData("workspace", "area", "remove")]
+    [InlineData("workspace", "area", "list")]
+    [InlineData("workspace", "area", "sync")]
+    public void IsKnownCommand_RecognizesThreeLevelCommands(string first, string second, string third)
+    {
+        GroupedHelp.IsKnownCommand([first, second, third]).ShouldBeTrue();
     }
 
     [Theory]

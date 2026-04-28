@@ -20,7 +20,6 @@ public sealed class TwigConfiguration
     public DisplayConfig Display { get; set; } = new();
     public UserConfig User { get; set; } = new();
     public GitConfig Git { get; set; } = new();
-    public FlowConfig Flow { get; set; } = new();
     public WorkspaceConfig Workspace { get; set; } = new();
     public TrackingConfig Tracking { get; set; } = new();
     public AreasConfig Areas { get; set; } = new();
@@ -277,28 +276,6 @@ public sealed class TwigConfiguration
                     return true;
                 }
                 return false;
-            case "flow.autoassign":
-                var autoAssignLower = value.ToLowerInvariant();
-                if (autoAssignLower is "if-unassigned" or "always" or "never")
-                {
-                    Flow.AutoAssign = autoAssignLower;
-                    return true;
-                }
-                return false;
-            case "flow.autosaveondone":
-                if (bool.TryParse(value, out var autoSave))
-                {
-                    Flow.AutoSaveOnDone = autoSave;
-                    return true;
-                }
-                return false;
-            case "flow.offerprondone":
-                if (bool.TryParse(value, out var offerPr))
-                {
-                    Flow.OfferPrOnDone = offerPr;
-                    return true;
-                }
-                return false;
             case "display.fillratethreshold":
                 if (double.TryParse(value, System.Globalization.CultureInfo.InvariantCulture, out var threshold) && threshold >= 0.0 && threshold <= 1.0)
                 {
@@ -533,13 +510,6 @@ public sealed class WorkspaceConfig
     /// When null or empty, no dimming is applied.
     /// </summary>
     public string? WorkingLevel { get; set; }
-}
-
-public sealed class FlowConfig
-{
-    public string AutoAssign { get; set; } = "if-unassigned";
-    public bool AutoSaveOnDone { get; set; } = true;
-    public bool OfferPrOnDone { get; set; } = true;
 }
 
 /// <summary>

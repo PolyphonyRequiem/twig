@@ -399,86 +399,7 @@ public class TwigConfigurationTests : IDisposable
         config.Git.AutoTransition.ShouldBeTrue(); // unchanged from default
     }
 
-    // --- FlowConfig SetValue tests ---
-
-    [Theory]
-    [InlineData("if-unassigned")]
-    [InlineData("always")]
-    [InlineData("never")]
-    public void SetValue_FlowAutoAssign_ValidValues_SetsValue(string value)
-    {
-        var config = new TwigConfiguration();
-        config.SetValue("flow.autoassign", value).ShouldBeTrue();
-        config.Flow.AutoAssign.ShouldBe(value);
-    }
-
-    [Fact]
-    public void SetValue_FlowAutoAssign_Invalid_ReturnsFalse()
-    {
-        var config = new TwigConfiguration();
-        config.SetValue("flow.autoassign", "sometimes").ShouldBeFalse();
-        config.Flow.AutoAssign.ShouldBe("if-unassigned"); // unchanged from default
-    }
-
-    [Fact]
-    public void SetValue_FlowAutoAssign_CaseInsensitive()
-    {
-        var config = new TwigConfiguration();
-        config.SetValue("flow.autoassign", "ALWAYS").ShouldBeTrue();
-        config.Flow.AutoAssign.ShouldBe("always");
-    }
-
-    [Fact]
-    public void SetValue_FlowAutoSaveOnDone_True()
-    {
-        var config = new TwigConfiguration();
-        config.Flow.AutoSaveOnDone = false; // start from non-default
-        config.SetValue("flow.autosaveondone", "true").ShouldBeTrue();
-        config.Flow.AutoSaveOnDone.ShouldBeTrue();
-    }
-
-    [Fact]
-    public void SetValue_FlowAutoSaveOnDone_False()
-    {
-        var config = new TwigConfiguration();
-        config.SetValue("flow.autosaveondone", "false").ShouldBeTrue();
-        config.Flow.AutoSaveOnDone.ShouldBeFalse();
-    }
-
-    [Fact]
-    public void SetValue_FlowAutoSaveOnDone_Invalid_ReturnsFalse()
-    {
-        var config = new TwigConfiguration();
-        config.SetValue("flow.autosaveondone", "maybe").ShouldBeFalse();
-        config.Flow.AutoSaveOnDone.ShouldBeTrue(); // unchanged from default
-    }
-
-    [Fact]
-    public void SetValue_FlowOfferPrOnDone_True()
-    {
-        var config = new TwigConfiguration();
-        config.Flow.OfferPrOnDone = false;
-        config.SetValue("flow.offerprondone", "true").ShouldBeTrue();
-        config.Flow.OfferPrOnDone.ShouldBeTrue();
-    }
-
-    [Fact]
-    public void SetValue_FlowOfferPrOnDone_False()
-    {
-        var config = new TwigConfiguration();
-        config.SetValue("flow.offerprondone", "false").ShouldBeTrue();
-        config.Flow.OfferPrOnDone.ShouldBeFalse();
-    }
-
-    [Fact]
-    public void SetValue_FlowOfferPrOnDone_Invalid_ReturnsFalse()
-    {
-        var config = new TwigConfiguration();
-        config.SetValue("flow.offerprondone", "yes").ShouldBeFalse();
-        config.Flow.OfferPrOnDone.ShouldBeTrue(); // unchanged from default
-    }
-
-    // --- GitConfig / FlowConfig defaults ---
+    // --- GitConfig defaults ---
 
     [Fact]
     public void GitConfig_HasCorrectDefaults()
@@ -498,17 +419,7 @@ public class TwigConfigurationTests : IDisposable
         config.Git.Hooks.PostCheckout.ShouldBeTrue();
     }
 
-    [Fact]
-    public void FlowConfig_HasCorrectDefaults()
-    {
-        var config = new TwigConfiguration();
-        config.Flow.ShouldNotBeNull();
-        config.Flow.AutoAssign.ShouldBe("if-unassigned");
-        config.Flow.AutoSaveOnDone.ShouldBeTrue();
-        config.Flow.OfferPrOnDone.ShouldBeTrue();
-    }
-
-    // --- GitConfig / FlowConfig round-trip serialization ---
+    // --- GitConfig round-trip serialization ---
 
     [Fact]
     public async Task GitConfig_SerializationRoundTrip()
@@ -560,31 +471,6 @@ public class TwigConfigurationTests : IDisposable
     }
 
     [Fact]
-    public async Task FlowConfig_SerializationRoundTrip()
-    {
-        var configPath = Path.Combine(_tempDir, "config_flow.json");
-        var config = new TwigConfiguration
-        {
-            Organization = "testorg",
-            Project = "testproj",
-            Flow = new FlowConfig
-            {
-                AutoAssign = "always",
-                AutoSaveOnDone = false,
-                OfferPrOnDone = false,
-            },
-        };
-
-        await config.SaveAsync(configPath);
-        var loaded = await TwigConfiguration.LoadAsync(configPath);
-
-        loaded.Flow.ShouldNotBeNull();
-        loaded.Flow.AutoAssign.ShouldBe("always");
-        loaded.Flow.AutoSaveOnDone.ShouldBeFalse();
-        loaded.Flow.OfferPrOnDone.ShouldBeFalse();
-    }
-
-    [Fact]
     public async Task GitConfig_DefaultsToDefaults_WhenMissingFromJson()
     {
         var configPath = Path.Combine(_tempDir, "no_git.json");
@@ -595,20 +481,6 @@ public class TwigConfigurationTests : IDisposable
         config.Git.ShouldNotBeNull();
         config.Git.BranchTemplate.ShouldBe("feature/{id}-{title}");
         config.Git.DefaultTarget.ShouldBe("main");
-    }
-
-    [Fact]
-    public async Task FlowConfig_DefaultsToDefaults_WhenMissingFromJson()
-    {
-        var configPath = Path.Combine(_tempDir, "no_flow.json");
-        await File.WriteAllTextAsync(configPath, """{"organization":"org","project":"proj"}""");
-
-        var config = await TwigConfiguration.LoadAsync(configPath);
-
-        config.Flow.ShouldNotBeNull();
-        config.Flow.AutoAssign.ShouldBe("if-unassigned");
-        config.Flow.AutoSaveOnDone.ShouldBeTrue();
-        config.Flow.OfferPrOnDone.ShouldBeTrue();
     }
 
     [Fact]

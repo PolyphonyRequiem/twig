@@ -327,7 +327,7 @@ public static class TelemetryHelper
 ```
 StatusCommand ctor(contextStore, workItemRepo, pendingChangeStore, config,
     formatterFactory, hintEngine, activeItemResolver, workingSetService,
-    syncCoordinatorFactory, paths,
+    SyncCoordinatorPair, paths,
     pipelineFactory?, gitService?, adoGitService?, fieldDefinitionStore?,
     telemetryClient?, stderr?, processConfigProvider?)
                      ↓
@@ -342,7 +342,7 @@ ExecuteAsync → Stopwatch → ExecuteCoreAsync
 ```
 StatusCommand ctor(ctx: CommandContext, contextStore, workItemRepo,
     pendingChangeStore, activeItemResolver, workingSetService,
-    syncCoordinatorFactory, statusFieldReader,
+    SyncCoordinatorPair, statusFieldReader,
     gitService?, adoGitService?, fieldDefinitionStore?,
     processConfigProvider?)
                      ↓

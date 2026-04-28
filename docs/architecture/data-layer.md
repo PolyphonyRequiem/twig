@@ -175,15 +175,15 @@ without any network call.
 
 ### Tiered TTL
 
-`SyncCoordinatorFactory` (`src/Twig.Domain/Services/SyncCoordinatorFactory.cs`) creates
+`SyncCoordinatorPair` (`src/Twig.Domain/Services/SyncCoordinatorPair.cs`) holds
 two `SyncCoordinator` instances with different staleness thresholds:
 
 | Tier | Property | Typical TTL | Used By |
 |------|----------|-------------|---------|
-| **Read-only** | `SyncCoordinatorFactory.ReadOnly` | 30 min | `status`, `tree`, `show` |
-| **Read-write** | `SyncCoordinatorFactory.ReadWrite` | 5 min | `set`, `link`, `refresh` |
+| **Read-only** | `SyncCoordinatorPair.ReadOnly` | 30 min | `status`, `tree`, `show` |
+| **Read-write** | `SyncCoordinatorPair.ReadWrite` | 5 min | `set`, `link`, `refresh` |
 
-The factory enforces `readOnlyStaleMinutes >= readWriteStaleMinutes` so display commands
+The pair holder enforces `readOnlyStaleMinutes >= readWriteStaleMinutes` so display commands
 never refresh more aggressively than mutating ones.
 
 ### Protected Cache Writes
@@ -241,7 +241,7 @@ full workspace refreshes:
 5. Detects revision conflicts (remote revision > local revision on protected items).
 6. Saves through `ProtectedCacheWriter` (or raw save if `--force`).
 7. Hydrates ancestor chains iteratively (up to 5 levels).
-8. Syncs the working set via `SyncCoordinatorFactory.ReadWrite`.
+8. Syncs the working set via `SyncCoordinatorPair.ReadWrite`.
 
 ### Push-on-Write: PendingChangeFlusher
 
@@ -373,7 +373,7 @@ flat layout to the context-scoped layout.
 | `src/Twig.Infrastructure/Persistence/SqliteFieldDefinitionStore.cs` | Field metadata cache |
 | `src/Twig.Infrastructure/Persistence/SqliteUnitOfWork.cs` | Transaction support |
 | `src/Twig.Domain/Services/SyncCoordinator.cs` | Single-item and working-set sync |
-| `src/Twig.Domain/Services/SyncCoordinatorFactory.cs` | Tiered TTL coordinator factory |
+| `src/Twig.Domain/Services/SyncCoordinatorPair.cs` | Tiered TTL coordinator pair |
 | `src/Twig.Domain/Services/ProtectedCacheWriter.cs` | Dirty-item-safe cache writes |
 | `src/Twig.Domain/Services/SyncGuard.cs` | Protected ID computation |
 | `src/Twig.Domain/Services/RefreshOrchestrator.cs` | Full workspace refresh |

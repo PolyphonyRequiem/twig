@@ -134,16 +134,16 @@ and the "where does this go?" problem grows with every addition.
 **Severity**: Medium | **Blast Radius**: Multiple orchestrators + commands
 
 Five orchestrator/coordinator patterns exist with overlapping dependency subsets:
-`SyncCoordinator`, `SyncCoordinatorFactory`, `RefreshOrchestrator`,
+`SyncCoordinator`, `SyncCoordinatorPair`, `RefreshOrchestrator`,
 `StatusOrchestrator`, `SeedPublishOrchestrator`. `StatusOrchestrator` duplicates
-logic already in `ActiveItemResolver`. `SyncCoordinatorFactory` is just two
+logic already in `ActiveItemResolver`. `SyncCoordinatorPair` is just two
 instances with different `int` config.
 
 ### Containment Practices
 
 - Audit each orchestrator's actual call sites before merging or removing.
 - `StatusOrchestrator` may be absorbable into `ActiveItemResolver` + the command.
-- `SyncCoordinatorFactory` is arguably fine as-is (it's simple); the critique is
+- `SyncCoordinatorPair` is arguably fine as-is (it's simple); the critique is
   about naming, not functionality.
 - Do not consolidate orchestrators in the same PR as behavioral changes.
 

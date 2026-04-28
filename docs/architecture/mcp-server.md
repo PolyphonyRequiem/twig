@@ -195,7 +195,7 @@ All backed by the same SQLite database at `.twig/{org}/{project}/twig.db`.
 |---------|---------|
 | `ActiveItemResolver` | Resolve active item: cache → ADO auto-fetch |
 | `ProtectedCacheWriter` | Save items while protecting dirty ones |
-| `SyncCoordinatorFactory` | Create read-only / read-write sync coordinators |
+| `SyncCoordinatorPair` | Named pair holding read-only / read-write sync coordinators |
 | `ContextChangeService` | Extend working set on context change |
 | `WorkingSetService` | Compute sprint items, parent chain, children |
 | `RefreshOrchestrator` | Full cache refresh |

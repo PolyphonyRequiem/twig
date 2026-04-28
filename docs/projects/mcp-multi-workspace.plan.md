@@ -54,8 +54,8 @@ Every service registered in `Program.cs` and `TwigServiceRegistration.cs` that t
 | `IAuthenticationProvider` | `NetworkServiceModule.cs:30-36` | Singleton | Auth method from config |
 | `ActiveItemResolver` | `Program.cs:42-44` | Singleton | Via `IContextStore`, `IWorkItemRepository`, `IAdoWorkItemService` |
 | `ProtectedCacheWriter` | `Program.cs:47-49` | Singleton | Via `IWorkItemRepository`, `IPendingChangeStore` |
-| `SyncCoordinatorFactory` | `Program.cs:53-64` | Singleton | Via `IWorkItemRepository`, `IAdoWorkItemService`, etc. |
-| `SyncCoordinator` | `Program.cs:67` | Singleton | Via `SyncCoordinatorFactory` |
+| `SyncCoordinatorPair` | `Program.cs:53-64` | Singleton | Via `IWorkItemRepository`, `IAdoWorkItemService`, etc. |
+| `SyncCoordinator` | `Program.cs:67` | Singleton | Via `SyncCoordinatorPair` |
 | `ContextChangeService` | `Program.cs:69-74` | Singleton | Via `IWorkItemRepository`, `IAdoWorkItemService`, `SyncCoordinator` |
 | `WorkingSetService` | `Program.cs:76-81` | Singleton | Via `IContextStore`, `IWorkItemRepository`, `TwigConfiguration` |
 | `RefreshOrchestrator` | `Program.cs:85-92` | Singleton | Via `IContextStore`, `IWorkItemRepository`, `IAdoWorkItemService` |
@@ -168,7 +168,7 @@ Each MCP tool class injects workspace-bound services via constructor DI:
 │  │  ├ IIterationService                        │        │
 │  │  ├ IProcessConfigurationProvider            │        │
 │  │  ├ ActiveItemResolver                       │        │
-│  │  ├ SyncCoordinatorFactory                   │        │
+│  │  ├ SyncCoordinatorPair                   │        │
 │  │  ├ ContextChangeService                     │        │
 │  │  ├ StatusOrchestrator                       │        │
 │  │  ├ McpPendingChangeFlusher                  │        │
@@ -247,7 +247,7 @@ public sealed class WorkspaceContext : IDisposable
     public IIterationService IterationService { get; }
     public IProcessConfigurationProvider ProcessConfigProvider { get; }
     public ActiveItemResolver ActiveItemResolver { get; }
-    public SyncCoordinatorFactory SyncCoordinatorFactory { get; }
+    public SyncCoordinatorPair SyncCoordinatorPair { get; }
     public ContextChangeService ContextChangeService { get; }
     public StatusOrchestrator StatusOrchestrator { get; }
     public WorkingSetService WorkingSetService { get; }

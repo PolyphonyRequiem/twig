@@ -60,7 +60,7 @@ All tools share a consistent architecture:
 | `AdoService` | `IAdoWorkItemService` | query, new, link |
 | `ContextStore` | `IContextStore` | new (optional set) |
 | `ActiveItemResolver` | `ActiveItemResolver` | show, children, parent, link |
-| `SyncCoordinatorFactory` | `SyncCoordinatorFactory` | show (link sync), link (resync) |
+| `SyncCoordinatorPair` | `SyncCoordinatorPair` | show (link sync), link (resync) |
 | `IterationService` | `IIterationService` | sprint |
 | `PendingChangeStore` | `IPendingChangeStore` | — |
 | `ProcessConfigProvider` | `IProcessConfigurationProvider` | — |

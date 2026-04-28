@@ -167,7 +167,7 @@ Services/
 | File | Responsibility |
 |------|---------------|
 | `SyncCoordinator.cs` | Orchestrates per-item sync between cache and ADO |
-| `SyncCoordinatorFactory.cs` | Creates read-only and read-write SyncCoordinator instances |
+| `SyncCoordinatorPair.cs` | Creates read-only and read-write SyncCoordinator instances |
 | `SyncGuard.cs` | Identifies dirty/pending items that must not be overwritten |
 | `SyncResult.cs` | Discriminated union of sync operation outcomes |
 | `ProtectedCacheWriter.cs` | Writes items to cache while protecting dirty items |
@@ -380,7 +380,7 @@ Several services reference types in other subfolders. These create cross-subfold
 | `ContextChangeService` | Navigation/ | Sync/ (`SyncCoordinator`, `ProtectedCacheWriter`) |
 | `FlowTransitionService` | Process/ | Navigation/ (`ActiveItemResolver`), Sync/ (`ProtectedCacheWriter`) |
 | `ParentStatePropagationService` | Process/ | Sync/ (`ProtectedCacheWriter`) |
-| `StatusOrchestrator` | Workspace/ | Navigation/ (`ActiveItemResolver`), Sync/ (`SyncCoordinatorFactory`) |
+| `StatusOrchestrator` | Workspace/ | Navigation/ (`ActiveItemResolver`), Sync/ (`SyncCoordinatorPair`) |
 | `RefreshOrchestrator` | Sync/ | Workspace/ (`WorkingSetService`) |
 | `SeedPublishOrchestrator` | Seed/ | Workspace/ (`BacklogOrderer`) |
 | `StatusFieldsConfig` | Workspace/ | Field/ (`FieldImportFilter`) |
@@ -470,7 +470,7 @@ None — this is a pure namespace refactor with no new NuGet packages or tools.
 | Old Path | New Path |
 |----------|----------|
 | `Services/SyncCoordinator.cs` | `Services/Sync/SyncCoordinator.cs` |
-| `Services/SyncCoordinatorFactory.cs` | `Services/Sync/SyncCoordinatorFactory.cs` |
+| `Services/SyncCoordinatorPair.cs` | `Services/Sync/SyncCoordinatorPair.cs` |
 | `Services/SyncGuard.cs` | `Services/Sync/SyncGuard.cs` |
 | `Services/SyncResult.cs` | `Services/Sync/SyncResult.cs` |
 | `Services/ProtectedCacheWriter.cs` | `Services/Sync/ProtectedCacheWriter.cs` |

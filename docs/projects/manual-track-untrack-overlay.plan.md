@@ -43,7 +43,7 @@ The `WorkingSet` (in `Twig.Domain.Services`) computes the union of active item, 
 | `IWorkItemRepository` / `SqliteWorkItemRepository` | CRUD for cached work items |
 | `WorkspaceCommand` | Builds `Workspace` read model, renders output |
 | `WorkingSetService` | Computes scope for sync coordination |
-| `SyncCoordinator` / `SyncCoordinatorFactory` | Tiered-TTL sync between cache and ADO |
+| `SyncCoordinator` / `SyncCoordinatorPair` | Tiered-TTL sync between cache and ADO |
 | `RefreshOrchestrator` | Full refresh: fetch → conflict → save → hydrate ancestors |
 | `TwigConfiguration` | JSON config POCO with `SetValue()` reflection-free mutation |
 | `TwigJsonContext` | AOT-compatible source-gen JSON serialization |

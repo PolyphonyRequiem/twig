@@ -168,7 +168,7 @@ public sealed class MultiWorkspaceIsolationTests : ReadToolsTestBase
         var result = await sut.Status(workspace: "orgB/projectB");
 
         result.IsError.ShouldBe(true);
-        // The error comes from workspace B's StatusOrchestrator, proving it was queried
+        // The error comes from the inlined status logic querying workspace B, proving it was queried
         var text = result.Content[0].ShouldBeOfType<TextContentBlock>().Text;
         text.ShouldContain("No active work item");
     }

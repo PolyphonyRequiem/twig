@@ -449,7 +449,6 @@ public sealed class WorkspaceResolverTests
             activeItemResolver: null!,
             syncCoordinatorFactory: null!,
             contextChangeService: null!,
-            statusOrchestrator: null!,
             workingSetService: null!,
             flusher: null!,
             promptStateWriter: null!,

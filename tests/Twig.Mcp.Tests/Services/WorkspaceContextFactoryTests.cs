@@ -79,7 +79,6 @@ public sealed class WorkspaceContextFactoryTests : IDisposable
         context.ActiveItemResolver.ShouldNotBeNull();
         context.SyncCoordinatorFactory.ShouldNotBeNull();
         context.ContextChangeService.ShouldNotBeNull();
-        context.StatusOrchestrator.ShouldNotBeNull();
         context.WorkingSetService.ShouldNotBeNull();
         context.Flusher.ShouldNotBeNull();
         context.PromptStateWriter.ShouldNotBeNull();
@@ -184,7 +183,6 @@ public sealed class WorkspaceContextFactoryTests : IDisposable
         ReferenceEquals(ctx1.ContextStore, ctx2.ContextStore).ShouldBeFalse();
         ReferenceEquals(ctx1.PendingChangeStore, ctx2.PendingChangeStore).ShouldBeFalse();
         ReferenceEquals(ctx1.ActiveItemResolver, ctx2.ActiveItemResolver).ShouldBeFalse();
-        ReferenceEquals(ctx1.StatusOrchestrator, ctx2.StatusOrchestrator).ShouldBeFalse();
         ReferenceEquals(ctx1.Flusher, ctx2.Flusher).ShouldBeFalse();
     }
 

@@ -27,7 +27,6 @@ public sealed class WorkspaceContext : IDisposable
     public ActiveItemResolver ActiveItemResolver { get; }
     public SyncCoordinatorFactory SyncCoordinatorFactory { get; }
     public ContextChangeService ContextChangeService { get; }
-    public StatusOrchestrator StatusOrchestrator { get; }
     public WorkingSetService WorkingSetService { get; }
     public McpPendingChangeFlusher Flusher { get; }
     public IPromptStateWriter PromptStateWriter { get; }
@@ -55,7 +54,6 @@ public sealed class WorkspaceContext : IDisposable
         ActiveItemResolver activeItemResolver,
         SyncCoordinatorFactory syncCoordinatorFactory,
         ContextChangeService contextChangeService,
-        StatusOrchestrator statusOrchestrator,
         WorkingSetService workingSetService,
         McpPendingChangeFlusher flusher,
         IPromptStateWriter promptStateWriter,
@@ -76,7 +74,6 @@ public sealed class WorkspaceContext : IDisposable
         ActiveItemResolver = activeItemResolver;
         SyncCoordinatorFactory = syncCoordinatorFactory;
         ContextChangeService = contextChangeService;
-        StatusOrchestrator = statusOrchestrator;
         WorkingSetService = workingSetService;
         Flusher = flusher;
         PromptStateWriter = promptStateWriter;

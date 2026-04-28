@@ -5,10 +5,10 @@ using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
-using Twig.Domain.Services.Workspace;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Process;
 using Twig.Domain.Services.Sync;
+using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -232,7 +232,7 @@ public class PromptStateIntegrationTests : IDisposable
         var writer = CreateWriter();
         var cmd = new ConfigCommand(_config, _paths, _formatterFactory, writer);
 
-        var result = await cmd.ExecuteAsync("git.defaulttarget", "develop");
+        var result = await cmd.ExecuteAsync("git.branchpattern", @"^feature/(?<id>\d+)");
 
         result.ShouldBe(0);
         File.Exists(PromptJsonPath).ShouldBeFalse();
@@ -389,170 +389,5 @@ public class PromptStateIntegrationTests : IDisposable
         File.Exists(PromptJsonPath).ShouldBeTrue();
         var root = ReadPromptJson();
         root.GetProperty("id").GetInt32().ShouldBe(42);
-    }
-
-    // ── (l) twig branch writes prompt.json only when auto-transition fires
-
-    [Fact]
-    public async Task BranchCommand_WritesPromptJson_WhenAutoTransitionFires()
-    {
-        var item = CreateWorkItem(50, "Proposed story", type: "User Story", state: "New");
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(50);
-        _workItemRepo.GetByIdAsync(50, Arg.Any<CancellationToken>()).Returns(item);
-
-        var gitService = Substitute.For<IGitService>();
-        gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
-        gitService.BranchExistsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(false);
-
-        _adoService.FetchAsync(50, Arg.Any<CancellationToken>()).Returns(item);
-        _adoService.PatchAsync(50, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(2);
-
-        var branchConfig = new TwigConfiguration { Git = { AutoTransition = true, AutoLink = false } };
-        var writer = CreateWriter();
-        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        var cmd = new BranchCommand(resolver, _workItemRepo, _adoService,
-            _processConfigProvider, _formatterFactory, _hintEngine, branchConfig,
-            gitService, promptStateWriter: writer);
-
-        var result = await cmd.ExecuteAsync(noLink: true);
-
-        result.ShouldBe(0);
-        // Auto-transition Proposed→Active fires, so prompt.json should be written
-        File.Exists(PromptJsonPath).ShouldBeTrue();
-    }
-
-    [Fact]
-    public async Task BranchCommand_DoesNotWritePromptJson_WhenNoAutoTransition()
-    {
-        var item = CreateWorkItem(51, "Active story", type: "User Story", state: "Active");
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(51);
-        _workItemRepo.GetByIdAsync(51, Arg.Any<CancellationToken>()).Returns(item);
-
-        var gitService = Substitute.For<IGitService>();
-        gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
-        gitService.BranchExistsAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(false);
-
-        var autoTransitionEnabledConfig = new TwigConfiguration { Git = { AutoTransition = true, AutoLink = false } };
-        var writer = CreateWriter();
-        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        var cmd = new BranchCommand(resolver, _workItemRepo, _adoService,
-            _processConfigProvider, _formatterFactory, _hintEngine, autoTransitionEnabledConfig,
-            gitService, promptStateWriter: writer);
-
-        var result = await cmd.ExecuteAsync(noLink: true);
-
-        result.ShouldBe(0);
-        // State is already Active (InProgress), no transition fires, no prompt.json write
-        File.Exists(PromptJsonPath).ShouldBeFalse();
-    }
-
-    // ── (m) _hook post-checkout writes prompt.json, other hooks do not ─
-
-    [Fact]
-    public async Task HookHandler_PostCheckout_WritesPromptJson()
-    {
-        var gitService = Substitute.For<IGitService>();
-        gitService.GetCurrentBranchAsync(Arg.Any<CancellationToken>())
-            .Returns("feature/12345-login");
-
-        var item = CreateWorkItem(12345, "Login feature");
-        _workItemRepo.GetByIdAsync(12345, Arg.Any<CancellationToken>()).Returns(item);
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(12345);
-
-        var writer = CreateWriter();
-        var cmd = new HookHandlerCommand(_contextStore, _workItemRepo, _config, gitService, writer);
-
-        // post-checkout with branch-flag=1 (branch switch)
-        var result = await cmd.ExecuteAsync("post-checkout", new[] { "oldref", "newref", "1" });
-
-        result.ShouldBe(0);
-        File.Exists(PromptJsonPath).ShouldBeTrue();
-        var root = ReadPromptJson();
-        root.GetProperty("id").GetInt32().ShouldBe(12345);
-    }
-
-    [Fact]
-    public async Task HookHandler_PrepareCommitMsg_DoesNotWritePromptJson()
-    {
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
-
-        // Create a temp commit message file
-        var msgFile = Path.Combine(_tempDir, "COMMIT_EDITMSG");
-        await File.WriteAllTextAsync(msgFile, "initial message");
-
-        var writer = CreateWriter();
-        var cmd = new HookHandlerCommand(_contextStore, _workItemRepo, _config, promptStateWriter: writer);
-
-        var result = await cmd.ExecuteAsync("prepare-commit-msg", new[] { msgFile });
-
-        result.ShouldBe(0);
-        File.Exists(PromptJsonPath).ShouldBeFalse();
-    }
-
-    [Fact]
-    public async Task HookHandler_CommitMsg_DoesNotWritePromptJson()
-    {
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
-
-        var msgFile = Path.Combine(_tempDir, "COMMIT_EDITMSG");
-        await File.WriteAllTextAsync(msgFile, "#42 fix bug");
-
-        var writer = CreateWriter();
-        var cmd = new HookHandlerCommand(_contextStore, _workItemRepo, _config, promptStateWriter: writer);
-
-        var result = await cmd.ExecuteAsync("commit-msg", new[] { msgFile });
-
-        result.ShouldBe(0);
-        File.Exists(PromptJsonPath).ShouldBeFalse();
-    }
-
-    // ── (n) twig stash pop writes prompt.json when WI# detected ────────
-
-    [Fact]
-    public async Task StashPop_WritesPromptJson_WhenWorkItemDetected()
-    {
-        var gitService = Substitute.For<IGitService>();
-        gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
-        gitService.GetCurrentBranchAsync(Arg.Any<CancellationToken>())
-            .Returns("feature/999-stash-test");
-
-        var item = CreateWorkItem(999, "Stash test");
-        _workItemRepo.GetByIdAsync(999, Arg.Any<CancellationToken>()).Returns(item);
-        _workItemRepo.ExistsByIdAsync(999, Arg.Any<CancellationToken>()).Returns(true);
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(999);
-
-        var writer = CreateWriter();
-        var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        var cmd = new StashCommand(_contextStore, _workItemRepo, resolver, _formatterFactory,
-            _hintEngine, _config, gitService, writer);
-
-        var result = await cmd.PopAsync();
-
-        result.ShouldBe(0);
-        File.Exists(PromptJsonPath).ShouldBeTrue();
-        var root = ReadPromptJson();
-        root.GetProperty("id").GetInt32().ShouldBe(999);
-    }
-
-    [Fact]
-    public async Task StashPush_DoesNotWritePromptJson()
-    {
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
-        var item = CreateWorkItem(42, "Push test");
-        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
-
-        var gitService = Substitute.For<IGitService>();
-        gitService.IsInsideWorkTreeAsync(Arg.Any<CancellationToken>()).Returns(true);
-
-        var writer = CreateWriter();
-        var resolver2 = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        var cmd = new StashCommand(_contextStore, _workItemRepo, resolver2, _formatterFactory,
-            _hintEngine, _config, gitService, writer);
-
-        var result = await cmd.ExecuteAsync("test message");
-
-        result.ShouldBe(0);
-        File.Exists(PromptJsonPath).ShouldBeFalse();
     }
 }

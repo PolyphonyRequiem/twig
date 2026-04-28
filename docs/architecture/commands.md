@@ -53,7 +53,7 @@ Key design decisions:
 
 Twig overrides ConsoleAppFramework's default help with **`GroupedHelp`**
 (`src/Twig/Program.cs`), which organises commands by category (Getting Started, Views,
-Context, Navigation, Work Items, Git, Workflow, System, Experimental). Unknown commands
+Context, Navigation, Work Items, Seeds, System, Experimental). Unknown commands
 are intercepted before `app.Run()` to show a grouped error instead of the framework's
 flat output.
 
@@ -89,7 +89,7 @@ graph LR
 ### DI Injection Pattern
 
 Command classes use **primary constructors** for dependency injection. All dependencies are
-injected at construction; optional dependencies (e.g. `ITelemetryClient?`, `IGitService?`,
+injected at construction; optional dependencies (e.g. `ITelemetryClient?`,
 `RenderingPipelineFactory?`) use nullable parameters with defaults:
 
 ```csharp
@@ -200,26 +200,6 @@ rendering. When `null`, it falls back to synchronous `IOutputFormatter` string o
 | `link unparent` | Remove parent link |
 | `link reparent <id>` | Remove current parent and set a new one |
 
-### Git Integration
-
-| Command | Description |
-|---------|-------------|
-| `branch` | Create/checkout branch for active item |
-| `commit [msg]` | Commit with work-item-enriched message |
-| `pr` | Create ADO pull request linked to active item |
-| `stash [msg]` / `stash pop` | Stash/restore with work item context |
-| `log` | Annotated git log with work item lookups |
-| `context` | Show git branch, work item, and PR linkage |
-| `hooks install` / `hooks uninstall` | Manage Twig git hooks |
-
-### Flow (State Machine Automation)
-
-| Command | Description |
-|---------|-------------|
-| `flow-start [id]` | Set context, transition, assign, create branch |
-| `flow-done [id]` | Save, transition to resolved, offer PR |
-| `flow-close [id]` | Guard, transition to completed, delete branch |
-
 ### System
 
 | Command | Description |
@@ -241,7 +221,7 @@ rendering. When `null`, it falls back to synchronous `IOutputFormatter` string o
 `IOutputFormatter` (`src/Twig/Formatters/IOutputFormatter.cs`) defines the synchronous
 formatting contract. Every command calls formatter methods to produce output strings. The
 interface covers work items, trees, workspaces, field changes, errors, hints, seeds, links,
-query results, git context, and PR status.
+query results, and PR status.
 
 ### Implementations
 
@@ -297,7 +277,6 @@ rendering contract used when output goes to a TTY in `human` format. Methods inc
 | `RenderWorkItemAsync` | Single work item detail view |
 | `RenderSeedViewAsync` | Seed dashboard with table rendering |
 | `RenderWithSyncAsync` | Cache→render→fetch→revise pattern |
-| `RenderFlowSummaryAsync` | Flow-start summary panel |
 | `RenderInteractiveTreeAsync` | Keyboard-driven tree navigator (Live region) |
 | `PromptDisambiguationAsync` | Interactive selection for ambiguous matches |
 | `RenderHints` | Hint display after command output |
@@ -366,12 +345,6 @@ command execution. Hints guide users toward logical next actions.
 | `workspace` | Warns about dirty items |
 | `init` | Suggests `workspace` or `set` |
 | `query` | Suggests `set`, `show`, and `--output ids` for piping |
-
-### Branch Detection Hint
-
-`GetBranchDetectionHintAsync` checks the current git branch for a matching work item ID
-in the local cache. If a match is found and no active context is set, it suggests
-`twig set <id>`. Git operations are best-effort — failures are silently swallowed.
 
 ---
 

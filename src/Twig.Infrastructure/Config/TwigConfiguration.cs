@@ -223,59 +223,15 @@ public sealed class TwigConfiguration
             case "user.email":
                 User.Email = value;
                 return true;
-            case "git.branchtemplate":
-                Git.BranchTemplate = value;
-                return true;
             case "git.branchpattern":
                 Git.BranchPattern = value;
                 return true;
-            case "git.committemplate":
-                Git.CommitTemplate = value;
-                return true;
-            case "git.defaulttarget":
-                Git.DefaultTarget = value;
-                return true;
-            case "git.autolink":
-                if (bool.TryParse(value, out var autoLink))
-                {
-                    Git.AutoLink = autoLink;
-                    return true;
-                }
-                return false;
-            case "git.autotransition":
-                if (bool.TryParse(value, out var autoTransition))
-                {
-                    Git.AutoTransition = autoTransition;
-                    return true;
-                }
-                return false;
             case "git.project":
                 Git.Project = value;
                 return true;
             case "git.repository":
                 Git.Repository = value;
                 return true;
-            case "git.hooks.preparecommitmsg":
-                if (bool.TryParse(value, out var prepareCommitMsg))
-                {
-                    Git.Hooks.PrepareCommitMsg = prepareCommitMsg;
-                    return true;
-                }
-                return false;
-            case "git.hooks.commitmsg":
-                if (bool.TryParse(value, out var commitMsg))
-                {
-                    Git.Hooks.CommitMsg = commitMsg;
-                    return true;
-                }
-                return false;
-            case "git.hooks.postcheckout":
-                if (bool.TryParse(value, out var postCheckout))
-                {
-                    Git.Hooks.PostCheckout = postCheckout;
-                    return true;
-                }
-                return false;
             case "display.fillratethreshold":
                 if (double.TryParse(value, System.Globalization.CultureInfo.InvariantCulture, out var threshold) && threshold >= 0.0 && threshold <= 1.0)
                 {
@@ -449,53 +405,10 @@ public sealed class UserConfig
 
 public sealed class GitConfig
 {
-    public string BranchTemplate { get; set; } = "feature/{id}-{title}";
     public string BranchPattern { get; set; } = BranchNameTemplate.DefaultPattern;
-
-    /// <summary>
-    /// Template for git commit messages used by <c>twig commit</c>.
-    /// Tokens: <c>{type}</c> (conventional-commit prefix), <c>#{id}</c> (work item ID),
-    /// <c>{message}</c> (user-supplied commit body).
-    /// Example: <c>{type}(#{id}): {message}</c>
-    /// </summary>
-    public string CommitTemplate { get; set; } = "{type}(#{id}): {message}";
-
-    public string DefaultTarget { get; set; } = "main";
-
-    /// <summary>
-    /// When true, automatically add ADO artifact links for branches created by
-    /// <c>twig branch</c> and commits created by <c>twig commit</c>.
-    /// </summary>
-    public bool AutoLink { get; set; } = true;
-
-    /// <summary>
-    /// When true, automatically transition work item state on branch creation via
-    /// <c>twig branch</c> (moves Proposed items to In Progress).
-    /// </summary>
-    public bool AutoTransition { get; set; } = true;
-
-    /// <summary>
-    /// Maps ADO work item types to conventional commit / branch name prefixes used by
-    /// <c>twig branch</c> and <c>twig commit</c>.
-    /// Overrides the default type map (User Story→feature, Bug→bug, Task→task, etc.).
-    /// </summary>
-    public Dictionary<string, string>? TypeMap { get; set; }
-
-    /// <summary>
-    /// Controls which git hooks are installed by <c>twig hooks install</c>.
-    /// Each boolean toggles installation of the corresponding hook script.
-    /// </summary>
-    public HooksConfig Hooks { get; set; } = new();
 
     public string? Project { get; set; }
     public string? Repository { get; set; }
-}
-
-public sealed class HooksConfig
-{
-    public bool PrepareCommitMsg { get; set; } = true;
-    public bool CommitMsg { get; set; } = true;
-    public bool PostCheckout { get; set; } = true;
 }
 
 /// <summary>

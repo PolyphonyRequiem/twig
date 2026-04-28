@@ -159,7 +159,6 @@ public sealed class GroupedHelpTests
     [InlineData("help")]          // pseudo-command: no method, handled by early-exit block
     [InlineData("ohmyposh")]      // group prefix: no method in OhMyPoshCommands
     [InlineData("link")]          // group prefix: no standalone handler
-    [InlineData("hooks")]         // group prefix: no standalone handler
     // Hidden backward-compat aliases
     [InlineData("up")]
     [InlineData("down")]
@@ -171,7 +170,6 @@ public sealed class GroupedHelpTests
     [InlineData("seed")]
     [InlineData("save")]
     [InlineData("refresh")]
-    [InlineData("_hook")]
     public void KnownCommands_ContainsExpectedCommand(string command)
     {
         GroupedHelp.KnownCommands.ShouldContain(command);
@@ -201,7 +199,6 @@ public sealed class GroupedHelpTests
         stdout.ShouldContain("Navigation:");
         stdout.ShouldContain("Work Items:");
         stdout.ShouldContain("Seeds:");
-        stdout.ShouldContain("Git:");
     }
 
     [Theory]
@@ -232,7 +229,6 @@ public sealed class GroupedHelpTests
     [InlineData("seed", "new")]
     [InlineData("seed", "edit")]
     [InlineData("link", "parent")]
-    [InlineData("hooks", "install")]
     [InlineData("ohmyposh", "init")]
     public void IsKnownCommand_RecognizesCompoundCommands(string first, string second)
     {

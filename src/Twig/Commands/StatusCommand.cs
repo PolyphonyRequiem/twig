@@ -25,8 +25,6 @@ public sealed class StatusCommand(
     WorkingSetService workingSetService,
     SyncCoordinatorFactory syncCoordinatorFactory,
     StatusFieldConfigReader statusFieldReader,
-    IGitService? gitService = null,
-    IAdoGitService? adoGitService = null,
     IFieldDefinitionStore? fieldDefinitionStore = null,
     IProcessConfigurationProvider? processConfigProvider = null)
 {
@@ -45,20 +43,6 @@ public sealed class StatusCommand(
         var activeId = await contextStore.GetActiveWorkItemIdAsync();
         if (activeId is null)
         {
-            // Passive branch detection hint: suggest 'twig set' if branch matches a cached item
-            var branchHint = await ctx.HintEngine.GetBranchDetectionHintAsync(
-                activeContextId: null,
-                gitService: gitService,
-                workItemRepo: workItemRepo,
-                branchPattern: ctx.Config.Git.BranchPattern,
-                outputFormat: outputFormat);
-            if (branchHint is not null)
-            {
-                var formattedHint = fmt.FormatHint(branchHint);
-                if (!string.IsNullOrEmpty(formattedHint))
-                    ctx.StderrWriter.WriteLine(formattedHint);
-            }
-
             ctx.StderrWriter.WriteLine(fmt.FormatError("No active work item. Run 'twig set <id>' first."));
             return 1;
         }
@@ -219,9 +203,6 @@ public sealed class StatusCommand(
         else
             Console.WriteLine(fmt.FormatWorkItem(item, showDirty: true));
 
-        // Git context enrichment (EPIC-006) — additive, never changes existing behavior
-        await WriteGitContextAsync(fmt);
-
         var syncSeeds = await workItemRepo.GetSeedsAsync();
         var syncStaleSeedCount = Workspace.Build(item, [], syncSeeds)
             .GetStaleSeeds(ctx.Config.Seed.StaleDays).Count;
@@ -260,44 +241,5 @@ public sealed class StatusCommand(
         }
 
         return 0;
-    }
-    /// <summary>
-    /// Gracefully degrades when git is unavailable or not in a repo.
-    /// </summary>
-    private async Task WriteGitContextAsync(IOutputFormatter fmt)
-    {
-        if (gitService is null) return;
-
-        string? branchName = null;
-        try
-        {
-            var isInWorkTree = await gitService.IsInsideWorkTreeAsync();
-            if (!isInWorkTree) return;
-            branchName = await gitService.GetCurrentBranchAsync();
-        }
-        catch
-        {
-            return; // Git operations are best-effort
-        }
-
-        if (branchName is not null)
-        {
-            Console.WriteLine(fmt.FormatBranchInfo(branchName));
-        }
-
-        // Linked PRs
-        if (adoGitService is not null && branchName is not null)
-        {
-            try
-            {
-                var prs = await adoGitService.GetPullRequestsForBranchAsync(branchName);
-                foreach (var pr in prs)
-                    Console.WriteLine(fmt.FormatPrStatus(pr.PullRequestId, pr.Title, pr.Status));
-            }
-            catch
-            {
-                // PR lookup is best-effort
-            }
-        }
     }
 }

@@ -422,6 +422,24 @@ public sealed class HintEngineTests
         hints[2].ShouldContain("--output ids");
     }
 
+    // ── removed git/flow commands ───────────────────────────────────
+
+    [Theory]
+    [InlineData("branch")]
+    [InlineData("commit")]
+    [InlineData("pr")]
+    [InlineData("hooks")]
+    [InlineData("context")]
+    [InlineData("flow-done")]
+    public void GetHints_RemovedGitFlowCommand_ReturnsEmpty(string command)
+    {
+        var engine = CreateEngine();
+
+        var hints = engine.GetHints(command);
+
+        hints.ShouldBeEmpty();
+    }
+
     // ── unknown command ─────────────────────────────────────────────
 
     [Fact]

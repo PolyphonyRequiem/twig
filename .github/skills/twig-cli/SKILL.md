@@ -132,7 +132,6 @@ to produce longer, structured content.
 | `twig sync` | Flush pending changes and pull remote state |
 | `twig save` | *(deprecated alias for `twig sync`)* |
 | `twig refresh` | *(deprecated alias for `twig sync`)* |
-| `twig flow-start <id>` | Start work: set context, transition, assign, branch |
 | `twig nav` | Launch interactive tree navigator |
 
 ## Work Item Types (Basic Process)

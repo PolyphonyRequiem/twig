@@ -3,7 +3,7 @@ using Twig.Formatters;
 namespace Twig.Commands;
 
 /// <summary>
-/// Abstracts the pending-change flush loop so callers (SaveCommand, SyncCommand)
+/// Abstracts the pending-change flush loop so callers (SyncCommand)
 /// can be tested with a mock rather than coupling to ADO service internals.
 /// </summary>
 public interface IPendingChangeFlusher

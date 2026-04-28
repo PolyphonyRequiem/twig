@@ -13,7 +13,7 @@ Twig integrates with [Oh My Posh](https://ohmyposh.dev/) to display your active 
 └───────────────────┘     └──────────────┘     └──────────────┘
 ```
 
-1. Every twig command that modifies prompt-visible state (e.g., `twig set`, `twig state`, `twig flow-start`) writes `.twig/prompt.json`.
+1. Every twig command that modifies prompt-visible state (e.g., `twig set`, `twig state`) writes `.twig/prompt.json`.
 2. Before each prompt render, a shell hook function reads `.twig/prompt.json` (~1ms, no subprocess).
 3. The hook sets `TWIG_PROMPT`, `TWIG_TYPE_COLOR`, and `TWIG_STATE_CATEGORY` environment variables.
 4. Oh My Posh renders the `text` segment, which reads `{{ .Env.TWIG_PROMPT }}`.

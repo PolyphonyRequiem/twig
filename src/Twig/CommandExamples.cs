@@ -1,7 +1,7 @@
 /// <summary>
 /// Per-command usage examples appended to <c>--help</c> output after ConsoleAppFramework's
 /// built-in help text. Handles compound commands (e.g. <c>nav up</c>, <c>seed new</c>) and
-/// single-token commands (e.g. <c>set</c>, <c>flow-start</c>).
+/// single-token commands (e.g. <c>set</c>, <c>show-batch</c>).
 /// </summary>
 internal static class CommandExamples
 {
@@ -324,23 +324,6 @@ internal static class CommandExamples
         [
             "twig log                   Show the change log for the active work item",
             "twig log --output json     Output the change log as JSON",
-        ],
-        ["flow-start"] =
-        [
-            "twig flow-start 1234       Start a dev flow for work item #1234",
-            "twig flow-start            Start a dev flow for the active work item",
-        ],
-        ["flow-done"] =
-        [
-            "twig flow-done             Mark the active flow as done and open a PR",
-            "twig flow-done --no-save   Mark as done, skipping the change-save step",
-            "twig flow-done --no-pr     Mark as done without creating a pull request",
-        ],
-        ["flow-close"] =
-        [
-            "twig flow-close            Close the active dev flow",
-            "twig flow-close --force    Force close even if guard conditions are not met",
-            "twig flow-close --no-branch-cleanup  Close without deleting the feature branch",
         ],
         ["hooks install"] =
         [

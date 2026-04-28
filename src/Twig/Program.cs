@@ -851,57 +851,6 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> Log(int count = 20, int? workItem = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<LogCommand>().ExecuteAsync(count, workItem, output, ct);
 
-    /// <summary>Start working on a work item: set context, transition state, assign, create branch.</summary>
-    /// <param name="idOrPattern">Work item ID or title substring to start working on.</param>
-    /// <param name="noBranch">Skip creating or checking out a branch.</param>
-    /// <param name="noState">Skip transitioning the work item state.</param>
-    /// <param name="noAssign">Skip assigning the work item to yourself.</param>
-    /// <param name="take">Assign the work item even if already assigned to someone else.</param>
-    /// <param name="force">Force start even if pre-conditions are not met.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
-    [Command("flow-start")]
-    public async Task<int> FlowStart(
-        [Argument] string? idOrPattern = null,
-        bool noBranch = false,
-        bool noState = false,
-        bool noAssign = false,
-        bool take = false,
-        bool force = false,
-        string output = OutputFormatterFactory.DefaultFormat,
-        CancellationToken ct = default)
-        => await services.GetRequiredService<FlowStartCommand>()
-            .ExecuteAsync(idOrPattern, noBranch, noState, noAssign, take, force, output, ct);
-
-    /// <summary>Mark work as done: save work tree, transition to Resolved, offer PR.</summary>
-    /// <param name="id">Work item ID; defaults to the active item.</param>
-    /// <param name="noSave">Skip saving pending changes before transitioning.</param>
-    /// <param name="noPr">Skip the pull request creation prompt.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
-    [Command("flow-done")]
-    public async Task<int> FlowDone(
-        [Argument] int? id = null,
-        bool noSave = false,
-        bool noPr = false,
-        string output = OutputFormatterFactory.DefaultFormat,
-        CancellationToken ct = default)
-        => await services.GetRequiredService<FlowDoneCommand>()
-            .ExecuteAsync(id, noSave, noPr, output, ct);
-
-    /// <summary>Close a work item: guard, transition to Completed, delete branch, clear context.</summary>
-    /// <param name="id">Work item ID; defaults to the active item.</param>
-    /// <param name="force">Force close even if guard conditions are not met.</param>
-    /// <param name="noBranchCleanup">Skip deleting the feature branch.</param>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
-    [Command("flow-close")]
-    public async Task<int> FlowClose(
-        [Argument] int? id = null,
-        bool force = false,
-        bool noBranchCleanup = false,
-        string output = OutputFormatterFactory.DefaultFormat,
-        CancellationToken ct = default)
-        => await services.GetRequiredService<FlowCloseCommand>()
-            .ExecuteAsync(id, force, noBranchCleanup, output, ct);
-
     /// <summary>Install Twig-managed git hooks.</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     [Command("hooks install")]
@@ -1122,11 +1071,6 @@ internal static class GroupedHelp
         "hooks install",
         "hooks uninstall",
 
-        // Workflow
-        "flow-start",
-        "flow-done",
-        "flow-close",
-
         // System
         "config",
         "config status-fields",
@@ -1267,11 +1211,6 @@ Git:
   context              Show branch, work item, and PR linkage.
   hooks install        Install Twig-managed git hooks.
   hooks uninstall      Uninstall Twig-managed git hooks.
-
-Workflow:
-  flow-start [id]      Start: set context, transition, assign, branch.
-  flow-done [id]       Done: save, transition to Resolved, offer PR.
-  flow-close [id]      Close: transition to Completed, clean up.
 
 System:
   config <key> [val]   Read or set a configuration value.

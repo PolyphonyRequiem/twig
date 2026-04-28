@@ -92,12 +92,6 @@ public static class CommandServiceModule
             sp.GetRequiredService<IPublishIdMapRepository>()));
 
         // EPIC-002: Domain orchestration services
-        services.AddSingleton<FlowTransitionService>(sp => new FlowTransitionService(
-            sp.GetRequiredService<ActiveItemResolver>(),
-            sp.GetRequiredService<IAdoWorkItemService>(),
-            sp.GetRequiredService<IProcessConfigurationProvider>(),
-            sp.GetRequiredService<ProtectedCacheWriter>()));
-
         services.AddSingleton<ParentStatePropagationService>(sp => new ParentStatePropagationService(
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IAdoWorkItemService>(),
@@ -123,7 +117,7 @@ public static class CommandServiceModule
             sp.GetRequiredService<ProtectedCacheWriter>(),
             sp.GetService<IWorkItemLinkRepository>()));
 
-        // PendingChangeFlusher — flush loop shared by SaveCommand, SyncCommand, FlowDoneCommand
+        // PendingChangeFlusher — flush loop shared by SaveCommand and SyncCommand
         services.AddSingleton<IPendingChangeFlusher>(sp => new PendingChangeFlusher(
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IAdoWorkItemService>(),

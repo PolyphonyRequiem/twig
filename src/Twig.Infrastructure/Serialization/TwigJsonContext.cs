@@ -50,7 +50,6 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(UserConfig))]
 [JsonSerializable(typeof(GitConfig))]
 [JsonSerializable(typeof(HooksConfig))]
-[JsonSerializable(typeof(FlowConfig))]
 [JsonSerializable(typeof(Dictionary<string, object?>))]
 // Dynamic process configuration DTOs (EPIC-2/4)
 [JsonSerializable(typeof(AdoProcessConfigurationResponse))]

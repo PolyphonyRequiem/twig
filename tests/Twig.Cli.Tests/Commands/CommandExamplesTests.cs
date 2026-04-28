@@ -58,11 +58,11 @@ public sealed class CommandExamplesTests
     [Fact]
     public void ShowIfPresent_HyphenatedCommand_MatchesViaSingleToken()
     {
-        // "flow-start" is a single hyphenated token
-        var output = CaptureShowIfPresent(["flow-start", "--help"],
-            ("flow-start", ["twig flow-start           Start a flow"]));
+        // "show-batch" is a single hyphenated token
+        var output = CaptureShowIfPresent(["show-batch", "--help"],
+            ("show-batch", ["twig show-batch           Batch lookup work items"]));
 
-        output.ShouldContain("Start a flow");
+        output.ShouldContain("Batch lookup work items");
     }
 
     [Fact]

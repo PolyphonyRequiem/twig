@@ -32,44 +32,49 @@ internal static class McpResultBuilder
             WriteOptionalWorkspace(writer, workspace);
         });
 
-    public static CallToolResult FormatStatus(StatusSnapshot snapshot, string? workspace = null) =>
+    public static CallToolResult FormatStatus(StatusResult status, string? workspace = null) =>
         BuildJson(writer =>
         {
-            writer.WriteBoolean("hasContext", snapshot.HasContext);
-
-            if (snapshot.Item is not null)
+            switch (status)
             {
-                writer.WritePropertyName("item");
-                writer.WriteStartObject();
-                WriteWorkItemWithPaths(writer, snapshot.Item);
-                writer.WriteEndObject();
-            }
-            else
-            {
-                writer.WriteNull("item");
-            }
+                case StatusResult.NoContext:
+                    writer.WriteBoolean("hasContext", false);
+                    writer.WriteNull("item");
+                    writer.WriteStartArray("pendingChanges");
+                    writer.WriteEndArray();
+                    WriteWorkItemArray(writer, "seeds", []);
+                    break;
 
-            // Pending changes
-            writer.WriteStartArray("pendingChanges");
-            foreach (var change in snapshot.PendingChanges)
-            {
-                writer.WriteStartObject();
-                writer.WriteNumber("workItemId", change.WorkItemId);
-                writer.WriteString("changeType", change.ChangeType);
-                writer.WriteString("fieldName", change.FieldName);
-                writer.WriteString("oldValue", change.OldValue);
-                writer.WriteString("newValue", change.NewValue);
-                writer.WriteEndObject();
-            }
-            writer.WriteEndArray();
+                case StatusResult.Unreachable u:
+                    writer.WriteBoolean("hasContext", true);
+                    writer.WriteNull("item");
+                    writer.WriteStartArray("pendingChanges");
+                    writer.WriteEndArray();
+                    WriteWorkItemArray(writer, "seeds", []);
+                    writer.WriteNumber("unreachableId", u.UnreachableId);
+                    writer.WriteString("unreachableReason", u.Reason);
+                    break;
 
-            WriteWorkItemArray(writer, "seeds", snapshot.Seeds);
-
-            // Error state
-            if (snapshot.UnreachableId.HasValue)
-            {
-                writer.WriteNumber("unreachableId", snapshot.UnreachableId.Value);
-                writer.WriteString("unreachableReason", snapshot.UnreachableReason);
+                case StatusResult.Success s:
+                    writer.WriteBoolean("hasContext", true);
+                    writer.WritePropertyName("item");
+                    writer.WriteStartObject();
+                    WriteWorkItemWithPaths(writer, s.Item);
+                    writer.WriteEndObject();
+                    writer.WriteStartArray("pendingChanges");
+                    foreach (var change in s.PendingChanges)
+                    {
+                        writer.WriteStartObject();
+                        writer.WriteNumber("workItemId", change.WorkItemId);
+                        writer.WriteString("changeType", change.ChangeType);
+                        writer.WriteString("fieldName", change.FieldName);
+                        writer.WriteString("oldValue", change.OldValue);
+                        writer.WriteString("newValue", change.NewValue);
+                        writer.WriteEndObject();
+                    }
+                    writer.WriteEndArray();
+                    WriteWorkItemArray(writer, "seeds", s.Seeds);
+                    break;
             }
 
             WriteOptionalWorkspace(writer, workspace);

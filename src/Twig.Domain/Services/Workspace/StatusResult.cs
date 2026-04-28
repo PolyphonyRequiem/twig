@@ -5,7 +5,7 @@ namespace Twig.Domain.Services.Workspace;
 
 /// <summary>
 /// Discriminated union representing the outcome of a status query.
-/// Replaces <c>StatusSnapshot</c> to make invalid states unrepresentable.
+/// Makes invalid states unrepresentable via exhaustive subtypes.
 /// </summary>
 public abstract record StatusResult
 {

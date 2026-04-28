@@ -106,21 +106,14 @@ public sealed class ContextTools(WorkspaceResolver resolver)
         var resolveResult = await ctx.ActiveItemResolver.GetActiveItemAsync(ct);
         if (!resolveResult.TryGetWorkItem(out var item, out var unreachableId, out var unreachableReason))
             return McpResultBuilder.FormatStatus(
-                StatusSnapshot.Unreachable(activeId.Value, unreachableId, unreachableReason),
+                new StatusResult.Unreachable(activeId.Value, unreachableId ?? activeId.Value, unreachableReason ?? "Unknown"),
                 ctx.Key.ToString());
 
         var pending = await ctx.PendingChangeStore.GetChangesAsync(item.Id, ct);
         var seeds = await ctx.WorkItemRepo.GetSeedsAsync(ct);
 
-        var snapshot = new StatusSnapshot
-        {
-            HasContext = true,
-            ActiveId = activeId.Value,
-            Item = item,
-            PendingChanges = pending,
-            Seeds = seeds,
-        };
-
-        return McpResultBuilder.FormatStatus(snapshot, ctx.Key.ToString());
+        return McpResultBuilder.FormatStatus(
+            new StatusResult.Success(item, pending, seeds),
+            ctx.Key.ToString());
     }
 }

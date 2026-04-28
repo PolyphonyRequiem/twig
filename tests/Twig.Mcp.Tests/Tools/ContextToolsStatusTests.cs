@@ -41,7 +41,7 @@ public sealed class ContextToolsStatusTests : ContextToolsTestBase
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task Status_WithActiveItem_ReturnsStatusSnapshot()
+    public async Task Status_WithActiveItem_ReturnsStatusResult()
     {
         var item = new WorkItemBuilder(42, "My Feature").AsFeature().InState("Active").Build();
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);

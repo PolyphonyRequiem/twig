@@ -250,30 +250,30 @@ internal static class CommandExamples
             "twig workspace exclusions --remove 42  Remove exclusion for #42",
             "twig workspace exclusions -o json      List exclusions as JSON",
         ],
-        ["area"] =
+        ["workspace area"] =
         [
-            "twig area                              Show area-filtered workspace view",
-            "twig area -o json                      Output area view as JSON",
+            "twig workspace area                    Show area-filtered workspace view",
+            "twig workspace area -o json            Output area view as JSON",
         ],
-        ["area add"] =
+        ["workspace area add"] =
         [
-            "twig area add \"Project\\Team A\"           Add area path with subtree matching",
-            "twig area add \"Project\\Team A\" --exact   Add area path with exact matching only",
+            "twig workspace area add \"Project\\Team A\"           Add area path with subtree matching",
+            "twig workspace area add \"Project\\Team A\" --exact   Add area path with exact matching only",
         ],
-        ["area remove"] =
+        ["workspace area remove"] =
         [
-            "twig area remove \"Project\\Team A\"        Remove a configured area path",
-            "twig area remove \"Project\\Team A\" -o json  Remove and output result as JSON",
+            "twig workspace area remove \"Project\\Team A\"        Remove a configured area path",
+            "twig workspace area remove \"Project\\Team A\" -o json  Remove and output result as JSON",
         ],
-        ["area list"] =
+        ["workspace area list"] =
         [
-            "twig area list                          List all configured area paths",
-            "twig area list -o json                  List area paths as JSON",
+            "twig workspace area list                          List all configured area paths",
+            "twig workspace area list -o json                  List area paths as JSON",
         ],
-        ["area sync"] =
+        ["workspace area sync"] =
         [
-            "twig area sync                          Fetch team area paths from ADO",
-            "twig area sync -o json                  Sync and output result as JSON",
+            "twig workspace area sync                          Fetch team area paths from ADO",
+            "twig workspace area sync -o json                  Sync and output result as JSON",
         ],
         ["sprint"] =
         [

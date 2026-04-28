@@ -743,10 +743,46 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> WorkspaceExclusions(string output = OutputFormatterFactory.DefaultFormat, bool clear = false, int? remove = null, CancellationToken ct = default)
         => await services.GetRequiredService<TrackingCommand>().ExclusionsAsync(output, clear, remove, ct);
 
+    // ── Workspace Area Path Management ──
+
+    /// <summary>Show the area-filtered workspace view.</summary>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    [Command("workspace area")]
+    public async Task<int> WorkspaceArea(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<AreaCommand>().ViewAsync(output, ct);
+
+    /// <summary>Add an area path to workspace configuration.</summary>
+    /// <param name="path">Area path to add (e.g., "Project\Team A").</param>
+    /// <param name="exact">Use exact match semantics instead of subtree (under).</param>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    [Command("workspace area add")]
+    public async Task<int> WorkspaceAreaAdd([Argument] string path, bool exact = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<AreaCommand>().AddAsync(path, exact, output, ct);
+
+    /// <summary>Remove an area path from workspace configuration.</summary>
+    /// <param name="path">Area path to remove.</param>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    [Command("workspace area remove")]
+    public async Task<int> WorkspaceAreaRemove([Argument] string path, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<AreaCommand>().RemoveAsync(path, output, ct);
+
+    /// <summary>List configured area paths with match semantics.</summary>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    [Command("workspace area list")]
+    public async Task<int> WorkspaceAreaList(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<AreaCommand>().ListAsync(output, ct);
+
+    /// <summary>Fetch team area paths from ADO and replace configuration.</summary>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    [Command("workspace area sync")]
+    public async Task<int> WorkspaceAreaSync(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<AreaCommand>().SyncAsync(output, ct);
+
     // ── Area Path Management (deprecated aliases — use 'workspace area' instead) ──
 
     /// <summary>Show the area-filtered workspace view. Deprecated — use 'twig workspace area' instead.</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    [Hidden]
     [Command("area")]
     public async Task<int> Area(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
@@ -758,6 +794,7 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="path">Area path to add (e.g., "Project\Team A").</param>
     /// <param name="exact">Use exact match semantics instead of subtree (under).</param>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    [Hidden]
     [Command("area add")]
     public async Task<int> AreaAdd([Argument] string path, bool exact = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
@@ -768,6 +805,7 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <summary>Remove an area path. Deprecated — use 'twig workspace area remove' instead.</summary>
     /// <param name="path">Area path to remove.</param>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    [Hidden]
     [Command("area remove")]
     public async Task<int> AreaRemove([Argument] string path, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
@@ -777,6 +815,7 @@ public sealed class TwigCommands(IServiceProvider services)
 
     /// <summary>List configured area paths. Deprecated — use 'twig workspace area list' instead.</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    [Hidden]
     [Command("area list")]
     public async Task<int> AreaList(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
@@ -786,6 +825,7 @@ public sealed class TwigCommands(IServiceProvider services)
 
     /// <summary>Fetch team area paths from ADO. Deprecated — use 'twig workspace area sync' instead.</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    [Hidden]
     [Command("area sync")]
     public async Task<int> AreaSync(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
@@ -950,11 +990,11 @@ internal static class GroupedHelp
         "workspace untrack",
         "workspace exclude",
         "workspace exclusions",
-        "area",
-        "area add",
-        "area remove",
-        "area list",
-        "area sync",
+        "workspace area",
+        "workspace area add",
+        "workspace area remove",
+        "workspace area list",
+        "workspace area sync",
 
         // Context
         "set",
@@ -1027,6 +1067,11 @@ internal static class GroupedHelp
         "seed",
         "save",
         "refresh",
+        "area",
+        "area add",
+        "area remove",
+        "area list",
+        "area sync",
 
         // Group prefixes for compound commands without standalone handlers
         "link",
@@ -1064,7 +1109,6 @@ Views:
   status               Active item detail and pending changes.
   tree                 Work item hierarchy (parent → active → children).
   sprint               My sprint items, grouped by assignee.  (--all for team)
-  area                 Area-filtered view of work items.
 
 Workspace:
   workspace            My sprint items.  (alias: ws)
@@ -1073,10 +1117,11 @@ Workspace:
   workspace untrack <id>     Remove a pinned work item.
   workspace exclude <id>     Hide a work item from workspace view.
   workspace exclusions       List all excluded work items.  (--clear / --remove <id>)
-  area add <path>            Add an area path to workspace config.  (--exact for exact match)
-  area remove <path>         Remove a configured area path.
-  area list                  List configured area paths with match semantics.
-  area sync                  Fetch team area paths from ADO and replace config.
+  workspace area             Area-filtered view of work items.
+  workspace area add <path>  Add an area path to workspace config.  (--exact for exact match)
+  workspace area remove <path>  Remove a configured area path.
+  workspace area list        List configured area paths with match semantics.
+  workspace area sync        Fetch team area paths from ADO and replace config.
 
 Context:
   set <id|pattern>     Set the active work item.

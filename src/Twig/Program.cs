@@ -111,11 +111,11 @@ if (args.Length == 1 && args[0] is "-h" or "--help" or "help")
 }
 if (args.Length == 0)
 {
-    // Smart landing: route to status if workspace is initialized, otherwise show help
+    // Smart landing: route to show if workspace is initialized, otherwise show help
     var twigDirCheck = WorkspaceDiscovery.FindTwigDir();
     if (twigDirCheck is not null)
     {
-        args = ["status"];
+        args = ["show"];
         // Fall through to app.Run(args)
     }
     else

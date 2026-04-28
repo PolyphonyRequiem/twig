@@ -189,6 +189,8 @@ public sealed class InitCommand
         var iterationService = _iterationService
             ?? new AdoIterationService(_httpClient!, _authProvider!, org, project, effectiveTeam);
 
+        var isInteractive = _consoleInput is not null && !_consoleInput.IsOutputRedirected;
+
         var template = await iterationService.DetectTemplateNameAsync();
         config.ProcessTemplate = template ?? string.Empty;
 
@@ -207,26 +209,31 @@ public sealed class InitCommand
         config.TypeAppearances = typeAppearances;
         Console.WriteLine(fmt.FormatInfo($"  Loaded {appearances.Count} type appearance(s)."));
 
-        Console.WriteLine(fmt.FormatInfo("Fetching team area paths..."));
-        try
+        // DD-8/FR-17: Only auto-detect area paths in interactive mode.
+        // Non-interactive init starts empty; use --area flag for explicit config.
+        if (isInteractive)
         {
-            var areaPaths = await iterationService.GetTeamAreaPathsAsync();
-            if (areaPaths.Count > 0)
+            Console.WriteLine(fmt.FormatInfo("Fetching team area paths..."));
+            try
             {
-                config.Defaults.AreaPathEntries = areaPaths
-                    .Select(ap => new AreaPathEntry { Path = ap.Path, IncludeChildren = ap.IncludeChildren })
-                    .ToList();
-                // Also populate AreaPaths for backward compatibility
-                config.Defaults.AreaPaths = areaPaths.Select(ap => ap.Path).ToList();
-                foreach (var ap in areaPaths)
-                    Console.WriteLine(fmt.FormatInfo($"  Area path: {ap.Path}{(ap.IncludeChildren ? " (include children)" : "")}"));
+                var areaPaths = await iterationService.GetTeamAreaPathsAsync();
+                if (areaPaths.Count > 0)
+                {
+                    config.Defaults.AreaPathEntries = areaPaths
+                        .Select(ap => new AreaPathEntry { Path = ap.Path, IncludeChildren = ap.IncludeChildren })
+                        .ToList();
+                    // Also populate AreaPaths for backward compatibility
+                    config.Defaults.AreaPaths = areaPaths.Select(ap => ap.Path).ToList();
+                    foreach (var ap in areaPaths)
+                        Console.WriteLine(fmt.FormatInfo($"  Area path: {ap.Path}{(ap.IncludeChildren ? " (include children)" : "")}"));
+                }
             }
-        }
-        catch (Exception ex) when (ex is Twig.Infrastructure.Ado.Exceptions.AdoNotFoundException
-                                     or Twig.Infrastructure.Ado.Exceptions.AdoException)
-        {
-            Console.WriteLine(fmt.FormatInfo($"  \u26a0 Could not detect team area paths: {ex.Message}"));
-            Console.WriteLine(fmt.FormatHint("You can set it later with: twig config defaults.areapaths 'Path1;Path2'"));
+            catch (Exception ex) when (ex is Twig.Infrastructure.Ado.Exceptions.AdoNotFoundException
+                                         or Twig.Infrastructure.Ado.Exceptions.AdoException)
+            {
+                Console.WriteLine(fmt.FormatInfo($"  \u26a0 Could not detect team area paths: {ex.Message}"));
+                Console.WriteLine(fmt.FormatHint("You can set it later with: twig config defaults.areapaths 'Path1;Path2'"));
+            }
         }
 
         Console.WriteLine(fmt.FormatInfo("Getting current iteration..."));
@@ -265,16 +272,16 @@ public sealed class InitCommand
         }
 
         // Prompt for workspace mode (TTY only; default to sprint in non-TTY)
-        if (_consoleInput is not null && !_consoleInput.IsOutputRedirected)
+        if (isInteractive)
         {
             Console.Write("Default workspace mode? [sprint/workspace] (sprint): ");
-            var modeResponse = _consoleInput.ReadLine()?.Trim().ToLowerInvariant();
+            var modeResponse = _consoleInput!.ReadLine()?.Trim().ToLowerInvariant();
             if (modeResponse is "workspace")
                 config.Defaults.Mode = "workspace";
         }
 
         // Prompt for workspace sources (TTY only; skip if --sprint or --area flags provided)
-        if (_consoleInput is not null && !_consoleInput.IsOutputRedirected
+        if (isInteractive
             && string.IsNullOrWhiteSpace(sprint) && string.IsNullOrWhiteSpace(area))
         {
             Console.WriteLine("Workspace sources \u2014 what should be included in your workspace?");
@@ -283,7 +290,7 @@ public sealed class InitCommand
             Console.WriteLine("  3. Both sprint and area paths");
             Console.WriteLine("  4. Neither (start empty, configure later)");
             Console.Write("Choose [1-4] (4): ");
-            var prefResponse = _consoleInput.ReadLine()?.Trim();
+            var prefResponse = _consoleInput!.ReadLine()?.Trim();
 
             switch (prefResponse)
             {
@@ -450,8 +457,13 @@ public sealed class InitCommand
         // SEC-001: Append .twig/ to .gitignore
         AppendToGitignore();
 
-        // Inline refresh: populate the cache with sprint items so the workspace isn't empty after init
-        if (currentIteration is not null && _httpClient is not null && _authProvider is not null)
+        // DD-8/FR-17: Only inline-refresh when workspace has configured sources.
+        // Non-interactive init with no flags starts empty; interactive "Neither" also skips.
+        var hasConfiguredSources = (config.Workspace.Sprints is { Count: > 0 }) ||
+                                   config.Defaults.ResolveAreaPaths() is not null;
+
+        // Inline refresh: populate the cache with sprint items when workspace sources exist
+        if (hasConfiguredSources && currentIteration is not null && _httpClient is not null && _authProvider is not null)
         {
             try
             {

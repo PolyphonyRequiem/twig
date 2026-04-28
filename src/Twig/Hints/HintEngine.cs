@@ -155,6 +155,10 @@ public sealed class HintEngine
                 hints.Add("Use '--output ids' to pipe IDs to other commands.");
                 break;
 
+            case "delete":
+                hints.Add("Tip: For items you no longer need, consider 'twig state Closed' — it preserves history and is reversible.");
+                break;
+
             case "next":
             case "prev":
                 hints.Add("Try: twig next, twig prev, twig up, twig show");

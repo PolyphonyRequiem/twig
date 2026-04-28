@@ -4,8 +4,9 @@ using Twig.Domain.ValueObjects;
 namespace Twig.Domain.Services.Seed;
 
 /// <summary>
-/// Repairs orphaned and stale seed_links and parent_id references using the publish_id_map.
-/// Called by <c>twig seed reconcile</c>.
+/// Repairs orphaned and stale seed links after partial publishes or external changes.
+/// 3 dependencies, 1 consumer (<see cref="SeedReconcileCommand"/>).
+/// Retained as a separate orchestrator — focused scope with no overlap with other services.
 /// </summary>
 public sealed class SeedReconcileOrchestrator
 {

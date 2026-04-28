@@ -1,7 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Shouldly;
-using Twig.Domain.Aggregates;
 using Twig.Domain.Extensions;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado;
@@ -17,10 +16,10 @@ namespace Twig.Infrastructure.Tests.Ado;
 /// </summary>
 public class AdoResponseMapperTests
 {
-    // ── MapWorkItem ──────────────────────────────────────────────────
+    // ── MapToSnapshot ──────────────────────────────────────────────────
 
     [Fact]
-    public void MapWorkItem_BasicFields_MapsCorrectly()
+    public void MapToSnapshot_BasicFields_MapsCorrectly()
     {
         var dto = CreateWorkItemDto(
             id: 42,
@@ -32,21 +31,20 @@ public class AdoResponseMapperTests
             iterationPath: @"MyProject\Sprint 1",
             areaPath: @"MyProject\Backend");
 
-        var result = AdoResponseMapper.MapWorkItem(dto);
+        var result = AdoResponseMapper.MapToSnapshot(dto);
 
         result.Id.ShouldBe(42);
         result.Revision.ShouldBe(5);
-        result.Type.ShouldBe(WorkItemType.UserStory);
+        result.TypeName.ShouldBe("User Story");
         result.Title.ShouldBe("Implement login");
         result.State.ShouldBe("Active");
         result.AssignedTo.ShouldBe("John Doe");
-        result.IterationPath.Value.ShouldBe(@"MyProject\Sprint 1");
-        result.AreaPath.Value.ShouldBe(@"MyProject\Backend");
-        result.IsDirty.ShouldBeFalse();
+        result.IterationPath.ShouldBe(@"MyProject\Sprint 1");
+        result.AreaPath.ShouldBe(@"MyProject\Backend");
     }
 
     [Fact]
-    public void MapWorkItem_WithParentRelation_ExtractsParentId()
+    public void MapToSnapshot_WithParentRelation_ExtractsParentId()
     {
         var dto = CreateWorkItemDto(id: 100, rev: 1, type: "Task", title: "Sub task", state: "New");
         dto.Relations = new List<AdoRelation>
@@ -58,35 +56,35 @@ public class AdoResponseMapperTests
             },
         };
 
-        var result = AdoResponseMapper.MapWorkItem(dto);
+        var result = AdoResponseMapper.MapToSnapshot(dto);
 
         result.ParentId.ShouldBe(42);
     }
 
     [Fact]
-    public void MapWorkItem_NoRelations_ParentIdIsNull()
+    public void MapToSnapshot_NoRelations_ParentIdIsNull()
     {
         var dto = CreateWorkItemDto(id: 1, rev: 1, type: "Epic", title: "Top level", state: "New");
         dto.Relations = null;
 
-        var result = AdoResponseMapper.MapWorkItem(dto);
+        var result = AdoResponseMapper.MapToSnapshot(dto);
 
         result.ParentId.ShouldBeNull();
     }
 
     [Fact]
-    public void MapWorkItem_EmptyRelations_ParentIdIsNull()
+    public void MapToSnapshot_EmptyRelations_ParentIdIsNull()
     {
         var dto = CreateWorkItemDto(id: 1, rev: 1, type: "Epic", title: "Top level", state: "New");
         dto.Relations = new List<AdoRelation>();
 
-        var result = AdoResponseMapper.MapWorkItem(dto);
+        var result = AdoResponseMapper.MapToSnapshot(dto);
 
         result.ParentId.ShouldBeNull();
     }
 
     [Fact]
-    public void MapWorkItem_ForwardRelationOnly_ParentIdIsNull()
+    public void MapToSnapshot_ForwardRelationOnly_ParentIdIsNull()
     {
         var dto = CreateWorkItemDto(id: 1, rev: 1, type: "Epic", title: "Parent", state: "New");
         dto.Relations = new List<AdoRelation>
@@ -98,13 +96,13 @@ public class AdoResponseMapperTests
             },
         };
 
-        var result = AdoResponseMapper.MapWorkItem(dto);
+        var result = AdoResponseMapper.MapToSnapshot(dto);
 
         result.ParentId.ShouldBeNull();
     }
 
     [Fact]
-    public void MapWorkItem_AssignedToIdentityObject_ExtractsDisplayName()
+    public void MapToSnapshot_AssignedToIdentityObject_ExtractsDisplayName()
     {
         var dto = new AdoWorkItemResponse
         {
@@ -119,23 +117,23 @@ public class AdoResponseMapperTests
             },
         };
 
-        var result = AdoResponseMapper.MapWorkItem(dto);
+        var result = AdoResponseMapper.MapToSnapshot(dto);
 
         result.AssignedTo.ShouldBe("Jane Smith");
     }
 
     [Fact]
-    public void MapWorkItem_NullAssignedTo_ReturnsNull()
+    public void MapToSnapshot_NullAssignedTo_ReturnsNull()
     {
         var dto = CreateWorkItemDto(id: 10, rev: 1, type: "Task", title: "No assignee", state: "New", assignedTo: null);
 
-        var result = AdoResponseMapper.MapWorkItem(dto);
+        var result = AdoResponseMapper.MapToSnapshot(dto);
 
         result.AssignedTo.ShouldBeNull();
     }
 
     [Fact]
-    public void MapWorkItem_NullFields_UsesDefaults()
+    public void MapToSnapshot_NullFields_UsesDefaults()
     {
         var dto = new AdoWorkItemResponse
         {
@@ -144,16 +142,16 @@ public class AdoResponseMapperTests
             Fields = null,
         };
 
-        var result = AdoResponseMapper.MapWorkItem(dto);
+        var result = AdoResponseMapper.MapToSnapshot(dto);
 
         result.Id.ShouldBe(1);
-        result.Type.ShouldBe(WorkItemType.Task);
+        result.TypeName.ShouldBeEmpty();
         result.Title.ShouldBeEmpty();
         result.State.ShouldBeEmpty();
     }
 
     [Fact]
-    public void MapWorkItem_MissingTypeField_FallsBackToTask()
+    public void MapToSnapshot_MissingTypeField_ReturnsEmptyTypeName()
     {
         var dto = new AdoWorkItemResponse
         {
@@ -166,9 +164,9 @@ public class AdoResponseMapperTests
             },
         };
 
-        var result = AdoResponseMapper.MapWorkItem(dto);
+        var result = AdoResponseMapper.MapToSnapshot(dto);
 
-        result.Type.ShouldBe(WorkItemType.Task);
+        result.TypeName.ShouldBeEmpty();
     }
 
     [Theory]
@@ -176,26 +174,13 @@ public class AdoResponseMapperTests
     [InlineData("Deliverable")]
     [InlineData("Initiative")]
     [InlineData("Scenario")]
-    public void MapWorkItem_CustomWorkItemType_PreservesTypeName(string typeName)
+    public void MapToSnapshot_CustomWorkItemType_PreservesTypeName(string typeName)
     {
         var dto = CreateWorkItemDto(id: 1, rev: 1, type: typeName, title: "Custom", state: "New");
 
-        var result = AdoResponseMapper.MapWorkItem(dto);
+        var result = AdoResponseMapper.MapToSnapshot(dto);
 
-        result.Type.Value.ShouldBe(typeName);
-    }
-
-    [Theory]
-    [InlineData("")]
-    [InlineData("  ")]
-    [InlineData("\t")]
-    public void MapWorkItem_EmptyOrWhitespaceType_FallsBackToTask(string typeName)
-    {
-        var dto = CreateWorkItemDto(id: 42, rev: 1, type: typeName, title: "Test", state: "Active");
-
-        var result = AdoResponseMapper.MapWorkItem(dto);
-
-        result.Type.ShouldBe(WorkItemType.Task);
+        result.TypeName.ShouldBe(typeName);
     }
 
     // ── ExtractParentId ──────────────────────────────────────────────
@@ -521,10 +506,10 @@ public class AdoResponseMapperTests
         result.ShouldBe(expected);
     }
 
-    // ── Field Import Loop (MapWorkItem with field population) ────────
+    // ── Field Import Loop (MapToSnapshot with field population) ────────
 
     [Fact]
-    public void MapWorkItem_CoreFields_ExcludedFromFieldsDictionary()
+    public void MapToSnapshot_CoreFields_ExcludedFromFieldsDictionary()
     {
         var dto = new AdoWorkItemResponse
         {
@@ -544,7 +529,7 @@ public class AdoResponseMapperTests
             },
         };
 
-        var result = AdoResponseMapper.MapWorkItem(dto);
+        var result = AdoResponseMapper.MapToSnapshot(dto);
 
         // Core fields should NOT appear in Fields dictionary
         result.Fields.ShouldNotContainKey("System.Id");
@@ -562,7 +547,7 @@ public class AdoResponseMapperTests
     }
 
     [Fact]
-    public void MapWorkItem_WithFieldDefLookup_ReadOnlyNonDisplayWorthy_Excluded()
+    public void MapToSnapshot_WithFieldDefLookup_ReadOnlyNonDisplayWorthy_Excluded()
     {
         var dto = new AdoWorkItemResponse
         {
@@ -584,7 +569,7 @@ public class AdoResponseMapperTests
             ["Microsoft.VSTS.Common.Priority"] = new FieldDefinition("Microsoft.VSTS.Common.Priority", "Priority", "integer", false),
         };
 
-        var result = AdoResponseMapper.MapWorkItem(dto, lookup);
+        var result = AdoResponseMapper.MapToSnapshot(dto, lookup);
 
         // Read-only non-display-worthy field excluded
         result.Fields.ShouldNotContainKey("System.Watermark");
@@ -594,7 +579,7 @@ public class AdoResponseMapperTests
     }
 
     [Fact]
-    public void MapWorkItem_WithFieldDefLookup_DisplayWorthyReadOnly_Included()
+    public void MapToSnapshot_WithFieldDefLookup_DisplayWorthyReadOnly_Included()
     {
         var dto = new AdoWorkItemResponse
         {
@@ -618,7 +603,7 @@ public class AdoResponseMapperTests
             ["System.Description"] = new FieldDefinition("System.Description", "Description", "html", true),
         };
 
-        var result = AdoResponseMapper.MapWorkItem(dto, lookup);
+        var result = AdoResponseMapper.MapToSnapshot(dto, lookup);
 
         result.Fields.ShouldContainKey("System.Tags");
         result.Fields["System.Tags"].ShouldBe("backend; api");
@@ -629,7 +614,7 @@ public class AdoResponseMapperTests
     }
 
     [Fact]
-    public void MapWorkItem_NullFieldDefLookup_ImportsAllNonCoreFields()
+    public void MapToSnapshot_NullFieldDefLookup_ImportsAllNonCoreFields()
     {
         var dto = new AdoWorkItemResponse
         {
@@ -647,7 +632,7 @@ public class AdoResponseMapperTests
         };
 
         // No field def lookup — fallback imports all non-core fields
-        var result = AdoResponseMapper.MapWorkItem(dto, fieldDefLookup: null);
+        var result = AdoResponseMapper.MapToSnapshot(dto, fieldDefLookup: null);
 
         result.Fields.ShouldContainKey("Microsoft.VSTS.Common.Priority");
         result.Fields.ShouldContainKey("Custom.MyField");
@@ -658,7 +643,7 @@ public class AdoResponseMapperTests
     }
 
     [Fact]
-    public void MapWorkItem_IdentityObjectInArbitraryField_ResolvesDisplayName()
+    public void MapToSnapshot_IdentityObjectInArbitraryField_ResolvesDisplayName()
     {
         var dto = new AdoWorkItemResponse
         {
@@ -674,7 +659,7 @@ public class AdoResponseMapperTests
             },
         };
 
-        var result = AdoResponseMapper.MapWorkItem(dto);
+        var result = AdoResponseMapper.MapToSnapshot(dto);
 
         result.Fields.ShouldContainKey("System.CreatedBy");
         result.Fields["System.CreatedBy"].ShouldBe("Alice");
@@ -683,7 +668,7 @@ public class AdoResponseMapperTests
     }
 
     [Fact]
-    public void MapWorkItem_IdentityObjectWithUniqueNameOnly_FallsBackToUniqueName()
+    public void MapToSnapshot_IdentityObjectWithUniqueNameOnly_FallsBackToUniqueName()
     {
         var dto = new AdoWorkItemResponse
         {
@@ -698,14 +683,14 @@ public class AdoResponseMapperTests
             },
         };
 
-        var result = AdoResponseMapper.MapWorkItem(dto);
+        var result = AdoResponseMapper.MapToSnapshot(dto);
 
         result.Fields.ShouldContainKey("System.CreatedBy");
         result.Fields["System.CreatedBy"].ShouldBe("alice@example.com");
     }
 
     [Fact]
-    public void MapWorkItem_HtmlFieldValue_StoredAsIs()
+    public void MapToSnapshot_HtmlFieldValue_StoredAsIs()
     {
         var dto = new AdoWorkItemResponse
         {
@@ -720,14 +705,14 @@ public class AdoResponseMapperTests
             },
         };
 
-        var result = AdoResponseMapper.MapWorkItem(dto);
+        var result = AdoResponseMapper.MapToSnapshot(dto);
 
         result.Fields.ShouldContainKey("System.Description");
         result.Fields["System.Description"].ShouldBe("<div><p>Rich <b>HTML</b> content</p></div>");
     }
 
     [Fact]
-    public void MapWorkItem_WithFieldDefLookup_NonImportableDataType_Excluded()
+    public void MapToSnapshot_WithFieldDefLookup_NonImportableDataType_Excluded()
     {
         var dto = new AdoWorkItemResponse
         {
@@ -751,7 +736,7 @@ public class AdoResponseMapperTests
             ["Microsoft.VSTS.Common.Priority"] = new FieldDefinition("Microsoft.VSTS.Common.Priority", "Priority", "integer", false),
         };
 
-        var result = AdoResponseMapper.MapWorkItem(dto, lookup);
+        var result = AdoResponseMapper.MapToSnapshot(dto, lookup);
 
         // Non-importable data types excluded
         result.Fields.ShouldNotContainKey("Custom.BoolField");
@@ -761,7 +746,7 @@ public class AdoResponseMapperTests
     }
 
     [Fact]
-    public void MapWorkItem_NullFieldValue_SkippedInFieldsDictionary()
+    public void MapToSnapshot_NullFieldValue_SkippedInFieldsDictionary()
     {
         var dto = new AdoWorkItemResponse
         {
@@ -777,7 +762,7 @@ public class AdoResponseMapperTests
             },
         };
 
-        var result = AdoResponseMapper.MapWorkItem(dto);
+        var result = AdoResponseMapper.MapToSnapshot(dto);
 
         // Null values are not imported
         result.Fields.ShouldNotContainKey("Microsoft.VSTS.Common.Priority");
@@ -785,7 +770,7 @@ public class AdoResponseMapperTests
     }
 
     [Fact]
-    public void MapWorkItemWithLinks_ForwardsFieldDefLookup()
+    public void MapToSnapshotWithLinks_ForwardsFieldDefLookup()
     {
         var dto = new AdoWorkItemResponse
         {
@@ -807,16 +792,16 @@ public class AdoResponseMapperTests
             ["System.Watermark"] = new FieldDefinition("System.Watermark", "Watermark", "integer", true),
         };
 
-        var (item, links) = AdoResponseMapper.MapWorkItemWithLinks(dto, lookup);
+        var (snapshot, links) = AdoResponseMapper.MapToSnapshotWithLinks(dto, lookup);
 
-        item.Fields.ShouldContainKey("Microsoft.VSTS.Common.Priority");
-        item.Fields.ShouldNotContainKey("System.Watermark");
+        snapshot.Fields.ShouldContainKey("Microsoft.VSTS.Common.Priority");
+        snapshot.Fields.ShouldNotContainKey("System.Watermark");
     }
 
     // ── Field import pipeline ────────────────────────────────────────
 
     [Fact]
-    public void MapWorkItem_PopulatesFieldsFromResponse()
+    public void MapToSnapshot_PopulatesFieldsFromResponse()
     {
         var dto = new AdoWorkItemResponse
         {
@@ -835,7 +820,7 @@ public class AdoResponseMapperTests
             new FieldDefinition("Microsoft.VSTS.Common.Priority", "Priority", "integer", false),
             new FieldDefinition("Custom.Team", "Team", "string", false));
 
-        var result = AdoResponseMapper.MapWorkItem(dto, lookup);
+        var result = AdoResponseMapper.MapToSnapshot(dto, lookup);
 
         result.Fields.ShouldContainKey("Microsoft.VSTS.Common.Priority");
         result.Fields["Microsoft.VSTS.Common.Priority"].ShouldBe("2");
@@ -844,7 +829,7 @@ public class AdoResponseMapperTests
     }
 
     [Fact]
-    public void MapWorkItem_CoreFieldsExcludedFromFields()
+    public void MapToSnapshot_CoreFieldsExcludedFromFields()
     {
         var dto = new AdoWorkItemResponse
         {
@@ -866,7 +851,7 @@ public class AdoResponseMapperTests
         var lookup = BuildLookup(
             new FieldDefinition("Custom.Priority", "Priority", "string", false));
 
-        var result = AdoResponseMapper.MapWorkItem(dto, lookup);
+        var result = AdoResponseMapper.MapToSnapshot(dto, lookup);
 
         result.Fields.ShouldNotContainKey("System.Id");
         result.Fields.ShouldNotContainKey("System.Rev");
@@ -880,7 +865,7 @@ public class AdoResponseMapperTests
     }
 
     [Fact]
-    public void MapWorkItem_ReadOnlyNonDisplayWorthy_FilteredOut()
+    public void MapToSnapshot_ReadOnlyNonDisplayWorthy_FilteredOut()
     {
         var dto = new AdoWorkItemResponse
         {
@@ -897,13 +882,13 @@ public class AdoResponseMapperTests
         var lookup = BuildLookup(
             new FieldDefinition("System.Watermark", "Watermark", "integer", true));
 
-        var result = AdoResponseMapper.MapWorkItem(dto, lookup);
+        var result = AdoResponseMapper.MapToSnapshot(dto, lookup);
 
         result.Fields.ShouldNotContainKey("System.Watermark");
     }
 
     [Fact]
-    public void MapWorkItem_NullDefinitions_ImportsAllNonCore()
+    public void MapToSnapshot_NullDefinitions_ImportsAllNonCore()
     {
         var dto = new AdoWorkItemResponse
         {
@@ -919,7 +904,7 @@ public class AdoResponseMapperTests
         };
 
         // No fieldDefLookup — fallback: import all non-core
-        var result = AdoResponseMapper.MapWorkItem(dto, fieldDefLookup: null);
+        var result = AdoResponseMapper.MapToSnapshot(dto, fieldDefLookup: null);
 
         result.Fields.ShouldContainKey("Custom.Priority");
         result.Fields["Custom.Priority"].ShouldBe("1");
@@ -928,7 +913,7 @@ public class AdoResponseMapperTests
     }
 
     [Fact]
-    public void MapWorkItem_IdentityObjectField_ResolvesToDisplayName()
+    public void MapToSnapshot_IdentityObjectField_ResolvesToDisplayName()
     {
         var dto = new AdoWorkItemResponse
         {
@@ -945,14 +930,14 @@ public class AdoResponseMapperTests
         var lookup = BuildLookup(
             new FieldDefinition("System.CreatedBy", "Created By", "string", true));
 
-        var result = AdoResponseMapper.MapWorkItem(dto, lookup);
+        var result = AdoResponseMapper.MapToSnapshot(dto, lookup);
 
         result.Fields.ShouldContainKey("System.CreatedBy");
         result.Fields["System.CreatedBy"].ShouldBe("Alice Smith");
     }
 
     [Fact]
-    public void MapWorkItem_IdentityObjectField_UniqueNameFallback()
+    public void MapToSnapshot_IdentityObjectField_UniqueNameFallback()
     {
         var dto = new AdoWorkItemResponse
         {
@@ -969,14 +954,14 @@ public class AdoResponseMapperTests
         var lookup = BuildLookup(
             new FieldDefinition("System.ChangedBy", "Changed By", "string", true));
 
-        var result = AdoResponseMapper.MapWorkItem(dto, lookup);
+        var result = AdoResponseMapper.MapToSnapshot(dto, lookup);
 
         result.Fields.ShouldContainKey("System.ChangedBy");
         result.Fields["System.ChangedBy"].ShouldBe("bob@example.com");
     }
 
     [Fact]
-    public void MapWorkItem_HtmlFieldStoredAsIs()
+    public void MapToSnapshot_HtmlFieldStoredAsIs()
     {
         var htmlContent = "<div><p>Rich <strong>description</strong></p></div>";
         var dto = new AdoWorkItemResponse
@@ -994,7 +979,7 @@ public class AdoResponseMapperTests
         var lookup = BuildLookup(
             new FieldDefinition("System.Description", "Description", "html", true));
 
-        var result = AdoResponseMapper.MapWorkItem(dto, lookup);
+        var result = AdoResponseMapper.MapToSnapshot(dto, lookup);
 
         result.Fields.ShouldContainKey("System.Description");
         result.Fields["System.Description"].ShouldBe(htmlContent);

@@ -31,10 +31,10 @@ public sealed class CommandExamplesTests
     [Fact]
     public void ShowIfPresent_SingleArg_MatchesDirectly()
     {
-        var output = CaptureShowIfPresent(["status"],
-            ("status", ["twig status    Show current work item status"]));
+        var output = CaptureShowIfPresent(["tree"],
+            ("tree", ["twig tree    Show work item hierarchy"]));
 
-        output.ShouldContain("Show current work item status");
+        output.ShouldContain("Show work item hierarchy");
     }
 
     [Fact]

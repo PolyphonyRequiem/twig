@@ -916,7 +916,6 @@ internal static class GroupedHelp
         "sync",
 
         // Views
-        "status",
         "tree",
         "sprint",
 
@@ -1039,7 +1038,6 @@ Getting Started:
   sync                 Flush pending changes then refresh from ADO.
 
 Views:
-  status               Active item detail and pending changes.
   tree                 Work item hierarchy (parent → active → children).
   sprint               My sprint items, grouped by assignee.  (--all for team)
   area                 Area-filtered view of work items.

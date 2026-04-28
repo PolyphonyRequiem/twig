@@ -58,7 +58,7 @@ public sealed class HintEngine
         switch (commandName.ToLowerInvariant())
         {
             case "set":
-                hints.Add("Try: twig status, twig tree, twig state <name>");
+                hints.Add("Try: twig show, twig tree, twig state <name>");
                 if (item?.ParentId.HasValue == true)
                     hints.Add("Siblings: twig next, twig prev");
                 break;
@@ -125,14 +125,6 @@ public sealed class HintEngine
                 hints.Add("Changes staged locally. Run twig save to persist to ADO");
                 break;
 
-            case "status":
-                if (staleSeedCount > 0)
-                {
-                    var noun = staleSeedCount == 1 ? "seed" : "seeds";
-                    hints.Add($"⚠ {staleSeedCount} stale {noun}. Run 'twig seed view' to review.");
-                }
-                break;
-
             case "init":
                 hints.Add("Run 'twig workspace' to see your sprint, or 'twig set <id>' to focus on an item.");
                 break;
@@ -157,7 +149,7 @@ public sealed class HintEngine
 
             case "next":
             case "prev":
-                hints.Add("Try: twig next, twig prev, twig up, twig status");
+                hints.Add("Try: twig next, twig prev, twig up, twig show");
                 break;
         }
 

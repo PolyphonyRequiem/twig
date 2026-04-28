@@ -68,9 +68,9 @@ public sealed class McpResultBuilderTests
     [Fact]
     public void FormatStatus_NoContext_WritesMinimalJson()
     {
-        var snapshot = StatusSnapshot.NoContext();
+        var status = new StatusResult.NoContext();
 
-        var result = McpResultBuilder.FormatStatus(snapshot);
+        var result = McpResultBuilder.FormatStatus(status);
         var root = ParseJson(result);
 
         root.GetProperty("hasContext").GetBoolean().ShouldBeFalse();
@@ -83,15 +83,10 @@ public sealed class McpResultBuilderTests
     public void FormatStatus_WithItem_IncludesItemAndPendingChanges()
     {
         var item = new WorkItemBuilder(7, "Status Item").AsTask().InState("Done").AssignedTo("Bob").Build();
-        var snapshot = new StatusSnapshot
-        {
-            HasContext = true,
-            ActiveId = 7,
-            Item = item,
-            PendingChanges = [new PendingChangeRecord(7, "field", "System.Title", "Old", "New")],
-        };
+        var status = new StatusResult.Success(item,
+            [new PendingChangeRecord(7, "field", "System.Title", "Old", "New")], []);
 
-        var result = McpResultBuilder.FormatStatus(snapshot);
+        var result = McpResultBuilder.FormatStatus(status);
         var root = ParseJson(result);
 
         root.GetProperty("hasContext").GetBoolean().ShouldBeTrue();
@@ -108,20 +103,14 @@ public sealed class McpResultBuilderTests
     public void FormatStatus_MultiplePendingChanges_AllSerialized()
     {
         var item = new WorkItemBuilder(3, "Multi Change").AsTask().InState("Active").Build();
-        var snapshot = new StatusSnapshot
-        {
-            HasContext = true,
-            ActiveId = 3,
-            Item = item,
-            PendingChanges =
+        var status = new StatusResult.Success(item,
             [
                 new PendingChangeRecord(3, "field", "System.Title", "A", "B"),
                 new PendingChangeRecord(3, "state", "System.State", "New", "Active"),
                 new PendingChangeRecord(3, "field", "System.AssignedTo", null, "Alice"),
-            ],
-        };
+            ], []);
 
-        var result = McpResultBuilder.FormatStatus(snapshot);
+        var result = McpResultBuilder.FormatStatus(status);
         var changes = ParseJson(result).GetProperty("pendingChanges");
 
         changes.GetArrayLength().ShouldBe(3);
@@ -133,9 +122,9 @@ public sealed class McpResultBuilderTests
     [Fact]
     public void FormatStatus_Unreachable_IncludesErrorFields()
     {
-        var snapshot = StatusSnapshot.Unreachable(99, 99, "Not found");
+        var status = new StatusResult.Unreachable(99, 99, "Not found");
 
-        var result = McpResultBuilder.FormatStatus(snapshot);
+        var result = McpResultBuilder.FormatStatus(status);
         var root = ParseJson(result);
 
         root.GetProperty("unreachableId").GetInt32().ShouldBe(99);
@@ -145,14 +134,9 @@ public sealed class McpResultBuilderTests
     [Fact]
     public void FormatStatus_NoUnreachable_OmitsErrorFields()
     {
-        var snapshot = new StatusSnapshot
-        {
-            HasContext = true,
-            ActiveId = 1,
-            Item = WorkItemBuilder.Simple(1, "OK"),
-        };
+        var status = new StatusResult.Success(WorkItemBuilder.Simple(1, "OK"), [], []);
 
-        var result = McpResultBuilder.FormatStatus(snapshot);
+        var result = McpResultBuilder.FormatStatus(status);
         var root = ParseJson(result);
 
         root.TryGetProperty("unreachableId", out _).ShouldBeFalse();
@@ -163,15 +147,10 @@ public sealed class McpResultBuilderTests
     public void FormatStatus_WithSeeds_IncludesSeedArray()
     {
         var seed = new WorkItemBuilder(-1, "My Seed").AsTask().AsSeed().Build();
-        var snapshot = new StatusSnapshot
-        {
-            HasContext = true,
-            ActiveId = 1,
-            Item = new WorkItemBuilder(1, "Active").AsEpic().InState("Active").Build(),
-            Seeds = [seed],
-        };
+        var status = new StatusResult.Success(
+            new WorkItemBuilder(1, "Active").AsEpic().InState("Active").Build(), [], [seed]);
 
-        var result = McpResultBuilder.FormatStatus(snapshot);
+        var result = McpResultBuilder.FormatStatus(status);
         var root = ParseJson(result);
 
         root.GetProperty("seeds").GetArrayLength().ShouldBe(1);
@@ -187,14 +166,9 @@ public sealed class McpResultBuilderTests
             .WithIterationPath(@"Project\Sprint 1")
             .Build();
 
-        var snapshot = new StatusSnapshot
-        {
-            HasContext = true,
-            ActiveId = 1,
-            Item = item,
-        };
+        var status = new StatusResult.Success(item, [], []);
 
-        var result = McpResultBuilder.FormatStatus(snapshot);
+        var result = McpResultBuilder.FormatStatus(status);
         var itemJson = ParseJson(result).GetProperty("item");
 
         itemJson.TryGetProperty("areaPath", out _).ShouldBeTrue();

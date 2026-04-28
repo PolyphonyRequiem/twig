@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using Shouldly;
 using Twig.Domain.Enums;
 using Twig.Infrastructure.Config;
@@ -26,6 +27,7 @@ public sealed class FileTrackingRepositoryTests : IDisposable
 
     public void Dispose()
     {
+        SqliteConnection.ClearAllPools();
         if (Directory.Exists(_tempDir))
             Directory.Delete(_tempDir, recursive: true);
     }
@@ -424,5 +426,252 @@ public sealed class FileTrackingRepositoryTests : IDisposable
         deserialized.Tracked[0].Mode.ShouldBe("tree");
         deserialized.Excluded.Count.ShouldBe(1);
         deserialized.Excluded[0].Id.ShouldBe(7);
+    }
+
+    // ──────────────────────── SQLite → JSON migration ────────────────────────
+
+    /// <summary>
+    /// Creates a SQLite database at <paramref name="dbPath"/> with tracked_items and excluded_items tables,
+    /// populated with the given data. Used to test the one-time migration path.
+    /// </summary>
+    private static void CreateSqliteWithTrackingData(
+        string dbPath,
+        (int id, string mode, string createdAt)[]? tracked = null,
+        (int id, string createdAt)[]? excluded = null)
+    {
+        var dir = Path.GetDirectoryName(dbPath);
+        if (!string.IsNullOrEmpty(dir))
+            Directory.CreateDirectory(dir);
+
+        using var connection = new SqliteConnection($"Data Source={dbPath}");
+        connection.Open();
+
+        using var schemaCmd = connection.CreateCommand();
+        schemaCmd.CommandText = """
+            CREATE TABLE tracked_items (
+                id INTEGER PRIMARY KEY,
+                mode TEXT NOT NULL DEFAULT 'single',
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE excluded_items (
+                id INTEGER PRIMARY KEY,
+                created_at TEXT NOT NULL
+            );
+            """;
+        schemaCmd.ExecuteNonQuery();
+
+        if (tracked is not null)
+        {
+            foreach (var (id, mode, createdAt) in tracked)
+            {
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = "INSERT INTO tracked_items (id, mode, created_at) VALUES (@id, @mode, @createdAt);";
+                cmd.Parameters.AddWithValue("@id", id);
+                cmd.Parameters.AddWithValue("@mode", mode);
+                cmd.Parameters.AddWithValue("@createdAt", createdAt);
+                cmd.ExecuteNonQuery();
+            }
+        }
+
+        if (excluded is not null)
+        {
+            foreach (var (id, createdAt) in excluded)
+            {
+                using var cmd = connection.CreateCommand();
+                cmd.CommandText = "INSERT INTO excluded_items (id, created_at) VALUES (@id, @createdAt);";
+                cmd.Parameters.AddWithValue("@id", id);
+                cmd.Parameters.AddWithValue("@createdAt", createdAt);
+                cmd.ExecuteNonQuery();
+            }
+        }
+    }
+
+    [Fact]
+    public async Task Migration_SqliteWithData_MigratesToJson()
+    {
+        CreateSqliteWithTrackingData(
+            _paths.DbPath,
+            tracked: [(10, "Single", "2026-01-01T00:00:00Z"), (20, "Tree", "2026-01-02T00:00:00Z")],
+            excluded: [(30, "2026-01-03T00:00:00Z")]);
+
+        var repo = CreateRepo();
+        var tracked = await repo.GetAllTrackedAsync();
+        var excluded = await repo.GetAllExcludedAsync();
+
+        tracked.Count.ShouldBe(2);
+        tracked[0].WorkItemId.ShouldBe(10);
+        tracked[0].Mode.ShouldBe(TrackingMode.Single);
+        tracked[1].WorkItemId.ShouldBe(20);
+        tracked[1].Mode.ShouldBe(TrackingMode.Tree);
+        excluded.Count.ShouldBe(1);
+        excluded[0].WorkItemId.ShouldBe(30);
+
+        // Verify tracking.json was created
+        File.Exists(_paths.TrackingFilePath).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Migration_SqliteWithTrackedOnly_MigratesTrackedItems()
+    {
+        CreateSqliteWithTrackingData(
+            _paths.DbPath,
+            tracked: [(42, "Tree", "2026-02-15T10:30:00Z")]);
+
+        var repo = CreateRepo();
+        var tracked = await repo.GetAllTrackedAsync();
+        var excluded = await repo.GetAllExcludedAsync();
+
+        tracked.Count.ShouldBe(1);
+        tracked[0].WorkItemId.ShouldBe(42);
+        tracked[0].Mode.ShouldBe(TrackingMode.Tree);
+        excluded.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Migration_SqliteWithExcludedOnly_MigratesExcludedItems()
+    {
+        CreateSqliteWithTrackingData(
+            _paths.DbPath,
+            excluded: [(7, "2026-03-01T08:00:00Z"), (14, "2026-03-02T09:00:00Z")]);
+
+        var repo = CreateRepo();
+        var tracked = await repo.GetAllTrackedAsync();
+        var excluded = await repo.GetAllExcludedAsync();
+
+        tracked.ShouldBeEmpty();
+        excluded.Count.ShouldBe(2);
+        excluded[0].WorkItemId.ShouldBe(7);
+        excluded[1].WorkItemId.ShouldBe(14);
+    }
+
+    [Fact]
+    public async Task Migration_SqliteEmptyTables_NoMigrationNoFile()
+    {
+        CreateSqliteWithTrackingData(_paths.DbPath);
+
+        var repo = CreateRepo();
+        var tracked = await repo.GetAllTrackedAsync();
+        var excluded = await repo.GetAllExcludedAsync();
+
+        tracked.ShouldBeEmpty();
+        excluded.ShouldBeEmpty();
+        // No file created when no data to migrate
+        File.Exists(_paths.TrackingFilePath).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Migration_NoSqliteDb_NoMigration()
+    {
+        // Ensure no DB exists
+        File.Exists(_paths.DbPath).ShouldBeFalse();
+
+        var repo = CreateRepo();
+        var tracked = await repo.GetAllTrackedAsync();
+
+        tracked.ShouldBeEmpty();
+        File.Exists(_paths.TrackingFilePath).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Migration_TrackingJsonAlreadyExists_SkipsMigration()
+    {
+        // Pre-create tracking.json with different data
+        var existingFile = new TrackingFile
+        {
+            Tracked = [new TrackingFileEntry { Id = 99, Mode = "single", AddedAt = "2026-06-01T00:00:00Z" }]
+        };
+        var json = JsonSerializer.Serialize(existingFile, TwigJsonContext.Default.TrackingFile);
+        File.WriteAllText(_paths.TrackingFilePath, json);
+
+        // Create SQLite with different data
+        CreateSqliteWithTrackingData(
+            _paths.DbPath,
+            tracked: [(1, "Tree", "2026-01-01T00:00:00Z")]);
+
+        var repo = CreateRepo();
+        var tracked = await repo.GetAllTrackedAsync();
+
+        // Should use existing JSON, not migrate from SQLite
+        tracked.Count.ShouldBe(1);
+        tracked[0].WorkItemId.ShouldBe(99);
+    }
+
+    [Fact]
+    public async Task Migration_CorruptSqliteDb_SkipsMigrationGracefully()
+    {
+        // Write garbage to the DB path
+        var dbDir = Path.GetDirectoryName(_paths.DbPath);
+        if (!string.IsNullOrEmpty(dbDir))
+            Directory.CreateDirectory(dbDir);
+        File.WriteAllText(_paths.DbPath, "this is not a valid sqlite database");
+
+        var repo = CreateRepo();
+        var tracked = await repo.GetAllTrackedAsync();
+
+        // Should fall back to empty — no crash
+        tracked.ShouldBeEmpty();
+        File.Exists(_paths.TrackingFilePath).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Migration_IsOneTime_SubsequentAccessesUseCachedFile()
+    {
+        CreateSqliteWithTrackingData(
+            _paths.DbPath,
+            tracked: [(5, "Single", "2026-04-01T00:00:00Z")]);
+
+        // First access migrates
+        var repo1 = CreateRepo();
+        var tracked1 = await repo1.GetAllTrackedAsync();
+        tracked1.Count.ShouldBe(1);
+
+        // Modify the JSON file to add another item
+        await repo1.UpsertTrackedAsync(100, TrackingMode.Tree);
+
+        // New instance reads from JSON, not SQLite
+        var repo2 = CreateRepo();
+        var tracked2 = await repo2.GetAllTrackedAsync();
+        tracked2.Count.ShouldBe(2);
+        tracked2.ShouldContain(t => t.WorkItemId == 5);
+        tracked2.ShouldContain(t => t.WorkItemId == 100);
+    }
+
+    [Fact]
+    public async Task Migration_PreservesTimestamps()
+    {
+        var timestamp = "2026-05-15T14:30:00+00:00";
+        CreateSqliteWithTrackingData(
+            _paths.DbPath,
+            tracked: [(1, "Single", timestamp)],
+            excluded: [(2, timestamp)]);
+
+        var repo = CreateRepo();
+        var tracked = await repo.GetAllTrackedAsync();
+        var excluded = await repo.GetAllExcludedAsync();
+
+        tracked[0].TrackedAt.ShouldBe(DateTimeOffset.Parse(timestamp));
+        excluded[0].ExcludedAt.ShouldBe(DateTimeOffset.Parse(timestamp));
+    }
+
+    [Fact]
+    public async Task Migration_SqliteWithoutTrackingTables_NoMigration()
+    {
+        // Create a DB without the tracking tables
+        var dbDir = Path.GetDirectoryName(_paths.DbPath);
+        if (!string.IsNullOrEmpty(dbDir))
+            Directory.CreateDirectory(dbDir);
+
+        using var connection = new SqliteConnection($"Data Source={_paths.DbPath}");
+        connection.Open();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);";
+        cmd.ExecuteNonQuery();
+        connection.Close();
+
+        var repo = CreateRepo();
+        var tracked = await repo.GetAllTrackedAsync();
+
+        tracked.ShouldBeEmpty();
+        File.Exists(_paths.TrackingFilePath).ShouldBeFalse();
     }
 }

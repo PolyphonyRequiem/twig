@@ -901,7 +901,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         IReadOnlyList<Domain.ValueObjects.WorkItemLink>? links = null,
         WorkItem? parent = null,
         IReadOnlyList<WorkItem>? children = null,
-        int cacheStaleMinutes = 5)
+        int cacheStaleMinutes = 5,
+        Domain.ValueObjects.GitContext? gitContext = null)
     {
         var pending = await getPendingChanges();
 
@@ -974,6 +975,25 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             }
         }
 
+        // Git context section — branch + linked PRs
+        if (gitContext is { HasData: true })
+        {
+            itemGrid.AddRow("", ""); // visual spacer
+            itemGrid.AddRow("[dim]⌥ Git:[/]", "");
+
+            if (gitContext.CurrentBranch is not null)
+                itemGrid.AddRow("", $"[dim]Branch:[/] [blue]{Markup.Escape(gitContext.CurrentBranch)}[/]");
+
+            if (gitContext.LinkedPullRequests is { Count: > 0 })
+            {
+                foreach (var pr in gitContext.LinkedPullRequests)
+                {
+                    var prStatus = pr.Status.Equals("active", StringComparison.OrdinalIgnoreCase) ? "[green]active[/]" : $"[dim]{Markup.Escape(pr.Status)}[/]";
+                    itemGrid.AddRow("", $"[dim]PR:[/]    [blue]!{pr.PullRequestId}[/] {Markup.Escape(pr.Title)} {prStatus}");
+                }
+            }
+        }
+
         IRenderable panelContent = itemGrid;
         if (item.Fields.TryGetValue("System.Description", out var rawDescription))
         {
@@ -1002,7 +1022,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         IReadOnlyList<Domain.ValueObjects.WorkItemLink>? links = null,
         WorkItem? parent = null,
         IReadOnlyList<WorkItem>? children = null,
-        int cacheStaleMinutes = 5)
+        int cacheStaleMinutes = 5,
+        Domain.ValueObjects.GitContext? gitContext = null)
     {
         var item = await getItem();
         if (item is null)
@@ -1011,7 +1032,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         var view = await BuildStatusViewAsync(
             item,
             getPendingChanges, fieldDefinitions, statusFieldEntries, childProgress, links, parent, children,
-            cacheStaleMinutes: cacheStaleMinutes);
+            cacheStaleMinutes: cacheStaleMinutes,
+            gitContext: gitContext);
         _console.Write(view);
     }
 

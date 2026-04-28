@@ -28,7 +28,7 @@ public sealed class JsonOutputFormatter : IOutputFormatter
     }
 
     public string FormatWorkItem(WorkItem item, bool showDirty, IReadOnlyList<WorkItemLink>? links,
-        WorkItem? parent = null, IReadOnlyList<WorkItem>? children = null)
+        WorkItem? parent = null, IReadOnlyList<WorkItem>? children = null, GitContext? gitContext = null)
     {
         using var stream = new MemoryStream();
         using var writer = new Utf8JsonWriter(stream, WriterOptions);
@@ -76,6 +76,8 @@ public sealed class JsonOutputFormatter : IOutputFormatter
             }
             writer.WriteEndArray();
         }
+
+        WriteGitContext(writer, gitContext);
 
         writer.WriteEndObject();
 
@@ -703,6 +705,31 @@ public sealed class JsonOutputFormatter : IOutputFormatter
     {
         item.Fields.TryGetValue("System.Tags", out var tags);
         return tags ?? "";
+    }
+
+    private static void WriteGitContext(Utf8JsonWriter writer, GitContext? gitContext)
+    {
+        if (gitContext is not { HasData: true })
+            return;
+
+        writer.WriteStartObject("gitContext");
+        writer.WriteString("currentBranch", gitContext.CurrentBranch ?? "");
+
+        writer.WriteStartArray("linkedPullRequests");
+        foreach (var pr in gitContext.LinkedPullRequests)
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("pullRequestId", pr.PullRequestId);
+            writer.WriteString("title", pr.Title);
+            writer.WriteString("status", pr.Status);
+            writer.WriteString("sourceBranch", pr.SourceBranch);
+            writer.WriteString("targetBranch", pr.TargetBranch);
+            writer.WriteString("url", pr.Url);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+
+        writer.WriteEndObject();
     }
 
     /// <summary>

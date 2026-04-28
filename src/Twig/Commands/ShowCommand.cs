@@ -30,7 +30,9 @@ public sealed class ShowCommand(
     IContextStore? contextStore = null,
     ActiveItemResolver? activeItemResolver = null,
     IPendingChangeStore? pendingChangeStore = null,
-    WorkingSetService? workingSetService = null)
+    WorkingSetService? workingSetService = null,
+    TwigPaths? twigPaths = null,
+    IAdoGitService? adoGitService = null)
 {
     // Wired for no-args mode (future tasks in this issue)
     private readonly IContextStore? _contextStore = contextStore;
@@ -88,6 +90,8 @@ public sealed class ShowCommand(
 
         var childProgress = processConfigProvider.ComputeChildProgress(children);
 
+        var gitContext = await BuildGitContextAsync(ct);
+
         if (renderer is not null)
         {
             Task RenderStaticAsync() => renderer.RenderStatusAsync(
@@ -100,7 +104,8 @@ public sealed class ShowCommand(
                 links: links,
                 parent: parent,
                 children: children,
-                cacheStaleMinutes: ctx.Config.Display.CacheStaleMinutes);
+                cacheStaleMinutes: ctx.Config.Display.CacheStaleMinutes,
+                gitContext: gitContext);
 
             if (renderer is SpectreRenderer spectreRenderer && !noRefresh)
             {
@@ -113,7 +118,8 @@ public sealed class ShowCommand(
                         links: links,
                         parent: pa,
                         children: ch,
-                        cacheStaleMinutes: ctx.Config.Display.CacheStaleMinutes);
+                        cacheStaleMinutes: ctx.Config.Display.CacheStaleMinutes,
+                        gitContext: gitContext);
 
                 try
                 {
@@ -142,7 +148,8 @@ public sealed class ShowCommand(
                                 links: freshLinks,
                                 parent: freshParent,
                                 children: freshChildren,
-                                cacheStaleMinutes: ctx.Config.Display.CacheStaleMinutes);
+                                cacheStaleMinutes: ctx.Config.Display.CacheStaleMinutes,
+                                gitContext: gitContext);
                         },
                         CancellationToken.None);
                 }
@@ -159,11 +166,11 @@ public sealed class ShowCommand(
         }
         else if (fmt is HumanOutputFormatter humanFmt)
         {
-            Console.WriteLine(humanFmt.FormatWorkItem(item, showDirty: false, fieldDefs, statusFieldEntries, childProgress, pendingChanges: null, links, parent, children));
+            Console.WriteLine(humanFmt.FormatWorkItem(item, showDirty: false, fieldDefs, statusFieldEntries, childProgress, pendingChanges: null, links, parent, children, gitContext: gitContext));
         }
         else if (fmt is JsonOutputFormatter jsonFmt)
         {
-            Console.WriteLine(jsonFmt.FormatWorkItem(item, showDirty: false, links, parent, children));
+            Console.WriteLine(jsonFmt.FormatWorkItem(item, showDirty: false, links, parent, children, gitContext: gitContext));
         }
         else
         {
@@ -213,5 +220,38 @@ public sealed class ShowCommand(
         }
 
         return ids;
+    }
+
+    /// <summary>
+    /// Best-effort git context: detect current branch via filesystem, then look up linked PRs.
+    /// Never throws — returns <see cref="GitContext.Empty"/> on any failure.
+    /// </summary>
+    private async Task<GitContext> BuildGitContextAsync(CancellationToken ct)
+    {
+        string? branch = null;
+        if (twigPaths is not null)
+        {
+            var repoRoot = Path.GetDirectoryName(twigPaths.TwigDir);
+            if (repoRoot is not null)
+                branch = GitBranchReader.GetCurrentBranch(repoRoot);
+        }
+
+        if (branch is null)
+            return GitContext.Empty;
+
+        IReadOnlyList<PullRequestInfo> prs = [];
+        if (adoGitService is not null)
+        {
+            try
+            {
+                prs = await adoGitService.GetPullRequestsForBranchAsync(branch, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Best-effort — PR lookup failures are non-fatal
+            }
+        }
+
+        return new GitContext(branch, prs);
     }
 }

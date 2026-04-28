@@ -281,7 +281,9 @@ public sealed class ShowCommandTests : IDisposable
             Arg.Any<(int Done, int Total)?>(),
             Arg.Any<IReadOnlyList<WorkItemLink>?>(),
             Arg.Any<WorkItem?>(),
-            Arg.Any<IReadOnlyList<WorkItem>?>());
+            Arg.Any<IReadOnlyList<WorkItem>?>(),
+            Arg.Any<int>(),
+            Arg.Any<GitContext?>());
     }
 
     [Fact]
@@ -300,7 +302,9 @@ public sealed class ShowCommandTests : IDisposable
             Arg.Any<(int Done, int Total)?>(),
             Arg.Any<IReadOnlyList<WorkItemLink>?>(),
             Arg.Any<WorkItem?>(),
-            Arg.Any<IReadOnlyList<WorkItem>?>()).Returns(Task.CompletedTask);
+            Arg.Any<IReadOnlyList<WorkItem>?>(),
+            Arg.Any<int>(),
+            Arg.Any<GitContext?>()).Returns(Task.CompletedTask);
         var ttyPipeline = new RenderingPipelineFactory(
             _formatterFactory, mockRenderer, isOutputRedirected: () => false);
         var cmd = CreateCommandWithPipeline(ttyPipeline);

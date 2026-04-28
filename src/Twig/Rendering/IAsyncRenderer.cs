@@ -42,7 +42,8 @@ public interface IAsyncRenderer
         IReadOnlyList<Domain.ValueObjects.WorkItemLink>? links = null,
         WorkItem? parent = null,
         IReadOnlyList<WorkItem>? children = null,
-        int cacheStaleMinutes = 5);
+        int cacheStaleMinutes = 5,
+        Domain.ValueObjects.GitContext? gitContext = null);
 
     Task RenderWorkItemAsync(
         Func<Task<WorkItem?>> getItem,

@@ -1,33 +1,35 @@
 namespace Twig.Domain.ValueObjects;
 
 /// <summary>
-/// Outcome of linking a branch to a work item as an ADO artifact link.
+/// Discriminated union representing the outcome of linking a branch to a work item.
+/// Makes invalid states unrepresentable via exhaustive subtypes.
 /// </summary>
-public sealed record BranchLinkResult
+public abstract record BranchLinkResult
 {
-    public required BranchLinkStatus Status { get; init; }
-    public required int WorkItemId { get; init; }
-    public required string BranchName { get; init; }
-    public string ArtifactUri { get; init; } = "";
-    public string ErrorMessage { get; init; } = "";
+    private BranchLinkResult() { }
 
-    public bool IsSuccess => Status is BranchLinkStatus.Linked or BranchLinkStatus.AlreadyLinked;
-}
-
-/// <summary>
-/// Status of a branch link operation.
-/// </summary>
-public enum BranchLinkStatus
-{
     /// <summary>Branch was successfully linked to the work item.</summary>
-    Linked,
+    public sealed record Linked(
+        int WorkItemId,
+        string BranchName,
+        string ArtifactUri) : BranchLinkResult;
 
     /// <summary>Branch was already linked to the work item (idempotent).</summary>
-    AlreadyLinked,
+    public sealed record AlreadyLinked(
+        int WorkItemId,
+        string BranchName,
+        string ArtifactUri) : BranchLinkResult;
 
     /// <summary>Git project or repository ID could not be resolved.</summary>
-    GitContextUnavailable,
+    public sealed record GitContextUnavailable(
+        int WorkItemId,
+        string BranchName,
+        string ErrorMessage) : BranchLinkResult;
 
     /// <summary>The link operation failed due to an API or network error.</summary>
-    Failed,
+    public sealed record Failed(
+        int WorkItemId,
+        string BranchName,
+        string ArtifactUri,
+        string ErrorMessage) : BranchLinkResult;
 }

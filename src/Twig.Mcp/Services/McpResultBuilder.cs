@@ -426,17 +426,26 @@ internal static class McpResultBuilder
                 : $"Artifact link added to #{workItemId}.");
         });
 
-    public static CallToolResult FormatBranchLinked(BranchLinkResult result) =>
-        BuildJson(writer =>
+    public static CallToolResult FormatBranchLinked(BranchLinkResult result) => result switch
+    {
+        BranchLinkResult.AlreadyLinked al => BuildJson(writer =>
         {
-            writer.WriteNumber("workItemId", result.WorkItemId);
-            writer.WriteString("branchName", result.BranchName);
-            writer.WriteString("artifactUri", result.ArtifactUri);
-            writer.WriteBoolean("alreadyLinked", result.Status == BranchLinkStatus.AlreadyLinked);
-            writer.WriteString("message", result.Status == BranchLinkStatus.AlreadyLinked
-                ? $"Branch '{result.BranchName}' already linked to #{result.WorkItemId}."
-                : $"Branch '{result.BranchName}' linked to #{result.WorkItemId}.");
-        });
+            writer.WriteNumber("workItemId", al.WorkItemId);
+            writer.WriteString("branchName", al.BranchName);
+            writer.WriteString("artifactUri", al.ArtifactUri);
+            writer.WriteBoolean("alreadyLinked", true);
+            writer.WriteString("message", $"Branch '{al.BranchName}' already linked to #{al.WorkItemId}.");
+        }),
+        BranchLinkResult.Linked l => BuildJson(writer =>
+        {
+            writer.WriteNumber("workItemId", l.WorkItemId);
+            writer.WriteString("branchName", l.BranchName);
+            writer.WriteString("artifactUri", l.ArtifactUri);
+            writer.WriteBoolean("alreadyLinked", false);
+            writer.WriteString("message", $"Branch '{l.BranchName}' linked to #{l.WorkItemId}.");
+        }),
+        _ => throw new System.Diagnostics.UnreachableException(),
+    };
 
     public static CallToolResult FormatVerification(DescendantVerificationResult result, string? workspace) =>
         BuildJson(writer =>

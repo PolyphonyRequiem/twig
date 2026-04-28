@@ -687,6 +687,296 @@ public sealed class TrackingServiceTests
     }
 
     // ═══════════════════════════════════════════════════════════════
+    //  SyncTrackedTreesAsync — parent chain failure is resilient
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncTrackedTreesAsync_ParentChainFailure_StillSyncsChildrenAndLinks()
+    {
+        var sut = CreateSut();
+        var items = new List<TrackedItem>
+        {
+            new(42, TrackingMode.Tree, DateTimeOffset.UtcNow),
+        };
+        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(items);
+
+        var workItemRepo = Substitute.For<IWorkItemRepository>();
+        var adoService = Substitute.For<IAdoWorkItemService>();
+
+        // SyncItemAsync succeeds: item not in cache → fetch
+        var fetched = new WorkItemBuilder(42, "Root").InState("Active").WithParent(99).Build();
+        workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
+            .Returns((WorkItem?)null, fetched);
+        adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(fetched);
+
+        // SyncParentChainAsync: parent fetch fails with network error (returns Failed, doesn't throw)
+        adoService.FetchAsync(99, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("Connection refused"));
+
+        // SyncChildrenAsync: should still be called
+        adoService.FetchChildrenAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new[] { new WorkItemBuilder(100, "Child").InState("Active").Build() });
+
+        var coordinator = CreateSyncCoordinator(workItemRepo, adoService);
+        var result = await sut.SyncTrackedTreesAsync(coordinator);
+
+        result.ShouldBe(0); // not untracked
+        await adoService.Received(1).FetchChildrenAsync(42, Arg.Any<CancellationToken>());
+        await adoService.Received(1).FetchWithLinksAsync(42, Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncTrackedTreesAsync — children sync failure still syncs links
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncTrackedTreesAsync_ChildrenSyncFailure_StillSyncsLinks()
+    {
+        var sut = CreateSut();
+        var items = new List<TrackedItem>
+        {
+            new(42, TrackingMode.Tree, DateTimeOffset.UtcNow),
+        };
+        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(items);
+
+        var workItemRepo = Substitute.For<IWorkItemRepository>();
+        var adoService = Substitute.For<IAdoWorkItemService>();
+
+        var fetched = new WorkItemBuilder(42, "Root").InState("Active").Build();
+        workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
+            .Returns((WorkItem?)null, fetched);
+        adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(fetched);
+
+        // SyncChildrenAsync fails (returns Failed, doesn't throw)
+        adoService.FetchChildrenAsync(42, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("Children fetch failed"));
+
+        var coordinator = CreateSyncCoordinator(workItemRepo, adoService);
+        var result = await sut.SyncTrackedTreesAsync(coordinator);
+
+        result.ShouldBe(0);
+        // Links should still be synced even after children failure
+        await adoService.Received(1).FetchWithLinksAsync(42, Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncTrackedTreesAsync — link sync failure continues to next item
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncTrackedTreesAsync_LinkSyncFailure_ContinuesToNextItem()
+    {
+        var sut = CreateSut();
+        var items = new List<TrackedItem>
+        {
+            new(10, TrackingMode.Tree, DateTimeOffset.UtcNow),
+            new(20, TrackingMode.Tree, DateTimeOffset.UtcNow),
+        };
+        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(items);
+
+        var workItemRepo = Substitute.For<IWorkItemRepository>();
+        var adoService = Substitute.For<IAdoWorkItemService>();
+
+        var item10 = new WorkItemBuilder(10, "Root 10").InState("Active").Build();
+        var item20 = new WorkItemBuilder(20, "Root 20").InState("Active").Build();
+
+        workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>())
+            .Returns((WorkItem?)null, item10);
+        workItemRepo.GetByIdAsync(20, Arg.Any<CancellationToken>())
+            .Returns((WorkItem?)null, item20);
+        adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(item10);
+        adoService.FetchAsync(20, Arg.Any<CancellationToken>()).Returns(item20);
+        adoService.FetchChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        // Item 10 link sync fails (FetchWithLinksAsync throws → SyncRootLinksAsync returns Failed)
+        adoService.FetchWithLinksAsync(10, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("Link fetch failed"));
+
+        // Item 20 link sync succeeds
+        adoService.FetchWithLinksAsync(20, Arg.Any<CancellationToken>())
+            .Returns((item20, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>()));
+
+        var coordinator = CreateSyncCoordinator(workItemRepo, adoService);
+        var result = await sut.SyncTrackedTreesAsync(coordinator);
+
+        result.ShouldBe(0);
+        // Both items should have been processed
+        await adoService.Received(1).FetchAsync(10, Arg.Any<CancellationToken>());
+        await adoService.Received(1).FetchAsync(20, Arg.Any<CancellationToken>());
+        await adoService.Received(1).FetchChildrenAsync(20, Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncTrackedTreesAsync — non-root children links NOT materialized
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncTrackedTreesAsync_NonRootChildrenLinks_NotFetchedAsTargets()
+    {
+        var sut = CreateSut();
+        var items = new List<TrackedItem>
+        {
+            new(42, TrackingMode.Tree, DateTimeOffset.UtcNow),
+        };
+        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(items);
+
+        var workItemRepo = Substitute.For<IWorkItemRepository>();
+        var adoService = Substitute.For<IAdoWorkItemService>();
+
+        // Root (42) syncs normally
+        var rootItem = new WorkItemBuilder(42, "Root").InState("Active").Build();
+        workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
+            .Returns((WorkItem?)null, rootItem);
+        adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(rootItem);
+
+        // Children: IDs 100, 200 — they have their own links but those should NOT be fetched
+        var children = new[]
+        {
+            new WorkItemBuilder(100, "Child A").InState("Active").Build(),
+            new WorkItemBuilder(200, "Child B").InState("Active").Build(),
+        };
+        adoService.FetchChildrenAsync(42, Arg.Any<CancellationToken>()).Returns(children);
+
+        var coordinator = CreateSyncCoordinator(workItemRepo, adoService);
+        var result = await sut.SyncTrackedTreesAsync(coordinator);
+
+        result.ShouldBe(0);
+        // FetchWithLinksAsync should only be called for root (42), not children (100, 200)
+        await adoService.Received(1).FetchWithLinksAsync(42, Arg.Any<CancellationToken>());
+        await adoService.DidNotReceive().FetchWithLinksAsync(100, Arg.Any<CancellationToken>());
+        await adoService.DidNotReceive().FetchWithLinksAsync(200, Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncTrackedTreesAsync — deep parent chain through tree sync
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncTrackedTreesAsync_DeepParentChain_AllAncestorsFetched()
+    {
+        var sut = CreateSut();
+        var items = new List<TrackedItem>
+        {
+            new(42, TrackingMode.Tree, DateTimeOffset.UtcNow),
+        };
+        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(items);
+
+        var workItemRepo = Substitute.For<IWorkItemRepository>();
+        var adoService = Substitute.For<IAdoWorkItemService>();
+
+        // Root (42) has parent 99, grandparent 88, great-grandparent 77 (no parent)
+        var rootItem = new WorkItemBuilder(42, "Root").InState("Active").WithParent(99).Build();
+        workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
+            .Returns((WorkItem?)null, rootItem);
+        adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(rootItem);
+
+        var parent = new WorkItemBuilder(99, "Parent").InState("Active").WithParent(88).Build();
+        var grandparent = new WorkItemBuilder(88, "Grandparent").InState("Active").WithParent(77).Build();
+        var greatGrandparent = new WorkItemBuilder(77, "Great-Grandparent").InState("Active").Build();
+        adoService.FetchAsync(99, Arg.Any<CancellationToken>()).Returns(parent);
+        adoService.FetchAsync(88, Arg.Any<CancellationToken>()).Returns(grandparent);
+        adoService.FetchAsync(77, Arg.Any<CancellationToken>()).Returns(greatGrandparent);
+
+        adoService.FetchChildrenAsync(42, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var coordinator = CreateSyncCoordinator(workItemRepo, adoService);
+        var result = await sut.SyncTrackedTreesAsync(coordinator);
+
+        result.ShouldBe(0);
+        // All three ancestors should have been fetched
+        await adoService.Received(1).FetchAsync(99, Arg.Any<CancellationToken>());
+        await adoService.Received(1).FetchAsync(88, Arg.Any<CancellationToken>());
+        await adoService.Received(1).FetchAsync(77, Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncTrackedTreesAsync — full integration: root + parents + children + links
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncTrackedTreesAsync_FullIntegration_AllPhasesExecuted()
+    {
+        var sut = CreateSut();
+        var items = new List<TrackedItem>
+        {
+            new(42, TrackingMode.Tree, DateTimeOffset.UtcNow),
+        };
+        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(items);
+
+        var workItemRepo = Substitute.For<IWorkItemRepository>();
+        var adoService = Substitute.For<IAdoWorkItemService>();
+        var linkRepo = Substitute.For<IWorkItemLinkRepository>();
+
+        // Root (42) with parent (99) and children (100, 101) and links to (200, 201)
+        var rootItem = new WorkItemBuilder(42, "Root").InState("Active").WithParent(99).Build();
+        workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
+            .Returns((WorkItem?)null, rootItem);
+        adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(rootItem);
+
+        // Parent chain
+        var parent = new WorkItemBuilder(99, "Parent").InState("Active").Build();
+        adoService.FetchAsync(99, Arg.Any<CancellationToken>()).Returns(parent);
+
+        // Children
+        var children = new[]
+        {
+            new WorkItemBuilder(100, "Child A").InState("Active").Build(),
+            new WorkItemBuilder(101, "Child B").InState("Active").Build(),
+        };
+        adoService.FetchChildrenAsync(42, Arg.Any<CancellationToken>()).Returns(children);
+
+        // Links with targets
+        var links = new List<WorkItemLink>
+        {
+            new(42, 200, LinkTypes.Related),
+            new(42, 201, LinkTypes.Predecessor),
+        };
+        adoService.FetchWithLinksAsync(42, Arg.Any<CancellationToken>())
+            .Returns((rootItem, (IReadOnlyList<WorkItemLink>)links));
+
+        // Link targets (stale, not in cache)
+        workItemRepo.GetByIdAsync(200, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        workItemRepo.GetByIdAsync(201, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        adoService.FetchAsync(200, Arg.Any<CancellationToken>())
+            .Returns(new WorkItemBuilder(200, "Linked A").InState("Active").Build());
+        adoService.FetchAsync(201, Arg.Any<CancellationToken>())
+            .Returns(new WorkItemBuilder(201, "Linked B").InState("Active").Build());
+
+        // No dirty items
+        workItemRepo.GetDirtyItemsAsync().Returns(Array.Empty<WorkItem>());
+        var pendingStore = Substitute.For<IPendingChangeStore>();
+        pendingStore.GetDirtyItemIdsAsync().Returns(Array.Empty<int>());
+
+        var protectedWriter = new ProtectedCacheWriter(workItemRepo, pendingStore);
+        var coordinator = new SyncCoordinator(workItemRepo, adoService, protectedWriter, pendingStore, linkRepo, 0);
+
+        var result = await sut.SyncTrackedTreesAsync(coordinator);
+
+        result.ShouldBe(0);
+
+        // Phase 1: Root synced
+        await adoService.Received(1).FetchAsync(42, Arg.Any<CancellationToken>());
+
+        // Phase 2: Parent chain synced
+        await adoService.Received(1).FetchAsync(99, Arg.Any<CancellationToken>());
+
+        // Phase 3: Children synced
+        await adoService.Received(1).FetchChildrenAsync(42, Arg.Any<CancellationToken>());
+
+        // Phase 4: Links synced and targets materialized
+        await adoService.Received(1).FetchWithLinksAsync(42, Arg.Any<CancellationToken>());
+        await adoService.Received(1).FetchAsync(200, Arg.Any<CancellationToken>());
+        await adoService.Received(1).FetchAsync(201, Arg.Any<CancellationToken>());
+
+        // Link metadata persisted
+        await linkRepo.Received(1).SaveLinksAsync(42,
+            Arg.Is<IReadOnlyList<WorkItemLink>>(l => l.Count == 2),
+            Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     //  ApplyCleanupPolicyAsync — helpers
     // ═══════════════════════════════════════════════════════════════
 

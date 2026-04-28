@@ -211,7 +211,7 @@ public sealed class SetCommand(
             // Cache-miss path: compute working set for eviction (FR-012 unchanged)
             if (fetchedFromAdo)
             {
-                var workingSet = await workingSetService.ComputeAsync(item.IterationPath, ct);
+                var workingSet = await workingSetService.ComputeAsync([item.IterationPath], ct);
                 await workItemRepo.EvictExceptAsync(workingSet.AllIds, ct);
             }
 

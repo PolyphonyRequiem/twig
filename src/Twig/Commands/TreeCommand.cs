@@ -121,7 +121,7 @@ public sealed class TreeCommand(
                     try { cachedLinks = await syncCoordinatorFactory.ReadOnly.SyncLinksAsync(resolvedItem.Id, ct); }
                     catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
-                    var workingSet = await workingSetService.ComputeAsync(resolvedItem.IterationPath);
+                    var workingSet = await workingSetService.ComputeAsync([resolvedItem.IterationPath]);
 
                     await renderer.RenderWithSyncAsync(
                         buildCachedView: () => spectreRenderer.BuildTreeViewAsync(
@@ -246,7 +246,7 @@ public sealed class TreeCommand(
         {
             try
             {
-                var syncWorkingSet = await workingSetService.ComputeAsync(item.IterationPath);
+                var syncWorkingSet = await workingSetService.ComputeAsync([item.IterationPath]);
                 await syncCoordinatorFactory.ReadOnly.SyncWorkingSetAsync(syncWorkingSet);
             }
             catch (OperationCanceledException) { throw; }

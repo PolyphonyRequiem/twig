@@ -79,8 +79,8 @@ public class WorkingSetCommandTests
 
         // Sprint items in working set
         var sprintItem = CreateWorkItem(50, "Sprint Item");
-        _workItemRepo.GetByIterationAsync(
-            Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+        _workItemRepo.GetByIterationsAsync(
+            Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
             .Returns(new[] { sprintItem });
 
         IReadOnlySet<int>? capturedKeepIds = null;
@@ -239,8 +239,8 @@ public class WorkingSetCommandTests
         result.ShouldBe(0);
         // ComputeAsync skipped on cache hit — no iteration queries at all
         await _iterationService.DidNotReceive().GetCurrentIterationAsync(Arg.Any<CancellationToken>());
-        await _workItemRepo.DidNotReceive().GetByIterationAsync(
-            Arg.Any<IterationPath>(), Arg.Any<CancellationToken>());
+        await _workItemRepo.DidNotReceive().GetByIterationsAsync(
+            Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -258,9 +258,9 @@ public class WorkingSetCommandTests
         result.ShouldBe(0);
         // DD-06: ComputeAsync uses item.IterationPath directly, not GetCurrentIterationAsync
         await _iterationService.DidNotReceive().GetCurrentIterationAsync(Arg.Any<CancellationToken>());
-        // GetByIterationAsync called with item's iteration path (Sprint 2, not the default Sprint 1)
-        await _workItemRepo.Received().GetByIterationAsync(
-            Arg.Is<IterationPath>(ip => ip.ToString() == "Project\\Sprint 2"),
+        // GetByIterationsAsync called with item's iteration path (Sprint 2, not the default Sprint 1)
+        await _workItemRepo.Received().GetByIterationsAsync(
+            Arg.Is<IReadOnlyList<IterationPath>>(ips => ips.Count == 1 && ips[0].ToString() == "Project\\Sprint 2"),
             Arg.Any<CancellationToken>());
     }
 

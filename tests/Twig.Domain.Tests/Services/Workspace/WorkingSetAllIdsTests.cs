@@ -23,7 +23,7 @@ public class WorkingSetAllIdsTests
         var ws = new WorkingSet
         {
             ActiveItemId = 42,
-            IterationPath = TestIteration,
+            IterationPaths = [TestIteration],
         };
 
         ws.AllIds.ShouldContain(42);
@@ -38,7 +38,7 @@ public class WorkingSetAllIdsTests
     {
         var ws = new WorkingSet
         {
-            IterationPath = TestIteration,
+            IterationPaths = [TestIteration],
         };
 
         ws.AllIds.ShouldBeEmpty();
@@ -60,7 +60,7 @@ public class WorkingSetAllIdsTests
             SeedIds = [-1, -2],
             DirtyItemIds = new HashSet<int> { 99 },
             TrackedItemIds = [200, 201],
-            IterationPath = TestIteration,
+            IterationPaths = [TestIteration],
         };
 
         ws.AllIds.ShouldBe(new HashSet<int> { 1, 100, 10, 11, 50, 51, -1, -2, 99, 200, 201 }, ignoreOrder: true);
@@ -81,7 +81,7 @@ public class WorkingSetAllIdsTests
             SprintItemIds = [30, 40],
             SeedIds = [],
             DirtyItemIds = new HashSet<int> { 10, 40 },
-            IterationPath = TestIteration,
+            IterationPaths = [TestIteration],
         };
 
         ws.AllIds.Count.ShouldBe(4); // {10, 20, 30, 40}
@@ -99,7 +99,7 @@ public class WorkingSetAllIdsTests
         {
             ActiveItemId = null,
             ParentChainIds = [5],
-            IterationPath = TestIteration,
+            IterationPaths = [TestIteration],
         };
 
         ws.AllIds.ShouldBe(new HashSet<int> { 5 }, ignoreOrder: true);
@@ -116,7 +116,7 @@ public class WorkingSetAllIdsTests
         {
             ActiveItemId = 1,
             ParentChainIds = [100],
-            IterationPath = TestIteration,
+            IterationPaths = [TestIteration],
         };
 
         var clone = original with { ActiveItemId = 2, ParentChainIds = [200] };
@@ -133,18 +133,18 @@ public class WorkingSetAllIdsTests
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  IterationPath preserved
+    //  IterationPaths preserved
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public void IterationPath_Preserved()
+    public void IterationPaths_Preserved()
     {
         var ws = new WorkingSet
         {
-            IterationPath = TestIteration,
+            IterationPaths = [TestIteration],
         };
 
-        ws.IterationPath.ShouldBe(TestIteration);
+        ws.IterationPaths.ShouldBe(new[] { TestIteration });
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -157,7 +157,7 @@ public class WorkingSetAllIdsTests
         var ws = new WorkingSet
         {
             TrackedItemIds = [300, 301],
-            IterationPath = TestIteration,
+            IterationPaths = [TestIteration],
         };
 
         ws.AllIds.ShouldContain(300);
@@ -171,7 +171,7 @@ public class WorkingSetAllIdsTests
         {
             ActiveItemId = 1,
             TrackedItemIds = [],
-            IterationPath = TestIteration,
+            IterationPaths = [TestIteration],
         };
 
         ws.AllIds.ShouldBe(new HashSet<int> { 1 }, ignoreOrder: true);
@@ -184,7 +184,7 @@ public class WorkingSetAllIdsTests
         {
             SprintItemIds = [50, 60],
             TrackedItemIds = [50, 70],
-            IterationPath = TestIteration,
+            IterationPaths = [TestIteration],
         };
 
         ws.AllIds.Count.ShouldBe(3); // {50, 60, 70}
@@ -196,7 +196,7 @@ public class WorkingSetAllIdsTests
     {
         var ws = new WorkingSet
         {
-            IterationPath = TestIteration,
+            IterationPaths = [TestIteration],
         };
 
         ws.TrackedItemIds.ShouldBeEmpty();

@@ -287,7 +287,7 @@ public sealed class WorkspaceCommand(
         // Dirty orphans: items with unsaved changes not in sprint/seed scope (EPIC-004)
         if (!all && fmt is not JsonOutputFormatter && fmt is not MinimalOutputFormatter)
         {
-            var workingSet = await workingSetService.ComputeAsync(iteration);
+            var workingSet = await workingSetService.ComputeAsync([iteration]);
             if (workingSet.DirtyItemIds.Count > 0)
             {
                 var sprintItemIds = new HashSet<int>(sprintItems.Select(s => s.Id));

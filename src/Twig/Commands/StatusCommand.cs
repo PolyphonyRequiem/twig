@@ -99,7 +99,7 @@ public sealed class StatusCommand(
             {
                 try
                 {
-                    var workingSet = await workingSetService.ComputeAsync(item.IterationPath);
+                    var workingSet = await workingSetService.ComputeAsync([item.IterationPath]);
                     await renderer.RenderWithSyncAsync(
                         buildCachedView: () => spectreRenderer.BuildStatusViewAsync(
                             item,
@@ -233,7 +233,7 @@ public sealed class StatusCommand(
         {
             try
             {
-                var syncWorkingSet = await workingSetService.ComputeAsync(item.IterationPath);
+                var syncWorkingSet = await workingSetService.ComputeAsync([item.IterationPath]);
                 await syncCoordinatorFactory.ReadOnly.SyncWorkingSetAsync(syncWorkingSet);
             }
             catch (OperationCanceledException) { throw; }

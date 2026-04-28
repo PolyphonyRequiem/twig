@@ -145,7 +145,7 @@ public sealed class RefreshOrchestrator(
     /// <summary>Syncs the working set after refresh (no eviction per FR-013).</summary>
     public async Task SyncWorkingSetAsync(IterationPath iteration, CancellationToken ct = default)
     {
-        var workingSet = await workingSetService.ComputeAsync(iteration, ct);
+        var workingSet = await workingSetService.ComputeAsync([iteration], ct);
         await syncCoordinatorFactory.ReadWrite.SyncWorkingSetAsync(workingSet, ct);
     }
 

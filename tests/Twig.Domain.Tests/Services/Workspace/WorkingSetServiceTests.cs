@@ -33,8 +33,7 @@ public class WorkingSetServiceTests
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(activeId);
         _workItemRepo.GetParentChainAsync(Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
         _workItemRepo.GetChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
-        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
-        _workItemRepo.GetByIterationAndAssigneeAsync(Arg.Any<IterationPath>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
         _workItemRepo.GetDirtyItemsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<WorkItem>());
         _pendingStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());
@@ -52,7 +51,7 @@ public class WorkingSetServiceTests
         SetupDefaults(activeId: 42);
         var sut = CreateSut();
 
-        var ws = await sut.ComputeAsync(TestIteration);
+        var ws = await sut.ComputeAsync([TestIteration]);
 
         ws.ActiveItemId.ShouldBe(42);
         ws.AllIds.ShouldContain(42);
@@ -71,7 +70,7 @@ public class WorkingSetServiceTests
             });
         var sut = CreateSut();
 
-        var ws = await sut.ComputeAsync(TestIteration);
+        var ws = await sut.ComputeAsync([TestIteration]);
 
         ws.ParentChainIds.ShouldBe(new[] { 1, 5, 10 });
         ws.AllIds.ShouldContain(1);
@@ -91,7 +90,7 @@ public class WorkingSetServiceTests
             });
         var sut = CreateSut();
 
-        var ws = await sut.ComputeAsync(TestIteration);
+        var ws = await sut.ComputeAsync([TestIteration]);
 
         ws.ChildrenIds.ShouldBe(new[] { 20, 30 });
         ws.AllIds.ShouldContain(20);
@@ -102,7 +101,7 @@ public class WorkingSetServiceTests
     public async Task ComputeAsync_SprintItems_IncludedInAllIds()
     {
         SetupDefaults(activeId: 10);
-        _workItemRepo.GetByIterationAsync(TestIteration, Arg.Any<CancellationToken>())
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
             .Returns(new[]
             {
                 new WorkItemBuilder(50, "Item 50").InState("Active").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build(),
@@ -110,7 +109,7 @@ public class WorkingSetServiceTests
             });
         var sut = CreateSut();
 
-        var ws = await sut.ComputeAsync(TestIteration);
+        var ws = await sut.ComputeAsync([TestIteration]);
 
         ws.SprintItemIds.ShouldBe(new[] { 50, 60 });
         ws.AllIds.ShouldContain(50);
@@ -129,7 +128,7 @@ public class WorkingSetServiceTests
             });
         var sut = CreateSut();
 
-        var ws = await sut.ComputeAsync(TestIteration);
+        var ws = await sut.ComputeAsync([TestIteration]);
 
         ws.SeedIds.ShouldBe(new[] { -1, -2 });
         ws.AllIds.ShouldContain(-1);
@@ -148,7 +147,7 @@ public class WorkingSetServiceTests
             .Returns(new[] { 100 });
         var sut = CreateSut();
 
-        var ws = await sut.ComputeAsync(TestIteration);
+        var ws = await sut.ComputeAsync([TestIteration]);
 
         ws.DirtyItemIds.ShouldContain(99);
         ws.DirtyItemIds.ShouldContain(100);
@@ -166,7 +165,7 @@ public class WorkingSetServiceTests
         SetupDefaults(activeId: null);
         var sut = CreateSut();
 
-        var ws = await sut.ComputeAsync(TestIteration);
+        var ws = await sut.ComputeAsync([TestIteration]);
 
         ws.ActiveItemId.ShouldBeNull();
         ws.ParentChainIds.ShouldBeEmpty();
@@ -188,7 +187,7 @@ public class WorkingSetServiceTests
         SetupDefaults(activeId: null);
         var sut = CreateSut();
 
-        await sut.ComputeAsync(TestIteration);
+        await sut.ComputeAsync([TestIteration]);
 
         await _workItemRepo.DidNotReceive().GetParentChainAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
         await _workItemRepo.DidNotReceive().GetChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
@@ -206,7 +205,7 @@ public class WorkingSetServiceTests
             .Returns(Array.Empty<WorkItem>());
         var sut = CreateSut();
 
-        var ws = await sut.ComputeAsync(TestIteration);
+        var ws = await sut.ComputeAsync([TestIteration]);
 
         ws.ParentChainIds.ShouldBeEmpty();
         ws.ActiveItemId.ShouldBe(42);
@@ -223,7 +222,7 @@ public class WorkingSetServiceTests
         SetupDefaults(activeId: 10);
         var sut = CreateSut();
 
-        var ws = await sut.ComputeAsync(TestIteration);
+        var ws = await sut.ComputeAsync([TestIteration]);
 
         ws.SprintItemIds.ShouldBeEmpty();
     }
@@ -236,22 +235,25 @@ public class WorkingSetServiceTests
     public async Task ComputeAsync_WithUserDisplayName_FiltersSprintItemsByAssignee()
     {
         SetupDefaults(activeId: 10);
-        _workItemRepo.GetByIterationAndAssigneeAsync(TestIteration, "Dan Green", Arg.Any<CancellationToken>())
-            .Returns(new[] { new WorkItemBuilder(50, "Item 50").InState("Active").AssignedTo("Dan Green").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build() });
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new WorkItemBuilder(50, "Item 50").InState("Active").AssignedTo("Dan Green").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build(),
+                new WorkItemBuilder(51, "Item 51").InState("Active").AssignedTo("Other User").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build(),
+            });
         var sut = CreateSut(userDisplayName: "Dan Green");
 
-        var ws = await sut.ComputeAsync(TestIteration);
+        var ws = await sut.ComputeAsync([TestIteration]);
 
         ws.SprintItemIds.ShouldBe(new[] { 50 });
-        await _workItemRepo.Received(1).GetByIterationAndAssigneeAsync(TestIteration, "Dan Green", Arg.Any<CancellationToken>());
-        await _workItemRepo.DidNotReceive().GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>());
+        await _workItemRepo.Received(1).GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task ComputeAsync_WithoutUserDisplayName_QueriesAllSprintItems()
     {
         SetupDefaults(activeId: 10);
-        _workItemRepo.GetByIterationAsync(TestIteration, Arg.Any<CancellationToken>())
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
             .Returns(new[]
             {
                 new WorkItemBuilder(50, "Item 50").InState("Active").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build(),
@@ -259,38 +261,37 @@ public class WorkingSetServiceTests
             });
         var sut = CreateSut(userDisplayName: null);
 
-        var ws = await sut.ComputeAsync(TestIteration);
+        var ws = await sut.ComputeAsync([TestIteration]);
 
         ws.SprintItemIds.ShouldBe(new[] { 50, 60 });
-        await _workItemRepo.Received(1).GetByIterationAsync(TestIteration, Arg.Any<CancellationToken>());
-        await _workItemRepo.DidNotReceive().GetByIterationAndAssigneeAsync(Arg.Any<IterationPath>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _workItemRepo.Received(1).GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════
-    //  IterationPath passthrough — no ADO call when provided
+    //  IterationPaths passthrough — no ADO call when provided
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public async Task ComputeAsync_IterationPathProvided_DoesNotCallGetCurrentIteration()
+    public async Task ComputeAsync_IterationPathsProvided_DoesNotCallGetCurrentIteration()
     {
         SetupDefaults(activeId: 10);
         var sut = CreateSut();
 
-        var ws = await sut.ComputeAsync(TestIteration);
+        var ws = await sut.ComputeAsync([TestIteration]);
 
-        ws.IterationPath.ShouldBe(TestIteration);
+        ws.IterationPaths.ShouldBe(new[] { TestIteration });
         await _iterationService.DidNotReceive().GetCurrentIterationAsync(Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task ComputeAsync_NoIterationPath_CallsGetCurrentIteration()
+    public async Task ComputeAsync_NoIterationPaths_CallsGetCurrentIteration()
     {
         SetupDefaults(activeId: 10);
         var sut = CreateSut();
 
         var ws = await sut.ComputeAsync();
 
-        ws.IterationPath.ShouldBe(TestIteration);
+        ws.IterationPaths.ShouldBe(new[] { TestIteration });
         await _iterationService.Received(1).GetCurrentIterationAsync(Arg.Any<CancellationToken>());
     }
 
@@ -310,7 +311,7 @@ public class WorkingSetServiceTests
             });
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
             .Returns(new[] { new WorkItemBuilder(10, "Item 10").InState("Active").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build() });
-        _workItemRepo.GetByIterationAsync(TestIteration, Arg.Any<CancellationToken>())
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
             .Returns(new[] { new WorkItemBuilder(50, "Item 50").InState("Active").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build() });
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(new[] { new WorkItemBuilder(-1, "Item -1").InState("Active").AsSeed().WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build() });
@@ -322,7 +323,7 @@ public class WorkingSetServiceTests
             .Returns(new[] { new TrackedItem(200, TrackingMode.Single, DateTimeOffset.UtcNow) });
 
         var sut = CreateSut();
-        var ws = await sut.ComputeAsync(TestIteration);
+        var ws = await sut.ComputeAsync([TestIteration]);
 
         ws.AllIds.ShouldBe(new HashSet<int> { 1, 100, 10, 50, -1, 99, 200 }, ignoreOrder: true);
     }
@@ -343,7 +344,7 @@ public class WorkingSetServiceTests
             });
         var sut = CreateSut();
 
-        var ws = await sut.ComputeAsync(TestIteration);
+        var ws = await sut.ComputeAsync([TestIteration]);
 
         ws.TrackedItemIds.ShouldBe(new[] { 300, 301 });
         ws.AllIds.ShouldContain(300);
@@ -356,7 +357,7 @@ public class WorkingSetServiceTests
         SetupDefaults(activeId: 10);
         var sut = CreateSut();
 
-        var ws = await sut.ComputeAsync(TestIteration);
+        var ws = await sut.ComputeAsync([TestIteration]);
 
         ws.TrackedItemIds.ShouldBeEmpty();
     }
@@ -367,8 +368,85 @@ public class WorkingSetServiceTests
         SetupDefaults(activeId: 10);
         var sut = CreateSut(withTracking: false);
 
-        var ws = await sut.ComputeAsync(TestIteration);
+        var ws = await sut.ComputeAsync([TestIteration]);
 
         ws.TrackedItemIds.ShouldBeEmpty();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Multiple iteration paths
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ComputeAsync_MultipleIterationPaths_QueriesAllIterations()
+    {
+        SetupDefaults(activeId: 10);
+        var sprint2 = IterationPath.Parse(@"Project\Sprint2").Value;
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new WorkItemBuilder(50, "Sprint1 Item").InState("Active").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build(),
+                new WorkItemBuilder(60, "Sprint2 Item").InState("Active").WithIterationPath(@"Project\Sprint2").WithAreaPath(@"Project\Area").Build(),
+            });
+        var sut = CreateSut();
+
+        var ws = await sut.ComputeAsync([TestIteration, sprint2]);
+
+        ws.SprintItemIds.ShouldBe(new[] { 50, 60 });
+        ws.IterationPaths.ShouldBe(new[] { TestIteration, sprint2 });
+        await _workItemRepo.Received(1).GetByIterationsAsync(
+            Arg.Is<IReadOnlyList<IterationPath>>(ips => ips.Count == 2),
+            Arg.Any<CancellationToken>());
+        await _iterationService.DidNotReceive().GetCurrentIterationAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ComputeAsync_MultipleIterationPaths_WithAssignee_FiltersResults()
+    {
+        SetupDefaults(activeId: 10);
+        var sprint2 = IterationPath.Parse(@"Project\Sprint2").Value;
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new WorkItemBuilder(50, "Dan's Item").InState("Active").AssignedTo("Dan Green").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build(),
+                new WorkItemBuilder(60, "Other Item").InState("Active").AssignedTo("Other User").WithIterationPath(@"Project\Sprint2").WithAreaPath(@"Project\Area").Build(),
+                new WorkItemBuilder(70, "Dan's Item 2").InState("Active").AssignedTo("Dan Green").WithIterationPath(@"Project\Sprint2").WithAreaPath(@"Project\Area").Build(),
+            });
+        var sut = CreateSut(userDisplayName: "Dan Green");
+
+        var ws = await sut.ComputeAsync([TestIteration, sprint2]);
+
+        ws.SprintItemIds.ShouldBe(new[] { 50, 70 });
+    }
+
+    [Fact]
+    public async Task ComputeAsync_EmptyIterationPaths_ReturnsNoSprintItems()
+    {
+        SetupDefaults(activeId: 10);
+        var sut = CreateSut();
+
+        var ws = await sut.ComputeAsync(Array.Empty<IterationPath>());
+
+        ws.SprintItemIds.ShouldBeEmpty();
+        ws.IterationPaths.ShouldBeEmpty();
+        await _workItemRepo.DidNotReceive().GetByIterationsAsync(
+            Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>());
+        await _iterationService.DidNotReceive().GetCurrentIterationAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ComputeAsync_AssigneeCaseInsensitive_FiltersCorrectly()
+    {
+        SetupDefaults(activeId: 10);
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new WorkItemBuilder(50, "Item").InState("Active").AssignedTo("DAN GREEN").WithIterationPath(@"Project\Sprint1").WithAreaPath(@"Project\Area").Build(),
+            });
+        var sut = CreateSut(userDisplayName: "Dan Green");
+
+        var ws = await sut.ComputeAsync([TestIteration]);
+
+        ws.SprintItemIds.ShouldBe(new[] { 50 });
     }
 }

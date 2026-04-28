@@ -4,7 +4,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.ValueObjects;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Workspace;
 
 /// <summary>
 /// Generates and parses a markdown-based multi-item export format for published work items.

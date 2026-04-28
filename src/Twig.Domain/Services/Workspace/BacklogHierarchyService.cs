@@ -1,6 +1,6 @@
 using Twig.Domain.ValueObjects;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Workspace;
 
 /// <summary>
 /// Infers parent→child work item type relationships from the ADO backlog hierarchy.

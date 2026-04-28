@@ -1,6 +1,6 @@
 using Twig.Domain.ReadModels;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Workspace;
 
 /// <summary>
 /// Determines whether a work item type is above the configured working level

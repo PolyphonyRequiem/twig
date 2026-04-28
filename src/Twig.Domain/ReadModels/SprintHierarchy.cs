@@ -45,7 +45,7 @@ public sealed class SprintHierarchyNode
 /// <summary>
 /// Immutable read model that organises sprint items into per-assignee hierarchical trees.
 /// This is an inert data container - build logic lives in
-/// <see cref="Twig.Domain.Services.SprintHierarchyBuilder"/>.
+/// <see cref="Twig.Domain.Services.Workspace.SprintHierarchyBuilder"/>.
 /// </summary>
 public sealed class SprintHierarchy
 {
@@ -58,7 +58,7 @@ public sealed class SprintHierarchy
 
     /// <summary>
     /// Creates a new <see cref="SprintHierarchy"/> from pre-built assignee groups.
-    /// Used by <see cref="Twig.Domain.Services.SprintHierarchyBuilder"/>.
+    /// Used by <see cref="Twig.Domain.Services.Workspace.SprintHierarchyBuilder"/>.
     /// </summary>
     public static SprintHierarchy Create(IReadOnlyDictionary<string, IReadOnlyList<SprintHierarchyNode>> assigneeGroups)
     {

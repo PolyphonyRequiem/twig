@@ -2,6 +2,7 @@ using System.ComponentModel;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Twig.Domain.Services;
+using Twig.Domain.Services.Workspace;
 using Twig.Domain.Services.Navigation;
 using Twig.Mcp.Services;
 

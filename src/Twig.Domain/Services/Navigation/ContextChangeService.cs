@@ -1,5 +1,6 @@
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Sync;
+using Twig.Domain.Services.Workspace;
 
 namespace Twig.Domain.Services.Navigation;
 

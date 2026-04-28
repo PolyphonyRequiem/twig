@@ -2,7 +2,7 @@ using System.Text;
 using Twig.Domain.Services.Field;
 using Twig.Domain.ValueObjects;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Workspace;
 
 /// <summary>
 /// Pure domain service for generating, parsing, and merging the status-fields

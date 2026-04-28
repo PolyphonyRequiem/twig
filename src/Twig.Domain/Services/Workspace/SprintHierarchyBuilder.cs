@@ -3,7 +3,7 @@ using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Workspace;
 
 /// <summary>
 /// Builds a <see cref="SprintHierarchy"/> from flat sprint items by walking parent chains,

@@ -1,6 +1,6 @@
 using Twig.Domain.ValueObjects;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Workspace;
 
 /// <summary>
 /// Determines the ceiling backlog level for trimming parent chains

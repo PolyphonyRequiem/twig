@@ -5,6 +5,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.ReadModels;
 using Twig.Domain.Services;
+using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Mcp.Services;
 using Twig.TestKit;

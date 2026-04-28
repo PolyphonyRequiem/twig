@@ -2,7 +2,7 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Field;
 using Twig.Domain.ValueObjects;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Workspace;
 
 /// <summary>
 /// Combines field profiles (fill-rate data from cached items), field definitions

@@ -1,4 +1,4 @@
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Workspace;
 
 /// <summary>
 /// Resolves a work-item type name to its hex color string by searching

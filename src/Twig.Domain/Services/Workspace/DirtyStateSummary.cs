@@ -1,6 +1,6 @@
 using Twig.Domain.Common;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Workspace;
 
 /// <summary>
 /// Builds a concise one-line summary of pending changes for a dirty work item.

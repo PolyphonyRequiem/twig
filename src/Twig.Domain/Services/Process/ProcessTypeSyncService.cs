@@ -1,5 +1,6 @@
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 
 namespace Twig.Domain.Services.Process;

@@ -5,6 +5,7 @@ using Twig.Domain.Common;
 using Twig.Domain.Enums;
 using Twig.Domain.ReadModels;
 using Twig.Domain.Services;
+using Twig.Domain.Services.Workspace;
 using Twig.Domain.Services.Field;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.ValueObjects;
@@ -1130,7 +1131,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
                 var displayName = defLookup.TryGetValue(entry.ReferenceName, out var def)
                     ? def.DisplayName
-                    : Domain.Services.ColumnResolver.DeriveDisplayName(entry.ReferenceName);
+                    : Domain.Services.Workspace.ColumnResolver.DeriveDisplayName(entry.ReferenceName);
                 var dataType = def?.DataType ?? "string";
                 var formatted = Formatters.FormatterHelpers.FormatFieldValue(value, dataType, maxWidth: 60);
 
@@ -1154,7 +1155,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
             var displayName = defLookup.TryGetValue(kvp.Key, out var def2)
                 ? def2.DisplayName
-                : Domain.Services.ColumnResolver.DeriveDisplayName(kvp.Key);
+                : Domain.Services.Workspace.ColumnResolver.DeriveDisplayName(kvp.Key);
             var dataType = def2?.DataType ?? "string";
             var formatted = Formatters.FormatterHelpers.FormatFieldValue(kvp.Value, dataType, maxWidth: 60);
 

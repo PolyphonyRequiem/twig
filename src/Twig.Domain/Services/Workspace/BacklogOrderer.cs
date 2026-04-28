@@ -2,7 +2,7 @@ using System.Globalization;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Workspace;
 
 /// <summary>
 /// Best-effort backlog ordering: positions a newly published item after the last

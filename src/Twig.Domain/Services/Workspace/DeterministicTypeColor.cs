@@ -1,4 +1,4 @@
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Workspace;
 
 /// <summary>
 /// Produces a deterministic ANSI color escape for a given type name

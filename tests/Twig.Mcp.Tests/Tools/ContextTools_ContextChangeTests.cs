@@ -5,6 +5,7 @@ using Twig.Domain.Aggregates;
 using Twig.TestKit;
 using Xunit;
 using Twig.Domain.Services.Navigation;
+using Twig.Domain.Services.Workspace;
 
 namespace Twig.Mcp.Tests.Tools;
 

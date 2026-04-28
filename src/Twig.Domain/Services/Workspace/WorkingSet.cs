@@ -1,6 +1,6 @@
 using Twig.Domain.ValueObjects;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Workspace;
 
 /// <summary>
 /// Value object representing the set of work items relevant to the current context.

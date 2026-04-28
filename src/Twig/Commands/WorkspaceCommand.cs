@@ -6,6 +6,7 @@ using Twig.Domain.Services;
 using Twig.Domain.Services.Field;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
+using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
@@ -62,7 +63,7 @@ public sealed class WorkspaceCommand(
                 var processConfig = await processTypeStore.GetProcessConfigurationDataAsync();
                 if (processConfig is not null)
                 {
-                    spectreRenderer.TypeLevelMap = Domain.Services.BacklogHierarchyService.GetTypeLevelMap(processConfig);
+                    spectreRenderer.TypeLevelMap = Domain.Services.Workspace.BacklogHierarchyService.GetTypeLevelMap(processConfig);
                     spectreRenderer.WorkingLevelTypeName = config.Workspace.WorkingLevel;
 
                     // Enable tree rendering when process configuration is available and --flat is not specified
@@ -254,7 +255,7 @@ public sealed class WorkspaceCommand(
                     typeNameSet.Add(item.Type.Value);
 
                 var ceilingTypeNames = CeilingComputer.Compute(new List<string>(typeNameSet), processConfig);
-                typeLevelMap = Domain.Services.BacklogHierarchyService.GetTypeLevelMap(processConfig);
+                typeLevelMap = Domain.Services.Workspace.BacklogHierarchyService.GetTypeLevelMap(processConfig);
                 hierarchy = sprintHierarchyBuilder.Build(sprintItems, parentLookup, ceilingTypeNames, typeLevelMap);
 
                 // Extract tree roots from hierarchy for tree-based rendering
@@ -377,7 +378,7 @@ public sealed class WorkspaceCommand(
         // If config specifies columns, use them directly (skip auto-discovery)
         if (configuredColumns is { Count: > 0 })
         {
-            return Domain.Services.ColumnResolver.Resolve(
+            return Domain.Services.Workspace.ColumnResolver.Resolve(
                 Array.Empty<Domain.ValueObjects.FieldProfile>(),
                 fieldDefs,
                 configuredColumns,
@@ -391,7 +392,7 @@ public sealed class WorkspaceCommand(
             return Array.Empty<Domain.ValueObjects.ColumnSpec>();
 
         var profiles = FieldProfileService.ComputeProfiles(sprintItems);
-        return Domain.Services.ColumnResolver.Resolve(
+        return Domain.Services.Workspace.ColumnResolver.Resolve(
             profiles,
             fieldDefs,
             configuredColumns: null,
@@ -435,7 +436,7 @@ public sealed class WorkspaceCommand(
             typeNameSet.Add(item.Type.Value);
 
         var ceilingTypeNames = CeilingComputer.Compute(new List<string>(typeNameSet), processConfig);
-        var typeLevelMap = Domain.Services.BacklogHierarchyService.GetTypeLevelMap(processConfig);
+        var typeLevelMap = Domain.Services.Workspace.BacklogHierarchyService.GetTypeLevelMap(processConfig);
         var hierarchy = sprintHierarchyBuilder.Build(sprintItems, parentLookup, ceilingTypeNames, typeLevelMap);
 
         // Flatten all assignee groups for personal workspace display

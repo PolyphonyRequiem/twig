@@ -168,7 +168,6 @@ public sealed class GroupedHelpTests
     [InlineData("fore")]
     [InlineData("history")]
     [InlineData("seed")]
-    [InlineData("save")]
     [InlineData("refresh")]
     public void KnownCommands_ContainsExpectedCommand(string command)
     {

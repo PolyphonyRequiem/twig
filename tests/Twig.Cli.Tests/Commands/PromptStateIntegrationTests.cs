@@ -158,44 +158,6 @@ public class PromptStateIntegrationTests : IDisposable
         File.Exists(PromptJsonPath).ShouldBeTrue();
     }
 
-    // ── (e) twig save updates isDirty in prompt.json ───────────────────
-
-    [Fact]
-    public async Task SaveCommand_WritesPromptJson_AfterDirtyCleared()
-    {
-        var item = CreateWorkItem(55, "Dirty story", isDirty: true);
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(55);
-        _workItemRepo.GetByIdAsync(55, Arg.Any<CancellationToken>()).Returns(item);
-
-        var remote = CreateWorkItem(55, "Dirty story");
-        _adoService.FetchAsync(55, Arg.Any<CancellationToken>()).Returns(remote);
-        _adoService.PatchAsync(55, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(2);
-
-        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
-            .Returns(new[] { 55 });
-        _pendingChangeStore.GetChangesAsync(55, Arg.Any<CancellationToken>())
-            .Returns(new[] { new PendingChangeRecord(55, "field", "System.Title", "old", "new") });
-
-        _workItemRepo.GetChildrenAsync(55, Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>());
-
-        // After save completes, the writer reads clean state
-        var cleanItem = CreateWorkItem(55, "Dirty story", isDirty: false);
-        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(55);
-
-        var writer = CreateWriter();
-        var saveResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        var flusher = new PendingChangeFlusher(_workItemRepo, _adoService, _pendingChangeStore, _consoleInput, _formatterFactory);
-        var cmd = new SaveCommand(_workItemRepo, _pendingChangeStore, flusher,
-            saveResolver, _formatterFactory, writer);
-
-        var result = await cmd.ExecuteAsync();
-
-        result.ShouldBe(0);
-        File.Exists(PromptJsonPath).ShouldBeTrue();
-    }
-
     // ── (f) twig config display.icons regenerates prompt.json ──────────
 
     [Fact]

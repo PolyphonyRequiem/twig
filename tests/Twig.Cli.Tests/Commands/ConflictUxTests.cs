@@ -176,53 +176,7 @@ public class ConflictUxTests
         await _workItemRepo.Received().SaveAsync(remote, Arg.Any<CancellationToken>());
     }
 
-    [Fact]
-    public async Task Save_Conflict_KeepRemote_DiscardsLocal()
-    {
-        var local = CreateWorkItem(1, "Local Title", "New");
-        var remote = CreateWorkItem(1, "Remote Title", "New");
-        remote.MarkSynced(5);
 
-        SetupActiveItem(local);
-        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
-            .Returns(new[] { 1 });
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
-        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
-            .Returns(new[] { new PendingChangeRecord(1, "field", "System.Title", "Old", "New") });
-
-        _consoleInput.ReadLine().Returns("r"); // keep remote
-
-        var cmd = new SaveCommand(_workItemRepo, _pendingChangeStore,
-            new PendingChangeFlusher(_workItemRepo, _adoService, _pendingChangeStore, _consoleInput, _formatterFactory),
-            _resolver, _formatterFactory);
-        var result = await cmd.ExecuteAsync(all: true);
-
-        result.ShouldBe(0);
-        await _pendingChangeStore.Received().ClearChangesAsync(1, Arg.Any<CancellationToken>());
-        await _workItemRepo.Received().SaveAsync(remote, Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public async Task Save_Conflict_JsonOutput_ReturnsConflictsAndExitOne()
-    {
-        var local = CreateWorkItem(1, "Local Title", "New");
-        var remote = CreateWorkItem(1, "Remote Title", "New");
-        remote.MarkSynced(5);
-
-        SetupActiveItem(local);
-        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
-            .Returns(new[] { 1 });
-        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(remote);
-        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
-            .Returns(new[] { new PendingChangeRecord(1, "field", "System.Title", "Old", "New") });
-
-        var cmd = new SaveCommand(_workItemRepo, _pendingChangeStore,
-            new PendingChangeFlusher(_workItemRepo, _adoService, _pendingChangeStore, _consoleInput, _formatterFactory),
-            _resolver, _formatterFactory);
-        var result = await cmd.ExecuteAsync(all: true, outputFormat: "json");
-
-        result.ShouldBe(1);
-    }
 
     private void SetupActiveItem(WorkItem item)
     {

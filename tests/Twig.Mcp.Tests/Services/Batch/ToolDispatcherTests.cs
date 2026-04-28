@@ -105,7 +105,6 @@ public sealed class ToolDispatcherTests
     [Theory]
     [InlineData("twig_tree")]
     [InlineData("twig_workspace")]
-    [InlineData("twig_discard")]
     [InlineData("twig_sync")]
     [InlineData("twig_sprint")]
     [InlineData("twig_query")]

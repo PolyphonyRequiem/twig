@@ -211,6 +211,34 @@ internal static class McpResultBuilder
             writer.WriteString("updatedValue", truncated);
         });
 
+    public static CallToolResult FormatPatch(
+        WorkItem updated,
+        IReadOnlyDictionary<string, (string? OldValue, string? NewValue)> fieldChanges,
+        string? workspace = null) =>
+        BuildJson(writer =>
+        {
+            WriteWorkItemCore(writer, updated);
+
+            writer.WriteStartObject("updatedFields");
+            foreach (var (field, change) in fieldChanges)
+            {
+                writer.WriteStartObject(field);
+                if (change.OldValue is not null)
+                    writer.WriteString("old", change.OldValue);
+                else
+                    writer.WriteNull("old");
+                if (change.NewValue is not null)
+                    writer.WriteString("new", change.NewValue);
+                else
+                    writer.WriteNull("new");
+                writer.WriteEndObject();
+            }
+            writer.WriteEndObject();
+
+            writer.WriteNumber("fieldCount", fieldChanges.Count);
+            WriteOptionalWorkspace(writer, workspace);
+        });
+
     public static CallToolResult FormatNoteAdded(int itemId, string title, bool isPending) =>
         BuildJson(writer =>
         {

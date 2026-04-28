@@ -65,6 +65,7 @@ public static class CommandRegistrationModule
         services.AddSingleton<WebCommand>();
         services.AddSingleton<NoteCommand>();
         services.AddSingleton<UpdateCommand>();
+        services.AddSingleton<PatchCommand>();
         services.AddSingleton<EditCommand>();
 
         services.AddSingleton<RefreshCommand>();

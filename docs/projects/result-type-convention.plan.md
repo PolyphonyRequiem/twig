@@ -1,7 +1,7 @@
 # Result Type Convention — Domain Critique Item 7
 
 > **Epic:** #2120 — Domain Critique: Result Type Convention
-> **Status**: ✅ Approved
+> **Status**: ✅ Done
 > **Revision:** 0
 
 ---
@@ -403,10 +403,10 @@ pattern, with examples from the existing codebase.
 | T1.2 | Update domain-model-critique.md Item 7 to reference the convention and note FlowResolveResult/FlowTransitionResult removal | `docs/architecture/domain-model-critique.md` | ~20 LoC |
 
 **Acceptance Criteria**:
-- [ ] Convention document exists with clear decision matrix
-- [ ] Each tier has at least 2 codebase examples
-- [ ] DU pattern shows complete example with exhaustive matching
-- [ ] domain-model-critique.md Item 7 updated with cross-reference
+- [x] Convention document exists with clear decision matrix
+- [x] Each tier has at least 2 codebase examples
+- [x] DU pattern shows complete example with exhaustive matching
+- [x] domain-model-critique.md Item 7 updated with cross-reference
 
 ### Issue 2: Migrate StatusSnapshot to Discriminated Union
 
@@ -427,12 +427,12 @@ preserving identical JSON wire format.
 | T2.5 | Delete `StatusSnapshot.cs` and verify clean build | `src/Twig.Domain/Services/Workspace/StatusSnapshot.cs` (delete) | ~5 LoC |
 
 **Acceptance Criteria**:
-- [ ] `StatusSnapshot` class no longer exists
-- [ ] `StatusResult` DU with 3 subtypes compiles and passes AOT validation
-- [ ] `FormatStatus()` produces identical JSON for all 3 cases (no-context handled upstream, unreachable, success)
-- [ ] All 8 ContextToolsStatusTests pass
-- [ ] All McpResultBuilderTests pass
-- [ ] No `TreatWarningsAsErrors` violations
+- [x] `StatusSnapshot` class no longer exists
+- [x] `StatusResult` DU with 3 subtypes compiles and passes AOT validation
+- [x] `FormatStatus()` produces identical JSON for all 3 cases (no-context handled upstream, unreachable, success)
+- [x] All 8 ContextToolsStatusTests pass
+- [x] All McpResultBuilderTests pass
+- [x] No `TreatWarningsAsErrors` violations
 
 ### Issue 3: Migrate BranchLinkResult to Discriminated Union
 
@@ -452,12 +452,12 @@ only exist on error subtypes.
 | T3.4 | Update any formatter/command references and tests | Formatter files, test files | ~40 LoC |
 
 **Acceptance Criteria**:
-- [ ] `BranchLinkStatus` enum no longer exists
-- [ ] `BranchLinkResult` is an abstract record DU with 4 sealed subtypes
-- [ ] `BranchLinkService` compiles with DU construction
-- [ ] `FormatBranchLinked()` produces identical JSON for linked/already-linked cases
-- [ ] All existing tests pass
-- [ ] No `TreatWarningsAsErrors` violations
+- [x] `BranchLinkStatus` enum no longer exists
+- [x] `BranchLinkResult` is an abstract record DU with 4 sealed subtypes
+- [x] `BranchLinkService` compiles with DU construction
+- [x] `FormatBranchLinked()` produces identical JSON for linked/already-linked cases
+- [x] All existing tests pass
+- [x] No `TreatWarningsAsErrors` violations
 
 ## PR Groups
 
@@ -536,3 +536,20 @@ Success).
 `Twig.Mcp.Tests` must pass. Key review concern: JSON wire format backward
 compatibility for `FormatBranchLinked()`. Verify all four `BranchLinkResult` subtypes
 (Linked, AlreadyLinked, GitContextUnavailable, Failed) are exercised by tests.
+
+---
+
+## Completion
+
+> **Completed**: 2026-04-28
+
+All three PR groups merged successfully:
+
+| PR Group | PR # | Branch | Merged |
+|----------|------|--------|--------|
+| PG-1 | #127 | `feature/2120-pg-1` | 2026-04-28T10:44:41Z |
+| PG-2 | #128 | `feature/2120-pg-2` | 2026-04-28T11:02:57Z |
+| PG-3 | #130 | `feature/2120-pg-3` | 2026-04-28T11:37:41Z |
+
+All 3 Issues (2264, 2265, 2266) and 13 Tasks transitioned to Done.
+Epic #2120 transitioned to Done. All acceptance criteria met.

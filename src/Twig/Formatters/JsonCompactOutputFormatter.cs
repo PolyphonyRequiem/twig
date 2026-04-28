@@ -17,6 +17,8 @@ public sealed class JsonCompactOutputFormatter(JsonOutputFormatter full) : IOutp
 
     public string FormatStatusSummary(WorkItem item) => string.Empty;
 
+    public string FormatSetConfirmation(WorkItem item) => full.FormatSetConfirmation(item);
+
     public string FormatWorkItem(WorkItem item, bool showDirty)
     {
         using var stream = new MemoryStream();

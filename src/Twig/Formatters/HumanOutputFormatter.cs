@@ -85,6 +85,12 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         return $"#{item.Id} {Cyan}●{Reset} {typeColor}{badge} {item.Type}{Reset} — {item.Title} [{stateColor}{item.State}{Reset}]{cacheAgeSuffix}";
     }
 
+    public string FormatSetConfirmation(WorkItem item)
+    {
+        var stateColor = GetStateColor(item.State);
+        return $"Set active item: #{item.Id} {item.Title} [{stateColor}{item.State}{Reset}]";
+    }
+
     public string FormatWorkItem(WorkItem item, bool showDirty)
     {
         return FormatWorkItem(item, showDirty, fieldDefinitions: null);

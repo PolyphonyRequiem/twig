@@ -22,6 +22,22 @@ public sealed class JsonOutputFormatter : IOutputFormatter
 
     public string FormatStatusSummary(WorkItem item) => string.Empty;
 
+    public string FormatSetConfirmation(WorkItem item)
+    {
+        using var stream = new MemoryStream();
+        using var writer = new Utf8JsonWriter(stream, WriterOptions);
+
+        writer.WriteStartObject();
+        writer.WriteNumber("id", item.Id);
+        writer.WriteString("title", item.Title);
+        writer.WriteString("state", item.State);
+        writer.WriteString("type", item.Type.ToString());
+        writer.WriteEndObject();
+
+        writer.Flush();
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
     public string FormatWorkItem(WorkItem item, bool showDirty)
     {
         return FormatWorkItem(item, showDirty, links: null);

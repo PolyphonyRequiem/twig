@@ -13,6 +13,8 @@ public sealed class MinimalOutputFormatter : IOutputFormatter
 {
     public string FormatStatusSummary(WorkItem item) => string.Empty;
 
+    public string FormatSetConfirmation(WorkItem item) => $"#{item.Id}";
+
     public string FormatWorkItem(WorkItem item, bool showDirty)
     {
         var dirty = showDirty && item.IsDirty ? " *" : "";

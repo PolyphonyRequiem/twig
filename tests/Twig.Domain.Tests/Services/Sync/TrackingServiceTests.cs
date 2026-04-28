@@ -321,6 +321,15 @@ public sealed class TrackingServiceTests
         workItemRepo.GetDirtyItemsAsync().Returns(Array.Empty<WorkItem>());
         pendingStore.GetDirtyItemIdsAsync().Returns(Array.Empty<int>());
 
+        // Default: FetchWithLinksAsync returns empty links (for SyncRootLinksAsync)
+        adoService.FetchWithLinksAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+            {
+                var id = callInfo.ArgAt<int>(0);
+                var item = new WorkItemBuilder(id, $"Item {id}").InState("Active").Build();
+                return (item, (IReadOnlyList<WorkItemLink>)Array.Empty<WorkItemLink>());
+            });
+
         var protectedWriter = new ProtectedCacheWriter(workItemRepo, pendingStore);
         return new SyncCoordinator(workItemRepo, adoService, protectedWriter, pendingStore, cacheStaleMinutes);
     }
@@ -394,6 +403,81 @@ public sealed class TrackingServiceTests
         result.ShouldBe(0); // no items untracked
         await adoService.Received(1).FetchAsync(42, Arg.Any<CancellationToken>());
         await adoService.Received(1).FetchChildrenAsync(42, Arg.Any<CancellationToken>());
+        // Root links synced via FetchWithLinksAsync
+        await adoService.Received(1).FetchWithLinksAsync(42, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SyncTrackedTreesAsync_TreeItem_SyncsRootLinkTargets()
+    {
+        var sut = CreateSut();
+        var items = new List<TrackedItem>
+        {
+            new(42, TrackingMode.Tree, DateTimeOffset.UtcNow),
+        };
+        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(items);
+
+        var workItemRepo = Substitute.For<IWorkItemRepository>();
+        var adoService = Substitute.For<IAdoWorkItemService>();
+
+        // SyncItemAsync path: item not in cache → fetch from ADO
+        workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        var fetched = new WorkItemBuilder(42, "Root").InState("Active").Build();
+        adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(fetched);
+
+        adoService.FetchChildrenAsync(42, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        // Link targets are stale (not in cache) → fetched by SyncItemSetAsync
+        workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        workItemRepo.GetByIdAsync(200, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        adoService.FetchAsync(100, Arg.Any<CancellationToken>())
+            .Returns(new WorkItemBuilder(100, "Target A").InState("Active").Build());
+        adoService.FetchAsync(200, Arg.Any<CancellationToken>())
+            .Returns(new WorkItemBuilder(200, "Target B").InState("Active").Build());
+
+        // Create coordinator first (sets up default empty-links stub)
+        var coordinator = CreateSyncCoordinator(workItemRepo, adoService);
+
+        // Override with specific links AFTER helper (last matching stub wins)
+        var links = new List<WorkItemLink>
+        {
+            new(42, 100, "Related"),
+            new(42, 200, "Predecessor"),
+        };
+        adoService.FetchWithLinksAsync(42, Arg.Any<CancellationToken>())
+            .Returns((fetched, (IReadOnlyList<WorkItemLink>)links));
+
+        var result = await sut.SyncTrackedTreesAsync(coordinator);
+
+        result.ShouldBe(0);
+        await adoService.Received(1).FetchWithLinksAsync(42, Arg.Any<CancellationToken>());
+        await adoService.Received(1).FetchAsync(100, Arg.Any<CancellationToken>());
+        await adoService.Received(1).FetchAsync(200, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SyncTrackedTreesAsync_DeletedItem_SkipsRootLinks()
+    {
+        var sut = CreateSut();
+        var items = new List<TrackedItem>
+        {
+            new(42, TrackingMode.Tree, DateTimeOffset.UtcNow),
+        };
+        _repository.GetAllTrackedAsync(Arg.Any<CancellationToken>()).Returns(items);
+
+        var workItemRepo = Substitute.For<IWorkItemRepository>();
+        var adoService = Substitute.For<IAdoWorkItemService>();
+
+        workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        adoService.FetchAsync(42, Arg.Any<CancellationToken>())
+            .Throws(new InvalidOperationException("Work item 42 not found."));
+
+        var coordinator = CreateSyncCoordinator(workItemRepo, adoService);
+        var result = await sut.SyncTrackedTreesAsync(coordinator);
+
+        result.ShouldBe(1);
+        await adoService.DidNotReceive().FetchWithLinksAsync(42, Arg.Any<CancellationToken>());
     }
 
     [Fact]

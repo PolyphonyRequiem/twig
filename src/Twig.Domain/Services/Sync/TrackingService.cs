@@ -98,6 +98,7 @@ public sealed class TrackingService(
             }
 
             await syncCoordinator.SyncChildrenAsync(item.WorkItemId, ct);
+            await syncCoordinator.SyncRootLinksAsync(item.WorkItemId, ct);
         }
 
         if (untrackedIds.Count > 0)

@@ -1375,4 +1375,137 @@ public class SyncCoordinatorTests
               .ChangedCount.ShouldBe(0); // fetched but skipped by writer
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncRootLinksAsync — no links → UpToDate
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncRootLinksAsync_NoLinks_ReturnsUpToDate()
+    {
+        var linkRepo = Substitute.For<IWorkItemLinkRepository>();
+        var protectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingStore);
+        var sut = new SyncCoordinator(_workItemRepo, _adoService, protectedWriter, _pendingStore, linkRepo, CacheStaleMinutes);
+
+        var fetchedItem = new WorkItemBuilder(42, "Root").InState("Active").Build();
+        _adoService.FetchWithLinksAsync(42, Arg.Any<CancellationToken>())
+            .Returns((fetchedItem, (IReadOnlyList<Domain.ValueObjects.WorkItemLink>)Array.Empty<Domain.ValueObjects.WorkItemLink>()));
+
+        var result = await sut.SyncRootLinksAsync(42);
+
+        result.ShouldBeOfType<SyncResult.UpToDate>();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncRootLinksAsync — links exist → fetches targets
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncRootLinksAsync_WithLinks_FetchesTargetsAndReturnsUpdated()
+    {
+        var linkRepo = Substitute.For<IWorkItemLinkRepository>();
+        var protectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingStore);
+        var sut = new SyncCoordinator(_workItemRepo, _adoService, protectedWriter, _pendingStore, linkRepo, CacheStaleMinutes);
+
+        var rootItem = new WorkItemBuilder(42, "Root").InState("Active").Build();
+        var links = new List<Domain.ValueObjects.WorkItemLink>
+        {
+            new(42, 100, "Related"),
+            new(42, 200, "Predecessor"),
+        };
+        _adoService.FetchWithLinksAsync(42, Arg.Any<CancellationToken>())
+            .Returns((rootItem, (IReadOnlyList<Domain.ValueObjects.WorkItemLink>)links));
+
+        // Targets are stale (not in cache)
+        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        _workItemRepo.GetByIdAsync(200, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        _adoService.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(100, "Target A").InState("Active").Build());
+        _adoService.FetchAsync(200, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(200, "Target B").InState("Active").Build());
+
+        var result = await sut.SyncRootLinksAsync(42);
+
+        result.ShouldBeOfType<SyncResult.Updated>().ChangedCount.ShouldBe(2);
+        await _adoService.Received(1).FetchAsync(100, Arg.Any<CancellationToken>());
+        await _adoService.Received(1).FetchAsync(200, Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncRootLinksAsync — duplicate target IDs → deduplicates
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncRootLinksAsync_DuplicateTargetIds_Deduplicates()
+    {
+        var linkRepo = Substitute.For<IWorkItemLinkRepository>();
+        var protectedWriter = new ProtectedCacheWriter(_workItemRepo, _pendingStore);
+        var sut = new SyncCoordinator(_workItemRepo, _adoService, protectedWriter, _pendingStore, linkRepo, CacheStaleMinutes);
+
+        var rootItem = new WorkItemBuilder(42, "Root").InState("Active").Build();
+        var links = new List<Domain.ValueObjects.WorkItemLink>
+        {
+            new(42, 100, "Related"),
+            new(42, 100, "Predecessor"), // same target, different link type
+        };
+        _adoService.FetchWithLinksAsync(42, Arg.Any<CancellationToken>())
+            .Returns((rootItem, (IReadOnlyList<Domain.ValueObjects.WorkItemLink>)links));
+
+        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        _adoService.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(100, "Target").InState("Active").Build());
+
+        var result = await sut.SyncRootLinksAsync(42);
+
+        result.ShouldBeOfType<SyncResult.Updated>().ChangedCount.ShouldBe(1);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncRootLinksAsync — FetchWithLinks fails → Failed
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncRootLinksAsync_FetchWithLinksFails_ReturnsFailed()
+    {
+        _adoService.FetchWithLinksAsync(42, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("Connection refused"));
+
+        var result = await _sut.SyncRootLinksAsync(42);
+
+        result.ShouldBeOfType<SyncResult.Failed>();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncRootLinksAsync — cancellation → propagates
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncRootLinksAsync_Cancellation_PropagatesException()
+    {
+        _adoService.FetchWithLinksAsync(42, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new OperationCanceledException());
+
+        await Should.ThrowAsync<OperationCanceledException>(
+            () => _sut.SyncRootLinksAsync(42));
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  SyncRootLinksAsync — without link repo → still works
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SyncRootLinksAsync_WithoutLinkRepo_StillFetchesTargets()
+    {
+        var rootItem = new WorkItemBuilder(42, "Root").InState("Active").Build();
+        var links = new List<Domain.ValueObjects.WorkItemLink>
+        {
+            new(42, 100, "Related"),
+        };
+        _adoService.FetchWithLinksAsync(42, Arg.Any<CancellationToken>())
+            .Returns((rootItem, (IReadOnlyList<Domain.ValueObjects.WorkItemLink>)links));
+
+        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        _adoService.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(100, "Target").InState("Active").Build());
+
+        var result = await _sut.SyncRootLinksAsync(42);
+
+        result.ShouldBeOfType<SyncResult.Updated>().ChangedCount.ShouldBe(1);
+    }
+
 }

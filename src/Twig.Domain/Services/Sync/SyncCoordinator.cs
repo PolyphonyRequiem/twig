@@ -243,6 +243,29 @@ public sealed class SyncCoordinator
     }
 
     /// <summary>
+    /// Syncs the non-hierarchy link targets for a root item. Fetches fresh links from ADO
+    /// (storing them in <c>work_item_links</c> via <see cref="SyncLinksAsync"/>), then
+    /// materializes each link target via <see cref="SyncItemSetAsync"/>.
+    /// Link targets are fetched one level deep only — no further recursion.
+    /// </summary>
+    public async Task<SyncResult> SyncRootLinksAsync(int rootId, CancellationToken ct = default)
+    {
+        try
+        {
+            var links = await SyncLinksAsync(rootId, ct);
+
+            if (links.Count == 0) return new SyncResult.UpToDate();
+
+            var targetIds = links.Select(l => l.TargetId).Distinct().ToList();
+            return await SyncItemSetAsync(targetIds, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return new SyncResult.Failed(ex.Message);
+        }
+    }
+
+    /// <summary>
     /// Fetches a work item with its non-hierarchy links from ADO, persists both,
     /// and returns the links. Requires <see cref="IWorkItemLinkRepository"/> to be
     /// provided via the 5-parameter constructor.

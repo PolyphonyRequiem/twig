@@ -2,7 +2,6 @@ using Shouldly;
 using Spectre.Console;
 using Spectre.Console.Rendering;
 using Spectre.Console.Testing;
-using Twig.Domain.Services;
 using Twig.Domain.Services.Sync;
 using Twig.Infrastructure.Config;
 using Twig.Rendering;

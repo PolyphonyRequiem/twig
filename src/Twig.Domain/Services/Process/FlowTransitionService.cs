@@ -4,7 +4,7 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.ValueObjects;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Process;
 
 /// <summary>
 /// Encapsulates item resolution and state transition logic shared by FlowDone and FlowClose commands.

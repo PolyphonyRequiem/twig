@@ -2,7 +2,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Process;
 
 /// <summary>
 /// Fetches work item types and process configuration from ADO, infers parent-child

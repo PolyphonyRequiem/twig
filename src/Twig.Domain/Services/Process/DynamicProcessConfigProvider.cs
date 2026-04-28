@@ -1,7 +1,7 @@
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Process;
 
 /// <summary>
 /// Implements <see cref="IProcessConfigurationProvider"/> by building configuration

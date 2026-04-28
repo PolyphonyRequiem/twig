@@ -1,7 +1,7 @@
 using Twig.Domain.Enums;
 using Twig.Domain.ValueObjects;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Process;
 
 /// <summary>
 /// Resolves a work item state name to its <see cref="StateCategory"/>.

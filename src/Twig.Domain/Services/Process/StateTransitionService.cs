@@ -2,7 +2,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Enums;
 using Twig.Domain.ValueObjects;
 
-namespace Twig.Domain.Services;
+namespace Twig.Domain.Services.Process;
 
 /// <summary>
 /// Result of evaluating a state transition against a <see cref="ProcessConfiguration"/>.

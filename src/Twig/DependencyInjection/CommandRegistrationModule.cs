@@ -3,6 +3,7 @@ using Twig.Commands;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.Services.Navigation;
+using Twig.Domain.Services.Process;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
@@ -203,7 +204,7 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<IConsoleInput>(),
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetRequiredService<Domain.Services.FlowTransitionService>(),
+            sp.GetRequiredService<Domain.Services.Process.FlowTransitionService>(),
             sp.GetService<IGitService>(),
             sp.GetService<IAdoGitService>(),
             sp.GetRequiredService<IPromptStateWriter>()));
@@ -213,7 +214,7 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<IConsoleInput>(),
             sp.GetRequiredService<OutputFormatterFactory>(),
             sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetRequiredService<Domain.Services.FlowTransitionService>(),
+            sp.GetRequiredService<Domain.Services.Process.FlowTransitionService>(),
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IAdoWorkItemService>(),
             sp.GetRequiredService<IProcessConfigurationProvider>(),

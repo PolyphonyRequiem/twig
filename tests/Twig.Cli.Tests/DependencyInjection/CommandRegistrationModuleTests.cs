@@ -20,11 +20,11 @@ namespace Twig.Cli.Tests.DependencyInjection;
 public sealed class CommandRegistrationModuleTests
 {
     /// <summary>
-    /// Builds a provider with all services needed by <see cref="FlowStartCommand"/>
-    /// registered, then calls <see cref="CommandRegistrationModule.AddTwigCommands"/>
+    /// Builds a provider with all services needed by command factories,
+    /// then calls <see cref="CommandRegistrationModule.AddTwigCommands"/>
     /// to register the command factories.
     /// </summary>
-    private static ServiceProvider BuildProviderForFlowCommands()
+    private static ServiceProvider BuildProviderForCommands()
     {
         var services = new ServiceCollection();
 
@@ -84,30 +84,9 @@ public sealed class CommandRegistrationModuleTests
     }
 
     [Fact]
-    public void FlowStartCommand_Factory_Resolves_Successfully()
-    {
-        using var provider = BuildProviderForFlowCommands();
-
-        // If the factory lambda is missing any constructor parameter,
-        // this resolution will throw.
-        var command = provider.GetRequiredService<FlowStartCommand>();
-
-        command.ShouldNotBeNull();
-    }
-
-    [Fact]
-    public void FlowStartCommand_Factory_Injects_ContextChangeService()
-    {
-        using var provider = BuildProviderForFlowCommands();
-
-        provider.GetService<ContextChangeService>()
-            .ShouldNotBeNull("ContextChangeService must be registered");
-    }
-
-    [Fact]
     public void StatusCommand_AutoResolution_Resolves_Successfully()
     {
-        using var provider = BuildProviderForFlowCommands();
+        using var provider = BuildProviderForCommands();
 
         // StatusCommand uses auto-resolution (no factory lambda).
         // This verifies CommandContext and StatusFieldConfigReader resolve
@@ -120,11 +99,8 @@ public sealed class CommandRegistrationModuleTests
     [Fact]
     public void SetCommand_AutoResolution_Resolves_Successfully()
     {
-        using var provider = BuildProviderForFlowCommands();
+        using var provider = BuildProviderForCommands();
 
-        // SetCommand uses auto-resolution (no factory lambda).
-        // This verifies CommandContext and StatusFieldConfigReader resolve
-        // correctly after the constructor was refactored.
         var command = provider.GetRequiredService<SetCommand>();
 
         command.ShouldNotBeNull();
@@ -133,11 +109,8 @@ public sealed class CommandRegistrationModuleTests
     [Fact]
     public void ShowCommand_AutoResolution_Resolves_Successfully()
     {
-        using var provider = BuildProviderForFlowCommands();
+        using var provider = BuildProviderForCommands();
 
-        // ShowCommand uses auto-resolution (no factory lambda).
-        // This verifies CommandContext and StatusFieldConfigReader resolve
-        // correctly after the constructor was refactored.
         var command = provider.GetRequiredService<ShowCommand>();
 
         command.ShouldNotBeNull();
@@ -146,7 +119,7 @@ public sealed class CommandRegistrationModuleTests
     [Fact]
     public void StateCommand_AutoResolution_Resolves_Successfully()
     {
-        using var provider = BuildProviderForFlowCommands();
+        using var provider = BuildProviderForCommands();
 
         var command = provider.GetRequiredService<StateCommand>();
 
@@ -156,7 +129,7 @@ public sealed class CommandRegistrationModuleTests
     [Fact]
     public void BatchCommand_AutoResolution_Resolves_Successfully()
     {
-        using var provider = BuildProviderForFlowCommands();
+        using var provider = BuildProviderForCommands();
 
         var command = provider.GetRequiredService<BatchCommand>();
 
@@ -166,7 +139,7 @@ public sealed class CommandRegistrationModuleTests
     [Fact]
     public void RefreshCommand_AutoResolution_Resolves_Successfully()
     {
-        using var provider = BuildProviderForFlowCommands();
+        using var provider = BuildProviderForCommands();
 
         var command = provider.GetRequiredService<RefreshCommand>();
 
@@ -174,19 +147,9 @@ public sealed class CommandRegistrationModuleTests
     }
 
     [Fact]
-    public void FlowCloseCommand_AutoResolution_Resolves_Successfully()
-    {
-        using var provider = BuildProviderForFlowCommands();
-
-        var command = provider.GetRequiredService<FlowCloseCommand>();
-
-        command.ShouldNotBeNull();
-    }
-
-    [Fact]
     public void TreeCommand_AutoResolution_Resolves_Successfully()
     {
-        using var provider = BuildProviderForFlowCommands();
+        using var provider = BuildProviderForCommands();
 
         var command = provider.GetRequiredService<TreeCommand>();
 
@@ -196,7 +159,7 @@ public sealed class CommandRegistrationModuleTests
     [Fact]
     public void WorkspaceCommand_AutoResolution_Resolves_Successfully()
     {
-        using var provider = BuildProviderForFlowCommands();
+        using var provider = BuildProviderForCommands();
 
         var command = provider.GetRequiredService<WorkspaceCommand>();
 

@@ -851,18 +851,6 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> Log(int count = 20, int? workItem = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<LogCommand>().ExecuteAsync(count, workItem, output, ct);
 
-    /// <summary>Install Twig-managed git hooks.</summary>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
-    [Command("hooks install")]
-    public async Task<int> HooksInstall(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<HooksCommand>().InstallAsync(output, ct);
-
-    /// <summary>Uninstall Twig-managed git hooks.</summary>
-    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
-    [Command("hooks uninstall")]
-    public async Task<int> HooksUninstall(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<HooksCommand>().UninstallAsync(output, ct);
-
     /// <summary>Show git context: branch, work item, and PR linkage.</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     public async Task<int> Context(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)

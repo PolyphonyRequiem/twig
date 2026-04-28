@@ -8,7 +8,6 @@ using Twig.Domain.Services.Sync;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
-using Twig.Infrastructure.Git;
 using Twig.Infrastructure.GitHub;
 using Twig.Rendering;
 
@@ -144,13 +143,6 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<HintEngine>(),
             sp.GetService<IGitService>()));
 
-        services.AddSingleton<HookInstaller>();
-        services.AddSingleton<HooksCommand>(sp => new HooksCommand(
-            sp.GetRequiredService<HookInstaller>(),
-            sp.GetRequiredService<OutputFormatterFactory>(),
-            sp.GetRequiredService<HintEngine>(),
-            sp.GetRequiredService<TwigConfiguration>(),
-            sp.GetService<IGitService>()));
         services.AddSingleton<GitContextCommand>(sp => new GitContextCommand(
             sp.GetRequiredService<Domain.Services.Navigation.ActiveItemResolver>(),
             sp.GetRequiredService<IWorkItemRepository>(),

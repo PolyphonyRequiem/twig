@@ -325,16 +325,6 @@ internal static class CommandExamples
             "twig log                   Show the change log for the active work item",
             "twig log --output json     Output the change log as JSON",
         ],
-        ["hooks install"] =
-        [
-            "twig hooks install         Install twig git hooks for this repository",
-            "twig hooks install --output json  Output install result as JSON",
-        ],
-        ["hooks uninstall"] =
-        [
-            "twig hooks uninstall       Remove twig git hooks from this repository",
-            "twig hooks uninstall --output json  Output uninstall result as JSON",
-        ],
         ["context"] =
         [
             "twig context               Show the current twig context (workspace, active item)",

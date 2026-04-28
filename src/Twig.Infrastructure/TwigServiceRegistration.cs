@@ -5,7 +5,6 @@ using Twig.Domain.Services.Seed;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Workspace;
 using Twig.Infrastructure.Config;
-using Twig.Infrastructure.Git;
 using Twig.Infrastructure.Persistence;
 using Twig.Infrastructure.Telemetry;
 
@@ -103,11 +102,6 @@ public static class TwigServiceRegistration
             sp.GetRequiredService<ITrackingRepository>(),
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IProcessTypeStore>()));
-
-        // Git service — registers the local git CLI service shared by CLI and TUI entry points.
-        // IAdoGitService registration remains in the CLI Program.cs because it requires
-        // runtime auto-detection of the git remote URL during DI composition.
-        services.AddSingleton<IGitService, GitCliService>();
 
         // Seed publish rules provider — loads .twig/seed-rules.json or falls back to defaults.
         services.AddSingleton<ISeedPublishRulesProvider>(sp =>

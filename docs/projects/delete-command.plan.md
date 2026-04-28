@@ -1,8 +1,8 @@
 # Delete Command — Guarded Work Item Deletion with Link Safety Checks
 
 **Epic:** #2172  
-**Status:** Draft  
-**Revision:** 0  
+**Status:** ✅ Done  
+**Revision:** 1  
 
 ---
 
@@ -304,10 +304,10 @@ This is an Epic (#2172). The work breaks down into 3 Issues, each with concrete 
 | T-2172-3 | Add infrastructure unit tests for `DeleteAsync` — success path, 404 idempotent, auth error, offline error | `tests/Twig.Infrastructure.Tests/Ado/AdoRestClientDeleteTests.cs` | S |
 
 **Acceptance Criteria:**
-- [ ] `IAdoWorkItemService` has `DeleteAsync` method
-- [ ] `AdoRestClient.DeleteAsync` sends HTTP DELETE and handles success/error codes
-- [ ] Tests verify success, 404-idempotent, and error paths
-- [ ] Builds AOT-clean with no warnings
+- [x] `IAdoWorkItemService` has `DeleteAsync` method
+- [x] `AdoRestClient.DeleteAsync` sends HTTP DELETE and handles success/error codes
+- [x] Tests verify success, 404-idempotent, and error paths
+- [x] Builds AOT-clean with no warnings
 
 ---
 
@@ -327,13 +327,13 @@ This is an Epic (#2172). The work breaks down into 3 Issues, each with concrete 
 | T-2172-7 | Write comprehensive unit tests for `DeleteCommand`: seed guard, link guard (parent/child/related/predecessor/successor), children guard, confirmation accepted/declined, force flag, non-TTY guard, audit trail, cache cleanup, telemetry, output formats | `tests/Twig.Cli.Tests/Commands/DeleteCommandTests.cs` | M |
 
 **Acceptance Criteria:**
-- [ ] `twig delete 1234` shows confirmation with item details and closing recommendation
-- [ ] Refuses deletion when links exist with descriptive error
-- [ ] `--force` bypasses confirmation
-- [ ] Seed items redirected to `twig seed discard`
-- [ ] Parent receives audit note on successful deletion
-- [ ] Local cache cleaned up after deletion
-- [ ] All tests pass, builds AOT-clean
+- [x] `twig delete 1234` shows confirmation with item details and closing recommendation
+- [x] Refuses deletion when links exist with descriptive error
+- [x] `--force` bypasses confirmation
+- [x] Seed items redirected to `twig seed discard`
+- [x] Parent receives audit note on successful deletion
+- [x] Local cache cleaned up after deletion
+- [x] All tests pass, builds AOT-clean
 
 ---
 
@@ -352,11 +352,11 @@ This is an Epic (#2172). The work breaks down into 3 Issues, each with concrete 
 | T-2172-10 | Write MCP tool tests: confirmation flow, link guard, seed guard, confirmed deletion, cache cleanup, error paths | `tests/Twig.Mcp.Tests/Tools/MutationToolsDeleteTests.cs` | M |
 
 **Acceptance Criteria:**
-- [ ] `twig_delete(id: 1234)` returns structured confirmation with `requiresConfirmation: true`
-- [ ] `twig_delete(id: 1234, confirmed: true)` executes deletion
-- [ ] Link guard blocks deletion with descriptive error
-- [ ] Seed items rejected
-- [ ] Tests cover all paths
+- [x] `twig_delete(id: 1234)` returns structured confirmation with `requiresConfirmation: true`
+- [x] `twig_delete(id: 1234, confirmed: true)` executes deletion
+- [x] Link guard blocks deletion with descriptive error
+- [x] Seed items rejected
+- [x] Tests cover all paths
 
 ---
 
@@ -431,3 +431,16 @@ This is an Epic (#2172). The work breaks down into 3 Issues, each with concrete 
 - All `MutationToolsDeleteTests` pass: two-phase confirmation flow, link guard, seed guard, confirmed deletion, cache cleanup, error paths
 - MCP schema validation passes (no unregistered JSON types)
 - Full test suite (`dotnet test`) green before merge
+
+---
+
+## Completion
+
+**Completed:** 2026-04-28  
+**PRs Merged:** #139 (PG-1), #141 (PG-2), #145 (PG-3)  
+**Version Tag:** *(see release tag)*
+
+All 3 PR groups successfully implemented and merged. The delete command provides
+guarded work item deletion with link safety checks across CLI (`twig delete`) and
+MCP (`twig_delete`) interfaces. Comprehensive unit tests cover all safety guards,
+confirmation flows, and error paths.

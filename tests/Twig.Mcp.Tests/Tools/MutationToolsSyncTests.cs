@@ -310,4 +310,45 @@ public sealed class MutationToolsSyncTests : MutationToolsTestBase
         await _pendingChangeStore.Received()
             .GetDirtyItemIdsAsync(Arg.Any<CancellationToken>());
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  pull_only=true — prompt state writer still called
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Sync_PullOnly_PromptStateWriterStillCalled()
+    {
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>())
+            .Returns((int?)null);
+
+        await CreateMutationSut().Sync(pull_only: true);
+
+        await _promptStateWriter.Received(1).WritePromptStateAsync();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  pull_only=true — response structure is complete
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Sync_PullOnly_ResponseHasExpectedStructure()
+    {
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>())
+            .Returns((int?)null);
+
+        var result = await CreateMutationSut().Sync(pull_only: true);
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+        root.TryGetProperty("pullOnly", out _).ShouldBe(true);
+        root.GetProperty("pullOnly").GetBoolean().ShouldBe(true);
+        root.TryGetProperty("flushed", out _).ShouldBe(true);
+        root.TryGetProperty("failed", out _).ShouldBe(true);
+        root.TryGetProperty("failures", out var failures).ShouldBe(true);
+        failures.GetArrayLength().ShouldBe(0);
+    }
 }

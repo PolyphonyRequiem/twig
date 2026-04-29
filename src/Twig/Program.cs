@@ -700,13 +700,10 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> Sync(string output = OutputFormatterFactory.DefaultFormat, bool force = false, bool pullOnly = false, CancellationToken ct = default)
         => await services.GetRequiredService<SyncCommand>().ExecuteAsync(output, force, pullOnly, ct);
 
-    /// <summary>Refresh the local cache from Azure DevOps. Deprecated — use 'twig sync' instead.</summary>
+    /// <summary>Refresh the local cache from Azure DevOps. Routes through sync --pull-only.</summary>
     [Hidden]
     public async Task<int> Refresh(string output = OutputFormatterFactory.DefaultFormat, bool force = false, CancellationToken ct = default)
-    {
-        await Console.Error.WriteLineAsync("hint: 'twig refresh' is deprecated. Use 'twig sync' instead.");
-        return await services.GetRequiredService<RefreshCommand>().ExecuteAsync(output, force, ct);
-    }
+        => await services.GetRequiredService<SyncCommand>().ExecuteAsync(output, force, pullOnly: true, ct);
 
     /// <summary>Show the current workspace.</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>

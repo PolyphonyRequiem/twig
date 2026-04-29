@@ -4,10 +4,13 @@ using Twig.Domain.ValueObjects;
 namespace Twig.Domain.Services.Seed;
 
 /// <summary>
-/// Builds a cascade-discard plan by traversing the seed parent→child graph via BFS.
-/// 1 dependency on <see cref="IWorkItemRepository"/>, consumed by <c>SeedDiscardCommand</c>.
+/// Builds a cascade-discard plan and executes cascade deletion of seeds.
+/// Consumed by <c>SeedDiscardCommand</c>.
 /// </summary>
-public sealed class SeedDiscardOrchestrator(IWorkItemRepository workItemRepo)
+public sealed class SeedDiscardOrchestrator(
+    IWorkItemRepository workItemRepo,
+    ISeedLinkRepository seedLinkRepo,
+    IContextStore contextStore)
 {
     /// <summary>
     /// Validates the target seed exists and is a seed, then performs a BFS traversal
@@ -62,5 +65,28 @@ public sealed class SeedDiscardOrchestrator(IWorkItemRepository workItemRepo)
             TargetTitle = target.Title,
             AllIds = allIds,
         };
+    }
+
+    /// <summary>
+    /// Executes the cascade discard: clears active context if needed, deletes seed links,
+    /// then deletes work item rows. Processes children before parents (reverse BFS order)
+    /// to maintain referential integrity.
+    /// </summary>
+    public async Task ExecuteDiscardAsync(SeedDiscardPlan plan, CancellationToken ct = default)
+    {
+        // Clear active context if the current work item is any of the IDs being discarded
+        var activeId = await contextStore.GetActiveWorkItemIdAsync(ct);
+        if (activeId.HasValue && plan.AllIds.Contains(activeId.Value))
+        {
+            await contextStore.ClearActiveWorkItemIdAsync(ct);
+        }
+
+        // Process in reverse order (children before parents) to maintain referential integrity
+        for (var i = plan.AllIds.Count - 1; i >= 0; i--)
+        {
+            var id = plan.AllIds[i];
+            await seedLinkRepo.DeleteLinksForItemAsync(id, ct);
+            await workItemRepo.DeleteByIdAsync(id, ct);
+        }
     }
 }

@@ -3,17 +3,20 @@ using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Seed;
+using Twig.Domain.ValueObjects;
 using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Domain.Tests.Services.Seed;
 
 /// <summary>
-/// Unit tests for <see cref="SeedDiscardOrchestrator.BuildDiscardPlanAsync"/>.
+/// Unit tests for <see cref="SeedDiscardOrchestrator"/>.
 /// </summary>
 public sealed class SeedDiscardOrchestratorTests
 {
     private readonly IWorkItemRepository _workItemRepo = Substitute.For<IWorkItemRepository>();
+    private readonly ISeedLinkRepository _seedLinkRepo = Substitute.For<ISeedLinkRepository>();
+    private readonly IContextStore _contextStore = Substitute.For<IContextStore>();
     private readonly SeedDiscardOrchestrator _orchestrator;
 
     public SeedDiscardOrchestratorTests()
@@ -21,7 +24,7 @@ public sealed class SeedDiscardOrchestratorTests
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(new List<WorkItem>());
 
-        _orchestrator = new SeedDiscardOrchestrator(_workItemRepo);
+        _orchestrator = new SeedDiscardOrchestrator(_workItemRepo, _seedLinkRepo, _contextStore);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -216,5 +219,203 @@ public sealed class SeedDiscardOrchestratorTests
         plan.ShouldNotBeNull();
         plan.AllIds.ShouldBe(new[] { -1 });
         plan.HasDescendants.ShouldBeFalse();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  ExecuteDiscardAsync — single seed: links deleted, row deleted
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ExecuteDiscardAsync_SingleSeed_DeletesLinksAndRow()
+    {
+        var plan = new SeedDiscardPlan
+        {
+            TargetId = -1,
+            TargetTitle = "Single",
+            AllIds = [-1],
+        };
+
+        await _orchestrator.ExecuteDiscardAsync(plan);
+
+        await _seedLinkRepo.Received(1).DeleteLinksForItemAsync(-1, Arg.Any<CancellationToken>());
+        await _workItemRepo.Received(1).DeleteByIdAsync(-1, Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  ExecuteDiscardAsync — tree: all links and rows deleted
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ExecuteDiscardAsync_TreeWithChildren_DeletesAllLinksAndRows()
+    {
+        var plan = new SeedDiscardPlan
+        {
+            TargetId = -1,
+            TargetTitle = "Parent",
+            AllIds = [-1, -2, -3],
+        };
+
+        await _orchestrator.ExecuteDiscardAsync(plan);
+
+        await _seedLinkRepo.Received(1).DeleteLinksForItemAsync(-1, Arg.Any<CancellationToken>());
+        await _seedLinkRepo.Received(1).DeleteLinksForItemAsync(-2, Arg.Any<CancellationToken>());
+        await _seedLinkRepo.Received(1).DeleteLinksForItemAsync(-3, Arg.Any<CancellationToken>());
+        await _workItemRepo.Received(1).DeleteByIdAsync(-1, Arg.Any<CancellationToken>());
+        await _workItemRepo.Received(1).DeleteByIdAsync(-2, Arg.Any<CancellationToken>());
+        await _workItemRepo.Received(1).DeleteByIdAsync(-3, Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  ExecuteDiscardAsync — active context matches target → cleared
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ExecuteDiscardAsync_ActiveContextIsTarget_ClearsContext()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(-1);
+
+        var plan = new SeedDiscardPlan
+        {
+            TargetId = -1,
+            TargetTitle = "Target",
+            AllIds = [-1],
+        };
+
+        await _orchestrator.ExecuteDiscardAsync(plan);
+
+        await _contextStore.Received(1).ClearActiveWorkItemIdAsync(Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  ExecuteDiscardAsync — active context matches descendant → cleared
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ExecuteDiscardAsync_ActiveContextIsDescendant_ClearsContext()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(-3);
+
+        var plan = new SeedDiscardPlan
+        {
+            TargetId = -1,
+            TargetTitle = "Parent",
+            AllIds = [-1, -2, -3],
+        };
+
+        await _orchestrator.ExecuteDiscardAsync(plan);
+
+        await _contextStore.Received(1).ClearActiveWorkItemIdAsync(Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  ExecuteDiscardAsync — active context unrelated → NOT cleared
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ExecuteDiscardAsync_ActiveContextUnrelated_DoesNotClearContext()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(999);
+
+        var plan = new SeedDiscardPlan
+        {
+            TargetId = -1,
+            TargetTitle = "Target",
+            AllIds = [-1],
+        };
+
+        await _orchestrator.ExecuteDiscardAsync(plan);
+
+        await _contextStore.DidNotReceive().ClearActiveWorkItemIdAsync(Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  ExecuteDiscardAsync — no active context → NOT cleared
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ExecuteDiscardAsync_NoActiveContext_DoesNotClearContext()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+
+        var plan = new SeedDiscardPlan
+        {
+            TargetId = -1,
+            TargetTitle = "Target",
+            AllIds = [-1],
+        };
+
+        await _orchestrator.ExecuteDiscardAsync(plan);
+
+        await _contextStore.DidNotReceive().ClearActiveWorkItemIdAsync(Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  ExecuteDiscardAsync — deletion order: links before rows
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ExecuteDiscardAsync_DeletesLinksBeforeRows()
+    {
+        var callOrder = new List<string>();
+        _seedLinkRepo.DeleteLinksForItemAsync(-1, Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask)
+            .AndDoes(_ => callOrder.Add("DeleteLinks:-1"));
+        _workItemRepo.DeleteByIdAsync(-1, Arg.Any<CancellationToken>())
+            .Returns(Task.CompletedTask)
+            .AndDoes(_ => callOrder.Add("DeleteRow:-1"));
+
+        var plan = new SeedDiscardPlan
+        {
+            TargetId = -1,
+            TargetTitle = "Order Test",
+            AllIds = [-1],
+        };
+
+        await _orchestrator.ExecuteDiscardAsync(plan);
+
+        callOrder.Count.ShouldBe(2);
+        callOrder[0].ShouldBe("DeleteLinks:-1");
+        callOrder[1].ShouldBe("DeleteRow:-1");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  ExecuteDiscardAsync — tree: children processed before parents
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ExecuteDiscardAsync_Tree_ChildrenProcessedBeforeParents()
+    {
+        var callOrder = new List<string>();
+
+        // BFS order in AllIds: parent (-1), child (-2), grandchild (-3)
+        // Execution should reverse: grandchild first, then child, then parent
+        foreach (var id in new[] { -1, -2, -3 })
+        {
+            var capturedId = id;
+            _seedLinkRepo.DeleteLinksForItemAsync(capturedId, Arg.Any<CancellationToken>())
+                .Returns(Task.CompletedTask)
+                .AndDoes(_ => callOrder.Add($"DeleteLinks:{capturedId}"));
+            _workItemRepo.DeleteByIdAsync(capturedId, Arg.Any<CancellationToken>())
+                .Returns(Task.CompletedTask)
+                .AndDoes(_ => callOrder.Add($"DeleteRow:{capturedId}"));
+        }
+
+        var plan = new SeedDiscardPlan
+        {
+            TargetId = -1,
+            TargetTitle = "Tree Order",
+            AllIds = [-1, -2, -3],
+        };
+
+        await _orchestrator.ExecuteDiscardAsync(plan);
+
+        // Should process in reverse order: -3, -2, -1
+        callOrder.Count.ShouldBe(6);
+        callOrder[0].ShouldBe("DeleteLinks:-3");
+        callOrder[1].ShouldBe("DeleteRow:-3");
+        callOrder[2].ShouldBe("DeleteLinks:-2");
+        callOrder[3].ShouldBe("DeleteRow:-2");
+        callOrder[4].ShouldBe("DeleteLinks:-1");
+        callOrder[5].ShouldBe("DeleteRow:-1");
     }
 }

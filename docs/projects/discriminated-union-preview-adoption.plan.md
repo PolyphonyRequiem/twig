@@ -4,9 +4,24 @@
 **Type:** Issue
 **Status:** Draft
 
+> **⚠️ SUPERSEDED:** This document is a preliminary draft written before the research
+> investigation was complete. It contains factual errors (see below) and proposes an approach
+> that was explicitly rejected by the research. The authoritative plan is
+> [`du-preview-adoption.plan.md`](du-preview-adoption.plan.md), which reflects the correct
+> findings (DUs require .NET 11 / C# 15, and MergeResult — not StateCategory — is the
+> recommended first conversion candidate). This document is retained for historical context
+> only. Do not use it for implementation guidance.
+
 ---
 
 ## Executive Summary
+
+> **⚠️ Factual correction:** The original summary below incorrectly stated that DUs are
+> available in .NET 10. Research conclusively shows that the `union` keyword is a
+> **C# 15 / .NET 11** feature — not .NET 10. See [`du-preview-adoption.plan.md`](du-preview-adoption.plan.md)
+> for the authoritative executive summary. The StateCategory-first approach below was
+> also explicitly evaluated and rejected in favor of MergeResult-first (lower risk, no
+> serialization complexity, only 4 call sites vs 22+).
 
 C# discriminated unions (DUs) are available as a preview feature in .NET 10. Twig already
 employs a manual DU pattern extensively — 8 types use `abstract record` + `sealed record`

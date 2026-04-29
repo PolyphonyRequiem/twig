@@ -469,37 +469,53 @@ converting one manual DU type (`MergeResult`) to the native `union` keyword.
 
 ## PR Groups
 
-### PG-1: Research Deliverables (SDK Spike + Candidate Inventory)
+### PG-1: Planning Artifacts (Research Plan + Candidate Inventory)
 
-**Tasks included:** T1, T2, T3
+**Tasks included:** T3 (candidate inventory documentation, pre-implementation)
+**Classification:** Deep (documentation-only, no source changes)
+**Estimated LoC:** ~0 (docs only)
+**Files:** ~2 (plan documents)
+**Successors:** PG-2
+
+**Review guidance:**
+- Verify the research plan accurately captures the .NET 11 / C# 15 finding
+- Confirm the candidate inventory lists all 9 manual DU types with correct file paths
+- Confirm `StateCategory` is listed as deferred (not a first candidate) with rationale
+- Check that `MergeResult` is identified as the recommended first PoC candidate
+- Review the migration playbook for actionable patterns and clear adoption criteria
+- **This is a planning PR** — review for accuracy and coherence of findings
+
+### PG-2: Research Deliverables (SDK Spike + AOT Validation)
+
+**Tasks included:** T1, T2
 **Classification:** Deep (few files, investigation-heavy with technical validation)
 **Estimated LoC:** ~300–500 (config changes + polyfill + documentation)
 **Files:** ~8
-**Successors:** PG-2
+**Predecessor:** PG-1
+**Successors:** PG-3
 
 **Review guidance:**
 - Verify .NET 11 Preview SDK version is pinned correctly in `global.json`
 - Check that `TargetFramework=net11.0` and `LangVersion=preview` are set globally
 - Verify DU polyfill matches the blog post's specification exactly
-- Review feasibility report for thoroughness (all 9 DU types + 10 enums inventoried)
-- Review migration playbook for actionable patterns and clear adoption criteria
+- Review feasibility report for thoroughness (AOT results, SDK version, compatibility findings)
 - If SDK is unavailable, confirm the report documents the blocker clearly
 - **This is a research spike** — review for accuracy and completeness of findings
 
-### PG-2: DU Proof-of-Concept Conversion (Conditional)
+### PG-3: DU Proof-of-Concept Conversion (Conditional)
 
 **Tasks included:** T4, T5
 **Classification:** Deep (few files, complex type-system changes)
 **Estimated LoC:** ~150–200 (type refactor + test updates + guidelines doc)
 **Files:** ~6
-**Predecessor:** PG-1
+**Predecessor:** PG-2
 
 **Review guidance:**
 - Confirm `union MergeResult(...)` declaration compiles and enforces exhaustiveness
 - Check that all switch statements on `MergeResult` have exhaustive arms (no `_ =>`)
 - Verify AOT publish output exists and runs
 - Review guidelines doc for accuracy and completeness
-- **This PR is conditional** — only created if PG-1 proves SDK + DU + AOT feasibility
+- **This PR is conditional** — only created if PG-2 proves SDK + DU + AOT feasibility
 
 ## Future Work (Candidate Backlog)
 
@@ -523,24 +539,29 @@ Once the pattern is proven, the following types are candidates for opportunistic
 
 | Group | Name | Issues/Tasks | Dependencies | Type |
 |-------|------|-------------|--------------|------|
-| PG-1 | Research Deliverables | #2587 / T1, T2, T3 | none | deep |
-| PG-2 | DU PoC Conversion (conditional) | #2587 / T4, T5 | PG-1 | deep |
+| PG-1 | Planning Artifacts | #2587 / T3 (docs) | none | deep |
+| PG-2 | Research Deliverables (SDK Spike) | #2587 / T1, T2 | PG-1 | deep |
+| PG-3 | DU PoC Conversion (conditional) | #2587 / T4, T5 | PG-2 | deep |
 
 ### Execution Order
 
-**PG-1 → PG-2 (sequential, PG-2 conditional on PG-1 outcome)**
+**PG-1 → PG-2 → PG-3 (sequential, PG-3 conditional on PG-2 outcome)**
 
-PG-1 is submitted and reviewed first. It establishes the .NET 11 Preview SDK baseline
-(T1), validates DU + AOT compatibility (T2), and delivers the candidate inventory and
-migration playbook (T3). These three tasks are self-contained as a research spike: the
-codebase builds on .NET 11 (or the blocker is documented), the polyfill exists, and the
-docs are committed — regardless of whether T4/T5 proceed.
+PG-1 is submitted first. It delivers the planning documents: the research plan with
+MergeResult-first rationale (T3 research/inventory portion) and this candidate inventory,
+establishing the approach before any code changes land.
 
-PG-2 is opened only if PG-1 confirms SDK + DU + AOT feasibility. It converts
+PG-2 establishes the .NET 11 Preview SDK baseline (T1), validates DU + AOT compatibility
+(T2), and delivers the feasibility report and migration playbook as committed docs. These
+tasks are self-contained as a research spike: the codebase builds on .NET 11 (or the
+blocker is documented), the polyfill exists, and the research docs are committed —
+regardless of whether T4/T5 proceed.
+
+PG-3 is opened only if PG-2 confirms SDK + DU + AOT feasibility. It converts
 `MergeResult` to the native `union` keyword (T4) and validates tests plus documents
-adoption guidelines (T5). If PG-1 determines the .NET 11 Preview SDK is unavailable or
-DUs are not yet in the available preview, PG-2 is deferred and the issue closes with
-the PG-1 research deliverables.
+adoption guidelines (T5). If PG-2 determines the .NET 11 Preview SDK is unavailable or
+DUs are not yet in the available preview, PG-3 is deferred and the issue closes with
+the PG-2 research deliverables.
 
 ### Validation Strategy
 

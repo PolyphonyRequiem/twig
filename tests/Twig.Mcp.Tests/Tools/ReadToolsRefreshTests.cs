@@ -247,4 +247,114 @@ public sealed class ReadToolsRefreshTests : ReadToolsTestBase
         await _workItemRepo.DidNotReceive()
             .GetChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Full context refresh — includes parent chain when item has parentId
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Refresh_NoId_IncludesParentChainInSync()
+    {
+        var item = new WorkItemBuilder(42, "Child Task").AsTask().InState("Doing")
+            .WithParent(100).LastSyncedAt(null).Build();
+        var parent = new WorkItemBuilder(100, "Parent Issue").AsIssue().InState("Doing")
+            .LastSyncedAt(null).Build();
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _workItemRepo.GetParentChainAsync(100, Arg.Any<CancellationToken>())
+            .Returns(new[] { parent });
+        _workItemRepo.GetChildrenAsync(42, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
+
+        var stats = new CacheStatistics(TrackedItemCount: 2, NewestSyncUtc: DateTimeOffset.UtcNow, OldestSyncUtc: DateTimeOffset.UtcNow);
+        _workItemRepo.GetCacheStatisticsAsync(Arg.Any<CancellationToken>()).Returns(stats);
+
+        var sut = CreateSut(_config);
+        var result = await sut.Refresh();
+
+        result.IsError.ShouldBeNull();
+
+        // Parent item should have been fetched from ADO as part of the sync set
+        await _adoService.Received().FetchAsync(100, Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Active item not in cache — FetchedFromAdo path
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Refresh_NoId_ActiveItemFetchedFromAdo_StillRefreshes()
+    {
+        var item = new WorkItemBuilder(42, "My Task").AsTask().InState("Doing")
+            .LastSyncedAt(null).Build();
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        // Item NOT in cache — triggers FetchedFromAdo path in ActiveItemResolver
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        _workItemRepo.GetChildrenAsync(42, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetParentChainAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+
+        var stats = new CacheStatistics(TrackedItemCount: 1, NewestSyncUtc: DateTimeOffset.UtcNow, OldestSyncUtc: DateTimeOffset.UtcNow);
+        _workItemRepo.GetCacheStatisticsAsync(Arg.Any<CancellationToken>()).Returns(stats);
+
+        var sut = CreateSut(_config);
+        var result = await sut.Refresh();
+
+        result.IsError.ShouldBeNull();
+        var data = ParseResult(result);
+        data.GetProperty("durationMs").GetInt64().ShouldBeGreaterThanOrEqualTo(0);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Active item unreachable — returns zero refreshed
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Refresh_NoId_ActiveItemUnreachable_ReturnsZeroRefreshed()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        // Item NOT in cache
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        // AND ADO fetch fails — ActiveItemResolver returns Unreachable
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("ADO unreachable"));
+
+        var stats = new CacheStatistics(TrackedItemCount: 0, NewestSyncUtc: null, OldestSyncUtc: null);
+        _workItemRepo.GetCacheStatisticsAsync(Arg.Any<CancellationToken>()).Returns(stats);
+
+        var sut = CreateSut(_config);
+        var result = await sut.Refresh();
+
+        result.IsError.ShouldBeNull();
+        var data = ParseResult(result);
+        data.GetProperty("refreshedCount").GetInt32().ShouldBe(0);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  durationMs is always non-negative
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Refresh_DurationMs_IsNonNegative()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>())
+            .Returns((int?)null);
+
+        var stats = new CacheStatistics(TrackedItemCount: 0, NewestSyncUtc: null, OldestSyncUtc: null);
+        _workItemRepo.GetCacheStatisticsAsync(Arg.Any<CancellationToken>()).Returns(stats);
+
+        var sut = CreateSut(_config);
+        var result = await sut.Refresh();
+
+        var data = ParseResult(result);
+        data.GetProperty("durationMs").GetInt64().ShouldBeGreaterThanOrEqualTo(0);
+    }
 }

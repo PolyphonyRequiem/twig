@@ -193,4 +193,82 @@ public sealed class ReadToolsCacheStatusTests : ReadToolsTestBase
         await _adoService.DidNotReceiveWithAnyArgs().FetchAsync(default, default);
         await _adoService.DidNotReceiveWithAnyArgs().FetchChildrenAsync(default, default);
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Future OldestSyncUtc — clock skew guard clamps to zero
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task CacheStatus_FutureOldestSyncUtc_ClampsToZero()
+    {
+        var futureSync = DateTimeOffset.UtcNow.AddMinutes(30);
+        var stats = new CacheStatistics(
+            TrackedItemCount: 1,
+            NewestSyncUtc: futureSync,
+            OldestSyncUtc: futureSync);
+
+        _workItemRepo.GetCacheStatisticsAsync(Arg.Any<CancellationToken>()).Returns(stats);
+        _pendingChangeStore.GetTotalPendingChangeCountAsync(Arg.Any<CancellationToken>()).Returns(0);
+
+        var sut = CreateSut(_config);
+        var result = await sut.CacheStatus();
+
+        result.IsError.ShouldBeNull();
+        var data = ParseResult(result);
+
+        // Math.Max(0, ...) should clamp negative age to zero
+        data.GetProperty("oldestItemAgeSeconds").GetInt64().ShouldBe(0);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  lastSyncUtc — ISO 8601 round-trip format
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task CacheStatus_LastSyncUtc_IsIso8601RoundTripFormat()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var stats = new CacheStatistics(
+            TrackedItemCount: 1,
+            NewestSyncUtc: now,
+            OldestSyncUtc: now);
+
+        _workItemRepo.GetCacheStatisticsAsync(Arg.Any<CancellationToken>()).Returns(stats);
+        _pendingChangeStore.GetTotalPendingChangeCountAsync(Arg.Any<CancellationToken>()).Returns(0);
+
+        var sut = CreateSut(_config);
+        var result = await sut.CacheStatus();
+
+        var data = ParseResult(result);
+        var lastSync = data.GetProperty("lastSyncUtc").GetString()!;
+
+        // Should be parseable as DateTimeOffset in ISO 8601 format
+        DateTimeOffset.TryParse(lastSync, System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.RoundtripKind, out var parsed).ShouldBeTrue();
+        parsed.ShouldBe(now, TimeSpan.FromSeconds(1));
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Large pending change count — no overflow
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task CacheStatus_LargePendingCount_ReturnedAccurately()
+    {
+        var stats = new CacheStatistics(
+            TrackedItemCount: 500,
+            NewestSyncUtc: DateTimeOffset.UtcNow,
+            OldestSyncUtc: DateTimeOffset.UtcNow);
+
+        _workItemRepo.GetCacheStatisticsAsync(Arg.Any<CancellationToken>()).Returns(stats);
+        _pendingChangeStore.GetTotalPendingChangeCountAsync(Arg.Any<CancellationToken>()).Returns(999);
+
+        var sut = CreateSut(_config);
+        var result = await sut.CacheStatus();
+
+        result.IsError.ShouldBeNull();
+        var data = ParseResult(result);
+        data.GetProperty("pendingChangeCount").GetInt32().ShouldBe(999);
+        data.GetProperty("trackedItemCount").GetInt32().ShouldBe(500);
+    }
 }

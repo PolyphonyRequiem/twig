@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Twig.Commands;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.Mutation;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Process;
 using Twig.Domain.Services.Seed;
@@ -90,6 +91,9 @@ public static class CommandServiceModule
             sp.GetRequiredService<ISeedLinkRepository>(),
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IPublishIdMapRepository>()));
+
+        // Mutation providers — SeedMutationProvider for local-only seed mutations
+        services.AddSingleton<SeedMutationProvider>();
 
         // EPIC-002: Domain orchestration services
         services.AddSingleton<ParentStatePropagationService>(sp => new ParentStatePropagationService(

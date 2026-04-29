@@ -1,5 +1,6 @@
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.Mutation;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Process;
 using Twig.Domain.Services.Sync;
@@ -13,6 +14,7 @@ namespace Twig.Commands;
 /// Implements <c>twig state &lt;name&gt;</c>: resolves a full or partial state name,
 /// validates transition, pushes to ADO, auto-pushes pending notes,
 /// and updates cache.
+/// Routes through <see cref="SeedMutationProvider"/> for local-only seeds.
 /// </summary>
 public sealed class StateCommand(
     CommandContext ctx,
@@ -22,6 +24,7 @@ public sealed class StateCommand(
     IPendingChangeStore pendingChangeStore,
     IProcessConfigurationProvider processConfigProvider,
     IConsoleInput consoleInput,
+    SeedMutationProvider seedMutationProvider,
     IPromptStateWriter? promptStateWriter = null,
     ParentStatePropagationService? parentPropagationService = null)
 {
@@ -48,6 +51,30 @@ public sealed class StateCommand(
                 : "No active work item. Run 'twig set <id>' or pass --id."));
             return 1;
         }
+
+        // Seed routing: local-only mutation, no process config or ADO interaction.
+        if (item.IsSeed)
+        {
+            if (string.Equals(item.State, stateName, StringComparison.OrdinalIgnoreCase))
+            {
+                Console.WriteLine(fmt.FormatInfo($"Already in state '{stateName}'."));
+                return 0;
+            }
+
+            var change = new FieldChange("System.State", item.State, stateName);
+            var result = await seedMutationProvider.ChangeStateAsync(item.Id, change, ct);
+            if (!result.IsSuccess)
+            {
+                _stderr.WriteLine(fmt.FormatError(result.ErrorMessage ?? "Failed to change state."));
+                return 1;
+            }
+
+            if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
+            Console.WriteLine(fmt.FormatSuccess($"#{item.Id} {item.Title} → {stateName}"));
+            return 0;
+        }
+
+        // ── Published (ADO) flow ────────────────────────────────────────
 
         var processConfig = processConfigProvider.GetConfiguration();
 

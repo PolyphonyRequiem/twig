@@ -1,4 +1,5 @@
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.Mutation;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.ValueObjects;
@@ -12,6 +13,7 @@ namespace Twig.Commands;
 /// <summary>
 /// Implements <c>twig update &lt;field&gt; &lt;value&gt;</c>: pulls latest from ADO,
 /// conflict-resolves, applies change, pushes, auto-pushes notes, clears pending, updates cache.
+/// Routes through <see cref="SeedMutationProvider"/> for local-only seeds.
 /// </summary>
 public sealed class UpdateCommand(
     ActiveItemResolver activeItemResolver,
@@ -20,6 +22,7 @@ public sealed class UpdateCommand(
     IPendingChangeStore pendingChangeStore,
     IConsoleInput consoleInput,
     OutputFormatterFactory formatterFactory,
+    SeedMutationProvider seedMutationProvider,
     IPromptStateWriter? promptStateWriter = null,
     TextReader? stdinReader = null,
     TextWriter? stderr = null,
@@ -92,6 +95,34 @@ public sealed class UpdateCommand(
             return 1;
         }
 
+        // Seed routing: local-only mutation, no ADO interaction.
+        if (local.IsSeed)
+        {
+            if (append)
+            {
+                local.Fields.TryGetValue(field, out var existingValue);
+                effectiveValue = FieldAppender.Append(existingValue, effectiveValue, asHtml: format is not null);
+            }
+
+            var change = new FieldChange(field, null, effectiveValue);
+            var result = await seedMutationProvider.UpdateFieldAsync(local.Id, change, ct);
+            if (!result.IsSuccess)
+            {
+                _stderr.WriteLine(fmt.FormatError(result.ErrorMessage ?? "Failed to update field."));
+                return 1;
+            }
+
+            if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
+
+            var displayValue = filePath is not null ? $"[from file: {filePath}]"
+                             : readStdin ? "[from stdin]"
+                             : resolvedValue;
+            _stdout.WriteLine(fmt.FormatSuccess($"#{local.Id} {local.Title} updated: {field} = '{displayValue}'"));
+            return 0;
+        }
+
+        // ── Published (ADO) flow ────────────────────────────────────────
+
         var remote = await adoService.FetchAsync(local.Id);
 
         var conflictOutcome = await ConflictResolutionFlow.ResolveAsync(
@@ -126,10 +157,10 @@ public sealed class UpdateCommand(
 
         if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
-        var displayValue = filePath is not null ? $"[from file: {filePath}]"
+        var displayValue2 = filePath is not null ? $"[from file: {filePath}]"
                          : readStdin ? "[from stdin]"
                          : resolvedValue;
-        _stdout.WriteLine(fmt.FormatSuccess($"#{local.Id} {local.Title} updated: {field} = '{displayValue}'"));
+        _stdout.WriteLine(fmt.FormatSuccess($"#{local.Id} {local.Title} updated: {field} = '{displayValue2}'"));
 
         return 0;
     }

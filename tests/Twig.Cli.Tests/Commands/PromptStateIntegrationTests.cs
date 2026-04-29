@@ -6,6 +6,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
+using Twig.Domain.Services.Mutation;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Process;
 using Twig.Domain.Services.Sync;
@@ -151,6 +152,7 @@ public class PromptStateIntegrationTests : IDisposable
             new CommandContext(new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true), _formatterFactory, _hintEngine, _config),
             resolver, _workItemRepo, _adoService,
             _pendingChangeStore, _processConfigProvider, _consoleInput,
+            new SeedMutationProvider(_workItemRepo),
             promptStateWriter: writer);
 
         var result = await cmd.ExecuteAsync("Resolved");
@@ -287,7 +289,8 @@ public class PromptStateIntegrationTests : IDisposable
         var writer = CreateWriter();
         var updateResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var cmd = new UpdateCommand(updateResolver, _workItemRepo, _adoService,
-            _pendingChangeStore, _consoleInput, _formatterFactory, writer);
+            _pendingChangeStore, _consoleInput, _formatterFactory,
+            new SeedMutationProvider(_workItemRepo), writer);
 
         var result = await cmd.ExecuteAsync("System.Title", "New Title");
 

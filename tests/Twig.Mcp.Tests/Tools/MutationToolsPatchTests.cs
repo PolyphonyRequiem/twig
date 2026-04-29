@@ -311,4 +311,84 @@ public sealed class MutationToolsPatchTests : MutationToolsTestBase
         await _pendingChangeStore.Received().GetChangesAsync(
             42, Arg.Any<CancellationToken>());
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Seed routing — patch via SeedMutationProvider
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Patch_OnSeed_RoutesToSeedProvider_NoAdoCalls()
+    {
+        var item = new WorkItemBuilder(-1, "Seed Task").AsTask().AsSeed().InState("To Do").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(-1);
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(item);
+
+        var result = await CreateMutationSut().Patch(
+            "{\"System.Title\":\"New\",\"System.Description\":\"Desc\"}");
+
+        result.IsError.ShouldBeNull();
+
+        // No ADO calls should have been made
+        await _adoService.DidNotReceive().FetchAsync(
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().PatchAsync(
+            Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Patch_OnSeed_AppliesAllFields()
+    {
+        var item = new WorkItemBuilder(-1, "Seed Task").AsTask().AsSeed().InState("To Do").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(-1);
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(item);
+
+        var result = await CreateMutationSut().Patch(
+            "{\"System.Title\":\"Updated\",\"System.Description\":\"New desc\"}");
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+        root.GetProperty("id").GetInt32().ShouldBe(-1);
+        root.GetProperty("fieldCount").GetInt32().ShouldBe(2);
+        root.GetProperty("updatedFields").GetProperty("System.Title").GetProperty("new")
+            .GetString().ShouldBe("Updated");
+        root.GetProperty("updatedFields").GetProperty("System.Description").GetProperty("new")
+            .GetString().ShouldBe("New desc");
+        root.GetProperty("isSeed").GetBoolean().ShouldBe(true);
+    }
+
+    [Fact]
+    public async Task Patch_OnSeed_FieldFailure_ReturnsErrorWithFieldName()
+    {
+        var item = new WorkItemBuilder(-1, "Seed Task").AsTask().AsSeed().InState("To Do").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(-1);
+
+        // First GetByIdAsync returns item (for ActiveItemResolver),
+        // subsequent calls (from SeedMutationProvider) return null to trigger error
+        var callCount = 0;
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                callCount++;
+                return callCount <= 1 ? item : null;
+            });
+
+        var result = await CreateMutationSut().Patch("{\"System.Title\":\"New\"}");
+
+        result.IsError.ShouldBe(true);
+        GetErrorText(result).ShouldContain("System.Title");
+        GetErrorText(result).ShouldContain("failed");
+    }
+
+    [Fact]
+    public async Task Patch_OnSeed_PromptStateWriterCalled()
+    {
+        var item = new WorkItemBuilder(-1, "Seed Task").AsTask().AsSeed().InState("To Do").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(-1);
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(item);
+
+        await CreateMutationSut().Patch("{\"System.Title\":\"x\"}");
+
+        await _promptStateWriter.Received(1).WritePromptStateAsync();
+    }
 }

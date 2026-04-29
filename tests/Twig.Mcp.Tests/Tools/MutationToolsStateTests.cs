@@ -592,4 +592,69 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
         var root = ParseResult(result);
         root.GetProperty("state").GetString().ShouldBe("Doing");
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Seed routing — state change via SeedMutationProvider
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task State_OnSeed_RoutesToSeedProvider_NoAdoCalls()
+    {
+        var item = new WorkItemBuilder(-1, "Seed Task").AsTask().AsSeed().InState("To Do").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(-1);
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(item);
+
+        var result = await CreateMutationSut().State("Doing");
+
+        result.IsError.ShouldBeNull();
+
+        // No ADO calls should have been made
+        await _adoService.DidNotReceive().FetchAsync(
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().PatchAsync(
+            Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task State_OnSeed_ReturnsFormattedResult()
+    {
+        var item = new WorkItemBuilder(-1, "Seed Task").AsTask().AsSeed().InState("To Do").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(-1);
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(item);
+
+        var result = await CreateMutationSut().State("Doing");
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+        root.GetProperty("id").GetInt32().ShouldBe(-1);
+        root.GetProperty("previousState").GetString().ShouldBe("To Do");
+        root.GetProperty("isSeed").GetBoolean().ShouldBe(true);
+    }
+
+    [Fact]
+    public async Task State_OnSeed_SkipsProcessConfigValidation()
+    {
+        var item = new WorkItemBuilder(-1, "Seed Task").AsTask().AsSeed().InState("New").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(-1);
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(item);
+
+        // No process config set — would fail for non-seed items
+        var result = await CreateMutationSut().State("AnyState");
+
+        result.IsError.ShouldBeNull();
+        _processConfigProvider.DidNotReceive().GetConfiguration();
+    }
+
+    [Fact]
+    public async Task State_OnSeed_PromptStateWriterCalled()
+    {
+        var item = new WorkItemBuilder(-1, "Seed Task").AsTask().AsSeed().InState("To Do").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(-1);
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(item);
+
+        await CreateMutationSut().State("Doing");
+
+        await _promptStateWriter.Received(1).WritePromptStateAsync();
+    }
 }

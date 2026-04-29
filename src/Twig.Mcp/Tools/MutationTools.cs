@@ -4,6 +4,7 @@ using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Enums;
+using Twig.Domain.Services.Mutation;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Process;
 using Twig.Domain.Services.Sync;
@@ -44,6 +45,25 @@ public sealed class MutationTools(WorkspaceResolver resolver)
             ? f.WorkItem
             : ((ActiveItemResult.FetchedFromAdo)resolved).WorkItem;
 
+        // Seed routing: local-only mutation, no process config or ADO interaction.
+        if (item.IsSeed)
+        {
+            var previousState = item.State;
+            var change = new FieldChange("System.State", item.State, stateName);
+            var seedProvider = new SeedMutationProvider(ctx.WorkItemRepo);
+            var seedResult = await seedProvider.ChangeStateAsync(item.Id, change, ct);
+            if (!seedResult.IsSuccess)
+                return McpResultBuilder.ToError(seedResult.ErrorMessage!);
+
+            // Re-read the updated item for the response
+            var seedUpdated = await ctx.WorkItemRepo.GetByIdAsync(item.Id, ct) ?? item;
+
+            try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
+
+            return McpResultBuilder.FormatStateChange(seedUpdated, previousState);
+        }
+
         var processConfig = ctx.ProcessConfigProvider.GetConfiguration();
         if (!processConfig.TypeConfigs.TryGetValue(item.Type, out var typeConfig))
             return McpResultBuilder.ToError($"No process configuration found for type '{item.Type}'.");
@@ -53,7 +73,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
             return McpResultBuilder.ToError(resolveResult.Error);
 
         var newState = resolveResult.Value;
-        var previousState = item.State;
+        var previousStateAdo = item.State;
 
         if (string.Equals(item.State, newState, StringComparison.OrdinalIgnoreCase))
             return McpResultBuilder.ToResult($"Already in state '{newState}'.");
@@ -99,7 +119,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
-        return McpResultBuilder.FormatStateChange(updated, previousState);
+        return McpResultBuilder.FormatStateChange(updated, previousStateAdo);
     }
 
     [McpServerTool(Name = "twig_update"), Description("Update a field on the active work item and push to ADO")]
@@ -132,6 +152,27 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         var item = resolved is ActiveItemResult.Found f
             ? f.WorkItem
             : ((ActiveItemResult.FetchedFromAdo)resolved).WorkItem;
+
+        // Seed routing: local-only mutation, no ADO interaction.
+        if (item.IsSeed)
+        {
+            if (append)
+            {
+                item.Fields.TryGetValue(field, out var existingValue);
+                effectiveValue = FieldAppender.Append(existingValue, effectiveValue, asHtml: format is not null);
+            }
+
+            var change = new FieldChange(field, null, effectiveValue);
+            var seedProvider = new SeedMutationProvider(ctx.WorkItemRepo);
+            var seedResult = await seedProvider.UpdateFieldAsync(item.Id, change, ct);
+            if (!seedResult.IsSuccess)
+                return McpResultBuilder.ToError(seedResult.ErrorMessage!);
+
+            try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
+
+            return McpResultBuilder.FormatFieldUpdate(item, field, value);
+        }
 
         WorkItem remote;
         try
@@ -222,6 +263,23 @@ public sealed class MutationTools(WorkspaceResolver resolver)
                 : value;
             changes.Add(new FieldChange(key, null, effectiveValue));
             fieldChanges[key] = (null, effectiveValue);
+        }
+
+        // Seed routing: apply each field change via SeedMutationProvider.
+        if (item.IsSeed)
+        {
+            var seedProvider = new SeedMutationProvider(ctx.WorkItemRepo);
+            foreach (var change in changes)
+            {
+                var seedResult = await seedProvider.UpdateFieldAsync(item.Id, change, ct);
+                if (!seedResult.IsSuccess)
+                    return McpResultBuilder.ToError($"Field '{change.FieldName}' failed: {seedResult.ErrorMessage}");
+            }
+
+            try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
+
+            return McpResultBuilder.FormatPatch(item, fieldChanges);
         }
 
         // Fetch remote and PATCH with conflict retry

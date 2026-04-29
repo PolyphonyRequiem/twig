@@ -6,6 +6,7 @@ using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.Mutation;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
@@ -22,6 +23,7 @@ public class UpdateCommandTests
     private readonly IAdoWorkItemService _adoService;
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IConsoleInput _consoleInput;
+    private readonly SeedMutationProvider _seedMutationProvider;
     private readonly UpdateCommand _cmd;
 
     public UpdateCommandTests()
@@ -31,6 +33,7 @@ public class UpdateCommandTests
         _adoService = Substitute.For<IAdoWorkItemService>();
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
         _consoleInput = Substitute.For<IConsoleInput>();
+        _seedMutationProvider = new SeedMutationProvider(_workItemRepo);
 
         _cmd = CreateCommand();
     }
@@ -41,7 +44,7 @@ public class UpdateCommandTests
             new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         return new UpdateCommand(resolver, _workItemRepo, _adoService, _pendingChangeStore,
-            _consoleInput, formatterFactory, stdinReader: stdinReader, stderr: stderr, stdout: stdout);
+            _consoleInput, formatterFactory, _seedMutationProvider, stdinReader: stdinReader, stderr: stderr, stdout: stdout);
     }
 
     private void SetupSuccessfulPatch()
@@ -684,5 +687,105 @@ public class UpdateCommandTests
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value,
         };
+    }
+
+    private static WorkItem CreateSeedWorkItem(int id, string title)
+    {
+        return new WorkItemBuilder(id, title).AsSeed().Build();
+    }
+
+    // ── Seed routing tests ──────────────────────────────────────────
+
+    [Fact]
+    public async Task Update_OnSeed_WritesLocally_NoAdoCall()
+    {
+        var seed = CreateSeedWorkItem(-1, "Seed Item");
+        SetupActiveItem(seed);
+
+        var result = await _cmd.ExecuteAsync("System.Title", "Updated Title");
+
+        result.ShouldBe(0);
+        await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().PatchAsync(
+            Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _workItemRepo.Received().SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Update_OnSeed_Append_WorksLocally()
+    {
+        var seed = new WorkItemBuilder(-2, "Seed Item")
+            .AsSeed()
+            .WithField("System.Description", "existing text")
+            .Build();
+        SetupActiveItem(seed);
+
+        var stdout = new StringWriter();
+        var cmd = CreateCommand(stdout: stdout);
+
+        var result = await cmd.ExecuteAsync("System.Description", "appended text", append: true);
+
+        result.ShouldBe(0);
+        await _workItemRepo.Received().SaveAsync(
+            Arg.Is<WorkItem>(w => w.Fields["System.Description"] == "existing text\n\nappended text"),
+            Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Update_OnSeed_MarkdownFormat_WorksLocally()
+    {
+        var seed = CreateSeedWorkItem(-3, "Seed Item");
+        SetupActiveItem(seed);
+
+        var result = await _cmd.ExecuteAsync("System.Description", "# Hello", format: "markdown");
+
+        result.ShouldBe(0);
+        await _workItemRepo.Received().SaveAsync(
+            Arg.Is<WorkItem>(w =>
+                w.Fields.ContainsKey("System.Description") &&
+                w.Fields["System.Description"]!.Contains("<h1") &&
+                w.Fields["System.Description"]!.Contains("Hello</h1>")),
+            Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Update_OnSeed_ProviderError_ReturnsExitCode1()
+    {
+        // Item exists as seed in the context store but NOT in the repo,
+        // so SeedMutationProvider.UpdateFieldAsync returns an error.
+        var seed = CreateSeedWorkItem(-4, "Missing Seed");
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(seed.Id);
+        _workItemRepo.GetByIdAsync(seed.Id, Arg.Any<CancellationToken>())
+            .Returns(seed,              // first call: ActiveItemResolver
+                     (WorkItem?)null);  // second call: SeedMutationProvider
+
+        var stderr = new StringWriter();
+        var cmd = CreateCommand(stderr: stderr);
+
+        var result = await cmd.ExecuteAsync("System.Title", "Value");
+
+        result.ShouldBe(1);
+        stderr.ToString().ShouldContain("not found");
+        await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Update_OnSeed_SuccessMessage_ShowsValue()
+    {
+        var seed = CreateSeedWorkItem(-5, "Seed Item");
+        SetupActiveItem(seed);
+
+        var stdout = new StringWriter();
+        var cmd = CreateCommand(stdout: stdout);
+
+        var result = await cmd.ExecuteAsync("System.Title", "New Title");
+
+        result.ShouldBe(0);
+        var output = stdout.ToString();
+        output.ShouldContain("#-5");
+        output.ShouldContain("Seed Item");
+        output.ShouldContain("New Title");
     }
 }

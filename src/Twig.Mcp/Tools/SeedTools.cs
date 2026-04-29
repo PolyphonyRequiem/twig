@@ -12,7 +12,7 @@ using Twig.Mcp.Services;
 namespace Twig.Mcp.Tools;
 
 /// <summary>
-/// MCP tools for seed lifecycle: twig_seed_new, twig_seed_view, twig_seed_publish.
+/// MCP tools for seed lifecycle: twig_seed_new, twig_seed_view, twig_seed_publish, twig_seed_validate, twig_seed_discard, twig_seed_chain.
 /// Seeds are local-only draft work items with negative IDs.
 /// Resolves per-workspace services via <see cref="WorkspaceResolver"/>.
 /// </summary>
@@ -348,6 +348,196 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
             parts.Add(FormatPublishError(r));
 
         return string.Join(" | ", parts);
+    }
+
+    [McpServerTool(Name = "twig_seed_validate"), Description("Run pre-publish validation checks on one or all seeds. Returns structured validation results without publishing.")]
+    public async Task<CallToolResult> SeedValidate(
+        [Description("Seed ID to validate (negative integer). Mutually exclusive with all=true.")] int? id = null,
+        [Description("When true, validates all seeds. Mutually exclusive with id.")] bool all = false,
+        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
+        CancellationToken ct = default)
+    {
+        if (!id.HasValue && !all)
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, "Specify a seed id or set all=true.");
+
+        if (id.HasValue && all)
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, "Specify either id or all=true, not both.");
+
+        if (id.HasValue && id.Value >= 0)
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, $"Seed ID must be a negative integer (got {id.Value}). Only seeds can be validated.");
+
+        if (!resolver.TryResolve(workspace, out var ctx, out var err))
+            return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
+
+        var rules = await ctx.SeedPublishRulesProvider.GetRulesAsync(ct);
+
+        if (all)
+        {
+            var seeds = await ctx.WorkItemRepo.GetSeedsAsync(ct);
+            var results = seeds.Select(s => SeedValidator.Validate(s, rules)).ToList();
+            var passCount = results.Count(r => r.Passed);
+            var failCount = results.Count - passCount;
+
+            return await EnvelopeBuilder.SuccessAsync(ctx, writer =>
+            {
+                writer.WriteNumber("totalCount", results.Count);
+                writer.WriteNumber("passedCount", passCount);
+                writer.WriteNumber("failedCount", failCount);
+
+                writer.WriteStartArray("results");
+                foreach (var r in results)
+                {
+                    writer.WriteStartObject();
+                    WriteValidationResult(writer, r);
+                    writer.WriteEndObject();
+                }
+                writer.WriteEndArray();
+            }, verbose, ct);
+        }
+
+        // Single seed validation
+        var seed = await ctx.WorkItemRepo.GetByIdAsync(id!.Value, ct);
+        if (seed is null || !seed.IsSeed)
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound,
+                $"Seed {id.Value} not found.", ctx, ct);
+
+        var result = SeedValidator.Validate(seed, rules);
+
+        return await EnvelopeBuilder.SuccessAsync(ctx, writer =>
+        {
+            WriteValidationResult(writer, result);
+        }, verbose, ct);
+    }
+
+    [McpServerTool(Name = "twig_seed_discard"), Description("Remove a seed from local store with cascade deletion of child seeds. No ADO interaction — local only.")]
+    public async Task<CallToolResult> SeedDiscard(
+        [Description("Seed ID to discard (negative integer).")] int id,
+        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
+        CancellationToken ct = default)
+    {
+        if (id >= 0)
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, $"Seed ID must be a negative integer (got {id}). Only seeds can be discarded.");
+
+        if (!resolver.TryResolve(workspace, out var ctx, out var err))
+            return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
+
+        var orchestrator = new SeedDiscardOrchestrator(ctx.WorkItemRepo, ctx.SeedLinkRepo, ctx.ContextStore);
+        var plan = await orchestrator.BuildDiscardPlanAsync(id, ct);
+
+        if (plan is null)
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound,
+                $"Seed {id} not found or is not a seed.", ctx, ct);
+
+        await orchestrator.ExecuteDiscardAsync(plan, ct);
+
+        return await EnvelopeBuilder.SuccessAsync(ctx, writer =>
+        {
+            writer.WriteNumber("discardedId", plan.TargetId);
+            writer.WriteString("discardedTitle", plan.TargetTitle);
+            writer.WriteNumber("totalDiscarded", plan.AllIds.Count);
+            writer.WriteNumber("descendantsDiscarded", plan.DescendantCount);
+
+            writer.WriteStartArray("allDiscardedIds");
+            foreach (var discardedId in plan.AllIds)
+                writer.WriteNumberValue(discardedId);
+            writer.WriteEndArray();
+        }, verbose, ct);
+    }
+
+    [McpServerTool(Name = "twig_seed_chain"), Description("Create a sequence of seeds under the same parent. Returns all created seed IDs. Composable inside twig_batch parallel blocks.")]
+    public async Task<CallToolResult> SeedChain(
+        [Description("Parent work item ID (positive for ADO items, negative for other seeds).")] int parentId,
+        [Description("Ordered list of titles for the seed chain.")] string[] titles,
+        [Description("Work item type (e.g. Task, Issue). When omitted, inferred from parent's allowed child types.")] string? type = null,
+        [Description("Assignee display name applied to all seeds (optional)")] string? assignedTo = null,
+        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
+        CancellationToken ct = default)
+    {
+        if (titles.Length == 0)
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, "At least one title is required.");
+
+        if (titles.Any(string.IsNullOrWhiteSpace))
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, "All titles must be non-empty.");
+
+        if (!resolver.TryResolve(workspace, out var ctx, out var err))
+            return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
+
+        // Initialize seed counter from DB to avoid ID collisions
+        var minSeedId = await ctx.WorkItemRepo.GetMinSeedIdAsync(ct);
+        if (minSeedId.HasValue)
+            seedFactory.InitializeSeedCounter(minSeedId.Value);
+
+        var processConfig = ctx.ProcessConfigProvider.GetConfiguration();
+
+        WorkItemType? typeOverride = null;
+        if (type is not null)
+        {
+            var typeResult = WorkItemType.Parse(type);
+            if (!typeResult.IsSuccess)
+                return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput, typeResult.Error, ctx, ct);
+            typeOverride = typeResult.Value;
+        }
+
+        // Fetch the parent for type inference and path inheritance
+        var (parent, fetchErr) = await ctx.FetchWithFallbackAsync(parentId, ct);
+        if (fetchErr is not null)
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, fetchErr, ctx, ct);
+
+        var createdSeeds = new List<Domain.Aggregates.WorkItem>();
+
+        foreach (var title in titles)
+        {
+            var seedResult = seedFactory.Create(title, parent!, processConfig, typeOverride, assignedTo);
+            if (!seedResult.IsSuccess)
+            {
+                var allowedChildren = processConfig.GetAllowedChildTypes(parent!.Type);
+                return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput,
+                    $"{seedResult.Error} Allowed child types for {parent!.Type}: " +
+                    (allowedChildren.Count > 0 ? string.Join(", ", allowedChildren) : "(none)") + ".", ctx, ct);
+            }
+
+            var seed = seedResult.Value;
+            await ctx.WorkItemRepo.SaveAsync(seed, ct);
+            createdSeeds.Add(seed);
+        }
+
+        return await EnvelopeBuilder.SuccessAsync(ctx, writer =>
+        {
+            writer.WriteNumber("createdCount", createdSeeds.Count);
+            writer.WriteNumber("parentId", parentId);
+
+            writer.WriteStartArray("seeds");
+            foreach (var seed in createdSeeds)
+            {
+                writer.WriteStartObject();
+                writer.WriteNumber("id", seed.Id);
+                writer.WriteString("title", seed.Title);
+                writer.WriteString("type", seed.Type.ToString());
+                writer.WriteString("assignedTo", seed.AssignedTo ?? "");
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+        }, verbose, ct);
+    }
+
+    private static void WriteValidationResult(System.Text.Json.Utf8JsonWriter writer, SeedValidationResult result)
+    {
+        writer.WriteNumber("seedId", result.SeedId);
+        writer.WriteString("title", result.Title);
+        writer.WriteBoolean("passed", result.Passed);
+
+        writer.WriteStartArray("failures");
+        foreach (var failure in result.Failures)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("rule", failure.Rule);
+            writer.WriteString("message", failure.Message);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
     }
 
     private static T ResolveDefaultPath<T>(string? configPath, string? projectName, Func<string?, Result<T>> parse) where T : struct

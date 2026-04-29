@@ -816,4 +816,131 @@ public class SeedPublishOrchestratorTests
         result.PreFlightErrors[0].ShouldContain("-99");
         await _adoService.DidNotReceive().CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Pre-flight: valid graph — all checks pass, publish proceeds
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task PublishAllAsync_ValidGraph_AllPreFlightChecksPassed_AllCreated()
+    {
+        var parent = new WorkItemBuilder(-1, "Parent").AsSeed(daysOld: 2).Build();
+        var child = new WorkItemBuilder(-2, "Child").AsSeed(daysOld: 1).WithParent(-1).Build();
+
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(new[] { parent, child });
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<SeedLink>());
+
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(parent);
+        var childAfterRemap = new WorkItemBuilder(-2, "Child").AsSeed(daysOld: 1).WithParent(500).Build();
+        _workItemRepo.GetByIdAsync(-2, Arg.Any<CancellationToken>()).Returns(childAfterRemap);
+
+        _adoService.CreateAsync(Arg.Is<CreateWorkItemRequest>(r => r.Title == "Parent"), Arg.Any<CancellationToken>()).Returns(500);
+        _adoService.FetchAsync(500, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(500, "Parent").Build());
+        _adoService.CreateAsync(Arg.Is<CreateWorkItemRequest>(r => r.Title == "Child"), Arg.Any<CancellationToken>()).Returns(501);
+        _adoService.FetchAsync(501, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(501, "Child").Build());
+        _seedLinkRepo.GetLinksForItemAsync(Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(Array.Empty<SeedLink>());
+
+        var result = await _orchestrator.PublishAllAsync();
+
+        result.HasErrors.ShouldBeFalse();
+        result.PreFlightErrors.ShouldBeEmpty();
+        result.CycleErrors.ShouldBeEmpty();
+        result.Results.Count.ShouldBe(2);
+        result.Results[0].Status.ShouldBe(SeedPublishStatus.Created);
+        result.Results[1].Status.ShouldBe(SeedPublishStatus.Created);
+        result.CreatedCount.ShouldBe(2);
+        await _adoService.Received(2).CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Pre-flight: multiple orphaned parents — all reported
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task PublishAllAsync_MultipleOrphanedParents_AllReported()
+    {
+        // Two seeds each referencing different non-existent parents
+        var seed1 = new WorkItemBuilder(-1, "Orphan A").AsSeed(daysOld: 2).WithParent(-90).Build();
+        var seed2 = new WorkItemBuilder(-2, "Orphan B").AsSeed(daysOld: 1).WithParent(-91).Build();
+
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(new[] { seed1, seed2 });
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<SeedLink>());
+
+        var result = await _orchestrator.PublishAllAsync();
+
+        result.HasErrors.ShouldBeTrue();
+        result.PreFlightErrors.Count.ShouldBe(2);
+        result.PreFlightErrors[0].ShouldContain("-90");
+        result.PreFlightErrors[1].ShouldContain("-91");
+        result.CycleErrors.ShouldBeEmpty();
+        await _adoService.DidNotReceive().CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Pre-flight: dry run does not skip pre-flight validation
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task PublishAllAsync_DryRun_PreFlightErrors_StillReportsErrors()
+    {
+        // Orphaned parent reference — pre-flight fires even in dryRun mode
+        var seed = new WorkItemBuilder(-1, "DryOrphan").AsSeed(daysOld: 1).WithParent(-99).Build();
+
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(new[] { seed });
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<SeedLink>());
+
+        var result = await _orchestrator.PublishAllAsync(dryRun: true);
+
+        result.HasErrors.ShouldBeTrue();
+        result.PreFlightErrors.Count.ShouldBe(1);
+        result.PreFlightErrors[0].ShouldContain("-99");
+        await _adoService.DidNotReceive().CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Pre-flight: self-referencing parent creates a cycle
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task PublishAllAsync_SelfParentLoop_DetectedAsCycle_NoAdoCalls()
+    {
+        // Seed -1 references itself as parent → self-loop in dependency graph
+        var seed = new WorkItemBuilder(-1, "SelfRef").AsSeed(daysOld: 1).WithParent(-1).Build();
+
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(new[] { seed });
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<SeedLink>());
+
+        var result = await _orchestrator.PublishAllAsync();
+
+        result.HasErrors.ShouldBeTrue();
+        result.CycleErrors.Count.ShouldBe(1);
+        result.CycleErrors[0].ShouldContain("-1");
+        result.Results.ShouldBeEmpty();
+        await _adoService.DidNotReceive().CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Pre-flight: force + dryRun batch — skips validation, returns DryRun
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task PublishAllAsync_ForceAndDryRun_SkipsPreFlight_ReturnsDryRun()
+    {
+        // Invalid seed (empty title) would fail pre-flight validation
+        // force=true skips batch pre-flight, dryRun prevents API calls → DryRun status
+        var seed = new WorkItemBuilder(-1, "").AsSeed(daysOld: 1).Build();
+
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(new[] { seed });
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<SeedLink>());
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
+
+        var result = await _orchestrator.PublishAllAsync(force: true, dryRun: true);
+
+        result.HasErrors.ShouldBeFalse();
+        result.PreFlightErrors.ShouldBeEmpty();
+        result.CycleErrors.ShouldBeEmpty();
+        result.Results.Count.ShouldBe(1);
+        result.Results[0].Status.ShouldBe(SeedPublishStatus.DryRun);
+        await _adoService.DidNotReceive().CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
+    }
 }

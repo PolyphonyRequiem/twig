@@ -204,8 +204,9 @@ public class CacheFirstReadCommandTests
         _workItemRepo.GetChildrenAsync(50, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var cmd = new TreeCommand(_ctx, _contextStore, _workItemRepo,
+        var treeService = new TreeRenderingService(_ctx, _contextStore, _workItemRepo,
             _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore);
+        var cmd = new TreeCommand(_ctx, treeService);
         var result = await cmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -220,8 +221,9 @@ public class CacheFirstReadCommandTests
         _adoService.FetchAsync(50, Arg.Any<CancellationToken>())
             .Throws(new HttpRequestException("Network error"));
 
-        var cmd = new TreeCommand(_ctx, _contextStore, _workItemRepo,
+        var treeService2 = new TreeRenderingService(_ctx, _contextStore, _workItemRepo,
             _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore);
+        var cmd = new TreeCommand(_ctx, treeService2);
 
         var result = await cmd.ExecuteAsync();
         result.ShouldBe(1);

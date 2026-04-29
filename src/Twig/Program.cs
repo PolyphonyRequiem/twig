@@ -336,9 +336,10 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <summary>Display a work item without changing context. Syncs by default; use --no-refresh for cache-only.</summary>
     /// <param name="id">Work item ID to display. Omit to show the active work item.</param>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="tree">Display as hierarchy tree instead of detail card.</param>
     /// <param name="noRefresh">Skip the sync and show cached data only.</param>
-    public async Task<int> Show([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, bool noRefresh = false, CancellationToken ct = default)
-        => await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, noRefresh, ct);
+    public async Task<int> Show([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, bool tree = false, bool noRefresh = false, CancellationToken ct = default)
+        => await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, tree, noRefresh, ct);
 
     /// <summary>Display multiple work items by ID (cache-only). Missing IDs are silently skipped.</summary>
     /// <param name="batch">Comma-separated work item IDs (e.g., 1234,5678,9012).</param>

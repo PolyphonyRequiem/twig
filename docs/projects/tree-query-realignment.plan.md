@@ -1,7 +1,7 @@
 # Tree/Query Realignment — Consolidate Tree, Refresh, States; Move Area
 
 > **Epic:** #2152 — Tree/Query Realignment  
-> **Status**: ✅ Approved
+> **Status**: 🔨 In Progress
 > **Revision:** 1 (Reviewed — no blocking issues)  
 > **Spec:** [docs/specs/tree-query-commands.spec.md](../specs/tree-query-commands.spec.md)
 

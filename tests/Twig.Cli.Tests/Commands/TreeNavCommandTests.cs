@@ -78,7 +78,8 @@ public class TreeNavCommandTests
         _workItemRepo.GetChildrenAsync(2, Arg.Any<CancellationToken>())
             .Returns(new[] { child1, child2 });
 
-        var treeCmd = new TreeCommand(_ctx, _contextStore, _workItemRepo, _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore);
+        var treeService = new TreeRenderingService(_ctx, _contextStore, _workItemRepo, _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore);
+        var treeCmd = new TreeCommand(_ctx, treeService);
         var result = await treeCmd.ExecuteAsync();
 
         result.ShouldBe(0);
@@ -104,7 +105,8 @@ public class TreeNavCommandTests
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
             .Returns(new[] { seed });
 
-        var treeCmd = new TreeCommand(_ctx, _contextStore, _workItemRepo, _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore);
+        var treeService = new TreeRenderingService(_ctx, _contextStore, _workItemRepo, _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore);
+        var treeCmd = new TreeCommand(_ctx, treeService);
         var result = await treeCmd.ExecuteAsync();
 
         result.ShouldBe(0);

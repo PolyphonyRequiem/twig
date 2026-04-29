@@ -63,9 +63,13 @@ public sealed class TreeCommand_CacheAwareTests
             new HintEngine(new DisplayConfig { Hints = false }),
             _config);
 
-    private TreeCommand CreateCommand(RenderingPipelineFactory? pipelineFactory = null) =>
-        new(CreateCtx(pipelineFactory), _contextStore, _workItemRepo, _activeItemResolver,
+    private TreeCommand CreateCommand(RenderingPipelineFactory? pipelineFactory = null)
+    {
+        var cmdCtx = CreateCtx(pipelineFactory);
+        var treeService = new TreeRenderingService(cmdCtx, _contextStore, _workItemRepo, _activeItemResolver,
             _workingSetService, _syncCoordinatorFactory, _processTypeStore);
+        return new(cmdCtx, treeService);
+    }
 
     private void SetupActiveItem(WorkItem item)
     {

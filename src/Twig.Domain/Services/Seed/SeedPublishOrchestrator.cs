@@ -220,12 +220,70 @@ public sealed class SeedPublishOrchestrator
         // Step 3: Build dependency graph and topological sort
         var (publishOrder, cyclicIds) = SeedDependencyGraph.Sort(seeds, links);
 
-        // Detect cycles
-        var cycleErrors = new List<string>();
+        // ═══════════════════════════════════════════════════════════
+        //  Pre-flight validation — abort entire batch before any ADO calls
+        // ═══════════════════════════════════════════════════════════
+
+        // Check 1: Cycle detection (always runs, even with --force)
         if (cyclicIds.Count > 0)
         {
             var cyclicList = string.Join(", ", cyclicIds.OrderBy(id => id));
-            cycleErrors.Add($"Circular dependency detected among seeds: {cyclicList}. These seeds will not be published.");
+            return new SeedPublishBatchResult
+            {
+                Results = [],
+                CycleErrors = [$"Circular dependency detected among seeds: {cyclicList}. These seeds will not be published."],
+                PreFlightErrors = [],
+            };
+        }
+
+        // Checks 2, 3 & 4 (skipped when force=true)
+        if (!force)
+        {
+            var preFlightErrors = new List<string>();
+            var validationResults = new List<SeedPublishResult>();
+            var rules = await _rulesProvider.GetRulesAsync(ct);
+            var seedIds = new HashSet<int>(seeds.Select(s => s.Id));
+
+            foreach (var seed in seeds)
+            {
+                // Check 2: SeedValidator validation
+                var validation = SeedValidator.Validate(seed, rules);
+                if (!validation.Passed)
+                {
+                    validationResults.Add(new SeedPublishResult
+                    {
+                        OldId = seed.Id,
+                        Title = seed.Title,
+                        Status = SeedPublishStatus.ValidationFailed,
+                        ValidationFailures = validation.Failures,
+                    });
+                }
+
+                // Check 3: Parent reference resolution — negative ParentId must exist in batch
+                if (seed.ParentId.HasValue && seed.ParentId.Value < 0 && !seedIds.Contains(seed.ParentId.Value))
+                {
+                    preFlightErrors.Add(
+                        $"Seed {seed.Id} ('{seed.Title}') references parent seed {seed.ParentId.Value} which is not in the current batch. Remove the parent reference or include the parent seed.");
+                }
+
+                // Check 4: Negative ID escape guard (I-2)
+                var escapeFailures = SeedIdEscapeValidator.Validate(seed, seedIds);
+                foreach (var failure in escapeFailures)
+                {
+                    preFlightErrors.Add(
+                        $"Seed {seed.Id} ('{seed.Title}'): {failure.Message}");
+                }
+            }
+
+            if (validationResults.Count > 0 || preFlightErrors.Count > 0)
+            {
+                return new SeedPublishBatchResult
+                {
+                    Results = validationResults,
+                    CycleErrors = [],
+                    PreFlightErrors = preFlightErrors,
+                };
+            }
         }
 
         // Step 4: Publish each seed in topological order
@@ -240,7 +298,8 @@ public sealed class SeedPublishOrchestrator
         return new SeedPublishBatchResult
         {
             Results = results,
-            CycleErrors = cycleErrors,
+            CycleErrors = [],
+            PreFlightErrors = [],
         };
     }
 }

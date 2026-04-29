@@ -123,6 +123,95 @@ public class AdoGitClientTests
         handler.LastRequestUrl.ShouldContain("/GitProject/");
     }
 
+    // ── GetRepositoryIdByNameAsync ───────────────────────────────────
+
+    [Fact]
+    public async Task GetRepositoryIdByNameAsync_ValidName_ReturnsId()
+    {
+        var handler = new FakeHandler();
+        handler.Enqueue(HttpStatusCode.OK, """
+        {
+            "id": "repo-guid-456",
+            "name": "other-repo",
+            "url": "https://dev.azure.com/testorg/GitProject/_apis/git/repositories/other-repo"
+        }
+        """);
+
+        var client = CreateClient(handler);
+        var repoId = await client.GetRepositoryIdByNameAsync("other-repo");
+
+        repoId.ShouldBe("repo-guid-456");
+        handler.LastRequestUrl.ShouldContain("/GitProject/");
+        handler.LastRequestUrl.ShouldContain("/repositories/other-repo");
+    }
+
+    [Fact]
+    public async Task GetRepositoryIdByNameAsync_UnknownName_ReturnsNull()
+    {
+        var handler = new FakeHandler();
+        handler.Enqueue(HttpStatusCode.NotFound, """{"message":"Not found"}""");
+
+        var client = CreateClient(handler);
+        var repoId = await client.GetRepositoryIdByNameAsync("nonexistent-repo");
+
+        repoId.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GetRepositoryIdByNameAsync_SpecialCharactersInName_EncodesUrl()
+    {
+        var handler = new FakeHandler();
+        handler.Enqueue(HttpStatusCode.OK, """
+        {
+            "id": "encoded-guid",
+            "name": "my repo/special",
+            "url": "https://dev.azure.com/testorg/GitProject/_apis/git/repositories/my%20repo%2Fspecial"
+        }
+        """);
+
+        var client = CreateClient(handler);
+        var repoId = await client.GetRepositoryIdByNameAsync("my repo/special");
+
+        repoId.ShouldBe("encoded-guid");
+        // Verify repo name appears in the URL (encoding may vary by URI normalization)
+        handler.LastRequestUrl.ShouldContain("/repositories/");
+        handler.LastRequestUrl.ShouldContain("repo");
+    }
+
+    [Fact]
+    public async Task GetRepositoryIdAsync_NullRepository_ReturnsNull()
+    {
+        var handler = new FakeHandler();
+
+        var client = new AdoGitClient(
+            new HttpClient(handler),
+            new FakeAuthProvider(),
+            OrgUrl,
+            GitProject,
+            null);
+
+        var repoId = await client.GetRepositoryIdAsync();
+
+        repoId.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GetRepositoryIdAsync_EmptyRepository_ReturnsNull()
+    {
+        var handler = new FakeHandler();
+
+        var client = new AdoGitClient(
+            new HttpClient(handler),
+            new FakeAuthProvider(),
+            OrgUrl,
+            GitProject,
+            "");
+
+        var repoId = await client.GetRepositoryIdAsync();
+
+        repoId.ShouldBeNull();
+    }
+
     // ── GetProjectIdAsync ─────────────────────────────────────────────
 
     [Fact]
@@ -157,15 +246,15 @@ public class AdoGitClientTests
     // ── Error handling ────────────────────────────────────────────────
 
     [Fact]
-    public async Task NotFound_ThrowsAdoNotFoundException()
+    public async Task NotFound_ReturnsNull_ForGetRepositoryIdAsync()
     {
         var handler = new FakeHandler();
         handler.Enqueue(HttpStatusCode.NotFound, """{"message":"Not found"}""");
 
         var client = CreateClient(handler);
+        var result = await client.GetRepositoryIdAsync();
 
-        await Should.ThrowAsync<AdoNotFoundException>(
-            () => client.GetRepositoryIdAsync());
+        result.ShouldBeNull();
     }
 
     [Fact]
@@ -197,10 +286,19 @@ public class AdoGitClientTests
     }
 
     [Fact]
-    public void Constructor_ThrowsIfRepositoryMissing()
+    public void Constructor_AcceptsNullRepository()
     {
-        Should.Throw<InvalidOperationException>(
-            () => new AdoGitClient(new HttpClient(), new FakeAuthProvider(), OrgUrl, GitProject, ""));
+        var client = new AdoGitClient(new HttpClient(), new FakeAuthProvider(), OrgUrl, GitProject, null);
+        // Should not throw — repository is now optional
+        client.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void Constructor_AcceptsEmptyRepository()
+    {
+        var client = new AdoGitClient(new HttpClient(), new FakeAuthProvider(), OrgUrl, GitProject, "");
+        // Should not throw — empty is treated as null
+        client.ShouldNotBeNull();
     }
 
     // ── URL construction with different project ───────────────────────

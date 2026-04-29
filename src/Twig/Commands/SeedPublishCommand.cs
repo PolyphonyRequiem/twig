@@ -7,12 +7,13 @@ using Twig.Formatters;
 namespace Twig.Commands;
 
 /// <summary>
-/// Implements <c>twig seed publish [id] [--all] [--force] [--dry-run] [--link-branch]</c>:
+/// Implements <c>twig seed publish [id] [--all] [--force] [--dry-run] [--link-branch] [--repo]</c>:
 /// publishes seeds to Azure DevOps as real work items.
 /// With an ID, publishes a single seed.
 /// With --all, publishes all seeds in topological order.
 /// After publishing, updates active context if it pointed to a published seed.
 /// When --link-branch is specified, links published seeds to the given branch.
+/// When --repo is specified, resolves the branch in the named repository instead of the default.
 /// </summary>
 public sealed class SeedPublishCommand(
     SeedPublishOrchestrator orchestrator,
@@ -29,13 +30,14 @@ public sealed class SeedPublishCommand(
         bool dryRun = false,
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         string? linkBranch = null,
+        string? repoName = null,
         CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
         var activeId = await contextStore.GetActiveWorkItemIdAsync(ct);
 
         // Upfront branch validation — resolve projectId/repoId once before publish loop
-        var artifactUri = await ResolveBranchArtifactUriAsync(linkBranch, dryRun, fmt, ct);
+        var artifactUri = await ResolveBranchArtifactUriAsync(linkBranch, repoName, dryRun, fmt, ct);
 
         if (all)
         {
@@ -87,9 +89,12 @@ public sealed class SeedPublishCommand(
     /// <summary>
     /// Resolves the branch artifact URI once upfront. Returns null if linking should be skipped
     /// (no linkBranch specified, dry-run, git service unavailable, or IDs unresolvable).
+    /// When <paramref name="repoName"/> is provided, uses name-based resolution via
+    /// <see cref="IAdoGitService.GetRepositoryIdByNameAsync"/>; otherwise falls back to
+    /// workspace-configured <see cref="IAdoGitService.GetRepositoryIdAsync"/>.
     /// </summary>
     private async Task<string?> ResolveBranchArtifactUriAsync(
-        string? linkBranch, bool dryRun, IOutputFormatter fmt, CancellationToken ct)
+        string? linkBranch, string? repoName, bool dryRun, IOutputFormatter fmt, CancellationToken ct)
     {
         if (linkBranch is null || dryRun)
             return null;
@@ -102,12 +107,18 @@ public sealed class SeedPublishCommand(
         }
 
         var projectId = await adoGitService.GetProjectIdAsync(ct);
-        var repoId = await adoGitService.GetRepositoryIdAsync(ct);
+
+        var repoId = repoName is not null
+            ? await adoGitService.GetRepositoryIdByNameAsync(repoName, ct)
+            : await adoGitService.GetRepositoryIdAsync(ct);
 
         if (projectId is null || repoId is null)
         {
+            var context = repoName is not null
+                ? $"repository '{repoName}'"
+                : "workspace-configured repository";
             Console.Error.WriteLine(fmt.FormatInfo(
-                "Could not resolve project/repository IDs. Skipping branch linking."));
+                $"Could not resolve {context}. Skipping branch linking."));
             return null;
         }
 

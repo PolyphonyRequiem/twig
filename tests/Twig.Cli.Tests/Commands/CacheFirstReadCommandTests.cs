@@ -194,7 +194,7 @@ public class CacheFirstReadCommandTests
     }
 
     [Fact]
-    public async Task TreeCommand_CacheMiss_AutoFetchesFromAdo()
+    public async Task TreeRenderingService_CacheMiss_AutoFetchesFromAdo()
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(50);
         _workItemRepo.GetByIdAsync(50, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
@@ -206,15 +206,14 @@ public class CacheFirstReadCommandTests
 
         var treeService = new TreeRenderingService(_ctx, _contextStore, _workItemRepo,
             _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore);
-        var cmd = new TreeCommand(_ctx, treeService);
-        var result = await cmd.ExecuteAsync();
+        var result = await treeService.RenderTreeAsync(id: null, "human", depth: null, noLive: true, noRefresh: true, CancellationToken.None);
 
         result.ShouldBe(0);
         await _adoService.Received().FetchAsync(50, Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task TreeCommand_Unreachable_ReturnsError()
+    public async Task TreeRenderingService_Unreachable_ReturnsError()
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(50);
         _workItemRepo.GetByIdAsync(50, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
@@ -223,9 +222,8 @@ public class CacheFirstReadCommandTests
 
         var treeService2 = new TreeRenderingService(_ctx, _contextStore, _workItemRepo,
             _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore);
-        var cmd = new TreeCommand(_ctx, treeService2);
 
-        var result = await cmd.ExecuteAsync();
+        var result = await treeService2.RenderTreeAsync(id: null, "human", depth: null, noLive: true, noRefresh: true, CancellationToken.None);
         result.ShouldBe(1);
     }
 

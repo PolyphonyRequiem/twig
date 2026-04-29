@@ -327,19 +327,19 @@ public class TelemetryClientTests
         var dir = FindSolutionRoot();
         if (dir is null) return;
 
-        var treeFile = Path.Combine(dir, "src", "Twig", "Commands", "TreeCommand.cs");
-        if (!File.Exists(treeFile)) return;
+        var commandFile = Path.Combine(dir, "src", "Twig", "Commands", "DiscardCommand.cs");
+        if (!File.Exists(commandFile)) return;
 
-        var content = File.ReadAllText(treeFile);
+        var content = File.ReadAllText(commandFile);
         var trackIdx = content.IndexOf(".TrackEvent(", StringComparison.Ordinal);
-        trackIdx.ShouldBeGreaterThan(-1, "TreeCommand.cs should contain a .TrackEvent( call");
+        trackIdx.ShouldBeGreaterThan(-1, "DiscardCommand.cs should contain a .TrackEvent( call");
 
         var end = FindCallEnd(content, trackIdx);
         var callBlock = content[trackIdx..(end + 1)];
         callBlock.Length.ShouldBeGreaterThan(20, "callBlock should span the full TrackEvent call, not just '.T'");
 
         var keys = KeyPattern.Matches(callBlock).Select(m => m.Groups[1].Value).ToList();
-        keys.Count.ShouldBeGreaterThan(0, "Scanner should extract at least one key from TreeCommand.cs");
+        keys.Count.ShouldBeGreaterThan(0, "Scanner should extract at least one key from DiscardCommand.cs");
         keys.ShouldContain("command");
     }
 

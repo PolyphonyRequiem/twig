@@ -79,8 +79,7 @@ public class TreeNavCommandTests
             .Returns(new[] { child1, child2 });
 
         var treeService = new TreeRenderingService(_ctx, _contextStore, _workItemRepo, _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore);
-        var treeCmd = new TreeCommand(_ctx, treeService);
-        var result = await treeCmd.ExecuteAsync();
+        var result = await treeService.RenderTreeAsync(id: null, "human", depth: null, noLive: true, noRefresh: true, CancellationToken.None);
 
         result.ShouldBe(0);
     }
@@ -106,8 +105,7 @@ public class TreeNavCommandTests
             .Returns(new[] { seed });
 
         var treeService = new TreeRenderingService(_ctx, _contextStore, _workItemRepo, _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore);
-        var treeCmd = new TreeCommand(_ctx, treeService);
-        var result = await treeCmd.ExecuteAsync();
+        var result = await treeService.RenderTreeAsync(id: null, "human", depth: null, noLive: true, noRefresh: true, CancellationToken.None);
 
         result.ShouldBe(0);
     }

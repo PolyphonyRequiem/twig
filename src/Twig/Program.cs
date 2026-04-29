@@ -400,7 +400,7 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="noRefresh">Skip the sync and show cached data only.</param>
     /// <param name="id">Work item ID to target; omit to use the active work item.</param>
     public async Task<int> Tree(string output = OutputFormatterFactory.DefaultFormat, int? depth = null, bool all = false, bool noLive = false, bool noRefresh = false, int? id = null, CancellationToken ct = default)
-        => await services.GetRequiredService<TreeCommand>().ExecuteAsync(id, output, depth, all, noLive, noRefresh, ct);
+        => await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, tree: true, noRefresh, ct);
 
     /// <summary>Navigate to the parent work item.</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>

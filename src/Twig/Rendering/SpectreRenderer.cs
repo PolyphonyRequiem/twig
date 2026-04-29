@@ -828,7 +828,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
     /// <summary>
     /// Builds the complete tree view as a composite <see cref="IRenderable"/> without
-    /// writing to the console. Used by <see cref="Commands.TreeCommand"/> to compose the tree
+    /// writing to the console. Used by <see cref="Commands.TreeRenderingService"/> to compose the tree
     /// view inside a <see cref="RenderWithSyncAsync"/> Live region, preventing the degenerate
     /// empty-cached-view pattern.
     /// </summary>

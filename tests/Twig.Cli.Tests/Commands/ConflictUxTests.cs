@@ -4,6 +4,7 @@ using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.Mutation;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
@@ -72,7 +73,7 @@ public class ConflictUxTests
 
         var cmd = new StateCommand(
             _ctx, _resolver, _workItemRepo, _adoService, _pendingChangeStore,
-            _processConfigProvider, _consoleInput);
+            _processConfigProvider, _consoleInput, new SeedMutationProvider(_workItemRepo));
 
         var result = await cmd.ExecuteAsync("c"); // c = Active
 
@@ -96,7 +97,7 @@ public class ConflictUxTests
 
         var cmd = new StateCommand(
             _ctx, _resolver, _workItemRepo, _adoService, _pendingChangeStore,
-            _processConfigProvider, _consoleInput);
+            _processConfigProvider, _consoleInput, new SeedMutationProvider(_workItemRepo));
 
         var result = await cmd.ExecuteAsync("c"); // c = Active
 
@@ -120,7 +121,7 @@ public class ConflictUxTests
 
         var cmd = new StateCommand(
             _ctx, _resolver, _workItemRepo, _adoService, _pendingChangeStore,
-            _processConfigProvider, _consoleInput);
+            _processConfigProvider, _consoleInput, new SeedMutationProvider(_workItemRepo));
 
         var result = await cmd.ExecuteAsync("c");
 

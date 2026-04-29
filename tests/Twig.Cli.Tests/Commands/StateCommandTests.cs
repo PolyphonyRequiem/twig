@@ -5,6 +5,7 @@ using Twig.Commands;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.Mutation;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.ValueObjects;
@@ -26,6 +27,7 @@ public class StateCommandTests
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IProcessConfigurationProvider _processConfigProvider;
     private readonly IConsoleInput _consoleInput;
+    private readonly SeedMutationProvider _seedMutationProvider;
     private readonly StringWriter _stderr;
     private readonly StateCommand _cmd;
 
@@ -37,6 +39,7 @@ public class StateCommandTests
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
         _processConfigProvider = Substitute.For<IProcessConfigurationProvider>();
         _consoleInput = Substitute.For<IConsoleInput>();
+        _seedMutationProvider = new SeedMutationProvider(_workItemRepo);
         _stderr = new StringWriter();
 
         _processConfigProvider.GetConfiguration()
@@ -55,7 +58,8 @@ public class StateCommandTests
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         _cmd = new StateCommand(
             ctx, resolver, _workItemRepo, _adoService,
-            _pendingChangeStore, _processConfigProvider, _consoleInput);
+            _pendingChangeStore, _processConfigProvider, _consoleInput,
+            _seedMutationProvider);
     }
 
     [Fact]
@@ -396,6 +400,7 @@ public class StateCommandTests
         return new StateCommand(
             ctx, resolver, _workItemRepo, _adoService,
             _pendingChangeStore, _processConfigProvider, _consoleInput,
+            _seedMutationProvider,
             parentPropagationService: propagationService);
     }
 
@@ -539,5 +544,95 @@ public class StateCommandTests
         var result = await _cmd.ExecuteAsync("Active", id: 99);
 
         result.ShouldBe(1);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Seed routing — local-only mutation via SeedMutationProvider
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task State_OnSeed_WritesLocally_NoAdoCall()
+    {
+        var seed = new WorkItemBuilder(1, "Seed Task").AsTask().AsSeed().InState("New").Build();
+        SetupActiveItem(seed);
+
+        var result = await _cmd.ExecuteAsync("Doing");
+
+        result.ShouldBe(0);
+        await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().PatchAsync(Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _workItemRepo.Received().SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task State_OnSeed_AcceptsAnyStateName()
+    {
+        var seed = new WorkItemBuilder(1, "Seed Task").AsTask().AsSeed().InState("New").Build();
+        SetupActiveItem(seed);
+
+        // "CustomState" is not in any process config — seeds accept anything
+        var result = await _cmd.ExecuteAsync("CustomState");
+
+        result.ShouldBe(0);
+        await _workItemRepo.Received().SaveAsync(
+            Arg.Is<WorkItem>(w => w.State == "CustomState"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task State_OnSeed_SkipsTransitionValidation()
+    {
+        var seed = new WorkItemBuilder(1, "Seed Task").AsTask().AsSeed().InState("New").Build();
+        SetupActiveItem(seed);
+
+        // Process config is never consulted for seeds
+        var result = await _cmd.ExecuteAsync("Done");
+
+        result.ShouldBe(0);
+        _processConfigProvider.DidNotReceive().GetConfiguration();
+    }
+
+    [Fact]
+    public async Task State_OnSeed_AlreadyInState_NoOp()
+    {
+        var seed = new WorkItemBuilder(1, "Seed Task").AsTask().AsSeed().InState("Doing").Build();
+        SetupActiveItem(seed);
+
+        var result = await _cmd.ExecuteAsync("Doing");
+
+        result.ShouldBe(0);
+        await _workItemRepo.DidNotReceive().SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task State_OnSeed_ProviderError_ReturnsExitCode1()
+    {
+        var seed = new WorkItemBuilder(1, "Seed Task").AsTask().AsSeed().InState("New").Build();
+        SetupActiveItem(seed);
+        // First call returns seed (for ActiveItemResolver), second returns null (for SeedMutationProvider)
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(seed, (WorkItem?)null);
+
+        var result = await _cmd.ExecuteAsync("Doing");
+
+        result.ShouldBe(1);
+        _stderr.ToString().ShouldNotBeNullOrWhiteSpace();
+    }
+
+    [Fact]
+    public async Task State_OnSeed_NoParentPropagation()
+    {
+        var seed = new WorkItemBuilder(1, "Seed Task").AsTask().AsSeed().InState("New").WithParent(100).Build();
+        SetupActiveItem(seed);
+
+        var parent = new WorkItemBuilder(100, "Parent").AsUserStory().InState("New").Build();
+        _workItemRepo.GetByIdAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
+
+        var cmd = CreateCommandWithPropagation();
+        var result = await cmd.ExecuteAsync("Active");
+
+        result.ShouldBe(0);
+        // Parent should NOT be patched for seeds
+        await _adoService.DidNotReceive().PatchAsync(
+            100, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 }

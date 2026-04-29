@@ -215,8 +215,9 @@ internal sealed class BatchExecutionEngine(IToolDispatcher dispatcher)
 
             await ExecuteNodeAsync(child, store, workspaceOverride, ct).ConfigureAwait(false);
 
-            // Check if any step in this child subtree failed → fail-fast.
-            if (HasFailure(child, store))
+            // Check if any step in this child subtree failed → fail-fast,
+            // unless the failed step has onError: "continue".
+            if (HasBlockingFailure(child, store))
             {
                 failed = true;
             }
@@ -254,13 +255,17 @@ internal sealed class BatchExecutionEngine(IToolDispatcher dispatcher)
     }
 
     /// <summary>
-    /// Checks if any step node in the subtree has a Failed result.
+    /// Checks if any step node in the subtree has a Failed result that should
+    /// block the enclosing sequence. Steps with <c>onError: "continue"</c> are
+    /// treated as non-blocking failures — they are recorded but do not trigger
+    /// fail-fast in the parent sequence.
     /// </summary>
-    private static bool HasFailure(BatchNode node, StepOutputStore store) => node switch
+    private static bool HasBlockingFailure(BatchNode node, StepOutputStore store) => node switch
     {
-        StepNode step => store.GetResult(step.GlobalIndex)?.Status == StepStatus.Failed,
-        SequenceNode seq => seq.Children.Any(c => HasFailure(c, store)),
-        ParallelNode par => par.Children.Any(c => HasFailure(c, store)),
+        StepNode step => store.GetResult(step.GlobalIndex)?.Status == StepStatus.Failed
+                         && !string.Equals(step.OnError, "continue", StringComparison.OrdinalIgnoreCase),
+        SequenceNode seq => seq.Children.Any(c => HasBlockingFailure(c, store)),
+        ParallelNode par => par.Children.Any(c => HasBlockingFailure(c, store)),
         _ => false
     };
 

@@ -11,12 +11,15 @@ internal abstract record BatchNode;
 /// depth-first traversal of the graph — used for <c>{{steps.N.field}}</c> references.
 /// <paramref name="When"/> is an optional guard expression evaluated before dispatch;
 /// if it evaluates to <c>false</c>, the step is skipped without executing.
+/// <paramref name="OnError"/> controls failure behavior within a sequence: when set to
+/// <c>"continue"</c>, a failure in this step does not abort the enclosing sequence.
 /// </summary>
 internal sealed record StepNode(
     int GlobalIndex,
     string ToolName,
     Dictionary<string, object?> Arguments,
-    string? When = null) : BatchNode;
+    string? When = null,
+    string? OnError = null) : BatchNode;
 
 /// <summary>
 /// An ordered list of child nodes executed sequentially with fail-fast semantics.

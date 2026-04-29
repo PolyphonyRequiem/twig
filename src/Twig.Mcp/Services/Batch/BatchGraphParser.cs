@@ -16,6 +16,9 @@ internal static class BatchGraphParser
     private const string ToolProperty = "tool";
     private const string ArgsProperty = "args";
     private const string WhenProperty = "when";
+    private const string OnErrorProperty = "onError";
+
+    private const string OnErrorContinue = "continue";
 
     private const string StepType = "step";
     private const string SequenceType = "sequence";
@@ -167,7 +170,31 @@ internal static class BatchGraphParser
             }
         }
 
-        var node = new StepNode(stepIndex, toolName, arguments, when);
+        // Parse optional 'onError' behavior.
+        string? onError = null;
+        if (element.TryGetProperty(OnErrorProperty, out var onErrorProp))
+        {
+            if (onErrorProp.ValueKind != JsonValueKind.String)
+            {
+                return Result<BatchNode>.Fail(
+                    $"Step '{toolName}' has 'onError' that is not a string.");
+            }
+
+            var onErrorValue = onErrorProp.GetString();
+            if (!string.IsNullOrWhiteSpace(onErrorValue))
+            {
+                if (!string.Equals(onErrorValue, OnErrorContinue, StringComparison.OrdinalIgnoreCase))
+                {
+                    return Result<BatchNode>.Fail(
+                        $"Step '{toolName}' has invalid 'onError' value '{onErrorValue}'. " +
+                        $"Valid values are: 'continue'.");
+                }
+
+                onError = OnErrorContinue;
+            }
+        }
+
+        var node = new StepNode(stepIndex, toolName, arguments, when, onError);
         stepIndex++;
         return Result<BatchNode>.Ok(node);
     }

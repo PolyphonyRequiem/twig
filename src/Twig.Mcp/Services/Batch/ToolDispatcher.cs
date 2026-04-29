@@ -17,7 +17,8 @@ internal sealed class ToolDispatcher(
     CreationTools creationTools,
     WorkspaceTools workspaceTools,
     TrackingTools trackingTools,
-    AdminTools adminTools) : IToolDispatcher
+    AdminTools adminTools,
+    SeedTools seedTools) : IToolDispatcher
 {
     /// <summary>
     /// Dispatches a single tool call by name, extracting typed parameters from the args dictionary.
@@ -156,6 +157,24 @@ internal sealed class ToolDispatcher(
             "twig_config" => adminTools.Config(GetString(args, "key"), workspace, verbose: false, ct),
 
             "twig_area" => adminTools.Area(workspace, verbose: false, ct),
+
+            // Seed tools
+            "twig_seed_new" => seedTools.SeedNew(
+                GetRequiredString(args, "title"),
+                GetString(args, "type"),
+                GetNullableInt(args, "parentId"),
+                GetString(args, "description"),
+                GetString(args, "assignedTo"),
+                workspace, verbose: false, ct),
+
+            "twig_seed_view" => seedTools.SeedView(workspace, verbose: false, ct),
+
+            "twig_seed_publish" => seedTools.SeedPublish(
+                GetNullableInt(args, "id"),
+                GetBool(args, "all"),
+                GetBool(args, "force"),
+                GetBool(args, "dryRun"),
+                workspace, verbose: false, ct),
 
             _ => Task.FromResult(EnvelopeBuilder.Error(McpErrorCode.InvalidInput, $"Unknown tool '{toolName}'."))
         };

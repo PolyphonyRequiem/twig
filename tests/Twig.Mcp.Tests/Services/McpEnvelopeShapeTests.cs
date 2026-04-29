@@ -8,6 +8,7 @@ using Twig.Domain.Common;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.Services.Navigation;
+using Twig.Domain.Services.Seed;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Workspace;
 using Twig.Infrastructure.Config;
@@ -479,7 +480,8 @@ public sealed class McpEnvelopeShapeTests
             activeItemResolver, syncFactory, contextChange,
             workingSet, flusher, promptStateWriter, parentPropagation,
             sprintIterationResolver,
-            processTypeStore, fieldDefStore);
+            processTypeStore, fieldDefStore,
+            Substitute.For<ISeedLinkRepository>(), Substitute.For<IPublishIdMapRepository>(), Substitute.For<ISeedPublishRulesProvider>(), Substitute.For<IUnitOfWork>());
     }
 
     private static void AssertNoSpectreMarkup(CallToolResult result)

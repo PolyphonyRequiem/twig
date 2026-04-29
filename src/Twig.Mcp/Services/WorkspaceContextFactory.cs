@@ -159,6 +159,12 @@ public sealed class WorkspaceContextFactory : IWorkspaceContextFactory, IDisposa
             paths,
             processTypeStore);
 
+        // Seed publishing dependencies
+        var seedLinkRepo = new SqliteSeedLinkRepository(cacheStore);
+        var publishIdMapRepo = new SqlitePublishIdMapRepository(cacheStore);
+        var seedPublishRulesProvider = new FileSeedPublishRulesProvider(paths.TwigDir);
+        var unitOfWork = new SqliteUnitOfWork(cacheStore);
+
         // Git service — conditional; only when git project/repository are configured
         IAdoGitService? adoGitService = null;
         BranchLinkService? branchLinkService = null;
@@ -199,6 +205,10 @@ public sealed class WorkspaceContextFactory : IWorkspaceContextFactory, IDisposa
             sprintIterationResolver,
             processTypeStore,
             fieldDefStore,
+            seedLinkRepo,
+            publishIdMapRepo,
+            seedPublishRulesProvider,
+            unitOfWork,
             trackingRepo,
             branchLinkService);
     }

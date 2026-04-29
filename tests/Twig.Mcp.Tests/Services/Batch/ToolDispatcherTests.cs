@@ -41,7 +41,8 @@ public sealed class ToolDispatcherTests
             new CreationTools(resolver, new SeedFactory(new SeedIdCounter())),
             new WorkspaceTools(registry, resolver),
             new TrackingTools(resolver),
-            new AdminTools(resolver));
+            new AdminTools(resolver),
+            new SeedTools(resolver, new SeedFactory(new SeedIdCounter())));
     }
 
     private static Dictionary<string, object?> Args(params (string Key, object? Value)[] pairs) =>

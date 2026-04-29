@@ -5,6 +5,7 @@ using Shouldly;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.Services.Navigation;
+using Twig.Domain.Services.Seed;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Workspace;
 using Twig.Infrastructure.Config;
@@ -29,6 +30,10 @@ public abstract class ReadToolsTestBase
     protected readonly IAdoGitService _adoGitService = Substitute.For<IAdoGitService>();
     protected readonly IProcessTypeStore _processTypeStore = Substitute.For<IProcessTypeStore>();
     protected readonly IFieldDefinitionStore _fieldDefinitionStore = Substitute.For<IFieldDefinitionStore>();
+    protected readonly ISeedLinkRepository _seedLinkRepo = Substitute.For<ISeedLinkRepository>();
+    protected readonly IPublishIdMapRepository _publishIdMapRepo = Substitute.For<IPublishIdMapRepository>();
+    protected readonly ISeedPublishRulesProvider _seedPublishRulesProvider = Substitute.For<ISeedPublishRulesProvider>();
+    protected readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
 
     protected static readonly WorkspaceKey TestWorkspaceKey = new("testorg", "testproject");
 
@@ -48,6 +53,7 @@ public abstract class ReadToolsTestBase
             _contextStore, _workItemRepo, _adoService, _pendingChangeStore,
             _linkRepo, _iterationService, _processConfigProvider, _promptStateWriter,
             _processTypeStore, _fieldDefinitionStore,
+            _seedLinkRepo, _publishIdMapRepo, _seedPublishRulesProvider, _unitOfWork,
             _trackingRepo, branchLinkService);
 
         var registry = Substitute.For<IWorkspaceRegistry>();
@@ -79,7 +85,11 @@ public abstract class ReadToolsTestBase
         IProcessConfigurationProvider ProcessConfigProvider,
         ITrackingRepository TrackingRepo,
         IProcessTypeStore ProcessTypeStore,
-        IFieldDefinitionStore FieldDefinitionStore);
+        IFieldDefinitionStore FieldDefinitionStore,
+        ISeedLinkRepository SeedLinkRepo,
+        IPublishIdMapRepository PublishIdMapRepo,
+        ISeedPublishRulesProvider SeedPublishRulesProvider,
+        IUnitOfWork UnitOfWork);
 
     /// <summary>
     /// Builds a <see cref="WorkspaceResolver"/> with multiple workspaces, each backed by
@@ -110,12 +120,17 @@ public abstract class ReadToolsTestBase
                 Substitute.For<IProcessConfigurationProvider>(),
                 Substitute.For<ITrackingRepository>(),
                 Substitute.For<IProcessTypeStore>(),
-                Substitute.For<IFieldDefinitionStore>());
+                Substitute.For<IFieldDefinitionStore>(),
+                Substitute.For<ISeedLinkRepository>(),
+                Substitute.For<IPublishIdMapRepository>(),
+                Substitute.For<ISeedPublishRulesProvider>(),
+                Substitute.For<IUnitOfWork>());
 
             var ctx = BuildContext(key, config,
                 m.ContextStore, m.WorkItemRepo, m.AdoService, m.PendingChangeStore,
                 m.LinkRepo, m.IterationService, m.ProcessConfigProvider, m.PromptStateWriter,
                 m.ProcessTypeStore, m.FieldDefinitionStore,
+                m.SeedLinkRepo, m.PublishIdMapRepo, m.SeedPublishRulesProvider, m.UnitOfWork,
                 m.TrackingRepo);
 
             factory.GetOrCreate(key).Returns(ctx);
@@ -138,6 +153,10 @@ public abstract class ReadToolsTestBase
         IPromptStateWriter promptStateWriter,
         IProcessTypeStore processTypeStore,
         IFieldDefinitionStore fieldDefinitionStore,
+        ISeedLinkRepository seedLinkRepo,
+        IPublishIdMapRepository publishIdMapRepo,
+        ISeedPublishRulesProvider seedPublishRulesProvider,
+        IUnitOfWork unitOfWork,
         ITrackingRepository? trackingRepo = null,
         BranchLinkService? branchLinkService = null)
     {
@@ -168,6 +187,7 @@ public abstract class ReadToolsTestBase
             workingSet, flusher, promptStateWriter, parentPropagation,
             sprintIterationResolver,
             processTypeStore, fieldDefinitionStore,
+            seedLinkRepo, publishIdMapRepo, seedPublishRulesProvider, unitOfWork,
             trackingRepo,
             branchLinkService);
     }

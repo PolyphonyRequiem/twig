@@ -79,7 +79,8 @@ builder.Services
     .WithTools<ProcessTools>()
     .WithTools<AdminTools>()
     .WithTools<TrackingTools>()
-    .WithTools<BatchTools>();
+    .WithTools<BatchTools>()
+    .WithTools<SeedTools>();
 
 await builder.Build().RunAsync();
 return 0;

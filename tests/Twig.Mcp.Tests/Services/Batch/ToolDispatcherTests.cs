@@ -130,7 +130,7 @@ public sealed class ToolDispatcherTests
         GetText(result).ShouldContain("workspaces");
     }
 
-    // ── Workspace override ──────────────────────────────────────────
+    // ── Workspace default propagation ─────────────────────────────
 
     [Fact]
     public async Task DispatchAsync_StepWorkspace_TakesPrecedenceOverBatchWorkspace()
@@ -155,6 +155,35 @@ public sealed class ToolDispatcherTests
             "twig_tree", Args(), null, CancellationToken.None);
 
         // With no workspace and no registered workspaces, should fail
+        result.IsError.ShouldBe(true);
+        GetText(result).ShouldNotContain("Unknown tool");
+    }
+
+    [Fact]
+    public async Task DispatchAsync_BatchWorkspace_UsedWhenNoStepWorkspace()
+    {
+        // No step-level workspace arg → batch-level workspace override is used.
+        var result = await _dispatcher.DispatchAsync(
+            "twig_tree",
+            Args(),
+            "batch/ws",
+            CancellationToken.None);
+
+        result.IsError.ShouldBe(true);
+        // The tool method was reached (not "Unknown tool") with the batch workspace.
+        GetText(result).ShouldNotContain("Unknown tool");
+    }
+
+    [Fact]
+    public async Task DispatchAsync_EmptyStepWorkspace_FallsBackToBatchWorkspace()
+    {
+        // Step workspace set to null (not present in args) → batch-level used.
+        var result = await _dispatcher.DispatchAsync(
+            "twig_sync",
+            Args(),
+            "fallback/ws",
+            CancellationToken.None);
+
         result.IsError.ShouldBe(true);
         GetText(result).ShouldNotContain("Unknown tool");
     }

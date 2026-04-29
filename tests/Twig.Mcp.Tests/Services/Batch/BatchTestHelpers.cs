@@ -4,13 +4,25 @@ using Twig.Mcp.Services.Batch;
 namespace Twig.Mcp.Tests.Services.Batch;
 
 /// <summary>
+/// Record of a single dispatch invocation, including the workspace override received.
+/// </summary>
+internal sealed record DispatchRecord(string ToolName, IReadOnlyDictionary<string, object?> Args, string? WorkspaceOverride);
+
+/// <summary>
 /// Shared test dispatcher and factory helpers for batch engine and batch tools tests.
 /// </summary>
 internal sealed class TestToolDispatcher(
     Func<string, IReadOnlyDictionary<string, object?>, CancellationToken, Task<CallToolResult>> handler)
     : IToolDispatcher
 {
+    private readonly List<DispatchRecord> _dispatches = [];
+
     public string? LastWorkspaceOverride { get; private set; }
+
+    /// <summary>
+    /// All dispatch invocations recorded in order, with per-dispatch workspace override.
+    /// </summary>
+    public IReadOnlyList<DispatchRecord> Dispatches => _dispatches;
 
     public Task<CallToolResult> DispatchAsync(
         string toolName,
@@ -19,6 +31,7 @@ internal sealed class TestToolDispatcher(
         CancellationToken ct)
     {
         LastWorkspaceOverride = workspaceOverride;
+        _dispatches.Add(new DispatchRecord(toolName, args, workspaceOverride));
         return handler(toolName, args, ct);
     }
 }

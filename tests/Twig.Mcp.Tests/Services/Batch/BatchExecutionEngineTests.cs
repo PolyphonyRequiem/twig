@@ -382,7 +382,7 @@ public sealed class BatchExecutionEngineTests
             () => engine.ExecuteAsync(graph, DefaultTimeout, null, cts.Token));
     }
 
-    // ── Workspace override passthrough ──────────────────────────────
+    // ── Workspace default propagation ──────────────────────────────
 
     [Fact]
     public async Task Execute_WorkspaceOverride_PassedToDispatcher()
@@ -398,6 +398,117 @@ public sealed class BatchExecutionEngineTests
         await engine.ExecuteAsync(graph, DefaultTimeout, "org/project", CancellationToken.None);
 
         dispatcher.LastWorkspaceOverride.ShouldBe("org/project");
+    }
+
+    [Fact]
+    public async Task Execute_WorkspaceOverride_PropagatedToAllSequenceSteps()
+    {
+        var dispatcher = CreateDispatcher();
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new SequenceNode([
+                new StepNode(0, "twig_set", new Dictionary<string, object?> { ["idOrPattern"] = "1" }),
+                new StepNode(1, "twig_note", new Dictionary<string, object?> { ["text"] = "hello" }),
+                new StepNode(2, "twig_state", new Dictionary<string, object?> { ["stateName"] = "Doing" })
+            ]),
+            TotalStepCount: 3);
+
+        await engine.ExecuteAsync(graph, DefaultTimeout, "org/project", CancellationToken.None);
+
+        dispatcher.Dispatches.Count.ShouldBe(3);
+        dispatcher.Dispatches.ShouldAllBe(d => d.WorkspaceOverride == "org/project");
+    }
+
+    [Fact]
+    public async Task Execute_WorkspaceOverride_PropagatedToAllParallelSteps()
+    {
+        var dispatcher = CreateDispatcher();
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new ParallelNode([
+                new StepNode(0, "twig_set", new Dictionary<string, object?> { ["idOrPattern"] = "1" }),
+                new StepNode(1, "twig_show", new Dictionary<string, object?> { ["id"] = 42 }),
+                new StepNode(2, "twig_tree", new Dictionary<string, object?>())
+            ]),
+            TotalStepCount: 3);
+
+        await engine.ExecuteAsync(graph, DefaultTimeout, "myorg/myproject", CancellationToken.None);
+
+        dispatcher.Dispatches.Count.ShouldBe(3);
+        dispatcher.Dispatches.ShouldAllBe(d => d.WorkspaceOverride == "myorg/myproject");
+    }
+
+    [Fact]
+    public async Task Execute_WorkspaceOverride_PropagatedThroughNestedGraph()
+    {
+        var dispatcher = CreateDispatcher();
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        // sequence(
+        //   step0,
+        //   parallel(step1, step2),
+        //   step3
+        // )
+        var graph = new BatchGraph(
+            new SequenceNode([
+                new StepNode(0, "twig_set", new Dictionary<string, object?> { ["idOrPattern"] = "1" }),
+                new ParallelNode([
+                    new StepNode(1, "twig_note", new Dictionary<string, object?> { ["text"] = "a" }),
+                    new StepNode(2, "twig_note", new Dictionary<string, object?> { ["text"] = "b" })
+                ]),
+                new StepNode(3, "twig_state", new Dictionary<string, object?> { ["stateName"] = "Done" })
+            ]),
+            TotalStepCount: 4);
+
+        await engine.ExecuteAsync(graph, DefaultTimeout, "deep/nested", CancellationToken.None);
+
+        dispatcher.Dispatches.Count.ShouldBe(4);
+        dispatcher.Dispatches.ShouldAllBe(d => d.WorkspaceOverride == "deep/nested");
+    }
+
+    [Fact]
+    public async Task Execute_NullWorkspace_PropagatesNullToAllSteps()
+    {
+        var dispatcher = CreateDispatcher();
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new SequenceNode([
+                new StepNode(0, "twig_set", new Dictionary<string, object?> { ["idOrPattern"] = "1" }),
+                new StepNode(1, "twig_note", new Dictionary<string, object?> { ["text"] = "hi" })
+            ]),
+            TotalStepCount: 2);
+
+        await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        dispatcher.Dispatches.Count.ShouldBe(2);
+        dispatcher.Dispatches.ShouldAllBe(d => d.WorkspaceOverride == null);
+    }
+
+    [Fact]
+    public async Task Execute_WorkspaceOverride_SkippedStepsNotDispatched()
+    {
+        var dispatcher = CreateDispatcher((tool, _) =>
+            tool == "fail_step" ? ErrorResult("boom") : SuccessResult("{}"));
+
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        // sequence(step0-fail, step1-skipped)
+        var graph = new BatchGraph(
+            new SequenceNode([
+                new StepNode(0, "fail_step", new Dictionary<string, object?>()),
+                new StepNode(1, "twig_note", new Dictionary<string, object?> { ["text"] = "skipped" })
+            ]),
+            TotalStepCount: 2);
+
+        await engine.ExecuteAsync(graph, DefaultTimeout, "org/project", CancellationToken.None);
+
+        // Only step0 was dispatched; step1 was skipped due to fail-fast.
+        dispatcher.Dispatches.Count.ShouldBe(1);
+        dispatcher.Dispatches[0].WorkspaceOverride.ShouldBe("org/project");
+        dispatcher.Dispatches[0].ToolName.ShouldBe("fail_step");
     }
 
     // ── Timing ──────────────────────────────────────────────────────

@@ -18,5 +18,12 @@ public interface IAdoGitService
     /// </summary>
     Task<IReadOnlyList<PullRequestInfo>> GetPullRequestsForBranchAsync(string branchName, CancellationToken ct = default);
     Task<string?> GetRepositoryIdAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Resolves a repository GUID from a repository name without depending on locally-configured git context.
+    /// Returns <c>null</c> if the repository is not found.
+    /// </summary>
+    Task<string?> GetRepositoryIdByNameAsync(string repoName, CancellationToken ct = default);
+
     Task<string?> GetProjectIdAsync(CancellationToken ct = default);
 }

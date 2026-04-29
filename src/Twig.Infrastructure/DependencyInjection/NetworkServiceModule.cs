@@ -51,8 +51,10 @@ public static class NetworkServiceModule
                 sp.GetRequiredService<AdoConcurrencyThrottle>());
         });
 
-        // IAdoGitService — conditional registration; only when git project and repository are resolved.
-        if (!string.IsNullOrWhiteSpace(resolvedGitProject) && !string.IsNullOrWhiteSpace(resolvedRepository))
+        // IAdoGitService — conditional registration; only requires git project.
+        // Repository is optional — when null, GetRepositoryIdAsync returns null
+        // but GetRepositoryIdByNameAsync still works for --repo flag support.
+        if (!string.IsNullOrWhiteSpace(resolvedGitProject))
         {
             var capturedGitProject = resolvedGitProject;
             var capturedRepository = resolvedRepository;

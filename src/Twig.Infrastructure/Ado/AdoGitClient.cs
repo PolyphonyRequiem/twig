@@ -21,14 +21,14 @@ internal sealed class AdoGitClient : IAdoGitService
     private readonly string _orgUrl;
     private readonly string _project;
     private readonly string _backlogProject;
-    private readonly string _repository;
+    private readonly string? _repository;
 
     public AdoGitClient(
         HttpClient httpClient,
         IAuthenticationProvider authProvider,
         string orgUrl,
         string project,
-        string repository,
+        string? repository = null,
         string? backlogProject = null)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
@@ -37,19 +37,20 @@ internal sealed class AdoGitClient : IAdoGitService
             throw new InvalidOperationException("Organization is not configured.");
         if (string.IsNullOrWhiteSpace(project))
             throw new InvalidOperationException("Git project is not configured.");
-        if (string.IsNullOrWhiteSpace(repository))
-            throw new InvalidOperationException("Git repository is not configured.");
 
         _http = httpClient;
         _authProvider = authProvider;
         _orgUrl = AdoRestClient.NormalizeOrgUrl(orgUrl);
         _project = project;
         _backlogProject = string.IsNullOrWhiteSpace(backlogProject) ? project : backlogProject;
-        _repository = repository;
+        _repository = string.IsNullOrWhiteSpace(repository) ? null : repository;
     }
 
     public async Task<IReadOnlyList<PullRequestInfo>> GetPullRequestsForBranchAsync(string branchName, CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(_repository))
+            throw new InvalidOperationException("Git repository is not configured. Cannot query pull requests without a repository.");
+
         var encodedRepo = Uri.EscapeDataString(_repository);
         var encodedBranch = Uri.EscapeDataString($"refs/heads/{branchName}");
         var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/git/repositories/{encodedRepo}/pullrequests?searchCriteria.sourceRefName={encodedBranch}&searchCriteria.status=active&api-version={ApiVersion}";
@@ -72,6 +73,9 @@ internal sealed class AdoGitClient : IAdoGitService
 
     public async Task<PullRequestInfo> CreatePullRequestAsync(PullRequestCreate request, CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(_repository))
+            throw new InvalidOperationException("Git repository is not configured. Cannot create pull requests without a repository.");
+
         var encodedRepo = Uri.EscapeDataString(_repository);
         var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/git/repositories/{encodedRepo}/pullrequests?api-version={ApiVersion}";
 
@@ -105,13 +109,28 @@ internal sealed class AdoGitClient : IAdoGitService
 
     public async Task<string?> GetRepositoryIdAsync(CancellationToken ct = default)
     {
-        var encodedRepo = Uri.EscapeDataString(_repository);
+        if (string.IsNullOrWhiteSpace(_repository))
+            return null;
+
+        return await GetRepositoryIdByNameAsync(_repository, ct);
+    }
+
+    public async Task<string?> GetRepositoryIdByNameAsync(string repoName, CancellationToken ct = default)
+    {
+        var encodedRepo = Uri.EscapeDataString(repoName);
         var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/git/repositories/{encodedRepo}?api-version={ApiVersion}";
 
-        using var response = await SendAsync(HttpMethod.Get, url, content: null, ct);
-        await using var stream = await response.Content.ReadAsStreamAsync(ct);
-        var repo = await JsonSerializer.DeserializeAsync(stream, TwigJsonContext.Default.AdoRepositoryResponse, ct);
-        return repo?.Id;
+        try
+        {
+            using var response = await SendAsync(HttpMethod.Get, url, content: null, ct);
+            await using var stream = await response.Content.ReadAsStreamAsync(ct);
+            var repo = await JsonSerializer.DeserializeAsync(stream, TwigJsonContext.Default.AdoRepositoryResponse, ct);
+            return repo?.Id;
+        }
+        catch (AdoNotFoundException)
+        {
+            return null;
+        }
     }
 
     public async Task<string?> GetProjectIdAsync(CancellationToken ct = default)

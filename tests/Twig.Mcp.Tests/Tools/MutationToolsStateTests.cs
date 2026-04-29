@@ -73,7 +73,7 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
 
         result.IsError.ShouldBe(true);
         result.Content[0].ShouldBeOfType<TextContentBlock>()
-            .Text.ShouldContain("not found in cache");
+            .Text.ShouldContain("unreachable");
     }
 
     // ═══════════════════════════════════════════════════════════════

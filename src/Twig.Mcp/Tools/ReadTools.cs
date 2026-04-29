@@ -28,22 +28,8 @@ public sealed class ReadTools(WorkspaceResolver resolver, NavigationTools naviga
     {
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
-        if (id.HasValue)
-        {
-            // Direct ID — render tree for the specified item without changing active context
-            return await navigationTools.Show(id.Value, tree: true, depth: depth, workspace: workspace, verbose: verbose, ct: ct);
-        }
-
-        var resolveResult = await ctx.ActiveItemResolver.GetActiveItemAsync(ct);
-
-        if (resolveResult is ActiveItemResult.NoContext)
-            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.NoContext, "No active work item. Use twig_set first.", ctx, ct);
-        if (resolveResult is ActiveItemResult.Unreachable u)
-            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, $"Work item #{u.Id} unreachable: {u.Reason}", ctx, ct);
-
-        var item = resolveResult is ActiveItemResult.Found f
-            ? f.WorkItem
-            : ((ActiveItemResult.FetchedFromAdo)resolveResult).WorkItem;
+        var (item, resolveError) = await WorkItemResolver.ResolveWorkItemAsync(ctx, id, ct);
+        if (item is null) return resolveError!;
 
         return await navigationTools.Show(item.Id, tree: true, depth: depth, workspace: workspace, verbose: verbose, ct: ct);
     }

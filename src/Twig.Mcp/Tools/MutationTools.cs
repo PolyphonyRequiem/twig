@@ -24,34 +24,7 @@ namespace Twig.Mcp.Tools;
 [McpServerToolType]
 public sealed class MutationTools(WorkspaceResolver resolver)
 {
-    /// <summary>
-    /// Resolves a work item either by explicit ID (cache+ADO fallback, no context change)
-    /// or via the active item resolver (current active context).
-    /// </summary>
-    private static async Task<(WorkItem? Item, CallToolResult? Error)> ResolveWorkItemAsync(
-        WorkspaceContext ctx, int? id, CancellationToken ct)
-    {
-        if (id.HasValue)
-        {
-            var (item, error) = await ctx.FetchWithFallbackAsync(id.Value, ct);
-            if (item is null)
-                return (null, await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, error ?? $"Work item #{id.Value} not found.", ctx, ct));
-            return (item, null);
-        }
-
-        var resolved = await ctx.ActiveItemResolver.GetActiveItemAsync(ct);
-        if (resolved is ActiveItemResult.NoContext)
-            return (null, await EnvelopeBuilder.ErrorAsync(McpErrorCode.NoContext, "No active work item. Use twig_set to set context.", ctx, ct));
-        if (resolved is ActiveItemResult.Unreachable u)
-            return (null, await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, $"Work item #{u.Id} not found in cache.", ctx, ct));
-
-        var activeItem = resolved is ActiveItemResult.Found f
-            ? f.WorkItem
-            : ((ActiveItemResult.FetchedFromAdo)resolved).WorkItem;
-        return (activeItem, null);
-    }
-
-    [McpServerTool(Name = "twig_state"), Description("Change the state of a work item. Operates on the active work item by default, or specify id to target a specific item without changing context.")]
+    [McpServerTool(Name = "twig_state"),Description("Change the state of a work item. Operates on the active work item by default, or specify id to target a specific item without changing context.")]
     public async Task<CallToolResult> State(
         [Description("Target state name (full or partial, case-insensitive)")] string stateName,
         [Description("Work item ID to operate on. When omitted, uses the active work item. When provided, the active context is not changed.")] int? id = null,
@@ -64,7 +37,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
 
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
-        var (item, resolveError) = await ResolveWorkItemAsync(ctx, id, ct);
+        var (item, resolveError) = await WorkItemResolver.ResolveWorkItemAsync(ctx, id, ct);
         if (item is null) return resolveError!;
 
         // Seed routing: local-only mutation, no process config or ADO interaction.
@@ -173,7 +146,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
 
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
-        var (item, resolveError) = await ResolveWorkItemAsync(ctx, id, ct);
+        var (item, resolveError) = await WorkItemResolver.ResolveWorkItemAsync(ctx, id, ct);
         if (item is null) return resolveError!;
 
         // Seed routing: local-only mutation, no ADO interaction.
@@ -270,7 +243,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
 
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
-        var (item, resolveError) = await ResolveWorkItemAsync(ctx, id, ct);
+        var (item, resolveError) = await WorkItemResolver.ResolveWorkItemAsync(ctx, id, ct);
         if (item is null) return resolveError!;
 
         // Build FieldChange[] with optional markdown conversion
@@ -350,7 +323,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
 
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
-        var (item, resolveError) = await ResolveWorkItemAsync(ctx, id, ct);
+        var (item, resolveError) = await WorkItemResolver.ResolveWorkItemAsync(ctx, id, ct);
         if (item is null) return resolveError!;
 
         // Push comment to ADO— fall back to local staging on failure

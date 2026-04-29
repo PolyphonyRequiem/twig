@@ -1,7 +1,7 @@
 # Seed Lifecycle Realignment — Cascade Discard, Cycle Detection, Unified Mutations
 
 > **Epic:** #2169
-> **Status**: ✅ Approved
+> **Status**: 🔨 In Progress
 > **Revision:** 0
 > **Revision Notes:** Initial draft.
 

@@ -152,6 +152,15 @@ public sealed class SqlitePendingChangeStore : IPendingChangeStore
         return Task.FromResult((reader.GetInt32(0), reader.GetInt32(1)));
     }
 
+    public Task<int> GetTotalPendingChangeCountAsync(CancellationToken ct = default)
+    {
+        var conn = _store.GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM pending_changes;";
+        var count = Convert.ToInt32(cmd.ExecuteScalar());
+        return Task.FromResult(count);
+    }
+
     private static PendingChangeRecord MapRow(SqliteDataReader reader)
     {
         return new PendingChangeRecord(

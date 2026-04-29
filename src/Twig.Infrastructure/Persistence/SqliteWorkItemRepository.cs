@@ -422,6 +422,34 @@ public sealed class SqliteWorkItemRepository : IWorkItemRepository
         return Task.FromResult<IReadOnlyList<WorkItem>>(items);
     }
 
+    public Task<Domain.ReadModels.CacheStatistics> GetCacheStatisticsAsync(CancellationToken ct = default)
+    {
+        var conn = _store.GetConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT
+                COUNT(*),
+                MAX(last_synced_at),
+                MIN(last_synced_at)
+            FROM work_items;
+            """;
+
+        using var reader = cmd.ExecuteReader();
+        reader.Read();
+
+        var count = reader.GetInt32(0);
+
+        DateTimeOffset? newestSync = null;
+        DateTimeOffset? oldestSync = null;
+
+        if (count > 0 && !reader.IsDBNull(1))
+            newestSync = DateTimeOffset.Parse(reader.GetString(1));
+        if (count > 0 && !reader.IsDBNull(2))
+            oldestSync = DateTimeOffset.Parse(reader.GetString(2));
+
+        return Task.FromResult(new Domain.ReadModels.CacheStatistics(count, newestSync, oldestSync));
+    }
+
     private static void SaveWorkItem(SqliteConnection conn, WorkItem item, SqliteTransaction? tx = null)
     {
         using var cmd = conn.CreateCommand();

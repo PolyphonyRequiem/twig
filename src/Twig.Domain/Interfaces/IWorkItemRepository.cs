@@ -65,4 +65,10 @@ public interface IWorkItemRepository
     /// entries with <c>IncludeChildren=false</c> match only the exact path.
     /// </summary>
     Task<IReadOnlyList<WorkItem>> GetByAreaPathsAsync(IReadOnlyList<AreaPathFilter> entries, CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns aggregate cache statistics: tracked item count, newest and oldest sync timestamps.
+    /// Used by <c>twig_cache_status</c> to report cache freshness without network calls.
+    /// </summary>
+    Task<ReadModels.CacheStatistics> GetCacheStatisticsAsync(CancellationToken ct = default);
 }

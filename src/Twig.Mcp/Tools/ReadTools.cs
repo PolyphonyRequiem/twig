@@ -146,4 +146,30 @@ public sealed class ReadTools(WorkspaceResolver resolver, NavigationTools naviga
 
         return McpResultBuilder.FormatWorkspaceTree(roots, ws, ctx.Key.ToString(), excludedItems);
     }
+
+    [McpServerTool(Name = "twig_cache_status"), Description("Report local cache freshness: last sync time, pending change count, tracked item count, oldest item age. No network call — safe for polling.")]
+    public async Task<CallToolResult> CacheStatus(
+        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
+        CancellationToken ct = default)
+    {
+        if (!resolver.TryResolve(workspace, out var ctx, out var err))
+            return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
+
+        var stats = await ctx.WorkItemRepo.GetCacheStatisticsAsync(ct);
+        var pendingChangeCount = await ctx.PendingChangeStore.GetTotalPendingChangeCountAsync(ct);
+
+        var now = DateTimeOffset.UtcNow;
+        var oldestItemAgeSeconds = stats.OldestSyncUtc.HasValue
+            ? (long)Math.Max(0, (now - stats.OldestSyncUtc.Value).TotalSeconds)
+            : 0L;
+
+        return await EnvelopeBuilder.SuccessAsync(ctx, writer =>
+        {
+            writer.WriteString("lastSyncUtc", stats.NewestSyncUtc?.ToString("o") ?? "");
+            writer.WriteNumber("pendingChangeCount", pendingChangeCount);
+            writer.WriteNumber("trackedItemCount", stats.TrackedItemCount);
+            writer.WriteNumber("oldestItemAgeSeconds", oldestItemAgeSeconds);
+        }, verbose, ct);
+    }
 }

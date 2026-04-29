@@ -32,4 +32,9 @@ public interface IPendingChangeStore
     /// Notes (<c>add_note</c>) and FieldEdits (<c>set_field</c>).
     /// </summary>
     Task<(int Notes, int FieldEdits)> GetChangeSummaryAsync(int workItemId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns the total number of pending change rows across all work items.
+    /// </summary>
+    Task<int> GetTotalPendingChangeCountAsync(CancellationToken ct = default);
 }

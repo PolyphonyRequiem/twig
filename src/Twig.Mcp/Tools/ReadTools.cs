@@ -2,9 +2,7 @@ using System.ComponentModel;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Twig.Domain.Aggregates;
-using Twig.Domain.ReadModels;
 using Twig.Domain.Services.Navigation;
-using Twig.Domain.Services.Sync;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Config;
 using Twig.Mcp.Services;
@@ -16,7 +14,7 @@ namespace Twig.Mcp.Tools;
 /// Resolves per-workspace services via <see cref="WorkspaceResolver"/>.
 /// </summary>
 [McpServerToolType]
-public sealed class ReadTools(WorkspaceResolver resolver)
+public sealed class ReadTools(WorkspaceResolver resolver, NavigationTools navigationTools)
 {
     [McpServerTool(Name = "twig_tree"), Description("Display work item hierarchy as a tree")]
     public async Task<CallToolResult> Tree(
@@ -37,38 +35,7 @@ public sealed class ReadTools(WorkspaceResolver resolver)
             ? f.WorkItem
             : ((ActiveItemResult.FetchedFromAdo)resolveResult).WorkItem;
 
-        // Build parent chain
-        var parentChain = item.ParentId.HasValue
-            ? await ctx.WorkItemRepo.GetParentChainAsync(item.ParentId.Value, ct)
-            : Array.Empty<WorkItem>();
-
-        var maxDepth = depth ?? ctx.Config.Display.TreeDepth;
-        var allChildren = await ctx.FetchChildrenWithFallbackAsync(item.Id, ct);
-        var totalChildCount = allChildren.Count;
-        var children = allChildren;
-
-        // Recursively fetch descendants up to maxChildren depth for deep tree output
-        var descendantsByParentId = new Dictionary<int, IReadOnlyList<WorkItem>>();
-        await WorkTreeFetcher.FetchDescendantsAsync(ctx.FetchChildrenWithFallbackAsync, children, maxDepth - 1, descendantsByParentId, ct);
-
-        // Compute sibling counts for parent chain + focused item
-        var siblingCounts = new Dictionary<int, int?>();
-        foreach (var node in parentChain.Append(item))
-            siblingCounts[node.Id] = node.ParentId.HasValue
-                ? (await ctx.FetchChildrenWithFallbackAsync(node.ParentId.Value, ct)).Count
-                : null;
-
-        // Best-effort link sync
-        IReadOnlyList<WorkItemLink> links = Array.Empty<WorkItemLink>();
-        try
-        {
-            links = await ctx.SyncCoordinatorFactory.ReadOnly.SyncLinksAsync(item.Id, ct);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
-
-        var tree = WorkTree.Build(item, parentChain, children, siblingCounts, links, descendantsByParentId);
-
-        return McpResultBuilder.FormatTree(tree, totalChildCount);
+        return await navigationTools.Show(item.Id, tree: true, depth: depth, workspace: workspace, ct: ct);
     }
 
     [McpServerTool(Name = "twig_workspace"), Description("Returns the current sprint workspace: active context item, sprint backlog items, and seeds.")]

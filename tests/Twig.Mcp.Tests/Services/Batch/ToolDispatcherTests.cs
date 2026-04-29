@@ -32,11 +32,12 @@ public sealed class ToolDispatcherTests
             .Returns(_ => throw new KeyNotFoundException("Workspace not found"));
         var resolver = new WorkspaceResolver(registry, factory);
 
+        var navigationTools = new NavigationTools(resolver);
         _dispatcher = new ToolDispatcher(
             new ContextTools(resolver),
-            new ReadTools(resolver),
+            new ReadTools(resolver, navigationTools),
             new MutationTools(resolver),
-            new NavigationTools(resolver),
+            navigationTools,
             new CreationTools(resolver, new SeedFactory(new SeedIdCounter())),
             new WorkspaceTools(registry, resolver));
     }

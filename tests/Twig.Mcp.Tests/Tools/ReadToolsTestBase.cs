@@ -163,7 +163,8 @@ public abstract class ReadToolsTestBase
 
     protected ReadTools CreateSut(TwigConfiguration config)
     {
-        return new ReadTools(BuildResolver(config));
+        var res = BuildResolver(config);
+        return new ReadTools(res, new NavigationTools(res));
     }
 
     protected static JsonElement ParseResult(CallToolResult result)

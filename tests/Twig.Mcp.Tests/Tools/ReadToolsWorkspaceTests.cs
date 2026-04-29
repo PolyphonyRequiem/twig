@@ -739,4 +739,161 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
         var root = ParseResult(result);
         root.GetProperty("sprintItems").GetArrayLength().ShouldBe(0);
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  tree=true — returns tree-structured JSON
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Workspace_TreeTrue_ReturnsTreeStructuredJson()
+    {
+        SetupIteration();
+        var contextItem = new WorkItemBuilder(42, "My Task").AsTask().InState("Active").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(contextItem);
+
+        var epic = new WorkItemBuilder(100, "Epic A").AsEpic().InState("Active").Build();
+        var child = new WorkItemBuilder(101, "Issue A").AsIssue().InState("Active").WithParent(100).Build();
+        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+            .Returns([epic]);
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetParentChainAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetChildrenAsync(100, Arg.Any<CancellationToken>())
+            .Returns([child]);
+        _adoService.FetchChildrenAsync(100, Arg.Any<CancellationToken>())
+            .Returns([child]);
+        _workItemRepo.GetChildrenAsync(101, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _adoService.FetchChildrenAsync(101, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var result = await CreateSut(_config).Workspace(tree: true);
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+
+        root.GetProperty("mode").GetString().ShouldBe("tree");
+        root.GetProperty("workspace").GetString().ShouldBe("testorg/testproject");
+        root.GetProperty("context").GetProperty("id").GetInt32().ShouldBe(42);
+
+        var roots = root.GetProperty("roots");
+        roots.GetArrayLength().ShouldBe(1);
+        roots[0].GetProperty("focus").GetProperty("id").GetInt32().ShouldBe(100);
+        roots[0].GetProperty("children").GetArrayLength().ShouldBe(1);
+        roots[0].GetProperty("children")[0].GetProperty("id").GetInt32().ShouldBe(101);
+        roots[0].GetProperty("totalChildren").GetInt32().ShouldBe(1);
+
+        root.GetProperty("totalItems").GetInt32().ShouldBe(2);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  tree=true with no sprint items — empty roots
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Workspace_TreeTrue_NoSprintItems_ReturnsEmptyRoots()
+    {
+        SetupIteration();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var result = await CreateSut(_config).Workspace(tree: true);
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+
+        root.GetProperty("mode").GetString().ShouldBe("tree");
+        root.GetProperty("roots").GetArrayLength().ShouldBe(0);
+        root.GetProperty("totalItems").GetInt32().ShouldBe(0);
+        root.GetProperty("context").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  tree=true includes seeds in output
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Workspace_TreeTrue_IncludesSeedsInOutput()
+    {
+        SetupIteration();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var seed = new WorkItemBuilder(200, "Seed A").AsTask().AsSeed().Build();
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns([seed]);
+
+        var result = await CreateSut(_config).Workspace(tree: true);
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+
+        root.GetProperty("seeds").GetArrayLength().ShouldBe(1);
+        root.GetProperty("seeds")[0].GetProperty("id").GetInt32().ShouldBe(200);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  tree=false still returns flat workspace (unchanged)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Workspace_TreeFalse_ReturnsFlatWorkspace()
+    {
+        SetupIteration();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var result = await CreateSut(_config).Workspace(tree: false);
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+
+        // Flat workspace doesn't have "mode" or "roots" — it has "sprintItems"
+        root.TryGetProperty("mode", out _).ShouldBeFalse();
+        root.TryGetProperty("roots", out _).ShouldBeFalse();
+        root.TryGetProperty("sprintItems", out _).ShouldBeTrue();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  tree=true with multiple sprint items — multiple roots
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Workspace_TreeTrue_MultipleSprintItems_ReturnsMultipleRoots()
+    {
+        SetupIteration();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+
+        var item1 = new WorkItemBuilder(10, "Epic A").AsEpic().InState("Active").Build();
+        var item2 = new WorkItemBuilder(20, "Epic B").AsEpic().InState("Active").Build();
+        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+            .Returns([item1, item2]);
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetParentChainAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _adoService.FetchChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var result = await CreateSut(_config).Workspace(tree: true);
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+
+        root.GetProperty("roots").GetArrayLength().ShouldBe(2);
+        root.GetProperty("roots")[0].GetProperty("focus").GetProperty("id").GetInt32().ShouldBe(10);
+        root.GetProperty("roots")[1].GetProperty("focus").GetProperty("id").GetInt32().ShouldBe(20);
+        root.GetProperty("totalItems").GetInt32().ShouldBe(2);
+    }
 }

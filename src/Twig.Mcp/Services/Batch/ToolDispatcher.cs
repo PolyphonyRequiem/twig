@@ -47,6 +47,7 @@ internal sealed class ToolDispatcher(
 
             "twig_workspace" => readTools.Workspace(
                 GetBool(args, "all"),
+                GetBool(args, "tree"),
                 workspace, ct),
 
             // Mutation tools

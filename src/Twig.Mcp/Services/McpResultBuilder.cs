@@ -193,6 +193,85 @@ internal static class McpResultBuilder
             WriteOptionalWorkspace(writer, workspaceKey);
         });
 
+    public static CallToolResult FormatWorkspaceTree(
+        IReadOnlyList<(WorkTree Tree, int TotalChildren)> roots,
+        Workspace workspace, string? workspaceKey = null,
+        IReadOnlyList<ExcludedItem>? excludedItems = null) =>
+        BuildJson(writer =>
+        {
+            writer.WriteString("workspace", workspaceKey ?? "");
+            writer.WriteString("mode", "tree");
+
+            // Context
+            writer.WritePropertyName("context");
+            if (workspace.ContextItem is not null)
+            {
+                writer.WriteStartObject();
+                WriteWorkItemCore(writer, workspace.ContextItem);
+                writer.WriteEndObject();
+            }
+            else
+            {
+                writer.WriteNullValue();
+            }
+
+            // Tree roots
+            var totalItems = 0;
+            writer.WriteStartArray("roots");
+            foreach (var (tree, totalChildren) in roots)
+            {
+                writer.WriteStartObject();
+
+                writer.WritePropertyName("focus");
+                writer.WriteStartObject();
+                WriteWorkItemCore(writer, tree.FocusedItem);
+                writer.WriteEndObject();
+
+                writer.WriteStartArray("children");
+                foreach (var child in tree.Children)
+                {
+                    WriteTreeNodeRecursive(writer, child, tree);
+                }
+                writer.WriteEndArray();
+
+                writer.WriteNumber("totalChildren", totalChildren);
+                writer.WriteEndObject();
+
+                totalItems += 1 + totalChildren;
+            }
+            writer.WriteEndArray();
+
+            writer.WriteNumber("totalItems", totalItems);
+
+            // Seeds
+            WriteWorkItemArray(writer, "seeds", workspace.Seeds);
+
+            // Tracked items
+            writer.WriteStartArray("trackedItems");
+            foreach (var t in workspace.TrackedItems)
+            {
+                writer.WriteStartObject();
+                writer.WriteNumber("workItemId", t.WorkItemId);
+                writer.WriteString("mode", t.Mode.ToString());
+                writer.WriteString("trackedAt", t.TrackedAt.ToString("o"));
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+
+            // Excluded items
+            var excluded = excludedItems ?? Array.Empty<ExcludedItem>();
+            writer.WriteStartArray("excludedItems");
+            foreach (var e in excluded)
+            {
+                writer.WriteStartObject();
+                writer.WriteNumber("workItemId", e.WorkItemId);
+                writer.WriteString("reason", e.Reason);
+                writer.WriteString("excludedAt", e.ExcludedAt.ToString("o"));
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+        });
+
     public static CallToolResult FormatStateChange(WorkItem updated, string previousState) =>
         BuildJson(writer =>
         {

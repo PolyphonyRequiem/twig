@@ -653,6 +653,26 @@ internal static class McpResultBuilder
             writer.WriteEndArray();
         });
 
+    public static CallToolResult FormatSyncSummary(McpFlushSummary? flushSummary, bool pullOnly) =>
+        BuildJson(writer =>
+        {
+            writer.WriteBoolean("pullOnly", pullOnly);
+            writer.WriteNumber("flushed", flushSummary?.Flushed ?? 0);
+            writer.WriteNumber("failed", flushSummary?.Failed ?? 0);
+            writer.WriteStartArray("failures");
+            if (flushSummary is not null)
+            {
+                foreach (var f in flushSummary.Failures)
+                {
+                    writer.WriteStartObject();
+                    writer.WriteNumber("workItemId", f.WorkItemId);
+                    writer.WriteString("reason", f.Reason);
+                    writer.WriteEndObject();
+                }
+            }
+            writer.WriteEndArray();
+        });
+
     public static CallToolResult FormatDiscarded(int id, int notesDiscarded, int fieldEditsDiscarded) =>
         BuildJson(writer =>
         {

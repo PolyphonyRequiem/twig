@@ -30,6 +30,7 @@ public sealed class MutationToolsSyncTests : MutationToolsTestBase
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
+        root.GetProperty("pullOnly").GetBoolean().ShouldBe(false);
         root.GetProperty("flushed").GetInt32().ShouldBe(0);
         root.GetProperty("failed").GetInt32().ShouldBe(0);
     }
@@ -65,6 +66,7 @@ public sealed class MutationToolsSyncTests : MutationToolsTestBase
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
+        root.GetProperty("pullOnly").GetBoolean().ShouldBe(false);
         root.GetProperty("flushed").GetInt32().ShouldBe(1);
         root.GetProperty("failed").GetInt32().ShouldBe(0);
     }
@@ -192,6 +194,7 @@ public sealed class MutationToolsSyncTests : MutationToolsTestBase
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
+        root.TryGetProperty("pullOnly", out _).ShouldBe(true);
         root.TryGetProperty("flushed", out _).ShouldBe(true);
         root.TryGetProperty("failed", out _).ShouldBe(true);
         root.TryGetProperty("failures", out var failures).ShouldBe(true);
@@ -224,5 +227,87 @@ public sealed class MutationToolsSyncTests : MutationToolsTestBase
         var failures = root.GetProperty("failures");
         failures.GetArrayLength().ShouldBe(1);
         failures[0].GetProperty("workItemId").GetInt32().ShouldBe(99);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  pull_only=true — skips flush phase
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Sync_PullOnly_SkipsFlushPhase()
+    {
+        // Set up pending changes that would normally be flushed
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
+            .Returns(new[] { 42 });
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>())
+            .Returns((int?)null);
+
+        var result = await CreateMutationSut().Sync(pull_only: true);
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+        root.GetProperty("pullOnly").GetBoolean().ShouldBe(true);
+        root.GetProperty("flushed").GetInt32().ShouldBe(0);
+        root.GetProperty("failed").GetInt32().ShouldBe(0);
+        root.GetProperty("failures").GetArrayLength().ShouldBe(0);
+
+        // GetDirtyItemIdsAsync should NOT have been called (flush was skipped entirely)
+        await _pendingChangeStore.DidNotReceive()
+            .GetDirtyItemIdsAsync(Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  pull_only=true — still performs pull phase
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Sync_PullOnly_StillPerformsPullPhase()
+    {
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
+
+        var item = new WorkItemBuilder(42, "My Task").AsTask().InState("Doing")
+            .LastSyncedAt(null).Build();
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _workItemRepo.GetChildrenAsync(42, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetParentChainAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+
+        var result = await CreateMutationSut().Sync(pull_only: true);
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+        root.GetProperty("pullOnly").GetBoolean().ShouldBe(true);
+
+        // Pull phase should still run — FetchAsync should be called
+        await _adoService.Received().FetchAsync(42, Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  pull_only=false (default) — retains full sync behavior
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Sync_PullOnlyFalse_PerformsFlushAndPull()
+    {
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<int>());
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>())
+            .Returns((int?)null);
+
+        var result = await CreateMutationSut().Sync(pull_only: false);
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+        root.GetProperty("pullOnly").GetBoolean().ShouldBe(false);
+
+        // Flusher should have been called — GetDirtyItemIdsAsync is the first call in FlushAllAsync
+        await _pendingChangeStore.Received()
+            .GetDirtyItemIdsAsync(Arg.Any<CancellationToken>());
     }
 }

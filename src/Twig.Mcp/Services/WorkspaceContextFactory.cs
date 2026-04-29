@@ -197,6 +197,8 @@ public sealed class WorkspaceContextFactory : IWorkspaceContextFactory, IDisposa
             promptStateWriter,
             parentPropagationService,
             sprintIterationResolver,
+            processTypeStore,
+            fieldDefStore,
             trackingRepo,
             branchLinkService);
     }

@@ -371,10 +371,17 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> State([Argument] string name, string output = OutputFormatterFactory.DefaultFormat, int? id = null, CancellationToken ct = default)
         => await services.GetRequiredService<StateCommand>().ExecuteAsync(name, id, output, ct);
 
+    /// <summary>Show process configuration: list types (no args) or type details (with type name).</summary>
+    /// <param name="type">Work item type name to show details for (omit to list all types).</param>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    public async Task<int> Process(string? type = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<ProcessCommand>().ExecuteAsync(type, output, ct);
+
     /// <summary>List available workflow states for the active work item's type.</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    [Hidden]
     public async Task<int> States(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<StatesCommand>().ExecuteAsync(output, ct);
+        => await services.GetRequiredService<ProcessCommand>().ExecuteStatesAsync(output, ct);
 
     /// <summary>Create a new work item in ADO.</summary>
     /// <param name="title">Title for the new work item.</param>
@@ -1056,6 +1063,7 @@ internal static class GroupedHelp
         "nav history",
 
         // Work Items
+        "process",
         "state",
         "states",
         "batch",
@@ -1186,8 +1194,9 @@ Navigation:
   nav history          Display the navigation history.
 
 Work Items:
+  process              List all work item types with state counts.
+  process <type>       Show states, fields, transitions for a type.
   state <name>         Change the state (e.g. Active, Closed).
-  states               List available states for the active item's type.
   batch                Batch state, field, and note changes in one call.
   note                 Add a note to the active work item.
   update <field> <v>   Update a field on the active work item.

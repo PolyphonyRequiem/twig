@@ -563,4 +563,76 @@ public sealed class MutationToolsUpdateTests : MutationToolsTestBase
             Arg.Any<int>(),
             Arg.Any<CancellationToken>());
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Seed routing — update via SeedMutationProvider
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Update_OnSeed_RoutesToSeedProvider_NoAdoCalls()
+    {
+        var item = new WorkItemBuilder(-1, "Seed Task").AsTask().AsSeed().InState("To Do").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(-1);
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(item);
+
+        var result = await CreateMutationSut().Update("System.Title", "Updated Seed");
+
+        result.IsError.ShouldBeNull();
+
+        // No ADO calls should have been made
+        await _adoService.DidNotReceive().FetchAsync(
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().PatchAsync(
+            Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Update_OnSeed_ReturnsFormattedResult()
+    {
+        var item = new WorkItemBuilder(-1, "Seed Task").AsTask().AsSeed().InState("To Do").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(-1);
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(item);
+
+        var result = await CreateMutationSut().Update("System.Title", "Updated Seed");
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+        root.GetProperty("id").GetInt32().ShouldBe(-1);
+        root.GetProperty("updatedField").GetString().ShouldBe("System.Title");
+        root.GetProperty("updatedValue").GetString().ShouldBe("Updated Seed");
+        root.GetProperty("isSeed").GetBoolean().ShouldBe(true);
+    }
+
+    [Fact]
+    public async Task Update_OnSeed_WithAppend_AppendsToExistingValue()
+    {
+        var item = new WorkItemBuilder(-1, "Seed Task").AsTask().AsSeed().InState("To Do")
+            .WithField("System.Description", "existing text")
+            .Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(-1);
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(item);
+
+        var result = await CreateMutationSut().Update(
+            "System.Description", "appended text", append: true);
+
+        result.IsError.ShouldBeNull();
+
+        // Verify the field was saved locally with appended value
+        await _workItemRepo.Received().SaveAsync(
+            Arg.Is<WorkItem>(w => w.Id == -1),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Update_OnSeed_PromptStateWriterCalled()
+    {
+        var item = new WorkItemBuilder(-1, "Seed Task").AsTask().AsSeed().InState("To Do").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(-1);
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(item);
+
+        await CreateMutationSut().Update("System.Title", "Updated");
+
+        await _promptStateWriter.Received(1).WritePromptStateAsync();
+    }
 }

@@ -1,12 +1,14 @@
 using Microsoft.Extensions.DependencyInjection;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
+using Twig.Domain.Services.Mutation;
 using Twig.Domain.Services.Process;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Workspace;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Services.Mutation;
 using Twig.Infrastructure.Telemetry;
 
 namespace Twig.Infrastructure;
@@ -117,6 +119,10 @@ public static class TwigServiceRegistration
 
         // Telemetry client — no-op when TWIG_TELEMETRY_ENDPOINT is unset.
         services.AddSingleton<ITelemetryClient, TelemetryClient>();
+
+        // Mutation providers
+        services.AddSingleton<SeedMutationProvider>();
+        services.AddSingleton<AdoMutationProvider>();
 
         // Prompt state writer — writes .twig/prompt.json atomically after mutating commands.
         services.AddSingleton<IPromptStateWriter>(sp => new PromptStateWriter(

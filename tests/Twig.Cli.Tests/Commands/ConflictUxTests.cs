@@ -146,7 +146,7 @@ public class ConflictUxTests
         _consoleInput.ReadLine().Returns("l"); // keep local
 
         var cmd = new UpdateCommand(_resolver, _workItemRepo, _adoService, _pendingChangeStore,
-            _consoleInput, _formatterFactory);
+            _consoleInput, _formatterFactory, new SeedMutationProvider(_workItemRepo));
         var result = await cmd.ExecuteAsync("System.Title", "New Title");
 
         result.ShouldBe(0);
@@ -168,7 +168,7 @@ public class ConflictUxTests
         _consoleInput.ReadLine().Returns("r"); // keep remote
 
         var cmd = new UpdateCommand(_resolver, _workItemRepo, _adoService, _pendingChangeStore,
-            _consoleInput, _formatterFactory);
+            _consoleInput, _formatterFactory, new SeedMutationProvider(_workItemRepo));
         var result = await cmd.ExecuteAsync("System.Title", "New Title");
 
         result.ShouldBe(0);

@@ -3,6 +3,7 @@ using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
+using Twig.Infrastructure.Config;
 using Twig.TestKit;
 using Xunit;
 
@@ -281,5 +282,122 @@ public sealed class NavigationToolsShowTests : NavigationToolsTestBase
         var json = ParseResult(result);
         json.TryGetProperty("pendingChanges", out var pending).ShouldBeTrue();
         pending.GetArrayLength().ShouldBe(0);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  tree=true — returns tree hierarchy instead of detail card
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Show_WithTreeTrue_ReturnsTreeHierarchy()
+    {
+        var parent = new WorkItemBuilder(1, "Epic").AsEpic().InState("Active").Build();
+        var focus = new WorkItemBuilder(10, "Feature").AsFeature().InState("Active")
+            .WithParent(1).Build();
+        var child1 = new WorkItemBuilder(20, "Task 1").AsTask().WithParent(10).Build();
+        var child2 = new WorkItemBuilder(21, "Task 2").AsTask().WithParent(10).Build();
+
+        _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>())
+            .Returns(focus);
+        _workItemRepo.GetParentChainAsync(1, Arg.Any<CancellationToken>())
+            .Returns([parent]);
+        _workItemRepo.GetChildrenAsync(10, Arg.Any<CancellationToken>())
+            .Returns([child1, child2]);
+        _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
+            .Returns([focus]);
+
+        var result = await CreateSut().Show(10, tree: true);
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+
+        // Should have tree structure, not detail card
+        root.GetProperty("focus").GetProperty("id").GetInt32().ShouldBe(10);
+        root.GetProperty("focus").GetProperty("title").GetString().ShouldBe("Feature");
+        root.GetProperty("parentChain").GetArrayLength().ShouldBe(1);
+        root.GetProperty("parentChain")[0].GetProperty("id").GetInt32().ShouldBe(1);
+        root.GetProperty("children").GetArrayLength().ShouldBe(2);
+        root.GetProperty("totalChildren").GetInt32().ShouldBe(2);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  tree=false (default) — returns detail card unchanged
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Show_WithTreeFalse_ReturnsDetailCard()
+    {
+        var item = new WorkItemBuilder(42, "My Task").AsTask().InState("Doing").Build();
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
+            .Returns(item);
+
+        var result = await CreateSut().Show(42, tree: false);
+
+        result.IsError.ShouldBeNull();
+        var json = ParseResult(result);
+        json.GetProperty("id").GetInt32().ShouldBe(42);
+        json.GetProperty("title").GetString().ShouldBe("My Task");
+        // Should NOT have tree structure properties
+        json.TryGetProperty("focus", out _).ShouldBeFalse();
+        json.TryGetProperty("parentChain", out _).ShouldBeFalse();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  tree=true with depth — respects max depth
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Show_WithTreeAndDepth_RespectsMaxDepth()
+    {
+        var focus = new WorkItemBuilder(10, "Epic").AsEpic().InState("Active").Build();
+        var child = new WorkItemBuilder(20, "Feature").AsFeature().WithParent(10).Build();
+        var grandchild = new WorkItemBuilder(30, "Task").AsTask().WithParent(20).Build();
+
+        _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>())
+            .Returns(focus);
+        _workItemRepo.GetChildrenAsync(10, Arg.Any<CancellationToken>())
+            .Returns([child]);
+        _workItemRepo.GetChildrenAsync(20, Arg.Any<CancellationToken>())
+            .Returns([grandchild]);
+
+        // depth=1: should fetch children but NOT grandchildren (depth-1 = 0 for descendants)
+        var result = await CreateSut().Show(10, tree: true, depth: 1);
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+
+        root.GetProperty("focus").GetProperty("id").GetInt32().ShouldBe(10);
+        root.GetProperty("children").GetArrayLength().ShouldBe(1);
+        root.GetProperty("children")[0].GetProperty("id").GetInt32().ShouldBe(20);
+
+        // Grandchildren should NOT have been fetched (depth=1 means descendants go 0 levels deep)
+        // The descendants dict only populates at depth > 0
+        await _workItemRepo.DidNotReceive()
+            .GetChildrenAsync(20, Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  tree=true with root item (no parent) — empty parent chain
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Show_WithTreeTrue_RootItem_ReturnsEmptyParentChain()
+    {
+        var focus = new WorkItemBuilder(5, "Solo Epic").AsEpic().InState("New").Build();
+
+        _workItemRepo.GetByIdAsync(5, Arg.Any<CancellationToken>())
+            .Returns(focus);
+        _workItemRepo.GetChildrenAsync(5, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var result = await CreateSut().Show(5, tree: true);
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+
+        root.GetProperty("focus").GetProperty("id").GetInt32().ShouldBe(5);
+        root.GetProperty("parentChain").GetArrayLength().ShouldBe(0);
+        root.GetProperty("children").GetArrayLength().ShouldBe(0);
+        root.GetProperty("totalChildren").GetInt32().ShouldBe(0);
     }
 }

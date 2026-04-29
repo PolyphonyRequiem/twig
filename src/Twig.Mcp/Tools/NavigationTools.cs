@@ -3,6 +3,7 @@ using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
+using Twig.Domain.ReadModels;
 using Twig.Domain.Services.Field;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
@@ -21,6 +22,8 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
     [McpServerTool(Name = "twig_show"), Description("Read a work item by ID without changing the active context")]
     public async Task<CallToolResult> Show(
         [Description("Work item ID to retrieve")] int id,
+        [Description("When true, display item hierarchy as a tree instead of detail card")] bool tree = false,
+        [Description("Max child depth to display (only used when tree=true)")] int? depth = null,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
         CancellationToken ct = default)
     {
@@ -29,6 +32,9 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
         var (item, fetchErr) = await ctx.FetchWithFallbackAsync(id, ct);
         if (fetchErr is not null) return McpResultBuilder.ToError(fetchErr);
 
+        if (tree)
+            return await BuildTreeResultAsync(ctx, item!, depth, ct);
+
         // Include pending changes when the requested item is the active work item
         var activeId = await ctx.ContextStore.GetActiveWorkItemIdAsync(ct);
         IReadOnlyList<PendingChangeRecord>? pendingChanges = null;
@@ -36,6 +42,42 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
             pendingChanges = await ctx.PendingChangeStore.GetChangesAsync(id, ct);
 
         return McpResultBuilder.FormatWorkItem(item!, pendingChanges, ctx.Key.ToString());
+    }
+
+    private static async Task<CallToolResult> BuildTreeResultAsync(
+        WorkspaceContext ctx, WorkItem item, int? depth, CancellationToken ct)
+    {
+        // Build parent chain
+        var parentChain = item.ParentId.HasValue
+            ? await ctx.WorkItemRepo.GetParentChainAsync(item.ParentId.Value, ct)
+            : Array.Empty<WorkItem>();
+
+        var maxDepth = depth ?? ctx.Config.Display.TreeDepth;
+        var allChildren = await ctx.FetchChildrenWithFallbackAsync(item.Id, ct);
+        var totalChildCount = allChildren.Count;
+
+        // Recursively fetch descendants up to maxDepth
+        var descendantsByParentId = new Dictionary<int, IReadOnlyList<WorkItem>>();
+        await WorkTreeFetcher.FetchDescendantsAsync(
+            ctx.FetchChildrenWithFallbackAsync, allChildren, maxDepth - 1, descendantsByParentId, ct);
+
+        // Compute sibling counts for parent chain + focused item
+        var siblingCounts = new Dictionary<int, int?>();
+        foreach (var node in parentChain.Append(item))
+            siblingCounts[node.Id] = node.ParentId.HasValue
+                ? (await ctx.FetchChildrenWithFallbackAsync(node.ParentId.Value, ct)).Count
+                : null;
+
+        // Best-effort link sync
+        IReadOnlyList<WorkItemLink> links = Array.Empty<WorkItemLink>();
+        try
+        {
+            links = await ctx.SyncCoordinatorFactory.ReadOnly.SyncLinksAsync(item.Id, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
+
+        var workTree = WorkTree.Build(item, parentChain, allChildren, siblingCounts, links, descendantsByParentId);
+        return McpResultBuilder.FormatTree(workTree, totalChildCount);
     }
 
     [McpServerTool(Name = "twig_query"), Description("Search work items with structured filters (type, state, title, assignedTo, etc.)")]

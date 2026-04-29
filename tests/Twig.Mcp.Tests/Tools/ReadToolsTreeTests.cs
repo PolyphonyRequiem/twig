@@ -633,6 +633,20 @@ public sealed class ReadToolsTreeTests : ReadToolsTestBase
         root.GetProperty("focus").GetProperty("id").GetInt32().ShouldBe(10);
     }
 
+    [Fact]
+    public async Task Tree_WithExplicitId_NotFound_ReturnsError()
+    {
+        _workItemRepo.GetByIdAsync(999, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        _adoService.FetchAsync(999, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("not found"));
+
+        var result = await CreateSut(_config).Tree(id: 999);
+
+        result.IsError.ShouldBe(true);
+        result.Content[0].ShouldBeOfType<TextContentBlock>()
+            .Text.ShouldContain("999");
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //  Helpers
     // ═══════════════════════════════════════════════════════════════

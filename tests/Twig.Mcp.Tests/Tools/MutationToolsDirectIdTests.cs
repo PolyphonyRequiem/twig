@@ -251,4 +251,219 @@ public sealed class MutationToolsDirectIdTests : MutationToolsTestBase
             Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(),
             Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Active context isolation — SetActiveWorkItemIdAsync never called
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task State_WithDirectId_DoesNotChangeActiveContext()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        var activeItem = new WorkItemBuilder(1, "Active").AsTask().InState("To Do").Build();
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(activeItem);
+
+        var target = new WorkItemBuilder(42, "Target").AsTask().InState("To Do").Build();
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(target);
+
+        var config = BuildTaskProcessConfig();
+        _processConfigProvider.GetConfiguration().Returns(config);
+
+        var updated = new WorkItemBuilder(42, "Target").AsTask().InState("Doing").Build();
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(target, updated);
+        _adoService.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());
+
+        await CreateMutationSut().State("Doing", id: 42);
+
+        await _contextStore.DidNotReceive()
+            .SetActiveWorkItemIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Update_WithDirectId_DoesNotChangeActiveContext()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+
+        var target = new WorkItemBuilder(77, "Target").AsTask().InState("Doing").Build();
+        _workItemRepo.GetByIdAsync(77, Arg.Any<CancellationToken>()).Returns(target);
+
+        _adoService.FetchAsync(77, Arg.Any<CancellationToken>()).Returns(target);
+        _adoService.PatchAsync(77, Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());
+
+        await CreateMutationSut().Update("System.Title", "Changed", id: 77);
+
+        await _contextStore.DidNotReceive()
+            .SetActiveWorkItemIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Patch_WithDirectId_DoesNotChangeActiveContext()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+
+        var target = new WorkItemBuilder(55, "Target").AsTask().InState("Doing").Build();
+        _workItemRepo.GetByIdAsync(55, Arg.Any<CancellationToken>()).Returns(target);
+
+        _adoService.FetchAsync(55, Arg.Any<CancellationToken>()).Returns(target);
+        _adoService.PatchAsync(55, Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());
+
+        await CreateMutationSut().Patch("{\"System.Title\":\"Patched\"}", id: 55);
+
+        await _contextStore.DidNotReceive()
+            .SetActiveWorkItemIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Note_WithDirectId_DoesNotChangeActiveContext()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+
+        var target = new WorkItemBuilder(33, "Target").AsTask().InState("Doing").Build();
+        _workItemRepo.GetByIdAsync(33, Arg.Any<CancellationToken>()).Returns(target);
+        _adoService.FetchAsync(33, Arg.Any<CancellationToken>()).Returns(target);
+
+        await CreateMutationSut().Note("A note", id: 33);
+
+        await _contextStore.DidNotReceive()
+            .SetActiveWorkItemIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Without id — falls back to active context (Update, Patch, Note)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Update_WithoutId_UsesActiveContext()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+
+        var result = await CreateMutationSut().Update("System.Title", "x", id: null);
+
+        result.IsError.ShouldBe(true);
+        GetErrorText(result).ShouldContain("No active work item");
+    }
+
+    [Fact]
+    public async Task Patch_WithoutId_UsesActiveContext()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+
+        var result = await CreateMutationSut().Patch("{\"System.Title\":\"x\"}", id: null);
+
+        result.IsError.ShouldBe(true);
+        GetErrorText(result).ShouldContain("No active work item");
+    }
+
+    [Fact]
+    public async Task Note_WithoutId_UsesActiveContext()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+
+        var result = await CreateMutationSut().Note("some text", id: null);
+
+        result.IsError.ShouldBe(true);
+        GetErrorText(result).ShouldContain("No active work item");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Parallel batch — two direct-ID calls target different items
+    //  without interference
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ParallelDirectId_TwoDifferentItems_NoInterference()
+    {
+        // Active context points to item 1 (neither target)
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+
+        var itemA = new WorkItemBuilder(10, "Item A").AsTask().InState("Doing").Build();
+        var itemB = new WorkItemBuilder(20, "Item B").AsTask().InState("Doing").Build();
+
+        _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(itemA);
+        _workItemRepo.GetByIdAsync(20, Arg.Any<CancellationToken>()).Returns(itemB);
+
+        _adoService.FetchAsync(10, Arg.Any<CancellationToken>()).Returns(itemA);
+        _adoService.FetchAsync(20, Arg.Any<CancellationToken>()).Returns(itemB);
+        _adoService.PatchAsync(10, Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+        _adoService.PatchAsync(20, Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());
+
+        var sut = CreateMutationSut();
+
+        // Fire both mutations concurrently targeting different items
+        var taskA = sut.Update("System.Title", "Title A", id: 10);
+        var taskB = sut.Update("System.Title", "Title B", id: 20);
+        var results = await Task.WhenAll(taskA, taskB);
+
+        results[0].IsError.ShouldBeNull();
+        results[1].IsError.ShouldBeNull();
+
+        // Each item received its own patch — no cross-talk
+        await _adoService.Received().PatchAsync(
+            10,
+            Arg.Is<IReadOnlyList<FieldChange>>(c => c.Any(f => f.NewValue == "Title A")),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+
+        await _adoService.Received().PatchAsync(
+            20,
+            Arg.Is<IReadOnlyList<FieldChange>>(c => c.Any(f => f.NewValue == "Title B")),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+
+        // Active context must not have been touched
+        await _contextStore.DidNotReceive()
+            .SetActiveWorkItemIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ParallelDirectId_MixedTools_NoInterference()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+
+        var config = BuildTaskProcessConfig();
+        _processConfigProvider.GetConfiguration().Returns(config);
+
+        var itemA = new WorkItemBuilder(30, "State Target").AsTask().InState("To Do").Build();
+        var itemB = new WorkItemBuilder(40, "Note Target").AsTask().InState("Doing").Build();
+
+        _workItemRepo.GetByIdAsync(30, Arg.Any<CancellationToken>()).Returns(itemA);
+        _workItemRepo.GetByIdAsync(40, Arg.Any<CancellationToken>()).Returns(itemB);
+
+        var updatedA = new WorkItemBuilder(30, "State Target").AsTask().InState("Doing").Build();
+        _adoService.FetchAsync(30, Arg.Any<CancellationToken>()).Returns(itemA, updatedA);
+        _adoService.FetchAsync(40, Arg.Any<CancellationToken>()).Returns(itemB);
+        _adoService.PatchAsync(30, Arg.Any<IReadOnlyList<FieldChange>>(),
+            Arg.Any<int>(), Arg.Any<CancellationToken>()).Returns(2);
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<int>());
+
+        var sut = CreateMutationSut();
+
+        // Concurrent: State on item 30, Note on item 40
+        var stateTask = sut.State("Doing", id: 30);
+        var noteTask = sut.Note("Concurrent note", id: 40);
+        var results = await Task.WhenAll(stateTask, noteTask);
+
+        results[0].IsError.ShouldBeNull();
+        results[1].IsError.ShouldBeNull();
+
+        // State targeted item 30
+        await _adoService.Received().PatchAsync(
+            30,
+            Arg.Is<IReadOnlyList<FieldChange>>(c => c.Any(f => f.NewValue == "Doing")),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+
+        // Note targeted item 40
+        await _adoService.Received().AddCommentAsync(40, "Concurrent note", Arg.Any<CancellationToken>());
+
+        // Active context unchanged
+        await _contextStore.DidNotReceive()
+            .SetActiveWorkItemIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
 }

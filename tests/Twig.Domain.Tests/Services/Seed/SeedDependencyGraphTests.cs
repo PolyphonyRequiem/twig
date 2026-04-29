@@ -362,4 +362,189 @@ public class SeedDependencyGraphTests
         order.ShouldBeEmpty();
         cyclicIds.Count.ShouldBe(3);
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  WouldCreateCycle — Direct cycle (A→B, propose B→A)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void WouldCreateCycle_DirectCycle_ReturnsTrue()
+    {
+        var seeds = new[]
+        {
+            new WorkItemBuilder(-1, "A").AsSeed(daysOld: 2).Build(),
+            new WorkItemBuilder(-2, "B").AsSeed(daysOld: 1).Build(),
+        };
+        var existingLinks = new[]
+        {
+            new SeedLink(-1, -2, SeedLinkTypes.DependsOn, DateTimeOffset.UtcNow),
+        };
+        var proposed = new SeedLink(-2, -1, SeedLinkTypes.DependsOn, DateTimeOffset.UtcNow);
+
+        SeedDependencyGraph.WouldCreateCycle(seeds, existingLinks, proposed).ShouldBeTrue();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  WouldCreateCycle — Transitive cycle (A→B→C, propose C→A)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void WouldCreateCycle_TransitiveCycle_ReturnsTrue()
+    {
+        var seeds = new[]
+        {
+            new WorkItemBuilder(-1, "A").AsSeed(daysOld: 3).Build(),
+            new WorkItemBuilder(-2, "B").AsSeed(daysOld: 2).Build(),
+            new WorkItemBuilder(-3, "C").AsSeed(daysOld: 1).Build(),
+        };
+        var existingLinks = new[]
+        {
+            new SeedLink(-1, -2, SeedLinkTypes.DependsOn, DateTimeOffset.UtcNow),
+            new SeedLink(-2, -3, SeedLinkTypes.BlockedBy, DateTimeOffset.UtcNow),
+        };
+        var proposed = new SeedLink(-3, -1, SeedLinkTypes.DependsOn, DateTimeOffset.UtcNow);
+
+        SeedDependencyGraph.WouldCreateCycle(seeds, existingLinks, proposed).ShouldBeTrue();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  WouldCreateCycle — Self-loop (A→A with directional type)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void WouldCreateCycle_SelfLoop_ReturnsTrue()
+    {
+        var seeds = new[]
+        {
+            new WorkItemBuilder(-1, "A").AsSeed(daysOld: 1).Build(),
+        };
+        var proposed = new SeedLink(-1, -1, SeedLinkTypes.DependsOn, DateTimeOffset.UtcNow);
+
+        SeedDependencyGraph.WouldCreateCycle(seeds, Array.Empty<SeedLink>(), proposed).ShouldBeTrue();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  WouldCreateCycle — Related link type → false
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void WouldCreateCycle_RelatedLinkType_ReturnsFalse()
+    {
+        var seeds = new[]
+        {
+            new WorkItemBuilder(-1, "A").AsSeed(daysOld: 2).Build(),
+            new WorkItemBuilder(-2, "B").AsSeed(daysOld: 1).Build(),
+        };
+        var existingLinks = new[]
+        {
+            new SeedLink(-1, -2, SeedLinkTypes.DependsOn, DateTimeOffset.UtcNow),
+        };
+        var proposed = new SeedLink(-2, -1, SeedLinkTypes.Related, DateTimeOffset.UtcNow);
+
+        SeedDependencyGraph.WouldCreateCycle(seeds, existingLinks, proposed).ShouldBeFalse();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  WouldCreateCycle — ParentChild link type → false
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void WouldCreateCycle_ParentChildLinkType_ReturnsFalse()
+    {
+        var seeds = new[]
+        {
+            new WorkItemBuilder(-1, "A").AsSeed(daysOld: 2).Build(),
+            new WorkItemBuilder(-2, "B").AsSeed(daysOld: 1).Build(),
+        };
+        var existingLinks = new[]
+        {
+            new SeedLink(-1, -2, SeedLinkTypes.DependsOn, DateTimeOffset.UtcNow),
+        };
+        var proposed = new SeedLink(-2, -1, SeedLinkTypes.ParentChild, DateTimeOffset.UtcNow);
+
+        SeedDependencyGraph.WouldCreateCycle(seeds, existingLinks, proposed).ShouldBeFalse();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  WouldCreateCycle — Endpoints not in seed set → false
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void WouldCreateCycle_EndpointsNotInSeedSet_ReturnsFalse()
+    {
+        var seeds = new[]
+        {
+            new WorkItemBuilder(-1, "A").AsSeed(daysOld: 1).Build(),
+        };
+        var proposed = new SeedLink(-1, 999, SeedLinkTypes.DependsOn, DateTimeOffset.UtcNow);
+
+        SeedDependencyGraph.WouldCreateCycle(seeds, Array.Empty<SeedLink>(), proposed).ShouldBeFalse();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  WouldCreateCycle — ParentId edges included in graph
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void WouldCreateCycle_ParentIdEdge_IncludedInGraph()
+    {
+        // -1 is child of -2 (ParentId edge: -2 → -1)
+        // Proposing -1 depends-on -2 would create: -2 → -1 (parent) and -2 → -1 (depends-on)
+        // That's not a cycle. But proposing -2 depends-on -1 would create:
+        // -2 → -1 (parent) and -1 → -2 (depends-on edge: target→source) — cycle!
+        var seeds = new[]
+        {
+            new WorkItemBuilder(-1, "Child").AsSeed(daysOld: 1).WithParent(-2).Build(),
+            new WorkItemBuilder(-2, "Parent").AsSeed(daysOld: 2).Build(),
+        };
+        var proposed = new SeedLink(-2, -1, SeedLinkTypes.DependsOn, DateTimeOffset.UtcNow);
+
+        SeedDependencyGraph.WouldCreateCycle(seeds, Array.Empty<SeedLink>(), proposed).ShouldBeTrue();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  WouldCreateCycle — No cycle in valid graph
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void WouldCreateCycle_NoCycle_ReturnsFalse()
+    {
+        var seeds = new[]
+        {
+            new WorkItemBuilder(-1, "A").AsSeed(daysOld: 3).Build(),
+            new WorkItemBuilder(-2, "B").AsSeed(daysOld: 2).Build(),
+            new WorkItemBuilder(-3, "C").AsSeed(daysOld: 1).Build(),
+        };
+        var existingLinks = new[]
+        {
+            new SeedLink(-1, -2, SeedLinkTypes.DependsOn, DateTimeOffset.UtcNow),
+        };
+        // Adding -2 depends-on -3 doesn't create a cycle (chain: -3 → -2 → -1)
+        var proposed = new SeedLink(-2, -3, SeedLinkTypes.DependsOn, DateTimeOffset.UtcNow);
+
+        SeedDependencyGraph.WouldCreateCycle(seeds, existingLinks, proposed).ShouldBeFalse();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  WouldCreateCycle — Blocks/DependedOnBy directionality
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void WouldCreateCycle_BlocksDirectionality_DetectsCycle()
+    {
+        var seeds = new[]
+        {
+            new WorkItemBuilder(-1, "A").AsSeed(daysOld: 2).Build(),
+            new WorkItemBuilder(-2, "B").AsSeed(daysOld: 1).Build(),
+        };
+        var existingLinks = new[]
+        {
+            // -1 blocks -2 → edge: -1 → -2
+            new SeedLink(-1, -2, SeedLinkTypes.Blocks, DateTimeOffset.UtcNow),
+        };
+        // -2 blocks -1 → edge: -2 → -1 — creates cycle
+        var proposed = new SeedLink(-2, -1, SeedLinkTypes.Blocks, DateTimeOffset.UtcNow);
+
+        SeedDependencyGraph.WouldCreateCycle(seeds, existingLinks, proposed).ShouldBeTrue();
+    }
 }

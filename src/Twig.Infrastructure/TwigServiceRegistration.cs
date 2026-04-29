@@ -93,6 +93,7 @@ public static class TwigServiceRegistration
         // Domain services
         services.AddSingleton<ISeedIdCounter, SeedIdCounter>();
         services.AddSingleton<SeedFactory>();
+        services.AddSingleton<SeedDiscardOrchestrator>();
         services.AddSingleton<ISprintHierarchyBuilder, SprintHierarchyBuilder>();
         services.AddSingleton<SprintIterationResolver>();
         services.AddSingleton<IProcessTypeStore>(sp => new SqliteProcessTypeStore(sp.GetRequiredService<SqliteCacheStore>()));

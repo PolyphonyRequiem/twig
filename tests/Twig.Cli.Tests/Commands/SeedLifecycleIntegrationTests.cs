@@ -173,8 +173,14 @@ public class SeedLifecycleIntegrationTests : IDisposable
         // ── Step 4: twig seed discard <id> ────────────────────────────
         _workItemRepo.GetByIdAsync(savedSeed.Id, Arg.Any<CancellationToken>()).Returns(updatedSeed);
 
+        var seedLinkRepo = Substitute.For<ISeedLinkRepository>();
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns([updatedSeed]);
+
+        var orchestrator = new SeedDiscardOrchestrator(
+            _workItemRepo, seedLinkRepo, _contextStore);
+
         var seedDiscardCmd = new SeedDiscardCommand(
-            _workItemRepo, Substitute.For<ISeedLinkRepository>(), _consoleInput, _formatterFactory);
+            _workItemRepo, orchestrator, _consoleInput, _formatterFactory);
 
         Console.SetOut(new StringWriter());
         var discardResult = await seedDiscardCmd.ExecuteAsync(savedSeed.Id, yes: true);

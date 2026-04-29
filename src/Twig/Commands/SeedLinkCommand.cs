@@ -1,4 +1,5 @@
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.Seed;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 
@@ -47,6 +48,32 @@ public sealed class SeedLinkCommand(
         {
             Console.Error.WriteLine(fmt.FormatInfo(
                 $"Warning: work item #{targetId} is not in the local cache. Link created anyway."));
+        }
+
+        // Cycle detection for directional link types
+        if (linkType != SeedLinkTypes.Related && linkType != SeedLinkTypes.ParentChild)
+        {
+            // Self-loop shortcut — reject immediately without loading the full graph
+            if (sourceId == targetId)
+            {
+                Console.Error.WriteLine(fmt.FormatError(
+                    $"Link rejected: would create a dependency cycle involving seeds: #{sourceId}"));
+                return 1;
+            }
+
+            var seeds = await workItemRepo.GetSeedsAsync(ct);
+            var existingLinks = await seedLinkRepo.GetAllSeedLinksAsync(ct);
+            var proposed = new SeedLink(sourceId, targetId, linkType, DateTimeOffset.UtcNow);
+
+            if (SeedDependencyGraph.WouldCreateCycle(seeds, existingLinks, proposed))
+            {
+                var allLinks = existingLinks.Append(proposed).ToList();
+                var (_, cyclicIds) = SeedDependencyGraph.Sort(seeds, allLinks);
+                var idList = string.Join(", ", cyclicIds.OrderBy(id => id).Select(id => $"#{id}"));
+                Console.Error.WriteLine(fmt.FormatError(
+                    $"Link rejected: would create a dependency cycle involving seeds: {idList}"));
+                return 1;
+            }
         }
 
         try

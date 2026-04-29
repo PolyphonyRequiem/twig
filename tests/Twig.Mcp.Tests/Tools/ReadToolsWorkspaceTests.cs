@@ -896,4 +896,145 @@ public sealed class ReadToolsWorkspaceTests : ReadToolsTestBase
         root.GetProperty("roots")[1].GetProperty("focus").GetProperty("id").GetInt32().ShouldBe(20);
         root.GetProperty("totalItems").GetInt32().ShouldBe(2);
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  tree=true with deep hierarchy — parent chain + nested children
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Workspace_TreeTrue_DeepHierarchy_VerifiesParentChildRelationships()
+    {
+        SetupIteration();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+
+        // Sprint item is a story with parent epic and two child tasks
+        var story = new WorkItemBuilder(50, "Story X").AsUserStory().InState("Active")
+            .WithParent(500).Build();
+        var parentEpic = new WorkItemBuilder(500, "Parent Epic").AsEpic().InState("Active").Build();
+        var childTask1 = new WorkItemBuilder(51, "Task 1").AsTask().InState("Active")
+            .WithParent(50).Build();
+        var childTask2 = new WorkItemBuilder(52, "Task 2").AsTask().InState("New")
+            .WithParent(50).Build();
+        var grandchild = new WorkItemBuilder(53, "Subtask A").AsTask().InState("New")
+            .WithParent(51).Build();
+
+        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+            .Returns([story]);
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetParentChainAsync(500, Arg.Any<CancellationToken>())
+            .Returns([parentEpic]);
+        _workItemRepo.GetChildrenAsync(50, Arg.Any<CancellationToken>())
+            .Returns([childTask1, childTask2]);
+        _adoService.FetchChildrenAsync(50, Arg.Any<CancellationToken>())
+            .Returns([childTask1, childTask2]);
+        _workItemRepo.GetChildrenAsync(51, Arg.Any<CancellationToken>())
+            .Returns([grandchild]);
+        _adoService.FetchChildrenAsync(51, Arg.Any<CancellationToken>())
+            .Returns([grandchild]);
+        _workItemRepo.GetChildrenAsync(52, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _adoService.FetchChildrenAsync(52, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetChildrenAsync(53, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _adoService.FetchChildrenAsync(53, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var result = await CreateSut(_config).Workspace(tree: true);
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+
+        root.GetProperty("mode").GetString().ShouldBe("tree");
+        root.GetProperty("roots").GetArrayLength().ShouldBe(1);
+
+        var treeRoot = root.GetProperty("roots")[0];
+
+        // Focus is the sprint item (story)
+        treeRoot.GetProperty("focus").GetProperty("id").GetInt32().ShouldBe(50);
+        treeRoot.GetProperty("focus").GetProperty("title").GetString().ShouldBe("Story X");
+
+        // Children are present with nested grandchild
+        var children = treeRoot.GetProperty("children");
+        children.GetArrayLength().ShouldBe(2);
+        children[0].GetProperty("id").GetInt32().ShouldBe(51);
+        children[1].GetProperty("id").GetInt32().ShouldBe(52);
+
+        // Grandchild nested under first child
+        var grandchildren = children[0].GetProperty("children");
+        grandchildren.GetArrayLength().ShouldBe(1);
+        grandchildren[0].GetProperty("id").GetInt32().ShouldBe(53);
+        grandchildren[0].GetProperty("title").GetString().ShouldBe("Subtask A");
+
+        // Second child has no children
+        children[1].GetProperty("children").GetArrayLength().ShouldBe(0);
+
+        treeRoot.GetProperty("totalChildren").GetInt32().ShouldBe(2);
+
+        // Total items includes focus + totalChildren (2)
+        root.GetProperty("totalItems").GetInt32().ShouldBeGreaterThanOrEqualTo(3);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  tree=true with all=true — shows all team items
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Workspace_TreeTrue_AllTrue_ShowsAllTeamItems()
+    {
+        SetupIteration();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+
+        var item1 = new WorkItemBuilder(10, "Alice Task").AsTask().InState("Active")
+            .AssignedTo("Alice").Build();
+        var item2 = new WorkItemBuilder(20, "Bob Task").AsTask().InState("Active")
+            .AssignedTo("Bob").Build();
+        _workItemRepo.GetByIterationAsync(_currentIteration, Arg.Any<CancellationToken>())
+            .Returns([item1, item2]);
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetParentChainAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _adoService.FetchChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var result = await CreateSut(_config).Workspace(all: true, tree: true);
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+
+        root.GetProperty("mode").GetString().ShouldBe("tree");
+        root.GetProperty("roots").GetArrayLength().ShouldBe(2);
+
+        // Verify all=true used unfiltered method
+        await _workItemRepo.Received(1)
+            .GetByIterationAsync(_currentIteration, Arg.Any<CancellationToken>());
+        await _workItemRepo.DidNotReceive()
+            .GetByIterationAndAssigneeAsync(Arg.Any<IterationPath>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  tree=true — workspace field present
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Workspace_TreeTrue_IncludesWorkspaceField()
+    {
+        SetupIteration();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIterationAndAssigneeAsync(_currentIteration, "Test User", Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var result = await CreateSut(_config).Workspace(tree: true);
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+
+        root.GetProperty("workspace").GetString().ShouldBe("testorg/testproject");
+    }
 }

@@ -76,6 +76,7 @@ builder.Services
     .WithTools<NavigationTools>()
     .WithTools<CreationTools>()
     .WithTools<WorkspaceTools>()
+    .WithTools<ProcessTools>()
     .WithTools<BatchTools>();
 
 await builder.Build().RunAsync();

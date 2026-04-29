@@ -436,20 +436,9 @@ internal static class McpResultBuilder
     public static CallToolResult FormatBatchResult(Batch.BatchResult batch) =>
         BuildJson(writer =>
         {
-            var succeeded = 0;
-            var failed = 0;
-            var skipped = 0;
-
             writer.WriteStartArray("steps");
             foreach (var step in batch.Steps)
             {
-                switch (step.Status)
-                {
-                    case Batch.StepStatus.Succeeded: succeeded++; break;
-                    case Batch.StepStatus.Failed: failed++; break;
-                    case Batch.StepStatus.Skipped: skipped++; break;
-                }
-
                 writer.WriteStartObject();
                 writer.WriteNumber("index", step.StepIndex);
                 writer.WriteString("tool", step.ToolName);
@@ -490,10 +479,10 @@ internal static class McpResultBuilder
             writer.WriteEndArray();
 
             writer.WriteStartObject("summary");
-            writer.WriteNumber("total", batch.Steps.Count);
-            writer.WriteNumber("succeeded", succeeded);
-            writer.WriteNumber("failed", failed);
-            writer.WriteNumber("skipped", skipped);
+            writer.WriteNumber("total", batch.Summary.Total);
+            writer.WriteNumber("succeeded", batch.Summary.Succeeded);
+            writer.WriteNumber("failed", batch.Summary.Failed);
+            writer.WriteNumber("skipped", batch.Summary.Skipped);
             writer.WriteEndObject();
 
             writer.WriteNumber("totalElapsedMs", batch.TotalElapsedMs);

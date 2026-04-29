@@ -56,9 +56,42 @@ internal sealed record StepResult(
     long ElapsedMs);
 
 /// <summary>
+/// Aggregate counts for a batch execution: total, succeeded, failed, skipped.
+/// </summary>
+internal sealed record BatchSummary(
+    int Total,
+    int Succeeded,
+    int Failed,
+    int Skipped)
+{
+    /// <summary>
+    /// Computes a summary from the given list of step results.
+    /// </summary>
+    public static BatchSummary FromSteps(IReadOnlyList<StepResult> steps)
+    {
+        var succeeded = 0;
+        var failed = 0;
+        var skipped = 0;
+
+        foreach (var step in steps)
+        {
+            switch (step.Status)
+            {
+                case StepStatus.Succeeded: succeeded++; break;
+                case StepStatus.Failed: failed++; break;
+                case StepStatus.Skipped: skipped++; break;
+            }
+        }
+
+        return new BatchSummary(steps.Count, succeeded, failed, skipped);
+    }
+}
+
+/// <summary>
 /// Aggregate result for an entire batch execution.
 /// </summary>
 internal sealed record BatchResult(
     IReadOnlyList<StepResult> Steps,
+    BatchSummary Summary,
     long TotalElapsedMs,
     bool TimedOut);

@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using Twig.Mcp.Services;
+using Twig.Mcp.Services.Batch;
 
 namespace Twig.Mcp.Serialization;
 
@@ -14,6 +15,7 @@ namespace Twig.Mcp.Serialization;
 [JsonSerializable(typeof(McpErrorEnvelope))]
 [JsonSerializable(typeof(McpContext))]
 [JsonSerializable(typeof(McpError))]
+[JsonSerializable(typeof(BatchSummary))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]

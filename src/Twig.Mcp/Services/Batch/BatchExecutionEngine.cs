@@ -51,8 +51,11 @@ internal sealed class BatchExecutionEngine(IToolDispatcher dispatcher)
         // Fill any remaining null slots with Skipped results.
         store.FillSkipped(graph.Root, "Skipped due to timeout or prior failure.");
 
+        var steps = store.ToResultList();
+
         return new BatchResult(
-            store.ToResultList(),
+            steps,
+            BatchSummary.FromSteps(steps),
             batchStopwatch.ElapsedMilliseconds,
             timedOut);
     }

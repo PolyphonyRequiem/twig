@@ -747,6 +747,166 @@ public sealed class BatchExecutionEngineTests
         capturedArgs["linkType"].ShouldBe("child"); // Non-template string: passed through.
     }
 
+    // ── Summary computation ────────────────────────────────────────
+
+    [Fact]
+    public async Task Execute_SingleSucceeded_SummaryCountsCorrect()
+    {
+        var dispatcher = CreateDispatcher();
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new StepNode(0, "twig_status", new Dictionary<string, object?>()),
+            TotalStepCount: 1);
+
+        var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        result.Summary.Total.ShouldBe(1);
+        result.Summary.Succeeded.ShouldBe(1);
+        result.Summary.Failed.ShouldBe(0);
+        result.Summary.Skipped.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Execute_SequenceWithFailure_SummaryCountsFailedAndSkipped()
+    {
+        var callCount = 0;
+        var dispatcher = CreateDispatcher((tool, _) =>
+        {
+            callCount++;
+            return callCount == 2
+                ? ErrorResult("Step 2 failed")
+                : SuccessResult($"{{\"tool\":\"{tool}\",\"ok\":true}}");
+        });
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new SequenceNode([
+                new StepNode(0, "twig_status", new Dictionary<string, object?>()),
+                new StepNode(1, "twig_set", new Dictionary<string, object?> { ["idOrPattern"] = "1" }),
+                new StepNode(2, "twig_note", new Dictionary<string, object?> { ["text"] = "hi" })
+            ]),
+            TotalStepCount: 3);
+
+        var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        result.Summary.Total.ShouldBe(3);
+        result.Summary.Succeeded.ShouldBe(1);
+        result.Summary.Failed.ShouldBe(1);
+        result.Summary.Skipped.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Execute_ParallelAllSucceed_SummaryCountsCorrect()
+    {
+        var dispatcher = CreateDispatcher();
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new ParallelNode([
+                new StepNode(0, "twig_status", new Dictionary<string, object?>()),
+                new StepNode(1, "twig_show", new Dictionary<string, object?> { ["id"] = 1 }),
+                new StepNode(2, "twig_tree", new Dictionary<string, object?>())
+            ]),
+            TotalStepCount: 3);
+
+        var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        result.Summary.Total.ShouldBe(3);
+        result.Summary.Succeeded.ShouldBe(3);
+        result.Summary.Failed.ShouldBe(0);
+        result.Summary.Skipped.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Execute_ParallelWithOneFailure_SummaryReflectsMix()
+    {
+        var dispatcher = CreateDispatcher((tool, _) =>
+            tool == "twig_set"
+                ? ErrorResult("Bad id")
+                : SuccessResult($"{{\"tool\":\"{tool}\",\"ok\":true}}"));
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new ParallelNode([
+                new StepNode(0, "twig_status", new Dictionary<string, object?>()),
+                new StepNode(1, "twig_set", new Dictionary<string, object?> { ["idOrPattern"] = "bad" })
+            ]),
+            TotalStepCount: 2);
+
+        var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        result.Summary.Total.ShouldBe(2);
+        result.Summary.Succeeded.ShouldBe(1);
+        result.Summary.Failed.ShouldBe(1);
+        result.Summary.Skipped.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Execute_Timeout_SummaryIncludesSkipped()
+    {
+        var dispatcher = CreateDelayedDispatcher(TimeSpan.FromSeconds(10));
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new SequenceNode([
+                new StepNode(0, "twig_status", new Dictionary<string, object?>()),
+                new StepNode(1, "twig_show", new Dictionary<string, object?> { ["id"] = 1 })
+            ]),
+            TotalStepCount: 2);
+
+        var result = await engine.ExecuteAsync(graph, TimeSpan.FromMilliseconds(50), null, CancellationToken.None);
+
+        result.TimedOut.ShouldBeTrue();
+        result.Summary.Total.ShouldBe(2);
+        result.Summary.Skipped.ShouldBeGreaterThan(0);
+        result.Summary.Total.ShouldBe(result.Summary.Succeeded + result.Summary.Failed + result.Summary.Skipped);
+    }
+
+    [Fact]
+    public async Task Execute_EmptyGraph_SummaryAllZeros()
+    {
+        var dispatcher = CreateDispatcher();
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new SequenceNode([]),
+            TotalStepCount: 0);
+
+        var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        result.Summary.Total.ShouldBe(0);
+        result.Summary.Succeeded.ShouldBe(0);
+        result.Summary.Failed.ShouldBe(0);
+        result.Summary.Skipped.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Execute_Summary_TotalEqualsSum()
+    {
+        var callCount = 0;
+        var dispatcher = CreateDispatcher((tool, _) =>
+        {
+            callCount++;
+            return callCount % 3 == 0
+                ? ErrorResult("fail")
+                : SuccessResult($"{{\"tool\":\"{tool}\",\"ok\":true}}");
+        });
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new ParallelNode([
+                new StepNode(0, "twig_status", new Dictionary<string, object?>()),
+                new StepNode(1, "twig_show", new Dictionary<string, object?> { ["id"] = 1 }),
+                new StepNode(2, "twig_set", new Dictionary<string, object?> { ["idOrPattern"] = "1" })
+            ]),
+            TotalStepCount: 3);
+
+        var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        result.Summary.Total.ShouldBe(result.Summary.Succeeded + result.Summary.Failed + result.Summary.Skipped);
+    }
+
     // ── Helper for tracking concurrent execution ────────────────────
 
     private sealed class ConcurrencyTracker

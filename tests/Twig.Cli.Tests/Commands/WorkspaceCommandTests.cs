@@ -1,3 +1,4 @@
+using System.Net.Http;
 using NSubstitute;
 using Shouldly;
 using Spectre.Console.Testing;
@@ -1543,6 +1544,155 @@ public class WorkspaceCommandTests
 
         var result = await _cmd.ExecuteAsync(outputFormat: "json", noRefresh: true);
 
+        result.ShouldBe(0);
+    }
+
+    // ── Sync-first for machine formats ──────────────────────────────
+
+    private WorkspaceCommand CreateCommandWithSync(SyncCoordinatorFactory syncFactory) =>
+        new(CreateCtx(), _contextStore, _workItemRepo, _iterationService,
+            _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService,
+            new SprintHierarchyBuilder(), new SprintIterationResolver(_iterationService, _workItemRepo),
+            syncCoordinatorFactory: syncFactory);
+
+    private SyncCoordinatorFactory CreateSyncFactory()
+    {
+        var pendingChangeStore = Substitute.For<IPendingChangeStore>();
+        var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, pendingChangeStore);
+        return new SyncCoordinatorFactory(
+            _workItemRepo, _adoService, protectedCacheWriter, pendingChangeStore, null, 30, 30);
+    }
+
+    [Fact]
+    public async Task Workspace_JsonOutput_TriggersSyncFirst()
+    {
+        var item = CreateWorkItem(1, "Synced Task");
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { item });
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { item });
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var syncFactory = CreateSyncFactory();
+        var cmd = CreateCommandWithSync(syncFactory);
+
+        var result = await cmd.ExecuteAsync(outputFormat: "json");
+        result.ShouldBe(0);
+
+        // ADO service should have been called to fetch stale items (sync-first)
+        await _adoService.Received().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Workspace_MinimalOutput_TriggersSyncFirst()
+    {
+        var item = CreateWorkItem(1, "Synced Task");
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { item });
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { item });
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var syncFactory = CreateSyncFactory();
+        var cmd = CreateCommandWithSync(syncFactory);
+
+        var result = await cmd.ExecuteAsync(outputFormat: "minimal");
+        result.ShouldBe(0);
+
+        await _adoService.Received().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Workspace_IdsOutput_TriggersSyncFirst()
+    {
+        var item = CreateWorkItem(1, "Synced Task");
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { item });
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { item });
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var syncFactory = CreateSyncFactory();
+        var cmd = CreateCommandWithSync(syncFactory);
+
+        var result = await cmd.ExecuteAsync(outputFormat: "ids");
+        result.ShouldBe(0);
+
+        await _adoService.Received().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Workspace_JsonOutput_NoRefresh_SkipsSyncFirst()
+    {
+        var item = CreateWorkItem(1, "Cached Task");
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { item });
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var syncFactory = CreateSyncFactory();
+        var cmd = CreateCommandWithSync(syncFactory);
+
+        var result = await cmd.ExecuteAsync(outputFormat: "json", noRefresh: true);
+        result.ShouldBe(0);
+
+        // ADO service should NOT be called when --no-refresh is specified
+        await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Workspace_HumanOutput_DoesNotTriggerSyncFirst()
+    {
+        var item = CreateWorkItem(1, "Human Task");
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { item });
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var syncFactory = CreateSyncFactory();
+        var cmd = CreateCommandWithSync(syncFactory);
+
+        var result = await cmd.ExecuteAsync(outputFormat: "human");
+        result.ShouldBe(0);
+
+        // Human format should NOT trigger sync-first
+        await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Workspace_JsonOutput_SyncFailure_StillReturnsData()
+    {
+        var item = CreateWorkItem(1, "Cached Task");
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { item });
+        _workItemRepo.GetByIterationsAsync(Arg.Any<IReadOnlyList<IterationPath>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { item });
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        // Make ADO service throw to simulate network failure
+        _adoService.FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<WorkItem>(new HttpRequestException("Network error")));
+
+        var syncFactory = CreateSyncFactory();
+        var cmd = CreateCommandWithSync(syncFactory);
+
+        var result = await cmd.ExecuteAsync(outputFormat: "json");
+
+        // Should succeed despite sync failure — falls back to cache
         result.ShouldBe(0);
     }
 }

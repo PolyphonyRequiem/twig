@@ -47,6 +47,7 @@ internal sealed class ToolDispatcher(
 
             "twig_workspace" => readTools.Workspace(
                 GetBool(args, "all"),
+                GetBool(args, "tree"),
                 workspace, ct),
 
             // Mutation tools
@@ -95,6 +96,8 @@ internal sealed class ToolDispatcher(
             // Navigation tools
             "twig_show" => navigationTools.Show(
                 GetRequiredInt(args, "id"),
+                GetBool(args, "tree"),
+                GetNullableInt(args, "depth"),
                 workspace, ct),
 
             "twig_query" => navigationTools.Query(

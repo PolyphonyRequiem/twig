@@ -5,6 +5,7 @@ using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Domain.Aggregates;
 using Twig.Infrastructure.Config;
+using Twig.Mcp.Tools;
 using Twig.TestKit;
 using Xunit;
 
@@ -479,6 +480,71 @@ public sealed class ReadToolsTreeTests : ReadToolsTestBase
         var root = ParseResult(result);
         var siblingCounts = root.GetProperty("siblingCounts");
         siblingCounts.GetProperty("10").GetInt32().ShouldBe(2);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Delegation — twig_tree delegates to twig_show(tree=true)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Tree_DelegatesToShowWithTreeTrue()
+    {
+        var focus = new WorkItemBuilder(10, "Feature").AsFeature().InState("Active").Build();
+        var child = new WorkItemBuilder(20, "Task 1").AsTask().WithParent(10).Build();
+
+        SetupActiveItem(focus);
+        _workItemRepo.GetChildrenAsync(10, Arg.Any<CancellationToken>())
+            .Returns([child]);
+
+        // Call twig_tree (delegates to Show internally)
+        var treeResult = await CreateSut(_config).Tree();
+
+        // Call twig_show with tree=true directly for comparison
+        var resolver = BuildResolver(_config);
+        var showResult = await new NavigationTools(resolver).Show(10, tree: true);
+
+        treeResult.IsError.ShouldBeNull();
+        showResult.IsError.ShouldBeNull();
+
+        var treeJson = ParseResult(treeResult);
+        var showJson = ParseResult(showResult);
+
+        treeJson.GetProperty("focus").GetProperty("id").GetInt32()
+            .ShouldBe(showJson.GetProperty("focus").GetProperty("id").GetInt32());
+        treeJson.GetProperty("totalChildren").GetInt32()
+            .ShouldBe(showJson.GetProperty("totalChildren").GetInt32());
+    }
+
+    [Fact]
+    public async Task Tree_WithDepth_PassesDepthToShow()
+    {
+        var focus = new WorkItemBuilder(10, "Feature").AsFeature().InState("Active").Build();
+        var child = new WorkItemBuilder(20, "Task 1").AsTask().WithParent(10).Build();
+        var grandchild = new WorkItemBuilder(30, "Sub Task").AsTask().WithParent(20).Build();
+
+        SetupActiveItem(focus);
+        _workItemRepo.GetChildrenAsync(10, Arg.Any<CancellationToken>())
+            .Returns([child]);
+        _workItemRepo.GetChildrenAsync(20, Arg.Any<CancellationToken>())
+            .Returns([grandchild]);
+
+        // Call twig_tree with depth=1
+        var treeResult = await CreateSut(_config).Tree(depth: 1);
+
+        // Call twig_show with same depth for comparison
+        var resolver = BuildResolver(_config);
+        var showResult = await new NavigationTools(resolver).Show(10, tree: true, depth: 1);
+
+        treeResult.IsError.ShouldBeNull();
+        showResult.IsError.ShouldBeNull();
+
+        var treeJson = ParseResult(treeResult);
+        var showJson = ParseResult(showResult);
+
+        treeJson.GetProperty("focus").GetProperty("id").GetInt32()
+            .ShouldBe(showJson.GetProperty("focus").GetProperty("id").GetInt32());
+        treeJson.GetProperty("children").GetArrayLength()
+            .ShouldBe(showJson.GetProperty("children").GetArrayLength());
     }
 
     // ═══════════════════════════════════════════════════════════════

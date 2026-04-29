@@ -42,7 +42,7 @@ public static class CommandRegistrationModule
         services.AddSingleton<SetCommand>();
         services.AddSingleton<ShowCommand>();
         services.AddSingleton<StateCommand>();
-        services.AddSingleton<TreeCommand>();
+        services.AddSingleton<TreeRenderingService>();
         services.AddSingleton<NavigationCommands>();
         services.AddSingleton<NavigationHistoryCommands>();
         services.AddSingleton<NewCommand>();

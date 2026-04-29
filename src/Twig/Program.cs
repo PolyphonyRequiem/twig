@@ -336,9 +336,10 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <summary>Display a work item without changing context. Syncs by default; use --no-refresh for cache-only.</summary>
     /// <param name="id">Work item ID to display. Omit to show the active work item.</param>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="tree">Display as hierarchy tree instead of detail card.</param>
     /// <param name="noRefresh">Skip the sync and show cached data only.</param>
-    public async Task<int> Show([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, bool noRefresh = false, CancellationToken ct = default)
-        => await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, noRefresh, ct);
+    public async Task<int> Show([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, bool tree = false, bool noRefresh = false, CancellationToken ct = default)
+        => await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, tree, noRefresh, ct);
 
     /// <summary>Display multiple work items by ID (cache-only). Missing IDs are silently skipped.</summary>
     /// <param name="batch">Comma-separated work item IDs (e.g., 1234,5678,9012).</param>
@@ -391,15 +392,18 @@ public sealed class TwigCommands(IServiceProvider services)
         return await services.GetRequiredService<NewCommand>().ExecuteAsync(resolvedTitle, type, area, iteration, description, parent, set, editor, output, ct);
     }
 
-    /// <summary>Display the work item tree hierarchy.</summary>
+    /// <summary>Display the work item tree hierarchy (hidden alias: routes to show --tree, or workspace --tree when --all).</summary>
+    /// <param name="id">Work item ID to target; omit to use the active work item.</param>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     /// <param name="depth">Maximum tree depth to display.</param>
-    /// <param name="all">Show all items in the hierarchy, not just the active subtree.</param>
+    /// <param name="all">When set, routes to workspace --tree showing all team items as hierarchy.</param>
     /// <param name="noLive">Disable live-refresh and render a static snapshot.</param>
     /// <param name="noRefresh">Skip the sync and show cached data only.</param>
-    /// <param name="id">Work item ID to target; omit to use the active work item.</param>
-    public async Task<int> Tree(string output = OutputFormatterFactory.DefaultFormat, int? depth = null, bool all = false, bool noLive = false, bool noRefresh = false, int? id = null, CancellationToken ct = default)
-        => await services.GetRequiredService<TreeCommand>().ExecuteAsync(id, output, depth, all, noLive, noRefresh, ct);
+    [Hidden]
+    public async Task<int> Tree([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, int? depth = null, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default)
+        => all
+            ? await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all: true, noLive, noRefresh, ct, tree: true)
+            : await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, tree: true, noRefresh, ct, depth, noLive);
 
     /// <summary>Navigate to the parent work item.</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
@@ -709,8 +713,9 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="noLive">Disable live-refresh and render a static snapshot.</param>
     /// <param name="noRefresh">Skip the sync and show cached data only.</param>
     /// <param name="flat">Use flat (non-tree) output instead of hierarchical rendering.</param>
-    public async Task<int> Workspace(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool noRefresh = false, bool flat = false, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, noRefresh, ct, flat: flat);
+    /// <param name="tree">Render full backlog hierarchy tree instead of workspace table.</param>
+    public async Task<int> Workspace(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool noRefresh = false, bool flat = false, bool tree = false, CancellationToken ct = default)
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, noRefresh, ct, flat: flat, tree: tree);
 
     /// <summary>Show the current workspace (short alias).</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
@@ -718,8 +723,9 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="noLive">Disable live-refresh and render a static snapshot.</param>
     /// <param name="noRefresh">Skip the sync and show cached data only.</param>
     /// <param name="flat">Use flat (non-tree) output instead of hierarchical rendering.</param>
-    public async Task<int> Ws(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool noRefresh = false, bool flat = false, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, noRefresh, ct, flat: flat);
+    /// <param name="tree">Render full backlog hierarchy tree instead of workspace table.</param>
+    public async Task<int> Ws(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool noRefresh = false, bool flat = false, bool tree = false, CancellationToken ct = default)
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, noRefresh, ct, flat: flat, tree: tree);
 
     /// <summary>Track a single work item by ID (pinned to workspace).</summary>
     /// <param name="id">Work item ID to track.</param>
@@ -874,8 +880,9 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="all">Show all team members' items, not just yours.</param>
     /// <param name="noRefresh">Skip the sync and show cached data only.</param>
     /// <param name="flat">Use flat (non-tree) output instead of hierarchical rendering.</param>
-    public async Task<int> Sprint(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noRefresh = false, bool flat = false, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noRefresh: noRefresh, ct: ct, sprintLayout: true, flat: flat);
+    /// <param name="tree">Render full backlog hierarchy tree instead of sprint table.</param>
+    public async Task<int> Sprint(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noRefresh = false, bool flat = false, bool tree = false, CancellationToken ct = default)
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noRefresh: noRefresh, ct: ct, sprintLayout: true, flat: flat, tree: tree);
 
     /// <summary>Read or set a configuration value.</summary>
     /// <param name="key">Configuration key to read or set (e.g., git.project, ado.pat).</param>
@@ -1014,7 +1021,6 @@ internal static class GroupedHelp
         "sync",
 
         // Views
-        "tree",
         "sprint",
 
         // Workspace
@@ -1097,6 +1103,7 @@ internal static class GroupedHelp
         "help",
 
         // Hidden backward-compat aliases (still accepted by the CLI)
+        "tree",
         "up",
         "down",
         "next",
@@ -1145,11 +1152,10 @@ Getting Started:
   sync                 Flush pending changes then refresh from ADO.
 
 Views:
-  tree                 Work item hierarchy (parent → active → children).
   sprint               My sprint items, grouped by assignee.  (--all for team)
 
 Workspace:
-  workspace            My sprint items.  (alias: ws)
+  workspace            My sprint items.  (alias: ws, --tree for full backlog hierarchy)
   workspace track <id>       Pin a work item to the workspace.
   workspace track-tree <id>  Pin a work item and its subtree.
   workspace untrack <id>     Remove a pinned work item.
@@ -1166,7 +1172,7 @@ Workspace:
 
 Context:
   set <id|pattern>     Set the active work item.
-  show <id>            Display a work item (syncs by default; --no-refresh for cache-only).
+  show <id>            Display a work item.  (--tree for hierarchy, --no-refresh for cache-only)
   show-batch --batch   Display multiple work items by ID (cache-only).
   query [text]         Search work items by text, type, state, or assignee.
   web [id]             Open the active work item in the browser.

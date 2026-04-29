@@ -35,17 +35,37 @@ public sealed class ShowCommand(
     IPendingChangeStore? pendingChangeStore = null,
     WorkingSetService? workingSetService = null,
     TwigPaths? twigPaths = null,
-    IAdoGitService? adoGitService = null)
+    IAdoGitService? adoGitService = null,
+    TreeRenderingService? treeRenderingService = null)
 {
     private readonly IContextStore? _contextStore = contextStore;
     private readonly ActiveItemResolver? _activeItemResolver = activeItemResolver;
     private readonly IPendingChangeStore? _pendingChangeStore = pendingChangeStore;
     private readonly WorkingSetService? _workingSetService = workingSetService;
 
-    public async Task<int> ExecuteAsync(int? id = null, string outputFormat = OutputFormatterFactory.DefaultFormat, bool noRefresh = false, CancellationToken ct = default)
+    public async Task<int> ExecuteAsync(int? id = null, string outputFormat = OutputFormatterFactory.DefaultFormat, bool tree = false, bool noRefresh = false, CancellationToken ct = default, int? depth = null, bool noLive = false)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
-        var exitCode = await ExecuteCoreAsync(id, outputFormat, noRefresh, ct);
+        int exitCode;
+
+        if (tree)
+        {
+            if (treeRenderingService is null)
+            {
+                ctx.StderrWriter.WriteLine("error: Tree rendering is not available.");
+                exitCode = 1;
+            }
+            else
+            {
+                exitCode = await treeRenderingService.RenderTreeAsync(id, outputFormat, depth, noLive, noRefresh, ct);
+            }
+
+            TelemetryHelper.TrackCommand(ctx.TelemetryClient, "show", outputFormat, exitCode, startTimestamp,
+                new Dictionary<string, string> { ["tree"] = "true" });
+            return exitCode;
+        }
+
+        exitCode = await ExecuteCoreAsync(id, outputFormat, noRefresh, ct);
         TelemetryHelper.TrackCommand(ctx.TelemetryClient, "show", outputFormat, exitCode, startTimestamp);
         return exitCode;
     }

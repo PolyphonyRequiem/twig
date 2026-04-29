@@ -136,11 +136,11 @@ public sealed class CommandRegistrationModuleTests
     }
 
     [Fact]
-    public void TreeCommand_AutoResolution_Resolves_Successfully()
+    public void TreeRenderingService_AutoResolution_Resolves_Successfully()
     {
         using var provider = BuildProviderForCommands();
 
-        var command = provider.GetRequiredService<TreeCommand>();
+        var command = provider.GetRequiredService<TreeRenderingService>();
 
         command.ShouldNotBeNull();
     }

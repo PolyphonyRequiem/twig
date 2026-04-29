@@ -194,7 +194,7 @@ public class CacheFirstReadCommandTests
     }
 
     [Fact]
-    public async Task TreeCommand_CacheMiss_AutoFetchesFromAdo()
+    public async Task TreeRenderingService_CacheMiss_AutoFetchesFromAdo()
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(50);
         _workItemRepo.GetByIdAsync(50, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
@@ -204,26 +204,26 @@ public class CacheFirstReadCommandTests
         _workItemRepo.GetChildrenAsync(50, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        var cmd = new TreeCommand(_ctx, _contextStore, _workItemRepo,
+        var treeService = new TreeRenderingService(_ctx, _contextStore, _workItemRepo,
             _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore);
-        var result = await cmd.ExecuteAsync();
+        var result = await treeService.RenderTreeAsync(id: null, "human", depth: null, noLive: true, noRefresh: true, CancellationToken.None);
 
         result.ShouldBe(0);
         await _adoService.Received().FetchAsync(50, Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task TreeCommand_Unreachable_ReturnsError()
+    public async Task TreeRenderingService_Unreachable_ReturnsError()
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(50);
         _workItemRepo.GetByIdAsync(50, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
         _adoService.FetchAsync(50, Arg.Any<CancellationToken>())
             .Throws(new HttpRequestException("Network error"));
 
-        var cmd = new TreeCommand(_ctx, _contextStore, _workItemRepo,
+        var treeService2 = new TreeRenderingService(_ctx, _contextStore, _workItemRepo,
             _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore);
 
-        var result = await cmd.ExecuteAsync();
+        var result = await treeService2.RenderTreeAsync(id: null, "human", depth: null, noLive: true, noRefresh: true, CancellationToken.None);
         result.ShouldBe(1);
     }
 

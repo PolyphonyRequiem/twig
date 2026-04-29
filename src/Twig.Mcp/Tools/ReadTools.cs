@@ -16,7 +16,7 @@ namespace Twig.Mcp.Tools;
 /// Resolves per-workspace services via <see cref="WorkspaceResolver"/>.
 /// </summary>
 [McpServerToolType]
-public sealed class ReadTools(WorkspaceResolver resolver)
+public sealed class ReadTools(WorkspaceResolver resolver, NavigationTools navigationTools)
 {
     [McpServerTool(Name = "twig_tree"), Description("Display work item hierarchy as a tree")]
     public async Task<CallToolResult> Tree(
@@ -37,43 +37,13 @@ public sealed class ReadTools(WorkspaceResolver resolver)
             ? f.WorkItem
             : ((ActiveItemResult.FetchedFromAdo)resolveResult).WorkItem;
 
-        // Build parent chain
-        var parentChain = item.ParentId.HasValue
-            ? await ctx.WorkItemRepo.GetParentChainAsync(item.ParentId.Value, ct)
-            : Array.Empty<WorkItem>();
-
-        var maxDepth = depth ?? ctx.Config.Display.TreeDepth;
-        var allChildren = await ctx.FetchChildrenWithFallbackAsync(item.Id, ct);
-        var totalChildCount = allChildren.Count;
-        var children = allChildren;
-
-        // Recursively fetch descendants up to maxChildren depth for deep tree output
-        var descendantsByParentId = new Dictionary<int, IReadOnlyList<WorkItem>>();
-        await WorkTreeFetcher.FetchDescendantsAsync(ctx.FetchChildrenWithFallbackAsync, children, maxDepth - 1, descendantsByParentId, ct);
-
-        // Compute sibling counts for parent chain + focused item
-        var siblingCounts = new Dictionary<int, int?>();
-        foreach (var node in parentChain.Append(item))
-            siblingCounts[node.Id] = node.ParentId.HasValue
-                ? (await ctx.FetchChildrenWithFallbackAsync(node.ParentId.Value, ct)).Count
-                : null;
-
-        // Best-effort link sync
-        IReadOnlyList<WorkItemLink> links = Array.Empty<WorkItemLink>();
-        try
-        {
-            links = await ctx.SyncCoordinatorFactory.ReadOnly.SyncLinksAsync(item.Id, ct);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
-
-        var tree = WorkTree.Build(item, parentChain, children, siblingCounts, links, descendantsByParentId);
-
-        return McpResultBuilder.FormatTree(tree, totalChildCount);
+        return await navigationTools.Show(item.Id, tree: true, depth: depth, workspace: workspace, ct: ct);
     }
 
-    [McpServerTool(Name = "twig_workspace"), Description("Returns the current sprint workspace: active context item, sprint backlog items, and seeds.")]
+    [McpServerTool(Name = "twig_workspace"), Description("Returns the current sprint workspace: active context item, sprint backlog items, and seeds. When tree=true, returns a tree-structured JSON with full backlog hierarchy.")]
     public async Task<CallToolResult> Workspace(
         [Description("Show all team items instead of just the current user")] bool all = false,
+        [Description("When true, returns a tree-structured JSON response showing the full backlog hierarchy instead of the flat workspace view")] bool tree = false,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
         CancellationToken ct = default)
     {
@@ -131,7 +101,43 @@ public sealed class ReadTools(WorkspaceResolver resolver)
         var ws = Domain.ReadModels.Workspace.Build(contextItem, sprintItems, seeds,
             trackedItems: trackedItems, excludedIds: excludedIds);
 
-        // 6. Format result
+        // 6. Tree mode — build WorkTree per sprint item and return tree-structured JSON
+        if (tree)
+            return await BuildWorkspaceTreeAsync(ctx, ws, excludedItems, ct);
+
+        // 7. Format flat result
         return McpResultBuilder.FormatWorkspace(ws, ctx.Config.Seed.StaleDays, ctx.Key.ToString(), excludedItems);
+    }
+
+    private static async Task<CallToolResult> BuildWorkspaceTreeAsync(
+        WorkspaceContext ctx,
+        Domain.ReadModels.Workspace ws,
+        IReadOnlyList<ExcludedItem> excludedItems,
+        CancellationToken ct)
+    {
+        var maxDepth = ctx.Config.Display.TreeDepth;
+        var roots = new List<(WorkTree Tree, int TotalChildren)>();
+
+        foreach (var item in ws.SprintItems)
+        {
+            // Build parent chain
+            var parentChain = item.ParentId.HasValue
+                ? await ctx.WorkItemRepo.GetParentChainAsync(item.ParentId.Value, ct)
+                : Array.Empty<WorkItem>();
+
+            var allChildren = await ctx.FetchChildrenWithFallbackAsync(item.Id, ct);
+            var totalChildCount = allChildren.Count;
+
+            // Recursively fetch descendants up to maxDepth
+            var descendantsByParentId = new Dictionary<int, IReadOnlyList<WorkItem>>();
+            await WorkTreeFetcher.FetchDescendantsAsync(
+                ctx.FetchChildrenWithFallbackAsync, allChildren, maxDepth - 1, descendantsByParentId, ct);
+
+            var workTree = WorkTree.Build(item, parentChain, allChildren,
+                descendantsByParentId: descendantsByParentId);
+            roots.Add((workTree, totalChildCount));
+        }
+
+        return McpResultBuilder.FormatWorkspaceTree(roots, ws, ctx.Key.ToString(), excludedItems);
     }
 }

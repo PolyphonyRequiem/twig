@@ -1303,4 +1303,158 @@ public class WorkspaceCommandTests
         // Invalid expression → empty resolution → falls back to GetCurrentIterationAsync
         await _iterationService.Received().GetCurrentIterationAsync(Arg.Any<CancellationToken>());
     }
+
+    // ── --tree flag tests ───────────────────────────────────────────
+
+    [Fact]
+    public async Task TreeMode_TreeAndFlat_MutuallyExclusive()
+    {
+        var result = await _cmd.ExecuteAsync(tree: true, flat: true);
+        result.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task TreeMode_NoTreeRenderingService_ReturnsError()
+    {
+        // Default _cmd has treeRenderingService=null
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { CreateWorkItem(1, "Item 1") });
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var result = await _cmd.ExecuteAsync(tree: true);
+        result.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task TreeMode_EmptySprintItems_ReturnsZero()
+    {
+        var treeService = CreateTreeRenderingService();
+        var cmd = CreateCommandWithTreeService(treeService);
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var result = await cmd.ExecuteAsync(tree: true);
+        result.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task TreeMode_WithSprintItems_DelegatesToTreeRenderingService()
+    {
+        var item1 = CreateWorkItem(1, "Item 1");
+        var item2 = CreateWorkItem(2, "Item 2");
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item1);
+        _workItemRepo.GetByIdAsync(2, Arg.Any<CancellationToken>()).Returns(item2);
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { item1, item2 });
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetParentChainAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var treeService = CreateTreeRenderingService();
+        var cmd = CreateCommandWithTreeService(treeService);
+
+        var result = await cmd.ExecuteAsync(tree: true);
+        result.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task TreeMode_JsonOutput_RendersSuccessfully()
+    {
+        var item1 = CreateWorkItem(1, "Item 1");
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item1);
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { item1 });
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetParentChainAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var treeService = CreateTreeRenderingService();
+        var cmd = CreateCommandWithTreeService(treeService);
+
+        var result = await cmd.ExecuteAsync("json", tree: true);
+        result.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task TreeMode_MinimalOutput_RendersSuccessfully()
+    {
+        var item1 = CreateWorkItem(1, "Item 1");
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item1);
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { item1 });
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetParentChainAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var treeService = CreateTreeRenderingService();
+        var cmd = CreateCommandWithTreeService(treeService);
+
+        var result = await cmd.ExecuteAsync("minimal", tree: true);
+        result.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task TreeMode_WithAllFlag_ShowsAllTeamItems()
+    {
+        var myItem = CreateWorkItem(1, "My Item");
+        var teamItem = CreateWorkItem(2, "Team Item");
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(myItem);
+        _workItemRepo.GetByIdAsync(2, Arg.Any<CancellationToken>()).Returns(teamItem);
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { myItem, teamItem });
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetParentChainAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var treeService = CreateTreeRenderingService();
+        var cmd = CreateCommandWithTreeService(treeService);
+
+        var result = await cmd.ExecuteAsync(tree: true, all: true);
+        result.ShouldBe(0);
+    }
+
+    private TreeRenderingService CreateTreeRenderingService()
+    {
+        var pendingChangeStore = Substitute.For<IPendingChangeStore>();
+        var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, pendingChangeStore);
+        var syncCoordinatorFactory = new SyncCoordinatorFactory(
+            _workItemRepo, _adoService, protectedCacheWriter, pendingChangeStore, null, 30, 30);
+
+        return new TreeRenderingService(
+            CreateCtx(), _contextStore, _workItemRepo,
+            _activeItemResolver, _workingSetService,
+            syncCoordinatorFactory, _processTypeStore);
+    }
+
+    private WorkspaceCommand CreateCommandWithTreeService(TreeRenderingService treeService) =>
+        new(CreateCtx(), _contextStore, _workItemRepo, _iterationService,
+            _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService,
+            new SprintHierarchyBuilder(), new SprintIterationResolver(_iterationService, _workItemRepo),
+            treeService);
 }

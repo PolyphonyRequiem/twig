@@ -55,6 +55,50 @@ public sealed class GroupedHelpTests
     }
 
     [Fact]
+    public void TreeAlias_HasHiddenAttribute()
+    {
+        var method = typeof(TwigCommands).GetMethod(
+            nameof(TwigCommands.Tree),
+            BindingFlags.Public | BindingFlags.Instance);
+
+        method.ShouldNotBeNull("TwigCommands.Tree method not found");
+        method.GetCustomAttributes()
+            .Any(a => a.GetType().Name == "HiddenAttribute")
+            .ShouldBeTrue("Tree should have [Hidden] — 'show --tree' is the canonical command");
+    }
+
+    [Fact]
+    public void HelpText_TreeNotInViewsSection()
+    {
+        var helpOutput = CaptureHelp();
+
+        var viewsIdx = helpOutput.IndexOf("Views:");
+        var workspaceIdx = helpOutput.IndexOf("Workspace:");
+
+        viewsIdx.ShouldBeGreaterThan(-1, "Help text should contain 'Views:' section");
+        workspaceIdx.ShouldBeGreaterThan(viewsIdx, "'Workspace:' section should come after 'Views:'");
+
+        var viewsSection = helpOutput[viewsIdx..workspaceIdx];
+        viewsSection.ShouldNotContain("tree");
+    }
+
+    [Fact]
+    public void HelpText_ShowMentionsTreeFlag()
+    {
+        var helpOutput = CaptureHelp();
+
+        helpOutput.ShouldContain("--tree for hierarchy");
+    }
+
+    [Fact]
+    public void HelpText_WorkspaceMentionsTreeFlag()
+    {
+        var helpOutput = CaptureHelp();
+
+        helpOutput.ShouldContain("--tree for full backlog hierarchy");
+    }
+
+    [Fact]
     public void AllNonHiddenCommands_AppearInGroupedHelp()
     {
         var helpOutput = CaptureHelp();
@@ -187,6 +231,7 @@ public sealed class GroupedHelpTests
     [InlineData("history")]
     [InlineData("seed")]
     [InlineData("refresh")]
+    [InlineData("tree")]
     // Hidden deprecated area aliases
     [InlineData("area")]
     [InlineData("area add")]

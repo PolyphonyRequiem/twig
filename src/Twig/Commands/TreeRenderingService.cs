@@ -11,10 +11,11 @@ using Twig.Rendering;
 namespace Twig.Commands;
 
 /// <summary>
-/// Implements <c>twig tree</c>: builds a WorkTree and renders it with box-drawing characters.
-/// After rendering cached tree, syncs the working set and revises if children/parent changed.
+/// Shared service that builds and renders a <see cref="WorkTree"/> hierarchy.
+/// Extracted from the former <c>TreeCommand</c> so that <c>ShowCommand --tree</c>
+/// and <c>WorkspaceCommand --tree</c> can reuse the same rendering logic.
 /// </summary>
-public sealed class TreeCommand(
+public sealed class TreeRenderingService(
     CommandContext ctx,
     IContextStore contextStore,
     IWorkItemRepository workItemRepo,
@@ -23,42 +24,36 @@ public sealed class TreeCommand(
     SyncCoordinatorFactory syncCoordinatorFactory,
     IProcessTypeStore processTypeStore)
 {
-    /// <summary>Display the work item hierarchy as a tree.</summary>
-    public async Task<int> ExecuteAsync(int? id = null, string outputFormat = OutputFormatterFactory.DefaultFormat, int? depth = null, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default)
-    {
-        var startTimestamp = Stopwatch.GetTimestamp();
-        var exitCode = await ExecuteCoreAsync(id, outputFormat, depth, all, noLive, noRefresh, ct);
-        ctx.TelemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
-        {
-            ["command"] = "tree",
-            ["exit_code"] = exitCode.ToString(),
-            ["output_format"] = outputFormat,
-            ["twig_version"] = VersionHelper.GetVersion(),
-            ["os_platform"] = System.Runtime.InteropServices.RuntimeInformation.OSDescription
-        }, new Dictionary<string, double>
-        {
-            ["duration_ms"] = Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds
-        });
-        return exitCode;
-    }
-
-    private async Task<int> ExecuteCoreAsync(int? id, string outputFormat, int? depth, bool all, bool noLive, bool noRefresh, CancellationToken ct)
+    /// <summary>
+    /// Builds and renders a work-item tree, matching the behaviour of <c>twig tree</c>.
+    /// </summary>
+    /// <param name="id">Explicit work item ID, or <c>null</c> to use the active item.</param>
+    /// <param name="outputFormat">Output format name (human, json, minimal, etc.).</param>
+    /// <param name="depth">Maximum tree depth, or <c>null</c> for the configured default.</param>
+    /// <param name="noLive">When <c>true</c>, disables live/async rendering.</param>
+    /// <param name="noRefresh">When <c>true</c>, skips the background sync pass.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Exit code: 0 on success, 1 on failure.</returns>
+    public async Task<int> RenderTreeAsync(
+        int? id,
+        string outputFormat,
+        int? depth,
+        bool noLive,
+        bool noRefresh,
+        CancellationToken ct)
     {
         var (fmt, renderer) = ctx.Resolve(outputFormat, noLive);
 
-        var activeId = id ?? await contextStore.GetActiveWorkItemIdAsync();
+        var activeId = id ?? await contextStore.GetActiveWorkItemIdAsync(ct);
         if (activeId is null)
         {
             Console.Error.WriteLine(fmt.FormatError("No active work item. Run 'twig set <id>' or pass --id."));
             return 1;
         }
 
-        // ITEM-158: Resolve tree depth — --all overrides to show everything,
-        // --depth <n> takes precedence, otherwise use config default.
-        var maxDepth = all ? int.MaxValue
-            : depth ?? ctx.Config.Display.TreeDepth;
+        var maxDepth = depth ?? ctx.Config.Display.TreeDepth;
 
-        // Resolve active item with auto-fetch on cache miss (G-3)
+        // Resolve active item with auto-fetch on cache miss
         var resolveResult = await activeItemResolver.ResolveByIdAsync(activeId.Value);
         if (!resolveResult.TryGetWorkItem(out var resolvedItem, out _, out _))
         {
@@ -68,7 +63,7 @@ public sealed class TreeCommand(
 
         if (renderer is not null)
         {
-            // EPIC-005: Load process config for unparented banner
+            // Load process config for unparented banner
             var processConfig = await processTypeStore.GetProcessConfigurationDataAsync();
             var spectreRenderer = renderer as SpectreRenderer;
             if (spectreRenderer is not null && processConfig is not null)
@@ -78,19 +73,9 @@ public sealed class TreeCommand(
                 spectreRenderer.WorkingLevelTypeName = ctx.Config.Workspace.WorkingLevel;
             }
 
-            // Shared factory: build a sibling-count resolver for any root item and token
-            Func<int, Task<int?>> MakeSiblingCounter(Domain.Aggregates.WorkItem root, CancellationToken token) =>
-                async nodeId =>
-                {
-                    var parentId = nodeId == root.Id ? root.ParentId
-                        : (await workItemRepo.GetByIdAsync(nodeId, token))?.ParentId;
-                    if (!parentId.HasValue) return null;
-                    return (await workItemRepo.GetChildrenAsync(parentId.Value, token)).Count;
-                };
-
             var getSiblingCount = MakeSiblingCounter(resolvedItem, ct);
 
-            // Fallback: render tree without sync (--no-refresh, non-Spectre renderers, sync failures)
+            // Fallback: render tree without sync
             Task RenderTreeDirectAsync() => renderer.RenderTreeAsync(
                 getFocusedItem: () => Task.FromResult<Domain.Aggregates.WorkItem?>(resolvedItem),
                 getParentChain: async () => resolvedItem?.ParentId is null
@@ -109,7 +94,6 @@ public sealed class TreeCommand(
 
             if (spectreRenderer is not null && !noRefresh)
             {
-                // Two-pass rendering: build tree from cache → sync → rebuild from fresh data
                 try
                 {
                     var cachedParentChain = resolvedItem.ParentId is null
@@ -136,7 +120,6 @@ public sealed class TreeCommand(
                         performSync: () => syncCoordinatorFactory.ReadOnly.SyncWorkingSetAsync(workingSet),
                         buildRevisedView: async _ =>
                         {
-                            // Rebuild tree from fresh cache data after sync completes
                             var freshItem = await workItemRepo.GetByIdAsync(resolvedItem.Id, CancellationToken.None);
                             if (freshItem is null) return null;
 
@@ -160,34 +143,29 @@ public sealed class TreeCommand(
                 catch (OperationCanceledException) { throw; }
                 catch (Exception)
                 {
-                    // Sync failure — fallback to direct tree render without sync
                     await RenderTreeDirectAsync();
                 }
             }
             else
             {
-                // --no-refresh or non-Spectre renderer: render tree directly, no sync
                 await RenderTreeDirectAsync();
             }
 
             return 0;
         }
 
-        // Sync path — original implementation (JSON, minimal, --no-live, piped output)
+        // Non-TTY path: JSON, minimal, piped output
         var item = resolvedItem;
 
-        // Build parent chain
         var parentChain = item.ParentId.HasValue
             ? await workItemRepo.GetParentChainAsync(item.ParentId.Value)
             : Array.Empty<Domain.Aggregates.WorkItem>();
 
         var children = await workItemRepo.GetChildrenAsync(item.Id);
 
-        // Recursively fetch descendants up to maxChildren depth for deep tree output
         var descendantsByParentId = new Dictionary<int, IReadOnlyList<Domain.Aggregates.WorkItem>>();
         await WorkTreeFetcher.FetchDescendantsAsync(workItemRepo, children, maxDepth - 1, descendantsByParentId, ct);
 
-        // Compute sibling counts for parent chain + focused item
         var siblingCounts = new Dictionary<int, int?>();
         foreach (var node in parentChain)
         {
@@ -211,7 +189,6 @@ public sealed class TreeCommand(
             siblingCounts[item.Id] = null;
         }
 
-        // Fetch related links (best-effort)
         IReadOnlyList<WorkItemLink> links = Array.Empty<WorkItemLink>();
         try
         {
@@ -221,7 +198,6 @@ public sealed class TreeCommand(
 
         var tree = WorkTree.Build(item, parentChain, children, siblingCounts, links, descendantsByParentId);
 
-        // EPIC-005: Load process config for unparented banner + working level dim
         if (fmt is HumanOutputFormatter humanFmt)
         {
             var treeProcessConfig = await processTypeStore.GetProcessConfigurationDataAsync();
@@ -241,7 +217,7 @@ public sealed class TreeCommand(
             Console.WriteLine(fmt.FormatTree(tree, maxDepth, activeId));
         }
 
-        // Sync working set silently after output (EPIC-004) — best-effort; skip if --no-refresh
+        // Sync working set silently after output — best-effort; skip if --no-refresh
         if (!noRefresh)
         {
             try
@@ -250,9 +226,21 @@ public sealed class TreeCommand(
                 await syncCoordinatorFactory.ReadOnly.SyncWorkingSetAsync(syncWorkingSet);
             }
             catch (OperationCanceledException) { throw; }
-            catch (Exception) { /* sync is best-effort — don't fail the command */ }
+            catch (Exception) { /* sync is best-effort */ }
         }
 
         return 0;
     }
+
+    /// <summary>
+    /// Factory: build a sibling-count resolver for a given root item.
+    /// </summary>
+    private Func<int, Task<int?>> MakeSiblingCounter(Domain.Aggregates.WorkItem root, CancellationToken token) =>
+        async nodeId =>
+        {
+            var parentId = nodeId == root.Id ? root.ParentId
+                : (await workItemRepo.GetByIdAsync(nodeId, token))?.ParentId;
+            if (!parentId.HasValue) return null;
+            return (await workItemRepo.GetChildrenAsync(parentId.Value, token)).Count;
+        };
 }

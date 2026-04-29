@@ -1,15 +1,16 @@
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.Seed;
 using Twig.Formatters;
 
 namespace Twig.Commands;
 
 /// <summary>
 /// Implements <c>twig seed discard &lt;id&gt;</c>: prompts for confirmation and deletes
-/// the local seed. Use <c>--yes</c> to skip the confirmation prompt.
+/// the local seed and its descendants. Use <c>--yes</c> to skip the confirmation prompt.
 /// </summary>
 public sealed class SeedDiscardCommand(
     IWorkItemRepository workItemRepo,
-    ISeedLinkRepository seedLinkRepo,
+    SeedDiscardOrchestrator orchestrator,
     IConsoleInput consoleInput,
     OutputFormatterFactory formatterFactory)
 {
@@ -35,9 +36,19 @@ public sealed class SeedDiscardCommand(
             return 1;
         }
 
+        var plan = await orchestrator.BuildDiscardPlanAsync(id, ct);
+        if (plan is null)
+        {
+            Console.Error.WriteLine(fmt.FormatError($"Seed #{id} not found."));
+            return 1;
+        }
+
         if (!yes)
         {
-            Console.Write($"Discard seed #{id} '{seed.Title}'? (y/N) ");
+            var prompt = plan.HasDescendants
+                ? $"Discard seed #{id} '{plan.TargetTitle}' and {plan.DescendantCount} descendant{(plan.DescendantCount == 1 ? "" : "s")}? (y/N) "
+                : $"Discard seed #{id} '{plan.TargetTitle}'? (y/N) ";
+            Console.Write(prompt);
             var response = consoleInput.ReadLine();
             if (!string.Equals(response?.Trim(), "y", StringComparison.OrdinalIgnoreCase))
             {
@@ -46,9 +57,12 @@ public sealed class SeedDiscardCommand(
             }
         }
 
-        await seedLinkRepo.DeleteLinksForItemAsync(id, ct);
-        await workItemRepo.DeleteByIdAsync(id, ct);
-        Console.WriteLine(fmt.FormatSuccess($"Discarded seed #{id} {seed.Title}"));
+        await orchestrator.ExecuteDiscardAsync(plan, ct);
+
+        var successMsg = plan.HasDescendants
+            ? $"Discarded seed #{id} {plan.TargetTitle} and {plan.DescendantCount} descendant{(plan.DescendantCount == 1 ? "" : "s")}"
+            : $"Discarded seed #{id} {plan.TargetTitle}";
+        Console.WriteLine(fmt.FormatSuccess(successMsg));
         return 0;
     }
 }

@@ -29,15 +29,16 @@ public sealed class BatchTools(IToolDispatcher dispatcher)
         )] string graph,
         [Description("Per-batch timeout in seconds (default: 120, max: 300).")] int? timeoutSeconds = null,
         [Description("Target workspace (format: \"org/project\"). Applied to steps without explicit workspace arg.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(graph))
-            return McpResultBuilder.ToError("The 'graph' parameter is required and must contain a valid JSON batch graph.");
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, "The 'graph' parameter is required and must contain a valid JSON batch graph.");
 
         var parseResult = BatchGraphParser.Parse(graph);
 
         if (!parseResult.IsSuccess)
-            return McpResultBuilder.ToError($"Batch graph validation failed: {parseResult.Error}");
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, $"Batch graph validation failed: {parseResult.Error}");
 
         var effectiveTimeout = ResolveTimeout(timeoutSeconds);
 
@@ -48,7 +49,7 @@ public sealed class BatchTools(IToolDispatcher dispatcher)
             workspace,
             ct);
 
-        return McpResultBuilder.FormatBatchResult(batchResult);
+        return await EnvelopeBuilder.WrapAsync(null, McpResultBuilder.FormatBatchResult(batchResult), verbose, ct);
     }
 
     private static TimeSpan ResolveTimeout(int? timeoutSeconds)

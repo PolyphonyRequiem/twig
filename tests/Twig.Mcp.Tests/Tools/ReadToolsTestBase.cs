@@ -182,6 +182,20 @@ public abstract class ReadToolsTestBase
     {
         var text = result.Content[0].ShouldBeOfType<TextContentBlock>().Text;
         using var doc = JsonDocument.Parse(text);
+        var root = doc.RootElement;
+
+        // Auto-unwrap success envelopes: return the data property directly
+        if (root.TryGetProperty("success", out var s) && s.ValueKind == JsonValueKind.True
+            && root.TryGetProperty("data", out var d))
+            return d.Clone();
+
+        return root.Clone();
+    }
+
+    protected static JsonElement ParseEnvelope(CallToolResult result)
+    {
+        var text = result.Content[0].ShouldBeOfType<TextContentBlock>().Text;
+        using var doc = JsonDocument.Parse(text);
         return doc.RootElement.Clone();
     }
 

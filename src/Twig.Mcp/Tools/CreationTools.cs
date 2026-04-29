@@ -33,30 +33,29 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(title))
-            return McpResultBuilder.ToError("Title is required.");
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, "Title is required.");
 
         var parseResult = WorkItemType.Parse(type);
         if (!parseResult.IsSuccess)
-            return McpResultBuilder.ToError("Type is required. Provide a work item type (e.g. Epic, Issue, Task).");
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, "Type is required. Provide a work item type (e.g. Epic, Issue, Task).");
 
         var parsedType = parseResult.Value;
 
         if (parentId is <= 0)
-            return McpResultBuilder.ToError($"parentId must be a positive work item ID (got {parentId.Value}).");
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, $"parentId must be a positive work item ID (got {parentId.Value}).");
 
-        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         if (parentId.HasValue)
         {
             if (!skipDuplicateCheck)
             {
                 var dupeResult = await CheckForDuplicateAsync(ctx, parentId.Value, title, parsedType, ct);
-                if (dupeResult is not null) return dupeResult;
+                if (dupeResult is not null) return await EnvelopeBuilder.WrapAsync(ctx, dupeResult, verbose, ct);
             }
 
-            return await McpHintProvider.ApplyHintsAsync(
-                await CreateParentedAsync(ctx, parentId.Value, title, parsedType, description, assignedTo, ct),
-                verbose, ctx, ct);
+            var parentedResult = await CreateParentedAsync(ctx, parentId.Value, title, parsedType, description, assignedTo, ct);
+            return await EnvelopeBuilder.WrapAsync(ctx, parentedResult, verbose, ct);
         }
 
         var processConfig = ctx.ProcessConfigProvider.GetConfiguration();
@@ -65,8 +64,8 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         if (!processConfig.TypeConfigs.ContainsKey(parsedType))
         {
             var validTypes = string.Join(", ", processConfig.TypeConfigs.Keys);
-            return McpResultBuilder.ToError(
-                $"Unknown work item type '{type}'. Valid types: {validTypes}.");
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput,
+                $"Unknown work item type '{type}'. Valid types: {validTypes}.", ctx, ct);
         }
 
         // No parent — use workspace defaults for area/iteration paths
@@ -81,7 +80,7 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
             assignedTo);
 
         if (!unparentedResult.IsSuccess)
-            return McpResultBuilder.ToError(unparentedResult.Error);
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput, unparentedResult.Error, ctx, ct);
 
         var seed = unparentedResult.Value;
 
@@ -91,23 +90,23 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         int newId;
         try { newId = await ctx.AdoService.CreateAsync(seed.ToCreateRequest(), ct); }
         catch (Exception ex) when (ex is not OperationCanceledException)
-        { return McpResultBuilder.ToError($"Create failed: {ex.Message}"); }
+        { return await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable, $"Create failed: {ex.Message}", ctx, ct); }
 
         // Fetch back the created item for confirmation
         WorkItem created;
         try { created = await ctx.AdoService.FetchAsync(newId, ct); }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return McpResultBuilder.ToError(
-                $"Created #{newId} in ADO but fetch-back failed: {ex.Message}. Run twig_sync to recover.");
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable,
+                $"Created #{newId} in ADO but fetch-back failed: {ex.Message}. Run twig_sync to recover.", ctx, ct);
         }
 
         try { await ctx.WorkItemRepo.SaveAsync(created, ct); }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
         var url = $"https://dev.azure.com/{ctx.Key.Org}/{ctx.Key.Project}/_workitems/edit/{created.Id}";
-        return await McpHintProvider.ApplyHintsAsync(
-            McpResultBuilder.FormatCreated(created, url, ctx.Key.ToString()), verbose, ctx, ct);
+        return await EnvelopeBuilder.WrapAsync(ctx,
+            McpResultBuilder.FormatCreated(created, url, ctx.Key.ToString()), verbose, ct);
     }
 
     [McpServerTool(Name = "twig_find_or_create"), Description("Find an existing work item by title and type under a parent, or create it if not found. Always performs a deduplication check — use this instead of twig_new when idempotent creation is required.")]
@@ -134,22 +133,22 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         CancellationToken ct = default)
     {
         if (sourceId <= 0)
-            return McpResultBuilder.ToError($"sourceId must be a positive work item ID (got {sourceId}).");
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, $"sourceId must be a positive work item ID (got {sourceId}).");
 
         if (targetId <= 0)
-            return McpResultBuilder.ToError($"targetId must be a positive work item ID (got {targetId}).");
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, $"targetId must be a positive work item ID (got {targetId}).");
 
         if (sourceId == targetId)
-            return McpResultBuilder.ToError("sourceId and targetId must be different work items.");
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, "sourceId and targetId must be different work items.");
 
         var supportedTypes = string.Join(", ", LinkTypeMapper.SupportedTypes);
         if (string.IsNullOrWhiteSpace(linkType))
-            return McpResultBuilder.ToError($"linkType is required. Supported types: {supportedTypes}.");
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, $"linkType is required. Supported types: {supportedTypes}.");
 
         if (!LinkTypeMapper.TryResolve(linkType, out var adoLinkType))
-            return McpResultBuilder.ToError($"Unknown link type '{linkType}'. Supported types: {supportedTypes}.");
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, $"Unknown link type '{linkType}'. Supported types: {supportedTypes}.");
 
-        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         try
         {
@@ -157,7 +156,7 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return McpResultBuilder.ToError($"Link failed: {ex.Message}");
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable, $"Link failed: {ex.Message}", ctx, ct);
         }
 
         // Best-effort: refresh local link cache for both items
@@ -172,8 +171,8 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
             warning = $"Link created but cache sync failed: {ex.Message}. Run twig_sync to recover.";
         }
 
-        return await McpHintProvider.ApplyHintsAsync(
-            McpResultBuilder.FormatLinked(sourceId, targetId, linkType, warning), verbose, ctx, ct);
+        return await EnvelopeBuilder.WrapAsync(ctx,
+            McpResultBuilder.FormatLinked(sourceId, targetId, linkType, warning), verbose, ct);
     }
 
     [McpServerTool(Name = "twig_link_branch"), Description("Link a git branch to a work item as an ADO artifact link")]
@@ -185,19 +184,19 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         CancellationToken ct = default)
     {
         if (workItemId <= 0)
-            return McpResultBuilder.ToError($"workItemId must be a positive work item ID (got {workItemId}).");
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, $"workItemId must be a positive work item ID (got {workItemId}).");
 
         if (string.IsNullOrWhiteSpace(branchName))
-            return McpResultBuilder.ToError("branchName is required.");
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, "branchName is required.");
 
-        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         if (ctx.BranchLinkService is null)
-            return McpResultBuilder.ToError("Git context is not configured for this workspace.");
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput, "Git context is not configured for this workspace.", ctx, ct);
 
         var result = await ctx.BranchLinkService.LinkBranchAsync(workItemId, branchName, ct);
-        return await McpHintProvider.ApplyHintsAsync(
-            McpResultBuilder.FormatBranchLinked(result), verbose, ctx, ct);
+        return await EnvelopeBuilder.WrapAsync(ctx,
+            McpResultBuilder.FormatBranchLinked(result), verbose, ct);
     }
 
     [McpServerTool(Name = "twig_link_artifact"), Description("Add an artifact link (URL or vstfs:// URI) to a work item")]
@@ -210,12 +209,12 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         CancellationToken ct = default)
     {
         if (workItemId <= 0)
-            return McpResultBuilder.ToError($"workItemId must be a positive work item ID (got {workItemId}).");
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, $"workItemId must be a positive work item ID (got {workItemId}).");
 
         if (string.IsNullOrWhiteSpace(url))
-            return McpResultBuilder.ToError("url is required.");
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, "url is required.");
 
-        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         bool alreadyLinked;
         try
@@ -224,11 +223,11 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return McpResultBuilder.ToError($"Link failed: {ex.Message}");
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable, $"Link failed: {ex.Message}", ctx, ct);
         }
 
-        return await McpHintProvider.ApplyHintsAsync(
-            McpResultBuilder.FormatArtifactLinked(workItemId, url, alreadyLinked), verbose, ctx, ct);
+        return await EnvelopeBuilder.WrapAsync(ctx,
+            McpResultBuilder.FormatArtifactLinked(workItemId, url, alreadyLinked), verbose, ct);
     }
 
     private async Task<CallToolResult?> CheckForDuplicateAsync(
@@ -256,16 +255,16 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         var processConfig = ctx.ProcessConfigProvider.GetConfiguration();
 
         var (parent, fetchErr) = await ctx.FetchWithFallbackAsync(parentId, ct);
-        if (fetchErr is not null) return McpResultBuilder.ToError(fetchErr);
+        if (fetchErr is not null) return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, fetchErr, ctx, ct);
 
         var seedResult = seedFactory.Create(title, parent!, processConfig, parsedType, assignedTo);
         if (!seedResult.IsSuccess)
         {
             var parentType = parent!.Type;
             var allowed = processConfig.GetAllowedChildTypes(parentType);
-            return McpResultBuilder.ToError(
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput,
                 $"{seedResult.Error} Allowed child types for {parentType}: " +
-                (allowed.Count > 0 ? string.Join(", ", allowed) : "(none)") + ".");
+                (allowed.Count > 0 ? string.Join(", ", allowed) : "(none)") + ".", ctx, ct);
         }
 
         var seed = seedResult.Value;
@@ -276,14 +275,14 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         int newId;
         try { newId = await ctx.AdoService.CreateAsync(seed.ToCreateRequest(), ct); }
         catch (Exception ex) when (ex is not OperationCanceledException)
-        { return McpResultBuilder.ToError($"Create failed: {ex.Message}"); }
+        { return await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable, $"Create failed: {ex.Message}", ctx, ct); }
 
         WorkItem created;
         try { created = await ctx.AdoService.FetchAsync(newId, ct); }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return McpResultBuilder.ToError(
-                $"Created #{newId} in ADO but fetch-back failed: {ex.Message}. Run twig_sync to recover.");
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable,
+                $"Created #{newId} in ADO but fetch-back failed: {ex.Message}. Run twig_sync to recover.", ctx, ct);
         }
 
         try { await ctx.WorkItemRepo.SaveAsync(created, ct); }

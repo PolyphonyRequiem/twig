@@ -32,15 +32,15 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(stateName))
-            return McpResultBuilder.ToError("Usage: twig_state requires a target state name (e.g. Active, Closed, Resolved).");
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, "Usage: twig_state requires a target state name (e.g. Active, Closed, Resolved).");
 
-        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         var resolved = await ctx.ActiveItemResolver.GetActiveItemAsync(ct);
         if (resolved is ActiveItemResult.NoContext)
-            return McpResultBuilder.ToError("No active work item. Use twig_set to set context.");
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.NoContext, "No active work item. Use twig_set to set context.", ctx, ct);
         if (resolved is ActiveItemResult.Unreachable u)
-            return McpResultBuilder.ToError($"Work item #{u.Id} not found in cache.");
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, $"Work item #{u.Id} not found in cache.", ctx, ct);
 
         var item = resolved is ActiveItemResult.Found f
             ? f.WorkItem
@@ -54,7 +54,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
             var seedProvider = new SeedMutationProvider(ctx.WorkItemRepo);
             var seedResult = await seedProvider.ChangeStateAsync(item.Id, change, ct);
             if (!seedResult.IsSuccess)
-                return McpResultBuilder.ToError(seedResult.ErrorMessage!);
+                return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput, seedResult.ErrorMessage!, ctx, ct);
 
             // Re-read the updated item for the response
             var seedUpdated = await ctx.WorkItemRepo.GetByIdAsync(item.Id, ct) ?? item;
@@ -62,28 +62,32 @@ public sealed class MutationTools(WorkspaceResolver resolver)
             try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
             catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
-            return await McpHintProvider.ApplyHintsAsync(
-                McpResultBuilder.FormatStateChange(seedUpdated, previousState), verbose, ctx, ct);
+            return await EnvelopeBuilder.WrapAsync(ctx,
+                McpResultBuilder.FormatStateChange(seedUpdated, previousState), verbose, ct);
         }
 
         var processConfig = ctx.ProcessConfigProvider.GetConfiguration();
         if (!processConfig.TypeConfigs.TryGetValue(item.Type, out var typeConfig))
-            return McpResultBuilder.ToError($"No process configuration found for type '{item.Type}'.");
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.CacheStale, $"No process configuration found for type '{item.Type}'.", ctx, ct);
 
         var resolveResult = StateResolver.ResolveByName(stateName, typeConfig.StateEntries);
         if (!resolveResult.IsSuccess)
-            return McpResultBuilder.ToError(resolveResult.Error);
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidStateTransition, resolveResult.Error, ctx, ct);
 
         var newState = resolveResult.Value;
         var previousStateAdo = item.State;
 
         if (string.Equals(item.State, newState, StringComparison.OrdinalIgnoreCase))
-            return McpResultBuilder.ToResult($"Already in state '{newState}'.");
+            return await EnvelopeBuilder.SuccessAsync(ctx, w =>
+            {
+                w.WriteString("message", $"Already in state '{newState}'.");
+                w.WriteString("state", newState);
+            }, verbose, ct);
 
         var transition = StateTransitionService.Evaluate(processConfig, item.Type, item.State, newState);
 
         if (!transition.IsAllowed)
-            return McpResultBuilder.ToError($"Transition from '{item.State}' to '{newState}' is not allowed.");
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidStateTransition, $"Transition from '{item.State}' to '{newState}' is not allowed.", ctx, ct);
 
         WorkItem remote;
         try
@@ -94,7 +98,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         }
         catch (AdoException ex)
         {
-            return McpResultBuilder.ToError(ex.Message);
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable, ex.Message, ctx, ct);
         }
 
         try { await AutoPushNotesHelper.PushAndClearAsync(item.Id, ctx.PendingChangeStore, ctx.AdoService); }
@@ -121,8 +125,8 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
-        return await McpHintProvider.ApplyHintsAsync(
-            McpResultBuilder.FormatStateChange(updated, previousStateAdo), verbose, ctx, ct);
+        return await EnvelopeBuilder.WrapAsync(ctx,
+            McpResultBuilder.FormatStateChange(updated, previousStateAdo), verbose, ct);
     }
 
     [McpServerTool(Name = "twig_update"), Description("Update a field on the active work item and push to ADO")]
@@ -136,22 +140,22 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(field) || value is null)
-            return McpResultBuilder.ToError("Usage: twig_update requires a field name and value.");
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, "Usage: twig_update requires a field name and value.");
 
         if (format is not null && !string.Equals(format, "markdown", StringComparison.OrdinalIgnoreCase))
-            return McpResultBuilder.ToError($"Unknown format '{format}'. Supported formats: markdown");
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, $"Unknown format '{format}'. Supported formats: markdown");
 
         var effectiveValue = string.Equals(format, "markdown", StringComparison.OrdinalIgnoreCase)
             ? MarkdownConverter.ToHtml(value)
             : value;
 
-        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         var resolved = await ctx.ActiveItemResolver.GetActiveItemAsync(ct);
         if (resolved is ActiveItemResult.NoContext)
-            return McpResultBuilder.ToError("No active work item. Use twig_set to set context.");
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.NoContext, "No active work item. Use twig_set to set context.", ctx, ct);
         if (resolved is ActiveItemResult.Unreachable u)
-            return McpResultBuilder.ToError($"Work item #{u.Id} not found in cache.");
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, $"Work item #{u.Id} not found in cache.", ctx, ct);
 
         var item = resolved is ActiveItemResult.Found f
             ? f.WorkItem
@@ -170,13 +174,13 @@ public sealed class MutationTools(WorkspaceResolver resolver)
             var seedProvider = new SeedMutationProvider(ctx.WorkItemRepo);
             var seedResult = await seedProvider.UpdateFieldAsync(item.Id, change, ct);
             if (!seedResult.IsSuccess)
-                return McpResultBuilder.ToError(seedResult.ErrorMessage!);
+                return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput, seedResult.ErrorMessage!, ctx, ct);
 
             try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
             catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
-            return await McpHintProvider.ApplyHintsAsync(
-                McpResultBuilder.FormatFieldUpdate(item, field, value), verbose, ctx, ct);
+            return await EnvelopeBuilder.WrapAsync(ctx,
+                McpResultBuilder.FormatFieldUpdate(item, field, value), verbose, ct);
         }
 
         WorkItem remote;
@@ -195,7 +199,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         }
         catch (AdoException ex)
         {
-            return McpResultBuilder.ToError(ex.Message);
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable, ex.Message, ctx, ct);
         }
 
         try { await AutoPushNotesHelper.PushAndClearAsync(item.Id, ctx.PendingChangeStore, ctx.AdoService); }
@@ -216,8 +220,8 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
-        return await McpHintProvider.ApplyHintsAsync(
-            McpResultBuilder.FormatFieldUpdate(updated, field, value), verbose, ctx, ct);
+        return await EnvelopeBuilder.WrapAsync(ctx,
+            McpResultBuilder.FormatFieldUpdate(updated, field, value), verbose, ct);
     }
 
     [McpServerTool(Name = "twig_patch"), Description("Atomically patch multiple fields on the active work item")]
@@ -229,10 +233,10 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(fields))
-            return McpResultBuilder.ToError("Usage: twig_patch requires a non-empty JSON object of field name → value pairs.");
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, "Usage: twig_patch requires a non-empty JSON object of field name → value pairs.");
 
         if (format is not null && !string.Equals(format, "markdown", StringComparison.OrdinalIgnoreCase))
-            return McpResultBuilder.ToError($"Unknown format '{format}'. Supported formats: markdown");
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, $"Unknown format '{format}'. Supported formats: markdown");
 
         // Parse JSON into field dictionary (AOT-safe via source-generated context)
         Dictionary<string, string>? fieldMap;
@@ -242,19 +246,19 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         }
         catch (JsonException ex)
         {
-            return McpResultBuilder.ToError($"Invalid JSON: {ex.Message}");
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, $"Invalid JSON: {ex.Message}");
         }
 
         if (fieldMap is null || fieldMap.Count == 0)
-            return McpResultBuilder.ToError("JSON must be a non-empty object with field name → value pairs.");
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, "JSON must be a non-empty object with field name → value pairs.");
 
-        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         var resolved = await ctx.ActiveItemResolver.GetActiveItemAsync(ct);
         if (resolved is ActiveItemResult.NoContext)
-            return McpResultBuilder.ToError("No active work item. Use twig_set to set context.");
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.NoContext, "No active work item. Use twig_set to set context.", ctx, ct);
         if (resolved is ActiveItemResult.Unreachable u)
-            return McpResultBuilder.ToError($"Work item #{u.Id} not found in cache.");
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, $"Work item #{u.Id} not found in cache.", ctx, ct);
 
         var item = resolved is ActiveItemResult.Found f
             ? f.WorkItem
@@ -280,14 +284,14 @@ public sealed class MutationTools(WorkspaceResolver resolver)
             {
                 var seedResult = await seedProvider.UpdateFieldAsync(item.Id, change, ct);
                 if (!seedResult.IsSuccess)
-                    return McpResultBuilder.ToError($"Field '{change.FieldName}' failed: {seedResult.ErrorMessage}");
+                    return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput, $"Field '{change.FieldName}' failed: {seedResult.ErrorMessage}", ctx, ct);
             }
 
             try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
             catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
-            return await McpHintProvider.ApplyHintsAsync(
-                McpResultBuilder.FormatPatch(item, fieldChanges), verbose, ctx, ct);
+            return await EnvelopeBuilder.WrapAsync(ctx,
+                McpResultBuilder.FormatPatch(item, fieldChanges), verbose, ct);
         }
 
         // Fetch remote and PATCH with conflict retry
@@ -299,7 +303,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         }
         catch (AdoException ex)
         {
-            return McpResultBuilder.ToError(ex.Message);
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable, ex.Message, ctx, ct);
         }
 
         try { await AutoPushNotesHelper.PushAndClearAsync(item.Id, ctx.PendingChangeStore, ctx.AdoService); }
@@ -320,8 +324,8 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
-        return await McpHintProvider.ApplyHintsAsync(
-            McpResultBuilder.FormatPatch(updated, fieldChanges), verbose, ctx, ct);
+        return await EnvelopeBuilder.WrapAsync(ctx,
+            McpResultBuilder.FormatPatch(updated, fieldChanges), verbose, ct);
     }
 
     [McpServerTool(Name = "twig_note"), Description("Add a comment/note to the active work item")]
@@ -332,15 +336,15 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(text))
-            return McpResultBuilder.ToError("Usage: twig_note requires non-empty text.");
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, "Usage: twig_note requires non-empty text.");
 
-        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         var resolved = await ctx.ActiveItemResolver.GetActiveItemAsync(ct);
         if (resolved is ActiveItemResult.NoContext)
-            return McpResultBuilder.ToError("No active work item. Use twig_set to set context.");
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.NoContext, "No active work item. Use twig_set to set context.", ctx, ct);
         if (resolved is ActiveItemResult.Unreachable u)
-            return McpResultBuilder.ToError($"Work item #{u.Id} not found in cache.");
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, $"Work item #{u.Id} not found in cache.", ctx, ct);
 
         var item = resolved is ActiveItemResult.Found f
             ? f.WorkItem
@@ -377,8 +381,8 @@ public sealed class MutationTools(WorkspaceResolver resolver)
 
         await ctx.PromptStateWriter.WritePromptStateAsync();
 
-        return await McpHintProvider.ApplyHintsAsync(
-            McpResultBuilder.FormatNoteAdded(item.Id, item.Title, isPending), verbose, ctx, ct);
+        return await EnvelopeBuilder.WrapAsync(ctx,
+            McpResultBuilder.FormatNoteAdded(item.Id, item.Title, isPending), verbose, ct);
     }
 
     [McpServerTool(Name = "twig_delete"), Description("Permanently delete a work item from Azure DevOps (two-phase: first call returns confirmation prompt, second call with confirmed=true executes deletion)")]
@@ -390,18 +394,18 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         CancellationToken ct = default)
     {
         if (id <= 0)
-            return McpResultBuilder.ToError("Usage: twig_delete requires a positive work item ID.");
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, "Usage: twig_delete requires a positive work item ID.");
 
-        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         // Resolve item from cache or ADO
         var (item, fetchError) = await ctx.FetchWithFallbackAsync(id, ct);
         if (item is null)
-            return McpResultBuilder.ToError(fetchError ?? $"Work item #{id} not found.");
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, fetchError ?? $"Work item #{id} not found.", ctx, ct);
 
         // Seed guard
         if (item.IsSeed)
-            return McpResultBuilder.ToError($"#{id} is a seed. Use 'twig seed discard {id}' instead.");
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput, $"#{id} is a seed. Use 'twig seed discard {id}' instead.", ctx, ct);
 
         // Fresh fetch with links from ADO
         WorkItem freshItem;
@@ -414,7 +418,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         }
         catch (AdoException ex)
         {
-            return McpResultBuilder.ToError(ex.Message);
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable, ex.Message, ctx, ct);
         }
 
         // Link guard — refuse if any links exist
@@ -436,14 +440,15 @@ public sealed class MutationTools(WorkspaceResolver resolver)
                     parts.Add($"{c} {lt.ToLowerInvariant()}");
             }
 
-            return McpResultBuilder.ToError(
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput,
                 $"Cannot delete #{id} '{freshItem.Title}' — it has {linkCount} link(s): {string.Join(", ", parts)}. " +
-                "Remove all links before deleting. Consider 'twig_state Closed' instead — it preserves history and is reversible.");
+                "Remove all links before deleting. Consider 'twig_state Closed' instead — it preserves history and is reversible.",
+                ctx, ct);
         }
 
         // Phase 1: Confirmation prompt
         if (!confirmed)
-            return McpResultBuilder.FormatDeleteConfirmation(freshItem);
+            return await EnvelopeBuilder.WrapAsync(ctx, McpResultBuilder.FormatDeleteConfirmation(freshItem), verbose, ct);
 
         // Phase 2: Execute deletion
 
@@ -470,7 +475,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         }
         catch (AdoException ex)
         {
-            return McpResultBuilder.ToError($"Delete failed: {ex.Message}");
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable, $"Delete failed: {ex.Message}", ctx, ct);
         }
 
         // Cache cleanup
@@ -481,8 +486,8 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
-        return await McpHintProvider.ApplyHintsAsync(
-            McpResultBuilder.FormatDeleted(id, freshItem.Title), verbose, ctx, ct);
+        return await EnvelopeBuilder.WrapAsync(ctx,
+            McpResultBuilder.FormatDeleted(id, freshItem.Title), verbose, ct);
     }
 
     [McpServerTool(Name = "twig_discard"), Description("Discard pending local changes for a work item")]
@@ -492,7 +497,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
-        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         int itemId;
         if (id.HasValue)
@@ -503,7 +508,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         {
             var activeId = await ctx.ContextStore.GetActiveWorkItemIdAsync(ct);
             if (activeId is null)
-                return McpResultBuilder.ToError("No active work item. Use twig_set to set context.");
+                return await EnvelopeBuilder.ErrorAsync(McpErrorCode.NoContext, "No active work item. Use twig_set to set context.", ctx, ct);
             itemId = activeId.Value;
         }
 
@@ -514,15 +519,15 @@ public sealed class MutationTools(WorkspaceResolver resolver)
             try { item = await ctx.AdoService.FetchAsync(itemId, ct); }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                return McpResultBuilder.ToError($"Work item #{itemId} could not be resolved: {ex.Message}");
+                return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, $"Work item #{itemId} could not be resolved: {ex.Message}", ctx, ct);
             }
         }
 
         var (notes, fieldEdits) = await ctx.PendingChangeStore.GetChangeSummaryAsync(itemId, ct);
 
         if (notes == 0 && fieldEdits == 0)
-            return await McpHintProvider.ApplyHintsAsync(
-                McpResultBuilder.FormatDiscardedNone(itemId, item.Title), verbose, ctx, ct);
+            return await EnvelopeBuilder.WrapAsync(ctx,
+                McpResultBuilder.FormatDiscardedNone(itemId, item.Title), verbose, ct);
 
         await ctx.PendingChangeStore.ClearChangesAsync(itemId, ct);
         await ctx.WorkItemRepo.ClearDirtyFlagAsync(itemId, ct);
@@ -530,8 +535,8 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
-        return await McpHintProvider.ApplyHintsAsync(
-            McpResultBuilder.FormatDiscarded(itemId, notes, fieldEdits), verbose, ctx, ct);
+        return await EnvelopeBuilder.WrapAsync(ctx,
+            McpResultBuilder.FormatDiscarded(itemId, notes, fieldEdits), verbose, ct);
     }
 
     [McpServerTool(Name = "twig_sync"),Description("Flush pending local changes to ADO then refresh the local cache from ADO")]
@@ -541,7 +546,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
-        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         // Phase 1 — Push: flush all pending changes to ADO (skipped when pull_only)
         McpFlushSummary? flushSummary = null;
@@ -579,7 +584,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
 
         await ctx.PromptStateWriter.WritePromptStateAsync();
 
-        return await McpHintProvider.ApplyHintsAsync(
-            McpResultBuilder.FormatSyncSummary(flushSummary, pull_only), verbose, ctx, ct);
+        return await EnvelopeBuilder.WrapAsync(ctx,
+            McpResultBuilder.FormatSyncSummary(flushSummary, pull_only), verbose, ct);
     }
 }

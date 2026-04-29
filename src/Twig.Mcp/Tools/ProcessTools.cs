@@ -20,7 +20,7 @@ public sealed class ProcessTools(WorkspaceResolver resolver)
         CancellationToken ct = default)
     {
         if (!resolver.TryResolve(workspace, out var ctx, out var err))
-            return McpResultBuilder.ToError(err!);
+            return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         CallToolResult toolResult;
         if (type is null)
@@ -28,7 +28,7 @@ public sealed class ProcessTools(WorkspaceResolver resolver)
         else
             toolResult = await ShowTypeDetailAsync(ctx, type, ct);
 
-        return await McpHintProvider.ApplyHintsAsync(toolResult, verbose, ctx, ct);
+        return await EnvelopeBuilder.WrapAsync(ctx, toolResult, verbose, ct);
     }
 
     private static async Task<CallToolResult> ListTypesAsync(WorkspaceContext ctx, CancellationToken ct)
@@ -36,7 +36,7 @@ public sealed class ProcessTools(WorkspaceResolver resolver)
         var types = await ctx.ProcessTypeStore.GetAllAsync(ct);
 
         if (types.Count == 0)
-            return McpResultBuilder.ToError("No process types found. Use twig_sync to refresh process data.");
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.CacheStale, "No process types found. Use twig_sync to refresh process data.", ctx, ct);
 
         return McpResultBuilder.FormatProcessList(types);
     }
@@ -47,7 +47,7 @@ public sealed class ProcessTools(WorkspaceResolver resolver)
         var typeRecord = await ctx.ProcessTypeStore.GetByNameAsync(typeName, ct);
 
         if (typeRecord is null)
-            return McpResultBuilder.ToError($"Type '{typeName}' not found. Use twig_sync to refresh process data.");
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, $"Type '{typeName}' not found. Use twig_sync to refresh process data.", ctx, ct);
 
         var fields = await ctx.FieldDefinitionStore.GetAllAsync(ct);
         return McpResultBuilder.FormatProcessType(typeRecord, fields);

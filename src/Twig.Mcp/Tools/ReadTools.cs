@@ -25,14 +25,14 @@ public sealed class ReadTools(WorkspaceResolver resolver, NavigationTools naviga
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
-        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         var resolveResult = await ctx.ActiveItemResolver.GetActiveItemAsync(ct);
 
         if (resolveResult is ActiveItemResult.NoContext)
-            return McpResultBuilder.ToError("No active work item. Use twig_set first.");
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.NoContext, "No active work item. Use twig_set first.", ctx, ct);
         if (resolveResult is ActiveItemResult.Unreachable u)
-            return McpResultBuilder.ToError($"Work item #{u.Id} unreachable: {u.Reason}");
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, $"Work item #{u.Id} unreachable: {u.Reason}", ctx, ct);
 
         var item = resolveResult is ActiveItemResult.Found f
             ? f.WorkItem
@@ -49,7 +49,7 @@ public sealed class ReadTools(WorkspaceResolver resolver, NavigationTools naviga
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
-        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         // 1. Context item(nullable — no error if absent)
         var contextId = await ctx.ContextStore.GetActiveWorkItemIdAsync(ct);
@@ -107,12 +107,12 @@ public sealed class ReadTools(WorkspaceResolver resolver, NavigationTools naviga
         if (tree)
         {
             var treeResult = await BuildWorkspaceTreeAsync(ctx, ws, excludedItems, ct);
-            return await McpHintProvider.ApplyHintsAsync(treeResult, verbose, ctx, ct);
+            return await EnvelopeBuilder.WrapAsync(ctx, treeResult, verbose, ct);
         }
 
         // 7. Format flat result
         var toolResult = McpResultBuilder.FormatWorkspace(ws, ctx.Config.Seed.StaleDays, ctx.Key.ToString(), excludedItems);
-        return await McpHintProvider.ApplyHintsAsync(toolResult, verbose, ctx, ct);
+        return await EnvelopeBuilder.WrapAsync(ctx, toolResult, verbose, ct);
     }
 
     private static async Task<CallToolResult> BuildWorkspaceTreeAsync(

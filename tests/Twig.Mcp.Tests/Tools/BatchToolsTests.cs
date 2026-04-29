@@ -17,8 +17,15 @@ public sealed class BatchToolsTests
     private static string ExtractJson(CallToolResult result) =>
         ((TextContentBlock)result.Content![0]).Text;
 
-    private static JsonElement ParseResult(CallToolResult result) =>
-        JsonDocument.Parse(ExtractJson(result)).RootElement;
+    private static JsonElement ParseResult(CallToolResult result)
+    {
+        var root = JsonDocument.Parse(ExtractJson(result)).RootElement;
+        // Auto-unwrap success envelope
+        if (root.TryGetProperty("success", out var s) && s.ValueKind == JsonValueKind.True
+            && root.TryGetProperty("data", out var d))
+            return d.Clone();
+        return root.Clone();
+    }
 
     // ── Happy path: single step ─────────────────────────────────────
 

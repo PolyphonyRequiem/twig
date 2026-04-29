@@ -28,15 +28,15 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
-        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         var (item, fetchErr) = await ctx.FetchWithFallbackAsync(id, ct);
-        if (fetchErr is not null) return McpResultBuilder.ToError(fetchErr);
+        if (fetchErr is not null) return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, fetchErr, ctx, ct);
 
         if (tree)
         {
             var treeResult = await BuildTreeResultAsync(ctx, item!, depth, ct);
-            return await McpHintProvider.ApplyHintsAsync(treeResult, verbose, ctx, ct);
+            return await EnvelopeBuilder.WrapAsync(ctx, treeResult, verbose, ct);
         }
 
         // Include pending changes when the requested item is the active work item
@@ -46,7 +46,7 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
             pendingChanges = await ctx.PendingChangeStore.GetChangesAsync(id, ct);
 
         var toolResult = McpResultBuilder.FormatWorkItem(item!, pendingChanges, ctx.Key.ToString());
-        return await McpHintProvider.ApplyHintsAsync(toolResult, verbose, ctx, ct);
+        return await EnvelopeBuilder.WrapAsync(ctx, toolResult, verbose, ct);
     }
 
     private static async Task<CallToolResult> BuildTreeResultAsync(
@@ -101,7 +101,7 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
-        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         // Resolve default area paths from config when no explicit area path filter is given
         IReadOnlyList<(string Path, bool IncludeChildren)>? defaultAreaPaths = null;
@@ -128,7 +128,7 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
         IReadOnlyList<int> ids;
         try { ids = await ctx.AdoService.QueryByWiqlAsync(wiql, top, ct); }
         catch (Exception ex) when (ex is not OperationCanceledException)
-        { return McpResultBuilder.ToError($"Query failed: {ex.Message}"); }
+        { return await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable, $"Query failed: {ex.Message}", ctx, ct); }
 
         IReadOnlyList<WorkItem> items = ids.Count > 0
             ? await ctx.AdoService.FetchBatchAsync(ids, ct)
@@ -143,7 +143,7 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
 
         var queryDescription = BuildQueryDescription(parameters);
         var toolResult = McpResultBuilder.FormatQueryResults(items, items.Count >= top, queryDescription, ctx.Key.ToString());
-        return await McpHintProvider.ApplyHintsAsync(toolResult, verbose, ctx, ct);
+        return await EnvelopeBuilder.WrapAsync(ctx, toolResult, verbose, ct);
     }
 
     [McpServerTool(Name = "twig_children"), Description("List the direct children of a work item by ID")]
@@ -153,11 +153,11 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
-        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         var children = await ctx.FetchChildrenWithFallbackAsync(id, ct);
         var toolResult = McpResultBuilder.FormatChildren(id, children, ctx.Key.ToString());
-        return await McpHintProvider.ApplyHintsAsync(toolResult, verbose, ctx, ct);
+        return await EnvelopeBuilder.WrapAsync(ctx, toolResult, verbose, ct);
     }
 
     [McpServerTool(Name = "twig_parent"), Description("Get the parent of a work item by ID")]
@@ -167,10 +167,10 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
-        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         var (childResult, fetchErr) = await ctx.FetchWithFallbackAsync(id, ct);
-        if (fetchErr is not null) return McpResultBuilder.ToError(fetchErr);
+        if (fetchErr is not null) return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, fetchErr, ctx, ct);
         var child = childResult!;
 
         // Resolve parent — cache-first, ADO fallback (best-effort: null if fetch fails)
@@ -182,7 +182,7 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
         }
 
         var toolResult = McpResultBuilder.FormatParent(child, parent, ctx.Key.ToString());
-        return await McpHintProvider.ApplyHintsAsync(toolResult, verbose, ctx, ct);
+        return await EnvelopeBuilder.WrapAsync(ctx, toolResult, verbose, ct);
     }
 
     [McpServerTool(Name = "twig_verify_descendants"), Description("Recursively verify that all descendants of a work item are in terminal states.")]
@@ -193,14 +193,14 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
-        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         var service = new DescendantVerificationService(
             ctx.WorkItemRepo, ctx.AdoService, ctx.ProcessConfigProvider);
 
         var result = await service.VerifyAsync(id, maxDepth, ct);
         var toolResult = McpResultBuilder.FormatVerification(result, ctx.Key.ToString());
-        return await McpHintProvider.ApplyHintsAsync(toolResult, verbose, ctx, ct);
+        return await EnvelopeBuilder.WrapAsync(ctx, toolResult, verbose, ct);
     }
 
     [McpServerTool(Name = "twig_sprint"), Description("Get the current sprint iteration info, optionally listing sprint items")]
@@ -210,19 +210,19 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
-        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         IterationPath iterationPath;
         try { iterationPath = await ctx.IterationService.GetCurrentIterationAsync(ct); }
         catch (Exception ex) when (ex is not OperationCanceledException)
-        { return McpResultBuilder.ToError($"Failed to get current iteration: {ex.Message}"); }
+        { return await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable, $"Failed to get current iteration: {ex.Message}", ctx, ct); }
 
         IReadOnlyList<WorkItem>? sprintItems = null;
         if (items)
             sprintItems = await ctx.WorkItemRepo.GetByIterationAsync(iterationPath, ct);
 
         var toolResult = McpResultBuilder.FormatSprint(iterationPath, sprintItems, ctx.Key.ToString());
-        return await McpHintProvider.ApplyHintsAsync(toolResult, verbose, ctx, ct);
+        return await EnvelopeBuilder.WrapAsync(ctx, toolResult, verbose, ct);
     }
 
     private static string BuildQueryDescription(QueryParameters parameters)

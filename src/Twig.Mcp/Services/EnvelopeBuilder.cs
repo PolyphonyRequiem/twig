@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using ModelContextProtocol.Protocol;
 
@@ -11,7 +12,11 @@ namespace Twig.Mcp.Services;
 /// </summary>
 internal sealed class EnvelopeBuilder
 {
-    private static readonly JsonWriterOptions WriterOptions = new() { Indented = true };
+    private static readonly JsonWriterOptions WriterOptions = new()
+    {
+        Indented = true,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
 
     /// <summary>
     /// Builds a success envelope with automatically populated context.

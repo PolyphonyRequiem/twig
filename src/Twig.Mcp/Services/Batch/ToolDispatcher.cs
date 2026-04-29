@@ -127,9 +127,9 @@ internal sealed class ToolDispatcher(
                 workspace, verbose: false, ct),
 
             // Workspace tools
-            "twig_list_workspaces" => Task.FromResult(workspaceTools.ListWorkspaces()),
+            "twig_list_workspaces" => workspaceTools.ListWorkspaces(verbose: false, ct),
 
-            _ => Task.FromResult(McpResultBuilder.ToError($"Unknown tool '{toolName}'."))
+            _ => Task.FromResult(EnvelopeBuilder.Error(McpErrorCode.InvalidInput, $"Unknown tool '{toolName}'."))
         };
     }
 

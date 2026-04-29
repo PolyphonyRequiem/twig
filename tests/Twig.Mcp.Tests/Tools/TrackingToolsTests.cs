@@ -384,4 +384,157 @@ public sealed class TrackingToolsTests : ReadToolsTestBase
         var result = await sut.Track("42");
         result.IsError.ShouldBeNull(); // Tracking repo exists in test harness
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  twig_tracking_status — returns tracked items with work item details
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task TrackingStatus_WithTrackedItems_ReturnsJoinedDetails()
+    {
+        var trackedAt = new DateTimeOffset(2026, 1, 15, 10, 0, 0, TimeSpan.Zero);
+        var trackedItems = new List<TrackedItem>
+        {
+            new(2541, TrackingMode.Tree, trackedAt),
+            new(2542, TrackingMode.Single, trackedAt.AddHours(1)),
+        };
+        _trackingRepo.GetAllTrackedAsync(Arg.Any<CancellationToken>())
+            .Returns(trackedItems);
+
+        var wi1 = new WorkItemBuilder(2541, "Epic Plan")
+            .AsEpic()
+            .WithField("System.ChangedDate", "2026-01-20T12:00:00Z")
+            .Build();
+        var wi2 = new WorkItemBuilder(2542, "Child Task")
+            .AsTask()
+            .WithField("System.ChangedDate", "2026-01-21T08:30:00Z")
+            .Build();
+        _workItemRepo.GetByIdsAsync(Arg.Any<IEnumerable<int>>(), Arg.Any<CancellationToken>())
+            .Returns(new List<WorkItem> { wi1, wi2 });
+
+        var sut = CreateTrackingSut();
+        var result = await sut.TrackingStatus();
+
+        result.IsError.ShouldBeNull();
+        var data = ParseResult(result);
+
+        data.GetProperty("totalCount").GetInt32().ShouldBe(2);
+
+        var items = data.GetProperty("trackedItems");
+        items.GetArrayLength().ShouldBe(2);
+
+        // First item — Epic, recursive (Tree mode)
+        var first = items[0];
+        first.GetProperty("id").GetInt32().ShouldBe(2541);
+        first.GetProperty("title").GetString().ShouldBe("Epic Plan");
+        first.GetProperty("type").GetString().ShouldBe("Epic");
+        first.GetProperty("recursive").GetBoolean().ShouldBeTrue();
+        first.GetProperty("trackedSince").GetString().ShouldNotBeNullOrEmpty();
+        first.GetProperty("lastRefreshed").GetString().ShouldBe("2026-01-20T12:00:00Z");
+
+        // Second item — Task, non-recursive (Single mode)
+        var second = items[1];
+        second.GetProperty("id").GetInt32().ShouldBe(2542);
+        second.GetProperty("title").GetString().ShouldBe("Child Task");
+        second.GetProperty("type").GetString().ShouldBe("Task");
+        second.GetProperty("recursive").GetBoolean().ShouldBeFalse();
+        second.GetProperty("lastRefreshed").GetString().ShouldBe("2026-01-21T08:30:00Z");
+    }
+
+    [Fact]
+    public async Task TrackingStatus_Empty_ReturnsEmptyArray()
+    {
+        _trackingRepo.GetAllTrackedAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<TrackedItem>());
+
+        var sut = CreateTrackingSut();
+        var result = await sut.TrackingStatus();
+
+        result.IsError.ShouldBeNull();
+        var data = ParseResult(result);
+
+        data.GetProperty("totalCount").GetInt32().ShouldBe(0);
+        data.GetProperty("trackedItems").GetArrayLength().ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task TrackingStatus_WorkItemNotInCache_ReturnEmptyStrings()
+    {
+        var trackedAt = new DateTimeOffset(2026, 2, 1, 0, 0, 0, TimeSpan.Zero);
+        var trackedItems = new List<TrackedItem>
+        {
+            new(999, TrackingMode.Single, trackedAt),
+        };
+        _trackingRepo.GetAllTrackedAsync(Arg.Any<CancellationToken>())
+            .Returns(trackedItems);
+
+        // No work items in cache — GetByIdsAsync returns empty
+        _workItemRepo.GetByIdsAsync(Arg.Any<IEnumerable<int>>(), Arg.Any<CancellationToken>())
+            .Returns(new List<WorkItem>());
+
+        var sut = CreateTrackingSut();
+        var result = await sut.TrackingStatus();
+
+        result.IsError.ShouldBeNull();
+        var data = ParseResult(result);
+
+        data.GetProperty("totalCount").GetInt32().ShouldBe(1);
+        var items = data.GetProperty("trackedItems");
+        items.GetArrayLength().ShouldBe(1);
+
+        var item = items[0];
+        item.GetProperty("id").GetInt32().ShouldBe(999);
+        item.GetProperty("title").GetString().ShouldBe("");
+        item.GetProperty("type").GetString().ShouldBe("");
+        item.GetProperty("recursive").GetBoolean().ShouldBeFalse();
+        item.GetProperty("lastRefreshed").GetString().ShouldBe("");
+    }
+
+    [Fact]
+    public async Task TrackingStatus_WorkspaceNotFound_ReturnsError()
+    {
+        var sut = CreateTrackingSut();
+        var result = await sut.TrackingStatus(workspace: "unknown/workspace");
+
+        result.IsError.ShouldBe(true);
+        GetErrorText(result).ShouldContain("unknown/workspace");
+    }
+
+    [Fact]
+    public async Task TrackingStatus_SuccessEnvelope_HasContextBlock()
+    {
+        _trackingRepo.GetAllTrackedAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<TrackedItem>());
+
+        var sut = CreateTrackingSut();
+        var result = await sut.TrackingStatus();
+
+        var envelope = ParseEnvelope(result);
+        envelope.GetProperty("success").GetBoolean().ShouldBeTrue();
+        envelope.TryGetProperty("data", out _).ShouldBeTrue();
+        envelope.TryGetProperty("context", out _).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task TrackingStatus_NoChangedDate_ReturnsEmptyLastRefreshed()
+    {
+        var trackedAt = new DateTimeOffset(2026, 3, 1, 0, 0, 0, TimeSpan.Zero);
+        _trackingRepo.GetAllTrackedAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<TrackedItem> { new(100, TrackingMode.Single, trackedAt) });
+
+        // Work item exists in cache but has no System.ChangedDate field
+        var wi = new WorkItemBuilder(100, "No Changed Date")
+            .AsIssue()
+            .Build();
+        _workItemRepo.GetByIdsAsync(Arg.Any<IEnumerable<int>>(), Arg.Any<CancellationToken>())
+            .Returns(new List<WorkItem> { wi });
+
+        var sut = CreateTrackingSut();
+        var result = await sut.TrackingStatus();
+
+        result.IsError.ShouldBeNull();
+        var data = ParseResult(result);
+        var item = data.GetProperty("trackedItems")[0];
+        item.GetProperty("lastRefreshed").GetString().ShouldBe("");
+    }
 }

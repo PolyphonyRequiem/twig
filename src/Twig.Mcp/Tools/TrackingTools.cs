@@ -8,7 +8,7 @@ using Twig.Mcp.Services;
 namespace Twig.Mcp.Tools;
 
 /// <summary>
-/// MCP tools for manual work-item tracking: twig_track, twig_untrack.
+/// MCP tools for manual work-item tracking: twig_track, twig_untrack, twig_tracking_status.
 /// Resolves per-workspace services via <see cref="WorkspaceResolver"/>.
 /// </summary>
 [McpServerToolType]
@@ -105,6 +105,67 @@ public sealed class TrackingTools(WorkspaceResolver resolver)
             foreach (var uid in removedIds.Distinct().Order())
                 writer.WriteNumberValue(uid);
             writer.WriteEndArray();
+        }, verbose, ct);
+    }
+
+    [McpServerTool(Name = "twig_tracking_status"), Description("List all currently tracked work items with their title, type, tracking mode, and last refreshed time. No network call — reads from local cache only.")]
+    public async Task<CallToolResult> TrackingStatus(
+        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
+        CancellationToken ct = default)
+    {
+        if (!resolver.TryResolve(workspace, out var ctx, out var err))
+            return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
+
+        if (ctx.TrackingRepo is null)
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput,
+                "Tracking is not available for this workspace.", ctx, ct);
+
+        var tracked = await ctx.TrackingRepo.GetAllTrackedAsync(ct);
+
+        // Join with work item cache to get title, type, and ChangedDate
+        var ids = tracked.Select(t => t.WorkItemId).ToList();
+        var workItems = ids.Count > 0
+            ? await ctx.WorkItemRepo.GetByIdsAsync(ids, ct)
+            : [];
+        var workItemLookup = workItems.ToDictionary(w => w.Id);
+
+        return await EnvelopeBuilder.SuccessAsync(ctx, writer =>
+        {
+            writer.WriteStartArray("trackedItems");
+            foreach (var item in tracked)
+            {
+                writer.WriteStartObject();
+                writer.WriteNumber("id", item.WorkItemId);
+
+                if (workItemLookup.TryGetValue(item.WorkItemId, out var wi))
+                {
+                    writer.WriteString("title", wi.Title);
+                    writer.WriteString("type", wi.Type.ToString());
+                }
+                else
+                {
+                    writer.WriteString("title", "");
+                    writer.WriteString("type", "");
+                }
+
+                writer.WriteBoolean("recursive", item.Mode == TrackingMode.Tree);
+                writer.WriteString("trackedSince", item.TrackedAt.ToString("o"));
+
+                // lastRefreshed: ChangedDate from the work item cache (proxy for last sync time)
+                var lastRefreshed = "";
+                if (wi is not null && wi.Fields.TryGetValue("System.ChangedDate", out var changedDate)
+                    && !string.IsNullOrEmpty(changedDate))
+                {
+                    lastRefreshed = changedDate;
+                }
+
+                writer.WriteString("lastRefreshed", lastRefreshed);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+
+            writer.WriteNumber("totalCount", tracked.Count);
         }, verbose, ct);
     }
 

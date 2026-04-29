@@ -145,6 +145,9 @@ internal sealed class ToolDispatcher(
                 GetRequiredString(args, "id"),
                 workspace, verbose: false, ct),
 
+            "twig_tracking_status" => trackingTools.TrackingStatus(
+                workspace, verbose: false, ct),
+
             // Admin tools
             "twig_config" => adminTools.Config(GetString(args, "key"), workspace, verbose: false, ct),
 

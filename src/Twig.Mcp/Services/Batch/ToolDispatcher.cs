@@ -44,6 +44,7 @@ internal sealed class ToolDispatcher(
 
             // Read tools
             "twig_tree" => readTools.Tree(
+                GetNullableInt(args, "id"),
                 GetNullableInt(args, "depth"),
                 workspace, verbose: false, ct),
 

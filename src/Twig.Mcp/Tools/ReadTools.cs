@@ -18,14 +18,21 @@ namespace Twig.Mcp.Tools;
 [McpServerToolType]
 public sealed class ReadTools(WorkspaceResolver resolver, NavigationTools navigationTools)
 {
-    [McpServerTool(Name = "twig_tree"), Description("Display work item hierarchy as a tree")]
+    [McpServerTool(Name = "twig_tree"), Description("Display work item hierarchy as a tree. Operates on the active work item by default, or specify id to target a specific item without changing context.")]
     public async Task<CallToolResult> Tree(
+        [Description("Work item ID to display. When omitted, uses the active work item. When provided, the active context is not changed.")] int? id = null,
         [Description("Max child depth to display")] int? depth = null,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
+
+        if (id.HasValue)
+        {
+            // Direct ID — render tree for the specified item without changing active context
+            return await navigationTools.Show(id.Value, tree: true, depth: depth, workspace: workspace, verbose: verbose, ct: ct);
+        }
 
         var resolveResult = await ctx.ActiveItemResolver.GetActiveItemAsync(ct);
 

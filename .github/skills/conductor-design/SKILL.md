@@ -6,307 +6,107 @@ description: Design principles and architectural guidance for conductor SDLC wor
 # Conductor SDLC Workflow Design Principles
 
 These principles govern the design of all conductor SDLC workflows, agent prompts,
-and deterministic scripts. They are non-negotiable constraints — any workflow change
-that violates a principle requires an explicit exception with justification.
+and deterministic scripts. They are **non-negotiable constraints** — any workflow
+change that violates a principle requires an explicit exception with justification.
+
+For detailed rationale, examples, and implications of each principle, see the
+individual documents in the `references/` directory.
+
+---
 
 ## P1: Work Items Are the Source of Truth
 
-Once plans are committed and work items are created, **ADO work items are the
-authoritative source for state and context**. Agents must read work item state
-(title, description, status, parent/child relationships, tags) from ADO — not
-from plan files, agent memory, or prior outputs.
+ADO work items are the authoritative source for state and context — not plan files,
+agent memory, or prior outputs. Plan documents are reference material only.
 
-Plan documents are reference material, not operational state. They may be consulted
-when implementers or reviewers need additional context to resolve ambiguity, but
-they must never override what the work items say.
-
-**Implications:**
-- PG-to-task mapping belongs on work items (e.g., ADO tags), not in plan text
-- Work item state transitions are the completion signal, not todo lists or agent outputs
-- Stale plan references must not block or misdirect execution
+→ [Full details](references/p01-work-items-source-of-truth.md)
 
 ## P2: Plans Are Context, Not Control Flow
 
-Plan documents should only be referenced when additional context is needed by
-implementers and reviewers to resolve ambiguity that emerges during implementation
-and validation. Plans do not drive routing, task assignment, or state transitions.
+Plans provide design rationale and acceptance criteria. They do not drive routing,
+task assignment, or state transitions — work items do.
 
-**Implications:**
-- Workflows must not parse plan files to determine PG structure at implementation time
-- PG membership, task ordering, and scope come from work items
-- Plans provide design rationale, architectural decisions, and acceptance criteria
+→ [Full details](references/p02-plans-are-context.md)
 
 ## P2a: Plans Describe Solutions, Not Work Items
 
-Plans describe *what needs to be done* — technical design, architecture, PR groupings,
-acceptance criteria. Plans do not define work item hierarchies. A separate seeding
-step reads the plan and creates work items (Epics, Issues, Tasks) as an execution
-plan for the design. The plan is a design artifact; work items are the execution
-artifact.
+Plans describe technical design and architecture. A separate seeding step creates
+the ADO work item hierarchy from the plan. Plans are design artifacts; work items
+are execution artifacts.
 
-**Implications:**
-- The architect agent designs the solution and defines PR groups
-- The seeder agent reads the plan and creates work items, tagging each with its PG
-- Plans should not contain ADO IDs, state tracking, or work item metadata
-- If ADO IDs appear in a plan, they are informational cross-references only
+→ [Full details](references/p02a-plans-describe-solutions.md)
 
 ## P3: Re-Entry by State Discovery
 
-Re-entry into workflows and sub-workflows should pick up where they left off by
-inspecting observable state: approved plans, ADO work item states, local branches,
-git worktree status, commit history, and merged PRs — as appropriate for the
-workflow's domain of responsibility.
+Resumed workflows discover current state by inspecting observable artifacts (work
+item states, branches, merged PRs) rather than replaying history. Use the minimum
+set of checks needed. Prefer scripts over LLM inference for state detection.
 
-Use the **minimum set of checks** needed to deterministically understand current
-state. Don't re-derive what can be read directly.
-
-**Implications:**
-- A resumed implementation workflow checks which Issues are Done, which PRs are
-  merged, which branches exist — then starts from the next incomplete unit
-- A resumed planning workflow checks which plans exist and which work items are seeded
-- State discovery is deterministic (scripts preferred over LLM inference)
+→ [Full details](references/p03-re-entry-by-state.md)
 
 ## P4: Explicit User Intent — New / Redo / Resume
 
-Workflows accept an explicit intent input that governs how existing assets are treated:
+Workflows accept an explicit intent (`new`, `redo`, `resume`) that governs how
+existing assets are treated. This replaces ad-hoc skip/path flags.
 
-| Intent | Meaning | Behavior |
-|--------|---------|----------|
-| **new** | Starting fresh | Existing child work items, branches, and PRs under the root are treated as an error. The root work item should have no prior work. |
-| **redo** | Do it again from scratch | Delete existing assets in scope (child items, branches, PRs) and re-implement without reading prior work into context. Avoids polluting agent sessions with prior knowledge. |
-| **resume** | Continue where we left off | Discover state (P3), skip completed steps, pick up work in progress or the next pending unit. |
-
-This replaces ad-hoc inputs like `skip_plan_review`, `plan_path`, `has_explicit_plan`,
-etc. The intent signal is sufficient to determine the workflow's entry behavior.
+→ [Full details](references/p04-explicit-intent.md)
 
 ## P5: Type-Agnostic Workflow Structure
 
-The full SDLC entry point must not hardcode assumptions about the work item type.
-Workflows handle the ADO hierarchy naturally:
+The SDLC entry point must not hardcode work item type assumptions. The same workflow
+nodes handle Epics, Issues, and Tasks — branching on type happens within agents or
+scripts based on discovered state.
 
-| Root Type | Planning Scope | Implementation Scope |
-|-----------|---------------|---------------------|
-| **Epic** | Plan Epic → plan Issues → plan Tasks | Implement all Issues/Tasks, PR per PG |
-| **Issue** | Plan Issue → plan Tasks | Implement all Tasks, PR per PG |
-| **Task** | Plan the Task directly | Implement the Task, single commit or PR |
-
-The same workflow nodes handle all types — branching on type happens within agents
-or scripts based on discovered state, not via separate workflow paths.
+→ [Full details](references/p05-type-agnostic.md)
 
 ## P6: Human Gates for Genuine Decisions Only
 
-Human gates are reserved for situations where:
+Gates are reserved for low-confidence situations, functional limitations, genuine
+multi-option decisions, and irreversible actions. Never use gates for routine
+checkpoints or confident confirmations. Planning gates trigger at ≤85% confidence;
+implementation gates at ≥95% only.
 
-1. **Agent confidence is low** — ambiguity cannot be resolved from code or work items
-2. **Functional limitations** — user acceptance testing, manual validation required
-3. **Decision points with multiple valid options** — e.g., architectural trade-offs
-   during planning where 2-3 approaches are viable
-4. **Irreversible actions** — destructive operations that warrant confirmation
-
-Human gates must **not** be used for:
-- Routine progress checkpoints
-- Confirmation of work the agent is confident about
-- Compensating for bugs or missing automation
-
-When a gate is presented, it should include enough context for the human to decide
-without investigating independently.
-
-### Confidence thresholds by phase
-
-The bar for triggering a human gate varies by lifecycle phase. Planning decisions
-are cheaper to revisit; implementation errors are expensive to undo.
-
-- **Planning phase** — trigger gates at **≤85% confidence**. Design decisions
-  benefit from human steering. Open questions, architectural trade-offs, and
-  scope ambiguity should surface early.
-- **Implementation and beyond** — trigger gates at **≥95% confidence only**.
-  By this phase, the plan is approved and the work is mechanical. Gates should
-  be reserved for genuine blockers: user acceptance testing, irreversible
-  destructive actions, or situations where the agent truly cannot proceed.
+→ [Full details](references/p06-human-gates.md)
 
 ## P7: Fail Honestly, Don't Auto-Approve
 
-Verification agents must report actual state. If verification fails, the workflow
-must either retry the failed work or terminate with a clear failure report. 
+Verification agents report actual state. Never auto-approve after N attempts.
+Retry loops should have generous bounds (10+) but hard stops with failure reporting.
 
-**Never auto-approve after N attempts.** If a verifier cannot confirm that work is
-complete after a reasonable number of retries, the workflow should stop and surface
-the failure — not force-pass to avoid loops. The number of retries should be generous
-(10+) to account for transient failures, but the final answer must be honest.
-
-**Implications:**
-- `pr_finalizer` must not set `verified: true` when PGs have no merged PRs
-- Close-out must not tag versions when children are incomplete
-- Retry loops should have high bounds but hard stops with failure reporting
+→ [Full details](references/p07-fail-honestly.md)
 
 ## P8: Prefer Scripts Over Agents for Deterministic Logic
 
-When a decision is deterministic and the implementation is straightforward, use a
-script (PowerShell, Python, etc.) rather than an LLM agent. Agents are for judgment,
-ambiguity resolution, and creative work — not for `if/else` routing or data
-transformation that can be expressed as code.
+If a decision is deterministic and straightforward, use a script — not an LLM agent.
+Agents are for judgment and ambiguity; scripts are for routing and transformation.
 
-**Implications:**
-- State detection, phase routing, and input validation are scripts
-- PG grouping by tag, work tree loading, and plan file parsing are scripts
-- Architectural decisions, code review, and user-facing content are agents
-- If you find yourself writing a prompt that says "output X if condition Y" with
-  no ambiguity, it should be a script
+→ [Full details](references/p08-scripts-over-agents.md)
 
 ## P9: Clear, Minimal Naming
 
-Names should be clear within the scope of their workflow and node. Use as little
-text as needed to be unambiguous at a glance. Avoid both cryptic abbreviations
-and unnecessarily verbose descriptions.
+Names should be unambiguous at a glance with minimal text. Short names are preferred
+when workflow context disambiguates. Cross-boundary names may need more qualification.
 
-**Guidelines:**
-- A name is good if someone reading the workflow can understand the node's role
-  without reading its prompt
-- Short names are preferred when the workflow context disambiguates
-  (e.g., `cleanup` is fine in a workflow that only has one cleanup step)
-- Cross-boundary names (workflow inputs, sub-workflow contracts) may need more
-  qualification to avoid ambiguity between contexts
-- Enum values should be plain words: `new`, `redo`, `resume` — not prefixed
+→ [Full details](references/p09-naming.md)
 
 ## P10: Explicit Invariants
 
-Each agent and script node must document its **invariants** — conditions that must
-be true before, during, and after execution. Invariants are non-negotiable contracts
-that the workflow enforces. Great effort should be taken to uphold them.
+Every agent and script node must document preconditions, postconditions, and loop
+invariants. Violations surface as errors, not silent degradation.
 
-**Types of invariants:**
-- **Preconditions** — what must be true before the node executes (inputs valid,
-  work item in expected state, branch exists, etc.)
-- **Postconditions** — what must be true after the node completes (items created,
-  tags written, state transitioned, etc.)
-- **Loop invariants** — what remains true across iterations in retry/revision loops
-
-**Implications:**
-- System prompts and prompt templates should state invariants explicitly
-- Downstream nodes may assert upstream postconditions as their preconditions
-- Violations of invariants should surface as errors, not silent degradation
-- Tests and verification steps should check invariants, not just outputs
+→ [Full details](references/p10-invariants.md)
 
 ## P11: Rubric-Based Scoring
 
-All quality assessments — plan reviews, code reviews, acceptance checks — must use
-a **structured scoring rubric** with named dimensions and explicit weights. Prefer
-rubrics grounded in academic standards (IEEE 1016, ISO/IEC 25010) where applicable.
+All quality assessments use structured scoring rubrics with named dimensions,
+explicit weights, and a 1–5 scale. Critical threshold: any dimension ≤ 2 is blocking.
+Standard rubrics are defined for plan review, code review, and user acceptance.
 
-**Rubric structure:**
-- **Dimensions** — named quality aspects (e.g., Correctness, Feasibility, Clarity)
-- **Weights** — percentage importance per dimension (must sum to 100%)
-- **Scale** — 1-5 per dimension (1=Poor, 2=Needs Improvement, 3=Satisfactory, 4=Strong, 5=Excellent)
-- **Composite score** — weighted sum mapped to 0-100
-- **Critical threshold** — any dimension scored ≤ 2 is a blocking issue
-
-**Why:**
-- Single 0-100 scores are opaque — reviewers can't explain what failed
-- Rubrics make feedback actionable (dimension X failed → fix X)
-- Weights encode organizational priorities explicitly
-- Academic grounding reduces subjective drift across agent sessions
-
-**Standard rubrics by review type:**
-
-### Plan Technical Review (IEEE 1016 / ISO 25010 informed)
-| Dimension | Weight | Measures |
-|-----------|--------|----------|
-| Correctness | 30% | Addresses requirements, no contradictions with codebase |
-| Feasibility | 25% | Implementable given project constraints |
-| Completeness | 20% | All affected components identified |
-| Testability | 15% | Clear test strategy, verifiable acceptance criteria |
-| Risk awareness | 10% | Breaking changes, edge cases surfaced |
-
-### Plan Readability Review
-| Dimension | Weight | Measures |
-|-----------|--------|----------|
-| Clarity | 30% | Unambiguous, no vague language |
-| Actionability | 25% | Concrete enough for agent execution |
-| Structure | 20% | Logical organization, consistent formatting |
-| Traceability | 15% | Requirements → Issues → Tasks → PGs mapping clear |
-| Scoping | 10% | Boundaries explicit — in/out/deferred |
-
-### Code Review (implementation phase)
-| Dimension | Weight | Measures |
-|-----------|--------|----------|
-| Correctness | 30% | Logic is right, handles edge cases |
-| Safety | 25% | No regressions, no broken invariants, AOT/trim safe |
-| Completeness | 20% | All acceptance criteria addressed, tests written |
-| Conventions | 15% | Follows project patterns, naming, structure |
-| Reviewability | 10% | Changes are minimal, well-scoped, clear commit messages |
-
-### User Acceptance (implementation phase, P6 ≥95% confidence)
-| Dimension | Weight | Measures |
-|-----------|--------|----------|
-| Functional correctness | 35% | Feature works as specified |
-| UX coherence | 25% | Output formatting, help text, error messages are clear |
-| Non-regression | 20% | Existing features still work |
-| Documentation | 10% | Help text, README, command examples updated |
-| Edge cases | 10% | Graceful handling of unusual inputs |
-
-**Implications:**
-- Reviewer prompts must include the rubric and instruct dimension-by-dimension scoring
-- Review router uses composite scores and critical issue counts for gating
-- Rubrics are versioned in the conductor-design skill and referenced by prompts
-- Custom rubrics can be added for specialized reviews (security, accessibility, etc.)
+→ [Full details](references/p11-rubric-scoring.md)
 
 ## P13: Human-Readable Gates
 
-Human gates are decision points — the human needs enough context to make a good
-decision quickly. Gate prompts are Jinja2 templates that render to Markdown,
-displayed in both the Rich console (via `RichMarkdown`) and the web dashboard.
+Gate prompts are Jinja2 templates rendered as Markdown. Templates own layout (no
+JSON dumps), surface clickable artifact links, and consume structured agent outputs.
 
-### P13a: Gate templates own layout
-
-Gate prompts should present information using Markdown headings, tables, bullet
-lists, and emphasis — not raw JSON dumps or terse values. The gate template is
-the layout layer; it pulls structured data from agent outputs and formats it for
-human decision-making.
-
-```yaml
-# ❌ Don't dump JSON
-prompt: |
-  {{ pr_finalizer.output | json }}
-
-# ✅ Do format for humans
-prompt: |
-  ## PR Verification — {{ pr_finalizer.output.summary }}
-
-  | PG | Status |
-  |----|--------|
-  {% for pg in pr_finalizer.output.unmerged_pr_groups %}
-  | {{ pg }} | ❌ Unmerged |
-  {% endfor %}
-```
-
-### P13b: Surface links to relevant artifacts
-
-Gate prompts should include clickable links to all relevant context — plan
-documents, PRs, ADO work items, source files, branches. Upstream agents should
-include file paths and URLs in their output fields so gate templates can render
-them as links. Conductor's `linkify_markdown()` auto-converts local file paths
-into clickable links in the console.
-
-```yaml
-prompt: |
-  📄 [View Plan]({{ architect.output.plan_path }})
-  🔗 [ADO Work Item]({{ project_url }}/_workitems/edit/{{ intake.output.work_item_id }})
-  {% if pr_submit is defined %}
-  🔀 [GitHub PR]({{ pr_submit.output.pr_url }})
-  {% endif %}
-
-  ### Files Affected
-  {% for file in architect.output.files_affected %}
-  - [{{ file }}]({{ file }})
-  {% endfor %}
-```
-
-### P13c: Agent outputs should be structured for gate consumption
-
-When an agent's output feeds a human gate, prefer separate structured fields
-(numbers, arrays, booleans) over monolithic strings. This lets gate templates
-build tables, iterate lists, and conditionally display sections.
-
-Narrative summaries that pass through verbatim (e.g., `progress_summary`,
-`feedback`) should be Markdown-formatted by the producing agent, since the gate
-template will render them as-is.
+→ [Full details](references/p13-human-readable-gates.md)

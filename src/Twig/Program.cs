@@ -710,8 +710,9 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="noLive">Disable live-refresh and render a static snapshot.</param>
     /// <param name="noRefresh">Skip the sync and show cached data only.</param>
     /// <param name="flat">Use flat (non-tree) output instead of hierarchical rendering.</param>
-    public async Task<int> Workspace(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool noRefresh = false, bool flat = false, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, noRefresh, ct, flat: flat);
+    /// <param name="tree">Render full backlog hierarchy tree instead of workspace table.</param>
+    public async Task<int> Workspace(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool noRefresh = false, bool flat = false, bool tree = false, CancellationToken ct = default)
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, noRefresh, ct, flat: flat, tree: tree);
 
     /// <summary>Show the current workspace (short alias).</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
@@ -719,8 +720,9 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="noLive">Disable live-refresh and render a static snapshot.</param>
     /// <param name="noRefresh">Skip the sync and show cached data only.</param>
     /// <param name="flat">Use flat (non-tree) output instead of hierarchical rendering.</param>
-    public async Task<int> Ws(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool noRefresh = false, bool flat = false, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, noRefresh, ct, flat: flat);
+    /// <param name="tree">Render full backlog hierarchy tree instead of workspace table.</param>
+    public async Task<int> Ws(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool noRefresh = false, bool flat = false, bool tree = false, CancellationToken ct = default)
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noLive, noRefresh, ct, flat: flat, tree: tree);
 
     /// <summary>Track a single work item by ID (pinned to workspace).</summary>
     /// <param name="id">Work item ID to track.</param>
@@ -875,8 +877,9 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="all">Show all team members' items, not just yours.</param>
     /// <param name="noRefresh">Skip the sync and show cached data only.</param>
     /// <param name="flat">Use flat (non-tree) output instead of hierarchical rendering.</param>
-    public async Task<int> Sprint(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noRefresh = false, bool flat = false, CancellationToken ct = default)
-        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noRefresh: noRefresh, ct: ct, sprintLayout: true, flat: flat);
+    /// <param name="tree">Render full backlog hierarchy tree instead of sprint table.</param>
+    public async Task<int> Sprint(string output = OutputFormatterFactory.DefaultFormat, bool all = false, bool noRefresh = false, bool flat = false, bool tree = false, CancellationToken ct = default)
+        => await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all, noRefresh: noRefresh, ct: ct, sprintLayout: true, flat: flat, tree: tree);
 
     /// <summary>Read or set a configuration value.</summary>
     /// <param name="key">Configuration key to read or set (e.g., git.project, ado.pat).</param>

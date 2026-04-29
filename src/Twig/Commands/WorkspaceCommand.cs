@@ -32,10 +32,22 @@ public sealed class WorkspaceCommand(
     WorkingSetService workingSetService,
     ITrackingService trackingService,
     ISprintHierarchyBuilder sprintHierarchyBuilder,
-    SprintIterationResolver sprintIterationResolver)
+    SprintIterationResolver sprintIterationResolver,
+    TreeRenderingService? treeRenderingService = null)
 {
-    public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default, bool sprintLayout = false, bool flat = false)
+    public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default, bool sprintLayout = false, bool flat = false, bool tree = false)
     {
+        if (tree && flat)
+        {
+            Console.Error.WriteLine("error: --tree and --flat are mutually exclusive.");
+            return 1;
+        }
+
+        if (tree)
+        {
+            return await ExecuteTreeModeAsync(outputFormat, all, noLive, noRefresh, ct);
+        }
+
         var (fmt, renderer) = ctx.Resolve(outputFormat, noLive);
 
         if (renderer is not null && !all && !sprintLayout)
@@ -194,6 +206,58 @@ public sealed class WorkspaceCommand(
 
         // Sync path — original implementation (JSON, minimal, --no-live, --all, sprint, piped output)
         return await ExecuteSyncAsync(fmt, all, sprintLayout, flat);
+    }
+
+    /// <summary>
+    /// Full-backlog tree mode: renders each sprint item as an independent tree root
+    /// expanded to the configured depth. Delegates to <see cref="TreeRenderingService"/>
+    /// for per-item rendering so all output formats (human, json, minimal) work consistently.
+    /// </summary>
+    private async Task<int> ExecuteTreeModeAsync(string outputFormat, bool all, bool noLive, bool noRefresh, CancellationToken ct)
+    {
+        if (treeRenderingService is null)
+        {
+            Console.Error.WriteLine("error: Tree rendering is not available.");
+            return 1;
+        }
+
+        // Gather sprint items using the same logic as the sync path
+        var resolvedIterations = await ResolveSprintIterationsAsync(ctx.Config.Workspace.Sprints, ct);
+        var userDisplayName = ctx.Config.User.DisplayName;
+        IReadOnlyList<Domain.Aggregates.WorkItem> sprintItems;
+
+        if (resolvedIterations.Count > 0)
+        {
+            sprintItems = await GetSprintItemsFromResolvedIterationsAsync(
+                resolvedIterations, userDisplayName, allUsers: all, ct);
+        }
+        else
+        {
+            var iteration = await iterationService.GetCurrentIterationAsync(ct);
+            if (!all && !string.IsNullOrWhiteSpace(userDisplayName))
+                sprintItems = await workItemRepo.GetByIterationAndAssigneeAsync(iteration, userDisplayName, ct);
+            else
+                sprintItems = await workItemRepo.GetByIterationAsync(iteration, ct);
+        }
+
+        if (sprintItems.Count == 0)
+        {
+            var (emptyFmt, _) = ctx.Resolve(outputFormat, noLive: true);
+            Console.Error.WriteLine(emptyFmt.FormatInfo("No sprint items found."));
+            return 0;
+        }
+
+        // Render a tree for each sprint root item.
+        // Only allow sync/refresh on the first item to avoid redundant network calls.
+        for (var i = 0; i < sprintItems.Count; i++)
+        {
+            var itemNoRefresh = noRefresh || i > 0;
+            var result = await treeRenderingService.RenderTreeAsync(
+                sprintItems[i].Id, outputFormat, depth: null, noLive, itemNoRefresh, ct);
+            if (result != 0) return result;
+        }
+
+        return 0;
     }
 
     private async Task<int> ExecuteSyncAsync(IOutputFormatter fmt, bool all, bool sprintLayout = false, bool flat = false)

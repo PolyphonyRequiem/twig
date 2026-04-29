@@ -593,7 +593,7 @@ public class SeedPublishCommandTests : IDisposable
         var result = await cmd.ExecuteAsync(-5, linkBranch: "planning/abc");
 
         result.ShouldBe(0);
-        errWriter.ToString().ShouldContain("project/repository IDs");
+        errWriter.ToString().ShouldContain("workspace-configured repository");
         await gitService.DidNotReceive().AddArtifactLinkAsync(
             Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string>(),
             Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
@@ -739,7 +739,7 @@ public class SeedPublishCommandTests : IDisposable
         var result = await cmd.ExecuteAsync(-5, linkBranch: "feature/test");
 
         result.ShouldBe(0);
-        errWriter.ToString().ShouldContain("project/repository IDs");
+        errWriter.ToString().ShouldContain("workspace-configured repository");
         await gitService.DidNotReceive().AddArtifactLinkAsync(
             Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string>(),
             Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());

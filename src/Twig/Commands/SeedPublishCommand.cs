@@ -116,7 +116,7 @@ public sealed class SeedPublishCommand(
         {
             var context = repoName is not null
                 ? $"repository '{repoName}'"
-                : "project/repository IDs";
+                : "workspace-configured repository";
             Console.Error.WriteLine(fmt.FormatInfo(
                 $"Could not resolve {context}. Skipping branch linking."));
             return null;

@@ -91,6 +91,108 @@ public sealed class BatchGraphParserTests
         step.Arguments.ShouldBeEmpty();
     }
 
+    // ── When clause parsing ─────────────────────────────────────────
+
+    [Fact]
+    public void Parse_StepWithWhen_PreservesWhenExpression()
+    {
+        var json = """
+        {
+            "type": "sequence",
+            "steps": [
+                { "type": "step", "tool": "twig_status", "args": {} },
+                {
+                    "type": "step",
+                    "tool": "twig_state",
+                    "args": { "stateName": "Done" },
+                    "when": "{{steps.0.data.state}} != 'Done'"
+                }
+            ]
+        }
+        """;
+
+        var result = BatchGraphParser.Parse(json);
+
+        result.IsSuccess.ShouldBeTrue();
+        var seq = result.Value.Root.ShouldBeOfType<SequenceNode>();
+        var step = seq.Children[1].ShouldBeOfType<StepNode>();
+        step.When.ShouldBe("{{steps.0.data.state}} != 'Done'");
+    }
+
+    [Fact]
+    public void Parse_StepWithoutWhen_WhenIsNull()
+    {
+        var json = """
+        {
+            "type": "step",
+            "tool": "twig_status",
+            "args": {}
+        }
+        """;
+
+        var result = BatchGraphParser.Parse(json);
+
+        result.IsSuccess.ShouldBeTrue();
+        var step = result.Value.Root.ShouldBeOfType<StepNode>();
+        step.When.ShouldBeNull();
+    }
+
+    [Fact]
+    public void Parse_StepWithEmptyWhen_NormalizesToNull()
+    {
+        var json = """
+        {
+            "type": "step",
+            "tool": "twig_status",
+            "args": {},
+            "when": "  "
+        }
+        """;
+
+        var result = BatchGraphParser.Parse(json);
+
+        result.IsSuccess.ShouldBeTrue();
+        var step = result.Value.Root.ShouldBeOfType<StepNode>();
+        step.When.ShouldBeNull();
+    }
+
+    [Fact]
+    public void Parse_StepWithNonStringWhen_ReturnsFailure()
+    {
+        var json = """
+        {
+            "type": "step",
+            "tool": "twig_status",
+            "args": {},
+            "when": 42
+        }
+        """;
+
+        var result = BatchGraphParser.Parse(json);
+
+        result.IsSuccess.ShouldBeFalse();
+        result.Error.ShouldContain("when");
+        result.Error.ShouldContain("not a string");
+    }
+
+    [Fact]
+    public void Parse_StepWithWhen_ForwardReference_FailsValidation()
+    {
+        var json = """
+        {
+            "type": "step",
+            "tool": "twig_state",
+            "args": {},
+            "when": "{{steps.1.data.state}} != 'Done'"
+        }
+        """;
+
+        var result = BatchGraphParser.Parse(json);
+
+        result.IsSuccess.ShouldBeFalse();
+        result.Error.ShouldContain("Forward reference");
+    }
+
     [Fact]
     public void Parse_Sequence_ParsesChildrenInOrder()
     {

@@ -9,11 +9,14 @@ internal abstract record BatchNode;
 /// A single tool invocation within a batch graph.
 /// <paramref name="GlobalIndex"/> is the zero-based position assigned during
 /// depth-first traversal of the graph — used for <c>{{steps.N.field}}</c> references.
+/// <paramref name="When"/> is an optional guard expression evaluated before dispatch;
+/// if it evaluates to <c>false</c>, the step is skipped without executing.
 /// </summary>
 internal sealed record StepNode(
     int GlobalIndex,
     string ToolName,
-    Dictionary<string, object?> Arguments) : BatchNode;
+    Dictionary<string, object?> Arguments,
+    string? When = null) : BatchNode;
 
 /// <summary>
 /// An ordered list of child nodes executed sequentially with fail-fast semantics.

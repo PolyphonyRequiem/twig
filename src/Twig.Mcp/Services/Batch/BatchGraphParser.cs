@@ -15,6 +15,7 @@ internal static class BatchGraphParser
     private const string StepsProperty = "steps";
     private const string ToolProperty = "tool";
     private const string ArgsProperty = "args";
+    private const string WhenProperty = "when";
 
     private const string StepType = "step";
     private const string SequenceType = "sequence";
@@ -149,7 +150,24 @@ internal static class BatchGraphParser
             }
         }
 
-        var node = new StepNode(stepIndex, toolName, arguments);
+        // Parse optional 'when' guard expression.
+        string? when = null;
+        if (element.TryGetProperty(WhenProperty, out var whenProp))
+        {
+            if (whenProp.ValueKind != JsonValueKind.String)
+            {
+                return Result<BatchNode>.Fail(
+                    $"Step '{toolName}' has 'when' that is not a string.");
+            }
+
+            when = whenProp.GetString();
+            if (string.IsNullOrWhiteSpace(when))
+            {
+                when = null; // Treat empty/whitespace as no condition.
+            }
+        }
+
+        var node = new StepNode(stepIndex, toolName, arguments, when);
         stepIndex++;
         return Result<BatchNode>.Ok(node);
     }

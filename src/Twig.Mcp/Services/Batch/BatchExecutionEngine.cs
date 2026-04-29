@@ -93,6 +93,48 @@ internal sealed class BatchExecutionEngine(IToolDispatcher dispatcher)
     {
         ct.ThrowIfCancellationRequested();
 
+        // Evaluate optional 'when' guard before dispatching.
+        if (step.When is not null)
+        {
+            try
+            {
+                var shouldExecute = WhenEvaluator.Evaluate(step.When, store.GetSnapshot());
+                if (!shouldExecute)
+                {
+                    store.Record(step.GlobalIndex, new StepResult(
+                        step.GlobalIndex,
+                        step.ToolName,
+                        StepStatus.Skipped,
+                        null,
+                        $"Skipped: 'when' condition evaluated to false: {step.When}",
+                        0));
+                    return;
+                }
+            }
+            catch (TemplateResolutionException ex)
+            {
+                store.Record(step.GlobalIndex, new StepResult(
+                    step.GlobalIndex,
+                    step.ToolName,
+                    StepStatus.Failed,
+                    null,
+                    $"When expression failed: {ex.Message}",
+                    0));
+                return;
+            }
+            catch (WhenEvaluationException ex)
+            {
+                store.Record(step.GlobalIndex, new StepResult(
+                    step.GlobalIndex,
+                    step.ToolName,
+                    StepStatus.Failed,
+                    null,
+                    ex.Message,
+                    0));
+                return;
+            }
+        }
+
         var stopwatch = Stopwatch.StartNew();
 
         try

@@ -44,34 +44,50 @@ internal static class TemplateValidator
         Dictionary<int, HashSet<int>> parallelSiblings,
         List<TemplateValidationError> errors)
     {
+        // Validate template expressions in step arguments.
         foreach (var (_, value) in step.Arguments)
         {
             if (value is not string stringValue)
                 continue;
 
-            var expressions = TemplateParser.ExtractExpressions(stringValue);
+            ValidateExpressions(step, stringValue, parallelSiblings, errors);
+        }
 
-            foreach (var expr in expressions)
+        // Validate template expressions in the 'when' guard expression.
+        if (step.When is not null)
+        {
+            ValidateExpressions(step, step.When, parallelSiblings, errors);
+        }
+    }
+
+    private static void ValidateExpressions(
+        StepNode step,
+        string value,
+        Dictionary<int, HashSet<int>> parallelSiblings,
+        List<TemplateValidationError> errors)
+    {
+        var expressions = TemplateParser.ExtractExpressions(value);
+
+        foreach (var expr in expressions)
+        {
+            if (expr.StepIndex >= step.GlobalIndex)
             {
-                if (expr.StepIndex >= step.GlobalIndex)
-                {
-                    errors.Add(new TemplateValidationError(
-                        step.GlobalIndex,
-                        expr,
-                        $"Forward reference: step {step.GlobalIndex} references " +
-                        $"step {expr.StepIndex} via '{expr.FullPlaceholder}', " +
-                        $"but step {expr.StepIndex} has not executed yet."));
-                }
-                else if (parallelSiblings.TryGetValue(step.GlobalIndex, out var siblings) &&
-                         siblings.Contains(expr.StepIndex))
-                {
-                    errors.Add(new TemplateValidationError(
-                        step.GlobalIndex,
-                        expr,
-                        $"Parallel sibling reference: step {step.GlobalIndex} references " +
-                        $"step {expr.StepIndex} via '{expr.FullPlaceholder}', " +
-                        $"but both steps execute in the same parallel group."));
-                }
+                errors.Add(new TemplateValidationError(
+                    step.GlobalIndex,
+                    expr,
+                    $"Forward reference: step {step.GlobalIndex} references " +
+                    $"step {expr.StepIndex} via '{expr.FullPlaceholder}', " +
+                    $"but step {expr.StepIndex} has not executed yet."));
+            }
+            else if (parallelSiblings.TryGetValue(step.GlobalIndex, out var siblings) &&
+                     siblings.Contains(expr.StepIndex))
+            {
+                errors.Add(new TemplateValidationError(
+                    step.GlobalIndex,
+                    expr,
+                    $"Parallel sibling reference: step {step.GlobalIndex} references " +
+                    $"step {expr.StepIndex} via '{expr.FullPlaceholder}', " +
+                    $"but both steps execute in the same parallel group."));
             }
         }
     }

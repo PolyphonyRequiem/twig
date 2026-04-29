@@ -42,6 +42,8 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(AdoWorkItemStateColor))]
 [JsonSerializable(typeof(AdoErrorResponse))]
 [JsonSerializable(typeof(AdoTeamFieldValuesResponse))]
+[JsonSerializable(typeof(AdoClassificationNodeResponse))]
+[JsonSerializable(typeof(List<AdoClassificationNodeResponse>))]
 [JsonSerializable(typeof(AdoConnectionDataResponse))]
 [JsonSerializable(typeof(AdoProfileResponse))]
 [JsonSerializable(typeof(TypeAppearanceConfig))]

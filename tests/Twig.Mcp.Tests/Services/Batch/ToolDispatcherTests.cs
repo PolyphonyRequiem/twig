@@ -40,7 +40,8 @@ public sealed class ToolDispatcherTests
             navigationTools,
             new CreationTools(resolver, new SeedFactory(new SeedIdCounter())),
             new WorkspaceTools(registry, resolver),
-            new TrackingTools(resolver));
+            new TrackingTools(resolver),
+            new AdminTools(resolver));
     }
 
     private static Dictionary<string, object?> Args(params (string Key, object? Value)[] pairs) =>

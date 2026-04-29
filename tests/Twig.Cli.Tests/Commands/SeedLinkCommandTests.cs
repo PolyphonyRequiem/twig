@@ -2,9 +2,11 @@ using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Commands;
+using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
+using Twig.TestKit;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
@@ -19,6 +21,12 @@ public class SeedLinkCommandTests
     {
         _seedLinkRepo = Substitute.For<ISeedLinkRepository>();
         _workItemRepo = Substitute.For<IWorkItemRepository>();
+
+        // Default: no seeds and no links — cycle detection passes through safely
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<SeedLink>());
 
         var formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
@@ -130,6 +138,106 @@ public class SeedLinkCommandTests
         result.ShouldBe(0);
         await _seedLinkRepo.Received(1).AddLinkAsync(
             Arg.Is<SeedLink>(l => l.SourceId == 42 && l.TargetId == -1),
+            Arg.Any<CancellationToken>());
+    }
+
+    // ── Cycle detection tests ───────────────────────────────────────
+
+    [Fact]
+    public async Task Link_DirectCycle_Rejected()
+    {
+        var seeds = new[]
+        {
+            new WorkItemBuilder(-1, "A").AsSeed(daysOld: 2).Build(),
+            new WorkItemBuilder(-2, "B").AsSeed(daysOld: 1).Build(),
+        };
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(seeds);
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>()).Returns(new[]
+        {
+            new SeedLink(-1, -2, SeedLinkTypes.Blocks, DateTimeOffset.UtcNow),
+        });
+
+        var result = await _cmd.LinkAsync(-2, -1, "blocks");
+
+        result.ShouldBe(1);
+        await _seedLinkRepo.DidNotReceive().AddLinkAsync(
+            Arg.Any<SeedLink>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Link_TransitiveCycle_Rejected()
+    {
+        var seeds = new[]
+        {
+            new WorkItemBuilder(-1, "A").AsSeed(daysOld: 3).Build(),
+            new WorkItemBuilder(-2, "B").AsSeed(daysOld: 2).Build(),
+            new WorkItemBuilder(-3, "C").AsSeed(daysOld: 1).Build(),
+        };
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(seeds);
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>()).Returns(new[]
+        {
+            new SeedLink(-1, -2, SeedLinkTypes.DependsOn, DateTimeOffset.UtcNow),
+            new SeedLink(-2, -3, SeedLinkTypes.DependsOn, DateTimeOffset.UtcNow),
+        });
+
+        var result = await _cmd.LinkAsync(-3, -1, "depends-on");
+
+        result.ShouldBe(1);
+        await _seedLinkRepo.DidNotReceive().AddLinkAsync(
+            Arg.Any<SeedLink>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Link_SelfLoop_DirectionalType_Rejected()
+    {
+        var result = await _cmd.LinkAsync(-1, -1, "depends-on");
+
+        result.ShouldBe(1);
+        // Self-loop shortcut should not call GetSeedsAsync
+        await _workItemRepo.DidNotReceive().GetSeedsAsync(Arg.Any<CancellationToken>());
+        await _seedLinkRepo.DidNotReceive().AddLinkAsync(
+            Arg.Any<SeedLink>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Link_RelatedType_BypassesCycleDetection()
+    {
+        // Even with a graph that would cycle for directional types, Related is non-directional
+        var seeds = new[]
+        {
+            new WorkItemBuilder(-1, "A").AsSeed(daysOld: 2).Build(),
+            new WorkItemBuilder(-2, "B").AsSeed(daysOld: 1).Build(),
+        };
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(seeds);
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>()).Returns(new[]
+        {
+            new SeedLink(-1, -2, SeedLinkTypes.DependsOn, DateTimeOffset.UtcNow),
+        });
+
+        var result = await _cmd.LinkAsync(-2, -1, "related");
+
+        result.ShouldBe(0);
+        await _seedLinkRepo.Received(1).AddLinkAsync(
+            Arg.Any<SeedLink>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Link_NonCyclicDirectionalLink_Succeeds()
+    {
+        var seeds = new[]
+        {
+            new WorkItemBuilder(-1, "A").AsSeed(daysOld: 2).Build(),
+            new WorkItemBuilder(-2, "B").AsSeed(daysOld: 1).Build(),
+        };
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(seeds);
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<SeedLink>());
+
+        var result = await _cmd.LinkAsync(-1, -2, "blocks");
+
+        result.ShouldBe(0);
+        await _seedLinkRepo.Received(1).AddLinkAsync(
+            Arg.Is<SeedLink>(l => l.SourceId == -1 && l.TargetId == -2 && l.LinkType == SeedLinkTypes.Blocks),
             Arg.Any<CancellationToken>());
     }
 

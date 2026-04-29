@@ -59,11 +59,6 @@ internal static class CommandExamples
             "twig new task \"Write tests\"         Create a new Task under the active item",
             "twig new bug \"Login fails on edge\"  Create a new Bug under the active item",
         ],
-        ["tree"] =
-        [
-            "twig tree                  Render the sprint backlog as a tree",
-            "twig tree --output json    Output the tree as JSON",
-        ],
         ["nav"] =
         [
             "twig nav up                Navigate to the parent work item",

@@ -55,6 +55,19 @@ public sealed class GroupedHelpTests
     }
 
     [Fact]
+    public void TreeAlias_HasHiddenAttribute()
+    {
+        var method = typeof(TwigCommands).GetMethod(
+            nameof(TwigCommands.Tree),
+            BindingFlags.Public | BindingFlags.Instance);
+
+        method.ShouldNotBeNull("TwigCommands.Tree method not found");
+        method.GetCustomAttributes()
+            .Any(a => a.GetType().Name == "HiddenAttribute")
+            .ShouldBeTrue("Tree should have [Hidden] — 'show --tree' is the canonical command");
+    }
+
+    [Fact]
     public void AllNonHiddenCommands_AppearInGroupedHelp()
     {
         var helpOutput = CaptureHelp();
@@ -187,6 +200,7 @@ public sealed class GroupedHelpTests
     [InlineData("history")]
     [InlineData("seed")]
     [InlineData("refresh")]
+    [InlineData("tree")]
     // Hidden deprecated area aliases
     [InlineData("area")]
     [InlineData("area add")]

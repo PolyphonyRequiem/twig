@@ -392,14 +392,15 @@ public sealed class TwigCommands(IServiceProvider services)
         return await services.GetRequiredService<NewCommand>().ExecuteAsync(resolvedTitle, type, area, iteration, description, parent, set, editor, output, ct);
     }
 
-    /// <summary>Display the work item tree hierarchy.</summary>
+    /// <summary>Display the work item tree hierarchy (hidden alias for show --tree).</summary>
+    /// <param name="id">Work item ID to target; omit to use the active work item.</param>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     /// <param name="depth">Maximum tree depth to display.</param>
     /// <param name="all">Show all items in the hierarchy, not just the active subtree.</param>
     /// <param name="noLive">Disable live-refresh and render a static snapshot.</param>
     /// <param name="noRefresh">Skip the sync and show cached data only.</param>
-    /// <param name="id">Work item ID to target; omit to use the active work item.</param>
-    public async Task<int> Tree(string output = OutputFormatterFactory.DefaultFormat, int? depth = null, bool all = false, bool noLive = false, bool noRefresh = false, int? id = null, CancellationToken ct = default)
+    [Hidden]
+    public async Task<int> Tree([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, int? depth = null, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default)
         => await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, tree: true, noRefresh, ct);
 
     /// <summary>Navigate to the parent work item.</summary>
@@ -1014,7 +1015,6 @@ internal static class GroupedHelp
         "sync",
 
         // Views
-        "tree",
         "sprint",
 
         // Workspace
@@ -1097,6 +1097,7 @@ internal static class GroupedHelp
         "help",
 
         // Hidden backward-compat aliases (still accepted by the CLI)
+        "tree",
         "up",
         "down",
         "next",
@@ -1145,7 +1146,6 @@ Getting Started:
   sync                 Flush pending changes then refresh from ADO.
 
 Views:
-  tree                 Work item hierarchy (parent → active → children).
   sprint               My sprint items, grouped by assignee.  (--all for team)
 
 Workspace:

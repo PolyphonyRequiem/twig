@@ -79,8 +79,8 @@ public static class TwigServiceRegistration
         services.AddSingleton(sp =>
         {
             var paths = sp.GetRequiredService<TwigPaths>();
-            if (!Directory.Exists(paths.TwigDir))
-                throw new InvalidOperationException("Twig workspace not initialized. Run 'twig init' first.");
+            if (!Directory.Exists(paths.TwigDir) || !File.Exists(paths.DbPath))
+                throw new WorkspaceNotFoundException();
             return new SqliteCacheStore($"Data Source={paths.DbPath}");
         });
 

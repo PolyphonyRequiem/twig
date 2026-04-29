@@ -28,11 +28,27 @@ public static class CommandServiceModule
 {
     public static IServiceCollection AddTwigCommandServices(this IServiceCollection services)
     {
-        // Hint engine — reads display config at startup, uses process config for dynamic state resolution
+        // Hint engine — reads display config at startup, uses process config for dynamic state resolution.
+        // AB#2590: Guard against workspace not existing (e.g., during 'twig init') by checking
+        // paths before resolving IProcessConfigurationProvider which transitively needs SqliteCacheStore.
         services.AddSingleton<HintEngine>(sp =>
-            new HintEngine(
-                sp.GetRequiredService<TwigConfiguration>().Display,
-                sp.GetRequiredService<IProcessConfigurationProvider>()));
+        {
+            var display = sp.GetRequiredService<TwigConfiguration>().Display;
+            IProcessConfigurationProvider? provider = null;
+            var paths = sp.GetRequiredService<TwigPaths>();
+            if (Directory.Exists(paths.TwigDir) && File.Exists(paths.DbPath))
+            {
+                try
+                {
+                    provider = sp.GetRequiredService<IProcessConfigurationProvider>();
+                }
+                catch (InvalidOperationException)
+                {
+                    // Workspace not initialized — hints degrade gracefully without process config
+                }
+            }
+            return new HintEngine(display, provider);
+        });
 
         // Editor launcher and console input
         services.AddSingleton<IEditorLauncher, EditorLauncher>();

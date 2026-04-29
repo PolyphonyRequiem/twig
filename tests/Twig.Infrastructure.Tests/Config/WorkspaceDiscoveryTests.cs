@@ -31,6 +31,7 @@ public sealed class WorkspaceDiscoveryTests : IDisposable
     {
         var twigDir = Path.Combine(_tempRoot, ".twig");
         Directory.CreateDirectory(twigDir);
+        File.WriteAllText(Path.Combine(twigDir, "config"), "");
 
         var result = WorkspaceDiscovery.FindTwigDir(_tempRoot);
 
@@ -44,6 +45,7 @@ public sealed class WorkspaceDiscoveryTests : IDisposable
     {
         var twigDir = Path.Combine(_tempRoot, ".twig");
         Directory.CreateDirectory(twigDir);
+        File.WriteAllText(Path.Combine(twigDir, "config"), "");
 
         var child = Path.Combine(_tempRoot, "src", "MyProject");
         Directory.CreateDirectory(child);
@@ -58,13 +60,16 @@ public sealed class WorkspaceDiscoveryTests : IDisposable
     [Fact]
     public void FindTwigDir_MultipleTwigDirs_ReturnsNearest()
     {
-        // Outer .twig
-        Directory.CreateDirectory(Path.Combine(_tempRoot, ".twig"));
+        // Outer .twig (valid workspace)
+        var outerTwig = Path.Combine(_tempRoot, ".twig");
+        Directory.CreateDirectory(outerTwig);
+        File.WriteAllText(Path.Combine(outerTwig, "config"), "");
 
-        // Inner .twig (closer to startDir)
+        // Inner .twig (closer to startDir, also valid)
         var innerProject = Path.Combine(_tempRoot, "nested");
         var innerTwig = Path.Combine(innerProject, ".twig");
         Directory.CreateDirectory(innerTwig);
+        File.WriteAllText(Path.Combine(innerTwig, "config"), "");
 
         var child = Path.Combine(innerProject, "src");
         Directory.CreateDirectory(child);
@@ -128,6 +133,8 @@ public sealed class WorkspaceDiscoveryTests : IDisposable
     {
         var twigDir = Path.Combine(_tempRoot, ".twig");
         Directory.CreateDirectory(twigDir);
+        // A valid workspace needs a config file
+        File.WriteAllText(Path.Combine(twigDir, "config"), "");
 
         var deep = Path.Combine(_tempRoot, "a", "b", "c", "d", "e");
         Directory.CreateDirectory(deep);
@@ -135,5 +142,122 @@ public sealed class WorkspaceDiscoveryTests : IDisposable
         var result = WorkspaceDiscovery.FindTwigDir(deep);
 
         result.ShouldBe(twigDir);
+    }
+
+    // ──────────── AB#2591: Global home (~/.twig/) is NOT a workspace ────────────
+
+    [Fact]
+    public void IsWorkspaceDirectory_GlobalHome_ReturnsFalse()
+    {
+        // The global home path should never be treated as a workspace
+        var globalHome = WorkspaceDiscovery.GlobalHomePath;
+
+        // Even if it exists, it should return false
+        var result = WorkspaceDiscovery.IsWorkspaceDirectory(globalHome);
+
+        result.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void IsWorkspaceDirectory_WithConfigFile_ReturnsTrue()
+    {
+        var twigDir = Path.Combine(_tempRoot, ".twig");
+        Directory.CreateDirectory(twigDir);
+        File.WriteAllText(Path.Combine(twigDir, "config"), "org=test\nproject=test");
+
+        var result = WorkspaceDiscovery.IsWorkspaceDirectory(twigDir);
+
+        result.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void IsWorkspaceDirectory_WithNestedDb_ReturnsTrue()
+    {
+        var twigDir = Path.Combine(_tempRoot, ".twig");
+        var contextDir = Path.Combine(twigDir, "myorg", "myproject");
+        Directory.CreateDirectory(contextDir);
+        File.WriteAllText(Path.Combine(contextDir, "twig.db"), "");
+
+        var result = WorkspaceDiscovery.IsWorkspaceDirectory(twigDir);
+
+        result.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void IsWorkspaceDirectory_WithNestedConfig_ReturnsTrue()
+    {
+        // Multi-workspace layout: .twig/{org}/{project}/config (no top-level config)
+        var twigDir = Path.Combine(_tempRoot, ".twig");
+        var contextDir = Path.Combine(twigDir, "myorg", "myproject");
+        Directory.CreateDirectory(contextDir);
+        File.WriteAllText(Path.Combine(contextDir, "config"), """{"organization":"myorg"}""");
+
+        var result = WorkspaceDiscovery.IsWorkspaceDirectory(twigDir);
+
+        result.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void IsWorkspaceDirectory_EmptyDir_ReturnsFalse()
+    {
+        var twigDir = Path.Combine(_tempRoot, ".twig");
+        Directory.CreateDirectory(twigDir);
+
+        var result = WorkspaceDiscovery.IsWorkspaceDirectory(twigDir);
+
+        result.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void IsWorkspaceDirectory_WithBinOnly_ReturnsFalse()
+    {
+        // Simulates the global home structure (bin/, profiles/)
+        var twigDir = Path.Combine(_tempRoot, ".twig");
+        Directory.CreateDirectory(Path.Combine(twigDir, "bin"));
+        Directory.CreateDirectory(Path.Combine(twigDir, "profiles"));
+
+        var result = WorkspaceDiscovery.IsWorkspaceDirectory(twigDir);
+
+        result.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void FindTwigDir_SkipsGlobalHomeLikeDir_WithoutConfig()
+    {
+        // Simulate: startDir is under a parent that has .twig/ without workspace markers
+        var parent = Path.Combine(_tempRoot, "home");
+        var twigDir = Path.Combine(parent, ".twig");
+        Directory.CreateDirectory(twigDir);
+        // No config file, no nested DB — not a workspace
+
+        var child = Path.Combine(parent, "projects", "myrepo");
+        Directory.CreateDirectory(child);
+
+        var result = WorkspaceDiscovery.FindTwigDir(child);
+
+        result.ShouldBeNull();
+    }
+
+    [Fact]
+    public void FindTwigDir_FindsWorkspaceAboveNonWorkspaceTwigDir()
+    {
+        // Outer workspace with config
+        var outerTwig = Path.Combine(_tempRoot, ".twig");
+        Directory.CreateDirectory(outerTwig);
+        File.WriteAllText(Path.Combine(outerTwig, "config"), "org=x\nproject=y");
+
+        // Inner .twig/ without workspace markers (like a global home imposter)
+        var innerDir = Path.Combine(_tempRoot, "nested");
+        var innerTwig = Path.Combine(innerDir, ".twig");
+        Directory.CreateDirectory(innerTwig);
+        // No config, no DB
+
+        var child = Path.Combine(innerDir, "src");
+        Directory.CreateDirectory(child);
+
+        var result = WorkspaceDiscovery.FindTwigDir(child);
+
+        // Should skip the inner non-workspace .twig/ and find the outer workspace
+        result.ShouldBe(outerTwig);
     }
 }

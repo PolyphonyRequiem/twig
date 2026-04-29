@@ -288,6 +288,14 @@ internal static class ExceptionHandler
             return 1;
         }
 
+        // AB#2590/AB#2591: No workspace found — distinct from cache corruption.
+        if (ex is Twig.Infrastructure.Config.WorkspaceNotFoundException)
+        {
+            stderr.WriteLine($"error: {ex.Message}");
+            Environment.ExitCode = 1;
+            return 1;
+        }
+
         // FM-008: Cache corruption — SqliteException directly or wrapped in InvalidOperationException
         if (ex is Microsoft.Data.Sqlite.SqliteException
             || (ex is InvalidOperationException && ex.InnerException is Microsoft.Data.Sqlite.SqliteException))

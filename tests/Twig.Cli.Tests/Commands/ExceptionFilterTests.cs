@@ -67,6 +67,32 @@ public class ExceptionFilterTests
             stderr.ToString().ShouldContain("No editor found");
         });
 
+    [Fact]
+    public void Handle_WorkspaceNotFoundException_SetsExitCode1AndWritesClearMessage() =>
+        WithExitCodeRestored(() =>
+        {
+            var stderr = new StringWriter();
+            var code = ExceptionHandler.Handle(new Twig.Infrastructure.Config.WorkspaceNotFoundException(), stderr);
+            code.ShouldBe(1);
+            Environment.ExitCode.ShouldBe(1);
+            var output = stderr.ToString();
+            output.ShouldContain("No twig workspace found");
+            output.ShouldContain("twig init");
+            // Should NOT say "Cache corrupted"
+            output.ShouldNotContain("Cache corrupted");
+        });
+
+    [Fact]
+    public void Handle_WorkspaceNotFoundException_NotMappedToCacheCorrupted() =>
+        WithExitCodeRestored(() =>
+        {
+            // WorkspaceNotFoundException inherits from InvalidOperationException —
+            // ensure it's caught BEFORE the cache-corruption handler
+            var stderr = new StringWriter();
+            ExceptionHandler.Handle(new Twig.Infrastructure.Config.WorkspaceNotFoundException(), stderr);
+            stderr.ToString().ShouldNotContain("corrupted");
+        });
+
     private static void WithExitCodeRestored(Action action)
     {
         var saved = Environment.ExitCode;

@@ -392,16 +392,18 @@ public sealed class TwigCommands(IServiceProvider services)
         return await services.GetRequiredService<NewCommand>().ExecuteAsync(resolvedTitle, type, area, iteration, description, parent, set, editor, output, ct);
     }
 
-    /// <summary>Display the work item tree hierarchy (hidden alias for show --tree).</summary>
+    /// <summary>Display the work item tree hierarchy (hidden alias: routes to show --tree, or workspace --tree when --all).</summary>
     /// <param name="id">Work item ID to target; omit to use the active work item.</param>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     /// <param name="depth">Maximum tree depth to display.</param>
-    /// <param name="all">Show all items in the hierarchy, not just the active subtree.</param>
+    /// <param name="all">When set, routes to workspace --tree for full backlog hierarchy.</param>
     /// <param name="noLive">Disable live-refresh and render a static snapshot.</param>
     /// <param name="noRefresh">Skip the sync and show cached data only.</param>
     [Hidden]
     public async Task<int> Tree([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, int? depth = null, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default)
-        => await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, tree: true, noRefresh, ct);
+        => all
+            ? await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all: false, noLive, noRefresh, ct, tree: true)
+            : await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, tree: true, noRefresh, ct);
 
     /// <summary>Navigate to the parent work item.</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
@@ -1152,7 +1154,7 @@ Views:
   sprint               My sprint items, grouped by assignee.  (--all for team)
 
 Workspace:
-  workspace            My sprint items.  (alias: ws)
+  workspace            My sprint items.  (alias: ws, --tree for full backlog hierarchy)
   workspace track <id>       Pin a work item to the workspace.
   workspace track-tree <id>  Pin a work item and its subtree.
   workspace untrack <id>     Remove a pinned work item.
@@ -1169,7 +1171,7 @@ Workspace:
 
 Context:
   set <id|pattern>     Set the active work item.
-  show <id>            Display a work item (syncs by default; --no-refresh for cache-only).
+  show <id>            Display a work item.  (--tree for hierarchy, --no-refresh for cache-only)
   show-batch --batch   Display multiple work items by ID (cache-only).
   query [text]         Search work items by text, type, state, or assignee.
   web [id]             Open the active work item in the browser.

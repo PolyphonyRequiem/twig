@@ -68,6 +68,37 @@ public sealed class GroupedHelpTests
     }
 
     [Fact]
+    public void HelpText_TreeNotInViewsSection()
+    {
+        var helpOutput = CaptureHelp();
+
+        var viewsIdx = helpOutput.IndexOf("Views:");
+        var workspaceIdx = helpOutput.IndexOf("Workspace:");
+
+        viewsIdx.ShouldBeGreaterThan(-1, "Help text should contain 'Views:' section");
+        workspaceIdx.ShouldBeGreaterThan(viewsIdx, "'Workspace:' section should come after 'Views:'");
+
+        var viewsSection = helpOutput[viewsIdx..workspaceIdx];
+        viewsSection.ShouldNotContain("tree");
+    }
+
+    [Fact]
+    public void HelpText_ShowMentionsTreeFlag()
+    {
+        var helpOutput = CaptureHelp();
+
+        helpOutput.ShouldContain("--tree for hierarchy");
+    }
+
+    [Fact]
+    public void HelpText_WorkspaceMentionsTreeFlag()
+    {
+        var helpOutput = CaptureHelp();
+
+        helpOutput.ShouldContain("--tree for full backlog hierarchy");
+    }
+
+    [Fact]
     public void AllNonHiddenCommands_AppearInGroupedHelp()
     {
         var helpOutput = CaptureHelp();

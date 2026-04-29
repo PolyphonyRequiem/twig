@@ -935,5 +935,178 @@ public class SeedPublishCommandTests : IDisposable
 
         result.ShouldBe(0);
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  --repo resolution and fallback behavior
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Execute_LinkBranch_WithRepo_ResolvesViaGetRepositoryIdByNameAsync()
+    {
+        var gitService = Substitute.For<IAdoGitService>();
+        var repoGuid = Guid.NewGuid().ToString();
+        var projectGuid = Guid.NewGuid().ToString();
+        gitService.GetRepositoryIdByNameAsync("my-repo", Arg.Any<CancellationToken>()).Returns(repoGuid);
+        gitService.GetProjectIdAsync(Arg.Any<CancellationToken>()).Returns(projectGuid);
+        var cmd = CreateCommandWithGitService(gitService);
+
+        var seed = new WorkItemBuilder(-5, "Named Repo Seed").AsSeed().WithParent(100).Build();
+        _workItemRepo.GetByIdAsync(-5, Arg.Any<CancellationToken>()).Returns(seed);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(42);
+
+        var published = new WorkItemBuilder(42, "Named Repo Seed").WithParent(100).Build();
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(published);
+        _seedLinkRepo.GetLinksForItemAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new List<SeedLink>());
+
+        Console.SetOut(new StringWriter());
+        Console.SetError(new StringWriter());
+
+        var result = await cmd.ExecuteAsync(-5, linkBranch: "feat/x", repoName: "my-repo");
+
+        result.ShouldBe(0);
+        await gitService.Received(1).GetRepositoryIdByNameAsync("my-repo", Arg.Any<CancellationToken>());
+        await gitService.DidNotReceive().GetRepositoryIdAsync(Arg.Any<CancellationToken>());
+        await gitService.Received(1).AddArtifactLinkAsync(
+            42,
+            $"vstfs:///Git/Ref/{projectGuid}/{repoGuid}/GBfeat%2Fx",
+            "ArtifactLink",
+            Arg.Any<int>(),
+            "Branch",
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Execute_LinkBranch_WithoutRepo_FallsBackToGetRepositoryIdAsync()
+    {
+        var gitService = Substitute.For<IAdoGitService>();
+        var repoGuid = Guid.NewGuid().ToString();
+        var projectGuid = Guid.NewGuid().ToString();
+        gitService.GetRepositoryIdAsync(Arg.Any<CancellationToken>()).Returns(repoGuid);
+        gitService.GetProjectIdAsync(Arg.Any<CancellationToken>()).Returns(projectGuid);
+        var cmd = CreateCommandWithGitService(gitService);
+
+        var seed = new WorkItemBuilder(-5, "Fallback Repo Seed").AsSeed().WithParent(100).Build();
+        _workItemRepo.GetByIdAsync(-5, Arg.Any<CancellationToken>()).Returns(seed);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(42);
+
+        var published = new WorkItemBuilder(42, "Fallback Repo Seed").WithParent(100).Build();
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(published);
+        _seedLinkRepo.GetLinksForItemAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new List<SeedLink>());
+
+        Console.SetOut(new StringWriter());
+        Console.SetError(new StringWriter());
+
+        var result = await cmd.ExecuteAsync(-5, linkBranch: "feat/x", repoName: null);
+
+        result.ShouldBe(0);
+        await gitService.Received(1).GetRepositoryIdAsync(Arg.Any<CancellationToken>());
+        await gitService.DidNotReceive().GetRepositoryIdByNameAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await gitService.Received(1).AddArtifactLinkAsync(
+            42,
+            $"vstfs:///Git/Ref/{projectGuid}/{repoGuid}/GBfeat%2Fx",
+            "ArtifactLink",
+            Arg.Any<int>(),
+            "Branch",
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Execute_LinkBranch_WithRepo_RepoNotFound_SkipsLinkingAndSucceeds()
+    {
+        var gitService = Substitute.For<IAdoGitService>();
+        gitService.GetRepositoryIdByNameAsync("unknown-repo", Arg.Any<CancellationToken>()).Returns((string?)null);
+        gitService.GetProjectIdAsync(Arg.Any<CancellationToken>()).Returns(Guid.NewGuid().ToString());
+        var cmd = CreateCommandWithGitService(gitService);
+
+        var seed = new WorkItemBuilder(-5, "Unknown Repo Seed").AsSeed().WithParent(100).Build();
+        _workItemRepo.GetByIdAsync(-5, Arg.Any<CancellationToken>()).Returns(seed);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(42);
+
+        var published = new WorkItemBuilder(42, "Unknown Repo Seed").WithParent(100).Build();
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(published);
+        _seedLinkRepo.GetLinksForItemAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new List<SeedLink>());
+
+        var errWriter = new StringWriter();
+        Console.SetOut(new StringWriter());
+        Console.SetError(errWriter);
+
+        var result = await cmd.ExecuteAsync(-5, linkBranch: "feat/x", repoName: "unknown-repo");
+
+        result.ShouldBe(0);
+        await gitService.DidNotReceive().AddArtifactLinkAsync(
+            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string>(),
+            Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        errWriter.ToString().ShouldContain("unknown-repo");
+    }
+
+    [Fact]
+    public async Task Execute_Repo_WithoutLinkBranch_NoResolutionCalled()
+    {
+        var gitService = Substitute.For<IAdoGitService>();
+        var cmd = CreateCommandWithGitService(gitService);
+
+        var seed = new WorkItemBuilder(-5, "Repo No Branch Seed").AsSeed().WithParent(100).Build();
+        _workItemRepo.GetByIdAsync(-5, Arg.Any<CancellationToken>()).Returns(seed);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(42);
+
+        var published = new WorkItemBuilder(42, "Repo No Branch Seed").WithParent(100).Build();
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(published);
+        _seedLinkRepo.GetLinksForItemAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new List<SeedLink>());
+
+        Console.SetOut(new StringWriter());
+
+        var result = await cmd.ExecuteAsync(-5, repoName: "my-repo");
+
+        result.ShouldBe(0);
+        await gitService.DidNotReceive().GetRepositoryIdByNameAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await gitService.DidNotReceive().GetRepositoryIdAsync(Arg.Any<CancellationToken>());
+        await gitService.DidNotReceive().GetProjectIdAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Execute_LinkBranch_WithRepo_UpfrontValidation_ResolvesOnce()
+    {
+        var gitService = Substitute.For<IAdoGitService>();
+        var repoGuid = Guid.NewGuid().ToString();
+        var projectGuid = Guid.NewGuid().ToString();
+        gitService.GetRepositoryIdByNameAsync("my-repo", Arg.Any<CancellationToken>()).Returns(repoGuid);
+        gitService.GetProjectIdAsync(Arg.Any<CancellationToken>()).Returns(projectGuid);
+        var cmd = CreateCommandWithGitService(gitService);
+
+        var seed1 = new WorkItemBuilder(-1, "Batch Repo Seed 1").AsSeed().WithParent(100).Build();
+        var seed2 = new WorkItemBuilder(-2, "Batch Repo Seed 2").AsSeed().WithParent(100).Build();
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<WorkItem> { seed1, seed2 });
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<SeedLink>());
+
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed1);
+        _adoService.CreateAsync(Arg.Is<CreateWorkItemRequest>(r => r.Title == "Batch Repo Seed 1"), Arg.Any<CancellationToken>()).Returns(200);
+        _adoService.FetchAsync(200, Arg.Any<CancellationToken>())
+            .Returns(new WorkItemBuilder(200, "Batch Repo Seed 1").WithParent(100).Build());
+        _seedLinkRepo.GetLinksForItemAsync(200, Arg.Any<CancellationToken>())
+            .Returns(new List<SeedLink>());
+
+        _workItemRepo.GetByIdAsync(-2, Arg.Any<CancellationToken>()).Returns(seed2);
+        _adoService.CreateAsync(Arg.Is<CreateWorkItemRequest>(r => r.Title == "Batch Repo Seed 2"), Arg.Any<CancellationToken>()).Returns(201);
+        _adoService.FetchAsync(201, Arg.Any<CancellationToken>())
+            .Returns(new WorkItemBuilder(201, "Batch Repo Seed 2").WithParent(100).Build());
+        _seedLinkRepo.GetLinksForItemAsync(201, Arg.Any<CancellationToken>())
+            .Returns(new List<SeedLink>());
+
+        Console.SetOut(new StringWriter());
+        Console.SetError(new StringWriter());
+
+        await cmd.ExecuteAsync(all: true, linkBranch: "feat/x", repoName: "my-repo");
+
+        // Resolution should happen exactly once (upfront), not per-seed
+        await gitService.Received(1).GetRepositoryIdByNameAsync("my-repo", Arg.Any<CancellationToken>());
+        await gitService.Received(1).GetProjectIdAsync(Arg.Any<CancellationToken>());
+        await gitService.DidNotReceive().GetRepositoryIdAsync(Arg.Any<CancellationToken>());
+    }
 }
 

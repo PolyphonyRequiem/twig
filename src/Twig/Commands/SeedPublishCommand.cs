@@ -89,13 +89,13 @@ public sealed class SeedPublishCommand(
     /// <summary>
     /// Resolves the branch artifact URI once upfront. Returns null if linking should be skipped
     /// (no linkBranch specified, dry-run, git service unavailable, or IDs unresolvable).
+    /// When <paramref name="repoName"/> is provided, uses name-based resolution via
+    /// <see cref="IAdoGitService.GetRepositoryIdByNameAsync"/>; otherwise falls back to
+    /// workspace-configured <see cref="IAdoGitService.GetRepositoryIdAsync"/>.
     /// </summary>
     private async Task<string?> ResolveBranchArtifactUriAsync(
         string? linkBranch, string? repoName, bool dryRun, IOutputFormatter fmt, CancellationToken ct)
     {
-        // repoName will be used in Task 5.3 to resolve a named repository instead of the default.
-        _ = repoName;
-
         if (linkBranch is null || dryRun)
             return null;
 
@@ -107,12 +107,18 @@ public sealed class SeedPublishCommand(
         }
 
         var projectId = await adoGitService.GetProjectIdAsync(ct);
-        var repoId = await adoGitService.GetRepositoryIdAsync(ct);
+
+        var repoId = repoName is not null
+            ? await adoGitService.GetRepositoryIdByNameAsync(repoName, ct)
+            : await adoGitService.GetRepositoryIdAsync(ct);
 
         if (projectId is null || repoId is null)
         {
+            var context = repoName is not null
+                ? $"repository '{repoName}'"
+                : "project/repository IDs";
             Console.Error.WriteLine(fmt.FormatInfo(
-                "Could not resolve project/repository IDs. Skipping branch linking."));
+                $"Could not resolve {context}. Skipping branch linking."));
             return null;
         }
 

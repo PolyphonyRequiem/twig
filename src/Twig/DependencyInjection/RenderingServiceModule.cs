@@ -26,6 +26,7 @@ public static class RenderingServiceModule
         services.AddSingleton<JsonOutputFormatter>();
         services.AddSingleton<JsonCompactOutputFormatter>();
         services.AddSingleton<MinimalOutputFormatter>();
+        services.AddSingleton<IdsOutputFormatter>();
         services.AddSingleton<OutputFormatterFactory>();
 
         // Spectre.Console rendering pipeline

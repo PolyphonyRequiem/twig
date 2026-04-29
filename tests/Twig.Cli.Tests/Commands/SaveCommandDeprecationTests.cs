@@ -21,7 +21,7 @@ public sealed class SaveCommandDeprecationTests
 
         var formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(),
-            new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
+            new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
 
         var saveCommand = new SaveCommand(
             Substitute.For<IWorkItemRepository>(),

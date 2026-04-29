@@ -38,7 +38,7 @@ public sealed class ShowBatchTests
 
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(),
-            new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
+            new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
 
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         var pipelineFactory = new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true);
@@ -259,6 +259,80 @@ public sealed class ShowBatchTests
 
         output.ShouldContain("Human One");
         output.ShouldContain("Human Two");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  IDs format — bare numeric output
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ShowBatch_IdsFormat_OutputsOneIdPerLine()
+    {
+        var item1 = new WorkItemBuilder(10, "First").Build();
+        var item2 = new WorkItemBuilder(20, "Second").Build();
+        var item3 = new WorkItemBuilder(30, "Third").Build();
+        _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(item1);
+        _workItemRepo.GetByIdAsync(20, Arg.Any<CancellationToken>()).Returns(item2);
+        _workItemRepo.GetByIdAsync(30, Arg.Any<CancellationToken>()).Returns(item3);
+
+        var (result, output) = await StdoutCapture.RunAsync(() => _cmd.ExecuteBatchAsync("10,20,30", "ids"));
+
+        result.ShouldBe(0);
+        var lines = output.Trim().Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(l => l.Trim()).ToArray();
+        lines.ShouldBe(new[] { "10", "20", "30" });
+    }
+
+    [Fact]
+    public async Task ShowBatch_IdsFormat_Empty_ProducesNoOutput()
+    {
+        var (result, output) = await StdoutCapture.RunAsync(() => _cmd.ExecuteBatchAsync("", "ids"));
+
+        result.ShouldBe(0);
+        output.Trim().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task ShowBatch_IdsFormat_MissingItems_OnlyOutputsFoundIds()
+    {
+        var item = new WorkItemBuilder(10, "Found").Build();
+        _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(item);
+        _workItemRepo.GetByIdAsync(99, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+
+        var (result, output) = await StdoutCapture.RunAsync(() => _cmd.ExecuteBatchAsync("10,99", "ids"));
+
+        result.ShouldBe(0);
+        var lines = output.Trim().Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(l => l.Trim()).ToArray();
+        lines.ShouldBe(new[] { "10" });
+    }
+
+    [Fact]
+    public async Task ShowBatch_IdsFormat_PreservesInputOrder()
+    {
+        var item1 = new WorkItemBuilder(30, "Third").Build();
+        var item2 = new WorkItemBuilder(10, "First").Build();
+        var item3 = new WorkItemBuilder(20, "Second").Build();
+        _workItemRepo.GetByIdAsync(30, Arg.Any<CancellationToken>()).Returns(item1);
+        _workItemRepo.GetByIdAsync(10, Arg.Any<CancellationToken>()).Returns(item2);
+        _workItemRepo.GetByIdAsync(20, Arg.Any<CancellationToken>()).Returns(item3);
+
+        var (_, output) = await StdoutCapture.RunAsync(() => _cmd.ExecuteBatchAsync("30,10,20", "ids"));
+
+        var lines = output.Trim().Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(l => l.Trim()).ToArray();
+        lines.ShouldBe(new[] { "30", "10", "20" });
+    }
+
+    [Fact]
+    public async Task ShowBatch_IdsFormat_SingleId_OutputsBareNumber()
+    {
+        var item = new WorkItemBuilder(42, "Solo").Build();
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+
+        var (_, output) = await StdoutCapture.RunAsync(() => _cmd.ExecuteBatchAsync("42", "ids"));
+
+        output.Trim().ShouldBe("42");
     }
 
 }

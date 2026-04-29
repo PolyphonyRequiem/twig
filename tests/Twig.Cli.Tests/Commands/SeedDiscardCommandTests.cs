@@ -31,7 +31,7 @@ public class SeedDiscardCommandTests
         var orchestrator = new SeedDiscardOrchestrator(_workItemRepo, _seedLinkRepo, _contextStore);
 
         var formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
 
         _cmd = new SeedDiscardCommand(_workItemRepo, orchestrator, _consoleInput, formatterFactory);
     }

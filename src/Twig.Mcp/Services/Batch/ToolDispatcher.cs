@@ -66,7 +66,7 @@ internal sealed class ToolDispatcher(
                 GetRequiredString(args, "text"),
                 workspace, ct),
 
-            "twig_sync"=> mutationTools.Sync(workspace, ct),
+            "twig_sync"=> mutationTools.Sync(workspace, GetBool(args, "pull_only"), ct),
 
             // Creation tools
             "twig_new" => creationTools.New(

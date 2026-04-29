@@ -24,7 +24,7 @@ public class CommandContextTests
             new HumanOutputFormatter(),
             new JsonOutputFormatter(),
             new JsonCompactOutputFormatter(new JsonOutputFormatter()),
-            new MinimalOutputFormatter());
+            new MinimalOutputFormatter(), new IdsOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         _config = new TwigConfiguration();
 

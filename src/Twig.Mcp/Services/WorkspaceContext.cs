@@ -33,6 +33,8 @@ public sealed class WorkspaceContext : IDisposable
     public IPromptStateWriter PromptStateWriter { get; }
     public ParentStatePropagationService ParentPropagationService { get; }
     public ITrackingRepository? TrackingRepo { get; }
+    public IProcessTypeStore ProcessTypeStore { get; }
+    public IFieldDefinitionStore FieldDefinitionStore { get; }
 
     /// <summary>
     /// Resolves sprint iteration expressions and aggregates items across multiple iterations.
@@ -65,6 +67,8 @@ public sealed class WorkspaceContext : IDisposable
         IPromptStateWriter promptStateWriter,
         ParentStatePropagationService parentPropagationService,
         SprintIterationResolver sprintIterationResolver,
+        IProcessTypeStore processTypeStore,
+        IFieldDefinitionStore fieldDefinitionStore,
         ITrackingRepository? trackingRepo = null,
         BranchLinkService? branchLinkService = null)
     {
@@ -86,6 +90,8 @@ public sealed class WorkspaceContext : IDisposable
         PromptStateWriter = promptStateWriter;
         ParentPropagationService = parentPropagationService;
         SprintIterationResolver = sprintIterationResolver;
+        ProcessTypeStore = processTypeStore;
+        FieldDefinitionStore = fieldDefinitionStore;
         TrackingRepo = trackingRepo;
         BranchLinkService = branchLinkService;
     }

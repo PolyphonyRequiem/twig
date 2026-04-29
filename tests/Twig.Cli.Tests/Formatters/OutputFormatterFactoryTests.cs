@@ -10,7 +10,7 @@ public class OutputFormatterFactoryTests
         new HumanOutputFormatter(),
         new JsonOutputFormatter(),
         new JsonCompactOutputFormatter(new JsonOutputFormatter()),
-        new MinimalOutputFormatter());
+        new MinimalOutputFormatter(), new IdsOutputFormatter());
 
     [Fact]
     public void GetFormatter_Json_ReturnsJsonOutputFormatter()
@@ -34,6 +34,12 @@ public class OutputFormatterFactoryTests
     public void GetFormatter_Minimal_ReturnsMinimalOutputFormatter()
     {
         _factory.GetFormatter("minimal").ShouldBeOfType<MinimalOutputFormatter>();
+    }
+
+    [Fact]
+    public void GetFormatter_Ids_ReturnsIdsOutputFormatter()
+    {
+        _factory.GetFormatter("ids").ShouldBeOfType<IdsOutputFormatter>();
     }
 
     [Fact]
@@ -80,6 +86,15 @@ public class OutputFormatterFactoryTests
     public void GetFormatter_Minimal_CaseInsensitive(string format)
     {
         _factory.GetFormatter(format).ShouldBeOfType<MinimalOutputFormatter>();
+    }
+
+    [Theory]
+    [InlineData("IDS")]
+    [InlineData("Ids")]
+    [InlineData("iDs")]
+    public void GetFormatter_Ids_CaseInsensitive(string format)
+    {
+        _factory.GetFormatter(format).ShouldBeOfType<IdsOutputFormatter>();
     }
 
     [Theory]

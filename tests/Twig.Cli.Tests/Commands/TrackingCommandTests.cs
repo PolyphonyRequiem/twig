@@ -19,7 +19,7 @@ public sealed class TrackingCommandTests
         new HumanOutputFormatter(),
         new JsonOutputFormatter(),
         new JsonCompactOutputFormatter(new JsonOutputFormatter()),
-        new MinimalOutputFormatter());
+        new MinimalOutputFormatter(), new IdsOutputFormatter());
 
     private TrackingCommand CreateCommand() => new(_trackingService, _workItemRepo, _formatterFactory);
 

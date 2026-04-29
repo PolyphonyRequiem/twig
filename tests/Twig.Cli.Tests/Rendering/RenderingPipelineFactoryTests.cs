@@ -14,7 +14,7 @@ public class RenderingPipelineFactoryTests
         new HumanOutputFormatter(),
         new JsonOutputFormatter(),
         new JsonCompactOutputFormatter(new JsonOutputFormatter()),
-        new MinimalOutputFormatter());
+        new MinimalOutputFormatter(), new IdsOutputFormatter());
 
     private RenderingPipelineFactory CreateFactory() =>
         new(_formatterFactory, _asyncRenderer);

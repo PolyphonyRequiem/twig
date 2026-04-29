@@ -521,12 +521,17 @@ public sealed class MutationTools(WorkspaceResolver resolver)
     [McpServerTool(Name = "twig_sync"),Description("Flush pending local changes to ADO then refresh the local cache from ADO")]
     public async Task<CallToolResult> Sync(
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, skip the flush phase and only pull (refresh) from ADO.")] bool pull_only = false,
         CancellationToken ct = default)
     {
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
 
-        // Phase 1 — Push:flush all pending changes to ADO
-        var flushSummary = await ctx.Flusher.FlushAllAsync(ct);
+        // Phase 1 — Push: flush all pending changes to ADO (skipped when pull_only)
+        McpFlushSummary? flushSummary = null;
+        if (!pull_only)
+        {
+            flushSummary = await ctx.Flusher.FlushAllAsync(ct);
+        }
 
         // Phase 2 — Pull: sync active item context from ADO
         var resolved = await ctx.ActiveItemResolver.GetActiveItemAsync(ct);
@@ -557,6 +562,6 @@ public sealed class MutationTools(WorkspaceResolver resolver)
 
         await ctx.PromptStateWriter.WritePromptStateAsync();
 
-        return McpResultBuilder.FormatFlushSummary(flushSummary);
+        return McpResultBuilder.FormatSyncSummary(flushSummary, pull_only);
     }
 }

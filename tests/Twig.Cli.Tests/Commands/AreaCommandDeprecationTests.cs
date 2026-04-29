@@ -40,7 +40,7 @@ public sealed class AreaCommandDeprecationTests : IDisposable
             new HumanOutputFormatter(),
             new JsonOutputFormatter(),
             new JsonCompactOutputFormatter(new JsonOutputFormatter()),
-            new MinimalOutputFormatter());
+            new MinimalOutputFormatter(), new IdsOutputFormatter());
 
         var areaCommand = new AreaCommand(config, _paths, formatterFactory, iterationService: iterationService);
 

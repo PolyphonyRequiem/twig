@@ -33,7 +33,8 @@ public sealed class WorkspaceCommand(
     ITrackingService trackingService,
     ISprintHierarchyBuilder sprintHierarchyBuilder,
     SprintIterationResolver sprintIterationResolver,
-    TreeRenderingService? treeRenderingService = null)
+    TreeRenderingService? treeRenderingService = null,
+    SyncCoordinatorFactory? syncCoordinatorFactory = null)
 {
     public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default, bool sprintLayout = false, bool flat = false, bool tree = false)
     {
@@ -205,7 +206,7 @@ public sealed class WorkspaceCommand(
         }
 
         // Sync path — original implementation (JSON, minimal, --no-live, --all, sprint, piped output)
-        return await ExecuteSyncAsync(fmt, all, sprintLayout, flat);
+        return await ExecuteSyncAsync(fmt, all, noRefresh, sprintLayout, flat);
     }
 
     /// <summary>
@@ -260,8 +261,25 @@ public sealed class WorkspaceCommand(
         return 0;
     }
 
-    private async Task<int> ExecuteSyncAsync(IOutputFormatter fmt, bool all, bool sprintLayout = false, bool flat = false)
+    private async Task<int> ExecuteSyncAsync(IOutputFormatter fmt, bool all, bool noRefresh = false, bool sprintLayout = false, bool flat = false)
     {
+        // Sync-first for machine formats: ensure consumers get fresh data.
+        // The human (TTY) path handles sync via the live streaming path above.
+        var isMachineFormat = fmt is JsonOutputFormatter or JsonCompactOutputFormatter or MinimalOutputFormatter or IdsOutputFormatter;
+        if (isMachineFormat && !noRefresh && syncCoordinatorFactory is not null)
+        {
+            try
+            {
+                var resolvedIters = await ResolveSprintIterationsAsync(ctx.Config.Workspace.Sprints);
+                var workingSet = await workingSetService.ComputeAsync(resolvedIters.Count > 0 ? resolvedIters : null);
+                await syncCoordinatorFactory.ReadOnly.SyncWorkingSetAsync(workingSet);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Sync failure is non-fatal — fall through to emit cache-only data
+            }
+        }
+
         // Get active context (nullable) — auto-fetch on cache miss via ActiveItemResolver
         var activeId = await contextStore.GetActiveWorkItemIdAsync();
         Domain.Aggregates.WorkItem? contextItem = null;
@@ -379,7 +397,7 @@ public sealed class WorkspaceCommand(
         }
 
         // Dirty orphans: items with unsaved changes not in sprint/seed scope (EPIC-004)
-        if (!all && fmt is not JsonOutputFormatter && fmt is not MinimalOutputFormatter)
+        if (!all && fmt is not JsonOutputFormatter && fmt is not MinimalOutputFormatter && fmt is not IdsOutputFormatter)
         {
             // Use resolved iterations for dirty orphan scope; fall back to current iteration
             IReadOnlyList<IterationPath> orphanIterations = resolvedIterations;
@@ -424,7 +442,7 @@ public sealed class WorkspaceCommand(
 
         var hints = ctx.HintEngine.GetHints("workspace",
             workspace: workspace,
-            outputFormat: fmt is JsonOutputFormatter or JsonCompactOutputFormatter ? "json" : (fmt is MinimalOutputFormatter ? "minimal" : "human"));
+            outputFormat: fmt is JsonOutputFormatter or JsonCompactOutputFormatter ? "json" : (fmt is MinimalOutputFormatter ? "minimal" : (fmt is IdsOutputFormatter ? "ids" : "human")));
         foreach (var hint in hints)
         {
             var formatted = fmt.FormatHint(hint);

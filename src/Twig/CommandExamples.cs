@@ -52,10 +52,11 @@ internal static class CommandExamples
             "twig batch --set Priority=1 --set Severity=High  Update multiple fields at once",
             "twig batch --state Active --ids 1234,5678        Batch transition multiple items",
         ],
-        ["states"] =
+        ["process"] =
         [
-            "twig states                List available states for the active item's type",
-            "twig states -o json        Output states as JSON (for automation/extensions)",
+            "twig process               List all work item types with state counts",
+            "twig process Task          Show states, fields, and transitions for Task type",
+            "twig process Bug -o json   Show Bug type details as JSON",
         ],
         ["new"] =
         [

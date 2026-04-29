@@ -27,6 +27,8 @@ public abstract class ReadToolsTestBase
         Substitute.For<IProcessConfigurationProvider>();
     protected readonly ITrackingRepository _trackingRepo = Substitute.For<ITrackingRepository>();
     protected readonly IAdoGitService _adoGitService = Substitute.For<IAdoGitService>();
+    protected readonly IProcessTypeStore _processTypeStore = Substitute.For<IProcessTypeStore>();
+    protected readonly IFieldDefinitionStore _fieldDefinitionStore = Substitute.For<IFieldDefinitionStore>();
 
     protected static readonly WorkspaceKey TestWorkspaceKey = new("testorg", "testproject");
 
@@ -45,6 +47,7 @@ public abstract class ReadToolsTestBase
         var ctx = BuildContext(TestWorkspaceKey, config,
             _contextStore, _workItemRepo, _adoService, _pendingChangeStore,
             _linkRepo, _iterationService, _processConfigProvider, _promptStateWriter,
+            _processTypeStore, _fieldDefinitionStore,
             _trackingRepo, branchLinkService);
 
         var registry = Substitute.For<IWorkspaceRegistry>();
@@ -74,7 +77,9 @@ public abstract class ReadToolsTestBase
         IIterationService IterationService,
         IPromptStateWriter PromptStateWriter,
         IProcessConfigurationProvider ProcessConfigProvider,
-        ITrackingRepository TrackingRepo);
+        ITrackingRepository TrackingRepo,
+        IProcessTypeStore ProcessTypeStore,
+        IFieldDefinitionStore FieldDefinitionStore);
 
     /// <summary>
     /// Builds a <see cref="WorkspaceResolver"/> with multiple workspaces, each backed by
@@ -103,11 +108,14 @@ public abstract class ReadToolsTestBase
                 Substitute.For<IIterationService>(),
                 Substitute.For<IPromptStateWriter>(),
                 Substitute.For<IProcessConfigurationProvider>(),
-                Substitute.For<ITrackingRepository>());
+                Substitute.For<ITrackingRepository>(),
+                Substitute.For<IProcessTypeStore>(),
+                Substitute.For<IFieldDefinitionStore>());
 
             var ctx = BuildContext(key, config,
                 m.ContextStore, m.WorkItemRepo, m.AdoService, m.PendingChangeStore,
                 m.LinkRepo, m.IterationService, m.ProcessConfigProvider, m.PromptStateWriter,
+                m.ProcessTypeStore, m.FieldDefinitionStore,
                 m.TrackingRepo);
 
             factory.GetOrCreate(key).Returns(ctx);
@@ -128,6 +136,8 @@ public abstract class ReadToolsTestBase
         IIterationService iterationService,
         IProcessConfigurationProvider processConfigProvider,
         IPromptStateWriter promptStateWriter,
+        IProcessTypeStore processTypeStore,
+        IFieldDefinitionStore fieldDefinitionStore,
         ITrackingRepository? trackingRepo = null,
         BranchLinkService? branchLinkService = null)
     {
@@ -157,6 +167,7 @@ public abstract class ReadToolsTestBase
             activeItemResolver, syncFactory, contextChange,
             workingSet, flusher, promptStateWriter, parentPropagation,
             sprintIterationResolver,
+            processTypeStore, fieldDefinitionStore,
             trackingRepo,
             branchLinkService);
     }

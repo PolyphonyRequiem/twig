@@ -37,7 +37,7 @@ public sealed class CommandServiceModuleTests
             new HumanOutputFormatter(),
             new JsonOutputFormatter(),
             new JsonCompactOutputFormatter(new JsonOutputFormatter()),
-            new MinimalOutputFormatter()));
+            new MinimalOutputFormatter(), new IdsOutputFormatter()));
         services.AddSingleton(Substitute.For<IAsyncRenderer>());
         services.AddSingleton<RenderingPipelineFactory>();
         services.AddSingleton(new TwigPaths(

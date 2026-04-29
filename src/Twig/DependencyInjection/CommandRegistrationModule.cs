@@ -76,7 +76,7 @@ public static class CommandRegistrationModule
         services.AddSingleton<ConfigCommand>();
         services.AddSingleton<ConfigStatusFieldsCommand>();
         services.AddSingleton<QueryCommand>();
-        services.AddSingleton<StatesCommand>();
+        services.AddSingleton<ProcessCommand>();
         services.AddSingleton<BatchCommand>();
         services.AddSingleton<TrackingCommand>();
         services.AddSingleton<AreaCommand>();

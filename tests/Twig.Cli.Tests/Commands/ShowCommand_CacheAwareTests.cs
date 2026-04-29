@@ -58,7 +58,7 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
         _syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, protectedCacheWriter, _pendingChangeStore, null, 30, 30);
         _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
 
         _tempDir = Path.Combine(Path.GetTempPath(), "twig-show-cache-test-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_tempDir);
@@ -238,6 +238,7 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
     [InlineData("json-compact")]
     [InlineData("minimal")]
     [InlineData("human")]
+    [InlineData("ids")]
     public async Task NonTty_SyncsBeforeEmitting(string format)
     {
         var item = Item(1, "Sync First Item").Build();
@@ -255,6 +256,7 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
     [InlineData("json-compact")]
     [InlineData("minimal")]
     [InlineData("human")]
+    [InlineData("ids")]
     public async Task NonTty_NoRefresh_SkipsSync(string format)
     {
         var item = Item(1, "No Refresh Machine").Build();

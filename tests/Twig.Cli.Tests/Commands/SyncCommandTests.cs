@@ -365,4 +365,177 @@ public sealed class SyncCommandTests : RefreshCommandTestBase
         stderr.ToString().ShouldContain("#10");
         stderr.ToString().ShouldContain("Partial push failed");
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Sync-first behavior: machine format output passthrough
+    // ═══════════════════════════════════════════════════════════════
+
+    [Theory]
+    [InlineData("json")]
+    [InlineData("minimal")]
+    [InlineData("ids")]
+    public async Task Sync_MachineFormats_PassOutputFormatToFlusher(string format)
+    {
+        _flusher.FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new FlushResult(0, 0, 0, []));
+
+        var cmd = CreateSyncCommand();
+        await cmd.ExecuteAsync(outputFormat: format);
+
+        await _flusher.Received(1).FlushAllAsync(format, Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("json")]
+    [InlineData("minimal")]
+    [InlineData("ids")]
+    public async Task Sync_MachineFormats_CallsFlushThenRefresh(string format)
+    {
+        var callOrder = new List<string>();
+
+        _flusher.FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+            {
+                callOrder.Add("flush");
+                return new FlushResult(0, 0, 0, []);
+            });
+
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+            {
+                callOrder.Add("refresh");
+                return Array.Empty<int>();
+            });
+
+        var cmd = CreateSyncCommand();
+        await cmd.ExecuteAsync(outputFormat: format);
+
+        callOrder.ShouldBe(new[] { "flush", "refresh" });
+    }
+
+    [Fact]
+    public async Task Sync_IdsFormat_ReturnsZero_OnSuccess()
+    {
+        _flusher.FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new FlushResult(0, 0, 0, []));
+
+        var cmd = CreateSyncCommand();
+        var result = await cmd.ExecuteAsync(outputFormat: "ids");
+
+        result.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Sync_IdsFormat_DoesNotEmitJsonStructure()
+    {
+        _flusher.FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new FlushResult(1, 2, 0, []));
+
+        var cmd = CreateSyncCommand();
+
+        var output = await CaptureStdoutAsync(() => cmd.ExecuteAsync(outputFormat: "ids"));
+
+        // IDs format is not JSON — should not contain JSON structure
+        output.ShouldNotContain("\"flush\"");
+        output.ShouldNotContain("\"refresh\"");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  --pull-only flag
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Sync_PullOnly_SkipsFlush()
+    {
+        var cmd = CreateSyncCommand();
+        var result = await cmd.ExecuteAsync(pullOnly: true);
+
+        result.ShouldBe(0);
+        await _flusher.DidNotReceive().FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Sync_PullOnly_CallsRefresh()
+    {
+        var cmd = CreateSyncCommand();
+        await cmd.ExecuteAsync(pullOnly: true);
+
+        await _adoService.Received(1).QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Sync_PullOnly_ForcePassedToRefresh()
+    {
+        _pendingChangeStore.GetDirtyItemIdsAsync(Arg.Any<CancellationToken>())
+            .Returns(new[] { 1 });
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { 1 });
+
+        var item = new WorkItem
+        {
+            Id = 1, Title = "Item", Type = WorkItemType.Task, State = "New",
+            IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
+            AreaPath = AreaPath.Parse("Project").Value
+        };
+        _adoService.FetchBatchAsync(Arg.Any<IReadOnlyList<int>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { item });
+
+        var cmd = CreateSyncCommand();
+        var result = await cmd.ExecuteAsync(force: true, pullOnly: true);
+
+        result.ShouldBe(0);
+        await _flusher.DidNotReceive().FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _workItemRepo.Received().SaveBatchAsync(Arg.Any<IReadOnlyList<WorkItem>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Sync_PullOnly_JsonFormat_EmitsZeroFlushStats()
+    {
+        var cmd = CreateSyncCommand();
+
+        var output = await CaptureStdoutAsync(() => cmd.ExecuteAsync(outputFormat: "json", pullOnly: true));
+
+        output.ShouldContain("\"pullOnly\": true");
+        output.ShouldContain("\"flushed\": 0");
+        output.ShouldContain("\"fieldChangesPushed\": 0");
+        output.ShouldContain("\"notesPushed\": 0");
+        output.ShouldContain("\"failed\": 0");
+        output.ShouldContain("\"refresh\"");
+        output.ShouldNotContain("\"failures\"");
+    }
+
+    [Fact]
+    public async Task Sync_PullOnly_DoesNotEmitPushSummary()
+    {
+        var cmd = CreateSyncCommand();
+
+        var output = await CaptureStdoutAsync(() => cmd.ExecuteAsync(pullOnly: true));
+
+        output.ShouldNotContain("Sync push");
+    }
+
+    [Fact]
+    public async Task Sync_NoPullOnly_StillCallsFlush()
+    {
+        _flusher.FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new FlushResult(0, 0, 0, []));
+
+        var cmd = CreateSyncCommand();
+        await cmd.ExecuteAsync(pullOnly: false);
+
+        await _flusher.Received(1).FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Sync_NoPullOnly_JsonFormat_EmitsPullOnlyFalse()
+    {
+        _flusher.FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new FlushResult(0, 0, 0, []));
+
+        var cmd = CreateSyncCommand();
+
+        var output = await CaptureStdoutAsync(() => cmd.ExecuteAsync(outputFormat: "json", pullOnly: false));
+
+        output.ShouldContain("\"pullOnly\": false");
+    }
 }

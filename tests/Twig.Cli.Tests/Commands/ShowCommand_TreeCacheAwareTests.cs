@@ -73,7 +73,7 @@ public sealed class ShowCommand_TreeCacheAwareTests : IDisposable
 
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(),
-            new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
+            new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
 
         _tempDir = Path.Combine(Path.GetTempPath(), "twig-show-tree-cache-test-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_tempDir);
@@ -402,6 +402,7 @@ public sealed class ShowCommand_TreeCacheAwareTests : IDisposable
     [InlineData("json")]
     [InlineData("minimal")]
     [InlineData("human")]
+    [InlineData("ids")]
     public async Task NonTty_TreeFlag_RendersOutput(string format)
     {
         var item = new WorkItemBuilder(1, "Non-TTY Tree Item").Build();
@@ -417,6 +418,7 @@ public sealed class ShowCommand_TreeCacheAwareTests : IDisposable
     [InlineData("json")]
     [InlineData("minimal")]
     [InlineData("human")]
+    [InlineData("ids")]
     public async Task NonTty_TreeFlag_NoRefresh_SkipsSync(string format)
     {
         var item = new WorkItemBuilder(1, "No Refresh Tree Machine").Build();

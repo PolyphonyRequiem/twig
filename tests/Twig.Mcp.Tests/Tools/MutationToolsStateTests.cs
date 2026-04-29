@@ -230,7 +230,7 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
             Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(2);
 
-        var result = await CreateMutationSut().State("Doing", "testorg/testproject");
+        var result = await CreateMutationSut().State("Doing", workspace: "testorg/testproject");
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);

@@ -55,6 +55,7 @@ internal sealed class ToolDispatcher(
             // Mutation tools
             "twig_state" => mutationTools.State(
                 GetRequiredString(args, "stateName"),
+                GetNullableInt(args, "id"),
                 workspace, verbose: false, ct),
 
             "twig_update" => mutationTools.Update(
@@ -62,10 +63,12 @@ internal sealed class ToolDispatcher(
                 GetRequiredString(args, "value"),
                 GetString(args, "format"),
                 GetBool(args, "append"),
+                GetNullableInt(args, "id"),
                 workspace, verbose: false, ct),
 
             "twig_note" => mutationTools.Note(
                 GetRequiredString(args, "text"),
+                GetNullableInt(args, "id"),
                 workspace, verbose: false, ct),
 
             "twig_sync"=> mutationTools.Sync(workspace, GetBool(args, "pull_only"), verbose: false, ct),

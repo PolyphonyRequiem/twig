@@ -548,6 +548,106 @@ public sealed class ReadToolsTreeTests : ReadToolsTestBase
     }
 
     // ═══════════════════════════════════════════════════════════════
+    //  Direct ID — bypasses active context
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Tree_WithExplicitId_BypassesActiveContextAndRendersTargetItem()
+    {
+        var target = new WorkItemBuilder(99, "Target Epic").AsEpic().InState("Active").Build();
+        var child = new WorkItemBuilder(100, "Child Task").AsTask().WithParent(99).Build();
+
+        _workItemRepo.GetByIdAsync(99, Arg.Any<CancellationToken>())
+            .Returns(target);
+        _workItemRepo.GetChildrenAsync(99, Arg.Any<CancellationToken>())
+            .Returns([child]);
+
+        // No active item set — should still work with explicit id
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>())
+            .Returns((int?)null);
+
+        var result = await CreateSut(_config).Tree(id: 99);
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+        root.GetProperty("focus").GetProperty("id").GetInt32().ShouldBe(99);
+        root.GetProperty("focus").GetProperty("title").GetString().ShouldBe("Target Epic");
+        root.GetProperty("children").GetArrayLength().ShouldBe(1);
+        root.GetProperty("children")[0].GetProperty("id").GetInt32().ShouldBe(100);
+    }
+
+    [Fact]
+    public async Task Tree_WithExplicitId_DoesNotChangeActiveContext()
+    {
+        var active = new WorkItemBuilder(10, "Active Feature").AsFeature().InState("Active").Build();
+        var target = new WorkItemBuilder(50, "Other Item").AsEpic().InState("New").Build();
+
+        SetupActiveItem(active);
+        _workItemRepo.GetByIdAsync(50, Arg.Any<CancellationToken>())
+            .Returns(target);
+        _workItemRepo.GetChildrenAsync(50, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var result = await CreateSut(_config).Tree(id: 50);
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+        root.GetProperty("focus").GetProperty("id").GetInt32().ShouldBe(50);
+
+        // Active context should NOT have been changed — twig_set was never called
+        await _contextStore.DidNotReceive().SetActiveWorkItemIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Tree_WithExplicitIdAndDepth_PassesBothToShow()
+    {
+        var target = new WorkItemBuilder(99, "Deep Feature").AsFeature().InState("Active").Build();
+        var child = new WorkItemBuilder(100, "Task 1").AsTask().WithParent(99).Build();
+
+        _workItemRepo.GetByIdAsync(99, Arg.Any<CancellationToken>())
+            .Returns(target);
+        _workItemRepo.GetChildrenAsync(99, Arg.Any<CancellationToken>())
+            .Returns([child]);
+
+        var result = await CreateSut(_config).Tree(id: 99, depth: 2);
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+        root.GetProperty("focus").GetProperty("id").GetInt32().ShouldBe(99);
+        root.GetProperty("children").GetArrayLength().ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Tree_WithNullId_UsesActiveItem()
+    {
+        var focus = new WorkItemBuilder(10, "Feature").AsFeature().InState("Active").Build();
+
+        SetupActiveItem(focus);
+        _workItemRepo.GetChildrenAsync(10, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var result = await CreateSut(_config).Tree(id: null);
+
+        result.IsError.ShouldBeNull();
+        var root = ParseResult(result);
+        root.GetProperty("focus").GetProperty("id").GetInt32().ShouldBe(10);
+    }
+
+    [Fact]
+    public async Task Tree_WithExplicitId_NotFound_ReturnsError()
+    {
+        _workItemRepo.GetByIdAsync(999, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        _adoService.FetchAsync(999, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("not found"));
+
+        var result = await CreateSut(_config).Tree(id: 999);
+
+        result.IsError.ShouldBe(true);
+        result.Content[0].ShouldBeOfType<TextContentBlock>()
+            .Text.ShouldContain("999");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     //  Helpers
     // ═══════════════════════════════════════════════════════════════
 

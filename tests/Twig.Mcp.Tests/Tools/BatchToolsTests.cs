@@ -17,8 +17,15 @@ public sealed class BatchToolsTests
     private static string ExtractJson(CallToolResult result) =>
         ((TextContentBlock)result.Content![0]).Text;
 
-    private static JsonElement ParseResult(CallToolResult result) =>
-        JsonDocument.Parse(ExtractJson(result)).RootElement;
+    private static JsonElement ParseResult(CallToolResult result)
+    {
+        var root = JsonDocument.Parse(ExtractJson(result)).RootElement;
+        // Auto-unwrap success envelope
+        if (root.TryGetProperty("success", out var s) && s.ValueKind == JsonValueKind.True
+            && root.TryGetProperty("data", out var d))
+            return d.Clone();
+        return root.Clone();
+    }
 
     // ── Happy path: single step ─────────────────────────────────────
 
@@ -191,7 +198,7 @@ public sealed class BatchToolsTests
         result.IsError.ShouldNotBe(true);
     }
 
-    // ── Workspace override propagation ──────────────────────────────
+    // ── Workspace default propagation ──────────────────────────────
 
     [Fact]
     public async Task Batch_WorkspaceOverride_PropagatedToDispatcher()
@@ -217,6 +224,105 @@ public sealed class BatchToolsTests
         await tools.Batch(graph, workspace: null, ct: CancellationToken.None);
 
         dispatcher.LastWorkspaceOverride.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Batch_WorkspaceDefault_PropagatedToAllSequenceSteps()
+    {
+        var dispatcher = CreateDispatcher();
+        var tools = new BatchTools(dispatcher);
+
+        var graph = """
+        {
+            "type": "sequence",
+            "steps": [
+                { "type": "step", "tool": "twig_set", "args": { "idOrPattern": "1" } },
+                { "type": "step", "tool": "twig_note", "args": { "text": "hello" } },
+                { "type": "step", "tool": "twig_state", "args": { "stateName": "Doing" } }
+            ]
+        }
+        """;
+
+        var result = await tools.Batch(graph, workspace: "default/ws", ct: CancellationToken.None);
+
+        result.IsError.ShouldNotBe(true);
+        dispatcher.Dispatches.Count.ShouldBe(3);
+        dispatcher.Dispatches.ShouldAllBe(d => d.WorkspaceOverride == "default/ws");
+    }
+
+    [Fact]
+    public async Task Batch_WorkspaceDefault_PropagatedThroughParallelSteps()
+    {
+        var dispatcher = CreateDispatcher();
+        var tools = new BatchTools(dispatcher);
+
+        var graph = """
+        {
+            "type": "parallel",
+            "steps": [
+                { "type": "step", "tool": "twig_note", "args": { "text": "a" } },
+                { "type": "step", "tool": "twig_note", "args": { "text": "b" } }
+            ]
+        }
+        """;
+
+        await tools.Batch(graph, workspace: "par/ws", ct: CancellationToken.None);
+
+        dispatcher.Dispatches.Count.ShouldBe(2);
+        dispatcher.Dispatches.ShouldAllBe(d => d.WorkspaceOverride == "par/ws");
+    }
+
+    [Fact]
+    public async Task Batch_WorkspaceDefault_PropagatedThroughNestedGraph()
+    {
+        var dispatcher = CreateDispatcher();
+        var tools = new BatchTools(dispatcher);
+
+        var graph = """
+        {
+            "type": "sequence",
+            "steps": [
+                { "type": "step", "tool": "twig_set", "args": { "idOrPattern": "1" } },
+                {
+                    "type": "parallel",
+                    "steps": [
+                        { "type": "step", "tool": "twig_note", "args": { "text": "a" } },
+                        { "type": "step", "tool": "twig_note", "args": { "text": "b" } }
+                    ]
+                },
+                { "type": "step", "tool": "twig_state", "args": { "stateName": "Done" } }
+            ]
+        }
+        """;
+
+        await tools.Batch(graph, workspace: "nested/ws", ct: CancellationToken.None);
+
+        dispatcher.Dispatches.Count.ShouldBe(4);
+        dispatcher.Dispatches.ShouldAllBe(d => d.WorkspaceOverride == "nested/ws");
+    }
+
+    [Fact]
+    public async Task Batch_StepWorkspace_NotStrippedFromArgs()
+    {
+        var dispatcher = CreateDispatcher();
+        var tools = new BatchTools(dispatcher);
+
+        var graph = """
+        {
+            "type": "step",
+            "tool": "twig_tree",
+            "args": { "workspace": "step/override" }
+        }
+        """;
+
+        await tools.Batch(graph, workspace: "batch/default", ct: CancellationToken.None);
+
+        // The batch-level workspace is still passed as the override to the dispatcher.
+        // The dispatcher itself merges step-level args with the override.
+        dispatcher.Dispatches.Count.ShouldBe(1);
+        dispatcher.Dispatches[0].WorkspaceOverride.ShouldBe("batch/default");
+        dispatcher.Dispatches[0].Args.ShouldContainKey("workspace");
+        dispatcher.Dispatches[0].Args["workspace"]!.ToString().ShouldBe("step/override");
     }
 
     // ── Sequence with failure: fail-fast and skip ────────────────────

@@ -25,15 +25,19 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
         [Description("When true, display item hierarchy as a tree instead of detail card")] bool tree = false,
         [Description("Max child depth to display (only used when tree=true)")] int? depth = null,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
-        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         var (item, fetchErr) = await ctx.FetchWithFallbackAsync(id, ct);
-        if (fetchErr is not null) return McpResultBuilder.ToError(fetchErr);
+        if (fetchErr is not null) return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, fetchErr, ctx, ct);
 
         if (tree)
-            return await BuildTreeResultAsync(ctx, item!, depth, ct);
+        {
+            var treeResult = await BuildTreeResultAsync(ctx, item!, depth, ct);
+            return await EnvelopeBuilder.WrapAsync(ctx, treeResult, verbose, ct);
+        }
 
         // Include pending changes when the requested item is the active work item
         var activeId = await ctx.ContextStore.GetActiveWorkItemIdAsync(ct);
@@ -41,7 +45,8 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
         if (activeId == id)
             pendingChanges = await ctx.PendingChangeStore.GetChangesAsync(id, ct);
 
-        return McpResultBuilder.FormatWorkItem(item!, pendingChanges, ctx.Key.ToString());
+        var toolResult = McpResultBuilder.FormatWorkItem(item!, pendingChanges, ctx.Key.ToString());
+        return await EnvelopeBuilder.WrapAsync(ctx, toolResult, verbose, ct);
     }
 
     private static async Task<CallToolResult> BuildTreeResultAsync(
@@ -93,9 +98,10 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
         [Description("Only items changed within this many days")] int? changedSince = null,
         [Description("Maximum results to return (default: 25)")] int top = 25,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
-        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         // Resolve default area paths from config when no explicit area path filter is given
         IReadOnlyList<(string Path, bool IncludeChildren)>? defaultAreaPaths = null;
@@ -122,7 +128,7 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
         IReadOnlyList<int> ids;
         try { ids = await ctx.AdoService.QueryByWiqlAsync(wiql, top, ct); }
         catch (Exception ex) when (ex is not OperationCanceledException)
-        { return McpResultBuilder.ToError($"Query failed: {ex.Message}"); }
+        { return await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable, $"Query failed: {ex.Message}", ctx, ct); }
 
         IReadOnlyList<WorkItem> items = ids.Count > 0
             ? await ctx.AdoService.FetchBatchAsync(ids, ct)
@@ -136,31 +142,35 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
         }
 
         var queryDescription = BuildQueryDescription(parameters);
-        return McpResultBuilder.FormatQueryResults(items, items.Count >= top, queryDescription, ctx.Key.ToString());
+        var toolResult = McpResultBuilder.FormatQueryResults(items, items.Count >= top, queryDescription, ctx.Key.ToString());
+        return await EnvelopeBuilder.WrapAsync(ctx, toolResult, verbose, ct);
     }
 
     [McpServerTool(Name = "twig_children"), Description("List the direct children of a work item by ID")]
     public async Task<CallToolResult> Children(
         [Description("Parent work item ID")] int id,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
-        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         var children = await ctx.FetchChildrenWithFallbackAsync(id, ct);
-        return McpResultBuilder.FormatChildren(id, children, ctx.Key.ToString());
+        var toolResult = McpResultBuilder.FormatChildren(id, children, ctx.Key.ToString());
+        return await EnvelopeBuilder.WrapAsync(ctx, toolResult, verbose, ct);
     }
 
     [McpServerTool(Name = "twig_parent"), Description("Get the parent of a work item by ID")]
     public async Task<CallToolResult> Parent(
         [Description("Child work item ID")] int id,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
-        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         var (childResult, fetchErr) = await ctx.FetchWithFallbackAsync(id, ct);
-        if (fetchErr is not null) return McpResultBuilder.ToError(fetchErr);
+        if (fetchErr is not null) return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, fetchErr, ctx, ct);
         var child = childResult!;
 
         // Resolve parent — cache-first, ADO fallback (best-effort: null if fetch fails)
@@ -171,7 +181,8 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
             parent = p;
         }
 
-        return McpResultBuilder.FormatParent(child, parent, ctx.Key.ToString());
+        var toolResult = McpResultBuilder.FormatParent(child, parent, ctx.Key.ToString());
+        return await EnvelopeBuilder.WrapAsync(ctx, toolResult, verbose, ct);
     }
 
     [McpServerTool(Name = "twig_verify_descendants"), Description("Recursively verify that all descendants of a work item are in terminal states.")]
@@ -179,35 +190,39 @@ public sealed class NavigationTools(WorkspaceResolver resolver)
         [Description("Root work item ID")] int id,
         [Description("Maximum depth to traverse (default: 2)")] int maxDepth = 2,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
-        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         var service = new DescendantVerificationService(
             ctx.WorkItemRepo, ctx.AdoService, ctx.ProcessConfigProvider);
 
         var result = await service.VerifyAsync(id, maxDepth, ct);
-        return McpResultBuilder.FormatVerification(result, ctx.Key.ToString());
+        var toolResult = McpResultBuilder.FormatVerification(result, ctx.Key.ToString());
+        return await EnvelopeBuilder.WrapAsync(ctx, toolResult, verbose, ct);
     }
 
     [McpServerTool(Name = "twig_sprint"), Description("Get the current sprint iteration info, optionally listing sprint items")]
     public async Task<CallToolResult> Sprint(
         [Description("When true, includes work items assigned to the current sprint")] bool items = false,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
-        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         IterationPath iterationPath;
         try { iterationPath = await ctx.IterationService.GetCurrentIterationAsync(ct); }
         catch (Exception ex) when (ex is not OperationCanceledException)
-        { return McpResultBuilder.ToError($"Failed to get current iteration: {ex.Message}"); }
+        { return await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable, $"Failed to get current iteration: {ex.Message}", ctx, ct); }
 
         IReadOnlyList<WorkItem>? sprintItems = null;
         if (items)
             sprintItems = await ctx.WorkItemRepo.GetByIterationAsync(iterationPath, ct);
 
-        return McpResultBuilder.FormatSprint(iterationPath, sprintItems, ctx.Key.ToString());
+        var toolResult = McpResultBuilder.FormatSprint(iterationPath, sprintItems, ctx.Key.ToString());
+        return await EnvelopeBuilder.WrapAsync(ctx, toolResult, verbose, ct);
     }
 
     private static string BuildQueryDescription(QueryParameters parameters)

@@ -382,7 +382,7 @@ public sealed class BatchExecutionEngineTests
             () => engine.ExecuteAsync(graph, DefaultTimeout, null, cts.Token));
     }
 
-    // ── Workspace override passthrough ──────────────────────────────
+    // ── Workspace default propagation ──────────────────────────────
 
     [Fact]
     public async Task Execute_WorkspaceOverride_PassedToDispatcher()
@@ -398,6 +398,117 @@ public sealed class BatchExecutionEngineTests
         await engine.ExecuteAsync(graph, DefaultTimeout, "org/project", CancellationToken.None);
 
         dispatcher.LastWorkspaceOverride.ShouldBe("org/project");
+    }
+
+    [Fact]
+    public async Task Execute_WorkspaceOverride_PropagatedToAllSequenceSteps()
+    {
+        var dispatcher = CreateDispatcher();
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new SequenceNode([
+                new StepNode(0, "twig_set", new Dictionary<string, object?> { ["idOrPattern"] = "1" }),
+                new StepNode(1, "twig_note", new Dictionary<string, object?> { ["text"] = "hello" }),
+                new StepNode(2, "twig_state", new Dictionary<string, object?> { ["stateName"] = "Doing" })
+            ]),
+            TotalStepCount: 3);
+
+        await engine.ExecuteAsync(graph, DefaultTimeout, "org/project", CancellationToken.None);
+
+        dispatcher.Dispatches.Count.ShouldBe(3);
+        dispatcher.Dispatches.ShouldAllBe(d => d.WorkspaceOverride == "org/project");
+    }
+
+    [Fact]
+    public async Task Execute_WorkspaceOverride_PropagatedToAllParallelSteps()
+    {
+        var dispatcher = CreateDispatcher();
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new ParallelNode([
+                new StepNode(0, "twig_set", new Dictionary<string, object?> { ["idOrPattern"] = "1" }),
+                new StepNode(1, "twig_show", new Dictionary<string, object?> { ["id"] = 42 }),
+                new StepNode(2, "twig_tree", new Dictionary<string, object?>())
+            ]),
+            TotalStepCount: 3);
+
+        await engine.ExecuteAsync(graph, DefaultTimeout, "myorg/myproject", CancellationToken.None);
+
+        dispatcher.Dispatches.Count.ShouldBe(3);
+        dispatcher.Dispatches.ShouldAllBe(d => d.WorkspaceOverride == "myorg/myproject");
+    }
+
+    [Fact]
+    public async Task Execute_WorkspaceOverride_PropagatedThroughNestedGraph()
+    {
+        var dispatcher = CreateDispatcher();
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        // sequence(
+        //   step0,
+        //   parallel(step1, step2),
+        //   step3
+        // )
+        var graph = new BatchGraph(
+            new SequenceNode([
+                new StepNode(0, "twig_set", new Dictionary<string, object?> { ["idOrPattern"] = "1" }),
+                new ParallelNode([
+                    new StepNode(1, "twig_note", new Dictionary<string, object?> { ["text"] = "a" }),
+                    new StepNode(2, "twig_note", new Dictionary<string, object?> { ["text"] = "b" })
+                ]),
+                new StepNode(3, "twig_state", new Dictionary<string, object?> { ["stateName"] = "Done" })
+            ]),
+            TotalStepCount: 4);
+
+        await engine.ExecuteAsync(graph, DefaultTimeout, "deep/nested", CancellationToken.None);
+
+        dispatcher.Dispatches.Count.ShouldBe(4);
+        dispatcher.Dispatches.ShouldAllBe(d => d.WorkspaceOverride == "deep/nested");
+    }
+
+    [Fact]
+    public async Task Execute_NullWorkspace_PropagatesNullToAllSteps()
+    {
+        var dispatcher = CreateDispatcher();
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new SequenceNode([
+                new StepNode(0, "twig_set", new Dictionary<string, object?> { ["idOrPattern"] = "1" }),
+                new StepNode(1, "twig_note", new Dictionary<string, object?> { ["text"] = "hi" })
+            ]),
+            TotalStepCount: 2);
+
+        await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        dispatcher.Dispatches.Count.ShouldBe(2);
+        dispatcher.Dispatches.ShouldAllBe(d => d.WorkspaceOverride == null);
+    }
+
+    [Fact]
+    public async Task Execute_WorkspaceOverride_SkippedStepsNotDispatched()
+    {
+        var dispatcher = CreateDispatcher((tool, _) =>
+            tool == "fail_step" ? ErrorResult("boom") : SuccessResult("{}"));
+
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        // sequence(step0-fail, step1-skipped)
+        var graph = new BatchGraph(
+            new SequenceNode([
+                new StepNode(0, "fail_step", new Dictionary<string, object?>()),
+                new StepNode(1, "twig_note", new Dictionary<string, object?> { ["text"] = "skipped" })
+            ]),
+            TotalStepCount: 2);
+
+        await engine.ExecuteAsync(graph, DefaultTimeout, "org/project", CancellationToken.None);
+
+        // Only step0 was dispatched; step1 was skipped due to fail-fast.
+        dispatcher.Dispatches.Count.ShouldBe(1);
+        dispatcher.Dispatches[0].WorkspaceOverride.ShouldBe("org/project");
+        dispatcher.Dispatches[0].ToolName.ShouldBe("fail_step");
     }
 
     // ── Timing ──────────────────────────────────────────────────────
@@ -745,6 +856,541 @@ public sealed class BatchExecutionEngineTests
         capturedArgs["sourceId"].ShouldBe(1); // Non-string: passed through.
         capturedArgs["targetId"].ShouldBeOfType<int>().ShouldBe(55); // Template: resolved.
         capturedArgs["linkType"].ShouldBe("child"); // Non-template string: passed through.
+    }
+
+    // ── Summary computation ────────────────────────────────────────
+
+    [Fact]
+    public async Task Execute_SingleSucceeded_SummaryCountsCorrect()
+    {
+        var dispatcher = CreateDispatcher();
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new StepNode(0, "twig_status", new Dictionary<string, object?>()),
+            TotalStepCount: 1);
+
+        var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        result.Summary.Total.ShouldBe(1);
+        result.Summary.Succeeded.ShouldBe(1);
+        result.Summary.Failed.ShouldBe(0);
+        result.Summary.Skipped.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Execute_SequenceWithFailure_SummaryCountsFailedAndSkipped()
+    {
+        var callCount = 0;
+        var dispatcher = CreateDispatcher((tool, _) =>
+        {
+            callCount++;
+            return callCount == 2
+                ? ErrorResult("Step 2 failed")
+                : SuccessResult($"{{\"tool\":\"{tool}\",\"ok\":true}}");
+        });
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new SequenceNode([
+                new StepNode(0, "twig_status", new Dictionary<string, object?>()),
+                new StepNode(1, "twig_set", new Dictionary<string, object?> { ["idOrPattern"] = "1" }),
+                new StepNode(2, "twig_note", new Dictionary<string, object?> { ["text"] = "hi" })
+            ]),
+            TotalStepCount: 3);
+
+        var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        result.Summary.Total.ShouldBe(3);
+        result.Summary.Succeeded.ShouldBe(1);
+        result.Summary.Failed.ShouldBe(1);
+        result.Summary.Skipped.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Execute_ParallelAllSucceed_SummaryCountsCorrect()
+    {
+        var dispatcher = CreateDispatcher();
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new ParallelNode([
+                new StepNode(0, "twig_status", new Dictionary<string, object?>()),
+                new StepNode(1, "twig_show", new Dictionary<string, object?> { ["id"] = 1 }),
+                new StepNode(2, "twig_tree", new Dictionary<string, object?>())
+            ]),
+            TotalStepCount: 3);
+
+        var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        result.Summary.Total.ShouldBe(3);
+        result.Summary.Succeeded.ShouldBe(3);
+        result.Summary.Failed.ShouldBe(0);
+        result.Summary.Skipped.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Execute_ParallelWithOneFailure_SummaryReflectsMix()
+    {
+        var dispatcher = CreateDispatcher((tool, _) =>
+            tool == "twig_set"
+                ? ErrorResult("Bad id")
+                : SuccessResult($"{{\"tool\":\"{tool}\",\"ok\":true}}"));
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new ParallelNode([
+                new StepNode(0, "twig_status", new Dictionary<string, object?>()),
+                new StepNode(1, "twig_set", new Dictionary<string, object?> { ["idOrPattern"] = "bad" })
+            ]),
+            TotalStepCount: 2);
+
+        var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        result.Summary.Total.ShouldBe(2);
+        result.Summary.Succeeded.ShouldBe(1);
+        result.Summary.Failed.ShouldBe(1);
+        result.Summary.Skipped.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Execute_Timeout_SummaryIncludesSkipped()
+    {
+        var dispatcher = CreateDelayedDispatcher(TimeSpan.FromSeconds(10));
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new SequenceNode([
+                new StepNode(0, "twig_status", new Dictionary<string, object?>()),
+                new StepNode(1, "twig_show", new Dictionary<string, object?> { ["id"] = 1 })
+            ]),
+            TotalStepCount: 2);
+
+        var result = await engine.ExecuteAsync(graph, TimeSpan.FromMilliseconds(50), null, CancellationToken.None);
+
+        result.TimedOut.ShouldBeTrue();
+        result.Summary.Total.ShouldBe(2);
+        result.Summary.Skipped.ShouldBeGreaterThan(0);
+        result.Summary.Total.ShouldBe(result.Summary.Succeeded + result.Summary.Failed + result.Summary.Skipped);
+    }
+
+    [Fact]
+    public async Task Execute_EmptyGraph_SummaryAllZeros()
+    {
+        var dispatcher = CreateDispatcher();
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new SequenceNode([]),
+            TotalStepCount: 0);
+
+        var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        result.Summary.Total.ShouldBe(0);
+        result.Summary.Succeeded.ShouldBe(0);
+        result.Summary.Failed.ShouldBe(0);
+        result.Summary.Skipped.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Execute_Summary_TotalEqualsSum()
+    {
+        var callCount = 0;
+        var dispatcher = CreateDispatcher((tool, _) =>
+        {
+            callCount++;
+            return callCount % 3 == 0
+                ? ErrorResult("fail")
+                : SuccessResult($"{{\"tool\":\"{tool}\",\"ok\":true}}");
+        });
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new ParallelNode([
+                new StepNode(0, "twig_status", new Dictionary<string, object?>()),
+                new StepNode(1, "twig_show", new Dictionary<string, object?> { ["id"] = 1 }),
+                new StepNode(2, "twig_set", new Dictionary<string, object?> { ["idOrPattern"] = "1" })
+            ]),
+            TotalStepCount: 3);
+
+        var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        result.Summary.Total.ShouldBe(result.Summary.Succeeded + result.Summary.Failed + result.Summary.Skipped);
+    }
+
+    // ── When clause evaluation ──────────────────────────────────────
+
+    [Fact]
+    public async Task Execute_StepWithWhenTrue_ExecutesStep()
+    {
+        var dispatcher = CreateDispatcher();
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new SequenceNode([
+                new StepNode(0, "twig_status", new Dictionary<string, object?>()),
+                new StepNode(1, "twig_set", new Dictionary<string, object?> { ["idOrPattern"] = "1" },
+                    When: "{{steps.0.ok}} == 'true'")
+            ]),
+            TotalStepCount: 2);
+
+        var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        result.Steps.Count.ShouldBe(2);
+        result.Steps[0].Status.ShouldBe(StepStatus.Succeeded);
+        result.Steps[1].Status.ShouldBe(StepStatus.Succeeded);
+    }
+
+    [Fact]
+    public async Task Execute_StepWithWhenFalse_SkipsStep()
+    {
+        var dispatcher = CreateDispatcher();
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new SequenceNode([
+                new StepNode(0, "twig_status", new Dictionary<string, object?>()),
+                new StepNode(1, "twig_set", new Dictionary<string, object?> { ["idOrPattern"] = "1" },
+                    When: "{{steps.0.ok}} == 'false'")
+            ]),
+            TotalStepCount: 2);
+
+        var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        result.Steps.Count.ShouldBe(2);
+        result.Steps[0].Status.ShouldBe(StepStatus.Succeeded);
+        result.Steps[1].Status.ShouldBe(StepStatus.Skipped);
+        result.Steps[1].Error!.ShouldContain("when");
+    }
+
+    [Fact]
+    public async Task Execute_StepWithWhenFalse_DoesNotDispatch()
+    {
+        var dispatched = new List<string>();
+        var dispatcher = CreateDispatcher((tool, _) =>
+        {
+            dispatched.Add(tool);
+            return SuccessResult($"{{\"tool\":\"{tool}\",\"ok\":true}}");
+        });
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new SequenceNode([
+                new StepNode(0, "twig_status", new Dictionary<string, object?>()),
+                new StepNode(1, "twig_set", new Dictionary<string, object?> { ["idOrPattern"] = "1" },
+                    When: "{{steps.0.ok}} != 'true'")
+            ]),
+            TotalStepCount: 2);
+
+        await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        dispatched.ShouldBe(["twig_status"]);
+    }
+
+    [Fact]
+    public async Task Execute_StepWithWhenNoTemplate_LiteralTrue_Executes()
+    {
+        var dispatcher = CreateDispatcher();
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new StepNode(0, "twig_status", new Dictionary<string, object?>(), When: "true"),
+            TotalStepCount: 1);
+
+        var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        result.Steps[0].Status.ShouldBe(StepStatus.Succeeded);
+    }
+
+    [Fact]
+    public async Task Execute_StepWithWhenNoTemplate_LiteralFalse_Skips()
+    {
+        var dispatcher = CreateDispatcher();
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new StepNode(0, "twig_status", new Dictionary<string, object?>(), When: "false"),
+            TotalStepCount: 1);
+
+        var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        result.Steps[0].Status.ShouldBe(StepStatus.Skipped);
+    }
+
+    [Fact]
+    public async Task Execute_WhenSkippedStep_DoesNotBlockSequence()
+    {
+        var dispatcher = CreateDispatcher();
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new SequenceNode([
+                new StepNode(0, "twig_status", new Dictionary<string, object?>()),
+                new StepNode(1, "twig_set", new Dictionary<string, object?>(), When: "false"),
+                new StepNode(2, "twig_show", new Dictionary<string, object?> { ["id"] = 1 })
+            ]),
+            TotalStepCount: 3);
+
+        var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        result.Steps[0].Status.ShouldBe(StepStatus.Succeeded);
+        result.Steps[1].Status.ShouldBe(StepStatus.Skipped);
+        result.Steps[2].Status.ShouldBe(StepStatus.Succeeded);
+    }
+
+    [Fact]
+    public async Task Execute_WhenTemplateResolutionFails_RecordsFailure()
+    {
+        var dispatcher = CreateDispatcher();
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new SequenceNode([
+                new StepNode(0, "twig_status", new Dictionary<string, object?>()),
+                new StepNode(1, "twig_set", new Dictionary<string, object?>(),
+                    When: "{{steps.5.state}} == 'Active'")
+            ]),
+            TotalStepCount: 2);
+
+        var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        result.Steps[1].Status.ShouldBe(StepStatus.Failed);
+        result.Steps[1].Error!.ShouldContain("When expression failed");
+    }
+
+    [Fact]
+    public async Task Execute_WhenSkipped_IncludedInSummarySkipCount()
+    {
+        var dispatcher = CreateDispatcher();
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new SequenceNode([
+                new StepNode(0, "twig_status", new Dictionary<string, object?>()),
+                new StepNode(1, "twig_set", new Dictionary<string, object?>(), When: "false")
+            ]),
+            TotalStepCount: 2);
+
+        var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        result.Summary.Succeeded.ShouldBe(1);
+        result.Summary.Skipped.ShouldBe(1);
+        result.Summary.Failed.ShouldBe(0);
+        result.Summary.Total.ShouldBe(2);
+    }
+
+    // ── onError: continue ──────────────────────────────────────────
+
+    [Fact]
+    public async Task Execute_OnErrorContinue_SequenceContinuesAfterFailure()
+    {
+        var dispatcher = CreateDispatcher((tool, _) =>
+        {
+            if (tool == "twig_state")
+                return ErrorResult("State change failed");
+            return SuccessResult($"{{\"tool\":\"{tool}\"}}");
+        });
+
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new SequenceNode([
+                new StepNode(0, "twig_set", new Dictionary<string, object?> { ["idOrPattern"] = "1" }),
+                new StepNode(1, "twig_state", new Dictionary<string, object?> { ["stateName"] = "Doing" },
+                    OnError: "continue"),
+                new StepNode(2, "twig_note", new Dictionary<string, object?> { ["text"] = "hello" })
+            ]),
+            TotalStepCount: 3);
+
+        var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        result.Steps.Count.ShouldBe(3);
+        result.Steps[0].Status.ShouldBe(StepStatus.Succeeded);
+        result.Steps[1].Status.ShouldBe(StepStatus.Failed);
+        result.Steps[1].Error.ShouldBe("State change failed");
+        result.Steps[2].Status.ShouldBe(StepStatus.Succeeded); // Not skipped!
+    }
+
+    [Fact]
+    public async Task Execute_OnErrorContinue_FailureStillRecordedInSummary()
+    {
+        var dispatcher = CreateDispatcher((tool, _) =>
+        {
+            if (tool == "twig_state")
+                return ErrorResult("Failed");
+            return SuccessResult("{}");
+        });
+
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new SequenceNode([
+                new StepNode(0, "twig_set", new Dictionary<string, object?>()),
+                new StepNode(1, "twig_state", new Dictionary<string, object?>(), OnError: "continue"),
+                new StepNode(2, "twig_note", new Dictionary<string, object?>())
+            ]),
+            TotalStepCount: 3);
+
+        var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        result.Summary.Total.ShouldBe(3);
+        result.Summary.Succeeded.ShouldBe(2);
+        result.Summary.Failed.ShouldBe(1);
+        result.Summary.Skipped.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Execute_OnErrorContinue_WithoutOnError_StillFailsFast()
+    {
+        // Default behavior is preserved: without onError, fail-fast still applies.
+        var dispatcher = CreateDispatcher((tool, _) =>
+        {
+            if (tool == "twig_state")
+                return ErrorResult("Failed");
+            return SuccessResult("{}");
+        });
+
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new SequenceNode([
+                new StepNode(0, "twig_set", new Dictionary<string, object?>()),
+                new StepNode(1, "twig_state", new Dictionary<string, object?>()),
+                new StepNode(2, "twig_note", new Dictionary<string, object?>())
+            ]),
+            TotalStepCount: 3);
+
+        var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        result.Steps[1].Status.ShouldBe(StepStatus.Failed);
+        result.Steps[2].Status.ShouldBe(StepStatus.Skipped);
+    }
+
+    [Fact]
+    public async Task Execute_OnErrorContinue_MultipleFailures_AllContinue()
+    {
+        var callCount = 0;
+        var dispatcher = CreateDispatcher((_, _) =>
+        {
+            callCount++;
+            // Steps 2 and 3 (1-indexed) fail
+            return callCount is 2 or 3
+                ? ErrorResult($"Step {callCount} failed")
+                : SuccessResult("{}");
+        });
+
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new SequenceNode([
+                new StepNode(0, "twig_set", new Dictionary<string, object?>()),
+                new StepNode(1, "twig_state", new Dictionary<string, object?>(), OnError: "continue"),
+                new StepNode(2, "twig_update", new Dictionary<string, object?>(), OnError: "continue"),
+                new StepNode(3, "twig_note", new Dictionary<string, object?>())
+            ]),
+            TotalStepCount: 4);
+
+        var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        result.Steps[0].Status.ShouldBe(StepStatus.Succeeded);
+        result.Steps[1].Status.ShouldBe(StepStatus.Failed);
+        result.Steps[2].Status.ShouldBe(StepStatus.Failed);
+        result.Steps[3].Status.ShouldBe(StepStatus.Succeeded);
+    }
+
+    [Fact]
+    public async Task Execute_OnErrorContinue_MixedWithRegularFailure_StopsAtRegular()
+    {
+        var callCount = 0;
+        var dispatcher = CreateDispatcher((_, _) =>
+        {
+            callCount++;
+            // Steps 2 and 3 fail; step 2 has onError:continue, step 3 does not.
+            return callCount is 2 or 3
+                ? ErrorResult($"Step {callCount} failed")
+                : SuccessResult("{}");
+        });
+
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new SequenceNode([
+                new StepNode(0, "twig_set", new Dictionary<string, object?>()),
+                new StepNode(1, "twig_state", new Dictionary<string, object?>(), OnError: "continue"),
+                new StepNode(2, "twig_update", new Dictionary<string, object?>()),  // No onError
+                new StepNode(3, "twig_note", new Dictionary<string, object?>())
+            ]),
+            TotalStepCount: 4);
+
+        var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        result.Steps[0].Status.ShouldBe(StepStatus.Succeeded);
+        result.Steps[1].Status.ShouldBe(StepStatus.Failed);    // Continues due to onError:continue
+        result.Steps[2].Status.ShouldBe(StepStatus.Failed);    // Normal fail-fast trigger
+        result.Steps[3].Status.ShouldBe(StepStatus.Skipped);   // Skipped by fail-fast
+    }
+
+    [Fact]
+    public async Task Execute_OnErrorContinue_InNestedParallel_DoesNotBlockParentSequence()
+    {
+        var dispatcher = CreateDispatcher((tool, args) =>
+        {
+            if (tool == "twig_show" && args.TryGetValue("id", out var id) && id is int idInt && idInt == 200)
+                return ErrorResult("show failed");
+            return SuccessResult($"{{\"tool\":\"{tool}\"}}");
+        });
+
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        // Sequence: step0 → parallel(step1-fail-continue, step2) → step3-should-run
+        var graph = new BatchGraph(
+            new SequenceNode([
+                new StepNode(0, "twig_set", new Dictionary<string, object?> { ["id"] = 100 }),
+                new ParallelNode([
+                    new StepNode(1, "twig_show", new Dictionary<string, object?> { ["id"] = 200 },
+                        OnError: "continue"),
+                    new StepNode(2, "twig_show", new Dictionary<string, object?> { ["id"] = 201 })
+                ]),
+                new StepNode(3, "twig_note", new Dictionary<string, object?> { ["id"] = 300 })
+            ]),
+            TotalStepCount: 4);
+
+        var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        result.Steps[0].Status.ShouldBe(StepStatus.Succeeded);
+        result.Steps[1].Status.ShouldBe(StepStatus.Failed);
+        result.Steps[2].Status.ShouldBe(StepStatus.Succeeded);
+        result.Steps[3].Status.ShouldBe(StepStatus.Succeeded); // Not skipped because onError:continue
+    }
+
+    [Fact]
+    public async Task Execute_OnErrorContinue_DispatcherThrows_StillContinues()
+    {
+        var callCount = 0;
+        var dispatcher = new TestToolDispatcher((tool, args, ct) =>
+        {
+            callCount++;
+            if (callCount == 2)
+                throw new InvalidOperationException("Dispatcher crashed");
+            return Task.FromResult(SuccessResult($"{{\"tool\":\"{tool}\"}}"));
+        });
+
+        var engine = new BatchExecutionEngine(dispatcher);
+
+        var graph = new BatchGraph(
+            new SequenceNode([
+                new StepNode(0, "twig_set", new Dictionary<string, object?>()),
+                new StepNode(1, "twig_state", new Dictionary<string, object?>(), OnError: "continue"),
+                new StepNode(2, "twig_note", new Dictionary<string, object?>())
+            ]),
+            TotalStepCount: 3);
+
+        var result = await engine.ExecuteAsync(graph, DefaultTimeout, null, CancellationToken.None);
+
+        result.Steps[0].Status.ShouldBe(StepStatus.Succeeded);
+        result.Steps[1].Status.ShouldBe(StepStatus.Failed);
+        result.Steps[1].Error.ShouldBe("Dispatcher crashed");
+        result.Steps[2].Status.ShouldBe(StepStatus.Succeeded);
     }
 
     // ── Helper for tracking concurrent execution ────────────────────

@@ -51,8 +51,11 @@ internal sealed class BatchExecutionEngine(IToolDispatcher dispatcher)
         // Fill any remaining null slots with Skipped results.
         store.FillSkipped(graph.Root, "Skipped due to timeout or prior failure.");
 
+        var steps = store.ToResultList();
+
         return new BatchResult(
-            store.ToResultList(),
+            steps,
+            BatchSummary.FromSteps(steps),
             batchStopwatch.ElapsedMilliseconds,
             timedOut);
     }
@@ -89,6 +92,48 @@ internal sealed class BatchExecutionEngine(IToolDispatcher dispatcher)
         CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
+
+        // Evaluate optional 'when' guard before dispatching.
+        if (step.When is not null)
+        {
+            try
+            {
+                var shouldExecute = WhenEvaluator.Evaluate(step.When, store.GetSnapshot());
+                if (!shouldExecute)
+                {
+                    store.Record(step.GlobalIndex, new StepResult(
+                        step.GlobalIndex,
+                        step.ToolName,
+                        StepStatus.Skipped,
+                        null,
+                        $"Skipped: 'when' condition evaluated to false: {step.When}",
+                        0));
+                    return;
+                }
+            }
+            catch (TemplateResolutionException ex)
+            {
+                store.Record(step.GlobalIndex, new StepResult(
+                    step.GlobalIndex,
+                    step.ToolName,
+                    StepStatus.Failed,
+                    null,
+                    $"When expression failed: {ex.Message}",
+                    0));
+                return;
+            }
+            catch (WhenEvaluationException ex)
+            {
+                store.Record(step.GlobalIndex, new StepResult(
+                    step.GlobalIndex,
+                    step.ToolName,
+                    StepStatus.Failed,
+                    null,
+                    ex.Message,
+                    0));
+                return;
+            }
+        }
 
         var stopwatch = Stopwatch.StartNew();
 
@@ -170,8 +215,9 @@ internal sealed class BatchExecutionEngine(IToolDispatcher dispatcher)
 
             await ExecuteNodeAsync(child, store, workspaceOverride, ct).ConfigureAwait(false);
 
-            // Check if any step in this child subtree failed → fail-fast.
-            if (HasFailure(child, store))
+            // Check if any step in this child subtree failed → fail-fast,
+            // unless the failed step has onError: "continue".
+            if (HasBlockingFailure(child, store))
             {
                 failed = true;
             }
@@ -209,13 +255,17 @@ internal sealed class BatchExecutionEngine(IToolDispatcher dispatcher)
     }
 
     /// <summary>
-    /// Checks if any step node in the subtree has a Failed result.
+    /// Checks if any step node in the subtree has a Failed result that should
+    /// block the enclosing sequence. Steps with <c>onError: "continue"</c> are
+    /// treated as non-blocking failures — they are recorded but do not trigger
+    /// fail-fast in the parent sequence.
     /// </summary>
-    private static bool HasFailure(BatchNode node, StepOutputStore store) => node switch
+    private static bool HasBlockingFailure(BatchNode node, StepOutputStore store) => node switch
     {
-        StepNode step => store.GetResult(step.GlobalIndex)?.Status == StepStatus.Failed,
-        SequenceNode seq => seq.Children.Any(c => HasFailure(c, store)),
-        ParallelNode par => par.Children.Any(c => HasFailure(c, store)),
+        StepNode step => store.GetResult(step.GlobalIndex)?.Status == StepStatus.Failed
+                         && !string.Equals(step.OnError, "continue", StringComparison.OrdinalIgnoreCase),
+        SequenceNode seq => seq.Children.Any(c => HasBlockingFailure(c, store)),
+        ParallelNode par => par.Children.Any(c => HasBlockingFailure(c, store)),
         _ => false
     };
 

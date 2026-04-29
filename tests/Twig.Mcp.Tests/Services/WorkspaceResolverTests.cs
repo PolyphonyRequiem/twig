@@ -2,13 +2,14 @@ using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.Navigation;
+using Twig.Domain.Services.Seed;
+using Twig.Domain.Services.Sync;
+using Twig.Domain.Services.Workspace;
 using Twig.Infrastructure.Ado.Exceptions;
 using Twig.Mcp.Services;
 using Twig.TestKit;
 using Xunit;
-using Twig.Domain.Services.Navigation;
-using Twig.Domain.Services.Sync;
-using Twig.Domain.Services.Workspace;
 
 namespace Twig.Mcp.Tests.Services;
 
@@ -455,7 +456,11 @@ public sealed class WorkspaceResolverTests
             parentPropagationService: null!,
             sprintIterationResolver: null!,
             processTypeStore: null!,
-            fieldDefinitionStore: null!);
+            fieldDefinitionStore: null!,
+            seedLinkRepo: Substitute.For<ISeedLinkRepository>(),
+            publishIdMapRepo: Substitute.For<IPublishIdMapRepository>(),
+            seedPublishRulesProvider: Substitute.For<ISeedPublishRulesProvider>(),
+            unitOfWork: Substitute.For<IUnitOfWork>());
     }
 
     private static void SetupCacheHit(WorkspaceContext ctx, int id)

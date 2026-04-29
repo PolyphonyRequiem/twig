@@ -18,12 +18,12 @@ public sealed class WorkspaceToolsTests : ReadToolsTestBase
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public void ListWorkspaces_EmptyRegistry_ReturnsEmptyList()
+    public async Task ListWorkspaces_EmptyRegistry_ReturnsEmptyList()
     {
         var (registry, resolver) = BuildDeps(Array.Empty<WorkspaceKey>());
         var sut = new WorkspaceTools(registry, resolver);
 
-        var result = sut.ListWorkspaces();
+        var result = await sut.ListWorkspaces();
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
@@ -37,12 +37,12 @@ public sealed class WorkspaceToolsTests : ReadToolsTestBase
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public void ListWorkspaces_SingleWorkspace_ReturnsSingleEntry()
+    public async Task ListWorkspaces_SingleWorkspace_ReturnsSingleEntry()
     {
         var (registry, resolver) = BuildDeps(new[] { Key1 });
         var sut = new WorkspaceTools(registry, resolver);
 
-        var result = sut.ListWorkspaces();
+        var result = await sut.ListWorkspaces();
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
@@ -61,13 +61,13 @@ public sealed class WorkspaceToolsTests : ReadToolsTestBase
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public void ListWorkspaces_MultipleWorkspaces_ActiveMarked()
+    public async Task ListWorkspaces_MultipleWorkspaces_ActiveMarked()
     {
         var (registry, resolver) = BuildDeps(new[] { Key1, Key2 });
         resolver.ActiveWorkspace = Key2;
         var sut = new WorkspaceTools(registry, resolver);
 
-        var result = sut.ListWorkspaces();
+        var result = await sut.ListWorkspaces();
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);
@@ -86,12 +86,12 @@ public sealed class WorkspaceToolsTests : ReadToolsTestBase
     // ═══════════════════════════════════════════════════════════════
 
     [Fact]
-    public void ListWorkspaces_NoActiveWorkspace_AllInactive()
+    public async Task ListWorkspaces_NoActiveWorkspace_AllInactive()
     {
         var (registry, resolver) = BuildDeps(new[] { Key1, Key2 });
         var sut = new WorkspaceTools(registry, resolver);
 
-        var result = sut.ListWorkspaces();
+        var result = await sut.ListWorkspaces();
 
         var root = ParseResult(result);
         var workspaces = root.GetProperty("workspaces");

@@ -16,7 +16,9 @@ public sealed class WorkspaceTools(IWorkspaceRegistry registry, WorkspaceResolve
     private static readonly JsonWriterOptions WriterOptions = new() { Indented = true };
 
     [McpServerTool(Name = "twig_list_workspaces"), Description("List all registered workspaces discovered from .twig/ directory layout")]
-    public CallToolResult ListWorkspaces()
+    public async Task<CallToolResult> ListWorkspaces(
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
+        CancellationToken ct = default)
     {
         using var stream = new MemoryStream();
         using var writer = new Utf8JsonWriter(stream, WriterOptions);
@@ -42,6 +44,7 @@ public sealed class WorkspaceTools(IWorkspaceRegistry registry, WorkspaceResolve
         writer.WriteEndObject();
         writer.Flush();
 
-        return McpResultBuilder.ToResult(Encoding.UTF8.GetString(stream.ToArray()));
+        var inner = McpResultBuilder.ToResult(Encoding.UTF8.GetString(stream.ToArray()));
+        return await EnvelopeBuilder.WrapAsync(null, inner, verbose, ct);
     }
 }

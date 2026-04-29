@@ -9,11 +9,17 @@ internal abstract record BatchNode;
 /// A single tool invocation within a batch graph.
 /// <paramref name="GlobalIndex"/> is the zero-based position assigned during
 /// depth-first traversal of the graph — used for <c>{{steps.N.field}}</c> references.
+/// <paramref name="When"/> is an optional guard expression evaluated before dispatch;
+/// if it evaluates to <c>false</c>, the step is skipped without executing.
+/// <paramref name="OnError"/> controls failure behavior within a sequence: when set to
+/// <c>"continue"</c>, a failure in this step does not abort the enclosing sequence.
 /// </summary>
 internal sealed record StepNode(
     int GlobalIndex,
     string ToolName,
-    Dictionary<string, object?> Arguments) : BatchNode;
+    Dictionary<string, object?> Arguments,
+    string? When = null,
+    string? OnError = null) : BatchNode;
 
 /// <summary>
 /// An ordered list of child nodes executed sequentially with fail-fast semantics.
@@ -56,9 +62,42 @@ internal sealed record StepResult(
     long ElapsedMs);
 
 /// <summary>
+/// Aggregate counts for a batch execution: total, succeeded, failed, skipped.
+/// </summary>
+internal sealed record BatchSummary(
+    int Total,
+    int Succeeded,
+    int Failed,
+    int Skipped)
+{
+    /// <summary>
+    /// Computes a summary from the given list of step results.
+    /// </summary>
+    public static BatchSummary FromSteps(IReadOnlyList<StepResult> steps)
+    {
+        var succeeded = 0;
+        var failed = 0;
+        var skipped = 0;
+
+        foreach (var step in steps)
+        {
+            switch (step.Status)
+            {
+                case StepStatus.Succeeded: succeeded++; break;
+                case StepStatus.Failed: failed++; break;
+                case StepStatus.Skipped: skipped++; break;
+            }
+        }
+
+        return new BatchSummary(steps.Count, succeeded, failed, skipped);
+    }
+}
+
+/// <summary>
 /// Aggregate result for an entire batch execution.
 /// </summary>
 internal sealed record BatchResult(
     IReadOnlyList<StepResult> Steps,
+    BatchSummary Summary,
     long TotalElapsedMs,
     bool TimedOut);

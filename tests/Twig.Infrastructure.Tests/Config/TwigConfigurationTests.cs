@@ -1249,4 +1249,146 @@ public class TwigConfigurationTests : IDisposable
 
         loaded.Areas.Mode.ShouldBe("exact");
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  GetValue tests
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void GetValue_UnknownPath_ReturnsNotFound()
+    {
+        var config = new TwigConfiguration();
+        var (value, found) = config.GetValue("nonexistent.path");
+        found.ShouldBeFalse();
+        value.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData("organization")]
+    [InlineData("project")]
+    [InlineData("team")]
+    [InlineData("processtemplate")]
+    [InlineData("auth.method")]
+    [InlineData("defaults.areapath")]
+    [InlineData("defaults.areapaths")]
+    [InlineData("defaults.iterationpath")]
+    [InlineData("defaults.mode")]
+    [InlineData("seed.staledays")]
+    [InlineData("display.hints")]
+    [InlineData("display.treedepth")]
+    [InlineData("display.treedepthup")]
+    [InlineData("display.treedepthdown")]
+    [InlineData("display.treedepthsideways")]
+    [InlineData("display.icons")]
+    [InlineData("display.cachestaleminutes")]
+    [InlineData("display.fillratethreshold")]
+    [InlineData("display.maxextracolumns")]
+    [InlineData("display.columns.workspace")]
+    [InlineData("display.columns.sprint")]
+    [InlineData("user.name")]
+    [InlineData("user.email")]
+    [InlineData("git.branchpattern")]
+    [InlineData("git.project")]
+    [InlineData("git.repository")]
+    [InlineData("workspace.working_level")]
+    [InlineData("workspace.sprints")]
+    [InlineData("tracking.cleanuppolicy")]
+    [InlineData("areas.mode")]
+    [InlineData("defaults.areapathentries")]
+    [InlineData("areas.paths")]
+    public void GetValue_KnownPaths_ReturnFound(string key)
+    {
+        var config = new TwigConfiguration();
+        var (_, found) = config.GetValue(key);
+        found.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void GetValue_CaseInsensitive()
+    {
+        var config = new TwigConfiguration { Organization = "myorg" };
+        var (value, found) = config.GetValue("ORGANIZATION");
+        found.ShouldBeTrue();
+        value.ShouldBe("myorg");
+    }
+
+    [Fact]
+    public void GetValue_RoundTrips_WithSetValue()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("seed.staledays", "42").ShouldBeTrue();
+
+        var (value, found) = config.GetValue("seed.staledays");
+        found.ShouldBeTrue();
+        value.ShouldBe("42");
+    }
+
+    [Fact]
+    public void GetValue_AreaPaths_ReturnsJoinedValues()
+    {
+        var config = new TwigConfiguration
+        {
+            Defaults = new DefaultsConfig
+            {
+                AreaPaths = ["Project\\Area1", "Project\\Area2"],
+            },
+        };
+
+        var (value, found) = config.GetValue("defaults.areapaths");
+        found.ShouldBeTrue();
+        value.ShouldBe("Project\\Area1;Project\\Area2");
+    }
+
+    [Fact]
+    public void GetValue_AreaPathEntries_ReturnsFormattedEntries()
+    {
+        var config = new TwigConfiguration
+        {
+            Defaults = new DefaultsConfig
+            {
+                AreaPathEntries =
+                [
+                    new AreaPathEntry { Path = "Project\\Team", IncludeChildren = true },
+                    new AreaPathEntry { Path = "Project\\Other", IncludeChildren = false },
+                ],
+            },
+        };
+
+        var (value, found) = config.GetValue("defaults.areapathentries");
+        found.ShouldBeTrue();
+        value.ShouldBe("Project\\Team;Project\\Other:exact");
+    }
+
+    [Fact]
+    public void GetValue_WorkspaceSprints_ReturnsJoinedExpressions()
+    {
+        var config = new TwigConfiguration
+        {
+            Workspace = new WorkspaceConfig
+            {
+                Sprints =
+                [
+                    new SprintEntry { Expression = "@current" },
+                    new SprintEntry { Expression = "@current-1" },
+                ],
+            },
+        };
+
+        var (value, found) = config.GetValue("workspace.sprints");
+        found.ShouldBeTrue();
+        value.ShouldBe("@current;@current-1");
+    }
+
+    [Fact]
+    public void GetValue_FillRateThreshold_ReturnsInvariantFormat()
+    {
+        var config = new TwigConfiguration
+        {
+            Display = new DisplayConfig { FillRateThreshold = 0.75 },
+        };
+
+        var (value, found) = config.GetValue("display.fillratethreshold");
+        found.ShouldBeTrue();
+        value.ShouldBe("0.75");
+    }
 }

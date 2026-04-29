@@ -2,6 +2,7 @@ using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.Services.Navigation;
+using Twig.Domain.Services.Seed;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Workspace;
 using Twig.Infrastructure.Config;
@@ -46,6 +47,26 @@ public sealed class WorkspaceContext : IDisposable
     /// </summary>
     public BranchLinkService? BranchLinkService { get; }
 
+    /// <summary>
+    /// Repository for virtual seed links. Used by seed publish orchestration.
+    /// </summary>
+    public ISeedLinkRepository SeedLinkRepo { get; }
+
+    /// <summary>
+    /// Repository for recording seed-to-ADO ID mappings after publish.
+    /// </summary>
+    public IPublishIdMapRepository PublishIdMapRepo { get; }
+
+    /// <summary>
+    /// Provides the publish rules that seeds are validated against.
+    /// </summary>
+    public ISeedPublishRulesProvider SeedPublishRulesProvider { get; }
+
+    /// <summary>
+    /// Unit of work for transactional consistency across repository operations.
+    /// </summary>
+    public IUnitOfWork UnitOfWork { get; }
+
     internal SqliteCacheStore CacheStore { get; }
 
     public WorkspaceContext(
@@ -69,6 +90,10 @@ public sealed class WorkspaceContext : IDisposable
         SprintIterationResolver sprintIterationResolver,
         IProcessTypeStore processTypeStore,
         IFieldDefinitionStore fieldDefinitionStore,
+        ISeedLinkRepository seedLinkRepo,
+        IPublishIdMapRepository publishIdMapRepo,
+        ISeedPublishRulesProvider seedPublishRulesProvider,
+        IUnitOfWork unitOfWork,
         ITrackingRepository? trackingRepo = null,
         BranchLinkService? branchLinkService = null)
     {
@@ -92,6 +117,10 @@ public sealed class WorkspaceContext : IDisposable
         SprintIterationResolver = sprintIterationResolver;
         ProcessTypeStore = processTypeStore;
         FieldDefinitionStore = fieldDefinitionStore;
+        SeedLinkRepo = seedLinkRepo;
+        PublishIdMapRepo = publishIdMapRepo;
+        SeedPublishRulesProvider = seedPublishRulesProvider;
+        UnitOfWork = unitOfWork;
         TrackingRepo = trackingRepo;
         BranchLinkService = branchLinkService;
     }

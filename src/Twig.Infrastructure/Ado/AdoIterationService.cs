@@ -337,6 +337,35 @@ internal sealed class AdoIterationService : IIterationService
         }
     }
 
+    public async Task<AreaTreeNode> GetAreaTreeAsync(CancellationToken ct = default)
+    {
+        var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/_apis/wit/classificationnodes/areas?$depth=10&api-version={ApiVersion}";
+        using var response = await SendAsync(url, ct);
+
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        var node = await JsonSerializer.DeserializeAsync(stream, TwigJsonContext.Default.AdoClassificationNodeResponse, ct);
+
+        return MapNode(node);
+    }
+
+    private static AreaTreeNode MapNode(AdoClassificationNodeResponse? node)
+    {
+        if (node is null)
+            return new AreaTreeNode("", "", []);
+
+        var name = node.Name ?? "";
+        // ADO returns paths like "\ProjectName\Area\SubArea" — normalize to backslash-separated without leading slash
+        var path = (node.Path ?? name).TrimStart('\\').Replace("\\Area", "").TrimStart('\\');
+        if (string.IsNullOrEmpty(path))
+            path = name;
+
+        var children = node.Children is { Count: > 0 }
+            ? node.Children.Select(MapNode).ToList()
+            : (IReadOnlyList<AreaTreeNode>)[];
+
+        return new AreaTreeNode(name, path, children);
+    }
+
     private async Task<IReadOnlyList<TeamIteration>> FetchTeamIterationsAsync(CancellationToken ct)
     {
         var url = $"{_orgUrl}/{Uri.EscapeDataString(_project)}/{Uri.EscapeDataString(_team)}/_apis/work/teamsettings/iterations?api-version={ApiVersion}";

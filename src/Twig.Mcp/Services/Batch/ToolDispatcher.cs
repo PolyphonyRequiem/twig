@@ -15,7 +15,10 @@ internal sealed class ToolDispatcher(
     MutationTools mutationTools,
     NavigationTools navigationTools,
     CreationTools creationTools,
-    WorkspaceTools workspaceTools) : IToolDispatcher
+    WorkspaceTools workspaceTools,
+    TrackingTools trackingTools,
+    AdminTools adminTools,
+    SeedTools seedTools) : IToolDispatcher
 {
     /// <summary>
     /// Dispatches a single tool call by name, extracting typed parameters from the args dictionary.
@@ -38,35 +41,43 @@ internal sealed class ToolDispatcher(
             // Context tools
             "twig_set" => contextTools.Set(
                 GetRequiredString(args, "idOrPattern"),
-                workspace, ct),
+                workspace, verbose: false, ct),
 
             // Read tools
             "twig_tree" => readTools.Tree(
+                GetNullableInt(args, "id"),
                 GetNullableInt(args, "depth"),
-                workspace, ct),
+                workspace, verbose: false, ct),
 
             "twig_workspace" => readTools.Workspace(
                 GetBool(args, "all"),
                 GetBool(args, "tree"),
-                workspace, ct),
+                workspace, verbose: false, ct),
 
             // Mutation tools
             "twig_state" => mutationTools.State(
                 GetRequiredString(args, "stateName"),
-                workspace, ct),
+                GetNullableInt(args, "id"),
+                workspace, verbose: false, ct),
 
             "twig_update" => mutationTools.Update(
                 GetRequiredString(args, "field"),
                 GetRequiredString(args, "value"),
                 GetString(args, "format"),
                 GetBool(args, "append"),
-                workspace, ct),
+                GetNullableInt(args, "id"),
+                workspace, verbose: false, ct),
 
             "twig_note" => mutationTools.Note(
                 GetRequiredString(args, "text"),
-                workspace, ct),
+                GetNullableInt(args, "id"),
+                workspace, verbose: false, ct),
 
-            "twig_sync"=> mutationTools.Sync(workspace, GetBool(args, "pull_only"), ct),
+            "twig_sync"=> mutationTools.Sync(workspace, GetBool(args, "pull_only"), verbose: false, ct),
+
+            "twig_refresh" => readTools.Refresh(GetNullableInt(args, "id"), workspace, verbose: false, ct),
+
+            "twig_cache_status" => readTools.CacheStatus(workspace, verbose: false, ct),
 
             // Creation tools
             "twig_new" => creationTools.New(
@@ -77,6 +88,7 @@ internal sealed class ToolDispatcher(
                 GetString(args, "assignedTo"),
                 workspace,
                 GetBool(args, "skipDuplicateCheck"),
+                verbose: false,
                 ct),
 
             "twig_find_or_create" => creationTools.FindOrCreate(
@@ -85,20 +97,20 @@ internal sealed class ToolDispatcher(
                 GetRequiredInt(args, "parentId"),
                 GetString(args, "description"),
                 GetString(args, "assignedTo"),
-                workspace, ct),
+                workspace, verbose: false, ct),
 
             "twig_link" => creationTools.Link(
                 GetRequiredInt(args, "sourceId"),
                 GetRequiredInt(args, "targetId"),
                 GetRequiredString(args, "linkType"),
-                workspace, ct),
+                workspace, verbose: false, ct),
 
             // Navigation tools
             "twig_show" => navigationTools.Show(
                 GetRequiredInt(args, "id"),
                 GetBool(args, "tree"),
                 GetNullableInt(args, "depth"),
-                workspace, ct),
+                workspace, verbose: false, ct),
 
             "twig_query" => navigationTools.Query(
                 searchText: GetString(args, "searchText"),
@@ -111,24 +123,60 @@ internal sealed class ToolDispatcher(
                 createdSince: GetNullableInt(args, "createdSince"),
                 changedSince: GetNullableInt(args, "changedSince"),
                 top: GetInt(args, "top", defaultValue: 25),
-                workspace: workspace, ct: ct),
+                workspace: workspace, verbose: false, ct: ct),
 
             "twig_children" => navigationTools.Children(
                 GetRequiredInt(args, "id"),
-                workspace, ct),
+                workspace, verbose: false, ct),
 
             "twig_parent" => navigationTools.Parent(
                 GetRequiredInt(args, "id"),
-                workspace, ct),
+                workspace, verbose: false, ct),
 
             "twig_sprint" => navigationTools.Sprint(
                 GetBool(args, "items"),
-                workspace, ct),
+                workspace, verbose: false, ct),
 
             // Workspace tools
-            "twig_list_workspaces" => Task.FromResult(workspaceTools.ListWorkspaces()),
+            "twig_list_workspaces" => workspaceTools.ListWorkspaces(verbose: false, ct),
 
-            _ => Task.FromResult(McpResultBuilder.ToError($"Unknown tool '{toolName}'."))
+            // Tracking tools
+            "twig_track" => trackingTools.Track(
+                GetRequiredString(args, "id"),
+                GetBool(args, "recursive"),
+                workspace, verbose: false, ct),
+
+            "twig_untrack" => trackingTools.Untrack(
+                GetRequiredString(args, "id"),
+                workspace, verbose: false, ct),
+
+            "twig_tracking_status" => trackingTools.TrackingStatus(
+                workspace, verbose: false, ct),
+
+            // Admin tools
+            "twig_config" => adminTools.Config(GetString(args, "key"), workspace, verbose: false, ct),
+
+            "twig_area" => adminTools.Area(workspace, verbose: false, ct),
+
+            // Seed tools
+            "twig_seed_new" => seedTools.SeedNew(
+                GetRequiredString(args, "title"),
+                GetString(args, "type"),
+                GetNullableInt(args, "parentId"),
+                GetString(args, "description"),
+                GetString(args, "assignedTo"),
+                workspace, verbose: false, ct),
+
+            "twig_seed_view" => seedTools.SeedView(workspace, verbose: false, ct),
+
+            "twig_seed_publish" => seedTools.SeedPublish(
+                GetNullableInt(args, "id"),
+                GetBool(args, "all"),
+                GetBool(args, "force"),
+                GetBool(args, "dryRun"),
+                workspace, verbose: false, ct),
+
+            _ => Task.FromResult(EnvelopeBuilder.Error(McpErrorCode.InvalidInput, $"Unknown tool '{toolName}'."))
         };
     }
 

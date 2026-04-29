@@ -18,10 +18,11 @@ public sealed class ContextTools(WorkspaceResolver resolver)
     public async Task<CallToolResult> Set(
         [Description("Work item ID (numeric) or title pattern (text)")] string idOrPattern,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(idOrPattern))
-            return McpResultBuilder.ToError("Usage: twig_set requires an ID or title pattern.");
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, "Usage: twig_set requires an ID or title pattern.");
 
         WorkspaceContext ctx;
         Domain.Aggregates.WorkItem item;
@@ -29,13 +30,15 @@ public sealed class ContextTools(WorkspaceResolver resolver)
         if (int.TryParse(idOrPattern, out var id))
         {
             try { ctx = await resolver.ResolveForSetAsync(id, workspace, ct); }
-            catch (Exception ex) when (ex is FormatException or KeyNotFoundException or AmbiguousWorkspaceException or WorkItemNotFoundException)
-            { return McpResultBuilder.ToError(ex.Message); }
+            catch (WorkItemNotFoundException ex)
+            { return EnvelopeBuilder.Error(McpErrorCode.ItemNotFound, ex.Message); }
+            catch (Exception ex) when (ex is FormatException or KeyNotFoundException or AmbiguousWorkspaceException)
+            { return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, ex.Message); }
 
             var result = await ctx.ActiveItemResolver.ResolveByIdAsync(id, ct);
 
             if (result is ActiveItemResult.Unreachable u)
-                return McpResultBuilder.ToError($"Work item #{u.Id} unreachable: {u.Reason}");
+                return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, $"Work item #{u.Id} unreachable: {u.Reason}", ctx, ct);
 
             item = result is ActiveItemResult.Found f
                 ? f.WorkItem
@@ -45,18 +48,18 @@ public sealed class ContextTools(WorkspaceResolver resolver)
         {
             try { ctx = resolver.Resolve(workspace); }
             catch (Exception ex) when (ex is FormatException or KeyNotFoundException or AmbiguousWorkspaceException)
-            { return McpResultBuilder.ToError(ex.Message); }
+            { return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, ex.Message); }
 
             var matches = await ctx.WorkItemRepo.FindByPatternAsync(idOrPattern, ct);
 
             if (matches.Count == 0)
-                return McpResultBuilder.ToError($"No cached items match '{idOrPattern}'.");
+                return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, $"No cached items match '{idOrPattern}'.", ctx, ct);
 
             if (matches.Count > 1)
             {
                 var lines = matches.Select(m => $"  #{m.Id}: {m.Title} [{m.State}]");
-                return McpResultBuilder.ToError(
-                    $"Multiple matches — specify by ID:\n{string.Join("\n", lines)}");
+                return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput,
+                    $"Multiple matches — specify by ID:\n{string.Join("\n", lines)}", ctx, ct);
             }
 
             item = matches[0];
@@ -84,6 +87,7 @@ public sealed class ContextTools(WorkspaceResolver resolver)
             parentChainCount = chain.Count;
         }
         var children = await ctx.WorkItemRepo.GetChildrenAsync(item.Id, ct);
-        return McpResultBuilder.FormatWorkItemWithWorkingSet(item, parentChainCount, children.Count, ctx.Key.ToString());
+        var toolResult = McpResultBuilder.FormatWorkItemWithWorkingSet(item, parentChainCount, children.Count, ctx.Key.ToString());
+        return await EnvelopeBuilder.WrapAsync(ctx, toolResult, verbose, ct);
     }
 }

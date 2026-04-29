@@ -73,7 +73,7 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
 
         result.IsError.ShouldBe(true);
         result.Content[0].ShouldBeOfType<TextContentBlock>()
-            .Text.ShouldContain("not found in cache");
+            .Text.ShouldContain("unreachable");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -230,7 +230,7 @@ public sealed class MutationToolsStateTests : MutationToolsTestBase
             Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(2);
 
-        var result = await CreateMutationSut().State("Doing", "testorg/testproject");
+        var result = await CreateMutationSut().State("Doing", workspace: "testorg/testproject");
 
         result.IsError.ShouldBeNull();
         var root = ParseResult(result);

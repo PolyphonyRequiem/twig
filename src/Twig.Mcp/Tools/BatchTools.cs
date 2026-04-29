@@ -19,25 +19,28 @@ public sealed class BatchTools(IToolDispatcher dispatcher)
         "Accepts a JSON graph of 'sequence', 'parallel', and 'step' nodes. " +
         "Sequential steps execute in order with fail-fast semantics. " +
         "Parallel steps execute concurrently. " +
+        "Steps support 'onError': 'continue' to allow partial failure recovery in sequences. " +
         "Max 50 operations, max 3 nesting levels, no recursive batch calls.")]
     public async Task<CallToolResult> Batch(
         [Description(
             "JSON string containing the batch execution graph. " +
             "Root node must be a sequence, parallel, or step. " +
             "Each step has 'type': 'step', 'tool': '<tool_name>', 'args': {<args>}. " +
+            "Steps support optional 'onError': 'continue' to skip fail-fast on failure. " +
             "Containers have 'type': 'sequence'|'parallel' and 'steps': [<children>]."
         )] string graph,
         [Description("Per-batch timeout in seconds (default: 120, max: 300).")] int? timeoutSeconds = null,
         [Description("Target workspace (format: \"org/project\"). Applied to steps without explicit workspace arg.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(graph))
-            return McpResultBuilder.ToError("The 'graph' parameter is required and must contain a valid JSON batch graph.");
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, "The 'graph' parameter is required and must contain a valid JSON batch graph.");
 
         var parseResult = BatchGraphParser.Parse(graph);
 
         if (!parseResult.IsSuccess)
-            return McpResultBuilder.ToError($"Batch graph validation failed: {parseResult.Error}");
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, $"Batch graph validation failed: {parseResult.Error}");
 
         var effectiveTimeout = ResolveTimeout(timeoutSeconds);
 
@@ -48,7 +51,7 @@ public sealed class BatchTools(IToolDispatcher dispatcher)
             workspace,
             ct);
 
-        return McpResultBuilder.FormatBatchResult(batchResult);
+        return await EnvelopeBuilder.WrapAsync(null, McpResultBuilder.FormatBatchResult(batchResult), verbose, ct);
     }
 
     private static TimeSpan ResolveTimeout(int? timeoutSeconds)

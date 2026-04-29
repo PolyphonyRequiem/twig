@@ -1,3 +1,5 @@
+using Twig.Domain.ValueObjects;
+
 namespace Twig.Domain.Aggregates;
 
 /// <summary>
@@ -23,6 +25,7 @@ internal static class WorkItemCopier
     /// When <c>false</c>, only <paramref name="fieldsOverride"/> fields are used.</param>
     /// <param name="preserveDirty">When <c>true</c>, the source dirty flag is transferred
     /// to the copy.</param>
+    /// <param name="typeOverride">If non-null, replaces the source <see cref="WorkItem.Type"/>.</param>
     internal static WorkItem Copy(
         WorkItem source,
         string? titleOverride = null,
@@ -31,12 +34,13 @@ internal static class WorkItemCopier
         bool? isSeedOverride = null,
         IReadOnlyDictionary<string, string?>? fieldsOverride = null,
         bool preserveExistingFields = true,
-        bool preserveDirty = false)
+        bool preserveDirty = false,
+        WorkItemType? typeOverride = null)
     {
         var copy = new WorkItem
         {
             Id = source.Id,
-            Type = source.Type,
+            Type = typeOverride ?? source.Type,
             Title = titleOverride ?? source.Title,
             State = source.State,
             AssignedTo = source.AssignedTo,

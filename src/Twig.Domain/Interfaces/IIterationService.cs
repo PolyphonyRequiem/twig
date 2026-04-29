@@ -46,4 +46,11 @@ public interface IIterationService
     /// Results are returned in the order provided by ADO (chronological).
     /// </summary>
     Task<IReadOnlyList<TeamIteration>> GetTeamIterationsAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Gets the project area path classification tree from ADO.
+    /// Calls GET /{project}/_apis/wit/classificationnodes/areas?$depth=10.
+    /// Returns a hierarchical tree of area nodes.
+    /// </summary>
+    Task<AreaTreeNode> GetAreaTreeAsync(CancellationToken ct = default);
 }

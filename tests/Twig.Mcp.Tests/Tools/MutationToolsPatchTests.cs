@@ -101,7 +101,7 @@ public sealed class MutationToolsPatchTests : MutationToolsTestBase
         var result = await CreateMutationSut().Patch("{\"System.Title\":\"New\"}");
 
         result.IsError.ShouldBe(true);
-        GetErrorText(result).ShouldContain("not found in cache");
+        GetErrorText(result).ShouldContain("unreachable");
     }
 
     // ═══════════════════════════════════════════════════════════════

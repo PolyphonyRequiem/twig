@@ -77,7 +77,10 @@ builder.Services
     .WithTools<CreationTools>()
     .WithTools<WorkspaceTools>()
     .WithTools<ProcessTools>()
-    .WithTools<BatchTools>();
+    .WithTools<AdminTools>()
+    .WithTools<TrackingTools>()
+    .WithTools<BatchTools>()
+    .WithTools<SeedTools>();
 
 await builder.Build().RunAsync();
 return 0;

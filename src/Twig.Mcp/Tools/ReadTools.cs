@@ -18,26 +18,20 @@ namespace Twig.Mcp.Tools;
 [McpServerToolType]
 public sealed class ReadTools(WorkspaceResolver resolver, NavigationTools navigationTools)
 {
-    [McpServerTool(Name = "twig_tree"), Description("Display work item hierarchy as a tree")]
+    [McpServerTool(Name = "twig_tree"), Description("Display work item hierarchy as a tree. Operates on the active work item by default, or specify id to target a specific item without changing context.")]
     public async Task<CallToolResult> Tree(
+        [Description("Work item ID to display. When omitted, uses the active work item. When provided, the active context is not changed.")] int? id = null,
         [Description("Max child depth to display")] int? depth = null,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
-        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
-        var resolveResult = await ctx.ActiveItemResolver.GetActiveItemAsync(ct);
+        var (item, resolveError) = await WorkItemResolver.ResolveWorkItemAsync(ctx, id, ct);
+        if (item is null) return resolveError!;
 
-        if (resolveResult is ActiveItemResult.NoContext)
-            return McpResultBuilder.ToError("No active work item. Use twig_set first.");
-        if (resolveResult is ActiveItemResult.Unreachable u)
-            return McpResultBuilder.ToError($"Work item #{u.Id} unreachable: {u.Reason}");
-
-        var item = resolveResult is ActiveItemResult.Found f
-            ? f.WorkItem
-            : ((ActiveItemResult.FetchedFromAdo)resolveResult).WorkItem;
-
-        return await navigationTools.Show(item.Id, tree: true, depth: depth, workspace: workspace, ct: ct);
+        return await navigationTools.Show(item.Id, tree: true, depth: depth, workspace: workspace, verbose: verbose, ct: ct);
     }
 
     [McpServerTool(Name = "twig_workspace"), Description("Returns the current sprint workspace: active context item, sprint backlog items, and seeds. When tree=true, returns a tree-structured JSON with full backlog hierarchy.")]
@@ -45,9 +39,10 @@ public sealed class ReadTools(WorkspaceResolver resolver, NavigationTools naviga
         [Description("Show all team items instead of just the current user")] bool all = false,
         [Description("When true, returns a tree-structured JSON response showing the full backlog hierarchy instead of the flat workspace view")] bool tree = false,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
-        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
+        if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         // 1. Context item(nullable — no error if absent)
         var contextId = await ctx.ContextStore.GetActiveWorkItemIdAsync(ct);
@@ -103,10 +98,14 @@ public sealed class ReadTools(WorkspaceResolver resolver, NavigationTools naviga
 
         // 6. Tree mode — build WorkTree per sprint item and return tree-structured JSON
         if (tree)
-            return await BuildWorkspaceTreeAsync(ctx, ws, excludedItems, ct);
+        {
+            var treeResult = await BuildWorkspaceTreeAsync(ctx, ws, excludedItems, ct);
+            return await EnvelopeBuilder.WrapAsync(ctx, treeResult, verbose, ct);
+        }
 
         // 7. Format flat result
-        return McpResultBuilder.FormatWorkspace(ws, ctx.Config.Seed.StaleDays, ctx.Key.ToString(), excludedItems);
+        var toolResult = McpResultBuilder.FormatWorkspace(ws, ctx.Config.Seed.StaleDays, ctx.Key.ToString(), excludedItems);
+        return await EnvelopeBuilder.WrapAsync(ctx, toolResult, verbose, ct);
     }
 
     private static async Task<CallToolResult> BuildWorkspaceTreeAsync(
@@ -139,5 +138,105 @@ public sealed class ReadTools(WorkspaceResolver resolver, NavigationTools naviga
         }
 
         return McpResultBuilder.FormatWorkspaceTree(roots, ws, ctx.Key.ToString(), excludedItems);
+    }
+
+    [McpServerTool(Name = "twig_refresh"), Description("Pull-only cache refresh from ADO — no pending changes are pushed. When id is omitted, refreshes the full active context (active item, parent chain, children). When id is provided, refreshes only that single work item.")]
+    public async Task<CallToolResult> Refresh(
+        [Description("Work item ID to refresh. When omitted, refreshes the full active context.")] int? id = null,
+        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
+        CancellationToken ct = default)
+    {
+        if (!resolver.TryResolve(workspace, out var ctx, out var err))
+            return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        int refreshedCount = 0;
+
+        if (id.HasValue)
+        {
+            // Single-item refresh
+            var result = await ctx.SyncCoordinatorFactory.ReadWrite.SyncItemSetAsync([id.Value], ct);
+            refreshedCount = result switch
+            {
+                SyncResult.Updated u => u.ChangedCount,
+                SyncResult.PartiallyUpdated p => p.SavedCount,
+                _ => 0
+            };
+        }
+        else
+        {
+            // Full context refresh — same pull logic as twig_sync's phase 2
+            var resolved = await ctx.ActiveItemResolver.GetActiveItemAsync(ct);
+            if (resolved is ActiveItemResult.Found or ActiveItemResult.FetchedFromAdo)
+            {
+                var item = resolved is ActiveItemResult.Found f
+                    ? f.WorkItem
+                    : ((ActiveItemResult.FetchedFromAdo)resolved).WorkItem;
+
+                var idsToSync = new List<int> { item.Id };
+
+                if (item.ParentId.HasValue)
+                {
+                    var chain = await ctx.WorkItemRepo.GetParentChainAsync(item.ParentId.Value, ct);
+                    idsToSync.AddRange(chain.Select(p => p.Id));
+                }
+
+                var children = await ctx.WorkItemRepo.GetChildrenAsync(item.Id, ct);
+                idsToSync.AddRange(children.Select(c => c.Id));
+
+                try
+                {
+                    var result = await ctx.SyncCoordinatorFactory.ReadWrite.SyncItemSetAsync(
+                        idsToSync.Distinct().ToList(), ct);
+                    refreshedCount = result switch
+                    {
+                        SyncResult.Updated u => u.ChangedCount,
+                        SyncResult.PartiallyUpdated p => p.SavedCount,
+                        _ => 0
+                    };
+                }
+                catch (OperationCanceledException) { throw; }
+                catch { /* best-effort */ }
+            }
+        }
+
+        sw.Stop();
+
+        var stats = await ctx.WorkItemRepo.GetCacheStatisticsAsync(ct);
+        var lastSyncUtc = stats.NewestSyncUtc?.ToString("o") ?? "";
+
+        return await EnvelopeBuilder.SuccessAsync(ctx, writer =>
+        {
+            writer.WriteNumber("refreshedCount", refreshedCount);
+            writer.WriteString("lastSyncUtc", lastSyncUtc);
+            writer.WriteNumber("durationMs", sw.ElapsedMilliseconds);
+        }, verbose, ct);
+    }
+
+    [McpServerTool(Name = "twig_cache_status"), Description("Report local cache freshness: last sync time, pending change count, tracked item count, oldest item age. No network call — safe for polling.")]
+    public async Task<CallToolResult> CacheStatus(
+        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
+        CancellationToken ct = default)
+    {
+        if (!resolver.TryResolve(workspace, out var ctx, out var err))
+            return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
+
+        var stats = await ctx.WorkItemRepo.GetCacheStatisticsAsync(ct);
+        var pendingChangeCount = await ctx.PendingChangeStore.GetTotalPendingChangeCountAsync(ct);
+
+        var now = DateTimeOffset.UtcNow;
+        var oldestItemAgeSeconds = stats.OldestSyncUtc.HasValue
+            ? (long)Math.Max(0, (now - stats.OldestSyncUtc.Value).TotalSeconds)
+            : 0L;
+
+        return await EnvelopeBuilder.SuccessAsync(ctx, writer =>
+        {
+            writer.WriteString("lastSyncUtc", stats.NewestSyncUtc?.ToString("o") ?? "");
+            writer.WriteNumber("pendingChangeCount", pendingChangeCount);
+            writer.WriteNumber("trackedItemCount", stats.TrackedItemCount);
+            writer.WriteNumber("oldestItemAgeSeconds", oldestItemAgeSeconds);
+        }, verbose, ct);
     }
 }

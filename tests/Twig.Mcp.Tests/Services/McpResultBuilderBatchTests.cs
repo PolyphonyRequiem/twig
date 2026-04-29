@@ -25,14 +25,12 @@ public sealed class McpResultBuilderBatchTests
     [Fact]
     public void FormatBatchResult_AllSucceeded_ReturnsCorrectShape()
     {
-        var batch = new BatchResult(
-            Steps:
-            [
-                new StepResult(0, "twig_set", StepStatus.Succeeded, "{\"id\":42}", null, 10),
-                new StepResult(1, "twig_note", StepStatus.Succeeded, "{\"noteAdded\":true}", null, 5)
-            ],
-            TotalElapsedMs: 15,
-            TimedOut: false);
+        StepResult[] stepResults =
+        [
+            new StepResult(0, "twig_set", StepStatus.Succeeded, "{\"id\":42}", null, 10),
+            new StepResult(1, "twig_note", StepStatus.Succeeded, "{\"noteAdded\":true}", null, 5)
+        ];
+        var batch = new BatchResult(stepResults, BatchSummary.FromSteps(stepResults), 15, false);
 
         var result = McpResultBuilder.FormatBatchResult(batch);
 
@@ -74,15 +72,13 @@ public sealed class McpResultBuilderBatchTests
     [Fact]
     public void FormatBatchResult_MixedStatuses_SummaryCountsCorrect()
     {
-        var batch = new BatchResult(
-            Steps:
-            [
-                new StepResult(0, "twig_set", StepStatus.Succeeded, "{\"id\":1}", null, 10),
-                new StepResult(1, "twig_state", StepStatus.Failed, null, "State change failed", 20),
-                new StepResult(2, "twig_note", StepStatus.Skipped, null, "Skipped due to prior failure.", 0)
-            ],
-            TotalElapsedMs: 30,
-            TimedOut: false);
+        StepResult[] stepResults =
+        [
+            new StepResult(0, "twig_set", StepStatus.Succeeded, "{\"id\":1}", null, 10),
+            new StepResult(1, "twig_state", StepStatus.Failed, null, "State change failed", 20),
+            new StepResult(2, "twig_note", StepStatus.Skipped, null, "Skipped due to prior failure.", 0)
+        ];
+        var batch = new BatchResult(stepResults, BatchSummary.FromSteps(stepResults), 30, false);
 
         var result = McpResultBuilder.FormatBatchResult(batch);
         var root = ParseJson(result);
@@ -105,14 +101,12 @@ public sealed class McpResultBuilderBatchTests
     [Fact]
     public void FormatBatchResult_TimedOut_FlagIsTrue()
     {
-        var batch = new BatchResult(
-            Steps:
-            [
-                new StepResult(0, "twig_set", StepStatus.Succeeded, "{\"id\":1}", null, 100),
-                new StepResult(1, "twig_state", StepStatus.Skipped, null, "Operation was cancelled.", 0)
-            ],
-            TotalElapsedMs: 120000,
-            TimedOut: true);
+        StepResult[] stepResults =
+        [
+            new StepResult(0, "twig_set", StepStatus.Succeeded, "{\"id\":1}", null, 100),
+            new StepResult(1, "twig_state", StepStatus.Skipped, null, "Operation was cancelled.", 0)
+        ];
+        var batch = new BatchResult(stepResults, BatchSummary.FromSteps(stepResults), 120000, true);
 
         var result = McpResultBuilder.FormatBatchResult(batch);
         var root = ParseJson(result);
@@ -125,7 +119,8 @@ public sealed class McpResultBuilderBatchTests
     [Fact]
     public void FormatBatchResult_EmptySteps_ReturnsEmptyArrayAndZeroSummary()
     {
-        var batch = new BatchResult(Steps: [], TotalElapsedMs: 0, TimedOut: false);
+        StepResult[] stepResults = [];
+        var batch = new BatchResult(stepResults, BatchSummary.FromSteps(stepResults), 0, false);
 
         var result = McpResultBuilder.FormatBatchResult(batch);
         var root = ParseJson(result);
@@ -144,13 +139,11 @@ public sealed class McpResultBuilderBatchTests
     [Fact]
     public void FormatBatchResult_NonJsonOutput_EmitsAsString()
     {
-        var batch = new BatchResult(
-            Steps:
-            [
-                new StepResult(0, "twig_status", StepStatus.Succeeded, "plain text output", null, 5)
-            ],
-            TotalElapsedMs: 5,
-            TimedOut: false);
+        StepResult[] stepResults =
+        [
+            new StepResult(0, "twig_status", StepStatus.Succeeded, "plain text output", null, 5)
+        ];
+        var batch = new BatchResult(stepResults, BatchSummary.FromSteps(stepResults), 5, false);
 
         var result = McpResultBuilder.FormatBatchResult(batch);
         var root = ParseJson(result);
@@ -166,13 +159,11 @@ public sealed class McpResultBuilderBatchTests
     [Fact]
     public void FormatBatchResult_SucceededStep_NoErrorField()
     {
-        var batch = new BatchResult(
-            Steps:
-            [
-                new StepResult(0, "twig_set", StepStatus.Succeeded, "{\"ok\":true}", null, 3)
-            ],
-            TotalElapsedMs: 3,
-            TimedOut: false);
+        StepResult[] stepResults =
+        [
+            new StepResult(0, "twig_set", StepStatus.Succeeded, "{\"ok\":true}", null, 3)
+        ];
+        var batch = new BatchResult(stepResults, BatchSummary.FromSteps(stepResults), 3, false);
 
         var result = McpResultBuilder.FormatBatchResult(batch);
         var root = ParseJson(result);

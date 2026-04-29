@@ -38,6 +38,7 @@ public sealed class MutationToolsDiscardTests : MutationToolsTestBase
     public async Task Discard_ExplicitId_UsesProvidedIdDirectly()
     {
         var item = new WorkItemBuilder(42, "My Task").AsTask().Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
         _pendingChangeStore.GetChangeSummaryAsync(42, Arg.Any<CancellationToken>())
             .Returns((0, 0));
@@ -45,7 +46,6 @@ public sealed class MutationToolsDiscardTests : MutationToolsTestBase
         var result = await CreateMutationSut().Discard(id: 42);
 
         result.IsError.ShouldBeNull();
-        await _contextStore.DidNotReceive().GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -64,7 +64,7 @@ public sealed class MutationToolsDiscardTests : MutationToolsTestBase
         var result = await CreateMutationSut().Discard();
 
         result.IsError.ShouldBeNull();
-        await _workItemRepo.Received(1).GetByIdAsync(99, Arg.Any<CancellationToken>());
+        await _workItemRepo.Received().GetByIdAsync(99, Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════

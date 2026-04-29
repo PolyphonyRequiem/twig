@@ -436,20 +436,9 @@ internal static class McpResultBuilder
     public static CallToolResult FormatBatchResult(Batch.BatchResult batch) =>
         BuildJson(writer =>
         {
-            var succeeded = 0;
-            var failed = 0;
-            var skipped = 0;
-
             writer.WriteStartArray("steps");
             foreach (var step in batch.Steps)
             {
-                switch (step.Status)
-                {
-                    case Batch.StepStatus.Succeeded: succeeded++; break;
-                    case Batch.StepStatus.Failed: failed++; break;
-                    case Batch.StepStatus.Skipped: skipped++; break;
-                }
-
                 writer.WriteStartObject();
                 writer.WriteNumber("index", step.StepIndex);
                 writer.WriteString("tool", step.ToolName);
@@ -490,10 +479,10 @@ internal static class McpResultBuilder
             writer.WriteEndArray();
 
             writer.WriteStartObject("summary");
-            writer.WriteNumber("total", batch.Steps.Count);
-            writer.WriteNumber("succeeded", succeeded);
-            writer.WriteNumber("failed", failed);
-            writer.WriteNumber("skipped", skipped);
+            writer.WriteNumber("total", batch.Summary.Total);
+            writer.WriteNumber("succeeded", batch.Summary.Succeeded);
+            writer.WriteNumber("failed", batch.Summary.Failed);
+            writer.WriteNumber("skipped", batch.Summary.Skipped);
             writer.WriteEndObject();
 
             writer.WriteNumber("totalElapsedMs", batch.TotalElapsedMs);
@@ -780,6 +769,31 @@ internal static class McpResultBuilder
             writer.WriteNumber("id", id);
             writer.WriteString("message", $"No pending changes for #{id} '{title}'.");
         });
+
+    /// <summary>
+    /// Appends a <c>"hints"</c> array to an existing successful <see cref="CallToolResult"/>.
+    /// When <paramref name="hints"/> is empty, writes an empty array <c>[]</c>.
+    /// Error results are returned unchanged.
+    /// </summary>
+    public static CallToolResult WithHints(CallToolResult result, IReadOnlyList<string> hints)
+    {
+        if (result.IsError == true || result.Content.Count == 0 || result.Content[0] is not TextContentBlock text)
+            return result;
+
+        using var doc = JsonDocument.Parse(text.Text);
+        using var stream = new MemoryStream();
+        using var writer = new Utf8JsonWriter(stream, WriterOptions);
+        writer.WriteStartObject();
+        foreach (var prop in doc.RootElement.EnumerateObject())
+            prop.WriteTo(writer);
+        writer.WriteStartArray("hints");
+        foreach (var hint in hints)
+            writer.WriteStringValue(hint);
+        writer.WriteEndArray();
+        writer.WriteEndObject();
+        writer.Flush();
+        return ToResult(Encoding.UTF8.GetString(stream.ToArray()));
+    }
 
     private static CallToolResult BuildJson(Action<Utf8JsonWriter> write)
     {

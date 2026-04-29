@@ -937,4 +937,500 @@ public sealed class SeedToolsTests : CreationToolsTestBase
         result.IsError.ShouldBe(true);
         GetErrorText(result).ShouldContain("not an allowed child");
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  twig_seed_reconcile — nothing to do
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SeedReconcile_NothingToDo_ReturnsCleanResult()
+    {
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>()).Returns(new List<SeedLink>());
+        _publishIdMapRepo.GetAllMappingsAsync(Arg.Any<CancellationToken>()).Returns(new List<(int, int)>());
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(new List<WorkItem>());
+
+        var sut = CreateSeedSut();
+        var result = await sut.SeedReconcile();
+
+        result.IsError.ShouldBeNull();
+        var data = ParseResult(result);
+        data.GetProperty("linksRepaired").GetInt32().ShouldBe(0);
+        data.GetProperty("linksRemoved").GetInt32().ShouldBe(0);
+        data.GetProperty("parentIdsFixed").GetInt32().ShouldBe(0);
+        data.GetProperty("nothingToDo").GetBoolean().ShouldBeTrue();
+        data.GetProperty("warnings").GetArrayLength().ShouldBe(0);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  twig_seed_reconcile — repairs stale link via publish map
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SeedReconcile_StaleLink_RemapsViaPublishMap()
+    {
+        var staleLink = new SeedLink(-1, -2, SeedLinkTypes.Blocks, DateTimeOffset.UtcNow);
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>()).Returns(new List<SeedLink> { staleLink });
+        _publishIdMapRepo.GetAllMappingsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<(int, int)> { (-1, 500), (-2, 600) });
+
+        // Both old IDs are gone (published)
+        _workItemRepo.ExistsByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(false);
+        _workItemRepo.ExistsByIdAsync(-2, Arg.Any<CancellationToken>()).Returns(false);
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(new List<WorkItem>());
+
+        var sut = CreateSeedSut();
+        var result = await sut.SeedReconcile();
+
+        result.IsError.ShouldBeNull();
+        var data = ParseResult(result);
+        data.GetProperty("linksRepaired").GetInt32().ShouldBeGreaterThan(0);
+        data.GetProperty("nothingToDo").GetBoolean().ShouldBeFalse();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  twig_seed_reconcile — removes orphaned link
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SeedReconcile_OrphanedLink_RemovesIt()
+    {
+        var orphanLink = new SeedLink(-1, -2, SeedLinkTypes.Related, DateTimeOffset.UtcNow);
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>()).Returns(new List<SeedLink> { orphanLink });
+        _publishIdMapRepo.GetAllMappingsAsync(Arg.Any<CancellationToken>()).Returns(new List<(int, int)>());
+
+        // Neither seed exists and no publish mapping
+        _workItemRepo.ExistsByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(false);
+        _workItemRepo.ExistsByIdAsync(-2, Arg.Any<CancellationToken>()).Returns(false);
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(new List<WorkItem>());
+
+        var sut = CreateSeedSut();
+        var result = await sut.SeedReconcile();
+
+        result.IsError.ShouldBeNull();
+        var data = ParseResult(result);
+        data.GetProperty("linksRemoved").GetInt32().ShouldBe(1);
+        data.GetProperty("nothingToDo").GetBoolean().ShouldBeFalse();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  twig_seed_reconcile — fixes stale parent ID
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SeedReconcile_StaleParentId_FixesIt()
+    {
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>()).Returns(new List<SeedLink>());
+        _publishIdMapRepo.GetAllMappingsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<(int, int)> { (-10, 1000) });
+
+        // Seed with stale parent reference
+        var seed = new WorkItemBuilder(-5, "Child Seed").AsTask().AsSeed().WithParent(-10).Build();
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(new List<WorkItem> { seed });
+        _workItemRepo.ExistsByIdAsync(-10, Arg.Any<CancellationToken>()).Returns(false);
+
+        var sut = CreateSeedSut();
+        var result = await sut.SeedReconcile();
+
+        result.IsError.ShouldBeNull();
+        var data = ParseResult(result);
+        data.GetProperty("parentIdsFixed").GetInt32().ShouldBe(1);
+        data.GetProperty("nothingToDo").GetBoolean().ShouldBeFalse();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  twig_seed_edit — happy path: update title
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SeedEdit_UpdateTitle_SavesChangedSeed()
+    {
+        var seed = new WorkItemBuilder(-1, "Old Title").AsTask().AsSeed().Build();
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
+
+        var sut = CreateSeedSut();
+        var result = await sut.SeedEdit(id: -1, title: "New Title");
+
+        result.IsError.ShouldBeNull();
+        var data = ParseResult(result);
+        data.GetProperty("id").GetInt32().ShouldBe(-1);
+        data.GetProperty("title").GetString().ShouldBe("New Title");
+        data.GetProperty("changedCount").GetInt32().ShouldBe(1);
+        data.GetProperty("changedFields").GetArrayLength().ShouldBe(1);
+
+        await _workItemRepo.Received(1).SaveAsync(
+            Arg.Is<WorkItem>(w => w.Title == "New Title" && w.IsSeed),
+            Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  twig_seed_edit — update description (converts markdown to HTML)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SeedEdit_UpdateDescription_ConvertsMarkdownToHtml()
+    {
+        var seed = new WorkItemBuilder(-1, "My Seed").AsTask().AsSeed().Build();
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
+
+        var sut = CreateSeedSut();
+        var result = await sut.SeedEdit(id: -1, description: "**bold text**");
+
+        result.IsError.ShouldBeNull();
+        var data = ParseResult(result);
+        data.GetProperty("changedCount").GetInt32().ShouldBe(1);
+
+        await _workItemRepo.Received(1).SaveAsync(
+            Arg.Is<WorkItem>(w =>
+                w.Fields.ContainsKey("System.Description") &&
+                w.Fields["System.Description"]!.Contains("<strong>")),
+            Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  twig_seed_edit — update type
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SeedEdit_UpdateType_ChangesWorkItemType()
+    {
+        var seed = new WorkItemBuilder(-1, "My Seed").AsTask().AsSeed().Build();
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
+
+        var sut = CreateSeedSut();
+        var result = await sut.SeedEdit(id: -1, type: "Bug");
+
+        result.IsError.ShouldBeNull();
+        var data = ParseResult(result);
+        data.GetProperty("type").GetString().ShouldBe("Bug");
+        data.GetProperty("changedCount").GetInt32().ShouldBe(1);
+
+        await _workItemRepo.Received(1).SaveAsync(
+            Arg.Is<WorkItem>(w => w.Type == WorkItemType.Bug),
+            Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  twig_seed_edit — update parent
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SeedEdit_UpdateParent_ChangesParentId()
+    {
+        var seed = new WorkItemBuilder(-1, "My Seed").AsTask().AsSeed().WithParent(100).Build();
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
+
+        var sut = CreateSeedSut();
+        var result = await sut.SeedEdit(id: -1, parentId: 200);
+
+        result.IsError.ShouldBeNull();
+        var data = ParseResult(result);
+        data.GetProperty("parentId").GetInt32().ShouldBe(200);
+        data.GetProperty("changedCount").GetInt32().ShouldBe(1);
+
+        await _workItemRepo.Received(1).SaveAsync(
+            Arg.Is<WorkItem>(w => w.ParentId == 200),
+            Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  twig_seed_edit — clear parent with 0
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SeedEdit_ClearParent_SetsParentToNull()
+    {
+        var seed = new WorkItemBuilder(-1, "My Seed").AsTask().AsSeed().WithParent(100).Build();
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
+
+        var sut = CreateSeedSut();
+        var result = await sut.SeedEdit(id: -1, parentId: 0);
+
+        result.IsError.ShouldBeNull();
+        var data = ParseResult(result);
+        data.GetProperty("parentId").ValueKind.ShouldBe(JsonValueKind.Null);
+        data.GetProperty("changedCount").GetInt32().ShouldBe(1);
+
+        await _workItemRepo.Received(1).SaveAsync(
+            Arg.Is<WorkItem>(w => w.ParentId == null),
+            Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  twig_seed_edit — multiple fields at once
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SeedEdit_MultipleFields_ReportsAllChanges()
+    {
+        var seed = new WorkItemBuilder(-1, "Old Title").AsTask().AsSeed().WithParent(100).Build();
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
+
+        var sut = CreateSeedSut();
+        var result = await sut.SeedEdit(id: -1, title: "New Title", description: "desc", type: "Bug", parentId: 200);
+
+        result.IsError.ShouldBeNull();
+        var data = ParseResult(result);
+        data.GetProperty("changedCount").GetInt32().ShouldBe(4);
+        data.GetProperty("changedFields").GetArrayLength().ShouldBe(4);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  twig_seed_edit — no changes detected
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SeedEdit_SameTitle_ReportsNoChanges()
+    {
+        var seed = new WorkItemBuilder(-1, "Same Title").AsTask().AsSeed().Build();
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
+
+        var sut = CreateSeedSut();
+        var result = await sut.SeedEdit(id: -1, title: "Same Title");
+
+        result.IsError.ShouldBeNull();
+        var data = ParseResult(result);
+        data.GetProperty("changedCount").GetInt32().ShouldBe(0);
+
+        await _workItemRepo.DidNotReceive().SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  twig_seed_edit — error: positive id
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SeedEdit_PositiveId_ReturnsError()
+    {
+        var sut = CreateSeedSut();
+        var result = await sut.SeedEdit(id: 5, title: "New Title");
+
+        result.IsError.ShouldBe(true);
+        GetErrorText(result).ShouldContain("negative integer");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  twig_seed_edit — error: no fields provided
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SeedEdit_NoFields_ReturnsError()
+    {
+        var sut = CreateSeedSut();
+        var result = await sut.SeedEdit(id: -1);
+
+        result.IsError.ShouldBe(true);
+        GetErrorText(result).ShouldContain("At least one field");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  twig_seed_edit — error: empty title
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SeedEdit_EmptyTitle_ReturnsError()
+    {
+        var sut = CreateSeedSut();
+        var result = await sut.SeedEdit(id: -1, title: "");
+
+        result.IsError.ShouldBe(true);
+        GetErrorText(result).ShouldContain("empty or whitespace");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  twig_seed_edit — error: seed not found
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SeedEdit_SeedNotFound_ReturnsError()
+    {
+        _workItemRepo.GetByIdAsync(-99, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+
+        var sut = CreateSeedSut();
+        var result = await sut.SeedEdit(id: -99, title: "New Title");
+
+        result.IsError.ShouldBe(true);
+        GetErrorText(result).ShouldContain("not found");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  twig_seed_edit — error: non-seed item
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SeedEdit_NonSeedItem_ReturnsError()
+    {
+        var item = new WorkItemBuilder(-1, "Not A Seed").AsTask().Build();
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(item);
+
+        var sut = CreateSeedSut();
+        var result = await sut.SeedEdit(id: -1, title: "New Title");
+
+        result.IsError.ShouldBe(true);
+        GetErrorText(result).ShouldContain("not found");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  twig_seed_edit — error: invalid type
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SeedEdit_InvalidType_ReturnsError()
+    {
+        var seed = new WorkItemBuilder(-1, "My Seed").AsTask().AsSeed().Build();
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
+
+        var sut = CreateSeedSut();
+        var result = await sut.SeedEdit(id: -1, type: "");
+
+        result.IsError.ShouldBe(true);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  twig_seed_link — happy path: related link
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SeedLink_RelatedLink_CreatesSuccessfully()
+    {
+        var sut = CreateSeedSut();
+        var result = await sut.SeedLink(sourceId: -1, targetId: -2);
+
+        result.IsError.ShouldBeNull();
+        var data = ParseResult(result);
+        data.GetProperty("sourceId").GetInt32().ShouldBe(-1);
+        data.GetProperty("targetId").GetInt32().ShouldBe(-2);
+        data.GetProperty("linkType").GetString().ShouldBe("related");
+        data.GetProperty("created").GetBoolean().ShouldBeTrue();
+
+        await _seedLinkRepo.Received(1).AddLinkAsync(
+            Arg.Is<SeedLink>(l => l.SourceId == -1 && l.TargetId == -2 && l.LinkType == "related"),
+            Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  twig_seed_link — explicit link type
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SeedLink_ExplicitType_UsesSpecifiedType()
+    {
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(new List<WorkItem>
+        {
+            new WorkItemBuilder(-1, "Source").AsTask().AsSeed().Build(),
+            new WorkItemBuilder(-2, "Target").AsTask().AsSeed().Build(),
+        });
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>()).Returns(new List<SeedLink>());
+
+        var sut = CreateSeedSut();
+        var result = await sut.SeedLink(sourceId: -1, targetId: -2, type: "blocks");
+
+        result.IsError.ShouldBeNull();
+        var data = ParseResult(result);
+        data.GetProperty("linkType").GetString().ShouldBe("blocks");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  twig_seed_link — error: both positive IDs
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SeedLink_BothPositiveIds_ReturnsError()
+    {
+        var sut = CreateSeedSut();
+        var result = await sut.SeedLink(sourceId: 1, targetId: 2);
+
+        result.IsError.ShouldBe(true);
+        GetErrorText(result).ShouldContain("At least one ID must be a seed");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  twig_seed_link — error: invalid link type
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SeedLink_InvalidLinkType_ReturnsError()
+    {
+        var sut = CreateSeedSut();
+        var result = await sut.SeedLink(sourceId: -1, targetId: -2, type: "invalid-type");
+
+        result.IsError.ShouldBe(true);
+        GetErrorText(result).ShouldContain("Invalid link type");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  twig_seed_link — error: self-referencing link
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SeedLink_SelfReference_ReturnsError()
+    {
+        var sut = CreateSeedSut();
+        var result = await sut.SeedLink(sourceId: -1, targetId: -1, type: "blocks");
+
+        result.IsError.ShouldBe(true);
+        GetErrorText(result).ShouldContain("Self-referencing");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  twig_seed_link — error: cycle detection
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SeedLink_WouldCreateCycle_ReturnsError()
+    {
+        var seeds = new List<WorkItem>
+        {
+            new WorkItemBuilder(-1, "A").AsTask().AsSeed().Build(),
+            new WorkItemBuilder(-2, "B").AsTask().AsSeed().Build(),
+        };
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(seeds);
+
+        // Existing link: -1 blocks -2
+        var existingLinks = new List<SeedLink>
+        {
+            new SeedLink(-1, -2, SeedLinkTypes.Blocks, DateTimeOffset.UtcNow)
+        };
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>()).Returns(existingLinks);
+
+        var sut = CreateSeedSut();
+        // Try to add -2 blocks -1 → cycle
+        var result = await sut.SeedLink(sourceId: -2, targetId: -1, type: "blocks");
+
+        result.IsError.ShouldBe(true);
+        GetErrorText(result).ShouldContain("cycle");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  twig_seed_link — duplicate link
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SeedLink_DuplicateLink_ReturnsError()
+    {
+        _seedLinkRepo.AddLinkAsync(Arg.Any<SeedLink>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new Microsoft.Data.Sqlite.SqliteException("UNIQUE constraint failed", 19));
+
+        var sut = CreateSeedSut();
+        var result = await sut.SeedLink(sourceId: -1, targetId: -2);
+
+        result.IsError.ShouldBe(true);
+        GetErrorText(result).ShouldContain("already exists");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  twig_seed_link — mixed seed and ADO item
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SeedLink_SeedAndAdoItem_CreatesSuccessfully()
+    {
+        var sut = CreateSeedSut();
+        var result = await sut.SeedLink(sourceId: -1, targetId: 500);
+
+        result.IsError.ShouldBeNull();
+        var data = ParseResult(result);
+        data.GetProperty("sourceId").GetInt32().ShouldBe(-1);
+        data.GetProperty("targetId").GetInt32().ShouldBe(500);
+        data.GetProperty("created").GetBoolean().ShouldBeTrue();
+    }
 }

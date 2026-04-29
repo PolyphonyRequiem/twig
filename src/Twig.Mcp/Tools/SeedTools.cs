@@ -12,7 +12,8 @@ using Twig.Mcp.Services;
 namespace Twig.Mcp.Tools;
 
 /// <summary>
-/// MCP tools for seed lifecycle: twig_seed_new, twig_seed_view, twig_seed_publish, twig_seed_validate, twig_seed_discard, twig_seed_chain.
+/// MCP tools for seed lifecycle: twig_seed_new, twig_seed_view, twig_seed_publish, twig_seed_validate,
+/// twig_seed_discard, twig_seed_chain, twig_seed_reconcile, twig_seed_edit, twig_seed_link.
 /// Seeds are local-only draft work items with negative IDs.
 /// Resolves per-workspace services via <see cref="WorkspaceResolver"/>.
 /// </summary>
@@ -521,6 +522,212 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
             }
             writer.WriteEndArray();
         }, verbose, ct);
+    }
+
+    [McpServerTool(Name = "twig_seed_reconcile"), Description("Repair orphaned and stale seed links and parent references after partial publishes. Uses the publish_id_map to remap stale negative IDs to their published ADO IDs and removes orphaned links.")]
+    public async Task<CallToolResult> SeedReconcile(
+        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
+        CancellationToken ct = default)
+    {
+        if (!resolver.TryResolve(workspace, out var ctx, out var err))
+            return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
+
+        var orchestrator = new SeedReconcileOrchestrator(ctx.SeedLinkRepo, ctx.WorkItemRepo, ctx.PublishIdMapRepo);
+        var result = await orchestrator.ReconcileAsync(ct);
+
+        return await EnvelopeBuilder.SuccessAsync(ctx, writer =>
+        {
+            writer.WriteNumber("linksRepaired", result.LinksRepaired);
+            writer.WriteNumber("linksRemoved", result.LinksRemoved);
+            writer.WriteNumber("parentIdsFixed", result.ParentIdsFixed);
+            writer.WriteBoolean("nothingToDo", result.NothingToDo);
+
+            writer.WriteStartArray("warnings");
+            foreach (var warning in result.Warnings)
+                writer.WriteStringValue(warning);
+            writer.WriteEndArray();
+        }, verbose, ct);
+    }
+
+    [McpServerTool(Name = "twig_seed_edit"), Description("Modify fields on a local seed work item before publishing. Supports updating title, description, type, and parent. Seeds must have negative IDs.")]
+    public async Task<CallToolResult> SeedEdit(
+        [Description("Seed ID to edit (negative integer).")] int id,
+        [Description("New title for the seed (optional — unchanged if omitted)")] string? title = null,
+        [Description("New description in Markdown (optional — converted to HTML)")] string? description = null,
+        [Description("New work item type (e.g. Task, Issue, Bug). Optional — unchanged if omitted.")] string? type = null,
+        [Description("New parent work item ID (positive for ADO items, negative for other seeds). Pass 0 to clear the parent.")] int? parentId = null,
+        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
+        CancellationToken ct = default)
+    {
+        if (id >= 0)
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, $"Seed ID must be a negative integer (got {id}). Only seeds can be edited with this tool.");
+
+        if (title is null && description is null && type is null && !parentId.HasValue)
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, "At least one field to update must be provided (title, description, type, or parentId).");
+
+        if (title is not null && string.IsNullOrWhiteSpace(title))
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, "Title cannot be empty or whitespace.");
+
+        if (!resolver.TryResolve(workspace, out var ctx, out var err))
+            return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
+
+        var seed = await ctx.WorkItemRepo.GetByIdAsync(id, ct);
+        if (seed is null || !seed.IsSeed)
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound,
+                $"Seed {id} not found.", ctx, ct);
+
+        var changedFields = new List<string>();
+
+        // Apply title change
+        var newTitle = title ?? seed.Title;
+        if (title is not null && !string.Equals(title, seed.Title, StringComparison.Ordinal))
+            changedFields.Add("title");
+
+        // Build updated fields dictionary from existing fields
+        var fields = new Dictionary<string, string?>(seed.Fields, StringComparer.OrdinalIgnoreCase);
+
+        // Apply description change
+        if (description is not null)
+        {
+            var html = MarkdownConverter.ToHtml(description);
+            fields["System.Description"] = html;
+            changedFields.Add("description");
+        }
+
+        // Apply type change
+        WorkItemType newType = seed.Type;
+        if (type is not null)
+        {
+            var typeResult = WorkItemType.Parse(type);
+            if (!typeResult.IsSuccess)
+                return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput, typeResult.Error, ctx, ct);
+            newType = typeResult.Value;
+            if (newType != seed.Type)
+                changedFields.Add("type");
+        }
+
+        // Apply parent change
+        int? newParentId = seed.ParentId;
+        if (parentId.HasValue)
+        {
+            newParentId = parentId.Value == 0 ? null : parentId.Value;
+            if (newParentId != seed.ParentId)
+                changedFields.Add("parentId");
+        }
+
+        if (changedFields.Count == 0)
+            return await EnvelopeBuilder.SuccessAsync(ctx, writer =>
+            {
+                writer.WriteNumber("id", id);
+                writer.WriteString("title", seed.Title);
+                writer.WriteNumber("changedCount", 0);
+                writer.WriteStartArray("changedFields");
+                writer.WriteEndArray();
+            }, verbose, ct);
+
+        // Build the updated seed — use WithSeedFields for title/fields, then WithParentId if needed
+        var updated = seed.WithSeedFields(newTitle, fields);
+
+        // Apply type change if needed
+        if (type is not null && newType != seed.Type)
+            updated = updated.WithType(newType);
+
+        // Apply parent change
+        if (parentId.HasValue && newParentId != seed.ParentId)
+            updated = updated.WithParentId(newParentId);
+
+        await ctx.WorkItemRepo.SaveAsync(updated, ct);
+
+        return await EnvelopeBuilder.SuccessAsync(ctx, writer =>
+        {
+            writer.WriteNumber("id", id);
+            writer.WriteString("title", updated.Title);
+            writer.WriteString("type", updated.Type.ToString());
+
+            if (updated.ParentId.HasValue)
+                writer.WriteNumber("parentId", updated.ParentId.Value);
+            else
+                writer.WriteNull("parentId");
+
+            writer.WriteNumber("changedCount", changedFields.Count);
+
+            writer.WriteStartArray("changedFields");
+            foreach (var field in changedFields)
+                writer.WriteStringValue(field);
+            writer.WriteEndArray();
+        }, verbose, ct);
+    }
+
+    [McpServerTool(Name = "twig_seed_link"), Description("Create a virtual typed link between two items (at least one must be a seed). Supports directional types (blocks, depends-on, successor, predecessor) with automatic cycle detection, and symmetric types (related, parent-child).")]
+    public async Task<CallToolResult> SeedLink(
+        [Description("Source work item ID (positive for ADO items, negative for seeds).")] int sourceId,
+        [Description("Target work item ID (positive for ADO items, negative for seeds).")] int targetId,
+        [Description("Link type: blocks, blocked-by, depends-on, depended-on-by, successor, predecessor, related, parent-child. Defaults to 'related'.")] string? type = null,
+        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
+        CancellationToken ct = default)
+    {
+        if (sourceId >= 0 && targetId >= 0)
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput,
+                "At least one ID must be a seed (negative). Use ADO for linking positive work items.");
+
+        if (!resolver.TryResolve(workspace, out var ctx, out var err))
+            return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
+
+        var rawType = type ?? SeedLinkTypes.Related;
+        var linkType = NormalizeLinkType(rawType);
+        if (linkType is null)
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput,
+                $"Invalid link type '{rawType}'. Valid types: {string.Join(", ", SeedLinkTypes.All)}", ctx, ct);
+
+        // Cycle detection for directional link types
+        if (linkType != SeedLinkTypes.Related && linkType != SeedLinkTypes.ParentChild)
+        {
+            if (sourceId == targetId)
+                return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput,
+                    $"Self-referencing links are not allowed (source and target are both #{sourceId}).", ctx, ct);
+
+            var seeds = await ctx.WorkItemRepo.GetSeedsAsync(ct);
+            var existingLinks = await ctx.SeedLinkRepo.GetAllSeedLinksAsync(ct);
+            var proposed = new SeedLink(sourceId, targetId, linkType, DateTimeOffset.UtcNow);
+
+            if (SeedDependencyGraph.WouldCreateCycle(seeds, existingLinks, proposed))
+            {
+                var allLinks = existingLinks.Append(proposed).ToList();
+                var (_, cyclicIds) = SeedDependencyGraph.Sort(seeds, allLinks);
+                var idList = string.Join(", ", cyclicIds.OrderBy(id => id).Select(id => $"#{id}"));
+                return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput,
+                    $"Link rejected: would create a dependency cycle involving seeds: {idList}", ctx, ct);
+            }
+        }
+
+        try
+        {
+            await ctx.SeedLinkRepo.AddLinkAsync(new SeedLink(sourceId, targetId, linkType, DateTimeOffset.UtcNow), ct);
+        }
+        catch (Microsoft.Data.Sqlite.SqliteException ex) when (ex.SqliteErrorCode == 19)
+        {
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput,
+                $"A '{linkType}' link from #{sourceId} to #{targetId} already exists.", ctx, ct);
+        }
+
+        return await EnvelopeBuilder.SuccessAsync(ctx, writer =>
+        {
+            writer.WriteNumber("sourceId", sourceId);
+            writer.WriteNumber("targetId", targetId);
+            writer.WriteString("linkType", linkType);
+            writer.WriteBoolean("created", true);
+        }, verbose, ct);
+    }
+
+    private static string? NormalizeLinkType(string type)
+    {
+        foreach (var t in SeedLinkTypes.All)
+            if (string.Equals(t, type, StringComparison.OrdinalIgnoreCase))
+                return t;
+        return null;
     }
 
     private static void WriteValidationResult(System.Text.Json.Utf8JsonWriter writer, SeedValidationResult result)

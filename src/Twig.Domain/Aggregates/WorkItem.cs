@@ -139,4 +139,11 @@ public sealed class WorkItem
     public WorkItem WithIsSeed(bool isSeed) =>
         WorkItemCopier.Copy(this, isSeedOverride: isSeed);
 
+    /// <summary>
+    /// Returns a copy with a different <see cref="Type"/>.
+    /// All other properties (including fields and dirty state) are preserved.
+    /// </summary>
+    public WorkItem WithType(WorkItemType newType) =>
+        WorkItemCopier.Copy(this, typeOverride: newType, preserveDirty: true);
+
 }

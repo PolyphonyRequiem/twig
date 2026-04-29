@@ -247,6 +247,132 @@ public sealed class ShowCommand_TreeTests : IDisposable
     }
 
     // ═══════════════════════════════════════════════════════════════
+    //  Explicit --id parameter with --tree
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Show_TreeFlag_ExplicitId_RendersTreeForSpecificItem()
+    {
+        var item = new WorkItemBuilder(42, "Specific Tree Item").Build();
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _workItemRepo.GetChildrenAsync(42, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var cmd = CreateShowCommand();
+        var result = await cmd.ExecuteAsync(42, tree: true);
+
+        result.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Show_TreeFlag_ExplicitId_NotFound_ReturnsError()
+    {
+        _workItemRepo.GetByIdAsync(99, Arg.Any<CancellationToken>()).Returns((WorkItem?)null);
+        _adoService.FetchAsync(99, Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<WorkItem>(new HttpRequestException("Not found")));
+
+        var cmd = CreateShowCommand();
+        var result = await cmd.ExecuteAsync(99, tree: true);
+
+        result.ShouldBe(1);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Sibling counts in --tree output (migrated from TreeCommandAsyncTests)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Show_TreeFlag_JsonOutput_IncludesParentChainAndChildren()
+    {
+        var parent = new WorkItemBuilder(100, "Epic Parent").AsEpic().Build();
+        var focus = new WorkItemBuilder(42, "Focus Task").WithParent(100).Build();
+        var child = new WorkItemBuilder(50, "Child Item").WithParent(42).Build();
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(focus);
+        _workItemRepo.GetParentChainAsync(100, Arg.Any<CancellationToken>())
+            .Returns(new[] { parent });
+        _workItemRepo.GetChildrenAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new[] { child });
+        _workItemRepo.GetChildrenAsync(50, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetChildrenAsync(100, Arg.Any<CancellationToken>())
+            .Returns(new[] { focus });
+
+        var cmd = CreateShowCommand();
+        var output = await CaptureStdout(() => cmd.ExecuteAsync(42, "json", tree: true));
+
+        output.ShouldContain("\"focus\"");
+        output.ShouldContain("\"parentChain\"");
+        output.ShouldContain("\"children\"");
+        output.ShouldContain("\"totalChildren\": 1");
+        output.ShouldContain("Epic Parent");
+        output.ShouldContain("Child Item");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Links rendering in --tree output (migrated from TreeCommandLinkTests)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Show_TreeFlag_JsonOutput_IncludesLinks()
+    {
+        var focus = new WorkItemBuilder(42, "Linked Tree Item").Build();
+        SetupActiveItem(focus);
+
+        // Provide link data via the sync coordinator
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(focus);
+
+        var cmd = CreateShowCommand();
+        var output = await CaptureStdout(() => cmd.ExecuteAsync(42, "json", tree: true));
+
+        // JSON tree output should include links array (even if empty)
+        output.ShouldContain("\"links\"");
+    }
+
+    [Fact]
+    public async Task Show_TreeFlag_JsonOutput_GrandchildrenIncluded()
+    {
+        var focus = new WorkItemBuilder(1, "Epic").AsEpic().Build();
+        var child = new WorkItemBuilder(10, "Issue").WithParent(1).Build();
+        var grandchild = new WorkItemBuilder(100, "Task").WithParent(10).Build();
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(focus);
+        _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { child });
+        _workItemRepo.GetChildrenAsync(10, Arg.Any<CancellationToken>())
+            .Returns(new[] { grandchild });
+        _workItemRepo.GetChildrenAsync(100, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var cmd = CreateShowCommand();
+        var output = await CaptureStdout(() => cmd.ExecuteAsync(1, "json", tree: true));
+
+        output.ShouldNotBeEmpty();
+        // Grandchildren should be fetched
+        await _workItemRepo.Received().GetChildrenAsync(10, Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  --tree off — normal show behaviour is unchanged
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Show_TreeFlag_NoRefresh_SkipsSyncPass()
+    {
+        var item = new WorkItemBuilder(42, "NoRefresh Tree").Build();
+        SetupActiveItem(item);
+
+        var cmd = CreateShowCommand();
+        var result = await cmd.ExecuteAsync(42, tree: true, noRefresh: true);
+
+        result.ShouldBe(0);
+        await _adoService.DidNotReceive().FetchAsync(
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     //  TreeRenderingService not injected — graceful error
     // ═══════════════════════════════════════════════════════════════
 

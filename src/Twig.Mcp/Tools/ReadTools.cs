@@ -22,6 +22,7 @@ public sealed class ReadTools(WorkspaceResolver resolver, NavigationTools naviga
     public async Task<CallToolResult> Tree(
         [Description("Max child depth to display")] int? depth = null,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
@@ -37,7 +38,7 @@ public sealed class ReadTools(WorkspaceResolver resolver, NavigationTools naviga
             ? f.WorkItem
             : ((ActiveItemResult.FetchedFromAdo)resolveResult).WorkItem;
 
-        return await navigationTools.Show(item.Id, tree: true, depth: depth, workspace: workspace, ct: ct);
+        return await navigationTools.Show(item.Id, tree: true, depth: depth, workspace: workspace, verbose: verbose, ct: ct);
     }
 
     [McpServerTool(Name = "twig_workspace"), Description("Returns the current sprint workspace: active context item, sprint backlog items, and seeds. When tree=true, returns a tree-structured JSON with full backlog hierarchy.")]
@@ -45,6 +46,7 @@ public sealed class ReadTools(WorkspaceResolver resolver, NavigationTools naviga
         [Description("Show all team items instead of just the current user")] bool all = false,
         [Description("When true, returns a tree-structured JSON response showing the full backlog hierarchy instead of the flat workspace view")] bool tree = false,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
@@ -103,10 +105,14 @@ public sealed class ReadTools(WorkspaceResolver resolver, NavigationTools naviga
 
         // 6. Tree mode — build WorkTree per sprint item and return tree-structured JSON
         if (tree)
-            return await BuildWorkspaceTreeAsync(ctx, ws, excludedItems, ct);
+        {
+            var treeResult = await BuildWorkspaceTreeAsync(ctx, ws, excludedItems, ct);
+            return await McpHintProvider.ApplyHintsAsync(treeResult, verbose, ctx, ct);
+        }
 
         // 7. Format flat result
-        return McpResultBuilder.FormatWorkspace(ws, ctx.Config.Seed.StaleDays, ctx.Key.ToString(), excludedItems);
+        var toolResult = McpResultBuilder.FormatWorkspace(ws, ctx.Config.Seed.StaleDays, ctx.Key.ToString(), excludedItems);
+        return await McpHintProvider.ApplyHintsAsync(toolResult, verbose, ctx, ct);
     }
 
     private static async Task<CallToolResult> BuildWorkspaceTreeAsync(

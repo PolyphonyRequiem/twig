@@ -781,6 +781,31 @@ internal static class McpResultBuilder
             writer.WriteString("message", $"No pending changes for #{id} '{title}'.");
         });
 
+    /// <summary>
+    /// Appends a <c>"hints"</c> array to an existing successful <see cref="CallToolResult"/>.
+    /// When <paramref name="hints"/> is empty, writes an empty array <c>[]</c>.
+    /// Error results are returned unchanged.
+    /// </summary>
+    public static CallToolResult WithHints(CallToolResult result, IReadOnlyList<string> hints)
+    {
+        if (result.IsError == true || result.Content.Count == 0 || result.Content[0] is not TextContentBlock text)
+            return result;
+
+        using var doc = JsonDocument.Parse(text.Text);
+        using var stream = new MemoryStream();
+        using var writer = new Utf8JsonWriter(stream, WriterOptions);
+        writer.WriteStartObject();
+        foreach (var prop in doc.RootElement.EnumerateObject())
+            prop.WriteTo(writer);
+        writer.WriteStartArray("hints");
+        foreach (var hint in hints)
+            writer.WriteStringValue(hint);
+        writer.WriteEndArray();
+        writer.WriteEndObject();
+        writer.Flush();
+        return ToResult(Encoding.UTF8.GetString(stream.ToArray()));
+    }
+
     private static CallToolResult BuildJson(Action<Utf8JsonWriter> write)
     {
         using var stream = new MemoryStream();

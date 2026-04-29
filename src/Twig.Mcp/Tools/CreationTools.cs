@@ -29,6 +29,7 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         [Description("Assignee display name (optional)")] string? assignedTo = null,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
         [Description("When true and parentId is provided, skips the duplicate title+type check. Default is false (dedup enabled).")] bool skipDuplicateCheck = false,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(title))
@@ -53,7 +54,9 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
                 if (dupeResult is not null) return dupeResult;
             }
 
-            return await CreateParentedAsync(ctx, parentId.Value, title, parsedType, description, assignedTo, ct);
+            return await McpHintProvider.ApplyHintsAsync(
+                await CreateParentedAsync(ctx, parentId.Value, title, parsedType, description, assignedTo, ct),
+                verbose, ctx, ct);
         }
 
         var processConfig = ctx.ProcessConfigProvider.GetConfiguration();
@@ -103,7 +106,8 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
         var url = $"https://dev.azure.com/{ctx.Key.Org}/{ctx.Key.Project}/_workitems/edit/{created.Id}";
-        return McpResultBuilder.FormatCreated(created, url, ctx.Key.ToString());
+        return await McpHintProvider.ApplyHintsAsync(
+            McpResultBuilder.FormatCreated(created, url, ctx.Key.ToString()), verbose, ctx, ct);
     }
 
     [McpServerTool(Name = "twig_find_or_create"), Description("Find an existing work item by title and type under a parent, or create it if not found. Always performs a deduplication check — use this instead of twig_new when idempotent creation is required.")]
@@ -114,9 +118,10 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         [Description("Description text (optional — treated as Markdown and converted to HTML)")] string? description = null,
         [Description("Assignee display name (optional)")] string? assignedTo = null,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
-        return await New(type, title, parentId, description, assignedTo, workspace, skipDuplicateCheck: false, ct);
+        return await New(type, title, parentId, description, assignedTo, workspace, skipDuplicateCheck: false, verbose: verbose, ct);
     }
 
     [McpServerTool(Name = "twig_link"), Description("Create a relationship between two work items")]
@@ -125,6 +130,7 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         [Description("Target work item ID")] int targetId,
         [Description("Relationship type (parent, child, related, predecessor, successor)")] string linkType,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
         if (sourceId <= 0)
@@ -166,7 +172,8 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
             warning = $"Link created but cache sync failed: {ex.Message}. Run twig_sync to recover.";
         }
 
-        return McpResultBuilder.FormatLinked(sourceId, targetId, linkType, warning);
+        return await McpHintProvider.ApplyHintsAsync(
+            McpResultBuilder.FormatLinked(sourceId, targetId, linkType, warning), verbose, ctx, ct);
     }
 
     [McpServerTool(Name = "twig_link_branch"), Description("Link a git branch to a work item as an ADO artifact link")]
@@ -174,6 +181,7 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         [Description("Work item ID to link the branch to")] int workItemId,
         [Description("Branch name (e.g. feature/123-fix-login)")] string branchName,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
         if (workItemId <= 0)
@@ -188,7 +196,8 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
             return McpResultBuilder.ToError("Git context is not configured for this workspace.");
 
         var result = await ctx.BranchLinkService.LinkBranchAsync(workItemId, branchName, ct);
-        return McpResultBuilder.FormatBranchLinked(result);
+        return await McpHintProvider.ApplyHintsAsync(
+            McpResultBuilder.FormatBranchLinked(result), verbose, ctx, ct);
     }
 
     [McpServerTool(Name = "twig_link_artifact"), Description("Add an artifact link (URL or vstfs:// URI) to a work item")]
@@ -197,6 +206,7 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         [Description("Artifact URL (http/https) or vstfs:// URI")] string url,
         [Description("Display name for the link (optional)")] string? name = null,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
         if (workItemId <= 0)
@@ -217,7 +227,8 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
             return McpResultBuilder.ToError($"Link failed: {ex.Message}");
         }
 
-        return McpResultBuilder.FormatArtifactLinked(workItemId, url, alreadyLinked);
+        return await McpHintProvider.ApplyHintsAsync(
+            McpResultBuilder.FormatArtifactLinked(workItemId, url, alreadyLinked), verbose, ctx, ct);
     }
 
     private async Task<CallToolResult?> CheckForDuplicateAsync(

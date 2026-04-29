@@ -18,6 +18,7 @@ public sealed class ContextTools(WorkspaceResolver resolver)
     public async Task<CallToolResult> Set(
         [Description("Work item ID (numeric) or title pattern (text)")] string idOrPattern,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(idOrPattern))
@@ -84,6 +85,7 @@ public sealed class ContextTools(WorkspaceResolver resolver)
             parentChainCount = chain.Count;
         }
         var children = await ctx.WorkItemRepo.GetChildrenAsync(item.Id, ct);
-        return McpResultBuilder.FormatWorkItemWithWorkingSet(item, parentChainCount, children.Count, ctx.Key.ToString());
+        var toolResult = McpResultBuilder.FormatWorkItemWithWorkingSet(item, parentChainCount, children.Count, ctx.Key.ToString());
+        return await McpHintProvider.ApplyHintsAsync(toolResult, verbose, ctx, ct);
     }
 }

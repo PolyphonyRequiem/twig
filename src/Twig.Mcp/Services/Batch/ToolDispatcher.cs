@@ -38,35 +38,35 @@ internal sealed class ToolDispatcher(
             // Context tools
             "twig_set" => contextTools.Set(
                 GetRequiredString(args, "idOrPattern"),
-                workspace, ct),
+                workspace, verbose: false, ct),
 
             // Read tools
             "twig_tree" => readTools.Tree(
                 GetNullableInt(args, "depth"),
-                workspace, ct),
+                workspace, verbose: false, ct),
 
             "twig_workspace" => readTools.Workspace(
                 GetBool(args, "all"),
                 GetBool(args, "tree"),
-                workspace, ct),
+                workspace, verbose: false, ct),
 
             // Mutation tools
             "twig_state" => mutationTools.State(
                 GetRequiredString(args, "stateName"),
-                workspace, ct),
+                workspace, verbose: false, ct),
 
             "twig_update" => mutationTools.Update(
                 GetRequiredString(args, "field"),
                 GetRequiredString(args, "value"),
                 GetString(args, "format"),
                 GetBool(args, "append"),
-                workspace, ct),
+                workspace, verbose: false, ct),
 
             "twig_note" => mutationTools.Note(
                 GetRequiredString(args, "text"),
-                workspace, ct),
+                workspace, verbose: false, ct),
 
-            "twig_sync"=> mutationTools.Sync(workspace, GetBool(args, "pull_only"), ct),
+            "twig_sync"=> mutationTools.Sync(workspace, GetBool(args, "pull_only"), verbose: false, ct),
 
             // Creation tools
             "twig_new" => creationTools.New(
@@ -77,6 +77,7 @@ internal sealed class ToolDispatcher(
                 GetString(args, "assignedTo"),
                 workspace,
                 GetBool(args, "skipDuplicateCheck"),
+                verbose: false,
                 ct),
 
             "twig_find_or_create" => creationTools.FindOrCreate(
@@ -85,20 +86,20 @@ internal sealed class ToolDispatcher(
                 GetRequiredInt(args, "parentId"),
                 GetString(args, "description"),
                 GetString(args, "assignedTo"),
-                workspace, ct),
+                workspace, verbose: false, ct),
 
             "twig_link" => creationTools.Link(
                 GetRequiredInt(args, "sourceId"),
                 GetRequiredInt(args, "targetId"),
                 GetRequiredString(args, "linkType"),
-                workspace, ct),
+                workspace, verbose: false, ct),
 
             // Navigation tools
             "twig_show" => navigationTools.Show(
                 GetRequiredInt(args, "id"),
                 GetBool(args, "tree"),
                 GetNullableInt(args, "depth"),
-                workspace, ct),
+                workspace, verbose: false, ct),
 
             "twig_query" => navigationTools.Query(
                 searchText: GetString(args, "searchText"),
@@ -111,19 +112,19 @@ internal sealed class ToolDispatcher(
                 createdSince: GetNullableInt(args, "createdSince"),
                 changedSince: GetNullableInt(args, "changedSince"),
                 top: GetInt(args, "top", defaultValue: 25),
-                workspace: workspace, ct: ct),
+                workspace: workspace, verbose: false, ct: ct),
 
             "twig_children" => navigationTools.Children(
                 GetRequiredInt(args, "id"),
-                workspace, ct),
+                workspace, verbose: false, ct),
 
             "twig_parent" => navigationTools.Parent(
                 GetRequiredInt(args, "id"),
-                workspace, ct),
+                workspace, verbose: false, ct),
 
             "twig_sprint" => navigationTools.Sprint(
                 GetBool(args, "items"),
-                workspace, ct),
+                workspace, verbose: false, ct),
 
             // Workspace tools
             "twig_list_workspaces" => Task.FromResult(workspaceTools.ListWorkspaces()),

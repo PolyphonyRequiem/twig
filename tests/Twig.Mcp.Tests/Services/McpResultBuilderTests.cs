@@ -1143,6 +1143,65 @@ public sealed class McpResultBuilderTests
         result.IsError.ShouldBeNull();
     }
 
+    // ── WithHints ───────────────────────────────────────────────────
+
+    [Fact]
+    public void WithHints_EmptyHints_WritesEmptyArray()
+    {
+        var original = McpResultBuilder.ToResult("""{"id":1}""");
+
+        var result = McpResultBuilder.WithHints(original, Array.Empty<string>());
+        var root = ParseJson(result);
+
+        root.GetProperty("id").GetInt32().ShouldBe(1);
+        root.GetProperty("hints").GetArrayLength().ShouldBe(0);
+    }
+
+    [Fact]
+    public void WithHints_MultipleHints_AllPresent()
+    {
+        var original = McpResultBuilder.ToResult("""{"ok":true}""");
+        var hints = new[] { "hint one", "hint two", "hint three" };
+
+        var result = McpResultBuilder.WithHints(original, hints);
+        var root = ParseJson(result);
+
+        root.GetProperty("ok").GetBoolean().ShouldBeTrue();
+        root.GetProperty("hints").GetArrayLength().ShouldBe(3);
+        root.GetProperty("hints")[0].GetString().ShouldBe("hint one");
+        root.GetProperty("hints")[1].GetString().ShouldBe("hint two");
+        root.GetProperty("hints")[2].GetString().ShouldBe("hint three");
+    }
+
+    [Fact]
+    public void WithHints_ErrorResult_ReturnsUnchanged()
+    {
+        var error = McpResultBuilder.ToError("Something broke");
+
+        var result = McpResultBuilder.WithHints(error, new[] { "a hint" });
+
+        result.IsError.ShouldBe(true);
+        result.Content[0].ShouldBeOfType<TextContentBlock>()
+            .Text.ShouldBe("Something broke");
+    }
+
+    [Fact]
+    public void WithHints_PreservesExistingProperties()
+    {
+        var item = WorkItemBuilder.Simple(42, "Test Item");
+        var original = McpResultBuilder.FormatNoteAdded(42, "Test Item", false);
+
+        var result = McpResultBuilder.WithHints(original, new[] { "sync pending" });
+        var root = ParseJson(result);
+
+        root.GetProperty("id").GetInt32().ShouldBe(42);
+        root.GetProperty("title").GetString().ShouldBe("Test Item");
+        root.GetProperty("noteAdded").GetBoolean().ShouldBeTrue();
+        root.GetProperty("isPending").GetBoolean().ShouldBeFalse();
+        root.GetProperty("hints").GetArrayLength().ShouldBe(1);
+        root.GetProperty("hints")[0].GetString().ShouldBe("sync pending");
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────
 
     private static JsonElement ParseJson(CallToolResult result)

@@ -28,6 +28,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
     public async Task<CallToolResult> State(
         [Description("Target state name (full or partial, case-insensitive)")] string stateName,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(stateName))
@@ -61,7 +62,8 @@ public sealed class MutationTools(WorkspaceResolver resolver)
             try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
             catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
-            return McpResultBuilder.FormatStateChange(seedUpdated, previousState);
+            return await McpHintProvider.ApplyHintsAsync(
+                McpResultBuilder.FormatStateChange(seedUpdated, previousState), verbose, ctx, ct);
         }
 
         var processConfig = ctx.ProcessConfigProvider.GetConfiguration();
@@ -119,7 +121,8 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
-        return McpResultBuilder.FormatStateChange(updated, previousStateAdo);
+        return await McpHintProvider.ApplyHintsAsync(
+            McpResultBuilder.FormatStateChange(updated, previousStateAdo), verbose, ctx, ct);
     }
 
     [McpServerTool(Name = "twig_update"), Description("Update a field on the active work item and push to ADO")]
@@ -129,6 +132,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         [Description("Set to 'markdown' to convert the value from Markdown to HTML before storing (useful for System.Description)")] string? format = null,
         [Description("When true, append the value to the existing field content instead of replacing it")] bool append = false,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(field) || value is null)
@@ -171,7 +175,8 @@ public sealed class MutationTools(WorkspaceResolver resolver)
             try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
             catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
-            return McpResultBuilder.FormatFieldUpdate(item, field, value);
+            return await McpHintProvider.ApplyHintsAsync(
+                McpResultBuilder.FormatFieldUpdate(item, field, value), verbose, ctx, ct);
         }
 
         WorkItem remote;
@@ -211,7 +216,8 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
-        return McpResultBuilder.FormatFieldUpdate(updated, field, value);
+        return await McpHintProvider.ApplyHintsAsync(
+            McpResultBuilder.FormatFieldUpdate(updated, field, value), verbose, ctx, ct);
     }
 
     [McpServerTool(Name = "twig_patch"), Description("Atomically patch multiple fields on the active work item")]
@@ -219,6 +225,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         [Description("JSON object with field reference name → value pairs (e.g. {\"System.Title\":\"New\",\"System.Description\":\"Desc\"})")] string fields,
         [Description("Convert values before sending. Supported: \"markdown\" (converts Markdown to HTML)")] string? format = null,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(fields))
@@ -279,7 +286,8 @@ public sealed class MutationTools(WorkspaceResolver resolver)
             try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
             catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
-            return McpResultBuilder.FormatPatch(item, fieldChanges);
+            return await McpHintProvider.ApplyHintsAsync(
+                McpResultBuilder.FormatPatch(item, fieldChanges), verbose, ctx, ct);
         }
 
         // Fetch remote and PATCH with conflict retry
@@ -312,13 +320,15 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
-        return McpResultBuilder.FormatPatch(updated, fieldChanges);
+        return await McpHintProvider.ApplyHintsAsync(
+            McpResultBuilder.FormatPatch(updated, fieldChanges), verbose, ctx, ct);
     }
 
     [McpServerTool(Name = "twig_note"), Description("Add a comment/note to the active work item")]
     public async Task<CallToolResult> Note(
         [Description("Note text to add as a comment")] string text,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -367,7 +377,8 @@ public sealed class MutationTools(WorkspaceResolver resolver)
 
         await ctx.PromptStateWriter.WritePromptStateAsync();
 
-        return McpResultBuilder.FormatNoteAdded(item.Id, item.Title, isPending);
+        return await McpHintProvider.ApplyHintsAsync(
+            McpResultBuilder.FormatNoteAdded(item.Id, item.Title, isPending), verbose, ctx, ct);
     }
 
     [McpServerTool(Name = "twig_delete"), Description("Permanently delete a work item from Azure DevOps (two-phase: first call returns confirmation prompt, second call with confirmed=true executes deletion)")]
@@ -375,6 +386,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         [Description("The work item ID to delete")] int id,
         [Description("Set to true to confirm and execute the deletion. Omit or set false for the confirmation prompt.")] bool confirmed = false,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
         if (id <= 0)
@@ -469,13 +481,15 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
-        return McpResultBuilder.FormatDeleted(id, freshItem.Title);
+        return await McpHintProvider.ApplyHintsAsync(
+            McpResultBuilder.FormatDeleted(id, freshItem.Title), verbose, ctx, ct);
     }
 
     [McpServerTool(Name = "twig_discard"), Description("Discard pending local changes for a work item")]
     public async Task<CallToolResult> Discard(
         [Description("Work item ID (optional — defaults to the active work item)")] int? id = null,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
@@ -507,7 +521,8 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         var (notes, fieldEdits) = await ctx.PendingChangeStore.GetChangeSummaryAsync(itemId, ct);
 
         if (notes == 0 && fieldEdits == 0)
-            return McpResultBuilder.FormatDiscardedNone(itemId, item.Title);
+            return await McpHintProvider.ApplyHintsAsync(
+                McpResultBuilder.FormatDiscardedNone(itemId, item.Title), verbose, ctx, ct);
 
         await ctx.PendingChangeStore.ClearChangesAsync(itemId, ct);
         await ctx.WorkItemRepo.ClearDirtyFlagAsync(itemId, ct);
@@ -515,13 +530,15 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
-        return McpResultBuilder.FormatDiscarded(itemId, notes, fieldEdits);
+        return await McpHintProvider.ApplyHintsAsync(
+            McpResultBuilder.FormatDiscarded(itemId, notes, fieldEdits), verbose, ctx, ct);
     }
 
     [McpServerTool(Name = "twig_sync"),Description("Flush pending local changes to ADO then refresh the local cache from ADO")]
     public async Task<CallToolResult> Sync(
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
         [Description("When true, skip the flush phase and only pull (refresh) from ADO.")] bool pull_only = false,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return McpResultBuilder.ToError(err!);
@@ -562,6 +579,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
 
         await ctx.PromptStateWriter.WritePromptStateAsync();
 
-        return McpResultBuilder.FormatSyncSummary(flushSummary, pull_only);
+        return await McpHintProvider.ApplyHintsAsync(
+            McpResultBuilder.FormatSyncSummary(flushSummary, pull_only), verbose, ctx, ct);
     }
 }

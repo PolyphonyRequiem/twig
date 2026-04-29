@@ -43,7 +43,7 @@ public sealed class ShowCommand(
     private readonly IPendingChangeStore? _pendingChangeStore = pendingChangeStore;
     private readonly WorkingSetService? _workingSetService = workingSetService;
 
-    public async Task<int> ExecuteAsync(int? id = null, string outputFormat = OutputFormatterFactory.DefaultFormat, bool tree = false, bool noRefresh = false, CancellationToken ct = default)
+    public async Task<int> ExecuteAsync(int? id = null, string outputFormat = OutputFormatterFactory.DefaultFormat, bool tree = false, bool noRefresh = false, CancellationToken ct = default, int? depth = null, bool noLive = false)
     {
         var startTimestamp = Stopwatch.GetTimestamp();
         int exitCode;
@@ -57,7 +57,7 @@ public sealed class ShowCommand(
             }
             else
             {
-                exitCode = await treeRenderingService.RenderTreeAsync(id, outputFormat, depth: null, noLive: false, noRefresh, ct);
+                exitCode = await treeRenderingService.RenderTreeAsync(id, outputFormat, depth, noLive, noRefresh, ct);
             }
 
             TelemetryHelper.TrackCommand(ctx.TelemetryClient, "show", outputFormat, exitCode, startTimestamp,

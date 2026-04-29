@@ -26,6 +26,9 @@ internal static class CommandExamples
         [
             "twig show 1234             Show work item #1234",
             "twig show 1234 --output json  Show work item #1234 as JSON",
+            "twig show --tree           Show work item tree hierarchy for the active item",
+            "twig show 1234 --tree      Show tree hierarchy rooted at #1234",
+            "twig show --tree --depth 2  Show tree hierarchy limited to 2 levels deep",
         ],
         ["show-batch"] =
         [
@@ -223,6 +226,8 @@ internal static class CommandExamples
         [
             "twig workspace             Show the current workspace (cached items)",
             "twig workspace --output json  Output workspace info as JSON",
+            "twig workspace --tree      Show workspace items as a tree hierarchy",
+            "twig workspace --all --tree  Show all team items as a tree hierarchy",
         ],
         ["workspace track"] =
         [

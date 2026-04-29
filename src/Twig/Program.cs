@@ -396,14 +396,14 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="id">Work item ID to target; omit to use the active work item.</param>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     /// <param name="depth">Maximum tree depth to display.</param>
-    /// <param name="all">When set, routes to workspace --tree for full backlog hierarchy.</param>
+    /// <param name="all">When set, routes to workspace --tree showing all team items as hierarchy.</param>
     /// <param name="noLive">Disable live-refresh and render a static snapshot.</param>
     /// <param name="noRefresh">Skip the sync and show cached data only.</param>
     [Hidden]
     public async Task<int> Tree([Argument] int? id = null, string output = OutputFormatterFactory.DefaultFormat, int? depth = null, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default)
         => all
-            ? await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all: false, noLive, noRefresh, ct, tree: true)
-            : await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, tree: true, noRefresh, ct);
+            ? await services.GetRequiredService<WorkspaceCommand>().ExecuteAsync(output, all: true, noLive, noRefresh, ct, tree: true)
+            : await services.GetRequiredService<ShowCommand>().ExecuteAsync(id, output, tree: true, noRefresh, ct, depth, noLive);
 
     /// <summary>Navigate to the parent work item.</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>

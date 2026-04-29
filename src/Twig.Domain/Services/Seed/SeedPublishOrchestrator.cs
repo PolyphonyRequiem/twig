@@ -236,7 +236,7 @@ public sealed class SeedPublishOrchestrator
             };
         }
 
-        // Checks 2 & 3 (skipped when force=true)
+        // Checks 2, 3 & 4 (skipped when force=true)
         if (!force)
         {
             var preFlightErrors = new List<string>();
@@ -264,6 +264,14 @@ public sealed class SeedPublishOrchestrator
                 {
                     preFlightErrors.Add(
                         $"Seed {seed.Id} ('{seed.Title}') references parent seed {seed.ParentId.Value} which is not in the current batch. Remove the parent reference or include the parent seed.");
+                }
+
+                // Check 4: Negative ID escape guard (I-2)
+                var escapeFailures = SeedIdEscapeValidator.Validate(seed, seedIds);
+                foreach (var failure in escapeFailures)
+                {
+                    preFlightErrors.Add(
+                        $"Seed {seed.Id} ('{seed.Title}'): {failure.Message}");
                 }
             }
 

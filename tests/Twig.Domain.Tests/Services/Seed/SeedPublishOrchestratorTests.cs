@@ -818,6 +818,100 @@ public class SeedPublishOrchestratorTests
     }
 
     // ═══════════════════════════════════════════════════════════════
+    //  Pre-flight: negative ID escape guard (I-2) — no ADO calls
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task PublishAllAsync_SeedIdEscape_AbortsBatch()
+    {
+        // Seed -1 has a field containing "-2" which is another seed's ID → escape violation
+        var seed1 = new WorkItemBuilder(-1, "Seed A").AsSeed(daysOld: 2)
+            .WithField("System.Description", "Depends on -2")
+            .Build();
+        var seed2 = new WorkItemBuilder(-2, "Seed B").AsSeed(daysOld: 1).Build();
+
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(new[] { seed1, seed2 });
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<SeedLink>());
+
+        var result = await _orchestrator.PublishAllAsync();
+
+        result.HasErrors.ShouldBeTrue();
+        result.PreFlightErrors.Count.ShouldBe(1);
+        result.PreFlightErrors[0].ShouldContain("-2");
+        result.PreFlightErrors[0].ShouldContain("seed ID");
+        result.CycleErrors.ShouldBeEmpty();
+        await _adoService.DidNotReceive().CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PublishAllAsync_SeedIdEscape_ForceTrue_BypassesCheck()
+    {
+        // force=true bypasses I-2 check
+        var seed1 = new WorkItemBuilder(-1, "Seed A").AsSeed(daysOld: 2)
+            .WithField("System.Description", "Depends on -2")
+            .Build();
+        var seed2 = new WorkItemBuilder(-2, "Seed B").AsSeed(daysOld: 1).Build();
+
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(new[] { seed1, seed2 });
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<SeedLink>());
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed1);
+        _workItemRepo.GetByIdAsync(-2, Arg.Any<CancellationToken>()).Returns(seed2);
+        _adoService.CreateAsync(Arg.Is<CreateWorkItemRequest>(r => r.Title == "Seed B"), Arg.Any<CancellationToken>()).Returns(500);
+        _adoService.FetchAsync(500, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(500, "Seed B").Build());
+        _adoService.CreateAsync(Arg.Is<CreateWorkItemRequest>(r => r.Title == "Seed A"), Arg.Any<CancellationToken>()).Returns(501);
+        _adoService.FetchAsync(501, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(501, "Seed A").Build());
+
+        var result = await _orchestrator.PublishAllAsync(force: true);
+
+        result.HasErrors.ShouldBeFalse();
+        result.PreFlightErrors.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task PublishAllAsync_SeedIdEscape_MultipleFieldsMultipleSeeds_AllReported()
+    {
+        // Seed -1 has two fields with escape violations, seed -2 has one
+        var seed1 = new WorkItemBuilder(-1, "Seed A").AsSeed(daysOld: 2)
+            .WithField("System.Description", "See -2 and -3")
+            .Build();
+        var seed2 = new WorkItemBuilder(-2, "Seed B").AsSeed(daysOld: 1)
+            .WithField("Custom.Notes", "Ref to -1")
+            .Build();
+        var seed3 = new WorkItemBuilder(-3, "Seed C").AsSeed(daysOld: 1).Build();
+
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(new[] { seed1, seed2, seed3 });
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<SeedLink>());
+
+        var result = await _orchestrator.PublishAllAsync();
+
+        result.HasErrors.ShouldBeTrue();
+        // seed1 has 2 escape failures (System.Description contains -2 and -3),
+        // seed2 has 1 (Custom.Notes contains -1)
+        result.PreFlightErrors.Count.ShouldBe(3);
+        await _adoService.DidNotReceive().CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PublishAllAsync_NoSeedIdEscape_FieldWithNonSeedNegativeNumber_Passes()
+    {
+        // Field contains "-999" which is not a seed ID — should pass
+        var seed = new WorkItemBuilder(-1, "Seed A").AsSeed(daysOld: 1)
+            .WithField("System.Description", "Temperature was -999 degrees")
+            .Build();
+
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns(new[] { seed });
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>()).Returns(Array.Empty<SeedLink>());
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(500);
+        _adoService.FetchAsync(500, Arg.Any<CancellationToken>()).Returns(new WorkItemBuilder(500, "Seed A").Build());
+
+        var result = await _orchestrator.PublishAllAsync();
+
+        result.HasErrors.ShouldBeFalse();
+        result.PreFlightErrors.ShouldBeEmpty();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     //  Pre-flight: valid graph — all checks pass, publish proceeds
     // ═══════════════════════════════════════════════════════════════
 

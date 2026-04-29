@@ -91,6 +91,8 @@ public static class CommandServiceModule
             sp.GetRequiredService<ISeedLinkRepository>(),
             sp.GetRequiredService<IWorkItemRepository>(),
             sp.GetRequiredService<IPublishIdMapRepository>()));
+        services.AddSingleton<SeedDiscardOrchestrator>(sp => new SeedDiscardOrchestrator(
+            sp.GetRequiredService<IWorkItemRepository>()));
 
         // Mutation providers — SeedMutationProvider for local-only seed mutations
         services.AddSingleton<SeedMutationProvider>();

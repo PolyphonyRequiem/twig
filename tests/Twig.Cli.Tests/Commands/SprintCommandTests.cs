@@ -23,7 +23,7 @@ public sealed class SprintCommandTests : IDisposable
             new HumanOutputFormatter(),
             new JsonOutputFormatter(),
             new JsonCompactOutputFormatter(new JsonOutputFormatter()),
-            new MinimalOutputFormatter());
+            new MinimalOutputFormatter(), new IdsOutputFormatter());
     }
 
     public void Dispose()

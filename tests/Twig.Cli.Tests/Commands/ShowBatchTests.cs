@@ -38,7 +38,7 @@ public sealed class ShowBatchTests
 
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(),
-            new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
+            new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
 
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         var pipelineFactory = new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true);

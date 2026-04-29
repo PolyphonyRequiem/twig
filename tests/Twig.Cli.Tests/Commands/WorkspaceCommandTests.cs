@@ -59,7 +59,7 @@ public class WorkspaceCommandTests
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
 
         _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
 
         _testConsole = new TestConsole();
@@ -1457,4 +1457,92 @@ public class WorkspaceCommandTests
             _processTypeStore, _fieldDefinitionStore, _activeItemResolver, _workingSetService, _trackingService,
             new SprintHierarchyBuilder(), new SprintIterationResolver(_iterationService, _workItemRepo),
             treeService);
+
+    // ── --no-refresh bypass tests ───────────────────────────────────
+
+    [Fact]
+    public async Task Workspace_NoRefresh_ReturnsZero()
+    {
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var result = await _cmd.ExecuteAsync(noRefresh: true);
+
+        result.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Workspace_TreeMode_NoRefresh_SkipsSyncWorkingSet()
+    {
+        var item = CreateWorkItem(1, "Task");
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { item });
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetChildrenAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetParentChainAsync(Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var treeService = CreateTreeRenderingService();
+        var cmd = CreateCommandWithTreeService(treeService);
+
+        var result = await cmd.ExecuteAsync("minimal", tree: true, noRefresh: true);
+        result.ShouldBe(0);
+
+        // SyncWorkingSetAsync should NOT be called when noRefresh is true
+        // The ADO service should not receive any sync-related WIQL calls
+        await _adoService.DidNotReceive().QueryByWiqlAsync(
+            Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Workspace_NoRefresh_MinimalFormat_ReturnsZero()
+    {
+        var item = CreateWorkItem(1, "Task");
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { item });
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var result = await _cmd.ExecuteAsync(outputFormat: "minimal", noRefresh: true);
+
+        result.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Workspace_NoRefresh_IdsFormat_ReturnsZero()
+    {
+        var item = CreateWorkItem(1, "Task");
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { item });
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var result = await _cmd.ExecuteAsync(outputFormat: "ids", noRefresh: true);
+
+        result.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Workspace_NoRefresh_JsonFormat_ReturnsZero()
+    {
+        var item = CreateWorkItem(1, "Task");
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
+        _workItemRepo.GetByIterationAsync(Arg.Any<IterationPath>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { item });
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var result = await _cmd.ExecuteAsync(outputFormat: "json", noRefresh: true);
+
+        result.ShouldBe(0);
+    }
 }

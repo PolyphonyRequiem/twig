@@ -48,7 +48,7 @@ public class NewCommandTests : IDisposable
             });
 
         _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
 
         _config = new TwigConfiguration

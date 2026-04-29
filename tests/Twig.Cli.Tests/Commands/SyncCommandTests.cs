@@ -365,4 +365,78 @@ public sealed class SyncCommandTests : RefreshCommandTestBase
         stderr.ToString().ShouldContain("#10");
         stderr.ToString().ShouldContain("Partial push failed");
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Sync-first behavior: machine format output passthrough
+    // ═══════════════════════════════════════════════════════════════
+
+    [Theory]
+    [InlineData("json")]
+    [InlineData("minimal")]
+    [InlineData("ids")]
+    public async Task Sync_MachineFormats_PassOutputFormatToFlusher(string format)
+    {
+        _flusher.FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new FlushResult(0, 0, 0, []));
+
+        var cmd = CreateSyncCommand();
+        await cmd.ExecuteAsync(outputFormat: format);
+
+        await _flusher.Received(1).FlushAllAsync(format, Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData("json")]
+    [InlineData("minimal")]
+    [InlineData("ids")]
+    public async Task Sync_MachineFormats_CallsFlushThenRefresh(string format)
+    {
+        var callOrder = new List<string>();
+
+        _flusher.FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+            {
+                callOrder.Add("flush");
+                return new FlushResult(0, 0, 0, []);
+            });
+
+        _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(callInfo =>
+            {
+                callOrder.Add("refresh");
+                return Array.Empty<int>();
+            });
+
+        var cmd = CreateSyncCommand();
+        await cmd.ExecuteAsync(outputFormat: format);
+
+        callOrder.ShouldBe(new[] { "flush", "refresh" });
+    }
+
+    [Fact]
+    public async Task Sync_IdsFormat_ReturnsZero_OnSuccess()
+    {
+        _flusher.FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new FlushResult(0, 0, 0, []));
+
+        var cmd = CreateSyncCommand();
+        var result = await cmd.ExecuteAsync(outputFormat: "ids");
+
+        result.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Sync_IdsFormat_DoesNotEmitJsonStructure()
+    {
+        _flusher.FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(new FlushResult(1, 2, 0, []));
+
+        var cmd = CreateSyncCommand();
+
+        var output = await CaptureStdoutAsync(() => cmd.ExecuteAsync(outputFormat: "ids"));
+
+        // IDs format is not JSON — should not contain JSON structure
+        output.ShouldNotContain("\"flush\"");
+        output.ShouldNotContain("\"refresh\"");
+    }
 }

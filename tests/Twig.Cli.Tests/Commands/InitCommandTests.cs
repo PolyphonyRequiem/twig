@@ -56,7 +56,7 @@ public class InitCommandTests : IDisposable
         // startDir is set explicitly so InitCommand targets _testDir, not the test runner's CWD.
         _paths = new TwigPaths(_twigDir, _configPath, _dbPath, startDir: _testDir);
         _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
     }
 

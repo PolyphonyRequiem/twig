@@ -39,7 +39,7 @@ public class LinkCommandTests : IDisposable
             new HumanOutputFormatter(),
             new JsonOutputFormatter(),
             new JsonCompactOutputFormatter(new JsonOutputFormatter()),
-            new MinimalOutputFormatter());
+            new MinimalOutputFormatter(), new IdsOutputFormatter());
 
         _stderr = new StringWriter();
 

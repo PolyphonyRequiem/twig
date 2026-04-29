@@ -57,7 +57,7 @@ public sealed class CommandRegistrationModuleTests
             new HumanOutputFormatter(),
             new JsonOutputFormatter(),
             new JsonCompactOutputFormatter(new JsonOutputFormatter()),
-            new MinimalOutputFormatter()));
+            new MinimalOutputFormatter(), new IdsOutputFormatter()));
 
         // Config
         services.AddSingleton(new TwigConfiguration

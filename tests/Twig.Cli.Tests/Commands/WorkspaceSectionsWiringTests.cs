@@ -62,7 +62,7 @@ public sealed class WorkspaceSectionsWiringTests
             .Returns(IterationPath.Parse("Project\\Sprint 1").Value);
 
         _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
 
         _testConsole = new TestConsole();

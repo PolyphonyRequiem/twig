@@ -29,7 +29,7 @@ public class DiscardCommandTests
         _telemetryClient = Substitute.For<ITelemetryClient>();
 
         _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
 
         _cmd = new DiscardCommand(
             _workItemRepo,

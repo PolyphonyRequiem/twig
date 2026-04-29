@@ -9,7 +9,8 @@ public sealed class OutputFormatterFactory(
     HumanOutputFormatter human,
     JsonOutputFormatter json,
     JsonCompactOutputFormatter jsonCompact,
-    MinimalOutputFormatter minimal)
+    MinimalOutputFormatter minimal,
+    IdsOutputFormatter ids)
 {
     public const string DefaultFormat = "human";
 
@@ -20,6 +21,7 @@ public sealed class OutputFormatterFactory(
             "json-full"    => json,
             "json-compact" => jsonCompact,
             "minimal"      => minimal,
+            "ids"          => ids,
             _              => human,
         };
 }

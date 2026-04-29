@@ -65,7 +65,7 @@ public sealed class ShowCommand_TreeTests : IDisposable
 
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(),
-            new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
+            new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
 
         _tempDir = Path.Combine(Path.GetTempPath(), "twig-show-tree-test-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_tempDir);

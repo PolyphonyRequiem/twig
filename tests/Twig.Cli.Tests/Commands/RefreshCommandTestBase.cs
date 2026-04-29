@@ -88,7 +88,7 @@ public abstract class RefreshCommandTestBase : IDisposable
 
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(),
-            new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
+            new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
     }
 
     protected RefreshCommand CreateRefreshCommand(TextWriter? stderr = null, IGlobalProfileStore? profileStore = null)

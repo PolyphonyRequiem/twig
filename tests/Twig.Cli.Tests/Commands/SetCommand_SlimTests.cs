@@ -194,7 +194,7 @@ public sealed class SetCommand_SlimTests : IDisposable
     {
         var formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(),
-            new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
+            new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = hintsEnabled });
         var pipelineFactory = new RenderingPipelineFactory(formatterFactory, null!, isOutputRedirected: () => true);
         var ctx = new CommandContext(pipelineFactory, formatterFactory, hintEngine, new TwigConfiguration());

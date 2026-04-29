@@ -41,7 +41,7 @@ public class UpdateCommandTests
     private UpdateCommand CreateCommand(TextReader? stdinReader = null, TextWriter? stderr = null, TextWriter? stdout = null)
     {
         var formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         return new UpdateCommand(resolver, _workItemRepo, _adoService, _pendingChangeStore,
             _consoleInput, formatterFactory, _seedMutationProvider, stdinReader: stdinReader, stderr: stderr, stdout: stdout);

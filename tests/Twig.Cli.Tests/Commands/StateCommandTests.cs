@@ -46,7 +46,7 @@ public class StateCommandTests
             .Returns(ProcessConfigBuilder.Agile());
 
         var formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         var ctx = new CommandContext(
             new RenderingPipelineFactory(formatterFactory, null!, isOutputRedirected: () => true),
@@ -387,7 +387,7 @@ public class StateCommandTests
             _workItemRepo, _adoService, _processConfigProvider, protectedCacheWriter);
 
         var formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         var ctx = new CommandContext(
             new RenderingPipelineFactory(formatterFactory, null!, isOutputRedirected: () => true),

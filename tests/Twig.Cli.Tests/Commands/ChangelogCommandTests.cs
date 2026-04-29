@@ -13,7 +13,7 @@ public class ChangelogCommandTests
 {
     private static readonly OutputFormatterFactory Formatter = new(
         new HumanOutputFormatter(), new JsonOutputFormatter(),
-        new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
+        new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
 
     // ── Formatting ─────────────────────────────────────────────────────
 

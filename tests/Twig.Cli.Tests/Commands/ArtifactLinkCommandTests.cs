@@ -32,7 +32,7 @@ public sealed class ArtifactLinkCommandTests : IDisposable
             new HumanOutputFormatter(),
             new JsonOutputFormatter(),
             new JsonCompactOutputFormatter(new JsonOutputFormatter()),
-            new MinimalOutputFormatter());
+            new MinimalOutputFormatter(), new IdsOutputFormatter());
 
         _stderr = new StringWriter();
         _originalOut = Console.Out;

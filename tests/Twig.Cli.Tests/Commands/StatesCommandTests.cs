@@ -37,7 +37,7 @@ public sealed class StatesCommandTests : IDisposable
 
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(),
-            new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
+            new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
 
         _cmd = new StatesCommand(
             _activeItemResolver,

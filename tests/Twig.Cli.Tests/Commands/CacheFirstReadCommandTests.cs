@@ -66,7 +66,7 @@ public class CacheFirstReadCommandTests
         _trackingService.GetExcludedIdsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<int>());
         _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter());
+            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         _processTypeStore = Substitute.For<IProcessTypeStore>();
         var pipelineFactory = new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true);

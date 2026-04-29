@@ -379,7 +379,7 @@ public sealed class WorkspaceCommand(
         }
 
         // Dirty orphans: items with unsaved changes not in sprint/seed scope (EPIC-004)
-        if (!all && fmt is not JsonOutputFormatter && fmt is not MinimalOutputFormatter)
+        if (!all && fmt is not JsonOutputFormatter && fmt is not MinimalOutputFormatter && fmt is not IdsOutputFormatter)
         {
             // Use resolved iterations for dirty orphan scope; fall back to current iteration
             IReadOnlyList<IterationPath> orphanIterations = resolvedIterations;
@@ -424,7 +424,7 @@ public sealed class WorkspaceCommand(
 
         var hints = ctx.HintEngine.GetHints("workspace",
             workspace: workspace,
-            outputFormat: fmt is JsonOutputFormatter or JsonCompactOutputFormatter ? "json" : (fmt is MinimalOutputFormatter ? "minimal" : "human"));
+            outputFormat: fmt is JsonOutputFormatter or JsonCompactOutputFormatter ? "json" : (fmt is MinimalOutputFormatter ? "minimal" : (fmt is IdsOutputFormatter ? "ids" : "human")));
         foreach (var hint in hints)
         {
             var formatted = fmt.FormatHint(hint);

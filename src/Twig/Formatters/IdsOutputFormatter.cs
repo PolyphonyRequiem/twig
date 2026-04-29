@@ -80,7 +80,17 @@ public sealed class IdsOutputFormatter : IOutputFormatter
     public string FormatSeedReconcileResult(SeedReconcileResult result) => string.Empty;
     public string FormatSeedPublishResult(SeedPublishResult result) => string.Empty;
     public string FormatSeedPublishBatchResult(SeedPublishBatchResult result) => string.Empty;
-    public string FormatAreaView(AreaView areaView) => string.Empty;
+    public string FormatAreaView(AreaView areaView)
+    {
+        if (areaView.AreaItems.Count == 0)
+            return string.Empty;
+
+        var sb = new StringBuilder();
+        foreach (var item in areaView.AreaItems)
+            sb.AppendLine(item.Id.ToString());
+
+        return TrimEnd(sb);
+    }
 
     private static void AppendDescendantsDepthFirst(StringBuilder sb, WorkTree tree, int parentId, int currentDepth, int maxDepth)
     {

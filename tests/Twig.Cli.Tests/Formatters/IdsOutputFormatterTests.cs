@@ -338,6 +338,76 @@ public sealed class IdsOutputFormatterTests
         _formatter.FormatDisambiguation(matches).ShouldBe(string.Empty);
     }
 
+    // ── FormatAreaView ─────────────────────────────────────────────
+
+    [Fact]
+    public void FormatAreaView_OutputsAreaItemIds()
+    {
+        var items = new[]
+        {
+            CreateWorkItem(10, "Task A", "Active"),
+            CreateWorkItem(20, "Task B", "New"),
+            CreateWorkItem(30, "Task C", "Done"),
+        };
+        var filters = new[] { new AreaPathFilter("Project", true) };
+        var view = AreaView.Build(items, filters, matchCount: 3);
+
+        var result = _formatter.FormatAreaView(view);
+        var lines = SplitLines(result);
+
+        lines.Length.ShouldBe(3);
+        lines[0].ShouldBe("10");
+        lines[1].ShouldBe("20");
+        lines[2].ShouldBe("30");
+    }
+
+    [Fact]
+    public void FormatAreaView_EmptyItems_ReturnsEmpty()
+    {
+        var filters = new[] { new AreaPathFilter("Project", true) };
+        var view = AreaView.Build(Array.Empty<WorkItem>(), filters, matchCount: 0);
+
+        var result = _formatter.FormatAreaView(view);
+
+        result.ShouldBe(string.Empty);
+    }
+
+    [Fact]
+    public void FormatAreaView_OneIdPerLine()
+    {
+        var items = new[]
+        {
+            CreateWorkItem(100, "A", "Active"),
+            CreateWorkItem(200, "B", "New"),
+        };
+        var filters = new[] { new AreaPathFilter("Project", true) };
+        var view = AreaView.Build(items, filters, matchCount: 2);
+
+        var result = _formatter.FormatAreaView(view);
+        var lines = SplitLines(result);
+
+        foreach (var line in lines)
+        {
+            int.TryParse(line.Trim(), out var parsed).ShouldBeTrue($"Line '{line}' is not a bare integer");
+            parsed.ShouldBeGreaterThan(0);
+        }
+    }
+
+    [Fact]
+    public void FormatAreaView_NoAnsiOrDecoration()
+    {
+        var items = new[] { CreateWorkItem(42, "My Task", "Active") };
+        var filters = new[] { new AreaPathFilter("Project\\Team", true) };
+        var view = AreaView.Build(items, filters, matchCount: 1);
+
+        var result = _formatter.FormatAreaView(view);
+
+        result.ShouldNotContain("\x1b[");
+        result.ShouldNotContain("My Task");
+        result.ShouldNotContain("Active");
+        result.ShouldNotContain("AREA");
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     private static WorkItem CreateWorkItem(int id, string title, string state)

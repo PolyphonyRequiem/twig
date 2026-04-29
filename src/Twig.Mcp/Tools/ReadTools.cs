@@ -147,6 +147,80 @@ public sealed class ReadTools(WorkspaceResolver resolver, NavigationTools naviga
         return McpResultBuilder.FormatWorkspaceTree(roots, ws, ctx.Key.ToString(), excludedItems);
     }
 
+    [McpServerTool(Name = "twig_refresh"), Description("Pull-only cache refresh from ADO — no pending changes are pushed. When id is omitted, refreshes the full active context (active item, parent chain, children). When id is provided, refreshes only that single work item.")]
+    public async Task<CallToolResult> Refresh(
+        [Description("Work item ID to refresh. When omitted, refreshes the full active context.")] int? id = null,
+        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
+        CancellationToken ct = default)
+    {
+        if (!resolver.TryResolve(workspace, out var ctx, out var err))
+            return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        int refreshedCount = 0;
+
+        if (id.HasValue)
+        {
+            // Single-item refresh
+            var result = await ctx.SyncCoordinatorFactory.ReadWrite.SyncItemSetAsync([id.Value], ct);
+            refreshedCount = result switch
+            {
+                SyncResult.Updated u => u.ChangedCount,
+                SyncResult.PartiallyUpdated p => p.SavedCount,
+                _ => 0
+            };
+        }
+        else
+        {
+            // Full context refresh — same pull logic as twig_sync's phase 2
+            var resolved = await ctx.ActiveItemResolver.GetActiveItemAsync(ct);
+            if (resolved is ActiveItemResult.Found or ActiveItemResult.FetchedFromAdo)
+            {
+                var item = resolved is ActiveItemResult.Found f
+                    ? f.WorkItem
+                    : ((ActiveItemResult.FetchedFromAdo)resolved).WorkItem;
+
+                var idsToSync = new List<int> { item.Id };
+
+                if (item.ParentId.HasValue)
+                {
+                    var chain = await ctx.WorkItemRepo.GetParentChainAsync(item.ParentId.Value, ct);
+                    idsToSync.AddRange(chain.Select(p => p.Id));
+                }
+
+                var children = await ctx.WorkItemRepo.GetChildrenAsync(item.Id, ct);
+                idsToSync.AddRange(children.Select(c => c.Id));
+
+                try
+                {
+                    var result = await ctx.SyncCoordinatorFactory.ReadWrite.SyncItemSetAsync(
+                        idsToSync.Distinct().ToList(), ct);
+                    refreshedCount = result switch
+                    {
+                        SyncResult.Updated u => u.ChangedCount,
+                        SyncResult.PartiallyUpdated p => p.SavedCount,
+                        _ => 0
+                    };
+                }
+                catch (OperationCanceledException) { throw; }
+                catch { /* best-effort */ }
+            }
+        }
+
+        sw.Stop();
+
+        var stats = await ctx.WorkItemRepo.GetCacheStatisticsAsync(ct);
+        var lastSyncUtc = stats.NewestSyncUtc?.ToString("o") ?? "";
+
+        return await EnvelopeBuilder.SuccessAsync(ctx, writer =>
+        {
+            writer.WriteNumber("refreshedCount", refreshedCount);
+            writer.WriteString("lastSyncUtc", lastSyncUtc);
+            writer.WriteNumber("durationMs", sw.ElapsedMilliseconds);
+        }, verbose, ct);
+    }
+
     [McpServerTool(Name = "twig_cache_status"), Description("Report local cache freshness: last sync time, pending change count, tracked item count, oldest item age. No network call — safe for polling.")]
     public async Task<CallToolResult> CacheStatus(
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,

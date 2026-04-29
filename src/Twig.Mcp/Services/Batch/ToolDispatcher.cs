@@ -70,6 +70,8 @@ internal sealed class ToolDispatcher(
 
             "twig_refresh" => readTools.Refresh(GetNullableInt(args, "id"), workspace, verbose: false, ct),
 
+            "twig_cache_status" => readTools.CacheStatus(workspace, verbose: false, ct),
+
             // Creation tools
             "twig_new" => creationTools.New(
                 GetRequiredString(args, "type"),

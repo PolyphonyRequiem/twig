@@ -108,6 +108,7 @@ public sealed class ToolDispatcherTests
     [InlineData("twig_workspace")]
     [InlineData("twig_sync")]
     [InlineData("twig_refresh")]
+    [InlineData("twig_cache_status")]
     [InlineData("twig_sprint")]
     [InlineData("twig_query")]
     public async Task DispatchAsync_NoRequiredArgs_ReachesToolMethod(string toolName)

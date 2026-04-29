@@ -15,7 +15,8 @@ internal sealed class ToolDispatcher(
     MutationTools mutationTools,
     NavigationTools navigationTools,
     CreationTools creationTools,
-    WorkspaceTools workspaceTools) : IToolDispatcher
+    WorkspaceTools workspaceTools,
+    TrackingTools trackingTools) : IToolDispatcher
 {
     /// <summary>
     /// Dispatches a single tool call by name, extracting typed parameters from the args dictionary.
@@ -132,6 +133,16 @@ internal sealed class ToolDispatcher(
 
             // Workspace tools
             "twig_list_workspaces" => workspaceTools.ListWorkspaces(verbose: false, ct),
+
+            // Tracking tools
+            "twig_track" => trackingTools.Track(
+                GetRequiredString(args, "id"),
+                GetBool(args, "recursive"),
+                workspace, verbose: false, ct),
+
+            "twig_untrack" => trackingTools.Untrack(
+                GetRequiredString(args, "id"),
+                workspace, verbose: false, ct),
 
             _ => Task.FromResult(EnvelopeBuilder.Error(McpErrorCode.InvalidInput, $"Unknown tool '{toolName}'."))
         };

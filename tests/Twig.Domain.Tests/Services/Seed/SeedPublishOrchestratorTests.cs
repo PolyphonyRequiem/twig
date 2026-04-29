@@ -192,13 +192,13 @@ public class SeedPublishOrchestratorTests
         await _seedLinkRepo.Received(1).RemapIdAsync(-1, 500, Arg.Any<CancellationToken>());
         await _workItemRepo.Received(1).RemapParentIdAsync(-1, 500, Arg.Any<CancellationToken>());
         await _workItemRepo.Received(1).DeleteByIdAsync(-1, Arg.Any<CancellationToken>());
-        await _workItemRepo.Received(2).SaveAsync(Arg.Is<WorkItem>(w => w.Id == 500 && w.IsSeed), Arg.Any<CancellationToken>());
+        await _workItemRepo.Received(2).SaveAsync(Arg.Is<WorkItem>(w => w.Id == 500 && !w.IsSeed), Arg.Any<CancellationToken>());
         await _unitOfWork.Received(1).CommitAsync(_transaction, Arg.Any<CancellationToken>());
         await _unitOfWork.DidNotReceive().RollbackAsync(Arg.Any<ITransaction>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task PublishAsync_Success_FetchedItemMarkedAsSeed()
+    public async Task PublishAsync_Success_FetchedItemSeedFlagCleared()
     {
         var seed = new WorkItemBuilder(-1, "Seed").AsSeed().Build();
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
@@ -211,9 +211,9 @@ public class SeedPublishOrchestratorTests
 
         result.Status.ShouldBe(SeedPublishStatus.Created);
 
-        // Verify saved items have IsSeed = true (transactional save + post-publish refresh)
+        // Verify saved items have IsSeed = false (published items are no longer seeds)
         await _workItemRepo.Received(2).SaveAsync(
-            Arg.Is<WorkItem>(w => w.IsSeed == true && w.Id == 500),
+            Arg.Is<WorkItem>(w => w.IsSeed == false && w.Id == 500),
             Arg.Any<CancellationToken>());
     }
 
@@ -518,9 +518,9 @@ public class SeedPublishOrchestratorTests
         // SaveAsync called twice: once at step 10e (transaction), once at step 12b (refresh)
         await _workItemRepo.Received(2).SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
 
-        // Second SaveAsync receives the higher-revision item from post-publish refresh with IsSeed preserved
+        // Second SaveAsync receives the higher-revision item from post-publish refresh with IsSeed cleared
         await _workItemRepo.Received(1).SaveAsync(
-            Arg.Is<WorkItem>(w => w.Id == 500 && w.Revision == 3 && w.IsSeed),
+            Arg.Is<WorkItem>(w => w.Id == 500 && w.Revision == 3 && !w.IsSeed),
             Arg.Any<CancellationToken>());
     }
 

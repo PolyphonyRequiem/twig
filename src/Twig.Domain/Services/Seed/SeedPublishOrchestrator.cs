@@ -130,8 +130,9 @@ public sealed class SeedPublishOrchestrator
         // Step 8: Fetch back the full ADO-populated item
         var fetchedItem = await _adoService.FetchAsync(newId, ct);
 
-        // Step 9: Mark provenance
-        fetchedItem = fetchedItem.WithIsSeed(true);
+        // Step 9: Clear seed flag — item is now a published ADO work item.
+        // Provenance is tracked via publish_id_map (old negative ID → new positive ID).
+        fetchedItem = fetchedItem.WithIsSeed(false);
 
         // Step 10: Transactional local update
         var tx = await _unitOfWork.BeginAsync(ct);
@@ -175,7 +176,7 @@ public sealed class SeedPublishOrchestrator
         try
         {
             var refreshed = await _adoService.FetchAsync(newId, ct);
-            refreshed = refreshed.WithIsSeed(true);
+            refreshed = refreshed.WithIsSeed(false);
             await _workItemRepo.SaveAsync(refreshed, ct);
         }
         catch

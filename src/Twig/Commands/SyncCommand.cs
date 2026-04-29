@@ -19,38 +19,45 @@ public sealed class SyncCommand(
     /// <summary>Flush pending changes then refresh the local cache.</summary>
     /// <param name="outputFormat">Output format: human, json, or minimal.</param>
     /// <param name="force">When true, pass --force to the refresh phase.</param>
+    /// <param name="pullOnly">When true, skip the flush phase and go directly to refresh.</param>
     // TODO: Add targetId parameter to scope flush to a single item (T-1342.1 / #1342 AC: `twig sync <id>`).
     // Deferred to a follow-up task — currently flushes all dirty items via FlushAllAsync.
     public async Task<int> ExecuteAsync(
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         bool force = false,
+        bool pullOnly = false,
         CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
-        // ── Phase 1: Push ──────────────────────────────────────────
-        var flushResult = await pendingChangeFlusher.FlushAllAsync(outputFormat, ct);
+        FlushResult? flushResult = null;
 
-        if (flushResult.Failures.Count > 0)
+        if (!pullOnly)
         {
-            foreach (var failure in flushResult.Failures)
-                _stderr.WriteLine(fmt.FormatError($"Flush failed for #{failure.ItemId}: {failure.Error}"));
+            // ── Phase 1: Push ──────────────────────────────────────────
+            flushResult = await pendingChangeFlusher.FlushAllAsync(outputFormat, ct);
+
+            if (flushResult.Failures.Count > 0)
+            {
+                foreach (var failure in flushResult.Failures)
+                    _stderr.WriteLine(fmt.FormatError($"Flush failed for #{failure.ItemId}: {failure.Error}"));
+            }
         }
 
         // ── Phase 2: Pull ──────────────────────────────────────────
         var refreshExitCode = await refreshCommand.ExecuteAsync(outputFormat, force, ct);
 
         // ── Output summary ─────────────────────────────────────────
-        var hasFlushFailures = flushResult.Failures.Count > 0;
+        var hasFlushFailures = flushResult?.Failures.Count > 0;
         var exitCode = hasFlushFailures || refreshExitCode != 0 ? 1 : 0;
 
         if (outputFormat.StartsWith("json", StringComparison.OrdinalIgnoreCase))
         {
-            WriteSyncJson(flushResult, refreshExitCode);
+            WriteSyncJson(flushResult, refreshExitCode, pullOnly);
         }
-        else
+        else if (!pullOnly)
         {
-            if (flushResult.ItemsFlushed > 0 || hasFlushFailures)
+            if (flushResult!.ItemsFlushed > 0 || hasFlushFailures)
             {
                 Console.WriteLine(fmt.FormatSuccess(
                     $"Sync push: {flushResult.ItemsFlushed} flushed, {flushResult.Failures.Count} failed."));
@@ -64,21 +71,23 @@ public sealed class SyncCommand(
         return exitCode;
     }
 
-    private static void WriteSyncJson(FlushResult flush, int refreshExitCode)
+    private static void WriteSyncJson(FlushResult? flush, int refreshExitCode, bool pullOnly)
     {
         using var stream = new MemoryStream();
         using var writer = new Utf8JsonWriter(stream, JsonWriterOptions);
 
         writer.WriteStartObject();
 
+        writer.WriteBoolean("pullOnly", pullOnly);
+
         writer.WritePropertyName("flush");
         writer.WriteStartObject();
-        writer.WriteNumber("flushed", flush.ItemsFlushed);
-        writer.WriteNumber("fieldChangesPushed", flush.FieldChangesPushed);
-        writer.WriteNumber("notesPushed", flush.NotesPushed);
-        writer.WriteNumber("failed", flush.Failures.Count);
+        writer.WriteNumber("flushed", flush?.ItemsFlushed ?? 0);
+        writer.WriteNumber("fieldChangesPushed", flush?.FieldChangesPushed ?? 0);
+        writer.WriteNumber("notesPushed", flush?.NotesPushed ?? 0);
+        writer.WriteNumber("failed", flush?.Failures.Count ?? 0);
 
-        if (flush.Failures.Count > 0)
+        if (flush?.Failures.Count > 0)
         {
             writer.WritePropertyName("failures");
             writer.WriteStartArray();

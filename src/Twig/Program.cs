@@ -696,8 +696,9 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <summary>Flush pending changes then refresh the local cache.</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     /// <param name="force">Force a full refresh even if the cache is current.</param>
-    public async Task<int> Sync(string output = OutputFormatterFactory.DefaultFormat, bool force = false, CancellationToken ct = default)
-        => await services.GetRequiredService<SyncCommand>().ExecuteAsync(output, force, ct);
+    /// <param name="pullOnly">Skip the flush phase and only pull (refresh) from ADO.</param>
+    public async Task<int> Sync(string output = OutputFormatterFactory.DefaultFormat, bool force = false, bool pullOnly = false, CancellationToken ct = default)
+        => await services.GetRequiredService<SyncCommand>().ExecuteAsync(output, force, pullOnly, ct);
 
     /// <summary>Refresh the local cache from Azure DevOps. Deprecated — use 'twig sync' instead.</summary>
     [Hidden]

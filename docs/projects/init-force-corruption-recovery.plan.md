@@ -4,6 +4,8 @@
 **Type:** Bug Fix  
 **Revision:** 0 (Initial draft)
 
+> **Status**: ✅ Done
+
 ## Executive Summary
 
 `twig init --force` fails with the same "⚠ Cache corrupted" error it tells users to

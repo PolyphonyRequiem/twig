@@ -3,6 +3,7 @@ using System.Text.Json;
 using ModelContextProtocol.Protocol;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Common;
+using Twig.Domain.Enums;
 using Twig.Domain.ReadModels;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Workspace;
@@ -671,6 +672,96 @@ internal static class McpResultBuilder
                 }
             }
             writer.WriteEndArray();
+        });
+
+    public static CallToolResult FormatProcessList(IReadOnlyList<ProcessTypeRecord> types) =>
+        BuildJson(writer =>
+        {
+            writer.WriteStartArray("types");
+            foreach (var type in types)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("typeName", type.TypeName);
+                writer.WriteNumber("stateCount", type.States.Count);
+                writer.WriteNumber("childTypeCount", type.ValidChildTypes.Count);
+                if (type.ColorHex is not null)
+                    writer.WriteString("color", type.ColorHex);
+                else
+                    writer.WriteNull("color");
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+            writer.WriteNumber("totalTypes", types.Count);
+        });
+
+    public static CallToolResult FormatProcessType(
+        ProcessTypeRecord type, IReadOnlyList<FieldDefinition> fields) =>
+        BuildJson(writer =>
+        {
+            writer.WriteString("typeName", type.TypeName);
+
+            if (type.ColorHex is not null)
+                writer.WriteString("color", type.ColorHex);
+            else
+                writer.WriteNull("color");
+
+            // States with category and color
+            writer.WriteStartArray("states");
+            foreach (var state in type.States)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("name", state.Name);
+                writer.WriteString("category", state.Category.ToString());
+                if (state.Color is not null)
+                    writer.WriteString("color", state.Color);
+                else
+                    writer.WriteNull("color");
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+
+            // Fields with reference name and data type
+            writer.WriteStartArray("fields");
+            foreach (var field in fields)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("referenceName", field.ReferenceName);
+                writer.WriteString("displayName", field.DisplayName);
+                writer.WriteString("dataType", field.DataType);
+                writer.WriteBoolean("isReadOnly", field.IsReadOnly);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+
+            // Transitions: enumerate all valid (from, to) pairs from states
+            writer.WriteStartArray("transitions");
+            for (var i = 0; i < type.States.Count; i++)
+            {
+                for (var j = 0; j < type.States.Count; j++)
+                {
+                    if (i == j) continue;
+                    var from = type.States[i];
+                    var to = type.States[j];
+                    writer.WriteStartObject();
+                    writer.WriteString("from", from.Name);
+                    writer.WriteString("to", to.Name);
+                    writer.WriteString("kind", to.Category == StateCategory.Removed
+                        ? "Cut" : "Forward");
+                    writer.WriteEndObject();
+                }
+            }
+            writer.WriteEndArray();
+
+            // Valid child types
+            writer.WriteStartArray("validChildTypes");
+            foreach (var childType in type.ValidChildTypes)
+            {
+                writer.WriteStringValue(childType);
+            }
+            writer.WriteEndArray();
+
+            writer.WriteNumber("stateCount", type.States.Count);
+            writer.WriteNumber("fieldCount", fields.Count);
         });
 
     public static CallToolResult FormatDiscarded(int id, int notesDiscarded, int fieldEditsDiscarded) =>

@@ -7,12 +7,13 @@ using Twig.Formatters;
 namespace Twig.Commands;
 
 /// <summary>
-/// Implements <c>twig seed publish [id] [--all] [--force] [--dry-run] [--link-branch]</c>:
+/// Implements <c>twig seed publish [id] [--all] [--force] [--dry-run] [--link-branch] [--repo]</c>:
 /// publishes seeds to Azure DevOps as real work items.
 /// With an ID, publishes a single seed.
 /// With --all, publishes all seeds in topological order.
 /// After publishing, updates active context if it pointed to a published seed.
 /// When --link-branch is specified, links published seeds to the given branch.
+/// When --repo is specified, resolves the branch in the named repository instead of the default.
 /// </summary>
 public sealed class SeedPublishCommand(
     SeedPublishOrchestrator orchestrator,
@@ -29,13 +30,14 @@ public sealed class SeedPublishCommand(
         bool dryRun = false,
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         string? linkBranch = null,
+        string? repoName = null,
         CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
         var activeId = await contextStore.GetActiveWorkItemIdAsync(ct);
 
         // Upfront branch validation — resolve projectId/repoId once before publish loop
-        var artifactUri = await ResolveBranchArtifactUriAsync(linkBranch, dryRun, fmt, ct);
+        var artifactUri = await ResolveBranchArtifactUriAsync(linkBranch, repoName, dryRun, fmt, ct);
 
         if (all)
         {
@@ -89,8 +91,11 @@ public sealed class SeedPublishCommand(
     /// (no linkBranch specified, dry-run, git service unavailable, or IDs unresolvable).
     /// </summary>
     private async Task<string?> ResolveBranchArtifactUriAsync(
-        string? linkBranch, bool dryRun, IOutputFormatter fmt, CancellationToken ct)
+        string? linkBranch, string? repoName, bool dryRun, IOutputFormatter fmt, CancellationToken ct)
     {
+        // repoName will be used in Task 5.3 to resolve a named repository instead of the default.
+        _ = repoName;
+
         if (linkBranch is null || dryRun)
             return null;
 

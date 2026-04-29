@@ -861,5 +861,79 @@ public class SeedPublishCommandTests : IDisposable
             "Branch",
             Arg.Any<CancellationToken>());
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  --repo parameter plumbing
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Execute_RepoParameter_SingleSeed_PublishesSuccessfully()
+    {
+        var cmd = CreateCommandWithDefaultGitService(out var gitService);
+
+        var seed = new WorkItemBuilder(-5, "Repo Seed").AsSeed().WithParent(100).Build();
+        _workItemRepo.GetByIdAsync(-5, Arg.Any<CancellationToken>()).Returns(seed);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(42);
+
+        var published = new WorkItemBuilder(42, "Repo Seed").WithParent(100).Build();
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(published);
+        _seedLinkRepo.GetLinksForItemAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new List<SeedLink>());
+
+        Console.SetOut(new StringWriter());
+
+        var result = await cmd.ExecuteAsync(-5, linkBranch: "feature/xyz", repoName: "my-repo");
+
+        result.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Execute_RepoParameter_WithoutLinkBranch_NoGitCalls()
+    {
+        var gitService = Substitute.For<IAdoGitService>();
+        var cmd = CreateCommandWithGitService(gitService);
+
+        var seed = new WorkItemBuilder(-5, "No Branch Seed").AsSeed().WithParent(100).Build();
+        _workItemRepo.GetByIdAsync(-5, Arg.Any<CancellationToken>()).Returns(seed);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(42);
+
+        var published = new WorkItemBuilder(42, "No Branch Seed").WithParent(100).Build();
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(published);
+        _seedLinkRepo.GetLinksForItemAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new List<SeedLink>());
+
+        Console.SetOut(new StringWriter());
+
+        // repo alone without linkBranch should not trigger git calls
+        var result = await cmd.ExecuteAsync(-5, repoName: "my-repo");
+
+        result.ShouldBe(0);
+        await gitService.DidNotReceive().GetProjectIdAsync(Arg.Any<CancellationToken>());
+        await gitService.DidNotReceive().GetRepositoryIdAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Execute_RepoParameter_All_PublishesSuccessfully()
+    {
+        var cmd = CreateCommandWithDefaultGitService(out _);
+
+        var seed = new WorkItemBuilder(-1, "Batch Repo Seed").AsSeed().WithParent(100).Build();
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<WorkItem> { seed });
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<SeedLink>());
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(200);
+        var published = new WorkItemBuilder(200, "Batch Repo Seed").WithParent(100).Build();
+        _adoService.FetchAsync(200, Arg.Any<CancellationToken>()).Returns(published);
+        _seedLinkRepo.GetLinksForItemAsync(200, Arg.Any<CancellationToken>())
+            .Returns(new List<SeedLink>());
+
+        Console.SetOut(new StringWriter());
+
+        var result = await cmd.ExecuteAsync(all: true, linkBranch: "feature/test", repoName: "other-repo");
+
+        result.ShouldBe(0);
+    }
 }
 

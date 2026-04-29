@@ -575,10 +575,11 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="force">Skip validation before publishing.</param>
     /// <param name="dryRun">Preview what would be published without making changes.</param>
     /// <param name="linkBranch">Link published work items to this branch name (e.g. feature/my-branch). Creates an ADO artifact link to the branch ref.</param>
+    /// <param name="repo">Repository name for branch linking. When omitted, uses the default repository for the project.</param>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     [Command("seed publish")]
-    public async Task<int> SeedPublish([Argument] int? id = null, bool all = false, bool force = false, bool dryRun = false, string? linkBranch = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await services.GetRequiredService<SeedPublishCommand>().ExecuteAsync(id, all, force, dryRun, output, linkBranch, ct);
+    public async Task<int> SeedPublish([Argument] int? id = null, bool all = false, bool force = false, bool dryRun = false, string? linkBranch = null, string? repo = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<SeedPublishCommand>().ExecuteAsync(id, all, force, dryRun, output, linkBranch, repo, ct);
 
     /// <summary>Reconcile stale seed links and parent references after partial publishes.</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
@@ -1213,6 +1214,7 @@ Seeds:
   seed publish <id>    Publish a seed to Azure DevOps.
   seed publish --all   Publish all seeds in dependency order.
   seed publish --all --link-branch <name>  Publish all and link to a branch.
+  seed publish --all --link-branch <name> --repo <name>  Link to a branch in a specific repo.
   seed reconcile       Repair stale links after partial publishes.
 
 System:

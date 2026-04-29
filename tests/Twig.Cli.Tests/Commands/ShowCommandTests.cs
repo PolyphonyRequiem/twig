@@ -460,6 +460,35 @@ public sealed class ShowCommandTests : IDisposable
         output.ShouldContain("\"id\": 42");
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    //  IDs output format — bare numeric ID
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Show_IdsFormat_OutputsBareId()
+    {
+        var item = new WorkItemBuilder(42, "IDs Item").Build();
+        SetupCachedItem(item);
+
+        var output = await CaptureStdout(() => _cmd.ExecuteAsync(42, "ids"));
+
+        output.Trim().ShouldBe("42");
+    }
+
+    [Fact]
+    public async Task Show_IdsFormat_NoTtyRendering()
+    {
+        var item = new WorkItemBuilder(42, "IDs No TTY").Build();
+        SetupCachedItem(item);
+
+        var output = await CaptureStdout(() => _cmd.ExecuteAsync(42, "ids"));
+
+        // ids format should produce bare numeric output, no ANSI codes or decoration
+        output.ShouldNotContain("[");
+        output.ShouldNotContain("─");
+        output.ShouldNotContain("#");
+    }
+
     // ── Private helpers ─────────────────────────────────────────────
 
     private void SetupCachedItem(WorkItem item)

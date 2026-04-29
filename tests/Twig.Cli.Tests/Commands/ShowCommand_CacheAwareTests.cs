@@ -238,6 +238,7 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
     [InlineData("json-compact")]
     [InlineData("minimal")]
     [InlineData("human")]
+    [InlineData("ids")]
     public async Task NonTty_SyncsBeforeEmitting(string format)
     {
         var item = Item(1, "Sync First Item").Build();
@@ -255,6 +256,7 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
     [InlineData("json-compact")]
     [InlineData("minimal")]
     [InlineData("human")]
+    [InlineData("ids")]
     public async Task NonTty_NoRefresh_SkipsSync(string format)
     {
         var item = Item(1, "No Refresh Machine").Build();

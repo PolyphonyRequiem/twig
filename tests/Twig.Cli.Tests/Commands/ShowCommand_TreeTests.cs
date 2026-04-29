@@ -433,4 +433,79 @@ public sealed class ShowCommand_TreeTests : IDisposable
 
         result.ShouldBe(1);
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  IDs output format with --tree
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Show_TreeFlag_IdsOutput_ReturnsSuccess()
+    {
+        var item = new WorkItemBuilder(42, "Ids Tree Item").Build();
+        SetupActiveItem(item);
+
+        var cmd = CreateShowCommand();
+        var result = await cmd.ExecuteAsync(42, "ids", tree: true);
+
+        result.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Show_TreeFlag_IdsOutput_OutputsIdsInDepthFirstOrder()
+    {
+        var parent = new WorkItemBuilder(100, "Epic Parent").AsEpic().Build();
+        var focus = new WorkItemBuilder(42, "Focus Task").WithParent(100).Build();
+        var child1 = new WorkItemBuilder(50, "Child One").WithParent(42).Build();
+        var child2 = new WorkItemBuilder(60, "Child Two").WithParent(42).Build();
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(focus);
+        _workItemRepo.GetParentChainAsync(100, Arg.Any<CancellationToken>())
+            .Returns(new[] { parent });
+        _workItemRepo.GetChildrenAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new[] { child1, child2 });
+        _workItemRepo.GetChildrenAsync(50, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetChildrenAsync(60, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+        _workItemRepo.GetChildrenAsync(100, Arg.Any<CancellationToken>())
+            .Returns(new[] { focus });
+
+        var cmd = CreateShowCommand();
+        var output = await CaptureStdout(() => cmd.ExecuteAsync(42, "ids", tree: true));
+
+        var lines = output.Trim().Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(l => l.Trim()).ToArray();
+
+        // Depth-first: parent chain (100), focused item (42), children (50, 60)
+        lines.ShouldBe(new[] { "100", "42", "50", "60" });
+    }
+
+    [Fact]
+    public async Task Show_TreeFlag_IdsOutput_NoChildren_OutputsFocusedItemOnly()
+    {
+        var item = new WorkItemBuilder(42, "Leaf Item").Build();
+        SetupActiveItem(item);
+
+        var cmd = CreateShowCommand();
+        var output = await CaptureStdout(() => cmd.ExecuteAsync(42, "ids", tree: true));
+
+        output.Trim().ShouldBe("42");
+    }
+
+    [Fact]
+    public async Task Show_TreeFlag_IdsOutput_NoTtyRendering()
+    {
+        var item = new WorkItemBuilder(42, "No TTY Item").Build();
+        SetupActiveItem(item);
+
+        var cmd = CreateShowCommand();
+        var output = await CaptureStdout(() => cmd.ExecuteAsync(42, "ids", tree: true));
+
+        // ids format should produce bare numeric output, no ANSI escape codes or tree decorations
+        output.ShouldNotContain("[");
+        output.ShouldNotContain("─");
+        output.ShouldNotContain("├");
+        output.ShouldNotContain("└");
+    }
 }

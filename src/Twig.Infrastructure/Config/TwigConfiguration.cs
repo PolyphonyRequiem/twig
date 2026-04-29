@@ -125,6 +125,94 @@ public sealed class TwigConfiguration
     }
 
     /// <summary>
+    /// Gets a configuration value by dot-separated path (e.g., "seed.staleDays", "display.hints").
+    /// Returns <c>(value, true)</c> if the path was recognized, <c>(null, false)</c> otherwise.
+    /// Reflection-free — uses a switch on known paths, mirroring <see cref="SetValue"/>.
+    /// </summary>
+    public (string? Value, bool Found) GetValue(string dotPath)
+    {
+        switch (dotPath.ToLowerInvariant())
+        {
+            case "organization":
+                return (Organization, true);
+            case "project":
+                return (Project, true);
+            case "team":
+                return (Team, true);
+            case "processtemplate":
+                return (ProcessTemplate, true);
+            case "auth.method":
+                return (Auth.Method, true);
+            case "defaults.areapath":
+                return (Defaults.AreaPath ?? "", true);
+            case "defaults.areapaths":
+                return (Defaults.AreaPaths is { Count: > 0 }
+                    ? string.Join(";", Defaults.AreaPaths)
+                    : "", true);
+            case "defaults.iterationpath":
+                return (Defaults.IterationPath ?? "", true);
+            case "defaults.mode":
+                return (Defaults.Mode, true);
+            case "defaults.areapathentries":
+            case "areas.paths":
+                return (Defaults.AreaPathEntries is { Count: > 0 }
+                    ? string.Join(";", Defaults.AreaPathEntries.Select(e =>
+                        e.IncludeChildren ? e.Path : $"{e.Path}:exact"))
+                    : "", true);
+            case "seed.staledays":
+                return (Seed.StaleDays.ToString(), true);
+            case "display.hints":
+                return (Display.Hints.ToString().ToLowerInvariant(), true);
+            case "display.treedepth":
+                return (Display.TreeDepth.ToString(), true);
+            case "display.treedepthup":
+                return (Display.TreeDepthUp.ToString(), true);
+            case "display.treedepthdown":
+                return (Display.TreeDepthDown.ToString(), true);
+            case "display.treedepthsideways":
+                return (Display.TreeDepthSideways.ToString(), true);
+            case "display.icons":
+                return (Display.Icons, true);
+            case "display.cachestaleminutes":
+                return (Display.CacheStaleMinutes.ToString(), true);
+            case "display.fillratethreshold":
+                return (Display.FillRateThreshold.ToString(System.Globalization.CultureInfo.InvariantCulture), true);
+            case "display.maxextracolumns":
+                return (Display.MaxExtraColumns.ToString(), true);
+            case "display.columns.workspace":
+                return (Display.Columns?.Workspace is { Count: > 0 }
+                    ? string.Join(";", Display.Columns.Workspace)
+                    : "", true);
+            case "display.columns.sprint":
+                return (Display.Columns?.Sprint is { Count: > 0 }
+                    ? string.Join(";", Display.Columns.Sprint)
+                    : "", true);
+            case "user.name":
+                return (User.DisplayName ?? "", true);
+            case "user.email":
+                return (User.Email ?? "", true);
+            case "git.branchpattern":
+                return (Git.BranchPattern, true);
+            case "git.project":
+                return (Git.Project ?? "", true);
+            case "git.repository":
+                return (Git.Repository ?? "", true);
+            case "workspace.working_level":
+                return (Workspace.WorkingLevel ?? "", true);
+            case "workspace.sprints":
+                return (Workspace.Sprints is { Count: > 0 }
+                    ? string.Join(";", Workspace.Sprints.Select(s => s.Expression))
+                    : "", true);
+            case "tracking.cleanuppolicy":
+                return (Tracking.CleanupPolicy, true);
+            case "areas.mode":
+                return (Areas.Mode, true);
+            default:
+                return (null, false);
+        }
+    }
+
+    /// <summary>
     /// Sets a configuration value by dot-separated path (e.g., "seed.staleDays", "display.hints").
     /// Returns true if the path was recognized, false otherwise.
     /// Reflection-free — uses a switch on known paths.

@@ -146,6 +146,8 @@ internal sealed class ToolDispatcher(
                 workspace, verbose: false, ct),
 
             // Admin tools
+            "twig_config" => adminTools.Config(GetString(args, "key"), workspace, verbose: false, ct),
+
             "twig_area" => adminTools.Area(workspace, verbose: false, ct),
 
             _ => Task.FromResult(EnvelopeBuilder.Error(McpErrorCode.InvalidInput, $"Unknown tool '{toolName}'."))

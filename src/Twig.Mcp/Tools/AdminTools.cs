@@ -3,13 +3,14 @@ using System.Text.Json;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Twig.Domain.ValueObjects;
+using Twig.Infrastructure.Serialization;
 using Twig.Mcp.Services;
 
 namespace Twig.Mcp.Tools;
 
 /// <summary>
-/// MCP tools for configuration and admin queries: <c>twig_area</c>.
-/// Returns project structure information from ADO with local caching.
+/// MCP tools for configuration and admin queries: <c>twig_config</c>, <c>twig_area</c>.
+/// Returns workspace configuration and project structure information.
 /// </summary>
 [McpServerToolType]
 public sealed class AdminTools(WorkspaceResolver resolver)
@@ -17,6 +18,42 @@ public sealed class AdminTools(WorkspaceResolver resolver)
     private const string AreaTreeJsonKey = "area_tree_json";
     private const string AreaTreeFetchedAtKey = "area_tree_fetched_at";
     private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(1);
+
+    [McpServerTool(Name = "twig_config"), Description("Read workspace configuration. When key is provided, returns a single config value. When key is omitted, returns the full configuration object. Read-only — use the CLI to modify settings.")]
+    public async Task<CallToolResult> Config(
+        [Description("Dot-separated config key (e.g. \"display.hints\", \"defaults.areapath\", \"seed.staledays\"). When omitted, returns all configuration.")] string? key = null,
+        [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("When true, includes contextual hints in the response")] bool verbose = false,
+        CancellationToken ct = default)
+    {
+        if (!resolver.TryResolve(workspace, out var ctx, out var err))
+            return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
+
+        var config = ctx.Config;
+
+        if (!string.IsNullOrWhiteSpace(key))
+        {
+            var (value, found) = config.GetValue(key);
+            if (!found)
+                return await EnvelopeBuilder.ErrorAsync(
+                    McpErrorCode.InvalidInput,
+                    $"Unknown configuration key: \"{key}\". Use twig_config without a key to see all available settings.",
+                    ctx, ct);
+
+            return await EnvelopeBuilder.SuccessAsync(ctx, writer =>
+            {
+                writer.WriteString("key", key);
+                writer.WriteString("value", value ?? "");
+            }, verbose, ct);
+        }
+
+        // No key — return all configuration
+        return await EnvelopeBuilder.SuccessAsync(ctx, writer =>
+        {
+            writer.WritePropertyName("config");
+            JsonSerializer.Serialize(writer, config, TwigJsonContext.Default.TwigConfiguration);
+        }, verbose, ct);
+    }
 
     [McpServerTool(Name = "twig_area"), Description("Show the project area path classification tree. Cached locally; refreshes from ADO when stale (>1 hour). Read-only — does not modify area paths.")]
     public async Task<CallToolResult> Area(

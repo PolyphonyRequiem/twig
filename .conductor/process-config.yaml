@@ -1,0 +1,51 @@
+process_template: Basic
+
+types:
+  Epic:
+    capabilities: [plannable]
+    filing_eligible: false
+    max_nesting_depth: 1
+    decomposition_guidance: |
+      Always decompose into Issues. Epics are never implemented directly.
+  Issue:
+    capabilities: [plannable, implementable]
+    filing_eligible: true
+    max_nesting_depth: 1
+    decomposition_guidance: |
+      Decompose into Tasks when scope exceeds a single PG (~2000 LoC).
+      Implement directly when the change is focused and fits one PG.
+  Task:
+    capabilities: [implementable]
+    filing_eligible: true
+
+transitions:
+  Epic:
+    begin_planning: Doing
+    all_children_complete: Done
+    scope_removed: Removed
+  Issue:
+    begin_planning: Doing
+    begin_implementation: Doing
+    implementation_complete: Done
+    scope_removed: Removed
+  Task:
+    begin_implementation: Doing
+    implementation_complete: Done
+    scope_removed: Removed
+
+review_policies:
+  planning:
+    plan_pr: { agent_review: true, human_review: true, auto_merge: false }
+  implementation:
+    pg_pr: { agent_review: true, human_review: false, auto_merge: true }
+    feature_pr: { agent_review: true, human_review: true, auto_merge: false }
+  remediation:
+    pg_pr: { agent_review: true, human_review: false, auto_merge: true }
+
+branch_strategy:
+  feature_branch: "feature/{root_id}-{slug}"
+  planning_branch: "planning/{root_id}"
+  pg_branch: "pg-{n}/{root_id}-{slug}"
+  target: main
+
+platform: github

@@ -1,0 +1,63 @@
+# Twig — Conductor Domain Profile
+# Describes the technology stack, build commands, and conventions for this codebase.
+# Used by conductor SDLC workflow prompts via Jinja2 template variables.
+
+name: twig
+description: >
+  .NET 10 AOT-compiled CLI tool for work-item tracking and SDLC orchestration,
+  built with ConsoleAppFramework. Published as a global dotnet tool with an
+  accompanying MCP server for AI-agent integration.
+
+tech_stack:
+  language: csharp
+  framework: dotnet-10
+  runtime: native-aot
+  cli_framework: ConsoleAppFramework
+  build_command: "dotnet build src/Twig/Twig.csproj"
+  test_command: "dotnet test tests/Twig.Tests/Twig.Tests.csproj"
+  restore_command: "dotnet restore"
+  code_conventions:
+    - "TreatWarningsAsErrors=true, nullable reference types enabled"
+    - "Prefer sealed classes, primary constructors, record types"
+    - "Tests use xUnit with Shouldly assertions and NSubstitute for mocks"
+  test_framework: "xUnit + Shouldly + NSubstitute"
+
+artifacts:
+  plan_dir: "docs/projects"
+  plan_pattern: "<slug>.plan.md"
+
+# Estimation scale: 0.1, 0.25, 0.5, 1, 2, 3, 5, 8 dev-days
+# 1 dev-day = 4 hours of focused developer time
+# Issue cap: 8 dev-days
+# Issue decomposition threshold: 5 dev-days (decompose into Tasks above this)
+estimation:
+  unit: dev-days
+  hours_per_unit: 4
+  scale: [0.1, 0.25, 0.5, 1, 2, 3, 5, 8]
+  issue_cap: 8
+  decomposition_threshold: 5
+
+# Validation — sensitive file paths that require domain-specific verification
+validation:
+  sensitive_paths:
+    - pattern: "src/Twig/Twig.csproj"
+      category: build
+      description: "Main CLI project file — changes affect build, packaging, and AOT compilation"
+    - pattern: "Directory.Build.props"
+      category: build
+      description: "Repo-wide build properties — changes affect all projects"
+    - pattern: "Directory.Packages.props"
+      category: dependencies
+      description: "Central package management — changes affect dependency versions"
+    - pattern: ".github/workflows/**"
+      category: ci-cd
+      description: "GitHub Actions workflows — changes affect CI/CD pipeline"
+    - pattern: "src/Twig.Mcp/**"
+      category: mcp
+      description: "MCP server — changes affect AI-agent integration surface"
+
+# MCP servers specific to this domain (added to workflow runtime)
+mcp_servers:
+  twig-mcp:
+    command: twig-mcp
+    tools: ["*"]

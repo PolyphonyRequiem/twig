@@ -104,6 +104,13 @@ Standard rubrics are defined for plan review, code review, and user acceptance.
 
 → [Full details](references/p11-rubric-scoring.md)
 
+## P12: Short-Lived Agent Sessions
+
+Agent sessions should be designed short enough to never trigger context compaction.
+If compaction occurs, it must be logged and the workflow design should be revisited.
+
+→ [Full details](references/p12-short-lived-sessions.md)
+
 ## P13: Human-Readable Gates
 
 Gate prompts are Jinja2 templates rendered as Markdown. Templates own layout (no

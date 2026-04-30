@@ -486,12 +486,11 @@ Conductor max depth is 10. Budget allocation:
 Depth 0: twig-sdlc-full (apex)
 Depth 1: planning OR implementation (sub-workflow)
 Depth 2: plan-level (recursive planning per level)
-Depth 3: plan-level recursion (child of child)
-Depth 4: plan-level recursion (grandchild — max plannable depth)
-Depth 5: platform-pr (PR lifecycle sub-workflow)
+Depth 3–7: plan-level recursion (up to 6 nested plannable levels)
+Depth 8: platform-pr (PR lifecycle sub-workflow)
 ```
-This leaves 5 levels of headroom. Rules:
-- Planning recursion is capped at depth 3 (4-tier hierarchy max)
+This leaves 2 levels of headroom. Rules:
+- Planning recursion is capped at depth 6 (7-tier hierarchy max)
 - PR lifecycle is always a leaf sub-workflow (no further nesting)
 - Remediation reuses the same implementation sub-workflow (no new depth)
 - Deterministic helpers (branch ops, state transitions) are scripts, not sub-workflows
@@ -556,7 +555,7 @@ These are promoted into Polyphony in later phases once routing is proven.
 - For any work item, determine current SDLC phase
 - Handle recursive descent (plannable containing plannable)
 - Validate state transition preconditions against transition mappings (C2)
-- Respect depth budget (C3) — max 4 plannable levels
+- Respect depth budget (C3) — max 6 plannable levels
 - Output structured JSON with phase, next_action, and validation results
 
 #### 1.3 — Transition validation

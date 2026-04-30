@@ -457,3 +457,49 @@ frontmatter is the canonical mechanism and must be included in all new plans.
 ## When NOT to Use
 
 - **Quick fixes** — single-file changes don't need a 5-phase pipeline
+
+## Known Issues & Mitigations
+
+### Agent Session Stall ("did not respond for 90s")
+
+**Symptom:** Conductor logs show `Idle Recovery 1/5 - last: tool 'powershell'` (or `view`/`grep`),
+followed by `Session appears stuck after 5 recovery attempts`. The workflow terminates with a
+`ProviderError`.
+
+**Root Cause:** The LLM API fails to return a streaming response after tool results are delivered.
+The tool executes successfully and returns output, but the subsequent `Processing (turn N)...`
+step hangs indefinitely. This is an API-level connection drop or silent timeout — NOT a tool
+execution hang.
+
+**Observed Pattern (from logs across polyphony-2581, twig2-2587, twig2-2541):**
+
+| Agent | Hung at Turn | Last Tool | Model |
+|-------|-------------|-----------|-------|
+| `pr_finalizer` | ~10 | `powershell` | sonnet-4.6 |
+| `architect` | 7 | `view` | opus-4.6-1m |
+| `pr_merge` | 10 | `powershell` | sonnet-4.6 |
+| `coder` | 15 | `view`/`grep` | opus-4.6-1m |
+
+**Key observations:**
+- Affects **both Opus 1M and Sonnet 4.6** — not model-specific
+- Happens at **varying turn depths** (7–15) — not a fixed context cliff
+- The 5-retry × 18s = 90s recovery window exhausts without success every time
+- Correlates with higher accumulated context (50k–100k input tokens by the failing turn)
+
+**Mitigations when launching:**
+1. **Always use `--log-file`** to capture SDK-level errors for post-mortem
+2. **Use `intent=resume`** to pick up where a stalled workflow left off — conductor's
+   state detection will skip completed phases
+3. **Monitor the dashboard** — if an agent shows no progress for >2 minutes, the session
+   is likely stalled and will not recover
+
+**Mitigations when resuming after a stall:**
+1. Check `conductor.log` tail for which agent stalled and what was last completed
+2. Verify work item state with `twig tree` — often the work IS done but the PR/merge step stalled
+3. Relaunch with `intent=resume` — the state detector will route past completed work
+4. If branches exist with commits but no PRs, create PRs manually with `gh pr create`
+
+**Potential fixes (conductor-level):**
+- Add request-level timeouts with automatic retry at the SDK layer
+- Checkpoint agent state on each turn so stalled sessions can resume mid-agent
+- Reduce context accumulation in long-running agents (summarize earlier turns)

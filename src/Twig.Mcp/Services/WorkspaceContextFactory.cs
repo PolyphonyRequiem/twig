@@ -95,13 +95,15 @@ public sealed class WorkspaceContextFactory : IWorkspaceContextFactory, IDisposa
         var processConfigProvider = new DynamicProcessConfigProvider(processTypeStore);
 
         // Network layer — ADO clients (shares global HttpClient + AuthProvider)
+        var throttle = new AdoConcurrencyThrottle();
         var adoService = new AdoRestClient(
             _httpClient,
             _authProvider,
             config.Organization,
             config.Project,
             new WorkItemMapper(),
-            fieldDefStore);
+            fieldDefStore,
+            throttle);
 
         var team = string.IsNullOrWhiteSpace(config.Team)
             ? $"{config.Project} Team"

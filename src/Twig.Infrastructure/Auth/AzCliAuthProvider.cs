@@ -14,7 +14,7 @@ namespace Twig.Infrastructure.Auth;
 internal sealed class AzCliAuthProvider : IAuthenticationProvider
 {
     private const string AzResource = "499b84ac-1321-427f-aa17-267ca6975798";
-    private static readonly TimeSpan DefaultProcessTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan DefaultProcessTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan TokenTtl = TimeSpan.FromMinutes(50);
 
     private static readonly string DefaultCachePath = Path.Combine(
@@ -25,10 +25,7 @@ internal sealed class AzCliAuthProvider : IAuthenticationProvider
     private readonly Func<DateTimeOffset> _clock;
     private readonly string _cachePath;
     private readonly TimeSpan _processTimeout;
-    // Note: _cachedToken/_tokenExpiry are intentionally not thread-safe.
-    // AzCliAuthProvider is designed for single-threaded CLI usage where only one
-    // logical caller invokes GetAccessTokenAsync at a time. If this provider is
-    // ever used from a concurrent context, guard the refresh block with a SemaphoreSlim.
+    private readonly SemaphoreSlim _semaphore = new(1, 1);
     private string? _cachedToken;
     private DateTimeOffset _tokenExpiry;
 
@@ -102,94 +99,106 @@ internal sealed class AzCliAuthProvider : IAuthenticationProvider
 
     public async Task<string> GetAccessTokenAsync(CancellationToken ct = default)
     {
-        // 1. In-memory cache (same process, hot path)
+        // Fast path: check in-memory cache without acquiring semaphore
         if (_cachedToken is not null && _clock() < _tokenExpiry)
             return _cachedToken;
 
-        // 2. Cross-process file cache (avoids az CLI lock contention)
-        var (fileToken, fileExpiry) = TryReadFileCache();
-        if (fileToken is not null && _clock() < fileExpiry)
-        {
-            _cachedToken = fileToken;
-            _tokenExpiry = fileExpiry;
-            return fileToken;
-        }
-
-        // 3. Token expired or not yet fetched — shell out to az CLI
-        _cachedToken = null;
-
-        var azPath = ResolveAzPath();
-        var psi = new ProcessStartInfo
-        {
-            FileName = azPath,
-            Arguments = $"account get-access-token --resource {AzResource} --query accessToken -o tsv",
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-
-        Process? process;
+        await _semaphore.WaitAsync(ct);
         try
         {
-            process = _processStarter(psi);
-        }
-        catch (Exception ex)
-        {
-            throw new AdoAuthenticationException(
-                $"Azure CLI (az) is not installed or not found in PATH. Install from https://aka.ms/install-azure-cli. Details: {ex.Message}");
-        }
+            // Re-check after acquiring lock (another thread may have refreshed)
+            if (_cachedToken is not null && _clock() < _tokenExpiry)
+                return _cachedToken;
 
-        if (process is null)
-        {
-            throw new AdoAuthenticationException(
-                "Failed to start Azure CLI process. Ensure 'az' is installed and in PATH.");
-        }
-
-        try
-        {
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeoutCts.CancelAfter(_processTimeout);
-
-            // Read both streams concurrently to avoid deadlock if the process fills
-            // one pipe buffer while we're blocked reading the other.
-            var stdoutTask = process.StandardOutput.ReadToEndAsync(timeoutCts.Token);
-            var stderrTask = process.StandardError.ReadToEndAsync(timeoutCts.Token);
-            await Task.WhenAll(stdoutTask, stderrTask);
-            var stdout = await stdoutTask;
-            var stderr = await stderrTask;
-            await process.WaitForExitAsync(timeoutCts.Token);
-
-            if (process.ExitCode != 0)
+            // 2. Cross-process file cache (avoids az CLI lock contention)
+            var (fileToken, fileExpiry) = TryReadFileCache();
+            if (fileToken is not null && _clock() < fileExpiry)
             {
-                throw new AdoAuthenticationException(
-                    $"Azure CLI returned exit code {process.ExitCode}. Run 'az login' to authenticate. {stderr.Trim()}");
+                _cachedToken = fileToken;
+                _tokenExpiry = fileExpiry;
+                return fileToken;
             }
 
-            var token = stdout.Trim();
-            if (string.IsNullOrEmpty(token))
+            // 3. Token expired or not yet fetched — shell out to az CLI
+            _cachedToken = null;
+
+            var azPath = ResolveAzPath();
+            var psi = new ProcessStartInfo
+            {
+                FileName = azPath,
+                Arguments = $"account get-access-token --resource {AzResource} --query accessToken -o tsv",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+
+            Process? process;
+            try
+            {
+                process = _processStarter(psi);
+            }
+            catch (Exception ex)
             {
                 throw new AdoAuthenticationException(
-                    "Azure CLI returned an empty token. Run 'az login' to authenticate.");
+                    $"Azure CLI (az) is not installed or not found in PATH. Install from https://aka.ms/install-azure-cli. Details: {ex.Message}");
             }
 
-            _cachedToken = token;
-            _tokenExpiry = _clock() + TokenTtl;
+            if (process is null)
+            {
+                throw new AdoAuthenticationException(
+                    "Failed to start Azure CLI process. Ensure 'az' is installed and in PATH.");
+            }
 
-            // Persist to file cache for other twig processes
-            TryWriteFileCache(token, _tokenExpiry);
+            try
+            {
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeoutCts.CancelAfter(_processTimeout);
 
-            return token;
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            try { process.Kill(); } catch (Exception) { /* best effort */ }
-            throw new AdoAuthenticationException(
-                $"Azure CLI timed out after {_processTimeout.TotalSeconds}s. Set TWIG_AZ_TIMEOUT=30 to increase the timeout.");
+                // Read both streams concurrently to avoid deadlock if the process fills
+                // one pipe buffer while we're blocked reading the other.
+                var stdoutTask = process.StandardOutput.ReadToEndAsync(timeoutCts.Token);
+                var stderrTask = process.StandardError.ReadToEndAsync(timeoutCts.Token);
+                await Task.WhenAll(stdoutTask, stderrTask);
+                var stdout = await stdoutTask;
+                var stderr = await stderrTask;
+                await process.WaitForExitAsync(timeoutCts.Token);
+
+                if (process.ExitCode != 0)
+                {
+                    throw new AdoAuthenticationException(
+                        $"Azure CLI returned exit code {process.ExitCode}. Run 'az login' to authenticate. {stderr.Trim()}");
+                }
+
+                var token = stdout.Trim();
+                if (string.IsNullOrEmpty(token))
+                {
+                    throw new AdoAuthenticationException(
+                        "Azure CLI returned an empty token. Run 'az login' to authenticate.");
+                }
+
+                _cachedToken = token;
+                _tokenExpiry = _clock() + TokenTtl;
+
+                // Persist to file cache for other twig processes
+                TryWriteFileCache(token, _tokenExpiry);
+
+                return token;
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                try { process.Kill(); } catch (Exception) { /* best effort */ }
+                throw new AdoAuthenticationException(
+                    $"Azure CLI timed out after {_processTimeout.TotalSeconds}s. Set TWIG_AZ_TIMEOUT=30 to increase the timeout.");
+            }
+            finally
+            {
+                process.Dispose();
+            }
         }
         finally
         {
-            process.Dispose();
+            _semaphore.Release();
         }
     }
 

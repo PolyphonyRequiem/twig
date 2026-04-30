@@ -331,7 +331,7 @@ public sealed class McpEnvelopeShapeTests
     [Fact]
     public void FormatStatus_NoContext_NoSpectreMarkup()
     {
-        var result = McpResultBuilder.FormatStatus(new StatusResult.NoContext(), "org/proj");
+        var result = McpResultBuilder.FormatStatus(new StatusNoContext(), "org/proj");
         AssertNoSpectreMarkup(result);
     }
 

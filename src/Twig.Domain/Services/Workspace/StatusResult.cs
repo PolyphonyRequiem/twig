@@ -3,26 +3,23 @@ using Twig.Domain.Common;
 
 namespace Twig.Domain.Services.Workspace;
 
+/// <summary>No active work item context is configured.</summary>
+public sealed record StatusNoContext;
+
+/// <summary>An active item is set but the work item could not be retrieved.</summary>
+public sealed record StatusUnreachable(
+    int ActiveId,
+    int UnreachableId,
+    string Reason);
+
+/// <summary>Active item was resolved successfully with its associated data.</summary>
+public sealed record StatusSuccess(
+    WorkItem Item,
+    IReadOnlyList<PendingChangeRecord> PendingChanges,
+    IReadOnlyList<WorkItem> Seeds);
+
 /// <summary>
 /// Discriminated union representing the outcome of a status query.
 /// Makes invalid states unrepresentable via exhaustive subtypes.
 /// </summary>
-public abstract record StatusResult
-{
-    private StatusResult() { }
-
-    /// <summary>No active work item context is configured.</summary>
-    public sealed record NoContext : StatusResult;
-
-    /// <summary>An active item is set but the work item could not be retrieved.</summary>
-    public sealed record Unreachable(
-        int ActiveId,
-        int UnreachableId,
-        string Reason) : StatusResult;
-
-    /// <summary>Active item was resolved successfully with its associated data.</summary>
-    public sealed record Success(
-        WorkItem Item,
-        IReadOnlyList<PendingChangeRecord> PendingChanges,
-        IReadOnlyList<WorkItem> Seeds) : StatusResult;
-}
+public union StatusResult(StatusNoContext, StatusUnreachable, StatusSuccess);

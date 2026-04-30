@@ -90,7 +90,7 @@ public sealed class TrackingService(
         {
             var rootResult = await syncCoordinator.SyncItemAsync(item.WorkItemId, ct);
 
-            if (rootResult is SyncResult.Failed { Reason: var reason } &&
+            if (rootResult is SyncFailed { Reason: var reason } &&
                 reason.Contains("not found", StringComparison.OrdinalIgnoreCase))
             {
                 untrackedIds.Add(item.WorkItemId);

@@ -429,9 +429,9 @@ public sealed class WorkspaceTreeRenderTests
         var story = new WorkItemBuilder(20, "Flat Story").AsUserStory().InState("Active").Build();
 
         var chunks = CreateChunksAsync(
-            new WorkspaceDataChunk.ContextLoaded(null),
-            new WorkspaceDataChunk.SprintItemsLoaded(new[] { story }, Sections: null),
-            new WorkspaceDataChunk.SeedsLoaded(Array.Empty<WorkItem>()));
+            new ContextLoaded(null),
+            new SprintItemsLoaded(new[] { story }, Sections: null),
+            new SeedsLoaded(Array.Empty<WorkItem>()));
 
         await renderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None);
         var output = console.Output;
@@ -448,9 +448,9 @@ public sealed class WorkspaceTreeRenderTests
         var sections = WorkspaceSections.Build(new[] { story });
 
         var chunks = CreateChunksAsync(
-            new WorkspaceDataChunk.ContextLoaded(null),
-            new WorkspaceDataChunk.SprintItemsLoaded(new[] { story }, sections),
-            new WorkspaceDataChunk.SeedsLoaded(Array.Empty<WorkItem>()));
+            new ContextLoaded(null),
+            new SprintItemsLoaded(new[] { story }, sections),
+            new SeedsLoaded(Array.Empty<WorkItem>()));
 
         await renderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None);
         var output = console.Output;
@@ -587,9 +587,9 @@ public sealed class WorkspaceTreeRenderTests
         WorkItem[] sprintItems, WorkspaceSections sections)
     {
         var chunks = CreateChunksAsync(
-            new WorkspaceDataChunk.ContextLoaded(null),
-            new WorkspaceDataChunk.SprintItemsLoaded(sprintItems, sections),
-            new WorkspaceDataChunk.SeedsLoaded(Array.Empty<WorkItem>()));
+            new ContextLoaded(null),
+            new SprintItemsLoaded(sprintItems, sections),
+            new SeedsLoaded(Array.Empty<WorkItem>()));
 
         await renderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None);
         return console.Output;
@@ -600,9 +600,9 @@ public sealed class WorkspaceTreeRenderTests
         WorkItem contextItem, WorkItem[] sprintItems, WorkspaceSections sections)
     {
         var chunks = CreateChunksAsync(
-            new WorkspaceDataChunk.ContextLoaded(contextItem),
-            new WorkspaceDataChunk.SprintItemsLoaded(sprintItems, sections),
-            new WorkspaceDataChunk.SeedsLoaded(Array.Empty<WorkItem>()));
+            new ContextLoaded(contextItem),
+            new SprintItemsLoaded(sprintItems, sections),
+            new SeedsLoaded(Array.Empty<WorkItem>()));
 
         await renderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None);
         return console.Output;
@@ -614,9 +614,9 @@ public sealed class WorkspaceTreeRenderTests
         WorkItem[] seeds, int staleDays = 14)
     {
         var chunks = CreateChunksAsync(
-            new WorkspaceDataChunk.ContextLoaded(null),
-            new WorkspaceDataChunk.SprintItemsLoaded(sprintItems, sections),
-            new WorkspaceDataChunk.SeedsLoaded(seeds));
+            new ContextLoaded(null),
+            new SprintItemsLoaded(sprintItems, sections),
+            new SeedsLoaded(seeds));
 
         await renderer.RenderWorkspaceAsync(chunks, staleDays, false, CancellationToken.None);
         return console.Output;

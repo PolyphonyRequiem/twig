@@ -109,17 +109,23 @@ public interface IAsyncRenderer
         CancellationToken ct);
 }
 
+/// <summary>Context item was loaded (may be null if no context).</summary>
+public sealed record ContextLoaded(WorkItem? ContextItem);
+
+/// <summary>Sprint items were loaded from the workspace.</summary>
+public sealed record SprintItemsLoaded(IReadOnlyList<WorkItem> Items, WorkspaceSections? Sections = null);
+
+/// <summary>Seed items were loaded from the workspace.</summary>
+public sealed record SeedsLoaded(IReadOnlyList<WorkItem> Seeds);
+
+/// <summary>A background refresh has started.</summary>
+public sealed record RefreshStarted;
+
+/// <summary>A background refresh has completed.</summary>
+public sealed record RefreshCompleted;
+
 /// <summary>
 /// Discriminated union for workspace data chunks streamed to the renderer.
 /// Each variant represents a stage of workspace data becoming available.
 /// </summary>
-public abstract record WorkspaceDataChunk
-{
-    private WorkspaceDataChunk() { }
-
-    public sealed record ContextLoaded(WorkItem? ContextItem) : WorkspaceDataChunk;
-    public sealed record SprintItemsLoaded(IReadOnlyList<WorkItem> Items, WorkspaceSections? Sections = null) : WorkspaceDataChunk;
-    public sealed record SeedsLoaded(IReadOnlyList<WorkItem> Seeds) : WorkspaceDataChunk;
-    public sealed record RefreshStarted : WorkspaceDataChunk;
-    public sealed record RefreshCompleted : WorkspaceDataChunk;
-}
+public union WorkspaceDataChunk(ContextLoaded, SprintItemsLoaded, SeedsLoaded, RefreshStarted, RefreshCompleted);

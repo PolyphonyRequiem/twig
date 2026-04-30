@@ -98,7 +98,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
                     switch (chunk)
                     {
-                        case WorkspaceDataChunk.ContextLoaded(var contextItem):
+                        case ContextLoaded(var contextItem):
                             activeContextId = contextItem?.Id;
                             savedCaption = contextItem is not null
                                 ? $"Active: #{contextItem.Id} {Markup.Escape(contextItem.Title)}"
@@ -107,7 +107,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                             ctx.Refresh();
                             break;
 
-                        case WorkspaceDataChunk.SprintItemsLoaded { Items: var items, Sections: var sections }:
+                        case SprintItemsLoaded { Items: var items, Sections: var sections }:
                             currentSections = sections;
 
                             if (sections is not null && sections.Sections.Count > 0)
@@ -182,7 +182,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                             ctx.Refresh();
                             break;
 
-                        case WorkspaceDataChunk.SeedsLoaded(var seeds):
+                        case SeedsLoaded(var seeds):
                             if (seeds.Count > 0)
                             {
                                 // Visual separator between sprint items and seeds
@@ -240,14 +240,14 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                             ctx.Refresh();
                             break;
 
-                        case WorkspaceDataChunk.RefreshStarted:
+                        case RefreshStarted:
                             // Clear existing data rows so refreshed data replaces them
                             table.Rows.Clear();
                             table.Caption(new TableTitle("[yellow]⟳ refreshing...[/]"));
                             ctx.Refresh();
                             break;
 
-                        case WorkspaceDataChunk.RefreshCompleted:
+                        case RefreshCompleted:
                             // Restore the original caption after refresh completes
                             table.Caption(new TableTitle(savedCaption ?? "[green]✓ up to date[/]"));
                             ctx.Refresh();
@@ -392,11 +392,11 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                 {
                     switch (chunk)
                     {
-                        case WorkspaceDataChunk.ContextLoaded(var contextItem):
+                        case ContextLoaded(var contextItem):
                             activeContextId = contextItem?.Id;
                             break;
 
-                        case WorkspaceDataChunk.SprintItemsLoaded { Sections: not null } loaded
+                        case SprintItemsLoaded { Sections: not null } loaded
                             when loaded.Sections.Sections.Count > 0:
                         {
                             currentSections = loaded.Sections;
@@ -435,7 +435,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                             break;
                         }
 
-                        case WorkspaceDataChunk.SprintItemsLoaded loaded:
+                        case SprintItemsLoaded loaded:
                         {
                             // No sections or empty sections — flat fallback in tree container
                             currentSections = loaded.Sections;
@@ -449,7 +449,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                             break;
                         }
 
-                        case WorkspaceDataChunk.SeedsLoaded(var seeds):
+                        case SeedsLoaded(var seeds):
                         {
                             if (!loadingCleared) { container.Rows.Clear(); loadingCleared = true; }
 
@@ -478,13 +478,13 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                             break;
                         }
 
-                        case WorkspaceDataChunk.RefreshStarted:
+                        case RefreshStarted:
                             container.Rows.Clear();
                             container.AddRow(new Markup("[yellow]⟳ refreshing...[/]"));
                             ctx.Refresh();
                             break;
 
-                        case WorkspaceDataChunk.RefreshCompleted:
+                        case RefreshCompleted:
                             ctx.Refresh();
                             break;
                     }
@@ -1458,7 +1458,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
                 switch (result)
                 {
-                    case SyncResult.UpToDate or SyncResult.Skipped:
+                    case UpToDate or Skipped:
                         ctx.UpdateTarget(new Rows(cachedView, new Markup("[dim]✓ up to date[/]")));
                         ctx.Refresh();
                         await Task.Delay(SyncStatusDelay, ct);
@@ -1466,7 +1466,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                         ctx.Refresh();
                         break;
 
-                    case SyncResult.Updated updated:
+                    case Updated updated:
                         var revisedView = await buildRevisedView(updated);
                         var displayView = revisedView ?? cachedView;
                         var countLabel = updated.ChangedCount == 1
@@ -1479,7 +1479,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                         ctx.Refresh();
                         break;
 
-                    case SyncResult.PartiallyUpdated partial:
+                    case PartiallyUpdated partial:
                         var partialRevisedView = await buildRevisedView(partial);
                         var partialDisplayView = partialRevisedView ?? cachedView;
                         var savedLabel = partial.SavedCount == 1
@@ -1495,7 +1495,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                         ctx.Refresh();
                         break;
 
-                    case SyncResult.Failed failed:
+                    case SyncFailed failed:
                         var reason = string.IsNullOrWhiteSpace(failed.Reason) ? "offline" : Markup.Escape(failed.Reason);
                         ctx.UpdateTarget(new Rows(cachedView, new Markup($"[yellow]⚠ sync failed ({reason})[/]")));
                         ctx.Refresh();

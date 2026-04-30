@@ -12,15 +12,15 @@ public sealed class StatusResultTests
     [Fact]
     public void NoContext_IsStatusResult()
     {
-        StatusResult result = new StatusResult.NoContext();
+        StatusResult result = new StatusNoContext();
 
-        result.ShouldBeOfType<StatusResult.NoContext>();
+        result.ShouldBeUnionCase<StatusNoContext>();
     }
 
     [Fact]
     public void Unreachable_PreservesAllProperties()
     {
-        var result = new StatusResult.Unreachable(
+        var result = new StatusUnreachable(
             ActiveId: 42,
             UnreachableId: 99,
             Reason: "Item deleted");
@@ -33,9 +33,9 @@ public sealed class StatusResultTests
     [Fact]
     public void Unreachable_IsStatusResult()
     {
-        StatusResult result = new StatusResult.Unreachable(1, 2, "reason");
+        StatusResult result = new StatusUnreachable(1, 2, "reason");
 
-        result.ShouldBeOfType<StatusResult.Unreachable>();
+        result.ShouldBeUnionCase<StatusUnreachable>();
     }
 
     [Fact]
@@ -48,7 +48,7 @@ public sealed class StatusResultTests
         };
         var seeds = new List<WorkItem> { new WorkItemBuilder(2, "Seed").Build() };
 
-        var result = new StatusResult.Success(item, pending, seeds);
+        var result = new StatusSuccess(item, pending, seeds);
 
         result.Item.ShouldBe(item);
         result.PendingChanges.ShouldBe(pending);
@@ -60,9 +60,9 @@ public sealed class StatusResultTests
     {
         var item = new WorkItemBuilder(1, "Test Item").Build();
 
-        StatusResult result = new StatusResult.Success(item, [], []);
+        StatusResult result = new StatusSuccess(item, [], []);
 
-        result.ShouldBeOfType<StatusResult.Success>();
+        result.ShouldBeUnionCase<StatusSuccess>();
     }
 
     [Fact]
@@ -70,7 +70,7 @@ public sealed class StatusResultTests
     {
         var item = new WorkItemBuilder(1, "Test Item").Build();
 
-        var result = new StatusResult.Success(item, [], []);
+        var result = new StatusSuccess(item, [], []);
 
         result.PendingChanges.ShouldBeEmpty();
         result.Seeds.ShouldBeEmpty();
@@ -81,16 +81,16 @@ public sealed class StatusResultTests
     {
         var cases = new StatusResult[]
         {
-            new StatusResult.NoContext(),
-            new StatusResult.Unreachable(1, 1, "gone"),
-            new StatusResult.Success(new WorkItemBuilder(1, "Item").Build(), [], []),
+            new StatusNoContext(),
+            new StatusUnreachable(1, 1, "gone"),
+            new StatusSuccess(new WorkItemBuilder(1, "Item").Build(), [], []),
         };
 
         var labels = cases.Select(c => c switch
         {
-            StatusResult.NoContext => "no-context",
-            StatusResult.Unreachable u => $"unreachable-{u.UnreachableId}",
-            StatusResult.Success s => $"success-{s.Item.Id}",
+            StatusNoContext => "no-context",
+            StatusUnreachable u => $"unreachable-{u.UnreachableId}",
+            StatusSuccess s => $"success-{s.Item.Id}",
             _ => "unknown",
         }).ToList();
 
@@ -100,8 +100,8 @@ public sealed class StatusResultTests
     [Fact]
     public void RecordEquality_Works_ForNoContext()
     {
-        var a = new StatusResult.NoContext();
-        var b = new StatusResult.NoContext();
+        var a = new StatusNoContext();
+        var b = new StatusNoContext();
 
         a.ShouldBe(b);
     }
@@ -109,8 +109,8 @@ public sealed class StatusResultTests
     [Fact]
     public void RecordEquality_Works_ForUnreachable()
     {
-        var a = new StatusResult.Unreachable(1, 2, "reason");
-        var b = new StatusResult.Unreachable(1, 2, "reason");
+        var a = new StatusUnreachable(1, 2, "reason");
+        var b = new StatusUnreachable(1, 2, "reason");
 
         a.ShouldBe(b);
     }

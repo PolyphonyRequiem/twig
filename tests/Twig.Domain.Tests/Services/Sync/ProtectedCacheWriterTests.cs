@@ -252,8 +252,7 @@ public class ProtectedCacheWriterTests
         var result = await syncTask;
 
         // 5. Verify: item 3 was skipped (protected as dirty), other 4 items saved
-        result.ShouldBeOfType<SyncResult.Updated>();
-        var updated = (SyncResult.Updated)result;
+        var updated = result is Updated u ? u : throw new InvalidOperationException("Expected Updated");
         updated.ChangedCount.ShouldBe(4); // 5 fetched - 1 skipped = 4 saved
 
         // Verify SaveBatchAsync was called with only 4 items (item 3 excluded)

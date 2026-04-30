@@ -38,7 +38,7 @@ internal static class McpResultBuilder
         {
             switch (status)
             {
-                case StatusResult.NoContext:
+                case StatusNoContext:
                     writer.WriteBoolean("hasContext", false);
                     writer.WriteNull("item");
                     writer.WriteStartArray("pendingChanges");
@@ -46,7 +46,7 @@ internal static class McpResultBuilder
                     WriteWorkItemArray(writer, "seeds", []);
                     break;
 
-                case StatusResult.Unreachable u:
+                case StatusUnreachable u:
                     writer.WriteBoolean("hasContext", true);
                     writer.WriteNull("item");
                     writer.WriteStartArray("pendingChanges");
@@ -56,7 +56,7 @@ internal static class McpResultBuilder
                     writer.WriteString("unreachableReason", u.Reason);
                     break;
 
-                case StatusResult.Success s:
+                case StatusSuccess s:
                     writer.WriteBoolean("hasContext", true);
                     writer.WritePropertyName("item");
                     writer.WriteStartObject();
@@ -542,7 +542,7 @@ internal static class McpResultBuilder
 
     public static CallToolResult FormatBranchLinked(BranchLinkResult result) => result switch
     {
-        BranchLinkResult.AlreadyLinked al => BuildJson(writer =>
+        AlreadyLinked al => BuildJson(writer =>
         {
             writer.WriteNumber("workItemId", al.WorkItemId);
             writer.WriteString("branchName", al.BranchName);
@@ -550,7 +550,7 @@ internal static class McpResultBuilder
             writer.WriteBoolean("alreadyLinked", true);
             writer.WriteString("message", $"Branch '{al.BranchName}' already linked to #{al.WorkItemId}.");
         }),
-        BranchLinkResult.Linked l => BuildJson(writer =>
+        Linked l => BuildJson(writer =>
         {
             writer.WriteNumber("workItemId", l.WorkItemId);
             writer.WriteString("branchName", l.BranchName);
@@ -558,14 +558,14 @@ internal static class McpResultBuilder
             writer.WriteBoolean("alreadyLinked", false);
             writer.WriteString("message", $"Branch '{l.BranchName}' linked to #{l.WorkItemId}.");
         }),
-        BranchLinkResult.GitContextUnavailable g => BuildErrorJson(writer =>
+        GitContextUnavailable g => BuildErrorJson(writer =>
         {
             writer.WriteString("status", "git-context-unavailable");
             writer.WriteNumber("workItemId", g.WorkItemId);
             writer.WriteString("branchName", g.BranchName);
             writer.WriteString("errorMessage", g.ErrorMessage);
         }),
-        BranchLinkResult.Failed f => BuildErrorJson(writer =>
+        LinkFailed f => BuildErrorJson(writer =>
         {
             writer.WriteString("status", "failed");
             writer.WriteNumber("workItemId", f.WorkItemId);

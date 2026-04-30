@@ -5,6 +5,7 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.ValueObjects;
 using Xunit;
+using Twig.TestKit;
 
 namespace Twig.Domain.Tests.Services.Navigation;
 
@@ -37,7 +38,7 @@ public class BranchLinkServiceTests
     {
         var result = await _sut.LinkBranchAsync(42, "feature/42-login-fix");
 
-        var linked = result.ShouldBeOfType<BranchLinkResult.Linked>();
+        var linked = result.ShouldBeUnionCase<Linked>();
         linked.WorkItemId.ShouldBe(42);
         linked.BranchName.ShouldBe("feature/42-login-fix");
         linked.ArtifactUri.ShouldNotBeNullOrWhiteSpace();
@@ -48,7 +49,7 @@ public class BranchLinkServiceTests
     {
         var result = await _sut.LinkBranchAsync(42, "feature/42-login-fix");
 
-        var linked = result.ShouldBeOfType<BranchLinkResult.Linked>();
+        var linked = result.ShouldBeUnionCase<Linked>();
         var expectedUri = $"vstfs:///Git/Ref/{ProjectId}/{RepoId}/GB{Uri.EscapeDataString("feature/42-login-fix")}";
         linked.ArtifactUri.ShouldBe(expectedUri);
     }
@@ -78,7 +79,7 @@ public class BranchLinkServiceTests
 
         var result = await _sut.LinkBranchAsync(42, "feature/42-login-fix");
 
-        result.ShouldBeOfType<BranchLinkResult.AlreadyLinked>();
+        result.ShouldBeUnionCase<AlreadyLinked>();
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -92,7 +93,7 @@ public class BranchLinkServiceTests
 
         var result = await _sut.LinkBranchAsync(42, "feature/42-login-fix");
 
-        var unavailable = result.ShouldBeOfType<BranchLinkResult.GitContextUnavailable>();
+        var unavailable = result.ShouldBeUnionCase<GitContextUnavailable>();
         unavailable.ErrorMessage.ShouldNotBeNullOrWhiteSpace();
     }
 
@@ -103,7 +104,7 @@ public class BranchLinkServiceTests
 
         var result = await _sut.LinkBranchAsync(42, "feature/42-login-fix");
 
-        result.ShouldBeOfType<BranchLinkResult.GitContextUnavailable>();
+        result.ShouldBeUnionCase<GitContextUnavailable>();
     }
 
     [Fact]
@@ -113,7 +114,7 @@ public class BranchLinkServiceTests
 
         var result = await _sut.LinkBranchAsync(42, "feature/42-login-fix");
 
-        result.ShouldBeOfType<BranchLinkResult.GitContextUnavailable>();
+        result.ShouldBeUnionCase<GitContextUnavailable>();
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -128,7 +129,7 @@ public class BranchLinkServiceTests
 
         var result = await _sut.LinkBranchAsync(42, "feature/42-login-fix");
 
-        var unavailable = result.ShouldBeOfType<BranchLinkResult.GitContextUnavailable>();
+        var unavailable = result.ShouldBeUnionCase<GitContextUnavailable>();
         unavailable.ErrorMessage.ShouldContain("Network error");
     }
 
@@ -145,7 +146,7 @@ public class BranchLinkServiceTests
 
         var result = await _sut.LinkBranchAsync(42, "feature/42-login-fix");
 
-        var failed = result.ShouldBeOfType<BranchLinkResult.Failed>();
+        var failed = result.ShouldBeUnionCase<LinkFailed>();
         failed.ErrorMessage.ShouldContain("HTTP 400");
         failed.ArtifactUri.ShouldNotBeNullOrWhiteSpace();
     }

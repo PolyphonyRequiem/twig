@@ -33,10 +33,10 @@ public class SyncCoordinatorFactoryTests
         _workItemRepo.GetByIdAsync(42).Returns(item);
 
         var roResult = await factory.ReadOnly.SyncItemAsync(42);
-        roResult.ShouldBeOfType<SyncResult.UpToDate>();
+        roResult.ShouldBeUnionCase<UpToDate>();
 
         var rwResult = await factory.ReadWrite.SyncItemAsync(42);
-        rwResult.ShouldNotBeOfType<SyncResult.UpToDate>();
+        rwResult.ShouldNotBeOfType<UpToDate>();
     }
 
     [Fact]
@@ -53,7 +53,7 @@ public class SyncCoordinatorFactoryTests
 
         // After clamping, RO TTL = 10, so 5-min-old item is still fresh
         var roResult = await factory.ReadOnly.SyncItemAsync(42);
-        roResult.ShouldBeOfType<SyncResult.UpToDate>();
+        roResult.ShouldBeUnionCase<UpToDate>();
     }
 
     [Fact]
@@ -69,8 +69,8 @@ public class SyncCoordinatorFactoryTests
         var roResult = await factory.ReadOnly.SyncItemAsync(42);
         var rwResult = await factory.ReadWrite.SyncItemAsync(42);
 
-        roResult.ShouldBeOfType<SyncResult.UpToDate>();
-        rwResult.ShouldBeOfType<SyncResult.UpToDate>();
+        roResult.ShouldBeUnionCase<UpToDate>();
+        rwResult.ShouldBeUnionCase<UpToDate>();
     }
 
     [Fact]
@@ -88,7 +88,7 @@ public class SyncCoordinatorFactoryTests
         _pendingStore.GetDirtyItemIdsAsync().Returns(Array.Empty<int>());
 
         var roResult = await factory.ReadOnly.SyncItemAsync(42);
-        roResult.ShouldNotBeOfType<SyncResult.UpToDate>();
+        roResult.ShouldNotBeOfType<UpToDate>();
     }
 
     [Fact]

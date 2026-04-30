@@ -11,7 +11,7 @@ public class ActiveItemResultExtensionsTests
     public void TryGetWorkItem_Found_ReturnsTrueWithItem()
     {
         var workItem = new WorkItemBuilder(42, "Item 42").InState("Active").Build();
-        var result = new ActiveItemResult.Found(workItem);
+        ActiveItemResult result = new Found(workItem);
 
         var success = result.TryGetWorkItem(out var item, out var errorId, out var errorReason);
 
@@ -26,7 +26,7 @@ public class ActiveItemResultExtensionsTests
     public void TryGetWorkItem_FetchedFromAdo_ReturnsTrueWithItem()
     {
         var workItem = new WorkItemBuilder(99, "Item 99").InState("Active").Build();
-        var result = new ActiveItemResult.FetchedFromAdo(workItem);
+        ActiveItemResult result = new FetchedFromAdo(workItem);
 
         var success = result.TryGetWorkItem(out var item, out var errorId, out var errorReason);
 
@@ -40,7 +40,7 @@ public class ActiveItemResultExtensionsTests
     [Fact]
     public void TryGetWorkItem_Unreachable_ReturnsFalseWithIdAndReason()
     {
-        var result = new ActiveItemResult.Unreachable(123, "Network timeout");
+        ActiveItemResult result = new ActiveUnreachable(123, "Network timeout");
 
         var success = result.TryGetWorkItem(out var item, out var errorId, out var errorReason);
 
@@ -53,7 +53,7 @@ public class ActiveItemResultExtensionsTests
     [Fact]
     public void TryGetWorkItem_NoContext_ReturnsFalseWithNulls()
     {
-        var result = new ActiveItemResult.NoContext();
+        ActiveItemResult result = new ActiveNoContext();
 
         var success = result.TryGetWorkItem(out var item, out var errorId, out var errorReason);
 

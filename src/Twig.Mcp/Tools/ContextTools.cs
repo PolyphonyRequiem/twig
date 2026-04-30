@@ -37,12 +37,15 @@ public sealed class ContextTools(WorkspaceResolver resolver)
 
             var result = await ctx.ActiveItemResolver.ResolveByIdAsync(id, ct);
 
-            if (result is ActiveItemResult.Unreachable u)
+            if (result is ActiveUnreachable u)
                 return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, $"Work item #{u.Id} unreachable: {u.Reason}", ctx, ct);
 
-            item = result is ActiveItemResult.Found f
-                ? f.WorkItem
-                : ((ActiveItemResult.FetchedFromAdo)result).WorkItem;
+            item = result switch
+            {
+                Found f => f.WorkItem,
+                FetchedFromAdo a => a.WorkItem,
+                _ => throw new InvalidOperationException("Unexpected active item result"),
+            };
         }
         else
         {

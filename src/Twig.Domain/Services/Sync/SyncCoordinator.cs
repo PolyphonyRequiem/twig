@@ -44,7 +44,7 @@ public sealed class SyncCoordinator
         : this(workItemRepo, adoService, protectedCacheWriter, pendingChangeStore, null, cacheStaleMinutes) { }
 
     /// <summary>
-    /// Syncs a single item by ID. Returns <see cref="SyncResult.UpToDate"/> if the item
+    /// Syncs a single item by ID. Returns <see cref="UpToDate"/> if the item
     /// was recently synced (within <c>cacheStaleMinutes</c>), otherwise fetches from ADO
     /// and saves through the protected cache writer.
     /// </summary>
@@ -55,7 +55,7 @@ public sealed class SyncCoordinator
         if (existing?.LastSyncedAt is not null &&
             DateTimeOffset.UtcNow - existing.LastSyncedAt.Value < TimeSpan.FromMinutes(_cacheStaleMinutes))
         {
-            return new SyncResult.UpToDate();
+            return new UpToDate();
         }
 
         try
@@ -63,8 +63,8 @@ public sealed class SyncCoordinator
             var fetched = await _adoService.FetchAsync(id, ct);
             var saved = await _protectedCacheWriter.SaveProtectedAsync(fetched, ct);
             return saved
-                ? new SyncResult.Updated(1)
-                : new SyncResult.Skipped("Item has local pending changes");
+                ? new Updated(1)
+                : new Skipped("Item has local pending changes");
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -73,7 +73,7 @@ public sealed class SyncCoordinator
                 await _pendingChangeStore.ClearChangesAsync(id, ct);
                 await _workItemRepo.DeleteByIdAsync(id, ct);
             }
-            return new SyncResult.Failed(ex.Message);
+            return new SyncFailed(ex.Message);
         }
     }
 
@@ -91,12 +91,12 @@ public sealed class SyncCoordinator
             var candidateIds = workingSet.AllIds
                 .Where(id => id > 0 && !workingSet.DirtyItemIds.Contains(id))
                 .ToList();
-            if (candidateIds.Count == 0) return new SyncResult.UpToDate();
+            if (candidateIds.Count == 0) return new UpToDate();
             return await FetchStaleAndSaveAsync(candidateIds, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return new SyncResult.Failed(ex.Message);
+            return new SyncFailed(ex.Message);
         }
     }
 
@@ -113,12 +113,12 @@ public sealed class SyncCoordinator
         try
         {
             var candidateIds = ids.Where(id => id > 0).ToList();
-            if (candidateIds.Count == 0) return new SyncResult.UpToDate();
+            if (candidateIds.Count == 0) return new UpToDate();
             return await FetchStaleAndSaveAsync(candidateIds, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return new SyncResult.Failed(ex.Message);
+            return new SyncFailed(ex.Message);
         }
     }
 
@@ -133,7 +133,7 @@ public sealed class SyncCoordinator
                 staleIds.Add(id);
         }
 
-        if (staleIds.Count == 0) return new SyncResult.UpToDate();
+        if (staleIds.Count == 0) return new UpToDate();
 
         var fetchResults = await Task.WhenAll(staleIds.Select(async id =>
         {
@@ -168,12 +168,12 @@ public sealed class SyncCoordinator
         var savedCount = fetchedItems.Length - skippedIds.Count;
 
         if (fetchFailures.Count > 0 && fetchedItems.Length > 0)
-            return new SyncResult.PartiallyUpdated(savedCount, fetchFailures);
+            return new PartiallyUpdated(savedCount, fetchFailures);
 
         if (fetchFailures.Count > 0)
-            return new SyncResult.Failed(string.Join("; ", fetchFailures.Select(f => $"#{f.Id}: {f.Error}")));
+            return new SyncFailed(string.Join("; ", fetchFailures.Select(f => $"#{f.Id}: {f.Error}")));
 
-        return new SyncResult.Updated(savedCount);
+        return new Updated(savedCount);
     }
 
     /// <summary>
@@ -187,11 +187,11 @@ public sealed class SyncCoordinator
             var children = await _adoService.FetchChildrenAsync(parentId, ct);
             var skippedIds = await _protectedCacheWriter.SaveBatchProtectedAsync(children, ct);
             var savedCount = children.Count - skippedIds.Count;
-            return new SyncResult.Updated(savedCount);
+            return new Updated(savedCount);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return new SyncResult.Failed(ex.Message);
+            return new SyncFailed(ex.Message);
         }
     }
 
@@ -230,15 +230,15 @@ public sealed class SyncCoordinator
                 nextId = parent.ParentId;
             }
 
-            if (fetched.Count == 0) return new SyncResult.UpToDate();
+            if (fetched.Count == 0) return new UpToDate();
 
             var skippedIds = await _protectedCacheWriter.SaveBatchProtectedAsync(fetched, ct);
             var savedCount = fetched.Count - skippedIds.Count;
-            return new SyncResult.Updated(savedCount);
+            return new Updated(savedCount);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return new SyncResult.Failed(ex.Message);
+            return new SyncFailed(ex.Message);
         }
     }
 
@@ -254,14 +254,14 @@ public sealed class SyncCoordinator
         {
             var links = await SyncLinksAsync(rootId, ct);
 
-            if (links.Count == 0) return new SyncResult.UpToDate();
+            if (links.Count == 0) return new UpToDate();
 
             var targetIds = links.Select(l => l.TargetId).Distinct().ToList();
             return await SyncItemSetAsync(targetIds, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return new SyncResult.Failed(ex.Message);
+            return new SyncFailed(ex.Message);
         }
     }
 

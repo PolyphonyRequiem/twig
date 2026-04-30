@@ -159,8 +159,8 @@ public sealed class ReadTools(WorkspaceResolver resolver, NavigationTools naviga
             var result = await ctx.SyncCoordinatorFactory.ReadWrite.SyncItemSetAsync([id.Value], ct);
             refreshedCount = result switch
             {
-                SyncResult.Updated u => u.ChangedCount,
-                SyncResult.PartiallyUpdated p => p.SavedCount,
+                Updated u => u.ChangedCount,
+                PartiallyUpdated p => p.SavedCount,
                 _ => 0
             };
         }
@@ -168,11 +168,14 @@ public sealed class ReadTools(WorkspaceResolver resolver, NavigationTools naviga
         {
             // Full context refresh — same pull logic as twig_sync's phase 2
             var resolved = await ctx.ActiveItemResolver.GetActiveItemAsync(ct);
-            if (resolved is ActiveItemResult.Found or ActiveItemResult.FetchedFromAdo)
+            if (resolved is Found or FetchedFromAdo)
             {
-                var item = resolved is ActiveItemResult.Found f
-                    ? f.WorkItem
-                    : ((ActiveItemResult.FetchedFromAdo)resolved).WorkItem;
+                var item = resolved switch
+                {
+                    Found f => f.WorkItem,
+                    FetchedFromAdo a => a.WorkItem,
+                    _ => throw new InvalidOperationException("Unexpected active item result"),
+                };
 
                 var idsToSync = new List<int> { item.Id };
 
@@ -191,8 +194,8 @@ public sealed class ReadTools(WorkspaceResolver resolver, NavigationTools naviga
                         idsToSync.Distinct().ToList(), ct);
                     refreshedCount = result switch
                     {
-                        SyncResult.Updated u => u.ChangedCount,
-                        SyncResult.PartiallyUpdated p => p.SavedCount,
+                        Updated u => u.ChangedCount,
+                        PartiallyUpdated p => p.SavedCount,
                         _ => 0
                     };
                 }

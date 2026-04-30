@@ -1,6 +1,7 @@
 using Shouldly;
 using Twig.Mcp.Services.Batch;
 using Xunit;
+using Twig.TestKit;
 
 namespace Twig.Mcp.Tests.Services.Batch;
 
@@ -17,7 +18,7 @@ public class TemplateParserParseTests
         result.IsFullExpression.ShouldBeFalse();
         result.HasExpressions.ShouldBeFalse();
         result.Segments.Count.ShouldBe(1);
-        result.Segments[0].ShouldBeOfType<LiteralSegment>()
+        result.Segments[0].ShouldBeUnionCase<LiteralSegment>()
             .Text.ShouldBe("just plain text");
     }
 
@@ -44,7 +45,7 @@ public class TemplateParserParseTests
         result.HasExpressions.ShouldBeTrue();
         result.Segments.Count.ShouldBe(1);
 
-        var expr = result.Segments[0].ShouldBeOfType<ExpressionSegment>().Expr;
+        var expr = result.Segments[0].ShouldBeUnionCase<ExpressionSegment>().Expr;
         expr.StepIndex.ShouldBe(0);
         expr.FieldPath.ShouldBe(new[] { "id" });
         expr.FullPlaceholder.ShouldBe("{{steps.0.id}}");
@@ -56,7 +57,7 @@ public class TemplateParserParseTests
         var result = TemplateParser.Parse("{{steps.2.item.nested.deep}}");
 
         result.IsFullExpression.ShouldBeTrue();
-        var expr = result.Segments[0].ShouldBeOfType<ExpressionSegment>().Expr;
+        var expr = result.Segments[0].ShouldBeUnionCase<ExpressionSegment>().Expr;
         expr.StepIndex.ShouldBe(2);
         expr.FieldPath.ShouldBe(new[] { "item", "nested", "deep" });
     }
@@ -70,9 +71,9 @@ public class TemplateParserParseTests
 
         result.IsFullExpression.ShouldBeFalse();
         result.Segments.Count.ShouldBe(2);
-        result.Segments[0].ShouldBeOfType<LiteralSegment>()
+        result.Segments[0].ShouldBeUnionCase<LiteralSegment>()
             .Text.ShouldBe("prefix-");
-        result.Segments[1].ShouldBeOfType<ExpressionSegment>()
+        result.Segments[1].ShouldBeUnionCase<ExpressionSegment>()
             .Expr.StepIndex.ShouldBe(0);
     }
 
@@ -83,9 +84,9 @@ public class TemplateParserParseTests
 
         result.IsFullExpression.ShouldBeFalse();
         result.Segments.Count.ShouldBe(2);
-        result.Segments[0].ShouldBeOfType<ExpressionSegment>()
+        result.Segments[0].ShouldBeUnionCase<ExpressionSegment>()
             .Expr.FieldPath.ShouldBe(new[] { "title" });
-        result.Segments[1].ShouldBeOfType<LiteralSegment>()
+        result.Segments[1].ShouldBeUnionCase<LiteralSegment>()
             .Text.ShouldBe("-suffix");
     }
 
@@ -96,11 +97,11 @@ public class TemplateParserParseTests
 
         result.IsFullExpression.ShouldBeFalse();
         result.Segments.Count.ShouldBe(3);
-        result.Segments[0].ShouldBeOfType<LiteralSegment>()
+        result.Segments[0].ShouldBeUnionCase<LiteralSegment>()
             .Text.ShouldBe("Item #");
-        result.Segments[1].ShouldBeOfType<ExpressionSegment>()
+        result.Segments[1].ShouldBeUnionCase<ExpressionSegment>()
             .Expr.StepIndex.ShouldBe(0);
-        result.Segments[2].ShouldBeOfType<LiteralSegment>()
+        result.Segments[2].ShouldBeUnionCase<LiteralSegment>()
             .Text.ShouldBe(" created");
     }
 
@@ -113,9 +114,9 @@ public class TemplateParserParseTests
 
         result.IsFullExpression.ShouldBeFalse();
         result.Segments.Count.ShouldBe(2);
-        result.Segments[0].ShouldBeOfType<ExpressionSegment>()
+        result.Segments[0].ShouldBeUnionCase<ExpressionSegment>()
             .Expr.StepIndex.ShouldBe(0);
-        result.Segments[1].ShouldBeOfType<ExpressionSegment>()
+        result.Segments[1].ShouldBeUnionCase<ExpressionSegment>()
             .Expr.StepIndex.ShouldBe(1);
     }
 
@@ -125,11 +126,11 @@ public class TemplateParserParseTests
         var result = TemplateParser.Parse("{{steps.0.id}} - {{steps.1.title}}");
 
         result.Segments.Count.ShouldBe(3);
-        result.Segments[0].ShouldBeOfType<ExpressionSegment>()
+        result.Segments[0].ShouldBeUnionCase<ExpressionSegment>()
             .Expr.FieldPath.ShouldBe(new[] { "id" });
-        result.Segments[1].ShouldBeOfType<LiteralSegment>()
+        result.Segments[1].ShouldBeUnionCase<LiteralSegment>()
             .Text.ShouldBe(" - ");
-        result.Segments[2].ShouldBeOfType<ExpressionSegment>()
+        result.Segments[2].ShouldBeUnionCase<ExpressionSegment>()
             .Expr.FieldPath.ShouldBe(new[] { "title" });
     }
 
@@ -150,7 +151,7 @@ public class TemplateParserParseTests
     {
         var result = TemplateParser.Parse("{{steps.49.output}}");
 
-        var expr = result.Segments[0].ShouldBeOfType<ExpressionSegment>().Expr;
+        var expr = result.Segments[0].ShouldBeUnionCase<ExpressionSegment>().Expr;
         expr.StepIndex.ShouldBe(49);
     }
 
@@ -159,7 +160,7 @@ public class TemplateParserParseTests
     {
         var result = TemplateParser.Parse("{{steps.0.result}}");
 
-        var expr = result.Segments[0].ShouldBeOfType<ExpressionSegment>().Expr;
+        var expr = result.Segments[0].ShouldBeUnionCase<ExpressionSegment>().Expr;
         expr.StepIndex.ShouldBe(0);
     }
 
@@ -172,7 +173,7 @@ public class TemplateParserParseTests
 
         result.HasExpressions.ShouldBeFalse();
         result.Segments.Count.ShouldBe(1);
-        result.Segments[0].ShouldBeOfType<LiteralSegment>();
+        result.Segments[0].ShouldBeUnionCase<LiteralSegment>();
     }
 
     [Fact]
@@ -182,7 +183,7 @@ public class TemplateParserParseTests
         var result = TemplateParser.Parse("{{steps.0}}");
 
         result.HasExpressions.ShouldBeFalse();
-        result.Segments[0].ShouldBeOfType<LiteralSegment>();
+        result.Segments[0].ShouldBeUnionCase<LiteralSegment>();
     }
 
     [Fact]
@@ -232,7 +233,7 @@ public class TemplateParserParseTests
     {
         var result = TemplateParser.Parse("{{steps.0.my_field}}");
 
-        var expr = result.Segments[0].ShouldBeOfType<ExpressionSegment>().Expr;
+        var expr = result.Segments[0].ShouldBeUnionCase<ExpressionSegment>().Expr;
         expr.FieldPath.ShouldBe(new[] { "my_field" });
     }
 
@@ -241,7 +242,7 @@ public class TemplateParserParseTests
     {
         var result = TemplateParser.Parse("{{steps.0._private}}");
 
-        var expr = result.Segments[0].ShouldBeOfType<ExpressionSegment>().Expr;
+        var expr = result.Segments[0].ShouldBeUnionCase<ExpressionSegment>().Expr;
         expr.FieldPath.ShouldBe(new[] { "_private" });
     }
 
@@ -254,7 +255,7 @@ public class TemplateParserParseTests
 
         result.HasExpressions.ShouldBeTrue();
         result.IsFullExpression.ShouldBeTrue();
-        var expr = result.Segments[0].ShouldBeOfType<ExpressionSegment>().Expr;
+        var expr = result.Segments[0].ShouldBeUnionCase<ExpressionSegment>().Expr;
         expr.StepIndex.ShouldBe(int.MaxValue);
         expr.FieldPath.ShouldBe(new[] { "id" });
     }
@@ -267,7 +268,7 @@ public class TemplateParserParseTests
 
         result.HasExpressions.ShouldBeFalse();
         result.Segments.Count.ShouldBe(1);
-        result.Segments[0].ShouldBeOfType<LiteralSegment>()
+        result.Segments[0].ShouldBeUnionCase<LiteralSegment>()
             .Text.ShouldBe("{{steps.2147483648.id}}");
     }
 
@@ -279,7 +280,7 @@ public class TemplateParserParseTests
 
         result.HasExpressions.ShouldBeFalse();
         result.Segments.Count.ShouldBe(1);
-        result.Segments[0].ShouldBeOfType<LiteralSegment>();
+        result.Segments[0].ShouldBeUnionCase<LiteralSegment>();
     }
 }
 

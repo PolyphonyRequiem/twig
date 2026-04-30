@@ -68,7 +68,7 @@ public sealed class McpResultBuilderTests
     [Fact]
     public void FormatStatus_NoContext_WritesMinimalJson()
     {
-        var status = new StatusResult.NoContext();
+        var status = new StatusNoContext();
 
         var result = McpResultBuilder.FormatStatus(status);
         var root = ParseJson(result);
@@ -83,7 +83,7 @@ public sealed class McpResultBuilderTests
     public void FormatStatus_WithItem_IncludesItemAndPendingChanges()
     {
         var item = new WorkItemBuilder(7, "Status Item").AsTask().InState("Done").AssignedTo("Bob").Build();
-        var status = new StatusResult.Success(item,
+        var status = new StatusSuccess(item,
             [new PendingChangeRecord(7, "field", "System.Title", "Old", "New")], []);
 
         var result = McpResultBuilder.FormatStatus(status);
@@ -103,7 +103,7 @@ public sealed class McpResultBuilderTests
     public void FormatStatus_MultiplePendingChanges_AllSerialized()
     {
         var item = new WorkItemBuilder(3, "Multi Change").AsTask().InState("Active").Build();
-        var status = new StatusResult.Success(item,
+        var status = new StatusSuccess(item,
             [
                 new PendingChangeRecord(3, "field", "System.Title", "A", "B"),
                 new PendingChangeRecord(3, "state", "System.State", "New", "Active"),
@@ -122,7 +122,7 @@ public sealed class McpResultBuilderTests
     [Fact]
     public void FormatStatus_Unreachable_IncludesErrorFields()
     {
-        var status = new StatusResult.Unreachable(99, 99, "Not found");
+        var status = new StatusUnreachable(99, 99, "Not found");
 
         var result = McpResultBuilder.FormatStatus(status);
         var root = ParseJson(result);
@@ -134,7 +134,7 @@ public sealed class McpResultBuilderTests
     [Fact]
     public void FormatStatus_NoUnreachable_OmitsErrorFields()
     {
-        var status = new StatusResult.Success(WorkItemBuilder.Simple(1, "OK"), [], []);
+        var status = new StatusSuccess(WorkItemBuilder.Simple(1, "OK"), [], []);
 
         var result = McpResultBuilder.FormatStatus(status);
         var root = ParseJson(result);
@@ -147,7 +147,7 @@ public sealed class McpResultBuilderTests
     public void FormatStatus_WithSeeds_IncludesSeedArray()
     {
         var seed = new WorkItemBuilder(-1, "My Seed").AsTask().AsSeed().Build();
-        var status = new StatusResult.Success(
+        var status = new StatusSuccess(
             new WorkItemBuilder(1, "Active").AsEpic().InState("Active").Build(), [], [seed]);
 
         var result = McpResultBuilder.FormatStatus(status);
@@ -166,7 +166,7 @@ public sealed class McpResultBuilderTests
             .WithIterationPath(@"Project\Sprint 1")
             .Build();
 
-        var status = new StatusResult.Success(item, [], []);
+        var status = new StatusSuccess(item, [], []);
 
         var result = McpResultBuilder.FormatStatus(status);
         var itemJson = ParseJson(result).GetProperty("item");
@@ -180,7 +180,7 @@ public sealed class McpResultBuilderTests
     [Fact]
     public void FormatBranchLinked_Linked_ProducesExpectedJson()
     {
-        var linked = new BranchLinkResult.Linked(42, "feature/42-login", "vstfs:///Git/Ref/p/r/GBfeature%2F42-login");
+        var linked = new Linked(42, "feature/42-login", "vstfs:///Git/Ref/p/r/GBfeature%2F42-login");
 
         var result = McpResultBuilder.FormatBranchLinked(linked);
         var root = ParseJson(result);
@@ -196,7 +196,7 @@ public sealed class McpResultBuilderTests
     [Fact]
     public void FormatBranchLinked_AlreadyLinked_SetsAlreadyLinkedTrue()
     {
-        var already = new BranchLinkResult.AlreadyLinked(7, "main", "vstfs:///Git/Ref/p/r/GBmain");
+        var already = new AlreadyLinked(7, "main", "vstfs:///Git/Ref/p/r/GBmain");
 
         var result = McpResultBuilder.FormatBranchLinked(already);
         var root = ParseJson(result);
@@ -212,7 +212,7 @@ public sealed class McpResultBuilderTests
     [Fact]
     public void FormatBranchLinked_GitContextUnavailable_ReturnsError()
     {
-        var unavailable = new BranchLinkResult.GitContextUnavailable(42, "feature/test", "Project ID could not be resolved");
+        var unavailable = new GitContextUnavailable(42, "feature/test", "Project ID could not be resolved");
 
         var result = McpResultBuilder.FormatBranchLinked(unavailable);
         var root = ParseJson(result);
@@ -227,7 +227,7 @@ public sealed class McpResultBuilderTests
     [Fact]
     public void FormatBranchLinked_Failed_ReturnsErrorWithArtifactUri()
     {
-        var failed = new BranchLinkResult.Failed(42, "feature/test", "vstfs:///Git/Ref/p/r/GBfeature%2Ftest", "HTTP 400 Bad Request");
+        var failed = new LinkFailed(42, "feature/test", "vstfs:///Git/Ref/p/r/GBfeature%2Ftest", "HTTP 400 Bad Request");
 
         var result = McpResultBuilder.FormatBranchLinked(failed);
         var root = ParseJson(result);

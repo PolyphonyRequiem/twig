@@ -102,7 +102,7 @@ public sealed class WorkspaceCommand(
                     var resolveResult = await activeItemResolver.ResolveByIdAsync(activeId.Value, ct);
                     resolveResult.TryGetWorkItem(out contextItem, out _, out _);
                 }
-                yield return new WorkspaceDataChunk.ContextLoaded(contextItem);
+                yield return new ContextLoaded(contextItem);
 
                 // Stage 2: Sprint items — use configured sprints when available, else fall back to current iteration
                 var resolvedIterations = await ResolveSprintIterationsAsync(ctx.Config.Workspace.Sprints, ct);
@@ -121,11 +121,11 @@ public sealed class WorkspaceCommand(
                         sprintItems = await workItemRepo.GetByIterationAsync(iteration, ct);
                 }
                 var treeRoots = await BuildTreeRootsAsync(sprintItems, ct);
-                yield return new WorkspaceDataChunk.SprintItemsLoaded(sprintItems, WorkspaceSections.Build(sprintItems, excludedIds: excludedIds, treeRoots: treeRoots));
+                yield return new SprintItemsLoaded(sprintItems, WorkspaceSections.Build(sprintItems, excludedIds: excludedIds, treeRoots: treeRoots));
 
                 // Stage 3: Seeds
                 seeds = await workItemRepo.GetSeedsAsync(ct);
-                yield return new WorkspaceDataChunk.SeedsLoaded(seeds);
+                yield return new SeedsLoaded(seeds);
 
                 // Stage 4: Check cache freshness for stale-while-revalidate (EPIC-006)
                 // Skipped entirely when --no-refresh is specified
@@ -134,7 +134,7 @@ public sealed class WorkspaceCommand(
                     var lastRefreshedRaw = await contextStore.GetValueAsync("last_refreshed_at", ct);
                     if (IsCacheStale(lastRefreshedRaw, ctx.Config.Display.CacheStaleMinutes))
                     {
-                        yield return new WorkspaceDataChunk.RefreshStarted();
+                        yield return new RefreshStarted();
 
                         // Cannot yield inside try/catch in C# iterators — collect results first.
                         IReadOnlyList<Domain.Aggregates.WorkItem>? refreshedSprintItems = null;
@@ -182,9 +182,9 @@ public sealed class WorkspaceCommand(
 
                         // Yield data rows (refreshed on success, original on failure)
                         var refreshTreeRoots = await BuildTreeRootsAsync(sprintItems, ct);
-                        yield return new WorkspaceDataChunk.SprintItemsLoaded(sprintItems, WorkspaceSections.Build(sprintItems, excludedIds: excludedIds, treeRoots: refreshTreeRoots));
-                        yield return new WorkspaceDataChunk.SeedsLoaded(seeds);
-                        yield return new WorkspaceDataChunk.RefreshCompleted();
+                        yield return new SprintItemsLoaded(sprintItems, WorkspaceSections.Build(sprintItems, excludedIds: excludedIds, treeRoots: refreshTreeRoots));
+                        yield return new SeedsLoaded(seeds);
+                        yield return new RefreshCompleted();
                     }
                 }
             }

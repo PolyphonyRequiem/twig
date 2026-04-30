@@ -113,16 +113,16 @@ public sealed class ShowCommand(
             var result = await _activeItemResolver.GetActiveItemAsync(ct);
             switch (result)
             {
-                case ActiveItemResult.Found found:
+                case Found found:
                     item = found.WorkItem;
                     break;
-                case ActiveItemResult.FetchedFromAdo fetched:
+                case FetchedFromAdo fetched:
                     item = fetched.WorkItem;
                     break;
-                case ActiveItemResult.Unreachable unreachable:
+                case ActiveUnreachable unreachable:
                     ctx.StderrWriter.WriteLine($"error: Active work item #{unreachable.Id} is not reachable: {unreachable.Reason}");
                     return 1;
-                case ActiveItemResult.NoContext:
+                case ActiveNoContext:
                 default:
                     EmitBranchDetectionHint();
                     return 1;

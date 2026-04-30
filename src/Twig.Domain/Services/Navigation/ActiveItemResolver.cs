@@ -31,7 +31,7 @@ public sealed class ActiveItemResolver
     {
         var activeId = await _contextStore.GetActiveWorkItemIdAsync(ct);
         if (activeId is null)
-            return new ActiveItemResult.NoContext();
+            return new ActiveNoContext();
 
         return await ResolveByIdAsync(activeId.Value, ct);
     }
@@ -44,17 +44,17 @@ public sealed class ActiveItemResolver
     {
         var cached = await _workItemRepo.GetByIdAsync(id, ct);
         if (cached is not null)
-            return new ActiveItemResult.Found(cached);
+            return new Found(cached);
 
         try
         {
             var fetched = await _adoService.FetchAsync(id, ct);
             await _workItemRepo.SaveAsync(fetched, ct);
-            return new ActiveItemResult.FetchedFromAdo(fetched);
+            return new FetchedFromAdo(fetched);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return new ActiveItemResult.Unreachable(id, ex.Message);
+            return new ActiveUnreachable(id, ex.Message);
         }
     }
 }

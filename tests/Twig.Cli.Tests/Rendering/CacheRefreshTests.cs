@@ -290,19 +290,19 @@ public class CacheRefreshTests
     public async Task SpectreRenderer_RefreshStarted_ClearsRowsAndShowsBadge()
     {
         var chunks = CreateChunksAsync(
-            new WorkspaceDataChunk.ContextLoaded(CreateWorkItem(1, "Active")),
-            new WorkspaceDataChunk.SprintItemsLoaded(new[]
+            new ContextLoaded(CreateWorkItem(1, "Active")),
+            new SprintItemsLoaded(new[]
             {
                 CreateWorkItem(10, "Old Task"),
             }),
-            new WorkspaceDataChunk.SeedsLoaded(Array.Empty<WorkItem>()),
-            new WorkspaceDataChunk.RefreshStarted(),
-            new WorkspaceDataChunk.SprintItemsLoaded(new[]
+            new SeedsLoaded(Array.Empty<WorkItem>()),
+            new RefreshStarted(),
+            new SprintItemsLoaded(new[]
             {
                 CreateWorkItem(10, "Refreshed Task"),
             }),
-            new WorkspaceDataChunk.SeedsLoaded(Array.Empty<WorkItem>()),
-            new WorkspaceDataChunk.RefreshCompleted());
+            new SeedsLoaded(Array.Empty<WorkItem>()),
+            new RefreshCompleted());
 
         await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None);
 
@@ -317,13 +317,13 @@ public class CacheRefreshTests
     public async Task SpectreRenderer_RefreshStarted_ShowsRefreshingBadge()
     {
         var chunks = CreateChunksAsync(
-            new WorkspaceDataChunk.ContextLoaded(CreateWorkItem(1, "Active")),
-            new WorkspaceDataChunk.SprintItemsLoaded(Array.Empty<WorkItem>()),
-            new WorkspaceDataChunk.SeedsLoaded(Array.Empty<WorkItem>()),
-            new WorkspaceDataChunk.RefreshStarted(),
-            new WorkspaceDataChunk.SprintItemsLoaded(Array.Empty<WorkItem>()),
-            new WorkspaceDataChunk.SeedsLoaded(Array.Empty<WorkItem>()),
-            new WorkspaceDataChunk.RefreshCompleted());
+            new ContextLoaded(CreateWorkItem(1, "Active")),
+            new SprintItemsLoaded(Array.Empty<WorkItem>()),
+            new SeedsLoaded(Array.Empty<WorkItem>()),
+            new RefreshStarted(),
+            new SprintItemsLoaded(Array.Empty<WorkItem>()),
+            new SeedsLoaded(Array.Empty<WorkItem>()),
+            new RefreshCompleted());
 
         await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None);
 
@@ -336,13 +336,13 @@ public class CacheRefreshTests
     public async Task SpectreRenderer_RefreshCompleted_RestoresCaption()
     {
         var chunks = CreateChunksAsync(
-            new WorkspaceDataChunk.ContextLoaded(CreateWorkItem(1, "Active Item")),
-            new WorkspaceDataChunk.SprintItemsLoaded(Array.Empty<WorkItem>()),
-            new WorkspaceDataChunk.SeedsLoaded(Array.Empty<WorkItem>()),
-            new WorkspaceDataChunk.RefreshStarted(),
-            new WorkspaceDataChunk.SprintItemsLoaded(Array.Empty<WorkItem>()),
-            new WorkspaceDataChunk.SeedsLoaded(Array.Empty<WorkItem>()),
-            new WorkspaceDataChunk.RefreshCompleted());
+            new ContextLoaded(CreateWorkItem(1, "Active Item")),
+            new SprintItemsLoaded(Array.Empty<WorkItem>()),
+            new SeedsLoaded(Array.Empty<WorkItem>()),
+            new RefreshStarted(),
+            new SprintItemsLoaded(Array.Empty<WorkItem>()),
+            new SeedsLoaded(Array.Empty<WorkItem>()),
+            new RefreshCompleted());
 
         await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None);
 
@@ -367,13 +367,13 @@ public class CacheRefreshTests
         };
 
         var chunks = CreateChunksAsync(
-            new WorkspaceDataChunk.ContextLoaded(null),
-            new WorkspaceDataChunk.SprintItemsLoaded(Array.Empty<WorkItem>()),
-            new WorkspaceDataChunk.SeedsLoaded(Array.Empty<WorkItem>()),
-            new WorkspaceDataChunk.RefreshStarted(),
-            new WorkspaceDataChunk.SprintItemsLoaded(Array.Empty<WorkItem>()),
-            new WorkspaceDataChunk.SeedsLoaded(new[] { seed }),
-            new WorkspaceDataChunk.RefreshCompleted());
+            new ContextLoaded(null),
+            new SprintItemsLoaded(Array.Empty<WorkItem>()),
+            new SeedsLoaded(Array.Empty<WorkItem>()),
+            new RefreshStarted(),
+            new SprintItemsLoaded(Array.Empty<WorkItem>()),
+            new SeedsLoaded(new[] { seed }),
+            new RefreshCompleted());
 
         await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None);
 

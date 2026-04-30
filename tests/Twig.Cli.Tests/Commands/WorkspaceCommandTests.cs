@@ -627,13 +627,13 @@ public class WorkspaceCommandTests
     public async Task SpectreRenderer_RenderWorkspaceAsync_ShowsLoadingThenData()
     {
         var chunks = CreateChunksAsync(
-            new WorkspaceDataChunk.ContextLoaded(CreateWorkItem(1, "Active")),
-            new WorkspaceDataChunk.SprintItemsLoaded(new[]
+            new ContextLoaded(CreateWorkItem(1, "Active")),
+            new SprintItemsLoaded(new[]
             {
                 CreateWorkItem(10, "Task A"),
                 CreateWorkItem(20, "Task B"),
             }),
-            new WorkspaceDataChunk.SeedsLoaded(Array.Empty<WorkItem>()));
+            new SeedsLoaded(Array.Empty<WorkItem>()));
 
         await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None);
 
@@ -659,9 +659,9 @@ public class WorkspaceCommandTests
         };
 
         var chunks = CreateChunksAsync(
-            new WorkspaceDataChunk.ContextLoaded(null),
-            new WorkspaceDataChunk.SprintItemsLoaded(Array.Empty<WorkItem>()),
-            new WorkspaceDataChunk.SeedsLoaded(new[] { seed }));
+            new ContextLoaded(null),
+            new SprintItemsLoaded(Array.Empty<WorkItem>()),
+            new SeedsLoaded(new[] { seed }));
 
         await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None);
 
@@ -686,9 +686,9 @@ public class WorkspaceCommandTests
         };
 
         var chunks = CreateChunksAsync(
-            new WorkspaceDataChunk.ContextLoaded(null),
-            new WorkspaceDataChunk.SprintItemsLoaded(Array.Empty<WorkItem>()),
-            new WorkspaceDataChunk.SeedsLoaded(new[] { staleSeed }));
+            new ContextLoaded(null),
+            new SprintItemsLoaded(Array.Empty<WorkItem>()),
+            new SeedsLoaded(new[] { staleSeed }));
 
         await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None);
 
@@ -701,9 +701,9 @@ public class WorkspaceCommandTests
     public async Task SpectreRenderer_RenderWorkspaceAsync_NoContext_ShowsNoActiveContext()
     {
         var chunks = CreateChunksAsync(
-            new WorkspaceDataChunk.ContextLoaded(null),
-            new WorkspaceDataChunk.SprintItemsLoaded(Array.Empty<WorkItem>()),
-            new WorkspaceDataChunk.SeedsLoaded(Array.Empty<WorkItem>()));
+            new ContextLoaded(null),
+            new SprintItemsLoaded(Array.Empty<WorkItem>()),
+            new SeedsLoaded(Array.Empty<WorkItem>()));
 
         await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None);
 
@@ -715,11 +715,11 @@ public class WorkspaceCommandTests
     public async Task SpectreRenderer_RenderWorkspaceAsync_RefreshBadge()
     {
         var chunks = CreateChunksAsync(
-            new WorkspaceDataChunk.ContextLoaded(CreateWorkItem(1, "Active")),
-            new WorkspaceDataChunk.SprintItemsLoaded(Array.Empty<WorkItem>()),
-            new WorkspaceDataChunk.SeedsLoaded(Array.Empty<WorkItem>()),
-            new WorkspaceDataChunk.RefreshStarted(),
-            new WorkspaceDataChunk.RefreshCompleted());
+            new ContextLoaded(CreateWorkItem(1, "Active")),
+            new SprintItemsLoaded(Array.Empty<WorkItem>()),
+            new SeedsLoaded(Array.Empty<WorkItem>()),
+            new RefreshStarted(),
+            new RefreshCompleted());
 
         await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None);
 
@@ -774,9 +774,9 @@ public class WorkspaceCommandTests
         var otherItem = CreateWorkItem(2, "Other Item");
 
         var chunks = CreateChunksAsync(
-            new WorkspaceDataChunk.ContextLoaded(activeItem),
-            new WorkspaceDataChunk.SprintItemsLoaded(new[] { activeItem, otherItem }),
-            new WorkspaceDataChunk.SeedsLoaded(Array.Empty<WorkItem>()));
+            new ContextLoaded(activeItem),
+            new SprintItemsLoaded(new[] { activeItem, otherItem }),
+            new SeedsLoaded(Array.Empty<WorkItem>()));
 
         await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None);
 
@@ -792,9 +792,9 @@ public class WorkspaceCommandTests
         var item = CreateWorkItem(1, "Item No Context");
 
         var chunks = CreateChunksAsync(
-            new WorkspaceDataChunk.ContextLoaded(null),
-            new WorkspaceDataChunk.SprintItemsLoaded(new[] { item }),
-            new WorkspaceDataChunk.SeedsLoaded(Array.Empty<WorkItem>()));
+            new ContextLoaded(null),
+            new SprintItemsLoaded(new[] { item }),
+            new SeedsLoaded(Array.Empty<WorkItem>()));
 
         await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None);
 
@@ -810,9 +810,9 @@ public class WorkspaceCommandTests
         var otherItem = CreateWorkItem(2, "Other Item");
 
         var chunks = CreateChunksAsync(
-            new WorkspaceDataChunk.SprintItemsLoaded(new[] { activeItem, otherItem }),
-            new WorkspaceDataChunk.ContextLoaded(activeItem),
-            new WorkspaceDataChunk.SeedsLoaded(Array.Empty<WorkItem>()));
+            new SprintItemsLoaded(new[] { activeItem, otherItem }),
+            new ContextLoaded(activeItem),
+            new SeedsLoaded(Array.Empty<WorkItem>()));
 
         await _spectreRenderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None);
 

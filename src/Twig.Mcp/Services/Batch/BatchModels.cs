@@ -1,11 +1,6 @@
 namespace Twig.Mcp.Services.Batch;
 
 /// <summary>
-/// Abstract base for all batch execution graph nodes.
-/// </summary>
-internal abstract record BatchNode;
-
-/// <summary>
 /// A single tool invocation within a batch graph.
 /// <paramref name="GlobalIndex"/> is the zero-based position assigned during
 /// depth-first traversal of the graph — used for <c>{{steps.N.field}}</c> references.
@@ -19,19 +14,24 @@ internal sealed record StepNode(
     string ToolName,
     Dictionary<string, object?> Arguments,
     string? When = null,
-    string? OnError = null) : BatchNode;
+    string? OnError = null);
 
 /// <summary>
 /// An ordered list of child nodes executed sequentially with fail-fast semantics.
 /// </summary>
 internal sealed record SequenceNode(
-    IReadOnlyList<BatchNode> Children) : BatchNode;
+    IReadOnlyList<BatchNode> Children);
 
 /// <summary>
 /// A set of child nodes executed concurrently via <c>Task.WhenAll</c>.
 /// </summary>
 internal sealed record ParallelNode(
-    IReadOnlyList<BatchNode> Children) : BatchNode;
+    IReadOnlyList<BatchNode> Children);
+
+/// <summary>
+/// Discriminated union for all batch execution graph nodes.
+/// </summary>
+internal union BatchNode(StepNode, SequenceNode, ParallelNode);
 
 /// <summary>
 /// A fully parsed and validated batch execution graph.

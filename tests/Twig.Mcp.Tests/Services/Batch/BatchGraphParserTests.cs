@@ -1,6 +1,7 @@
 using Shouldly;
 using Twig.Mcp.Services.Batch;
 using Xunit;
+using Twig.TestKit;
 
 namespace Twig.Mcp.Tests.Services.Batch;
 
@@ -24,7 +25,7 @@ public sealed class BatchGraphParserTests
         result.IsSuccess.ShouldBeTrue();
         result.Value.TotalStepCount.ShouldBe(1);
 
-        var step = result.Value.Root.ShouldBeOfType<StepNode>();
+        var step = result.Value.Root.ShouldBeUnionCase<StepNode>();
         step.GlobalIndex.ShouldBe(0);
         step.ToolName.ShouldBe("twig_status");
         step.Arguments.ShouldBeEmpty();
@@ -49,7 +50,7 @@ public sealed class BatchGraphParserTests
         var result = BatchGraphParser.Parse(json);
 
         result.IsSuccess.ShouldBeTrue();
-        var step = result.Value.Root.ShouldBeOfType<StepNode>();
+        var step = result.Value.Root.ShouldBeUnionCase<StepNode>();
         step.Arguments["type"].ShouldBe("Task");
         step.Arguments["title"].ShouldBe("My Task");
         step.Arguments["parentId"].ShouldBe(42);
@@ -70,7 +71,7 @@ public sealed class BatchGraphParserTests
         var result = BatchGraphParser.Parse(json);
 
         result.IsSuccess.ShouldBeTrue();
-        var step = result.Value.Root.ShouldBeOfType<StepNode>();
+        var step = result.Value.Root.ShouldBeUnionCase<StepNode>();
         step.Arguments["workspace"].ShouldBeNull();
     }
 
@@ -87,7 +88,7 @@ public sealed class BatchGraphParserTests
         var result = BatchGraphParser.Parse(json);
 
         result.IsSuccess.ShouldBeTrue();
-        var step = result.Value.Root.ShouldBeOfType<StepNode>();
+        var step = result.Value.Root.ShouldBeUnionCase<StepNode>();
         step.Arguments.ShouldBeEmpty();
     }
 
@@ -114,8 +115,8 @@ public sealed class BatchGraphParserTests
         var result = BatchGraphParser.Parse(json);
 
         result.IsSuccess.ShouldBeTrue();
-        var seq = result.Value.Root.ShouldBeOfType<SequenceNode>();
-        var step = seq.Children[1].ShouldBeOfType<StepNode>();
+        var seq = result.Value.Root.ShouldBeUnionCase<SequenceNode>();
+        var step = seq.Children[1].ShouldBeUnionCase<StepNode>();
         step.When.ShouldBe("{{steps.0.data.state}} != 'Done'");
     }
 
@@ -133,7 +134,7 @@ public sealed class BatchGraphParserTests
         var result = BatchGraphParser.Parse(json);
 
         result.IsSuccess.ShouldBeTrue();
-        var step = result.Value.Root.ShouldBeOfType<StepNode>();
+        var step = result.Value.Root.ShouldBeUnionCase<StepNode>();
         step.When.ShouldBeNull();
     }
 
@@ -152,7 +153,7 @@ public sealed class BatchGraphParserTests
         var result = BatchGraphParser.Parse(json);
 
         result.IsSuccess.ShouldBeTrue();
-        var step = result.Value.Root.ShouldBeOfType<StepNode>();
+        var step = result.Value.Root.ShouldBeUnionCase<StepNode>();
         step.When.ShouldBeNull();
     }
 
@@ -216,8 +217,8 @@ public sealed class BatchGraphParserTests
         var result = BatchGraphParser.Parse(json);
 
         result.IsSuccess.ShouldBeTrue();
-        var seq = result.Value.Root.ShouldBeOfType<SequenceNode>();
-        var step = seq.Children[1].ShouldBeOfType<StepNode>();
+        var seq = result.Value.Root.ShouldBeUnionCase<SequenceNode>();
+        var step = seq.Children[1].ShouldBeUnionCase<StepNode>();
         step.OnError.ShouldBe("continue");
     }
 
@@ -235,7 +236,7 @@ public sealed class BatchGraphParserTests
         var result = BatchGraphParser.Parse(json);
 
         result.IsSuccess.ShouldBeTrue();
-        var step = result.Value.Root.ShouldBeOfType<StepNode>();
+        var step = result.Value.Root.ShouldBeUnionCase<StepNode>();
         step.OnError.ShouldBeNull();
     }
 
@@ -254,7 +255,7 @@ public sealed class BatchGraphParserTests
         var result = BatchGraphParser.Parse(json);
 
         result.IsSuccess.ShouldBeTrue();
-        var step = result.Value.Root.ShouldBeOfType<StepNode>();
+        var step = result.Value.Root.ShouldBeUnionCase<StepNode>();
         step.OnError.ShouldBeNull();
     }
 
@@ -312,7 +313,7 @@ public sealed class BatchGraphParserTests
         var result = BatchGraphParser.Parse(json);
 
         result.IsSuccess.ShouldBeTrue();
-        var step = result.Value.Root.ShouldBeOfType<StepNode>();
+        var step = result.Value.Root.ShouldBeUnionCase<StepNode>();
         step.OnError.ShouldBe("continue");
     }
 
@@ -337,12 +338,12 @@ public sealed class BatchGraphParserTests
         result.IsSuccess.ShouldBeTrue();
         result.Value.TotalStepCount.ShouldBe(3);
 
-        var seq = result.Value.Root.ShouldBeOfType<SequenceNode>();
+        var seq = result.Value.Root.ShouldBeUnionCase<SequenceNode>();
         seq.Children.Count.ShouldBe(3);
 
-        seq.Children[0].ShouldBeOfType<StepNode>().GlobalIndex.ShouldBe(0);
-        seq.Children[1].ShouldBeOfType<StepNode>().GlobalIndex.ShouldBe(1);
-        seq.Children[2].ShouldBeOfType<StepNode>().GlobalIndex.ShouldBe(2);
+        seq.Children[0].ShouldBeUnionCase<StepNode>().GlobalIndex.ShouldBe(0);
+        seq.Children[1].ShouldBeUnionCase<StepNode>().GlobalIndex.ShouldBe(1);
+        seq.Children[2].ShouldBeUnionCase<StepNode>().GlobalIndex.ShouldBe(2);
     }
 
     [Fact]
@@ -363,11 +364,11 @@ public sealed class BatchGraphParserTests
         result.IsSuccess.ShouldBeTrue();
         result.Value.TotalStepCount.ShouldBe(2);
 
-        var par = result.Value.Root.ShouldBeOfType<ParallelNode>();
+        var par = result.Value.Root.ShouldBeUnionCase<ParallelNode>();
         par.Children.Count.ShouldBe(2);
 
-        par.Children[0].ShouldBeOfType<StepNode>().GlobalIndex.ShouldBe(0);
-        par.Children[1].ShouldBeOfType<StepNode>().GlobalIndex.ShouldBe(1);
+        par.Children[0].ShouldBeUnionCase<StepNode>().GlobalIndex.ShouldBe(0);
+        par.Children[1].ShouldBeUnionCase<StepNode>().GlobalIndex.ShouldBe(1);
     }
 
     [Fact]
@@ -395,14 +396,14 @@ public sealed class BatchGraphParserTests
         result.IsSuccess.ShouldBeTrue();
         result.Value.TotalStepCount.ShouldBe(4);
 
-        var seq = result.Value.Root.ShouldBeOfType<SequenceNode>();
-        seq.Children[0].ShouldBeOfType<StepNode>().GlobalIndex.ShouldBe(0);
+        var seq = result.Value.Root.ShouldBeUnionCase<SequenceNode>();
+        seq.Children[0].ShouldBeUnionCase<StepNode>().GlobalIndex.ShouldBe(0);
 
-        var par = seq.Children[1].ShouldBeOfType<ParallelNode>();
-        par.Children[0].ShouldBeOfType<StepNode>().GlobalIndex.ShouldBe(1);
-        par.Children[1].ShouldBeOfType<StepNode>().GlobalIndex.ShouldBe(2);
+        var par = seq.Children[1].ShouldBeUnionCase<ParallelNode>();
+        par.Children[0].ShouldBeUnionCase<StepNode>().GlobalIndex.ShouldBe(1);
+        par.Children[1].ShouldBeUnionCase<StepNode>().GlobalIndex.ShouldBe(2);
 
-        seq.Children[2].ShouldBeOfType<StepNode>().GlobalIndex.ShouldBe(3);
+        seq.Children[2].ShouldBeUnionCase<StepNode>().GlobalIndex.ShouldBe(3);
     }
 
     [Fact]
@@ -419,7 +420,7 @@ public sealed class BatchGraphParserTests
 
         result.IsSuccess.ShouldBeTrue();
         result.Value.TotalStepCount.ShouldBe(0);
-        var seq = result.Value.Root.ShouldBeOfType<SequenceNode>();
+        var seq = result.Value.Root.ShouldBeUnionCase<SequenceNode>();
         seq.Children.ShouldBeEmpty();
     }
 
@@ -437,7 +438,7 @@ public sealed class BatchGraphParserTests
 
         result.IsSuccess.ShouldBeTrue();
         result.Value.TotalStepCount.ShouldBe(0);
-        var par = result.Value.Root.ShouldBeOfType<ParallelNode>();
+        var par = result.Value.Root.ShouldBeUnionCase<ParallelNode>();
         par.Children.ShouldBeEmpty();
     }
 
@@ -486,7 +487,7 @@ public sealed class BatchGraphParserTests
         var result = BatchGraphParser.Parse(json);
 
         result.IsSuccess.ShouldBeTrue();
-        var step = result.Value.Root.ShouldBeOfType<StepNode>();
+        var step = result.Value.Root.ShouldBeUnionCase<StepNode>();
         step.Arguments["id"].ShouldBeOfType<int>().ShouldBe(123);
     }
 
@@ -504,7 +505,7 @@ public sealed class BatchGraphParserTests
         var result = BatchGraphParser.Parse(json);
 
         result.IsSuccess.ShouldBeTrue();
-        var step = result.Value.Root.ShouldBeOfType<StepNode>();
+        var step = result.Value.Root.ShouldBeUnionCase<StepNode>();
         step.Arguments["skipDuplicateCheck"].ShouldBeOfType<bool>().ShouldBeFalse();
     }
 
@@ -896,25 +897,25 @@ public sealed class BatchGraphParserTests
         result.IsSuccess.ShouldBeTrue();
         result.Value.TotalStepCount.ShouldBe(4);
 
-        var seq = result.Value.Root.ShouldBeOfType<SequenceNode>();
+        var seq = result.Value.Root.ShouldBeUnionCase<SequenceNode>();
         seq.Children.Count.ShouldBe(3);
 
         // Step 0: twig_new
-        var step0 = seq.Children[0].ShouldBeOfType<StepNode>();
+        var step0 = seq.Children[0].ShouldBeUnionCase<StepNode>();
         step0.GlobalIndex.ShouldBe(0);
         step0.ToolName.ShouldBe("twig_new");
         step0.Arguments["parentId"].ShouldBe(42);
 
         // Step 1: twig_set with template placeholder (treated as literal string here)
-        var step1 = seq.Children[1].ShouldBeOfType<StepNode>();
+        var step1 = seq.Children[1].ShouldBeUnionCase<StepNode>();
         step1.GlobalIndex.ShouldBe(1);
         step1.ToolName.ShouldBe("twig_set");
         step1.Arguments["idOrPattern"].ShouldBe("{{steps.0.id}}");
 
         // Parallel block with steps 2 and 3
-        var par = seq.Children[2].ShouldBeOfType<ParallelNode>();
-        par.Children[0].ShouldBeOfType<StepNode>().GlobalIndex.ShouldBe(2);
-        par.Children[1].ShouldBeOfType<StepNode>().GlobalIndex.ShouldBe(3);
+        var par = seq.Children[2].ShouldBeUnionCase<ParallelNode>();
+        par.Children[0].ShouldBeUnionCase<StepNode>().GlobalIndex.ShouldBe(2);
+        par.Children[1].ShouldBeUnionCase<StepNode>().GlobalIndex.ShouldBe(3);
     }
 
     // ── Constants verification ──────────────────────────────────────

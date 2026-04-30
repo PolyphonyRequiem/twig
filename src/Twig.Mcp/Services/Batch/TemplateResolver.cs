@@ -72,7 +72,9 @@ internal static class TemplateResolver
     {
         if (template.IsFullExpression)
         {
-            var expr = ((ExpressionSegment)template.Segments[0]).Expr;
+            var expr = (template.Segments[0] is ExpressionSegment es
+                ? es
+                : throw new InvalidOperationException("Expected ExpressionSegment")).Expr;
             return ResolveExpressionTyped(expr, completedSteps);
         }
 

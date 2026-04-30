@@ -34,7 +34,7 @@ public class ActiveItemResolverTests
 
         var result = await _sut.GetActiveItemAsync();
 
-        result.ShouldBeOfType<ActiveItemResult.Found>()
+        result.ShouldBeUnionCase<Found>()
               .WorkItem.Id.ShouldBe(42);
         await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
@@ -53,7 +53,7 @@ public class ActiveItemResolverTests
 
         var result = await _sut.GetActiveItemAsync();
 
-        result.ShouldBeOfType<ActiveItemResult.FetchedFromAdo>()
+        result.ShouldBeUnionCase<FetchedFromAdo>()
               .WorkItem.Id.ShouldBe(42);
         await _workItemRepo.Received(1).SaveAsync(fetched, Arg.Any<CancellationToken>());
     }
@@ -71,7 +71,7 @@ public class ActiveItemResolverTests
 
         var result = await _sut.GetActiveItemAsync();
 
-        var unreachable = result.ShouldBeOfType<ActiveItemResult.Unreachable>();
+        var unreachable = result.ShouldBeUnionCase<ActiveUnreachable>();
         unreachable.Id.ShouldBe(42);
         unreachable.Reason.ShouldContain("Network error");
     }
@@ -87,7 +87,7 @@ public class ActiveItemResolverTests
 
         var result = await _sut.GetActiveItemAsync();
 
-        result.ShouldBeOfType<ActiveItemResult.NoContext>();
+        result.ShouldBeUnionCase<ActiveNoContext>();
         await _workItemRepo.DidNotReceive().GetByIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
@@ -103,7 +103,7 @@ public class ActiveItemResolverTests
 
         var result = await _sut.ResolveByIdAsync(99);
 
-        result.ShouldBeOfType<ActiveItemResult.Found>()
+        result.ShouldBeUnionCase<Found>()
               .WorkItem.Id.ShouldBe(99);
         await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
@@ -121,7 +121,7 @@ public class ActiveItemResolverTests
 
         var result = await _sut.ResolveByIdAsync(99);
 
-        result.ShouldBeOfType<ActiveItemResult.FetchedFromAdo>()
+        result.ShouldBeUnionCase<FetchedFromAdo>()
               .WorkItem.Id.ShouldBe(99);
         await _workItemRepo.Received(1).SaveAsync(fetched, Arg.Any<CancellationToken>());
     }
@@ -138,7 +138,7 @@ public class ActiveItemResolverTests
 
         var result = await _sut.ResolveByIdAsync(99);
 
-        var unreachable = result.ShouldBeOfType<ActiveItemResult.Unreachable>();
+        var unreachable = result.ShouldBeUnionCase<ActiveUnreachable>();
         unreachable.Id.ShouldBe(99);
         unreachable.Reason.ShouldContain("Timeout");
     }

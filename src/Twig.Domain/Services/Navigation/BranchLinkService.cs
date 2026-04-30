@@ -38,13 +38,13 @@ public sealed class BranchLinkService(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return new BranchLinkResult.GitContextUnavailable(
+            return new GitContextUnavailable(
                 workItemId, branchName, $"Failed to resolve git context: {ex.Message}");
         }
 
         if (string.IsNullOrWhiteSpace(projectId) || string.IsNullOrWhiteSpace(repoId))
         {
-            return new BranchLinkResult.GitContextUnavailable(
+            return new GitContextUnavailable(
                 workItemId, branchName, "Git project ID or repository ID could not be resolved.");
         }
 
@@ -56,12 +56,12 @@ public sealed class BranchLinkService(
                 workItemId, artifactUri, "Branch", ct);
 
             return alreadyExisted
-                ? new BranchLinkResult.AlreadyLinked(workItemId, branchName, artifactUri)
-                : new BranchLinkResult.Linked(workItemId, branchName, artifactUri);
+                ? new AlreadyLinked(workItemId, branchName, artifactUri)
+                : new Linked(workItemId, branchName, artifactUri);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return new BranchLinkResult.Failed(
+            return new LinkFailed(
                 workItemId, branchName, artifactUri, $"Failed to add artifact link: {ex.Message}");
         }
     }

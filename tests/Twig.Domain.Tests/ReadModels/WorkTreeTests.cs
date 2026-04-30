@@ -190,7 +190,7 @@ public class WorkTreeTests
 
         var result = tree.FindByPattern("Login");
 
-        result.ShouldBeOfType<MatchResult.SingleMatch>()
+        result.ShouldBeUnionCase<SingleMatch>()
               .Id.ShouldBe(20);
     }
 
@@ -204,7 +204,7 @@ public class WorkTreeTests
 
         var result = tree.FindByPattern("20");
 
-        result.ShouldBeOfType<MatchResult.SingleMatch>()
+        result.ShouldBeUnionCase<SingleMatch>()
               .Id.ShouldBe(20);
     }
 
@@ -231,7 +231,7 @@ public class WorkTreeTests
 
         var result = tree.FindByPattern("anything");
 
-        result.ShouldBeOfType<MatchResult.NoMatch>();
+        result.ShouldBeUnionCase<NoMatch>();
     }
 
     // ═══════════════════════════════════════════════════════════════

@@ -1,6 +1,7 @@
 using Shouldly;
 using Twig.Domain.Services.Navigation;
 using Xunit;
+using Twig.TestKit;
 
 namespace Twig.Domain.Tests.Services.Navigation;
 
@@ -22,7 +23,7 @@ public class PatternMatcherTests
 
         var result = PatternMatcher.Match("42", candidates);
 
-        result.ShouldBeOfType<MatchResult.SingleMatch>()
+        result.ShouldBeUnionCase<SingleMatch>()
               .Id.ShouldBe(42);
     }
 
@@ -37,7 +38,7 @@ public class PatternMatcherTests
 
         var result = PatternMatcher.Match("999", candidates);
 
-        result.ShouldBeOfType<MatchResult.NoMatch>();
+        result.ShouldBeUnionCase<NoMatch>();
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -56,7 +57,7 @@ public class PatternMatcherTests
 
         var result = PatternMatcher.Match("dashboard", candidates);
 
-        result.ShouldBeOfType<MatchResult.SingleMatch>()
+        result.ShouldBeUnionCase<SingleMatch>()
               .Id.ShouldBe(2);
     }
 
@@ -72,7 +73,7 @@ public class PatternMatcherTests
 
         var result = PatternMatcher.Match("bug", candidates);
 
-        var multi = result.ShouldBeOfType<MatchResult.MultipleMatches>();
+        var multi = result.ShouldBeUnionCase<MultipleMatches>();
         multi.Candidates.Count.ShouldBe(2);
         multi.Candidates[0].Id.ShouldBe(1);
         multi.Candidates[1].Id.ShouldBe(2);
@@ -89,7 +90,7 @@ public class PatternMatcherTests
 
         var result = PatternMatcher.Match("Gamma", candidates);
 
-        result.ShouldBeOfType<MatchResult.NoMatch>();
+        result.ShouldBeUnionCase<NoMatch>();
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -111,7 +112,7 @@ public class PatternMatcherTests
 
         var result = PatternMatcher.Match(pattern, candidates);
 
-        result.ShouldBeOfType<MatchResult.SingleMatch>()
+        result.ShouldBeUnionCase<SingleMatch>()
               .Id.ShouldBe(1);
     }
 
@@ -132,7 +133,7 @@ public class PatternMatcherTests
 
         var result = PatternMatcher.Match(pattern, candidates);
 
-        result.ShouldBeOfType<MatchResult.NoMatch>();
+        result.ShouldBeUnionCase<NoMatch>();
     }
 
     [Fact]
@@ -140,7 +141,7 @@ public class PatternMatcherTests
     {
         var result = PatternMatcher.Match("anything", new List<(int Id, string Title)>());
 
-        result.ShouldBeOfType<MatchResult.NoMatch>();
+        result.ShouldBeUnionCase<NoMatch>();
     }
 
     [Fact]
@@ -156,7 +157,7 @@ public class PatternMatcherTests
         var result = PatternMatcher.Match("42", candidates);
 
         // No candidate has ID 42, so this should be NoMatch despite title containing "42"
-        result.ShouldBeOfType<MatchResult.NoMatch>();
+        result.ShouldBeUnionCase<NoMatch>();
     }
 
     [Fact]
@@ -170,7 +171,7 @@ public class PatternMatcherTests
 
         var result = PatternMatcher.Match("auth", candidates);
 
-        var multi = result.ShouldBeOfType<MatchResult.MultipleMatches>();
+        var multi = result.ShouldBeUnionCase<MultipleMatches>();
         multi.Candidates.Count.ShouldBe(2);
     }
 }

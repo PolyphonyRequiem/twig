@@ -1,21 +1,18 @@
 namespace Twig.Domain.Services.Navigation;
 
+/// <summary>Exactly one candidate matched.</summary>
+public sealed record SingleMatch(int Id);
+
+/// <summary>Multiple candidates matched.</summary>
+public sealed record MultipleMatches(IReadOnlyList<(int Id, string Title)> Candidates);
+
+/// <summary>No candidate matched.</summary>
+public sealed record NoMatch;
+
 /// <summary>
 /// Discriminated result of a pattern match against a list of candidates.
 /// </summary>
-public abstract record MatchResult
-{
-    private MatchResult() { }
-
-    /// <summary>Exactly one candidate matched.</summary>
-    public sealed record SingleMatch(int Id) : MatchResult;
-
-    /// <summary>Multiple candidates matched.</summary>
-    public sealed record MultipleMatches(IReadOnlyList<(int Id, string Title)> Candidates) : MatchResult;
-
-    /// <summary>No candidate matched.</summary>
-    public sealed record NoMatch : MatchResult;
-}
+public union MatchResult(SingleMatch, MultipleMatches, NoMatch);
 
 /// <summary>
 /// Matches a user-supplied pattern (numeric ID or substring) against a list of candidates.
@@ -30,7 +27,7 @@ public static class PatternMatcher
     public static MatchResult Match(string? pattern, IReadOnlyList<(int Id, string Title)> candidates)
     {
         if (string.IsNullOrWhiteSpace(pattern) || candidates.Count == 0)
-            return new MatchResult.NoMatch();
+            return new NoMatch();
 
         // Numeric ID passthrough
         if (int.TryParse(pattern, out var id))
@@ -38,10 +35,10 @@ public static class PatternMatcher
             foreach (var candidate in candidates)
             {
                 if (candidate.Id == id)
-                    return new MatchResult.SingleMatch(id);
+                    return new SingleMatch(id);
             }
 
-            return new MatchResult.NoMatch();
+            return new NoMatch();
         }
 
         // Case-insensitive substring match
@@ -54,9 +51,9 @@ public static class PatternMatcher
 
         return matches.Count switch
         {
-            0 => new MatchResult.NoMatch(),
-            1 => new MatchResult.SingleMatch(matches[0].Id),
-            _ => new MatchResult.MultipleMatches(matches),
+            0 => new NoMatch(),
+            1 => new SingleMatch(matches[0].Id),
+            _ => new MultipleMatches(matches),
         };
     }
 }

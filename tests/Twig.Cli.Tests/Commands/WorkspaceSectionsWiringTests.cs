@@ -247,7 +247,7 @@ public sealed class WorkspaceSectionsWiringTests
     {
         var item = CreateWorkItem(1, "Item");
         var sections = WorkspaceSections.Build(new[] { item }, excludedIds: new[] { 5 });
-        var chunk = new WorkspaceDataChunk.SprintItemsLoaded(new[] { item }, sections);
+        var chunk = new SprintItemsLoaded(new[] { item }, sections);
 
         chunk.Sections.ShouldNotBeNull();
         chunk.Sections!.Sections.Count.ShouldBe(1);
@@ -257,7 +257,7 @@ public sealed class WorkspaceSectionsWiringTests
     [Fact]
     public void SprintItemsLoaded_NullSections_DefaultsToNull()
     {
-        var chunk = new WorkspaceDataChunk.SprintItemsLoaded(Array.Empty<WorkItem>());
+        var chunk = new SprintItemsLoaded(Array.Empty<WorkItem>());
 
         chunk.Sections.ShouldBeNull();
     }

@@ -110,10 +110,10 @@ public sealed class WorkTree
 
         return result switch
         {
-            MatchResult.SingleMatch single => Result.Ok(single.Id),
-            MatchResult.MultipleMatches multi => Result.Fail<int>(
+            SingleMatch single => Result.Ok(single.Id),
+            MultipleMatches multi => Result.Fail<int>(
                 $"Ambiguous: {multi.Candidates.Count} children match '{idOrPattern}'."),
-            MatchResult.NoMatch => Result.Fail<int>(
+            NoMatch => Result.Fail<int>(
                 $"No child matches '{idOrPattern}'."),
             _ => Result.Fail<int>("Unexpected match result."),
         };

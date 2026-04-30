@@ -11,11 +11,11 @@ internal static class ActiveItemResultExtensions
 {
     /// <summary>
     /// Attempts to extract the <see cref="WorkItem"/> from the result.
-    /// Returns <c>true</c> with <paramref name="item"/> for <see cref="ActiveItemResult.Found"/>
-    /// and <see cref="ActiveItemResult.FetchedFromAdo"/>.
+    /// Returns <c>true</c> with <paramref name="item"/> for <see cref="Found"/>
+    /// and <see cref="FetchedFromAdo"/>.
     /// Returns <c>false</c> with <paramref name="errorId"/>/<paramref name="errorReason"/>
-    /// for <see cref="ActiveItemResult.Unreachable"/>, or <c>false</c> with all nulls
-    /// for <see cref="ActiveItemResult.NoContext"/> / unknown.
+    /// for <see cref="ActiveUnreachable"/>, or <c>false</c> with all nulls
+    /// for <see cref="ActiveNoContext"/> / unknown.
     /// </summary>
     internal static bool TryGetWorkItem(
         this ActiveItemResult result,
@@ -25,19 +25,19 @@ internal static class ActiveItemResultExtensions
     {
         switch (result)
         {
-            case ActiveItemResult.Found f:
+            case Found f:
                 item = f.WorkItem;
                 errorId = null;
                 errorReason = null;
                 return true;
 
-            case ActiveItemResult.FetchedFromAdo f:
+            case FetchedFromAdo f:
                 item = f.WorkItem;
                 errorId = null;
                 errorReason = null;
                 return true;
 
-            case ActiveItemResult.Unreachable u:
+            case ActiveUnreachable u:
                 item = null;
                 errorId = u.Id;
                 errorReason = u.Reason;

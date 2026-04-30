@@ -194,10 +194,10 @@ public sealed class NavigationCommands(
 
         switch (matchResult)
         {
-            case MatchResult.SingleMatch single:
+            case SingleMatch single:
                 return await setCommand.ExecuteAsync(single.Id.ToString(), outputFormat, ct);
 
-            case MatchResult.MultipleMatches multi:
+            case MultipleMatches multi:
                 // Enrich candidates with state for display (domain returns raw titles for pattern matching)
                 var displayCandidates = multi.Candidates
                     .Select(c =>
@@ -216,7 +216,7 @@ public sealed class NavigationCommands(
                 Console.Error.WriteLine(fmt.FormatDisambiguation(displayCandidates));
                 return 1;
 
-            case MatchResult.NoMatch:
+            case NoMatch:
                 Console.Error.WriteLine(fmt.FormatError($"No child matches '{idOrPattern}'."));
                 return 1;
 

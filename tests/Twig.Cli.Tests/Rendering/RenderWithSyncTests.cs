@@ -6,6 +6,7 @@ using Twig.Domain.Services.Sync;
 using Twig.Infrastructure.Config;
 using Twig.Rendering;
 using Xunit;
+using Twig.TestKit;
 
 namespace Twig.Cli.Tests.Rendering;
 
@@ -37,7 +38,7 @@ public class RenderWithSyncTests
                 // By the time sync is called, cached view should already be rendered
                 _testConsole.Output.ShouldContain("Cached Data");
                 syncCalled = true;
-                return Task.FromResult<SyncResult>(new SyncResult.UpToDate());
+                return Task.FromResult<SyncResult>(new UpToDate());
             },
             buildRevisedView: _ => Task.FromResult<IRenderable?>(null),
             ct: CancellationToken.None);
@@ -54,7 +55,7 @@ public class RenderWithSyncTests
             {
                 // Syncing indicator should be visible during the sync call
                 _testConsole.Output.ShouldContain("syncing...");
-                return Task.FromResult<SyncResult>(new SyncResult.UpToDate());
+                return Task.FromResult<SyncResult>(new UpToDate());
             },
             buildRevisedView: _ => Task.FromResult<IRenderable?>(null),
             ct: CancellationToken.None);
@@ -67,7 +68,7 @@ public class RenderWithSyncTests
     {
         await _renderer.RenderWithSyncAsync(
             buildCachedView: () => Task.FromResult<IRenderable>(new Markup("My Data")),
-            performSync: () => Task.FromResult<SyncResult>(new SyncResult.UpToDate()),
+            performSync: () => Task.FromResult<SyncResult>(new UpToDate()),
             buildRevisedView: _ => Task.FromResult<IRenderable?>(null),
             ct: CancellationToken.None);
 
@@ -84,10 +85,10 @@ public class RenderWithSyncTests
     {
         await _renderer.RenderWithSyncAsync(
             buildCachedView: () => Task.FromResult<IRenderable>(new Markup("Old Data")),
-            performSync: () => Task.FromResult<SyncResult>(new SyncResult.Updated(3)),
+            performSync: () => Task.FromResult<SyncResult>(new Updated(3)),
             buildRevisedView: result =>
             {
-                result.ShouldBeOfType<SyncResult.Updated>();
+                result.ShouldBeUnionCase<Updated>();
                 return Task.FromResult<IRenderable?>(new Markup("New Data"));
             },
             ct: CancellationToken.None);
@@ -101,7 +102,7 @@ public class RenderWithSyncTests
     {
         await _renderer.RenderWithSyncAsync(
             buildCachedView: () => Task.FromResult<IRenderable>(new Markup("Data")),
-            performSync: () => Task.FromResult<SyncResult>(new SyncResult.Updated(5)),
+            performSync: () => Task.FromResult<SyncResult>(new Updated(5)),
             buildRevisedView: _ => Task.FromResult<IRenderable?>(new Markup("Updated Data")),
             ct: CancellationToken.None);
 
@@ -114,7 +115,7 @@ public class RenderWithSyncTests
     {
         await _renderer.RenderWithSyncAsync(
             buildCachedView: () => Task.FromResult<IRenderable>(new Markup("Data")),
-            performSync: () => Task.FromResult<SyncResult>(new SyncResult.Updated(1)),
+            performSync: () => Task.FromResult<SyncResult>(new Updated(1)),
             buildRevisedView: _ => Task.FromResult<IRenderable?>(new Markup("Updated Data")),
             ct: CancellationToken.None);
 
@@ -128,7 +129,7 @@ public class RenderWithSyncTests
     {
         await _renderer.RenderWithSyncAsync(
             buildCachedView: () => Task.FromResult<IRenderable>(new Markup("Cached")),
-            performSync: () => Task.FromResult<SyncResult>(new SyncResult.Updated(2)),
+            performSync: () => Task.FromResult<SyncResult>(new Updated(2)),
             buildRevisedView: _ => Task.FromResult<IRenderable?>(null),
             ct: CancellationToken.None);
 
@@ -143,7 +144,7 @@ public class RenderWithSyncTests
     {
         await _renderer.RenderWithSyncAsync(
             buildCachedView: () => Task.FromResult<IRenderable>(new Markup("Cached View")),
-            performSync: () => Task.FromResult<SyncResult>(new SyncResult.Failed("network error")),
+            performSync: () => Task.FromResult<SyncResult>(new SyncFailed("network error")),
             buildRevisedView: _ => Task.FromResult<IRenderable?>(null),
             ct: CancellationToken.None);
 
@@ -159,7 +160,7 @@ public class RenderWithSyncTests
 
         await _renderer.RenderWithSyncAsync(
             buildCachedView: () => Task.FromResult<IRenderable>(new Markup("Data")),
-            performSync: () => Task.FromResult<SyncResult>(new SyncResult.Failed("timeout")),
+            performSync: () => Task.FromResult<SyncResult>(new SyncFailed("timeout")),
             buildRevisedView: _ =>
             {
                 revisedCalled = true;
@@ -177,7 +178,7 @@ public class RenderWithSyncTests
     {
         await _renderer.RenderWithSyncAsync(
             buildCachedView: () => Task.FromResult<IRenderable>(new Markup("Skipped Data")),
-            performSync: () => Task.FromResult<SyncResult>(new SyncResult.Skipped("already synced")),
+            performSync: () => Task.FromResult<SyncResult>(new Skipped("already synced")),
             buildRevisedView: _ => Task.FromResult<IRenderable?>(null),
             ct: CancellationToken.None);
 
@@ -210,7 +211,7 @@ public class RenderWithSyncTests
         };
         await spaceRenderer.RenderWithSyncAsync(
             buildCachedView: () => Task.FromResult<IRenderable>(new Text(" ")),
-            performSync: () => Task.FromResult<SyncResult>(new SyncResult.UpToDate()),
+            performSync: () => Task.FromResult<SyncResult>(new UpToDate()),
             buildRevisedView: _ => Task.FromResult<IRenderable?>(null),
             ct: CancellationToken.None);
 
@@ -222,7 +223,7 @@ public class RenderWithSyncTests
         };
         await emptyRenderer.RenderWithSyncAsync(
             buildCachedView: () => Task.FromResult<IRenderable>(new Text(string.Empty)),
-            performSync: () => Task.FromResult<SyncResult>(new SyncResult.UpToDate()),
+            performSync: () => Task.FromResult<SyncResult>(new UpToDate()),
             buildRevisedView: _ => Task.FromResult<IRenderable?>(null),
             ct: CancellationToken.None);
 
@@ -255,7 +256,7 @@ public class RenderWithSyncTests
 
         await _renderer.RenderWithSyncAsync(
             buildCachedView: () => Task.FromResult<IRenderable>(new Text(" ")),
-            performSync: () => Task.FromResult<SyncResult>(new SyncResult.UpToDate()),
+            performSync: () => Task.FromResult<SyncResult>(new UpToDate()),
             buildRevisedView: _ => Task.FromResult<IRenderable?>(null),
             ct: CancellationToken.None);
 
@@ -282,7 +283,7 @@ public class RenderWithSyncTests
         await Should.ThrowAsync<OperationCanceledException>(
             () => renderer.RenderWithSyncAsync(
                 buildCachedView: () => Task.FromResult<IRenderable>(new Markup("Data")),
-                performSync: () => Task.FromResult<SyncResult>(new SyncResult.UpToDate()),
+                performSync: () => Task.FromResult<SyncResult>(new UpToDate()),
                 buildRevisedView: _ => Task.FromResult<IRenderable?>(null),
                 ct: cts.Token));
     }

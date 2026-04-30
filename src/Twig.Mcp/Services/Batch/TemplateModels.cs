@@ -31,17 +31,17 @@ internal sealed record TemplateExpression(
 /// Base type for segments within a <see cref="TemplateString"/>.
 /// Each segment is either literal text or a template expression reference.
 /// </summary>
-internal abstract record TemplateSegment;
+internal union TemplateSegment(LiteralSegment, ExpressionSegment);
 
 /// <summary>
 /// A segment of literal (non-template) text within a <see cref="TemplateString"/>.
 /// </summary>
-internal sealed record LiteralSegment(string Text) : TemplateSegment;
+internal sealed record LiteralSegment(string Text);
 
 /// <summary>
 /// A segment containing a <see cref="TemplateExpression"/> reference within a <see cref="TemplateString"/>.
 /// </summary>
-internal sealed record ExpressionSegment(TemplateExpression Expr) : TemplateSegment;
+internal sealed record ExpressionSegment(TemplateExpression Expr);
 
 /// <summary>
 /// Represents a string value that may contain zero or more

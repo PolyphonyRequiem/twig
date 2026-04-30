@@ -197,9 +197,9 @@ public sealed class WorkspaceCacheAgeTests
         int cacheStaleMinutes = 5)
     {
         var chunks = CreateChunksAsync(
-            new WorkspaceDataChunk.ContextLoaded(null),
-            new WorkspaceDataChunk.SprintItemsLoaded(sprintItems),
-            new WorkspaceDataChunk.SeedsLoaded(Array.Empty<WorkItem>()));
+            new ContextLoaded(null),
+            new SprintItemsLoaded(sprintItems),
+            new SeedsLoaded(Array.Empty<WorkItem>()));
 
         await _renderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None,
             cacheStaleMinutes: cacheStaleMinutes);

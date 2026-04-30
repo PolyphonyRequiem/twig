@@ -49,7 +49,7 @@ public sealed class SetCommand(
                     : $"Work item #{id} not found."));
                 return 1;
             }
-            if (result is ActiveItemResult.FetchedFromAdo)
+            if (result is FetchedFromAdo)
             {
                 Console.WriteLine(fmt.FormatInfo($"Fetching work item {id} from ADO..."));
             }

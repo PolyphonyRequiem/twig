@@ -41,7 +41,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncItemAsync(42);
 
-        result.ShouldBeOfType<SyncResult.UpToDate>();
+        result.ShouldBeUnionCase<UpToDate>();
         await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
@@ -60,7 +60,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncItemAsync(42);
 
-        result.ShouldBeOfType<SyncResult.Updated>()
+        result.ShouldBeUnionCase<Updated>()
               .ChangedCount.ShouldBe(1);
         await _workItemRepo.Received(1).SaveAsync(fetched, Arg.Any<CancellationToken>());
     }
@@ -80,7 +80,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncItemAsync(42);
 
-        result.ShouldBeOfType<SyncResult.Updated>()
+        result.ShouldBeUnionCase<Updated>()
               .ChangedCount.ShouldBe(1);
     }
 
@@ -98,7 +98,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncItemAsync(42);
 
-        result.ShouldBeOfType<SyncResult.Updated>()
+        result.ShouldBeUnionCase<Updated>()
               .ChangedCount.ShouldBe(1);
     }
 
@@ -118,7 +118,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncItemAsync(42);
 
-        result.ShouldBeOfType<SyncResult.Skipped>()
+        result.ShouldBeUnionCase<Skipped>()
               .Reason.ShouldContain("pending");
     }
 
@@ -134,7 +134,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncItemAsync(42);
 
-        result.ShouldBeOfType<SyncResult.Failed>()
+        result.ShouldBeUnionCase<SyncFailed>()
               .Reason.ShouldContain("Connection refused");
     }
 
@@ -150,7 +150,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncChildrenAsync(1);
 
-        result.ShouldBeOfType<SyncResult.Updated>()
+        result.ShouldBeUnionCase<Updated>()
               .ChangedCount.ShouldBe(3);
         await _adoService.Received(1).FetchChildrenAsync(1, Arg.Any<CancellationToken>());
     }
@@ -170,7 +170,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncChildrenAsync(1);
 
-        result.ShouldBeOfType<SyncResult.Updated>()
+        result.ShouldBeUnionCase<Updated>()
               .ChangedCount.ShouldBe(2); // 3 fetched - 1 skipped = 2 saved
     }
 
@@ -185,7 +185,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncChildrenAsync(1);
 
-        result.ShouldBeOfType<SyncResult.Failed>()
+        result.ShouldBeUnionCase<SyncFailed>()
               .Reason.ShouldContain("Timeout");
     }
 
@@ -202,7 +202,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncItemAsync(42);
 
-        result.ShouldBeOfType<SyncResult.UpToDate>();
+        result.ShouldBeUnionCase<UpToDate>();
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -241,7 +241,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncChildrenAsync(1);
 
-        result.ShouldBeOfType<SyncResult.Updated>()
+        result.ShouldBeUnionCase<Updated>()
               .ChangedCount.ShouldBe(0);
     }
 
@@ -256,7 +256,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncWorkingSetAsync(ws);
 
-        result.ShouldBeOfType<SyncResult.UpToDate>();
+        result.ShouldBeUnionCase<UpToDate>();
         await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
@@ -280,7 +280,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncWorkingSetAsync(ws);
 
-        result.ShouldBeOfType<SyncResult.UpToDate>();
+        result.ShouldBeUnionCase<UpToDate>();
         await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
@@ -311,7 +311,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncWorkingSetAsync(ws);
 
-        result.ShouldBeOfType<SyncResult.Updated>()
+        result.ShouldBeUnionCase<Updated>()
               .ChangedCount.ShouldBe(2);
         await _adoService.DidNotReceive().FetchAsync(10, Arg.Any<CancellationToken>());
         await _adoService.Received(1).FetchAsync(11, Arg.Any<CancellationToken>());
@@ -343,7 +343,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncWorkingSetAsync(ws);
 
-        result.ShouldBeOfType<SyncResult.Updated>()
+        result.ShouldBeUnionCase<Updated>()
               .ChangedCount.ShouldBe(3);
     }
 
@@ -362,7 +362,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncWorkingSetAsync(ws);
 
-        result.ShouldBeOfType<SyncResult.Failed>()
+        result.ShouldBeUnionCase<SyncFailed>()
               .Reason.ShouldContain("Network error");
     }
 
@@ -385,7 +385,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncWorkingSetAsync(ws);
 
-        result.ShouldBeOfType<SyncResult.Updated>()
+        result.ShouldBeUnionCase<Updated>()
               .ChangedCount.ShouldBe(1);
         await _adoService.DidNotReceive().FetchAsync(-1, Arg.Any<CancellationToken>());
         await _adoService.DidNotReceive().FetchAsync(-2, Arg.Any<CancellationToken>());
@@ -402,7 +402,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncWorkingSetAsync(ws);
 
-        result.ShouldBeOfType<SyncResult.UpToDate>();
+        result.ShouldBeUnionCase<UpToDate>();
         await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
@@ -432,7 +432,7 @@ public class SyncCoordinatorTests
         var result = await _sut.SyncWorkingSetAsync(ws);
 
         // 2 fetched, 1 skipped = 1 saved; still Updated because items were fetched
-        result.ShouldBeOfType<SyncResult.Updated>()
+        result.ShouldBeUnionCase<Updated>()
               .ChangedCount.ShouldBe(1);
     }
 
@@ -453,7 +453,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncWorkingSetAsync(ws);
 
-        result.ShouldBeOfType<SyncResult.UpToDate>();
+        result.ShouldBeUnionCase<UpToDate>();
         await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
@@ -482,7 +482,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncWorkingSetAsync(ws);
 
-        result.ShouldBeOfType<SyncResult.Updated>()
+        result.ShouldBeUnionCase<Updated>()
               .ChangedCount.ShouldBe(0);
     }
 
@@ -517,7 +517,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncWorkingSetAsync(ws);
 
-        result.ShouldBeOfType<SyncResult.Updated>()
+        result.ShouldBeUnionCase<Updated>()
               .ChangedCount.ShouldBe(1);
     }
 
@@ -560,7 +560,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncWorkingSetAsync(ws);
 
-        var partial = result.ShouldBeOfType<SyncResult.PartiallyUpdated>();
+        var partial = result.ShouldBeUnionCase<PartiallyUpdated>();
         partial.SavedCount.ShouldBe(18);
         partial.Failures.Count.ShouldBe(2);
         partial.Failures.ShouldContain(f => f.Id == 19);
@@ -613,7 +613,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncWorkingSetAsync(ws);
 
-        var partial = result.ShouldBeOfType<SyncResult.PartiallyUpdated>();
+        var partial = result.ShouldBeUnionCase<PartiallyUpdated>();
         partial.SavedCount.ShouldBe(4);
         partial.Failures.Count.ShouldBe(6);
 
@@ -666,8 +666,8 @@ public class SyncCoordinatorTests
         var results = await Task.WhenAll(task1, task2);
 
         // Both should return Updated (no crash, no exception)
-        results[0].ShouldBeOfType<SyncResult.Updated>();
-        results[1].ShouldBeOfType<SyncResult.Updated>();
+        results[0].ShouldBeUnionCase<Updated>();
+        results[1].ShouldBeUnionCase<Updated>();
 
         // Verify: overlapping items 5–10 were fetched by both syncs (concurrent independent fetches)
         // Each sync fetches its own set independently
@@ -690,7 +690,7 @@ public class SyncCoordinatorTests
 
     // ═══════════════════════════════════════════════════════════════
     //  EPIC-002: All fetches fail edge case
-    //  Every FetchAsync call throws. Verify: returns SyncResult.Failed
+    //  Every FetchAsync call throws. Verify: returns SyncFailed
     //  (not PartiallyUpdated with 0 saved), no SaveBatchAsync call.
     // ═══════════════════════════════════════════════════════════════
 
@@ -718,7 +718,7 @@ public class SyncCoordinatorTests
         var result = await _sut.SyncWorkingSetAsync(ws);
 
         // All fetches failed → should be Failed, NOT PartiallyUpdated(0, ...)
-        var failed = result.ShouldBeOfType<SyncResult.Failed>();
+        var failed = result.ShouldBeUnionCase<SyncFailed>();
         failed.Reason.ShouldContain("#1:");
         failed.Reason.ShouldContain("#5:");
 
@@ -805,7 +805,7 @@ public class SyncCoordinatorTests
     {
         var result = await _sut.SyncItemSetAsync(Array.Empty<int>());
 
-        result.ShouldBeOfType<SyncResult.UpToDate>();
+        result.ShouldBeUnionCase<UpToDate>();
         await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
@@ -818,7 +818,7 @@ public class SyncCoordinatorTests
     {
         var result = await _sut.SyncItemSetAsync(new[] { -1, -2, -3 });
 
-        result.ShouldBeOfType<SyncResult.UpToDate>();
+        result.ShouldBeUnionCase<UpToDate>();
         await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
@@ -835,7 +835,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncItemSetAsync(new[] { 10, 11 });
 
-        result.ShouldBeOfType<SyncResult.UpToDate>();
+        result.ShouldBeUnionCase<UpToDate>();
         await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
@@ -855,7 +855,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncItemSetAsync(new[] { 10, 11 });
 
-        result.ShouldBeOfType<SyncResult.Updated>()
+        result.ShouldBeUnionCase<Updated>()
               .ChangedCount.ShouldBe(2);
     }
 
@@ -875,7 +875,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncItemSetAsync(new[] { 10, 11 });
 
-        result.ShouldBeOfType<SyncResult.Updated>()
+        result.ShouldBeUnionCase<Updated>()
               .ChangedCount.ShouldBe(1);
         await _adoService.DidNotReceive().FetchAsync(10, Arg.Any<CancellationToken>());
         await _adoService.Received(1).FetchAsync(11, Arg.Any<CancellationToken>());
@@ -895,7 +895,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncItemSetAsync(new[] { -1, 10, -2 });
 
-        result.ShouldBeOfType<SyncResult.Updated>()
+        result.ShouldBeUnionCase<Updated>()
               .ChangedCount.ShouldBe(1);
         await _adoService.DidNotReceive().FetchAsync(-1, Arg.Any<CancellationToken>());
         await _adoService.DidNotReceive().FetchAsync(-2, Arg.Any<CancellationToken>());
@@ -918,7 +918,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncItemSetAsync(new[] { 10, 11 });
 
-        var partial = result.ShouldBeOfType<SyncResult.PartiallyUpdated>();
+        var partial = result.ShouldBeUnionCase<PartiallyUpdated>();
         partial.SavedCount.ShouldBe(1);
         partial.Failures.Count.ShouldBe(1);
         partial.Failures[0].Id.ShouldBe(11);
@@ -938,7 +938,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncItemSetAsync(new[] { 10 });
 
-        result.ShouldBeOfType<SyncResult.Failed>()
+        result.ShouldBeUnionCase<SyncFailed>()
               .Reason.ShouldContain("Connection refused");
     }
 
@@ -955,7 +955,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncItemSetAsync(new[] { 10 });
 
-        result.ShouldBeOfType<SyncResult.Updated>()
+        result.ShouldBeUnionCase<Updated>()
               .ChangedCount.ShouldBe(1);
     }
 
@@ -978,7 +978,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncItemSetAsync(new[] { 10, 11 });
 
-        result.ShouldBeOfType<SyncResult.Updated>()
+        result.ShouldBeUnionCase<Updated>()
               .ChangedCount.ShouldBe(1); // 2 fetched - 1 skipped = 1 saved
     }
 
@@ -1012,7 +1012,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncItemAsync(99);
 
-        result.ShouldBeOfType<SyncResult.Failed>();
+        result.ShouldBeUnionCase<SyncFailed>();
         await _workItemRepo.Received(1).DeleteByIdAsync(99, Arg.Any<CancellationToken>());
     }
 
@@ -1041,7 +1041,7 @@ public class SyncCoordinatorTests
             Arg.Is<IEnumerable<WorkItem>>(items => items.Any(i => i.Id == 10)),
             Arg.Any<CancellationToken>());
         // Not-found failures should not appear in the failure list
-        result.ShouldBeOfType<SyncResult.Updated>();
+        result.ShouldBeUnionCase<Updated>();
     }
 
     [Fact]
@@ -1054,7 +1054,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncItemAsync(42);
 
-        result.ShouldBeOfType<SyncResult.Failed>();
+        result.ShouldBeUnionCase<SyncFailed>();
         await _workItemRepo.DidNotReceive().DeleteByIdAsync(42, Arg.Any<CancellationToken>());
     }
 
@@ -1179,7 +1179,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncItemSetAsync(new[] { 80 });
 
-        result.ShouldBeOfType<SyncResult.Failed>();
+        result.ShouldBeUnionCase<SyncFailed>();
         await _pendingStore.DidNotReceive().ClearChangesAsync(80, Arg.Any<CancellationToken>());
         await _workItemRepo.DidNotReceive().DeleteByIdAsync(80, Arg.Any<CancellationToken>());
     }
@@ -1232,7 +1232,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncParentChainAsync(100);
 
-        result.ShouldBeOfType<SyncResult.Updated>()
+        result.ShouldBeUnionCase<Updated>()
               .ChangedCount.ShouldBe(2);
         await _adoService.Received(1).FetchAsync(200, Arg.Any<CancellationToken>());
         await _adoService.Received(1).FetchAsync(300, Arg.Any<CancellationToken>());
@@ -1251,7 +1251,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncParentChainAsync(100);
 
-        result.ShouldBeOfType<SyncResult.UpToDate>();
+        result.ShouldBeUnionCase<UpToDate>();
         await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
@@ -1271,7 +1271,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncParentChainAsync(100);
 
-        result.ShouldBeOfType<SyncResult.Updated>()
+        result.ShouldBeUnionCase<Updated>()
               .ChangedCount.ShouldBe(2); // root + parent
         await _adoService.Received(1).FetchAsync(100, Arg.Any<CancellationToken>());
         await _adoService.Received(1).FetchAsync(200, Arg.Any<CancellationToken>());
@@ -1291,7 +1291,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncParentChainAsync(100);
 
-        result.ShouldBeOfType<SyncResult.Updated>()
+        result.ShouldBeUnionCase<Updated>()
               .ChangedCount.ShouldBe(1);
     }
 
@@ -1311,7 +1311,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncParentChainAsync(100);
 
-        result.ShouldBeOfType<SyncResult.Updated>()
+        result.ShouldBeUnionCase<Updated>()
               .ChangedCount.ShouldBe(1); // only parent 200, stops before re-visiting 100
         await _adoService.Received(1).FetchAsync(200, Arg.Any<CancellationToken>());
         await _adoService.DidNotReceive().FetchAsync(100, Arg.Any<CancellationToken>());
@@ -1332,7 +1332,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncParentChainAsync(100);
 
-        result.ShouldBeOfType<SyncResult.Failed>()
+        result.ShouldBeUnionCase<SyncFailed>()
               .Reason.ShouldContain("Connection refused");
     }
 
@@ -1371,7 +1371,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncParentChainAsync(100);
 
-        result.ShouldBeOfType<SyncResult.Updated>()
+        result.ShouldBeUnionCase<Updated>()
               .ChangedCount.ShouldBe(0); // fetched but skipped by writer
     }
 
@@ -1392,7 +1392,7 @@ public class SyncCoordinatorTests
 
         var result = await sut.SyncRootLinksAsync(42);
 
-        result.ShouldBeOfType<SyncResult.UpToDate>();
+        result.ShouldBeUnionCase<UpToDate>();
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -1423,7 +1423,7 @@ public class SyncCoordinatorTests
 
         var result = await sut.SyncRootLinksAsync(42);
 
-        result.ShouldBeOfType<SyncResult.Updated>().ChangedCount.ShouldBe(2);
+        result.ShouldBeUnionCase<Updated>().ChangedCount.ShouldBe(2);
         await _adoService.Received(1).FetchAsync(100, Arg.Any<CancellationToken>());
         await _adoService.Received(1).FetchAsync(200, Arg.Any<CancellationToken>());
     }
@@ -1453,7 +1453,7 @@ public class SyncCoordinatorTests
 
         var result = await sut.SyncRootLinksAsync(42);
 
-        result.ShouldBeOfType<SyncResult.Updated>().ChangedCount.ShouldBe(1);
+        result.ShouldBeUnionCase<Updated>().ChangedCount.ShouldBe(1);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -1468,7 +1468,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncRootLinksAsync(42);
 
-        result.ShouldBeOfType<SyncResult.Failed>();
+        result.ShouldBeUnionCase<SyncFailed>();
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -1505,7 +1505,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncRootLinksAsync(42);
 
-        result.ShouldBeOfType<SyncResult.Updated>().ChangedCount.ShouldBe(1);
+        result.ShouldBeUnionCase<Updated>().ChangedCount.ShouldBe(1);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -1565,7 +1565,7 @@ public class SyncCoordinatorTests
 
         var result = await sut.SyncRootLinksAsync(42);
 
-        result.ShouldBeOfType<SyncResult.Updated>();
+        result.ShouldBeUnionCase<Updated>();
 
         // Link metadata was persisted
         await linkRepo.Received(1).SaveLinksAsync(42,
@@ -1611,7 +1611,7 @@ public class SyncCoordinatorTests
 
         var result = await sut.SyncRootLinksAsync(42);
 
-        result.ShouldBeOfType<SyncResult.Updated>().ChangedCount.ShouldBe(3);
+        result.ShouldBeUnionCase<Updated>().ChangedCount.ShouldBe(3);
 
         // Verify all three link metadata entries were persisted
         await linkRepo.Received(1).SaveLinksAsync(42,
@@ -1644,7 +1644,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncParentChainAsync(100);
 
-        result.ShouldBeOfType<SyncResult.Updated>()
+        result.ShouldBeUnionCase<Updated>()
               .ChangedCount.ShouldBe(3);
         await _adoService.Received(1).FetchAsync(200, Arg.Any<CancellationToken>());
         await _adoService.Received(1).FetchAsync(300, Arg.Any<CancellationToken>());
@@ -1663,7 +1663,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncParentChainAsync(100);
 
-        result.ShouldBeOfType<SyncResult.UpToDate>();
+        result.ShouldBeUnionCase<UpToDate>();
         await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
@@ -1679,7 +1679,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncParentChainAsync(100);
 
-        result.ShouldBeOfType<SyncResult.UpToDate>();
+        result.ShouldBeUnionCase<UpToDate>();
         await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
@@ -1697,7 +1697,7 @@ public class SyncCoordinatorTests
         var result = await _sut.SyncParentChainAsync(100);
 
         // visited already contains 100, so visited.Add(100) → false → loop exits
-        result.ShouldBeOfType<SyncResult.UpToDate>();
+        result.ShouldBeUnionCase<UpToDate>();
         await _adoService.DidNotReceive().FetchAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
@@ -1717,7 +1717,7 @@ public class SyncCoordinatorTests
 
         var result = await _sut.SyncParentChainAsync(100);
 
-        result.ShouldBeOfType<SyncResult.Updated>()
+        result.ShouldBeUnionCase<Updated>()
               .ChangedCount.ShouldBe(1);
         await _adoService.Received(1).FetchAsync(200, Arg.Any<CancellationToken>());
     }
@@ -1749,7 +1749,7 @@ public class SyncCoordinatorTests
         var result = await sut.SyncRootLinksAsync(42);
 
         // SyncItemSetAsync detects target is fresh → no re-fetch
-        result.ShouldBeOfType<SyncResult.UpToDate>();
+        result.ShouldBeUnionCase<UpToDate>();
         await _adoService.DidNotReceive().FetchAsync(100, Arg.Any<CancellationToken>());
     }
 
@@ -1783,7 +1783,7 @@ public class SyncCoordinatorTests
 
         var result = await sut.SyncRootLinksAsync(42);
 
-        result.ShouldBeOfType<SyncResult.PartiallyUpdated>();
+        result.ShouldBeUnionCase<PartiallyUpdated>();
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -1811,7 +1811,7 @@ public class SyncCoordinatorTests
 
         var result = await sut.SyncRootLinksAsync(42);
 
-        result.ShouldBeOfType<SyncResult.Failed>();
+        result.ShouldBeUnionCase<SyncFailed>();
     }
 
     // ═══════════════════════════════════════════════════════════════

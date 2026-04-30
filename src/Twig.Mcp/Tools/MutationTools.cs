@@ -533,11 +533,14 @@ public sealed class MutationTools(WorkspaceResolver resolver)
 
         // Phase 2 — Pull: sync active item context from ADO
         var resolved = await ctx.ActiveItemResolver.GetActiveItemAsync(ct);
-        if (resolved is ActiveItemResult.Found or ActiveItemResult.FetchedFromAdo)
+        if (resolved is Found or FetchedFromAdo)
         {
-            var item = resolved is ActiveItemResult.Found f
-                ? f.WorkItem
-                : ((ActiveItemResult.FetchedFromAdo)resolved).WorkItem;
+            var item = resolved switch
+            {
+                Found f => f.WorkItem,
+                FetchedFromAdo a => a.WorkItem,
+                _ => throw new InvalidOperationException("Unexpected active item result"),
+            };
 
             var idsToSync = new List<int> { item.Id };
 

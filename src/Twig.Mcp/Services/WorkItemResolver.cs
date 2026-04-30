@@ -34,14 +34,17 @@ internal static class WorkItemResolver
         }
 
         var resolved = await ctx.ActiveItemResolver.GetActiveItemAsync(ct);
-        if (resolved is ActiveItemResult.NoContext)
+        if (resolved is ActiveNoContext)
             return (null, await EnvelopeBuilder.ErrorAsync(McpErrorCode.NoContext, "No active work item. Use twig_set to set context.", ctx, ct));
-        if (resolved is ActiveItemResult.Unreachable u)
+        if (resolved is ActiveUnreachable u)
             return (null, await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, $"Work item #{u.Id} unreachable: {u.Reason}", ctx, ct));
 
-        var activeItem = resolved is ActiveItemResult.Found f
-            ? f.WorkItem
-            : ((ActiveItemResult.FetchedFromAdo)resolved).WorkItem;
+        var activeItem = resolved switch
+        {
+            Found f => f.WorkItem,
+            FetchedFromAdo a => a.WorkItem,
+            _ => throw new InvalidOperationException("Unexpected active item result"),
+        };
         return (activeItem, null);
     }
 }

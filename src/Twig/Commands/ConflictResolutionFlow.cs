@@ -39,7 +39,7 @@ internal static class ConflictResolutionFlow
         Func<Task>? onAcceptRemote = null)
     {
         var mergeResult = ConflictResolver.Resolve(local, remote);
-        if (mergeResult is not MergeResult.HasConflicts conflicts)
+        if (mergeResult is not HasConflicts conflicts)
             return ConflictOutcome.Proceed;
 
         if (string.Equals(outputFormat, "json", StringComparison.OrdinalIgnoreCase))

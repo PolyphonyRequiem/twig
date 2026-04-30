@@ -24,7 +24,7 @@ public class ConflictResolverTests
 
         var result = ConflictResolver.Resolve(local, remote);
 
-        result.ShouldBeOfType<MergeResult.NoConflict>();
+        Assert.True(result is NoConflict, $"Expected NoConflict but got {result}");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -44,7 +44,7 @@ public class ConflictResolverTests
 
         var result = ConflictResolver.Resolve(local, remote);
 
-        var merged = result.ShouldBeOfType<MergeResult.AutoMergeable>();
+        if (result is not AutoMergeable merged) { Assert.Fail("Expected AutoMergeable"); return; }
         merged.MergedFields.Count.ShouldBe(2);
         merged.MergedFields.ShouldContain("System.Description");
         merged.MergedFields.ShouldContain("System.Title");
@@ -68,7 +68,7 @@ public class ConflictResolverTests
         var result = ConflictResolver.Resolve(local, remote);
 
         // Same field, same value — treated as NoConflict
-        result.ShouldBeOfType<MergeResult.NoConflict>();
+        Assert.True(result is NoConflict, $"Expected NoConflict but got {result}");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -88,7 +88,7 @@ public class ConflictResolverTests
 
         var result = ConflictResolver.Resolve(local, remote);
 
-        var conflicts = result.ShouldBeOfType<MergeResult.HasConflicts>();
+        if (result is not HasConflicts conflicts) { Assert.Fail("Expected HasConflicts"); return; }
         conflicts.ConflictingFields.Count.ShouldBe(1);
         conflicts.ConflictingFields[0].FieldName.ShouldBe("System.Description");
         conflicts.ConflictingFields[0].LocalValue.ShouldBe("Local value");
@@ -114,7 +114,7 @@ public class ConflictResolverTests
 
         var result = ConflictResolver.Resolve(local, remote);
 
-        var conflicts = result.ShouldBeOfType<MergeResult.HasConflicts>();
+        if (result is not HasConflicts conflicts) { Assert.Fail("Expected HasConflicts"); return; }
         conflicts.ConflictingFields.Count.ShouldBe(2);
     }
 
@@ -138,7 +138,7 @@ public class ConflictResolverTests
         var result = ConflictResolver.Resolve(local, remote);
 
         // Even though some fields are auto-mergeable, conflicts take precedence
-        var conflicts = result.ShouldBeOfType<MergeResult.HasConflicts>();
+        if (result is not HasConflicts conflicts) { Assert.Fail("Expected HasConflicts"); return; }
         conflicts.ConflictingFields.Count.ShouldBe(1);
         conflicts.ConflictingFields[0].FieldName.ShouldBe("System.Description");
     }
@@ -158,7 +158,7 @@ public class ConflictResolverTests
 
         var result = ConflictResolver.Resolve(local, remote);
 
-        result.ShouldBeOfType<MergeResult.NoConflict>();
+        Assert.True(result is NoConflict, $"Expected NoConflict but got {result}");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -176,7 +176,7 @@ public class ConflictResolverTests
 
         var result = ConflictResolver.Resolve(local, remote);
 
-        var conflicts = result.ShouldBeOfType<MergeResult.HasConflicts>();
+        if (result is not HasConflicts conflicts) { Assert.Fail("Expected HasConflicts"); return; }
         conflicts.ConflictingFields.ShouldContain(f => f.FieldName == "System.State");
         conflicts.ConflictingFields.First(f => f.FieldName == "System.State").LocalValue.ShouldBe("Active");
         conflicts.ConflictingFields.First(f => f.FieldName == "System.State").RemoteValue.ShouldBe("Resolved");
@@ -193,7 +193,7 @@ public class ConflictResolverTests
 
         var result = ConflictResolver.Resolve(local, remote);
 
-        var conflicts = result.ShouldBeOfType<MergeResult.HasConflicts>();
+        if (result is not HasConflicts conflicts) { Assert.Fail("Expected HasConflicts"); return; }
         conflicts.ConflictingFields.ShouldContain(f => f.FieldName == "System.Title");
     }
 
@@ -208,7 +208,7 @@ public class ConflictResolverTests
 
         var result = ConflictResolver.Resolve(local, remote);
 
-        var conflicts = result.ShouldBeOfType<MergeResult.HasConflicts>();
+        if (result is not HasConflicts conflicts) { Assert.Fail("Expected HasConflicts"); return; }
         conflicts.ConflictingFields.ShouldContain(f => f.FieldName == "System.AssignedTo");
     }
 
@@ -226,7 +226,7 @@ public class ConflictResolverTests
 
         var result = ConflictResolver.Resolve(local, remote);
 
-        var conflicts = result.ShouldBeOfType<MergeResult.HasConflicts>();
+        if (result is not HasConflicts conflicts) { Assert.Fail("Expected HasConflicts"); return; }
         conflicts.ConflictingFields.ShouldContain(f => f.FieldName == "System.IterationPath");
     }
 
@@ -252,7 +252,7 @@ public class ConflictResolverTests
 
         var result = ConflictResolver.Resolve(local, remote);
 
-        result.ShouldBeOfType<MergeResult.NoConflict>();
+        Assert.True(result is NoConflict, $"Expected NoConflict but got {result}");
     }
 
     [Fact]
@@ -266,7 +266,7 @@ public class ConflictResolverTests
 
         var result = ConflictResolver.Resolve(local, remote);
 
-        var conflicts = result.ShouldBeOfType<MergeResult.HasConflicts>();
+        if (result is not HasConflicts conflicts) { Assert.Fail("Expected HasConflicts"); return; }
         conflicts.ConflictingFields.ShouldContain(f => f.FieldName == "System.Parent");
     }
 

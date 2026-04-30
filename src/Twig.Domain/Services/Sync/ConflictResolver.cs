@@ -7,22 +7,20 @@ namespace Twig.Domain.Services.Sync;
 /// </summary>
 public readonly record struct FieldConflict(string FieldName, string? LocalValue, string? RemoteValue);
 
+/// <summary>Revisions match — no changes needed.</summary>
+public sealed record NoConflict;
+
+/// <summary>Different fields changed — can be merged automatically.</summary>
+public sealed record AutoMergeable(IReadOnlyList<string> MergedFields);
+
+/// <summary>Same field diverged — requires user resolution.</summary>
+public sealed record HasConflicts(IReadOnlyList<FieldConflict> ConflictingFields);
+
 /// <summary>
 /// Discriminated result of a merge conflict resolution.
+/// Compiler-enforced exhaustiveness — no catch-all arms needed.
 /// </summary>
-public abstract record MergeResult
-{
-    private MergeResult() { }
-
-    /// <summary>Revisions match — no changes needed.</summary>
-    public sealed record NoConflict : MergeResult;
-
-    /// <summary>Different fields changed — can be merged automatically.</summary>
-    public sealed record AutoMergeable(IReadOnlyList<string> MergedFields) : MergeResult;
-
-    /// <summary>Same field diverged — requires user resolution.</summary>
-    public sealed record HasConflicts(IReadOnlyList<FieldConflict> ConflictingFields) : MergeResult;
-}
+public union MergeResult(NoConflict, AutoMergeable, HasConflicts);
 
 /// <summary>
 /// Compares local and remote work item states to detect and classify merge conflicts.
@@ -31,14 +29,14 @@ public static class ConflictResolver
 {
     /// <summary>
     /// Resolves conflicts between <paramref name="local"/> and <paramref name="remote"/> work items.
-    /// Compares revisions first; if they match, returns <see cref="MergeResult.NoConflict"/>.
+    /// Compares revisions first; if they match, returns <see cref="NoConflict"/>.
     /// Otherwise, diffs first-class properties (Title, State, etc.) and the Fields dictionary
     /// to determine if changes can be auto-merged or have true conflicts.
     /// </summary>
     public static MergeResult Resolve(WorkItem local, WorkItem remote)
     {
         if (local.Revision == remote.Revision)
-            return new MergeResult.NoConflict();
+            return new NoConflict();
 
         var autoMerged = new List<string>();
         var conflicts = new List<FieldConflict>();
@@ -93,13 +91,13 @@ public static class ConflictResolver
         }
 
         if (conflicts.Count > 0)
-            return new MergeResult.HasConflicts(conflicts);
+            return new HasConflicts(conflicts);
 
         if (autoMerged.Count > 0)
-            return new MergeResult.AutoMergeable(autoMerged);
+            return new AutoMergeable(autoMerged);
 
         // Revisions differ but no field differences detected
-        return new MergeResult.NoConflict();
+        return new NoConflict();
     }
 
     /// <summary>

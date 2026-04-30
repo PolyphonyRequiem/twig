@@ -351,7 +351,7 @@ public sealed class BatchCommand(
         {
             // Multi-item: auto-accept-remote on conflict (DD-3)
             var mergeResult = ConflictResolver.Resolve(item, remote);
-            if (mergeResult is MergeResult.HasConflicts)
+            if (mergeResult is HasConflicts)
             {
                 await workItemRepo.SaveAsync(remote, ct);
             }

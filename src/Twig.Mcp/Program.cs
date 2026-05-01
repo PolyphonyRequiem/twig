@@ -15,19 +15,17 @@ SQLitePCL.Batteries.Init();
 // exists, even without top-level .twig/config. Must run before host build to provide
 // clear error messages when no workspaces are found.
 var (isValid, guardError, discoveredTwigDir) = WorkspaceGuard.CheckWorkspaceAmbient(Directory.GetCurrentDirectory());
-if (!isValid)
-{
-    Console.Error.WriteLine(guardError);
-    return 1;
-}
 
-var twigRoot = discoveredTwigDir!;
+// When no workspace is found, start the server anyway with zero workspaces.
+// Tools will return informative errors when invoked. This prevents Copilot from
+// marking the MCP as "failed" in sessions opened outside a twig project.
+string? twigRoot = discoveredTwigDir;
 
 // Workspace infrastructure — replaces single-workspace singleton registrations.
 // WorkspaceRegistry scans .twig/{org}/{project}/config on disk (DD-5).
 // WorkspaceContextFactory lazily creates per-workspace service bundles.
 // WorkspaceResolver routes per-tool-call workspace selection.
-var registry = new WorkspaceRegistry(twigRoot);
+var registry = new WorkspaceRegistry(twigRoot ?? Path.Combine(Directory.GetCurrentDirectory(), ".twig"));
 
 // Global singletons shared across all workspaces (auth is per-user, not per-workspace).
 // Determine auth method from workspace configs — if any workspace uses PAT, use PAT;
@@ -39,7 +37,7 @@ var authMethod = registry.Workspaces
     ?? "azcli";
 var authProvider = AuthProviderFactory.Create(authMethod);
 
-var factory = new WorkspaceContextFactory(registry, httpClient, authProvider, twigRoot);
+var factory = new WorkspaceContextFactory(registry, httpClient, authProvider, twigRoot ?? Path.Combine(Directory.GetCurrentDirectory(), ".twig"));
 var resolver = new WorkspaceResolver(registry, factory);
 
 var builder = Host.CreateApplicationBuilder(args);

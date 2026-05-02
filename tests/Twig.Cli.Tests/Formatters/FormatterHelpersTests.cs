@@ -593,4 +593,162 @@ public class FormatterHelpersTests
         var result = FormatterHelpers.HtmlToSpectreMarkup("x &lt; y &amp;&amp; y &gt; z");
         result.ShouldContain("x < y && y > z");
     }
+
+    // ── Truncate (now internal) ─────────────────────────────────────
+
+    [Fact]
+    public void Truncate_ShortValue_ReturnsUnchanged()
+    {
+        FormatterHelpers.Truncate("hello", 10).ShouldBe("hello");
+    }
+
+    [Fact]
+    public void Truncate_ExactLength_ReturnsUnchanged()
+    {
+        FormatterHelpers.Truncate("hello", 5).ShouldBe("hello");
+    }
+
+    [Fact]
+    public void Truncate_LongValue_TruncatesWithEllipsis()
+    {
+        FormatterHelpers.Truncate("hello world", 6).ShouldBe("hello…");
+    }
+
+    [Fact]
+    public void Truncate_TrimsWhitespace()
+    {
+        FormatterHelpers.Truncate("  hi  ", 10).ShouldBe("hi");
+    }
+
+    // ── TruncateTitle ───────────────────────────────────────────────
+
+    [Fact]
+    public void TruncateTitle_Null_ReturnsEmpty()
+    {
+        FormatterHelpers.TruncateTitle(null, 20).ShouldBe("");
+    }
+
+    [Fact]
+    public void TruncateTitle_Empty_ReturnsEmpty()
+    {
+        FormatterHelpers.TruncateTitle("", 20).ShouldBe("");
+    }
+
+    [Fact]
+    public void TruncateTitle_ShortTitle_ReturnsUnchanged()
+    {
+        FormatterHelpers.TruncateTitle("Fix login bug", 20).ShouldBe("Fix login bug");
+    }
+
+    [Fact]
+    public void TruncateTitle_ExactLength_ReturnsUnchanged()
+    {
+        FormatterHelpers.TruncateTitle("12345", 5).ShouldBe("12345");
+    }
+
+    [Fact]
+    public void TruncateTitle_LongTitle_TruncatesWithEllipsis()
+    {
+        FormatterHelpers.TruncateTitle("This is a very long title that exceeds the limit", 20)
+            .ShouldBe("This is a very long…");
+    }
+
+    [Fact]
+    public void TruncateTitle_StripsHtml_BeforeTruncation()
+    {
+        FormatterHelpers.TruncateTitle("<b>Bold</b> title", 10).ShouldBe("Bold title");
+    }
+
+    [Fact]
+    public void TruncateTitle_StripsHtml_ThenTruncates()
+    {
+        FormatterHelpers.TruncateTitle("<p>A very long paragraph title</p>", 10)
+            .ShouldBe("A very lo…");
+    }
+
+    [Fact]
+    public void TruncateTitle_TrimsWhitespace()
+    {
+        FormatterHelpers.TruncateTitle("  spaced  ", 20).ShouldBe("spaced");
+    }
+
+    // ── TruncatePath ────────────────────────────────────────────────
+
+    [Fact]
+    public void TruncatePath_Null_ReturnsEmpty()
+    {
+        FormatterHelpers.TruncatePath(null, 20).ShouldBe("");
+    }
+
+    [Fact]
+    public void TruncatePath_Empty_ReturnsEmpty()
+    {
+        FormatterHelpers.TruncatePath("", 20).ShouldBe("");
+    }
+
+    [Fact]
+    public void TruncatePath_ShortPath_ReturnsUnchanged()
+    {
+        FormatterHelpers.TruncatePath(@"Twig\Core", 20).ShouldBe(@"Twig\Core");
+    }
+
+    [Fact]
+    public void TruncatePath_ExactLength_ReturnsUnchanged()
+    {
+        FormatterHelpers.TruncatePath(@"Twig\Core", 9).ShouldBe(@"Twig\Core");
+    }
+
+    [Fact]
+    public void TruncatePath_LongPath_TruncatesFromLeft()
+    {
+        // "MyOrg\Engineering\Platform\Core\Auth" at maxWidth=20
+        // Segments from right: Auth(4), Core\Auth(9), Platform\Core\Auth(18)
+        // Budget = 20 - 2 = 18, so "Platform\Core\Auth" fits → "…\Platform\Core\Auth" = 20
+        FormatterHelpers.TruncatePath(@"MyOrg\Engineering\Platform\Core\Auth", 20)
+            .ShouldBe(@"…\Platform\Core\Auth");
+    }
+
+    [Fact]
+    public void TruncatePath_KeepsTrailingSegments()
+    {
+        // "A\B\C\D\E" at maxWidth=8
+        // Budget = 8 - 2 = 6. Segments from right: E(1), D\E(3), C\D\E(5). B\C\D\E = 7 > 6.
+        // Result: "…\C\D\E" = 7
+        FormatterHelpers.TruncatePath(@"A\B\C\D\E", 8)
+            .ShouldBe(@"…\C\D\E");
+    }
+
+    [Fact]
+    public void TruncatePath_SingleSegmentExceedsMax_FallsBackToSimpleTruncation()
+    {
+        FormatterHelpers.TruncatePath("VeryLongSegmentName", 10)
+            .ShouldBe("VeryLongS…");
+    }
+
+    [Fact]
+    public void TruncatePath_CustomSeparator_ForwardSlash()
+    {
+        FormatterHelpers.TruncatePath("org/project/area/team", 15, '/')
+            .ShouldBe("…/area/team");
+    }
+
+    [Fact]
+    public void TruncatePath_OnlyLastSegmentFits()
+    {
+        // "VeryLongA\VeryLongB\Short" at maxWidth=9
+        // Budget = 9 - 2 = 7, Short(5) fits, VeryLongB\Short(15) doesn't
+        // Result: "…\Short" = 7
+        FormatterHelpers.TruncatePath(@"VeryLongA\VeryLongB\Short", 9)
+            .ShouldBe(@"…\Short");
+    }
+
+    [Fact]
+    public void TruncatePath_NoSegmentFits_FallsBackToSimpleTruncation()
+    {
+        // "AAAA\BBBBBBBBBB" at maxWidth=4
+        // Budget = 4 - 2 = 2, BBBBBBBBBB(10) > 2 → no segment fits
+        // Falls back to simple truncation: "AAA…"
+        FormatterHelpers.TruncatePath(@"AAAA\BBBBBBBBBB", 4)
+            .ShouldBe("AAA…");
+    }
 }

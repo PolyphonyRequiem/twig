@@ -426,11 +426,74 @@ internal static class FormatterHelpers
         return string.Join('\n', truncated);
     }
 
-    private static string Truncate(string value, int maxLength)
+    internal static string Truncate(string value, int maxLength)
     {
         var trimmed = value.Trim();
         if (trimmed.Length <= maxLength)
             return trimmed;
         return trimmed[..(maxLength - 1)] + "…";
+    }
+
+    /// <summary>
+    /// Truncates a title string for display, stripping any HTML tags first.
+    /// Returns empty string for null/empty input.
+    /// The caller is responsible for Markup.Escape after truncation.
+    /// </summary>
+    internal static string TruncateTitle(string? title, int maxWidth)
+    {
+        if (string.IsNullOrEmpty(title))
+            return "";
+
+        var stripped = Rendering.SpectreRenderer.StripHtmlTags(title).Trim();
+        if (stripped.Length <= maxWidth)
+            return stripped;
+
+        return stripped[..(maxWidth - 1)] + "…";
+    }
+
+    /// <summary>
+    /// Truncates a path string for display, preserving trailing segments.
+    /// When the full path exceeds <paramref name="maxWidth"/>, segments are
+    /// accumulated from the right and prefixed with "…" + separator.
+    /// Returns empty string for null/empty input.
+    /// </summary>
+    internal static string TruncatePath(string? path, int maxWidth, char separator = '\\')
+    {
+        if (string.IsNullOrEmpty(path))
+            return "";
+
+        if (path.Length <= maxWidth)
+            return path;
+
+        var segments = path.Split(separator);
+
+        // Single segment that exceeds maxWidth — fall through to simple truncation
+        if (segments.Length <= 1)
+            return path[..(maxWidth - 1)] + "…";
+
+        // Work backwards, accumulating segments that fit.
+        // Reserve 2 chars for the "…\" prefix (ellipsis char + separator).
+        var budget = maxWidth - 2;
+        var accumulated = new List<string>();
+        var length = 0;
+
+        for (var i = segments.Length - 1; i >= 0; i--)
+        {
+            var segLen = segments[i].Length;
+            var needed = length == 0 ? segLen : segLen + 1; // +1 for separator between segments
+
+            if (length + needed > budget)
+                break;
+
+            accumulated.Add(segments[i]);
+            length += needed;
+        }
+
+        // If no segment fits within the budget, fall back to simple truncation of the last segment
+        if (accumulated.Count == 0)
+            return path[..(maxWidth - 1)] + "…";
+
+        accumulated.Reverse();
+        return "…" + separator + string.Join(separator, accumulated);
     }
 }

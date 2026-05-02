@@ -751,4 +751,28 @@ public class FormatterHelpersTests
         FormatterHelpers.TruncatePath(@"AAAA\BBBBBBBBBB", 4)
             .ShouldBe("AAA…");
     }
+
+    // ── StripHtmlTags + Truncate integration ────────────────────────
+
+    [Fact]
+    public void Truncate_WithStripHtmlTags_StripsHtmlBeforeTruncation()
+    {
+        var html = "<p>" + new string('a', 100) + "</p>";
+        var result = FormatterHelpers.Truncate(
+            Twig.Rendering.SpectreRenderer.StripHtmlTags(html), 200);
+        result.ShouldNotContain("<p>");
+        result.ShouldNotContain("</p>");
+        result.Length.ShouldBe(100);
+    }
+
+    [Fact]
+    public void Truncate_WithStripHtmlTags_LongHtmlContent_TruncatesWithEllipsis()
+    {
+        var html = "<div>" + new string('z', 300) + "</div>";
+        var result = FormatterHelpers.Truncate(
+            Twig.Rendering.SpectreRenderer.StripHtmlTags(html), 200);
+        result.Length.ShouldBe(200);
+        result.ShouldEndWith("…");
+        result.ShouldNotContain("<div>");
+    }
 }

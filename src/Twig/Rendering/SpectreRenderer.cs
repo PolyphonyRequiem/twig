@@ -977,14 +977,24 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             itemGrid.AddRow("[dim]⇄ Relationships:[/]", "");
 
             if (parent is not null)
-                itemGrid.AddRow("", $"[dim]Parent:[/] {_theme.FormatTypeBadge(parent.Type)} #{parent.Id} {Markup.Escape(parent.Title)}");
+            {
+                // Overhead: "Parent: "(8) + badge(2) + " #"(2) + id digits + " "(1)
+                var parentOverhead = 13 + parent.Id.ToString().Length;
+                var parentTitle = Formatters.FormatterHelpers.TruncateTitle(
+                    parent.Title, Math.Max(budget.GridValueBudget - parentOverhead, 10));
+                itemGrid.AddRow("", $"[dim]Parent:[/] {_theme.FormatTypeBadge(parent.Type)} #{parent.Id} {Markup.Escape(parentTitle)}");
+            }
 
             if (children is { Count: > 0 })
             {
                 foreach (var child in children)
                 {
                     var childState = _theme.FormatState(child.State);
-                    itemGrid.AddRow("", $"[dim]Child:[/]  {_theme.FormatTypeBadge(child.Type)} #{child.Id} {Markup.Escape(child.Title)} {childState}");
+                    // Overhead: "Child:  "(8) + badge(2) + " #"(2) + id digits + " "(1) + " "(1) + state chars
+                    var childOverhead = 14 + child.Id.ToString().Length + child.State.Length;
+                    var childTitle = Formatters.FormatterHelpers.TruncateTitle(
+                        child.Title, Math.Max(budget.GridValueBudget - childOverhead, 10));
+                    itemGrid.AddRow("", $"[dim]Child:[/]  {_theme.FormatTypeBadge(child.Type)} #{child.Id} {Markup.Escape(childTitle)} {childState}");
                 }
             }
 

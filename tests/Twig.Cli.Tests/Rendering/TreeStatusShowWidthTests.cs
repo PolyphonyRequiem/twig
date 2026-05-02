@@ -162,6 +162,23 @@ public sealed class TreeStatusShowWidthTests
         output.ShouldContain("Child");
     }
 
+    [Fact]
+    public async Task BuildStatusViewAsync_NarrowWidth_RelationshipTitlesTruncated()
+    {
+        var (renderer, console) = CreateRenderer(60);
+        var item = CreateItem(106, ShortTitle);
+        var parent = CreateItem(50, LongTitle, type: WorkItemType.Issue);
+        var child = CreateItem(200, LongTitle, type: WorkItemType.Task);
+
+        var renderable = await BuildStatusViewAsync(renderer, item, parent: parent, children: [child]);
+        console.Write(renderable);
+
+        var output = console.Output;
+        // LongTitle is 101 chars — at 60-char width, relationship titles must be truncated
+        output.ShouldNotContain(LongTitle);
+        output.ShouldContain("…");
+    }
+
     // ── BuildStatusViewAsync — standard (80) ────────────────────────
 
     [Fact]

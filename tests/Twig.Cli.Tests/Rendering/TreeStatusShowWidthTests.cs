@@ -276,7 +276,7 @@ public sealed class TreeStatusShowWidthTests
     }
 
     [Fact]
-    public async Task RenderWorkItemAsync_NarrowWidth_AreaPathRendered()
+    public async Task RenderWorkItemAsync_NarrowWidth_LongAreaPath_Truncated()
     {
         var (renderer, console) = CreateRenderer(60);
         var item = CreateItem(202, ShortTitle, areaPath: LongAreaPath);
@@ -286,10 +286,13 @@ public sealed class TreeStatusShowWidthTests
 
         var output = console.Output;
         output.ShouldContain("Area");
+        // Long area path should be truncated — last segment preserved with ellipsis prefix
+        output.ShouldContain("AuthTeam");
+        output.ShouldContain("…");
     }
 
     [Fact]
-    public async Task RenderWorkItemAsync_NarrowWidth_IterationPathRendered()
+    public async Task RenderWorkItemAsync_NarrowWidth_LongIterationPath_Truncated()
     {
         var (renderer, console) = CreateRenderer(60);
         var item = CreateItem(203, ShortTitle, iterationPath: LongIterationPath);
@@ -299,6 +302,9 @@ public sealed class TreeStatusShowWidthTests
 
         var output = console.Output;
         output.ShouldContain("Iteration");
+        // Long iteration path should be truncated — last segments preserved
+        output.ShouldContain("Week 2");
+        output.ShouldContain("…");
     }
 
     [Fact]

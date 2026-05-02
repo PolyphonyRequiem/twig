@@ -1313,6 +1313,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         var filtered = new List<(int Id, string Title)>(matches);
         (int Id, string Title)? result = null;
         var done = false;
+        var budget = new WidthBudget(_console.Profile.Width);
 
         // Custom Live()-based selection prompt (AOT-safe fallback — SelectionPrompt<T>
         // produces IL2067 trim warnings via TypeConverterHelper, see ITEM-001A spike).
@@ -1321,7 +1322,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             {
                 while (!done && !ct.IsCancellationRequested)
                 {
-                    ctx.UpdateTarget(BuildSelectionRenderable(filtered, selectedIndex, filterText));
+                    ctx.UpdateTarget(BuildSelectionRenderable(filtered, selectedIndex, filterText, budget.TableTitleBudget));
                     ctx.Refresh();
 
                     ConsoleKeyInfo key;
@@ -1393,7 +1394,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     internal static IRenderable BuildSelectionRenderable(
         IReadOnlyList<(int Id, string Title)> items,
         int selectedIndex,
-        string filterText)
+        string filterText,
+        int titleBudget)
     {
         var rows = new List<IRenderable>
         {
@@ -1412,9 +1414,10 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             for (var i = 0; i < items.Count; i++)
             {
                 var (id, title) = items[i];
+                var truncatedTitle = Markup.Escape(FormatterHelpers.TruncateTitle(title, titleBudget));
                 var prefix = i == selectedIndex ? "[aqua]❯[/] " : "  ";
                 var style = i == selectedIndex ? "bold" : "dim";
-                rows.Add(new Markup($"{prefix}[{style}]#{id} {Markup.Escape(title)}[/]"));
+                rows.Add(new Markup($"{prefix}[{style}]#{id} {truncatedTitle}[/]"));
             }
         }
 
@@ -1430,7 +1433,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         IReadOnlyList<(int Id, string Title, string? TypeName, string? State)> items,
         int selectedIndex,
         string filterText,
-        SpectreTheme theme)
+        SpectreTheme theme,
+        int titleBudget)
     {
         var rows = new List<IRenderable>
         {
@@ -1449,6 +1453,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             for (var i = 0; i < items.Count; i++)
             {
                 var (id, title, typeName, state) = items[i];
+                var truncatedTitle = Markup.Escape(FormatterHelpers.TruncateTitle(title, titleBudget));
                 var prefix = i == selectedIndex ? "[aqua]❯[/] " : "  ";
                 var style = i == selectedIndex ? "bold" : "dim";
 
@@ -1464,7 +1469,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                 if (state is not null)
                     stateMarkup = " " + theme.FormatState(state);
 
-                rows.Add(new Markup($"{prefix}{badgeMarkup}[{style}]#{id} {Markup.Escape(title)}[/]{stateMarkup}"));
+                rows.Add(new Markup($"{prefix}{badgeMarkup}[{style}]#{id} {truncatedTitle}[/]{stateMarkup}"));
             }
         }
 
@@ -1559,8 +1564,15 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         string? branchName,
         CancellationToken ct = default)
     {
+        var budget = new WidthBudget(_console.Profile.Width);
+
+        // "✓ Flow started for #" (21) + ID digits + " — " (3)
+        var flowPrefixWidth = 24 + item.Id.ToString().Length;
+        var titleBudget = Math.Max(budget.ConsoleWidth - flowPrefixWidth, 10);
+        var truncatedTitle = FormatterHelpers.TruncateTitle(item.Title, titleBudget);
+
         // Success header
-        _console.MarkupLine($"[green]✓[/] [bold]Flow started for #{item.Id} — {Markup.Escape(item.Title)}[/]");
+        _console.MarkupLine($"[green]✓[/] [bold]Flow started for #{item.Id} — {Markup.Escape(truncatedTitle)}[/]");
 
         // Build summary grid
         var grid = new Grid().AddColumn().AddColumn();
@@ -1611,6 +1623,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         IReadOnlyDictionary<int, IReadOnlyList<Domain.ValueObjects.SeedLink>>? links = null)
     {
         var groups = await getData();
+        var budget = new WidthBudget(_console.Profile.Width);
 
         var totalSeeds = 0;
         foreach (var g in groups)
@@ -1631,7 +1644,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             if (group.Parent is not null)
             {
                 var parentBadge = _theme.FormatTypeBadge(group.Parent.Type);
-                _console.MarkupLine($"  [bold]Parent:[/] #{group.Parent.Id} {parentBadge} {Markup.Escape(group.Parent.Type.ToString())} — {Markup.Escape(group.Parent.Title)}");
+                var parentTitle = FormatterHelpers.TruncateTitle(group.Parent.Title, budget.TableTitleBudget);
+                _console.MarkupLine($"  [bold]Parent:[/] #{group.Parent.Id} {parentBadge} {Markup.Escape(group.Parent.Type.ToString())} — {Markup.Escape(parentTitle)}");
             }
             else
             {
@@ -1676,7 +1690,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                 table.AddRow(
                     $"{seed.Id}",
                     $"{badge} {Markup.Escape(seed.Type.ToString())}",
-                    Markup.Escape(seed.Title),
+                    Markup.Escape(FormatterHelpers.TruncateTitle(seed.Title, budget.TableTitleBudget)),
                     $"[dim]{Markup.Escape(age)}[/]",
                     $"[dim]{filled}/{totalWritableFields} fields[/]",
                     statusCol);
@@ -1734,6 +1748,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     /// </summary>
     private void RenderAreaHierarchyTree(SprintHierarchy hierarchy)
     {
+        var budget = new WidthBudget(_console.Profile.Width);
+
         foreach (var kvp in hierarchy.AssigneeGroups)
         {
             foreach (var root in kvp.Value)
@@ -1743,15 +1759,15 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                     _console.MarkupLine($"    [dim]── {Markup.Escape(root.GroupLabel ?? "Unparented")} ──[/]");
                     foreach (var child in root.Children)
                     {
-                        var tree = new Tree(FormatAreaNode(child));
-                        AddAreaChildNodes(tree, child);
+                        var tree = new Tree(FormatAreaNode(child, budget, depth: 0));
+                        AddAreaChildNodes(tree, child, budget, depth: 1);
                         _console.Write(tree);
                     }
                 }
                 else
                 {
-                    var tree = new Tree(FormatAreaNode(root));
-                    AddAreaChildNodes(tree, root);
+                    var tree = new Tree(FormatAreaNode(root, budget, depth: 0));
+                    AddAreaChildNodes(tree, root, budget, depth: 1);
                     _console.Write(tree);
                 }
             }
@@ -1762,25 +1778,31 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     /// Formats a hierarchy node for area view. Out-of-area parents get dim styling;
     /// in-area items get full detail with ID and state.
     /// </summary>
-    internal string FormatAreaNode(SprintHierarchyNode node)
+    internal string FormatAreaNode(SprintHierarchyNode node, WidthBudget? budget = null, int depth = 0)
     {
         if (node.IsSprintItem)
         {
             // In-area item — full detail
             var dirty = node.Item.IsDirty ? " [yellow]✎[/]" : "";
-            return $"{_theme.FormatTypeBadge(node.Item.Type)} #{node.Item.Id} {Markup.Escape(node.Item.Title)}{dirty} {_theme.FormatState(node.Item.State)}";
+            var title = budget.HasValue
+                ? FormatterHelpers.TruncateTitle(node.Item.Title, budget.Value.TreeTitleBudget(depth))
+                : node.Item.Title;
+            return $"{_theme.FormatTypeBadge(node.Item.Type)} #{node.Item.Id} {Markup.Escape(title)}{dirty} {_theme.FormatState(node.Item.State)}";
         }
 
         // Out-of-area parent — dimmed
-        return $"[dim]{_theme.FormatTypeBadge(node.Item.Type)} {Markup.Escape(node.Item.Title)} {_theme.FormatState(node.Item.State)}[/]";
+        var parentTitle = budget.HasValue
+            ? FormatterHelpers.TruncateTitle(node.Item.Title, budget.Value.TreeTitleBudget(depth))
+            : node.Item.Title;
+        return $"[dim]{_theme.FormatTypeBadge(node.Item.Type)} {Markup.Escape(parentTitle)} {_theme.FormatState(node.Item.State)}[/]";
     }
 
-    private void AddAreaChildNodes(IHasTreeNodes parent, SprintHierarchyNode node)
+    private void AddAreaChildNodes(IHasTreeNodes parent, SprintHierarchyNode node, WidthBudget budget, int depth)
     {
         foreach (var child in node.Children)
         {
-            var childNode = parent.AddNode(FormatAreaNode(child));
-            AddAreaChildNodes(childNode, child);
+            var childNode = parent.AddNode(FormatAreaNode(child, budget, depth));
+            AddAreaChildNodes(childNode, child, budget, depth + 1);
         }
     }
 
@@ -1789,6 +1811,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     /// </summary>
     private void RenderAreaFlatTable(AreaView areaView)
     {
+        var budget = new WidthBudget(_console.Profile.Width);
         var table = new Table()
             .Border(TableBorder.None)
             .HideHeaders()
@@ -1802,7 +1825,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             table.AddRow(
                 $"{item.Id}",
                 _theme.FormatTypeBadge(item.Type),
-                Markup.Escape(item.Title),
+                Markup.Escape(FormatterHelpers.TruncateTitle(item.Title, budget.TableTitleBudget)),
                 _theme.FormatState(item.State));
         }
 
@@ -1820,7 +1843,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         var state = initialState;
         int? result = null;
         var done = false;
-        var singleColumn = _console.Profile.Width < 80;
+        var budget = new WidthBudget(_console.Profile.Width);
+        var singleColumn = budget.Breakpoint == RenderBreakpoint.Compact;
         string? linkError = null;
 
         await _console.Live(new Markup("[dim]Loading...[/]"))
@@ -1828,7 +1852,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             {
                 while (!done && !ct.IsCancellationRequested)
                 {
-                    var treePanel = BuildInteractiveTreeRenderable(state, _theme);
+                    var treePanel = BuildInteractiveTreeRenderable(state, _theme, budget);
                     IRenderable renderable;
                     if (singleColumn)
                     {
@@ -1848,7 +1872,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                         {
                             previewPanel = BuildPreviewPanel(
                                 state.CursorItem, state.Links, state.SeedLinks, _theme,
-                                state.LinkJumpIndex);
+                                budget, state.LinkJumpIndex);
                         }
                         renderable = new Columns(treePanel, previewPanel);
                     }
@@ -2095,7 +2119,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     /// Builds the interactive tree panel from navigator state.
     /// Shows dimmed parent chain, bold cursor with ❯ marker, children with type badges, and status bar.
     /// </summary>
-    internal static IRenderable BuildInteractiveTreeRenderable(TreeNavigatorState state, SpectreTheme theme)
+    internal static IRenderable BuildInteractiveTreeRenderable(TreeNavigatorState state, SpectreTheme theme, WidthBudget? budget = null)
     {
         var rows = new List<IRenderable>();
 
@@ -2104,18 +2128,25 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         if (state.ParentChain.Count > 0)
         {
             var root = state.ParentChain[0];
-            var tree = new Tree($"[dim]{theme.FormatTypeBadge(root.Type)} {Markup.Escape(root.Title)}[/]");
+            var rootTitle = budget.HasValue
+                ? Markup.Escape(FormatterHelpers.TruncateTitle(root.Title, budget.Value.TreeTitleBudget(0)))
+                : Markup.Escape(root.Title);
+            var tree = new Tree($"[dim]{theme.FormatTypeBadge(root.Type)} {rootTitle}[/]");
             IHasTreeNodes container = tree;
 
             for (var i = 1; i < state.ParentChain.Count; i++)
             {
                 var ancestor = state.ParentChain[i];
+                var ancestorTitle = budget.HasValue
+                    ? Markup.Escape(FormatterHelpers.TruncateTitle(ancestor.Title, budget.Value.TreeTitleBudget(i)))
+                    : Markup.Escape(ancestor.Title);
                 container = container.AddNode(
-                    $"[dim]{theme.FormatTypeBadge(ancestor.Type)} {Markup.Escape(ancestor.Title)}[/]");
+                    $"[dim]{theme.FormatTypeBadge(ancestor.Type)} {ancestorTitle}[/]");
             }
 
             // Add visible siblings at cursor level
-            AddSiblingsToTree(container, state, theme);
+            var siblingDepth = state.ParentChain.Count;
+            AddSiblingsToTree(container, state, theme, budget, siblingDepth);
             treeContent = tree;
         }
         else if (state.VisibleSiblings.Count > 0)
@@ -2125,7 +2156,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             for (var i = 0; i < state.VisibleSiblings.Count; i++)
             {
                 var sibling = state.VisibleSiblings[i];
-                var label = FormatSiblingLabel(sibling, i, state, theme);
+                var label = FormatSiblingLabel(sibling, i, state, theme, budget);
                 siblingRows.Add(new Markup(label));
 
                 if (state.CursorIndex == i && state.Children.Count > 0)
@@ -2135,7 +2166,10 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                     {
                         var effort = Formatters.FormatterHelpers.GetEffortDisplay(child);
                         var effortSuffix = effort is not null ? $" [dim]{Markup.Escape(effort)}[/]" : "";
-                        var childLabel = $"    {theme.FormatTypeBadge(child.Type)} #{child.Id} {Markup.Escape(child.Title)} {theme.FormatState(child.State)}{effortSuffix}";
+                        var childTitle = budget.HasValue
+                            ? Markup.Escape(FormatterHelpers.TruncateTitle(child.Title, budget.Value.TreeTitleBudget(1)))
+                            : Markup.Escape(child.Title);
+                        var childLabel = $"    {theme.FormatTypeBadge(child.Type)} #{child.Id} {childTitle} {theme.FormatState(child.State)}{effortSuffix}";
                         siblingRows.Add(new Markup(childLabel));
                     }
                 }
@@ -2173,34 +2207,40 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             .Expand();
     }
 
-    private static string FormatSiblingLabel(WorkItem item, int index, TreeNavigatorState state, SpectreTheme theme)
+    private static string FormatSiblingLabel(WorkItem item, int index, TreeNavigatorState state, SpectreTheme theme, WidthBudget? budget = null, int depth = 0)
     {
         var isCursor = index == state.CursorIndex;
         var marker = isCursor ? "[aqua]❯[/] " : "  ";
         var style = isCursor ? "bold" : "default";
-        return $"{marker}{theme.FormatTypeBadge(item.Type)} [{style}]#{item.Id} {Markup.Escape(item.Title)}[/] {theme.FormatState(item.State)}";
+        var title = budget.HasValue
+            ? Markup.Escape(FormatterHelpers.TruncateTitle(item.Title, budget.Value.TreeTitleBudget(depth)))
+            : Markup.Escape(item.Title);
+        return $"{marker}{theme.FormatTypeBadge(item.Type)} [{style}]#{item.Id} {title}[/] {theme.FormatState(item.State)}";
     }
 
-    private static void AddSiblingsToTree(IHasTreeNodes container, TreeNavigatorState state, SpectreTheme theme)
+    private static void AddSiblingsToTree(IHasTreeNodes container, TreeNavigatorState state, SpectreTheme theme, WidthBudget? budget = null, int depth = 0)
     {
         for (var i = 0; i < state.VisibleSiblings.Count; i++)
         {
             var sibling = state.VisibleSiblings[i];
-            var label = FormatSiblingLabel(sibling, i, state, theme);
+            var label = FormatSiblingLabel(sibling, i, state, theme, budget, depth);
             var node = container.AddNode(label);
             if (state.CursorIndex == i)
-                AddChildrenToNode(node, state, theme);
+                AddChildrenToNode(node, state, theme, budget, depth + 1);
         }
     }
 
-    private static void AddChildrenToNode(IHasTreeNodes parentNode, TreeNavigatorState state, SpectreTheme theme)
+    private static void AddChildrenToNode(IHasTreeNodes parentNode, TreeNavigatorState state, SpectreTheme theme, WidthBudget? budget = null, int depth = 0)
     {
         for (var i = 0; i < state.Children.Count; i++)
         {
             var child = state.Children[i];
             var effort = Formatters.FormatterHelpers.GetEffortDisplay(child);
             var effortSuffix = effort is not null ? $" [dim]{Markup.Escape(effort)}[/]" : "";
-            var childLabel = $"  {theme.FormatTypeBadge(child.Type)} #{child.Id} {Markup.Escape(child.Title)} {theme.FormatState(child.State)}{effortSuffix}";
+            var childTitle = budget.HasValue
+                ? Markup.Escape(FormatterHelpers.TruncateTitle(child.Title, budget.Value.TreeTitleBudget(depth)))
+                : Markup.Escape(child.Title);
+            var childLabel = $"  {theme.FormatTypeBadge(child.Type)} #{child.Id} {childTitle} {theme.FormatState(child.State)}{effortSuffix}";
             parentNode.AddNode(childLabel);
         }
     }
@@ -2216,6 +2256,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         IReadOnlyList<WorkItemLink> links,
         IReadOnlyList<SeedLink> seedLinks,
         SpectreTheme theme,
+        WidthBudget budget,
         int linkJumpIndex = -1)
     {
         if (item is null)
@@ -2228,7 +2269,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
         // Truncate raw title before escaping to avoid cutting into escape sequences
         var rawTitle = item.Title;
-        var displayTitle = rawTitle.Length > 56 ? rawTitle[..56] + "..." : rawTitle;
+        var titleBudget = budget.TreeTitleBudget(0);
+        var displayTitle = FormatterHelpers.TruncateTitle(rawTitle, titleBudget);
         var headerTitle = $"#{item.Id} {Markup.Escape(displayTitle)}";
 
         var rows = new List<IRenderable>();
@@ -2237,9 +2279,11 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         var grid = new Grid().AddColumn().AddColumn();
         grid.AddRow("[bold]Type[/]", $"{theme.FormatTypeBadge(item.Type)} {Markup.Escape(item.Type.ToString())}");
         grid.AddRow("[bold]State[/]", theme.FormatState(item.State));
-        grid.AddRow("[bold]Assigned[/]", item.AssignedTo is not null
-            ? Markup.Escape(item.AssignedTo)
-            : "[dim]unassigned[/]");
+
+        var assignedDisplay = item.AssignedTo is not null
+            ? Markup.Escape(FormatterHelpers.TruncateTitle(item.AssignedTo, budget.AssignedToBudget))
+            : "[dim]unassigned[/]";
+        grid.AddRow("[bold]Assigned[/]", assignedDisplay);
 
         // Iteration — last segment only
         var iterationValue = item.IterationPath.Value;

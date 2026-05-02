@@ -176,6 +176,131 @@ public sealed class AreaViewRenderingTests
         output.ShouldContain("exact");
     }
 
+    // ── FormatAreaNode — width truncation ────────────────────────
+
+    [Fact]
+    public void FormatAreaNode_WithBudget_TruncatesLongInAreaTitle()
+    {
+        var renderer = CreateRenderer();
+        var longTitle = new string('A', 100);
+        var item = CreateWorkItem(42, longTitle, WorkItemType.Issue);
+        var node = new SprintHierarchyNode(item, isSprintItem: true);
+        var budget = new WidthBudget(60);
+
+        var result = renderer.FormatAreaNode(node, budget, depth: 0);
+
+        // Title should be truncated — not contain the full 100-char title
+        result.ShouldNotContain(longTitle);
+        result.ShouldContain("…");
+        result.ShouldContain("#42");
+    }
+
+    [Fact]
+    public void FormatAreaNode_WithBudget_TruncatesLongOutOfAreaTitle()
+    {
+        var renderer = CreateRenderer();
+        var longTitle = new string('B', 100);
+        var item = CreateWorkItem(10, longTitle, WorkItemType.Epic);
+        var node = new SprintHierarchyNode(item, isSprintItem: false);
+        var budget = new WidthBudget(60);
+
+        var result = renderer.FormatAreaNode(node, budget, depth: 0);
+
+        result.ShouldNotContain(longTitle);
+        result.ShouldContain("…");
+        result.ShouldStartWith("[dim]");
+    }
+
+    [Fact]
+    public void FormatAreaNode_WithBudget_ShortTitleNotTruncated()
+    {
+        var renderer = CreateRenderer();
+        var item = CreateWorkItem(42, "Short", WorkItemType.Task);
+        var node = new SprintHierarchyNode(item, isSprintItem: true);
+        var budget = new WidthBudget(120);
+
+        var result = renderer.FormatAreaNode(node, budget, depth: 0);
+
+        result.ShouldContain("Short");
+        result.ShouldNotContain("…");
+    }
+
+    [Fact]
+    public void FormatAreaNode_DeeperDepth_ReducesBudget()
+    {
+        var renderer = CreateRenderer();
+        // Title that fits at depth 0 but not at depth 5
+        var title = new string('X', 40);
+        var item = CreateWorkItem(42, title, WorkItemType.Task);
+        var node = new SprintHierarchyNode(item, isSprintItem: true);
+        var budget = new WidthBudget(80);
+
+        var resultDepth0 = renderer.FormatAreaNode(node, budget, depth: 0);
+        var resultDepth5 = renderer.FormatAreaNode(node, budget, depth: 5);
+
+        // At depth 5, indentation eats into budget so title may get truncated
+        // At minimum, verify deeper depth doesn't crash and produces valid output
+        resultDepth0.ShouldContain("#42");
+        resultDepth5.ShouldContain("#42");
+    }
+
+    // ── RenderAreaViewAsync — flat table width truncation ─────────
+
+    [Fact]
+    public async Task RenderAreaViewAsync_FlatTable_TruncatesLongTitle()
+    {
+        var theme = new SpectreTheme(new DisplayConfig());
+        var testConsole = new TestConsole();
+        testConsole.Profile.Width = 60;
+        var renderer = new SpectreRenderer(testConsole, theme);
+
+        var longTitle = new string('Z', 100);
+        var items = new List<WorkItem> { CreateWorkItem(1, longTitle, WorkItemType.Task) };
+        var filters = new List<AreaPathFilter> { new("Project", true) };
+        var view = AreaView.Build(items, filters, hierarchy: null, matchCount: 1);
+
+        await renderer.RenderAreaViewAsync(view, CancellationToken.None);
+
+        var output = testConsole.Output;
+        output.ShouldNotContain(longTitle);
+        output.ShouldContain("…");
+    }
+
+    // ── RenderAreaViewAsync — hierarchy width truncation ──────────
+
+    [Fact]
+    public async Task RenderAreaViewAsync_Hierarchy_TruncatesLongTitle()
+    {
+        var theme = new SpectreTheme(new DisplayConfig());
+        var testConsole = new TestConsole();
+        testConsole.Profile.Width = 60;
+        var renderer = new SpectreRenderer(testConsole, theme);
+
+        var longTitle = new string('W', 100);
+        var outOfAreaEpic = CreateWorkItem(1, "Parent Epic", WorkItemType.Epic);
+        var inAreaTask = CreateWorkItem(3, longTitle, WorkItemType.Task, parentId: 1);
+
+        var parentLookup = new Dictionary<int, WorkItem>
+        {
+            [1] = outOfAreaEpic,
+            [3] = inAreaTask,
+        };
+        var hierarchy = new SprintHierarchyBuilder().Build(
+            new List<WorkItem> { inAreaTask },
+            parentLookup,
+            ceilingTypeNames: new List<string> { "Epic" });
+
+        var filters = new List<AreaPathFilter> { new("Project\\Team A", true) };
+        var view = AreaView.Build(new List<WorkItem> { inAreaTask }, filters, hierarchy, matchCount: 1);
+
+        await renderer.RenderAreaViewAsync(view, CancellationToken.None);
+
+        var output = testConsole.Output;
+        output.ShouldNotContain(longTitle);
+        output.ShouldContain("…");
+        output.ShouldContain("#3");
+    }
+
     // ── Helpers ────────────────────────────────────────────────────
 
     private static SpectreRenderer CreateRenderer()

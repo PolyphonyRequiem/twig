@@ -447,6 +447,28 @@ public sealed class WorkspaceWidthTests
         output.ShouldContain(fitsAtWide);
     }
 
+    [Fact]
+    public async Task FlatTable_StandardWidth_MediumTitle_NotTruncated()
+    {
+        // At 80 width, TableTitleBudget = 80 - 32 = 48; MediumTitle (39 chars) fits
+        var output = await RenderFlat(80,
+            new WorkItemBuilder(903, MediumTitle).InState("Active").Build());
+
+        output.ShouldContain(MediumTitle);
+        output.ShouldNotContain("…");
+    }
+
+    [Fact]
+    public async Task FlatTable_NarrowWidth_MediumTitle_IsTruncated()
+    {
+        // At 60 width, TableTitleBudget = 60 - 32 = 28; MediumTitle (39 chars) exceeds budget
+        var output = await RenderFlat(60,
+            new WorkItemBuilder(904, MediumTitle).InState("Active").Build());
+
+        output.ShouldContain("…");
+        output.ShouldNotContain(MediumTitle);
+    }
+
     // ── Assigned-to truncation (team view) ──────────────────────────
 
     [Fact]

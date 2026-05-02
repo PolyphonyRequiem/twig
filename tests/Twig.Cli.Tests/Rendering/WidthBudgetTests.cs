@@ -67,38 +67,35 @@ public sealed class WidthBudgetTests
 
     // --- TableTitleBudget ---
 
-    [Fact]
-    public void TableTitleBudget_ReturnsWidthMinusOverhead()
+    [Theory]
+    [InlineData(60, 28)]
+    [InlineData(80, 48)]
+    [InlineData(120, 88)]
+    [InlineData(200, 168)]
+    public void TableTitleBudget_ReturnsWidthMinusOverhead(int width, int expected)
     {
-        var budget = new WidthBudget(120);
-        budget.TableTitleBudget.ShouldBe(120 - WidthBudget.TableFixedOverhead);
+        var budget = new WidthBudget(width);
+        budget.TableTitleBudget.ShouldBe(expected);
     }
 
-    [Fact]
-    public void TableTitleBudget_ClampsToOne_WhenOverheadExceedsWidth()
+    // --- PanelContentWidth & GridValueBudget ---
+
+    [Theory]
+    [InlineData(80, 74)]
+    [InlineData(120, 114)]
+    public void PanelContentWidth_ReturnsWidthMinusPanelOverhead(int width, int expected)
     {
-        // MinConsoleWidth (60) - TableFixedOverhead (32) = 28, still positive
-        // Force a scenario via the minimum: 60 - 32 = 28
-        var budget = new WidthBudget(60);
-        budget.TableTitleBudget.ShouldBe(28);
+        var budget = new WidthBudget(width);
+        budget.PanelContentWidth.ShouldBe(expected);
     }
 
-    // --- PanelContentWidth ---
-
-    [Fact]
-    public void PanelContentWidth_ReturnsWidthMinusOverhead()
+    [Theory]
+    [InlineData(80, 60)]
+    [InlineData(120, 100)]
+    public void GridValueBudget_ReturnsPanelContentMinusLabelWidth(int width, int expected)
     {
-        var budget = new WidthBudget(100);
-        budget.PanelContentWidth.ShouldBe(100 - WidthBudget.PanelFixedOverhead);
-    }
-
-    // --- GridValueBudget ---
-
-    [Fact]
-    public void GridValueBudget_ReturnsPanelContentMinusLabelWidth()
-    {
-        var budget = new WidthBudget(100);
-        budget.GridValueBudget.ShouldBe(100 - WidthBudget.PanelFixedOverhead - WidthBudget.GridLabelWidth);
+        var budget = new WidthBudget(width);
+        budget.GridValueBudget.ShouldBe(expected);
     }
 
     // --- PathBudget ---
@@ -113,7 +110,7 @@ public sealed class WidthBudgetTests
     [Fact]
     public void PathBudget_Standard_CapsAt60()
     {
-        var budget = new WidthBudget(100); // Standard
+        var budget = new WidthBudget(80); // Standard
         budget.PathBudget.ShouldBe(60);
     }
 
@@ -160,25 +157,34 @@ public sealed class WidthBudgetTests
     [Fact]
     public void TreeTitleBudget_DepthZero_ReturnsWidthMinusFixedOverhead()
     {
-        var budget = new WidthBudget(120);
-        budget.TreeTitleBudget(0).ShouldBe(120 - WidthBudget.TreeNodeFixedOverhead);
+        var budget = new WidthBudget(80);
+        budget.TreeTitleBudget(0).ShouldBe(80 - WidthBudget.TreeNodeFixedOverhead); // 54
     }
 
     [Fact]
     public void TreeTitleBudget_ReducesWithDepth()
     {
-        var budget = new WidthBudget(120);
+        var budget = new WidthBudget(80);
         var atZero = budget.TreeTitleBudget(0);
         var atThree = budget.TreeTitleBudget(3);
         atThree.ShouldBeLessThan(atZero);
-        atThree.ShouldBe(120 - (3 * WidthBudget.TreeIndentPerLevel) - WidthBudget.TreeNodeFixedOverhead);
+        atThree.ShouldBe(80 - (3 * WidthBudget.TreeIndentPerLevel) - WidthBudget.TreeNodeFixedOverhead); // 42
+    }
+
+    [Fact]
+    public void TreeTitleBudget_Width60Depth5_StaysPositive()
+    {
+        var budget = new WidthBudget(60);
+        // 60 - (5*4) - 26 = 14, above the clamp threshold of 10
+        budget.TreeTitleBudget(5).ShouldBe(14);
+        budget.TreeTitleBudget(5).ShouldBeGreaterThan(0);
     }
 
     [Fact]
     public void TreeTitleBudget_ClampsToTen_AtExtremeDepth()
     {
         var budget = new WidthBudget(60);
-        // depth=100: 60 - (100*4) - 26 = 60 - 400 - 26 = -366 → clamped to 10
+        // depth=100: 60 - (100*4) - 26 = -366 → clamped to 10
         budget.TreeTitleBudget(100).ShouldBe(10);
     }
 
@@ -190,6 +196,16 @@ public sealed class WidthBudgetTests
         budget.TreeTitleBudget(2).ShouldBe(26);
         // depth=7: 60 - 28 - 26 = 6 → clamped to 10
         budget.TreeTitleBudget(7).ShouldBe(10);
+    }
+
+    [Fact]
+    public void TreeTitleBudget_NeverReturnsNegative()
+    {
+        var budget = new WidthBudget(60);
+        for (var depth = 0; depth < 50; depth++)
+        {
+            budget.TreeTitleBudget(depth).ShouldBeGreaterThanOrEqualTo(10);
+        }
     }
 
     // --- Value equality (record struct) ---

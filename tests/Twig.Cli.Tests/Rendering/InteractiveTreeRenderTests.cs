@@ -318,7 +318,7 @@ public class InteractiveTreeRenderTests
         // Should not throw and should contain truncation indicator
         var output = RenderToString(panel);
         output.ShouldContain("#42");
-        output.ShouldContain("...");
+        output.ShouldContain("…");
     }
 
     // ── ProcessKey (I-004) ──────────────────────────────────────────

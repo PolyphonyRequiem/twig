@@ -97,7 +97,8 @@ public sealed class WorkspaceTreeRenderTests
             sprintItems: new[] { story }, sections: sections);
 
         // Verify the epic label is dimmed (FormatWorkspaceTreeNodeLabel wraps in [dim])
-        var label = renderer.FormatWorkspaceTreeNodeLabel(roots[0], null, 5);
+        var budget = new WidthBudget(console.Profile.Width);
+        var label = renderer.FormatWorkspaceTreeNodeLabel(roots[0], null, 5, budget, 0);
         label.ShouldStartWith("[dim]");
         label.ShouldContain("Context Epic");
     }
@@ -110,7 +111,8 @@ public sealed class WorkspaceTreeRenderTests
         var story = new WorkItemBuilder(20, "Working Story").AsUserStory().InState("Active").Build();
         var roots = new[] { BuildNode(story, isSprintItem: true) };
 
-        var label = renderer.FormatWorkspaceTreeNodeLabel(roots[0], null, 5);
+        var budget = new WidthBudget(console.Profile.Width);
+        var label = renderer.FormatWorkspaceTreeNodeLabel(roots[0], null, 5, budget, 0);
         label.ShouldNotStartWith("[dim]");
         label.ShouldContain("Working Story");
     }
@@ -123,7 +125,8 @@ public sealed class WorkspaceTreeRenderTests
         var task = new WorkItemBuilder(30, "Child Task").AsTask().InState("Active").Build();
         var roots = new[] { BuildNode(task, isSprintItem: true) };
 
-        var label = renderer.FormatWorkspaceTreeNodeLabel(roots[0], null, 5);
+        var budget = new WidthBudget(console.Profile.Width);
+        var label = renderer.FormatWorkspaceTreeNodeLabel(roots[0], null, 5, budget, 0);
         label.ShouldNotStartWith("[dim]");
         label.ShouldContain("Child Task");
     }
@@ -492,8 +495,9 @@ public sealed class WorkspaceTreeRenderTests
         // But it's context-only (not a sprint item), so title should be dimmed.
         var story = new WorkItemBuilder(10, "Context Story").AsUserStory().InState("Active").Build();
 
+        var budget = new WidthBudget(console.Profile.Width);
         var label = renderer.FormatWorkspaceTreeNodeLabel(
-            BuildNode(story, isSprintItem: false), null, 5);
+            BuildNode(story, isSprintItem: false), null, 5, budget, 0);
 
         // Context nodes at/below working level: type badge visible, title dimmed
         label.ShouldNotStartWith("[dim]");
@@ -510,11 +514,106 @@ public sealed class WorkspaceTreeRenderTests
 
         var story = new WorkItemBuilder(20, "Tracked Story").AsUserStory().InState("Active").Build();
 
+        var budget = new WidthBudget(console.Profile.Width);
         var label = renderer.FormatWorkspaceTreeNodeLabel(
-            BuildNode(story, isSprintItem: true), null, 5);
+            BuildNode(story, isSprintItem: true), null, 5, budget, 0);
 
         label.ShouldContain("📌");
         label.ShouldContain("Tracked Story");
+    }
+
+    // ── Title truncation via WidthBudget ────────────────────────────
+
+    [Fact]
+    public void FormatLabel_TruncatesLongTitle_AtBudgetWidth()
+    {
+        var (console, renderer) = CreateTreeRenderer();
+        console.Profile.Width = 80;
+        var budget = new WidthBudget(console.Profile.Width);
+
+        var longTitle = new string('A', 200);
+        var story = new WorkItemBuilder(10, longTitle).AsUserStory().InState("Active").Build();
+
+        var label = renderer.FormatWorkspaceTreeNodeLabel(
+            BuildNode(story, isSprintItem: true), null, 5, budget, 0);
+
+        // Title should be truncated — should NOT contain the full 200-char title
+        label.ShouldNotContain(longTitle);
+        label.ShouldContain("…");
+    }
+
+    [Fact]
+    public void FormatLabel_ShortTitle_NotTruncated()
+    {
+        var (console, renderer) = CreateTreeRenderer();
+        console.Profile.Width = 120;
+        var budget = new WidthBudget(console.Profile.Width);
+
+        var story = new WorkItemBuilder(10, "Short").AsUserStory().InState("Active").Build();
+
+        var label = renderer.FormatWorkspaceTreeNodeLabel(
+            BuildNode(story, isSprintItem: true), null, 5, budget, 0);
+
+        label.ShouldContain("Short");
+        label.ShouldNotContain("…");
+    }
+
+    [Fact]
+    public void FormatLabel_DeeperDepth_ReducesTitleBudget()
+    {
+        var (console, renderer) = CreateTreeRenderer();
+        console.Profile.Width = 80;
+        var budget = new WidthBudget(console.Profile.Width);
+
+        // At depth 0: budget = 80 - 0*4 - 26 = 54; at depth 5: budget = 80 - 5*4 - 26 = 34
+        // Use a title that fits at depth 0 but not at depth 5
+        var title = new string('X', 45);
+        var story = new WorkItemBuilder(10, title).AsUserStory().InState("Active").Build();
+
+        var labelDepth0 = renderer.FormatWorkspaceTreeNodeLabel(
+            BuildNode(story, isSprintItem: true), null, 5, budget, 0);
+        var labelDepth5 = renderer.FormatWorkspaceTreeNodeLabel(
+            BuildNode(story, isSprintItem: true), null, 5, budget, 5);
+
+        // Depth 0 should fit without truncation, depth 5 should truncate
+        labelDepth0.ShouldNotContain("…");
+        labelDepth5.ShouldContain("…");
+    }
+
+    [Fact]
+    public void FormatLabel_AboveWorkingLevel_TruncatesDimmedTitle()
+    {
+        var (console, renderer) = CreateTreeRenderer(workingLevel: "User Story");
+        console.Profile.Width = 80;
+        var budget = new WidthBudget(console.Profile.Width);
+
+        var longTitle = new string('E', 200);
+        var epic = new WorkItemBuilder(10, longTitle).AsEpic().InState("Active").Build();
+
+        var label = renderer.FormatWorkspaceTreeNodeLabel(
+            BuildNode(epic, isSprintItem: false), null, 5, budget, 0);
+
+        label.ShouldStartWith("[dim]");
+        label.ShouldNotContain(longTitle);
+        label.ShouldContain("…");
+    }
+
+    [Fact]
+    public void FormatLabel_ContextOnly_TruncatesDimmedTitle()
+    {
+        var (console, renderer) = CreateTreeRenderer(workingLevel: "Feature");
+        console.Profile.Width = 80;
+        var budget = new WidthBudget(console.Profile.Width);
+
+        var longTitle = new string('C', 200);
+        var story = new WorkItemBuilder(10, longTitle).AsUserStory().InState("Active").Build();
+
+        var label = renderer.FormatWorkspaceTreeNodeLabel(
+            BuildNode(story, isSprintItem: false), null, 5, budget, 0);
+
+        label.ShouldContain("[dim]");
+        label.ShouldNotContain(longTitle);
+        label.ShouldContain("…");
     }
 
     // ── Helpers ──────────────────────────────────────────────────────

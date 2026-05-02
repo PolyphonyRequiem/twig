@@ -507,12 +507,13 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         int cacheStaleMinutes)
     {
         var prunedRoots = PruneAncestorsAboveDepthUp(roots);
+        var budget = new WidthBudget(_console.Profile.Width);
 
         foreach (var root in prunedRoots)
         {
-            var rootLabel = FormatWorkspaceTreeNodeLabel(root, activeContextId, cacheStaleMinutes);
+            var rootLabel = FormatWorkspaceTreeNodeLabel(root, activeContextId, cacheStaleMinutes, budget, 0);
             var tree = new Tree(rootLabel);
-            AddWorkspaceTreeChildren(tree, root.Children, activeContextId, 1, cacheStaleMinutes);
+            AddWorkspaceTreeChildren(tree, root.Children, activeContextId, 1, cacheStaleMinutes, budget);
             container.AddRow(tree);
         }
     }
@@ -526,7 +527,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         List<SprintHierarchyNode> children,
         int? activeContextId,
         int depth,
-        int cacheStaleMinutes)
+        int cacheStaleMinutes,
+        WidthBudget budget)
     {
         if (children.Count == 0 || depth > TreeDepthDown)
         {
@@ -537,12 +539,12 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
         foreach (var child in children)
         {
-            var label = FormatWorkspaceTreeNodeLabel(child, activeContextId, cacheStaleMinutes);
+            var label = FormatWorkspaceTreeNodeLabel(child, activeContextId, cacheStaleMinutes, budget, depth);
             var stateColor = child.IsVirtualGroup
                 ? "dim"
                 : _theme.GetStateCategoryMarkupColor(child.Item.State);
             var node = parent.AddNode($"[{stateColor}]│[/] {label}");
-            AddWorkspaceTreeChildren(node, child.Children, activeContextId, depth + 1, cacheStaleMinutes);
+            AddWorkspaceTreeChildren(node, child.Children, activeContextId, depth + 1, cacheStaleMinutes, budget);
         }
     }
 
@@ -562,7 +564,9 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     internal string FormatWorkspaceTreeNodeLabel(
         SprintHierarchyNode node,
         int? activeContextId,
-        int cacheStaleMinutes)
+        int cacheStaleMinutes,
+        WidthBudget budget,
+        int depth)
     {
         if (node.IsVirtualGroup)
             return $"[dim italic]{Markup.Escape(node.GroupLabel ?? "Unparented")}[/]";
@@ -576,14 +580,16 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         var cacheAge = CacheAgeFormatter.Format(item.LastSyncedAt, cacheStaleMinutes);
         var cacheAgeMarkup = cacheAge is not null ? $" [dim]{Markup.Escape(cacheAge)}[/]" : "";
 
+        var truncatedTitle = Markup.Escape(FormatterHelpers.TruncateTitle(item.Title, budget.TreeTitleBudget(depth)));
+
         if (isAboveWorking)
-            return $"[dim]{marker}{_theme.FormatTypeBadge(item.Type)} {Markup.Escape(item.Title)} {_theme.FormatState(item.State)}{cacheAgeMarkup}[/]";
+            return $"[dim]{marker}{_theme.FormatTypeBadge(item.Type)} {truncatedTitle} {_theme.FormatState(item.State)}{cacheAgeMarkup}[/]";
 
         if (node.IsSprintItem)
-            return $"{marker}{_theme.FormatTypeBadge(item.Type)} [bold]#{item.Id} {Markup.Escape(item.Title)}[/] {_theme.FormatState(item.State)}{cacheAgeMarkup}";
+            return $"{marker}{_theme.FormatTypeBadge(item.Type)} [bold]#{item.Id} {truncatedTitle}[/] {_theme.FormatState(item.State)}{cacheAgeMarkup}";
 
         // Context ancestor at or below working level — type badge visible, title dimmed
-        return $"{marker}{_theme.FormatTypeBadge(item.Type)} [dim]{Markup.Escape(item.Title)}[/] {_theme.FormatState(item.State)}{cacheAgeMarkup}";
+        return $"{marker}{_theme.FormatTypeBadge(item.Type)} [dim]{truncatedTitle}[/] {_theme.FormatState(item.State)}{cacheAgeMarkup}";
     }
 
     /// <summary>

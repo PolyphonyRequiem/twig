@@ -72,7 +72,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         }
 
         var budget = new WidthBudget(_console.Profile.Width);
-        var table = SpectreTheme.CreateWorkspaceTable(isTeamView, dynamicColumns);
+        var table = SpectreTheme.CreateWorkspaceTable(isTeamView, dynamicColumns, budget.TableTitleBudget);
         string? savedCaption = null;
         var loadingCleared = false;
         int? activeContextId = null;

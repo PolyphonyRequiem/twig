@@ -1611,6 +1611,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         IReadOnlyDictionary<int, IReadOnlyList<Domain.ValueObjects.SeedLink>>? links = null)
     {
         var groups = await getData();
+        var budget = new WidthBudget(_console.Profile.Width);
 
         var totalSeeds = 0;
         foreach (var g in groups)
@@ -1631,7 +1632,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             if (group.Parent is not null)
             {
                 var parentBadge = _theme.FormatTypeBadge(group.Parent.Type);
-                _console.MarkupLine($"  [bold]Parent:[/] #{group.Parent.Id} {parentBadge} {Markup.Escape(group.Parent.Type.ToString())} — {Markup.Escape(group.Parent.Title)}");
+                var parentTitle = FormatterHelpers.TruncateTitle(group.Parent.Title, budget.TableTitleBudget);
+                _console.MarkupLine($"  [bold]Parent:[/] #{group.Parent.Id} {parentBadge} {Markup.Escape(group.Parent.Type.ToString())} — {Markup.Escape(parentTitle)}");
             }
             else
             {
@@ -1676,7 +1678,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                 table.AddRow(
                     $"{seed.Id}",
                     $"{badge} {Markup.Escape(seed.Type.ToString())}",
-                    Markup.Escape(seed.Title),
+                    Markup.Escape(FormatterHelpers.TruncateTitle(seed.Title, budget.TableTitleBudget)),
                     $"[dim]{Markup.Escape(age)}[/]",
                     $"[dim]{filled}/{totalWritableFields} fields[/]",
                     statusCol);

@@ -409,7 +409,7 @@ public class SetCommandDisambiguationTests
             (12, "Auth logout flow"),
         };
 
-        var renderable = SpectreRenderer.BuildSelectionRenderable(items, selectedIndex: 1, filterText: "");
+        var renderable = SpectreRenderer.BuildSelectionRenderable(items, selectedIndex: 1, filterText: "", titleBudget: 200);
 
         var console = new TestConsole();
         console.Write(renderable);
@@ -429,7 +429,7 @@ public class SetCommandDisambiguationTests
             (10, "Auth login page"),
         };
 
-        var renderable = SpectreRenderer.BuildSelectionRenderable(items, selectedIndex: 0, filterText: "login");
+        var renderable = SpectreRenderer.BuildSelectionRenderable(items, selectedIndex: 0, filterText: "login", titleBudget: 200);
 
         var console = new TestConsole();
         console.Write(renderable);
@@ -443,7 +443,7 @@ public class SetCommandDisambiguationTests
     {
         var items = new List<(int Id, string Title)>();
 
-        var renderable = SpectreRenderer.BuildSelectionRenderable(items, selectedIndex: 0, filterText: "xyz");
+        var renderable = SpectreRenderer.BuildSelectionRenderable(items, selectedIndex: 0, filterText: "xyz", titleBudget: 200);
 
         var console = new TestConsole();
         console.Write(renderable);
@@ -480,9 +480,7 @@ public class SetCommandDisambiguationTests
         };
 
         var theme = new SpectreTheme(new DisplayConfig());
-        var renderable = SpectreRenderer.BuildSelectionRenderable(items, selectedIndex: 0, filterText: "", theme);
-
-        // TEST-006: BuildSelectionRenderable MUST include type badge markup when provided
+        var renderable = SpectreRenderer.BuildSelectionRenderable(items, selectedIndex: 0, filterText: "", theme, titleBudget: 200);
         var console = new TestConsole();
         console.Write(renderable);
         var output = console.Output;
@@ -506,7 +504,7 @@ public class SetCommandDisambiguationTests
         };
 
         var theme = new SpectreTheme(new DisplayConfig());
-        var renderable = SpectreRenderer.BuildSelectionRenderable(items, selectedIndex: 0, filterText: "", theme);
+        var renderable = SpectreRenderer.BuildSelectionRenderable(items, selectedIndex: 0, filterText: "", theme, titleBudget: 200);
 
         var console = new TestConsole();
         console.Write(renderable);
@@ -522,12 +520,93 @@ public class SetCommandDisambiguationTests
         var items = new List<(int Id, string Title, string? TypeName, string? State)>();
 
         var theme = new SpectreTheme(new DisplayConfig());
-        var renderable = SpectreRenderer.BuildSelectionRenderable(items, selectedIndex: 0, filterText: "xyz", theme);
+        var renderable = SpectreRenderer.BuildSelectionRenderable(items, selectedIndex: 0, filterText: "xyz", theme, titleBudget: 200);
 
         var console = new TestConsole();
         console.Write(renderable);
         var output = console.Output;
 
         output.ShouldContain("No items match filter");
+    }
+
+    // ── Truncation tests ─────────────────────────────────────────────
+
+    [Fact]
+    public void BuildSelectionRenderable_TruncatesLongTitle()
+    {
+        var longTitle = new string('A', 60);
+        var items = new List<(int Id, string Title)>
+        {
+            (10, longTitle),
+        };
+
+        var renderable = SpectreRenderer.BuildSelectionRenderable(items, selectedIndex: 0, filterText: "", titleBudget: 20);
+
+        var console = new TestConsole();
+        console.Write(renderable);
+        var output = console.Output;
+
+        output.ShouldNotContain(longTitle);
+        output.ShouldContain("…");
+        output.ShouldContain("#10");
+    }
+
+    [Fact]
+    public void BuildSelectionRenderable_ShortTitleNotTruncated()
+    {
+        var items = new List<(int Id, string Title)>
+        {
+            (10, "Short"),
+        };
+
+        var renderable = SpectreRenderer.BuildSelectionRenderable(items, selectedIndex: 0, filterText: "", titleBudget: 200);
+
+        var console = new TestConsole();
+        console.Write(renderable);
+        var output = console.Output;
+
+        output.ShouldContain("Short");
+        output.ShouldNotContain("…");
+    }
+
+    [Fact]
+    public void BuildSelectionRenderable_Enriched_TruncatesLongTitle()
+    {
+        var longTitle = new string('B', 60);
+        var items = new List<(int Id, string Title, string? TypeName, string? State)>
+        {
+            (10, longTitle, "Task", "Active"),
+        };
+
+        var theme = new SpectreTheme(new DisplayConfig());
+        var renderable = SpectreRenderer.BuildSelectionRenderable(items, selectedIndex: 0, filterText: "", theme, titleBudget: 20);
+
+        var console = new TestConsole();
+        console.Write(renderable);
+        var output = console.Output;
+
+        output.ShouldNotContain(longTitle);
+        output.ShouldContain("…");
+        output.ShouldContain("#10");
+        output.ShouldContain("Active");
+    }
+
+    [Fact]
+    public void BuildSelectionRenderable_Enriched_ShortTitleNotTruncated()
+    {
+        var items = new List<(int Id, string Title, string? TypeName, string? State)>
+        {
+            (10, "Short", "Bug", "New"),
+        };
+
+        var theme = new SpectreTheme(new DisplayConfig());
+        var renderable = SpectreRenderer.BuildSelectionRenderable(items, selectedIndex: 0, filterText: "", theme, titleBudget: 200);
+
+        var console = new TestConsole();
+        console.Write(renderable);
+        var output = console.Output;
+
+        output.ShouldContain("Short");
+        output.ShouldNotContain("…");
     }
 }

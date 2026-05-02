@@ -1313,6 +1313,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         var filtered = new List<(int Id, string Title)>(matches);
         (int Id, string Title)? result = null;
         var done = false;
+        var budget = new WidthBudget(_console.Profile.Width);
 
         // Custom Live()-based selection prompt (AOT-safe fallback — SelectionPrompt<T>
         // produces IL2067 trim warnings via TypeConverterHelper, see ITEM-001A spike).
@@ -1321,7 +1322,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             {
                 while (!done && !ct.IsCancellationRequested)
                 {
-                    ctx.UpdateTarget(BuildSelectionRenderable(filtered, selectedIndex, filterText));
+                    ctx.UpdateTarget(BuildSelectionRenderable(filtered, selectedIndex, filterText, budget.TableTitleBudget));
                     ctx.Refresh();
 
                     ConsoleKeyInfo key;
@@ -1393,7 +1394,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     internal static IRenderable BuildSelectionRenderable(
         IReadOnlyList<(int Id, string Title)> items,
         int selectedIndex,
-        string filterText)
+        string filterText,
+        int titleBudget)
     {
         var rows = new List<IRenderable>
         {
@@ -1412,9 +1414,10 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             for (var i = 0; i < items.Count; i++)
             {
                 var (id, title) = items[i];
+                var truncatedTitle = Markup.Escape(FormatterHelpers.TruncateTitle(title, titleBudget));
                 var prefix = i == selectedIndex ? "[aqua]❯[/] " : "  ";
                 var style = i == selectedIndex ? "bold" : "dim";
-                rows.Add(new Markup($"{prefix}[{style}]#{id} {Markup.Escape(title)}[/]"));
+                rows.Add(new Markup($"{prefix}[{style}]#{id} {truncatedTitle}[/]"));
             }
         }
 
@@ -1430,7 +1433,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         IReadOnlyList<(int Id, string Title, string? TypeName, string? State)> items,
         int selectedIndex,
         string filterText,
-        SpectreTheme theme)
+        SpectreTheme theme,
+        int titleBudget)
     {
         var rows = new List<IRenderable>
         {
@@ -1449,6 +1453,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             for (var i = 0; i < items.Count; i++)
             {
                 var (id, title, typeName, state) = items[i];
+                var truncatedTitle = Markup.Escape(FormatterHelpers.TruncateTitle(title, titleBudget));
                 var prefix = i == selectedIndex ? "[aqua]❯[/] " : "  ";
                 var style = i == selectedIndex ? "bold" : "dim";
 
@@ -1464,7 +1469,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                 if (state is not null)
                     stateMarkup = " " + theme.FormatState(state);
 
-                rows.Add(new Markup($"{prefix}{badgeMarkup}[{style}]#{id} {Markup.Escape(title)}[/]{stateMarkup}"));
+                rows.Add(new Markup($"{prefix}{badgeMarkup}[{style}]#{id} {truncatedTitle}[/]{stateMarkup}"));
             }
         }
 

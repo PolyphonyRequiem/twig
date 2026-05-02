@@ -391,6 +391,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                 int? activeContextId = null;
                 WorkspaceSections? currentSections = null;
                 var loadingCleared = false;
+                var budget = new WidthBudget(_console.Profile.Width);
 
                 await foreach (var chunk in data.WithCancellation(ct))
                 {
@@ -422,7 +423,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                                 if (section.TreeRoots is { Count: > 0 })
                                 {
                                     RenderTreeRootsIntoContainer(container, section.TreeRoots,
-                                        activeContextId, cacheStaleMinutes);
+                                        activeContextId, cacheStaleMinutes, budget);
                                 }
                                 else
                                 {
@@ -507,10 +508,10 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         Table container,
         IReadOnlyList<SprintHierarchyNode> roots,
         int? activeContextId,
-        int cacheStaleMinutes)
+        int cacheStaleMinutes,
+        WidthBudget budget)
     {
         var prunedRoots = PruneAncestorsAboveDepthUp(roots);
-        var budget = new WidthBudget(_console.Profile.Width);
 
         foreach (var root in prunedRoots)
         {

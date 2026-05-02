@@ -414,6 +414,66 @@ public sealed class WorkspaceWidthTests
         output.ShouldNotContain("stale");
     }
 
+    // ── Title truncation ───────────────────────────────────────────
+
+    [Fact]
+    public async Task FlatTable_NarrowWidth_LongTitle_IsTruncated()
+    {
+        var output = await RenderFlat(60,
+            new WorkItemBuilder(900, LongTitle).InState("Active").Build());
+
+        output.ShouldContain("…");
+        output.ShouldNotContain(LongTitle);
+    }
+
+    [Fact]
+    public async Task FlatTable_NarrowWidth_ShortTitle_NotTruncated()
+    {
+        var output = await RenderFlat(60,
+            new WorkItemBuilder(901, ShortTitle).InState("Active").Build());
+
+        output.ShouldContain(ShortTitle);
+        output.ShouldNotContain("…");
+    }
+
+    [Fact]
+    public async Task FlatTable_WideWidth_LongTitle_NotTruncated()
+    {
+        // At 120 width, TableTitleBudget = 120 - 32 = 88; this 72-char title fits
+        const string fitsAtWide = "A reasonably long title that fits at wide width but not at narrow width";
+        var output = await RenderFlat(120,
+            new WorkItemBuilder(902, fitsAtWide).InState("Active").Build());
+
+        output.ShouldContain(fitsAtWide);
+    }
+
+    // ── Assigned-to truncation (team view) ──────────────────────────
+
+    [Fact]
+    public async Task FlatTable_NarrowWidth_TeamView_LongAssignedTo_IsTruncated()
+    {
+        var output = await RenderFlatTeamView(60,
+            new WorkItemBuilder(910, ShortTitle)
+                .InState("Active")
+                .AssignedTo(LongAssignedTo)
+                .Build());
+
+        output.ShouldContain("…");
+        output.ShouldNotContain(LongAssignedTo);
+    }
+
+    [Fact]
+    public async Task FlatTable_WideWidth_TeamView_ShortAssignedTo_NotTruncated()
+    {
+        var output = await RenderFlatTeamView(120,
+            new WorkItemBuilder(911, ShortTitle)
+                .InState("Active")
+                .AssignedTo("Jane Doe")
+                .Build());
+
+        output.ShouldContain("Jane Doe");
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     private static async Task<string> RenderFlat(int width, params WorkItem[] items)

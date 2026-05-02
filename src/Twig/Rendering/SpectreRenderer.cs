@@ -71,6 +71,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             return;
         }
 
+        var budget = new WidthBudget(_console.Profile.Width);
         var table = SpectreTheme.CreateWorkspaceTable(isTeamView, dynamicColumns);
         string? savedCaption = null;
         var loadingCleared = false;
@@ -134,7 +135,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                                     }
 
                                     var sectionCategories = GroupByStateCategory(section.Items);
-                                    AddCategoryGroupRows(table, sectionCategories, activeContextId, isTeamView, dynamicColumns, colCount, cacheStaleMinutes);
+                                    AddCategoryGroupRows(table, sectionCategories, activeContextId, isTeamView, dynamicColumns, colCount, cacheStaleMinutes, budget);
                                     sectionIndex++;
                                 }
                             }
@@ -142,7 +143,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                             {
                                 // Flat category rendering (backward compat when no sections available)
                                 var categoryGroups = GroupByStateCategory(items);
-                                AddCategoryGroupRows(table, categoryGroups, activeContextId, isTeamView, dynamicColumns, colCount, cacheStaleMinutes);
+                                AddCategoryGroupRows(table, categoryGroups, activeContextId, isTeamView, dynamicColumns, colCount, cacheStaleMinutes, budget);
                             }
 
                             // Compute and set progress footer
@@ -305,7 +306,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         bool isTeamView,
         IReadOnlyList<ColumnSpec>? dynamicColumns,
         int colCount,
-        int cacheStaleMinutes)
+        int cacheStaleMinutes,
+        WidthBudget budget)
     {
         var catIndex = 0;
         foreach (var (category, catItems) in categoryGroups)
@@ -335,16 +337,17 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                 var cacheAge = CacheAgeFormatter.Format(item.LastSyncedAt, cacheStaleMinutes);
                 var cacheAgeMarkup = cacheAge is not null ? $" [dim]{Markup.Escape(cacheAge)}[/]" : "";
 
+                var truncatedTitle = Markup.Escape(FormatterHelpers.TruncateTitle(item.Title, budget.TableTitleBudget));
                 var row = new List<string>
                 {
                     $"{marker}{boldOpen}{item.Id}{boldClose}",
                     _theme.FormatTypeBadge(item.Type),
-                    $"{boldOpen}{Markup.Escape(item.Title)}{boldClose}{cacheAgeMarkup}",
+                    $"{boldOpen}{truncatedTitle}{boldClose}{cacheAgeMarkup}",
                     _theme.FormatState(item.State),
                 };
 
                 if (isTeamView)
-                    row.Add(Markup.Escape(item.AssignedTo ?? "(unassigned)"));
+                    row.Add(Markup.Escape(FormatterHelpers.Truncate(item.AssignedTo ?? "(unassigned)", budget.AssignedToBudget)));
 
                 if (dynamicColumns is not null)
                 {

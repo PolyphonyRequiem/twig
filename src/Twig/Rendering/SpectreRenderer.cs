@@ -71,7 +71,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             return;
         }
 
-        var table = SpectreTheme.CreateWorkspaceTable(isTeamView, dynamicColumns);
+        var budget = new WidthBudget(_console.Profile.Width);
+        var table = SpectreTheme.CreateWorkspaceTable(isTeamView, dynamicColumns, budget.TableTitleBudget);
         string? savedCaption = null;
         var loadingCleared = false;
         int? activeContextId = null;
@@ -134,7 +135,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                                     }
 
                                     var sectionCategories = GroupByStateCategory(section.Items);
-                                    AddCategoryGroupRows(table, sectionCategories, activeContextId, isTeamView, dynamicColumns, colCount, cacheStaleMinutes);
+                                    AddCategoryGroupRows(table, sectionCategories, activeContextId, isTeamView, dynamicColumns, colCount, cacheStaleMinutes, budget);
                                     sectionIndex++;
                                 }
                             }
@@ -142,7 +143,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                             {
                                 // Flat category rendering (backward compat when no sections available)
                                 var categoryGroups = GroupByStateCategory(items);
-                                AddCategoryGroupRows(table, categoryGroups, activeContextId, isTeamView, dynamicColumns, colCount, cacheStaleMinutes);
+                                AddCategoryGroupRows(table, categoryGroups, activeContextId, isTeamView, dynamicColumns, colCount, cacheStaleMinutes, budget);
                             }
 
                             // Compute and set progress footer
@@ -207,12 +208,12 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                                     {
                                         seed.Id < 0 ? $"[dim]{seed.Id}[/]" : seed.Id.ToString(),
                                         $"{seedIndicator} {_theme.FormatTypeBadge(seed.Type)}",
-                                        Markup.Escape(seed.Title) + staleMarker,
+                                        Markup.Escape(FormatterHelpers.TruncateTitle(seed.Title, budget.TableTitleBudget)) + staleMarker,
                                         _theme.FormatState(seed.State),
                                     };
 
                                     if (isTeamView)
-                                        seedRow.Add(Markup.Escape(seed.AssignedTo ?? "(unassigned)"));
+                                        seedRow.Add(Markup.Escape(FormatterHelpers.Truncate(seed.AssignedTo ?? "(unassigned)", budget.AssignedToBudget)));
 
                                     if (dynamicColumns is not null)
                                     {
@@ -305,7 +306,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         bool isTeamView,
         IReadOnlyList<ColumnSpec>? dynamicColumns,
         int colCount,
-        int cacheStaleMinutes)
+        int cacheStaleMinutes,
+        WidthBudget budget)
     {
         var catIndex = 0;
         foreach (var (category, catItems) in categoryGroups)
@@ -335,16 +337,17 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                 var cacheAge = CacheAgeFormatter.Format(item.LastSyncedAt, cacheStaleMinutes);
                 var cacheAgeMarkup = cacheAge is not null ? $" [dim]{Markup.Escape(cacheAge)}[/]" : "";
 
+                var truncatedTitle = Markup.Escape(FormatterHelpers.TruncateTitle(item.Title, budget.TableTitleBudget));
                 var row = new List<string>
                 {
                     $"{marker}{boldOpen}{item.Id}{boldClose}",
                     _theme.FormatTypeBadge(item.Type),
-                    $"{boldOpen}{Markup.Escape(item.Title)}{boldClose}{cacheAgeMarkup}",
+                    $"{boldOpen}{truncatedTitle}{boldClose}{cacheAgeMarkup}",
                     _theme.FormatState(item.State),
                 };
 
                 if (isTeamView)
-                    row.Add(Markup.Escape(item.AssignedTo ?? "(unassigned)"));
+                    row.Add(Markup.Escape(FormatterHelpers.Truncate(item.AssignedTo ?? "(unassigned)", budget.AssignedToBudget)));
 
                 if (dynamicColumns is not null)
                 {
@@ -388,6 +391,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                 int? activeContextId = null;
                 WorkspaceSections? currentSections = null;
                 var loadingCleared = false;
+                var budget = new WidthBudget(_console.Profile.Width);
 
                 await foreach (var chunk in data.WithCancellation(ct))
                 {
@@ -419,12 +423,12 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                                 if (section.TreeRoots is { Count: > 0 })
                                 {
                                     RenderTreeRootsIntoContainer(container, section.TreeRoots,
-                                        activeContextId, cacheStaleMinutes);
+                                        activeContextId, cacheStaleMinutes, budget);
                                 }
                                 else
                                 {
                                     RenderFlatItemsIntoContainer(container, section.Items,
-                                        activeContextId, cacheStaleMinutes);
+                                        activeContextId, cacheStaleMinutes, budget);
                                 }
 
                                 sectionIndex++;
@@ -444,7 +448,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                             else { container.Rows.Clear(); }
 
                             RenderFlatItemsIntoContainer(container, loaded.Items,
-                                activeContextId, cacheStaleMinutes);
+                                activeContextId, cacheStaleMinutes, budget);
                             RenderTreeProgressFooter(container, loaded.Items);
                             ctx.Refresh();
                             break;
@@ -464,7 +468,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                                         && seed.SeedCreatedAt.Value < DateTimeOffset.UtcNow.AddDays(-staleDays)
                                         ? " [yellow]⚠ stale[/]" : "";
                                     container.AddRow(new Markup(
-                                        $"  {seedIndicator} {_theme.FormatTypeBadge(seed.Type)} #{seed.Id} {Markup.Escape(seed.Title)}{staleMarker} {_theme.FormatState(seed.State)}"));
+                                        $"  {seedIndicator} {_theme.FormatTypeBadge(seed.Type)} #{seed.Id} {Markup.Escape(FormatterHelpers.TruncateTitle(seed.Title, budget.TreeTitleBudget(0)))}{staleMarker} {_theme.FormatState(seed.State)}"));
                                 }
                             }
 
@@ -504,15 +508,16 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         Table container,
         IReadOnlyList<SprintHierarchyNode> roots,
         int? activeContextId,
-        int cacheStaleMinutes)
+        int cacheStaleMinutes,
+        WidthBudget budget)
     {
         var prunedRoots = PruneAncestorsAboveDepthUp(roots);
 
         foreach (var root in prunedRoots)
         {
-            var rootLabel = FormatWorkspaceTreeNodeLabel(root, activeContextId, cacheStaleMinutes);
+            var rootLabel = FormatWorkspaceTreeNodeLabel(root, activeContextId, cacheStaleMinutes, budget, 0);
             var tree = new Tree(rootLabel);
-            AddWorkspaceTreeChildren(tree, root.Children, activeContextId, 1, cacheStaleMinutes);
+            AddWorkspaceTreeChildren(tree, root.Children, activeContextId, 1, cacheStaleMinutes, budget);
             container.AddRow(tree);
         }
     }
@@ -526,7 +531,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         List<SprintHierarchyNode> children,
         int? activeContextId,
         int depth,
-        int cacheStaleMinutes)
+        int cacheStaleMinutes,
+        WidthBudget budget)
     {
         if (children.Count == 0 || depth > TreeDepthDown)
         {
@@ -537,12 +543,12 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
         foreach (var child in children)
         {
-            var label = FormatWorkspaceTreeNodeLabel(child, activeContextId, cacheStaleMinutes);
+            var label = FormatWorkspaceTreeNodeLabel(child, activeContextId, cacheStaleMinutes, budget, depth);
             var stateColor = child.IsVirtualGroup
                 ? "dim"
                 : _theme.GetStateCategoryMarkupColor(child.Item.State);
             var node = parent.AddNode($"[{stateColor}]│[/] {label}");
-            AddWorkspaceTreeChildren(node, child.Children, activeContextId, depth + 1, cacheStaleMinutes);
+            AddWorkspaceTreeChildren(node, child.Children, activeContextId, depth + 1, cacheStaleMinutes, budget);
         }
     }
 
@@ -562,7 +568,9 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     internal string FormatWorkspaceTreeNodeLabel(
         SprintHierarchyNode node,
         int? activeContextId,
-        int cacheStaleMinutes)
+        int cacheStaleMinutes,
+        WidthBudget budget,
+        int depth)
     {
         if (node.IsVirtualGroup)
             return $"[dim italic]{Markup.Escape(node.GroupLabel ?? "Unparented")}[/]";
@@ -576,14 +584,16 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         var cacheAge = CacheAgeFormatter.Format(item.LastSyncedAt, cacheStaleMinutes);
         var cacheAgeMarkup = cacheAge is not null ? $" [dim]{Markup.Escape(cacheAge)}[/]" : "";
 
+        var truncatedTitle = Markup.Escape(FormatterHelpers.TruncateTitle(item.Title, budget.TreeTitleBudget(depth)));
+
         if (isAboveWorking)
-            return $"[dim]{marker}{_theme.FormatTypeBadge(item.Type)} {Markup.Escape(item.Title)} {_theme.FormatState(item.State)}{cacheAgeMarkup}[/]";
+            return $"[dim]{marker}{_theme.FormatTypeBadge(item.Type)} {truncatedTitle} {_theme.FormatState(item.State)}{cacheAgeMarkup}[/]";
 
         if (node.IsSprintItem)
-            return $"{marker}{_theme.FormatTypeBadge(item.Type)} [bold]#{item.Id} {Markup.Escape(item.Title)}[/] {_theme.FormatState(item.State)}{cacheAgeMarkup}";
+            return $"{marker}{_theme.FormatTypeBadge(item.Type)} [bold]#{item.Id} {truncatedTitle}[/] {_theme.FormatState(item.State)}{cacheAgeMarkup}";
 
         // Context ancestor at or below working level — type badge visible, title dimmed
-        return $"{marker}{_theme.FormatTypeBadge(item.Type)} [dim]{Markup.Escape(item.Title)}[/] {_theme.FormatState(item.State)}{cacheAgeMarkup}";
+        return $"{marker}{_theme.FormatTypeBadge(item.Type)} [dim]{truncatedTitle}[/] {_theme.FormatState(item.State)}{cacheAgeMarkup}";
     }
 
     /// <summary>
@@ -593,7 +603,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         Table container,
         IReadOnlyList<WorkItem> items,
         int? activeContextId,
-        int cacheStaleMinutes)
+        int cacheStaleMinutes,
+        WidthBudget budget)
     {
         foreach (var item in items)
         {
@@ -606,8 +617,10 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             var cacheAge = CacheAgeFormatter.Format(item.LastSyncedAt, cacheStaleMinutes);
             var cacheAgeMarkup = cacheAge is not null ? $" [dim]{Markup.Escape(cacheAge)}[/]" : "";
 
+            var truncatedTitle = Markup.Escape(FormatterHelpers.TruncateTitle(item.Title, budget.TreeTitleBudget(0)));
+
             container.AddRow(new Markup(
-                $"  {marker}{boldOpen}{_theme.FormatTypeBadge(item.Type)} #{item.Id} {Markup.Escape(item.Title)}{boldClose} {_theme.FormatState(item.State)}{cacheAgeMarkup}"));
+                $"  {marker}{boldOpen}{_theme.FormatTypeBadge(item.Type)} #{item.Id} {truncatedTitle}{boldClose} {_theme.FormatState(item.State)}{cacheAgeMarkup}"));
         }
     }
 
@@ -668,13 +681,17 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             return;
 
         var parentChain = await getParentChain();
+        var budget = new WidthBudget(_console.Profile.Width);
 
         // Build the Spectre Tree rooted at the topmost parent (or focused item if no parents).
         // focusContainer is the IHasTreeNodes where children should be appended.
-        var (tree, focusContainer) = await BuildSpectreTreeAsync(focusedItem, parentChain, activeId, getSiblingCount);
+        var (tree, focusContainer) = await BuildSpectreTreeAsync(focusedItem, parentChain, activeId, getSiblingCount, budget);
 
         // EPIC-005: Unparented banner for tree view
         var treeRenderable = ApplyUnparentedBanner(tree, focusedItem, parentChain);
+
+        // Children are one level below the focused item
+        var childDepth = parentChain.Count + 1;
 
         // Stage 2: Render tree immediately (parent chain + focused item), then add children
         await _console.Live(treeRenderable)
@@ -693,9 +710,10 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                     var dirty = child.IsDirty ? " [yellow]✎[/]" : "";
                     var effort = Formatters.FormatterHelpers.GetEffortDisplay(child);
                     var effortSuffix = effort is not null ? $" [dim]{Markup.Escape(effort)}[/]" : "";
+                    var childTitle = FormatterHelpers.TruncateTitle(child.Title, budget.TreeTitleBudget(childDepth));
                     // Spectre Tree owns its connector glyphs (├──/└──); use a colored │ prefix in the label instead
                     var stateColor = _theme.GetStateCategoryMarkupColor(child.State);
-                    var label = $"[{stateColor}]│[/] {activeMarker}{_theme.FormatTypeBadge(child.Type)} #{child.Id} {Markup.Escape(child.Title)}{dirty} {_theme.FormatState(child.State)}{effortSuffix}";
+                    var label = $"[{stateColor}]│[/] {activeMarker}{_theme.FormatTypeBadge(child.Type)} #{child.Id} {Markup.Escape(childTitle)}{dirty} {_theme.FormatState(child.State)}{effortSuffix}";
                     focusContainer.AddNode(label);
                     ctx.Refresh();
                 }
@@ -735,11 +753,12 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     /// </summary>
     internal async Task<(Tree Tree, IHasTreeNodes FocusContainer)> BuildSpectreTreeAsync(
         WorkItem focusedItem, IReadOnlyList<WorkItem> parentChain, int? activeId,
-        Func<int, Task<int?>>? getSiblingCount)
+        Func<int, Task<int?>>? getSiblingCount, WidthBudget? budget = null)
     {
+        // Depth 0 = tree root; focused item is at depth parentChain.Count
         if (parentChain.Count == 0)
         {
-            var tree = new Tree(FormatFocusedNode(focusedItem, activeId));
+            var tree = new Tree(FormatFocusedNode(focusedItem, activeId, budget, depth: 0));
             // Focused item is tree root — sibling count added as child (Spectre API limitation)
             if (getSiblingCount is not null && focusedItem.ParentId.HasValue)
             {
@@ -752,7 +771,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
         var root = parentChain[0];
         var rootAbove = IsParentAboveWorkingLevel(root);
-        var tree2 = new Tree(FormatParentNode(root, rootAbove));
+        var tree2 = new Tree(FormatParentNode(root, rootAbove, budget, depth: 0));
         IHasTreeNodes container = tree2;
 
         // Root parent — sibling count added as child of tree root (Spectre API limitation)
@@ -766,7 +785,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         for (var i = 1; i < parentChain.Count; i++)
         {
             var above = IsParentAboveWorkingLevel(parentChain[i]);
-            var parentNode = container.AddNode(FormatParentNode(parentChain[i], above));
+            var parentNode = container.AddNode(FormatParentNode(parentChain[i], above, budget, depth: i));
             // Sibling count at same level as node (added to container, not parentNode)
             if (getSiblingCount is not null && parentChain[i].ParentId.HasValue)
             {
@@ -777,7 +796,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             container = parentNode;
         }
 
-        var focusNode = container.AddNode(FormatFocusedNode(focusedItem, activeId));
+        var focusDepth = parentChain.Count;
+        var focusNode = container.AddNode(FormatFocusedNode(focusedItem, activeId, budget, depth: focusDepth));
         // Sibling count at same level as focused item (added to container, sibling of focusNode)
         if (getSiblingCount is not null && focusedItem.ParentId.HasValue)
         {
@@ -798,18 +818,24 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     internal static string FormatSiblingCount(int count) =>
         $"[dim]...{count}[/]";
 
-    internal string FormatParentNode(WorkItem item, bool aboveWorkingLevel = false)
+    internal string FormatParentNode(WorkItem item, bool aboveWorkingLevel = false, WidthBudget? budget = null, int depth = 0)
     {
+        var title = budget.HasValue
+            ? FormatterHelpers.TruncateTitle(item.Title, budget.Value.TreeTitleBudget(depth))
+            : item.Title;
         if (aboveWorkingLevel)
-            return $"[dim]{_theme.FormatTypeBadge(item.Type)} {Markup.Escape(item.Title)} {_theme.FormatState(item.State)}[/]";
-        return $"{_theme.FormatTypeBadge(item.Type)} [dim]{Markup.Escape(item.Title)}[/] {_theme.FormatState(item.State)}";
+            return $"[dim]{_theme.FormatTypeBadge(item.Type)} {Markup.Escape(title)} {_theme.FormatState(item.State)}[/]";
+        return $"{_theme.FormatTypeBadge(item.Type)} [dim]{Markup.Escape(title)}[/] {_theme.FormatState(item.State)}";
     }
 
-    internal string FormatFocusedNode(WorkItem item, int? activeId)
+    internal string FormatFocusedNode(WorkItem item, int? activeId, WidthBudget? budget = null, int depth = 0)
     {
         var marker = (activeId.HasValue && item.Id == activeId.Value) ? "[aqua]●[/] " : "";
         var dirty = item.IsDirty ? " [yellow]✎[/]" : "";
-        return $"{marker}{_theme.FormatTypeBadge(item.Type)} [bold]#{item.Id} {Markup.Escape(item.Title)}[/]{dirty} {_theme.FormatState(item.State)}";
+        var title = budget.HasValue
+            ? FormatterHelpers.TruncateTitle(item.Title, budget.Value.TreeTitleBudget(depth))
+            : item.Title;
+        return $"{marker}{_theme.FormatTypeBadge(item.Type)} [bold]#{item.Id} {Markup.Escape(title)}[/]{dirty} {_theme.FormatState(item.State)}";
     }
 
     private IRenderable ApplyUnparentedBanner(Tree tree, WorkItem focusedItem, IReadOnlyList<WorkItem> parentChain)
@@ -843,7 +869,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         IReadOnlyList<Domain.ValueObjects.WorkItemLink>? links = null,
         int cacheStaleMinutes = 5)
     {
-        var (tree, focusContainer) = await BuildSpectreTreeAsync(focusedItem, parentChain, activeId, getSiblingCount);
+        var budget = new WidthBudget(_console.Profile.Width);
+        var (tree, focusContainer) = await BuildSpectreTreeAsync(focusedItem, parentChain, activeId, getSiblingCount, budget);
 
         // Cache-age on focused node
         var focusCacheAge = CacheAgeFormatter.Format(focusedItem.LastSyncedAt, cacheStaleMinutes);
@@ -852,6 +879,9 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             // Append cache-age as a dimmed sibling node below the focus
             focusContainer.AddNode($"[dim]{Markup.Escape(focusCacheAge)}[/]");
         }
+
+        // Children are one level below the focused item
+        var childDepth = parentChain.Count + 1;
 
         // Add children with cache-age indicators on stale items
         for (var i = 0; i < children.Count; i++)
@@ -867,7 +897,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             var childCacheAge = CacheAgeFormatter.Format(child.LastSyncedAt, cacheStaleMinutes);
             var childCacheAgeMarkup = childCacheAge is not null ? $" [dim]{Markup.Escape(childCacheAge)}[/]" : "";
 
-            var label = $"[{stateColor}]│[/] {activeMarker}{_theme.FormatTypeBadge(child.Type)} #{child.Id} {Markup.Escape(child.Title)}{dirty} {_theme.FormatState(child.State)}{effortSuffix}{childCacheAgeMarkup}";
+            var childTitle = FormatterHelpers.TruncateTitle(child.Title, budget.TreeTitleBudget(childDepth));
+            var label = $"[{stateColor}]│[/] {activeMarker}{_theme.FormatTypeBadge(child.Type)} #{child.Id} {Markup.Escape(childTitle)}{dirty} {_theme.FormatState(child.State)}{effortSuffix}{childCacheAgeMarkup}";
             focusContainer.AddNode(label);
         }
 
@@ -917,12 +948,13 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
         // Work item detail panel — dirty indicator uses ● (DD-03)
         var dirty = item.IsDirty ? " [yellow]●[/]" : "";
+        var budget = new WidthBudget(_console.Profile.Width);
         var itemGrid = new Grid().AddColumn().AddColumn();
         itemGrid.AddRow("[dim]Type:[/]", _theme.FormatTypeBadge(item.Type) + " " + Markup.Escape(item.Type.ToString()));
         itemGrid.AddRow("[dim]State:[/]", _theme.FormatState(item.State));
-        itemGrid.AddRow("[dim]Assigned:[/]", Markup.Escape(item.AssignedTo ?? "(unassigned)"));
-        itemGrid.AddRow("[dim]Area:[/]", Markup.Escape(item.AreaPath.ToString()));
-        itemGrid.AddRow("[dim]Iteration:[/]", Markup.Escape(item.IterationPath.ToString()));
+        itemGrid.AddRow("[dim]Assigned:[/]", Markup.Escape(Formatters.FormatterHelpers.Truncate(item.AssignedTo ?? "(unassigned)", budget.AssignedToBudget)));
+        itemGrid.AddRow("[dim]Area:[/]", Markup.Escape(Formatters.FormatterHelpers.TruncatePath(item.AreaPath.ToString(), budget.PathBudget)));
+        itemGrid.AddRow("[dim]Iteration:[/]", Markup.Escape(Formatters.FormatterHelpers.TruncatePath(item.IterationPath.ToString(), budget.PathBudget)));
 
         // Extended fields from the Fields dictionary
         AddExtendedFieldRows(itemGrid, item, fieldDefinitions, statusFieldEntries);
@@ -958,14 +990,24 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             itemGrid.AddRow("[dim]⇄ Relationships:[/]", "");
 
             if (parent is not null)
-                itemGrid.AddRow("", $"[dim]Parent:[/] {_theme.FormatTypeBadge(parent.Type)} #{parent.Id} {Markup.Escape(parent.Title)}");
+            {
+                // Overhead: "Parent: "(8) + badge(2) + " #"(2) + id digits + " "(1)
+                var parentOverhead = 13 + parent.Id.ToString().Length;
+                var parentTitle = Formatters.FormatterHelpers.TruncateTitle(
+                    parent.Title, Math.Max(budget.GridValueBudget - parentOverhead, 10));
+                itemGrid.AddRow("", $"[dim]Parent:[/] {_theme.FormatTypeBadge(parent.Type)} #{parent.Id} {Markup.Escape(parentTitle)}");
+            }
 
             if (children is { Count: > 0 })
             {
                 foreach (var child in children)
                 {
                     var childState = _theme.FormatState(child.State);
-                    itemGrid.AddRow("", $"[dim]Child:[/]  {_theme.FormatTypeBadge(child.Type)} #{child.Id} {Markup.Escape(child.Title)} {childState}");
+                    // Overhead: "Child:  "(8) + badge(2) + " #"(2) + id digits + " "(1) + " "(1) + state chars
+                    var childOverhead = 14 + child.Id.ToString().Length + child.State.Length;
+                    var childTitle = Formatters.FormatterHelpers.TruncateTitle(
+                        child.Title, Math.Max(budget.GridValueBudget - childOverhead, 10));
+                    itemGrid.AddRow("", $"[dim]Child:[/]  {_theme.FormatTypeBadge(child.Type)} #{child.Id} {Markup.Escape(childTitle)} {childState}");
                 }
             }
 
@@ -1005,8 +1047,14 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                     new Markup(descriptionMarkup));
         }
 
+        var idPrefix = $"#{item.Id} ";
+        var dirtyVisibleLen = item.IsDirty ? 2 : 0;
+        var cacheAgeVisibleLen = cacheAge is not null ? cacheAge.Length + 1 : 0;
+        var headerTitle = Markup.Escape(FormatterHelpers.TruncateTitle(
+            item.Title, budget.PanelHeaderTitleBudget(idPrefix.Length + dirtyVisibleLen + cacheAgeVisibleLen)));
+
         var itemPanel = new Panel(panelContent)
-            .Header($"[bold]#{item.Id} {Markup.Escape(item.Title)}[/]{dirty}{cacheAgeMarkup}")
+            .Header($"[bold]{idPrefix}{headerTitle}[/]{dirty}{cacheAgeMarkup}")
             .Border(BoxBorder.Rounded)
             .Expand();
 
@@ -1050,12 +1098,17 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
         // Build initial panel with core fields only (type, state, assigned, area, iteration)
         var dirty = showDirty && item.IsDirty ? " [yellow]●[/]" : "";
+        var budget = new WidthBudget(_console.Profile.Width);
+        var idPrefix = $"#{item.Id} ";
+        var dirtyVisibleLen = (showDirty && item.IsDirty) ? 2 : 0;
+        var headerTitle = Markup.Escape(FormatterHelpers.TruncateTitle(
+            item.Title, budget.PanelHeaderTitleBudget(idPrefix.Length + dirtyVisibleLen)));
         var grid = new Grid().AddColumn().AddColumn();
         grid.AddRow("[dim]Type:[/]", _theme.FormatTypeBadge(item.Type) + " " + Markup.Escape(item.Type.ToString()));
         grid.AddRow("[dim]State:[/]", _theme.FormatState(item.State));
-        grid.AddRow("[dim]Assigned:[/]", Markup.Escape(item.AssignedTo ?? "(unassigned)"));
-        grid.AddRow("[dim]Area:[/]", Markup.Escape(item.AreaPath.ToString()));
-        grid.AddRow("[dim]Iteration:[/]", Markup.Escape(item.IterationPath.ToString()));
+        grid.AddRow("[dim]Assigned:[/]", Markup.Escape(Formatters.FormatterHelpers.Truncate(item.AssignedTo ?? "(unassigned)", budget.AssignedToBudget)));
+        grid.AddRow("[dim]Area:[/]", Markup.Escape(Formatters.FormatterHelpers.TruncatePath(item.AreaPath.ToString(), budget.PathBudget)));
+        grid.AddRow("[dim]Iteration:[/]", Markup.Escape(Formatters.FormatterHelpers.TruncatePath(item.IterationPath.ToString(), budget.PathBudget)));
 
         // Stage 2: Progressively add extended fields from the Fields dictionary
         IRenderable? descriptionSection = null;
@@ -1072,7 +1125,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                         : grid;
 
                     return new Panel(panelContent)
-                        .Header($"[bold]#{item.Id} {Markup.Escape(item.Title)}[/]{dirty}")
+                        .Header($"[bold]{idPrefix}{headerTitle}[/]{dirty}")
                         .Border(BoxBorder.Rounded)
                         .Expand();
                 }

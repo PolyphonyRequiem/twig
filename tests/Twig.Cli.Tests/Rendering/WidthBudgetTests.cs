@@ -208,6 +208,26 @@ public sealed class WidthBudgetTests
         }
     }
 
+    // --- PanelHeaderTitleBudget ---
+
+    [Theory]
+    [InlineData(60, 6, 48)]   // PanelContentWidth(60)=54, 54-6=48
+    [InlineData(80, 6, 68)]   // PanelContentWidth(80)=74, 74-6=68
+    [InlineData(120, 6, 108)] // PanelContentWidth(120)=114, 114-6=108
+    public void PanelHeaderTitleBudget_ReturnsPanelContentMinusOverhead(int width, int overhead, int expected)
+    {
+        var budget = new WidthBudget(width);
+        budget.PanelHeaderTitleBudget(overhead).ShouldBe(expected);
+    }
+
+    [Fact]
+    public void PanelHeaderTitleBudget_ClampsToTen_WhenOverheadExceedsPanelContent()
+    {
+        var budget = new WidthBudget(60);
+        // PanelContentWidth=54, overhead=100 → 54-100 = -46 → clamped to 10
+        budget.PanelHeaderTitleBudget(100).ShouldBe(10);
+    }
+
     // --- Value equality (record struct) ---
 
     [Fact]

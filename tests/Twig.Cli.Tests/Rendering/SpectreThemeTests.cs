@@ -239,4 +239,47 @@ public class SpectreThemeTests
         table.ShouldNotBeNull();
         table.Columns.Count.ShouldBe(4);
     }
+
+    // ── CreateWorkspaceTable: title column width hint ────────────────
+
+    [Fact]
+    public void CreateWorkspaceTable_NoWidthHint_TitleColumnWidthIsNull()
+    {
+        var table = SpectreTheme.CreateWorkspaceTable();
+        table.Columns[2].Width.ShouldBeNull();
+    }
+
+    [Fact]
+    public void CreateWorkspaceTable_NullWidthHint_TitleColumnWidthIsNull()
+    {
+        var table = SpectreTheme.CreateWorkspaceTable(titleColumnWidth: null);
+        table.Columns[2].Width.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData(10)]
+    [InlineData(30)]
+    [InlineData(80)]
+    public void CreateWorkspaceTable_WithWidthHint_SetsTitleColumnWidth(int width)
+    {
+        var table = SpectreTheme.CreateWorkspaceTable(titleColumnWidth: width);
+        table.Columns[2].Width.ShouldBe(width);
+    }
+
+    [Fact]
+    public void CreateWorkspaceTable_WithWidthHint_TeamView_SetsTitleColumnWidth()
+    {
+        var table = SpectreTheme.CreateWorkspaceTable(isTeamView: true, titleColumnWidth: 50);
+        table.Columns.Count.ShouldBe(5);
+        table.Columns[2].Width.ShouldBe(50);
+    }
+
+    [Fact]
+    public void CreateWorkspaceTable_WithWidthHint_OtherColumnsUnaffected()
+    {
+        var table = SpectreTheme.CreateWorkspaceTable(titleColumnWidth: 40);
+        table.Columns[0].Width.ShouldBeNull(); // ID
+        table.Columns[1].Width.ShouldBeNull(); // Type
+        table.Columns[3].Width.ShouldBeNull(); // State
+    }
 }

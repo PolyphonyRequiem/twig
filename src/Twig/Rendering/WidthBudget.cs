@@ -46,6 +46,13 @@ internal readonly record struct WidthBudget
     /// <summary>Budget for assigned-to display name.</summary>
     public int AssignedToBudget => Breakpoint == RenderBreakpoint.Compact ? 15 : 20;
 
+    /// <summary>
+    /// Available width for the title text in a panel header, after accounting for
+    /// other fixed-width header elements (e.g., "#ID ", dirty indicator, cache age).
+    /// </summary>
+    public int PanelHeaderTitleBudget(int otherContentWidth) =>
+        Math.Max(PanelContentWidth - otherContentWidth, 10);
+
     public WidthBudget(int consoleWidth)
     {
         ConsoleWidth = Math.Max(consoleWidth, MinConsoleWidth);

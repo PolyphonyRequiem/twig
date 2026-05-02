@@ -668,13 +668,17 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             return;
 
         var parentChain = await getParentChain();
+        var budget = new WidthBudget(_console.Profile.Width);
 
         // Build the Spectre Tree rooted at the topmost parent (or focused item if no parents).
         // focusContainer is the IHasTreeNodes where children should be appended.
-        var (tree, focusContainer) = await BuildSpectreTreeAsync(focusedItem, parentChain, activeId, getSiblingCount);
+        var (tree, focusContainer) = await BuildSpectreTreeAsync(focusedItem, parentChain, activeId, getSiblingCount, budget);
 
         // EPIC-005: Unparented banner for tree view
         var treeRenderable = ApplyUnparentedBanner(tree, focusedItem, parentChain);
+
+        // Children are one level below the focused item
+        var childDepth = parentChain.Count + 1;
 
         // Stage 2: Render tree immediately (parent chain + focused item), then add children
         await _console.Live(treeRenderable)
@@ -693,9 +697,10 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                     var dirty = child.IsDirty ? " [yellow]✎[/]" : "";
                     var effort = Formatters.FormatterHelpers.GetEffortDisplay(child);
                     var effortSuffix = effort is not null ? $" [dim]{Markup.Escape(effort)}[/]" : "";
+                    var childTitle = FormatterHelpers.TruncateTitle(child.Title, budget.TreeTitleBudget(childDepth));
                     // Spectre Tree owns its connector glyphs (├──/└──); use a colored │ prefix in the label instead
                     var stateColor = _theme.GetStateCategoryMarkupColor(child.State);
-                    var label = $"[{stateColor}]│[/] {activeMarker}{_theme.FormatTypeBadge(child.Type)} #{child.Id} {Markup.Escape(child.Title)}{dirty} {_theme.FormatState(child.State)}{effortSuffix}";
+                    var label = $"[{stateColor}]│[/] {activeMarker}{_theme.FormatTypeBadge(child.Type)} #{child.Id} {Markup.Escape(childTitle)}{dirty} {_theme.FormatState(child.State)}{effortSuffix}";
                     focusContainer.AddNode(label);
                     ctx.Refresh();
                 }
@@ -735,11 +740,12 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     /// </summary>
     internal async Task<(Tree Tree, IHasTreeNodes FocusContainer)> BuildSpectreTreeAsync(
         WorkItem focusedItem, IReadOnlyList<WorkItem> parentChain, int? activeId,
-        Func<int, Task<int?>>? getSiblingCount)
+        Func<int, Task<int?>>? getSiblingCount, WidthBudget? budget = null)
     {
+        // Depth 0 = tree root; focused item is at depth parentChain.Count
         if (parentChain.Count == 0)
         {
-            var tree = new Tree(FormatFocusedNode(focusedItem, activeId));
+            var tree = new Tree(FormatFocusedNode(focusedItem, activeId, budget, depth: 0));
             // Focused item is tree root — sibling count added as child (Spectre API limitation)
             if (getSiblingCount is not null && focusedItem.ParentId.HasValue)
             {
@@ -752,7 +758,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
         var root = parentChain[0];
         var rootAbove = IsParentAboveWorkingLevel(root);
-        var tree2 = new Tree(FormatParentNode(root, rootAbove));
+        var tree2 = new Tree(FormatParentNode(root, rootAbove, budget, depth: 0));
         IHasTreeNodes container = tree2;
 
         // Root parent — sibling count added as child of tree root (Spectre API limitation)
@@ -766,7 +772,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         for (var i = 1; i < parentChain.Count; i++)
         {
             var above = IsParentAboveWorkingLevel(parentChain[i]);
-            var parentNode = container.AddNode(FormatParentNode(parentChain[i], above));
+            var parentNode = container.AddNode(FormatParentNode(parentChain[i], above, budget, depth: i));
             // Sibling count at same level as node (added to container, not parentNode)
             if (getSiblingCount is not null && parentChain[i].ParentId.HasValue)
             {
@@ -777,7 +783,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             container = parentNode;
         }
 
-        var focusNode = container.AddNode(FormatFocusedNode(focusedItem, activeId));
+        var focusDepth = parentChain.Count;
+        var focusNode = container.AddNode(FormatFocusedNode(focusedItem, activeId, budget, depth: focusDepth));
         // Sibling count at same level as focused item (added to container, sibling of focusNode)
         if (getSiblingCount is not null && focusedItem.ParentId.HasValue)
         {
@@ -798,18 +805,24 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     internal static string FormatSiblingCount(int count) =>
         $"[dim]...{count}[/]";
 
-    internal string FormatParentNode(WorkItem item, bool aboveWorkingLevel = false)
+    internal string FormatParentNode(WorkItem item, bool aboveWorkingLevel = false, WidthBudget? budget = null, int depth = 0)
     {
+        var title = budget.HasValue
+            ? FormatterHelpers.TruncateTitle(item.Title, budget.Value.TreeTitleBudget(depth))
+            : item.Title;
         if (aboveWorkingLevel)
-            return $"[dim]{_theme.FormatTypeBadge(item.Type)} {Markup.Escape(item.Title)} {_theme.FormatState(item.State)}[/]";
-        return $"{_theme.FormatTypeBadge(item.Type)} [dim]{Markup.Escape(item.Title)}[/] {_theme.FormatState(item.State)}";
+            return $"[dim]{_theme.FormatTypeBadge(item.Type)} {Markup.Escape(title)} {_theme.FormatState(item.State)}[/]";
+        return $"{_theme.FormatTypeBadge(item.Type)} [dim]{Markup.Escape(title)}[/] {_theme.FormatState(item.State)}";
     }
 
-    internal string FormatFocusedNode(WorkItem item, int? activeId)
+    internal string FormatFocusedNode(WorkItem item, int? activeId, WidthBudget? budget = null, int depth = 0)
     {
         var marker = (activeId.HasValue && item.Id == activeId.Value) ? "[aqua]●[/] " : "";
         var dirty = item.IsDirty ? " [yellow]✎[/]" : "";
-        return $"{marker}{_theme.FormatTypeBadge(item.Type)} [bold]#{item.Id} {Markup.Escape(item.Title)}[/]{dirty} {_theme.FormatState(item.State)}";
+        var title = budget.HasValue
+            ? FormatterHelpers.TruncateTitle(item.Title, budget.Value.TreeTitleBudget(depth))
+            : item.Title;
+        return $"{marker}{_theme.FormatTypeBadge(item.Type)} [bold]#{item.Id} {Markup.Escape(title)}[/]{dirty} {_theme.FormatState(item.State)}";
     }
 
     private IRenderable ApplyUnparentedBanner(Tree tree, WorkItem focusedItem, IReadOnlyList<WorkItem> parentChain)
@@ -843,7 +856,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         IReadOnlyList<Domain.ValueObjects.WorkItemLink>? links = null,
         int cacheStaleMinutes = 5)
     {
-        var (tree, focusContainer) = await BuildSpectreTreeAsync(focusedItem, parentChain, activeId, getSiblingCount);
+        var budget = new WidthBudget(_console.Profile.Width);
+        var (tree, focusContainer) = await BuildSpectreTreeAsync(focusedItem, parentChain, activeId, getSiblingCount, budget);
 
         // Cache-age on focused node
         var focusCacheAge = CacheAgeFormatter.Format(focusedItem.LastSyncedAt, cacheStaleMinutes);
@@ -852,6 +866,9 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             // Append cache-age as a dimmed sibling node below the focus
             focusContainer.AddNode($"[dim]{Markup.Escape(focusCacheAge)}[/]");
         }
+
+        // Children are one level below the focused item
+        var childDepth = parentChain.Count + 1;
 
         // Add children with cache-age indicators on stale items
         for (var i = 0; i < children.Count; i++)
@@ -867,7 +884,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             var childCacheAge = CacheAgeFormatter.Format(child.LastSyncedAt, cacheStaleMinutes);
             var childCacheAgeMarkup = childCacheAge is not null ? $" [dim]{Markup.Escape(childCacheAge)}[/]" : "";
 
-            var label = $"[{stateColor}]│[/] {activeMarker}{_theme.FormatTypeBadge(child.Type)} #{child.Id} {Markup.Escape(child.Title)}{dirty} {_theme.FormatState(child.State)}{effortSuffix}{childCacheAgeMarkup}";
+            var childTitle = FormatterHelpers.TruncateTitle(child.Title, budget.TreeTitleBudget(childDepth));
+            var label = $"[{stateColor}]│[/] {activeMarker}{_theme.FormatTypeBadge(child.Type)} #{child.Id} {Markup.Escape(childTitle)}{dirty} {_theme.FormatState(child.State)}{effortSuffix}{childCacheAgeMarkup}";
             focusContainer.AddNode(label);
         }
 

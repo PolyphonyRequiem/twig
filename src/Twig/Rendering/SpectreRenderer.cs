@@ -1564,8 +1564,15 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         string? branchName,
         CancellationToken ct = default)
     {
+        var budget = new WidthBudget(_console.Profile.Width);
+
+        // "✓ Flow started for #" (21) + ID digits + " — " (3)
+        var flowPrefixWidth = 24 + item.Id.ToString().Length;
+        var titleBudget = Math.Max(budget.ConsoleWidth - flowPrefixWidth, 10);
+        var truncatedTitle = FormatterHelpers.TruncateTitle(item.Title, titleBudget);
+
         // Success header
-        _console.MarkupLine($"[green]✓[/] [bold]Flow started for #{item.Id} — {Markup.Escape(item.Title)}[/]");
+        _console.MarkupLine($"[green]✓[/] [bold]Flow started for #{item.Id} — {Markup.Escape(truncatedTitle)}[/]");
 
         // Build summary grid
         var grid = new Grid().AddColumn().AddColumn();

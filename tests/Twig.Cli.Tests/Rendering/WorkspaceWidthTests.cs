@@ -138,6 +138,30 @@ public sealed class WorkspaceWidthTests
         output.ShouldContain("-2");
     }
 
+    [Fact]
+    public async Task FlatTable_NarrowWidth_Seeds_LongTitle_IsTruncated()
+    {
+        var sprintItem = new WorkItemBuilder(142, ShortTitle).InState("Active").Build();
+        var seed = new WorkItemBuilder(-8, LongTitle).AsSeed().Build();
+
+        var output = await RenderFlatWithSeeds(60, new[] { sprintItem }, new[] { seed });
+
+        output.ShouldContain("…");
+        output.ShouldNotContain("exponential backoff");
+    }
+
+    [Fact]
+    public async Task FlatTable_WideWidth_Seeds_LongTitle_NotTruncated()
+    {
+        var sprintItem = new WorkItemBuilder(143, ShortTitle).InState("Active").Build();
+        var seed = new WorkItemBuilder(-9, MediumTitle).AsSeed().Build();
+
+        var output = await RenderFlatWithSeeds(120, new[] { sprintItem }, new[] { seed });
+
+        output.ShouldContain(MediumTitle);
+        output.ShouldNotContain("…");
+    }
+
     // ── Standard (80) — rendering ───────────────────────────────────
 
     [Fact]

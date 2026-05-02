@@ -170,6 +170,33 @@ public sealed class WorkspaceTreeWidthTests
         output.ShouldContain("stale");
     }
 
+    [Fact]
+    public async Task Tree_NarrowWidth_Seeds_LongTitle_IsTruncated()
+    {
+        var story = new WorkItemBuilder(20, ShortTitle).AsUserStory().InState("Active").Build();
+        var seed = new WorkItemBuilder(-10, LongTitle).AsSeed().Build();
+
+        var roots = new[] { BuildNode(story, isSprintItem: true) };
+        var sections = BuildSectionsWithTree(new[] { story }, roots);
+        var output = await RenderTreeWithSeeds(60, new[] { story }, sections, new[] { seed });
+
+        output.ShouldContain("…");
+        output.ShouldNotContain("exponential backoff");
+    }
+
+    [Fact]
+    public async Task Tree_WideWidth_Seeds_ShortTitle_NotTruncated()
+    {
+        var story = new WorkItemBuilder(20, ShortTitle).AsUserStory().InState("Active").Build();
+        var seed = new WorkItemBuilder(-11, MediumTitle).AsSeed().Build();
+
+        var roots = new[] { BuildNode(story, isSprintItem: true) };
+        var sections = BuildSectionsWithTree(new[] { story }, roots);
+        var output = await RenderTreeWithSeeds(120, new[] { story }, sections, new[] { seed });
+
+        output.ShouldContain(MediumTitle);
+    }
+
     // ── Narrow (60) — active context ────────────────────────────────
 
     [Fact]

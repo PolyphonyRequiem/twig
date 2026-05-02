@@ -208,7 +208,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                                     {
                                         seed.Id < 0 ? $"[dim]{seed.Id}[/]" : seed.Id.ToString(),
                                         $"{seedIndicator} {_theme.FormatTypeBadge(seed.Type)}",
-                                        Markup.Escape(seed.Title) + staleMarker,
+                                        Markup.Escape(FormatterHelpers.TruncateTitle(seed.Title, budget.TableTitleBudget)) + staleMarker,
                                         _theme.FormatState(seed.State),
                                     };
 
@@ -468,7 +468,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                                         && seed.SeedCreatedAt.Value < DateTimeOffset.UtcNow.AddDays(-staleDays)
                                         ? " [yellow]⚠ stale[/]" : "";
                                     container.AddRow(new Markup(
-                                        $"  {seedIndicator} {_theme.FormatTypeBadge(seed.Type)} #{seed.Id} {Markup.Escape(seed.Title)}{staleMarker} {_theme.FormatState(seed.State)}"));
+                                        $"  {seedIndicator} {_theme.FormatTypeBadge(seed.Type)} #{seed.Id} {Markup.Escape(FormatterHelpers.TruncateTitle(seed.Title, budget.TreeTitleBudget(0)))}{staleMarker} {_theme.FormatState(seed.State)}"));
                                 }
                             }
 

@@ -261,6 +261,377 @@ public sealed class TreeWidthAwareRenderingTests
         output.ShouldNotContain("…");
     }
 
+    // ── BuildTreeViewAsync — 60-char width ─────────────────────────────
+
+    [Fact]
+    public async Task BuildTreeViewAsync_60Width_MultipleChildrenAllTruncated()
+    {
+        var renderer = CreateRenderer(60);
+
+        var focused = CreateItem(1, ShortTitle, WorkItemType.Issue);
+        var children = new[]
+        {
+            CreateItem(10, LongTitle, WorkItemType.Task, parentId: 1),
+            CreateItem(11, LongTitle, WorkItemType.Task, parentId: 1),
+            CreateItem(12, LongTitle, WorkItemType.Task, parentId: 1),
+        };
+
+        var result = await renderer.BuildTreeViewAsync(
+            focused, Array.Empty<WorkItem>(), children,
+            maxDepth: 1, activeId: null);
+
+        var output = RenderToString(result, 60);
+        // All three long-titled children should be truncated
+        output.ShouldContain("…");
+        output.ShouldContain("#10");
+        output.ShouldContain("#11");
+        output.ShouldContain("#12");
+    }
+
+    [Fact]
+    public async Task BuildTreeViewAsync_60Width_ShortChildTitlesPreserved()
+    {
+        var renderer = CreateRenderer(60);
+
+        var focused = CreateItem(1, ShortTitle, WorkItemType.Issue);
+        var child = CreateItem(10, ShortTitle, WorkItemType.Task, parentId: 1);
+
+        var result = await renderer.BuildTreeViewAsync(
+            focused, Array.Empty<WorkItem>(), new[] { child },
+            maxDepth: 1, activeId: null);
+
+        var output = RenderToString(result, 60);
+        output.ShouldContain(ShortTitle);
+        output.ShouldNotContain("…");
+    }
+
+    [Fact]
+    public async Task BuildTreeViewAsync_60Width_DeepParentChain_TruncatesAllLevels()
+    {
+        var renderer = CreateRenderer(60);
+
+        var epic = CreateItem(1, LongTitle, WorkItemType.Epic);
+        var issue = CreateItem(2, LongTitle, WorkItemType.Issue, parentId: 1);
+        var task = CreateItem(3, LongTitle, WorkItemType.Task, parentId: 2);
+        var parentChain = new List<WorkItem> { epic, issue };
+
+        var result = await renderer.BuildTreeViewAsync(
+            task, parentChain, Array.Empty<WorkItem>(),
+            maxDepth: 1, activeId: 3);
+
+        var output = RenderToString(result, 60);
+        // Parent chain and focused node should all be truncated
+        output.ShouldContain("…");
+        // Focused node includes ID
+        output.ShouldContain("#3");
+    }
+
+    [Fact]
+    public async Task BuildTreeViewAsync_60Width_FocusedNodeTitleTruncated()
+    {
+        var renderer = CreateRenderer(60);
+
+        var focused = CreateItem(1, LongTitle, WorkItemType.Issue);
+
+        var result = await renderer.BuildTreeViewAsync(
+            focused, Array.Empty<WorkItem>(), Array.Empty<WorkItem>(),
+            maxDepth: 1, activeId: null);
+
+        var output = RenderToString(result, 60);
+        output.ShouldContain("…");
+        output.ShouldNotContain("exponential backoff");
+    }
+
+    [Fact]
+    public async Task BuildTreeViewAsync_60Width_ActiveMarkerPreservedOnTruncatedChild()
+    {
+        var renderer = CreateRenderer(60);
+
+        var focused = CreateItem(1, ShortTitle, WorkItemType.Issue);
+        var child = CreateItem(10, LongTitle, WorkItemType.Task, parentId: 1);
+
+        var result = await renderer.BuildTreeViewAsync(
+            focused, Array.Empty<WorkItem>(), new[] { child },
+            maxDepth: 1, activeId: 10);
+
+        var output = RenderToString(result, 60);
+        output.ShouldContain("●");
+        output.ShouldContain("…");
+    }
+
+    [Fact]
+    public async Task BuildTreeViewAsync_60Width_MixedLengthChildren_OnlyLongTruncated()
+    {
+        var renderer = CreateRenderer(60);
+
+        var focused = CreateItem(1, ShortTitle, WorkItemType.Issue);
+        var children = new[]
+        {
+            CreateItem(10, ShortTitle, WorkItemType.Task, parentId: 1),
+            CreateItem(11, LongTitle, WorkItemType.Task, parentId: 1),
+        };
+
+        var result = await renderer.BuildTreeViewAsync(
+            focused, Array.Empty<WorkItem>(), children,
+            maxDepth: 1, activeId: null);
+
+        var output = RenderToString(result, 60);
+        output.ShouldContain(ShortTitle);
+        output.ShouldContain("…");
+    }
+
+    // ── BuildTreeViewAsync — 80-char width ─────────────────────────────
+
+    [Fact]
+    public async Task BuildTreeViewAsync_80Width_LongChildTitleTruncated()
+    {
+        var renderer = CreateRenderer(80);
+
+        var focused = CreateItem(1, ShortTitle, WorkItemType.Issue);
+        var child = CreateItem(10, LongTitle, WorkItemType.Task, parentId: 1);
+
+        var result = await renderer.BuildTreeViewAsync(
+            focused, Array.Empty<WorkItem>(), new[] { child },
+            maxDepth: 1, activeId: null);
+
+        var output = RenderToString(result, 80);
+        // TreeTitleBudget(1) at 80 = 80 - 4 - 26 = 50; LongTitle is 101 chars
+        output.ShouldContain("…");
+        output.ShouldNotContain("exponential backoff");
+    }
+
+    [Fact]
+    public async Task BuildTreeViewAsync_80Width_ShortChildTitlePreserved()
+    {
+        var renderer = CreateRenderer(80);
+
+        var focused = CreateItem(1, ShortTitle, WorkItemType.Issue);
+        var child = CreateItem(10, ShortTitle, WorkItemType.Task, parentId: 1);
+
+        var result = await renderer.BuildTreeViewAsync(
+            focused, Array.Empty<WorkItem>(), new[] { child },
+            maxDepth: 1, activeId: null);
+
+        var output = RenderToString(result, 80);
+        output.ShouldContain(ShortTitle);
+        output.ShouldNotContain("…");
+    }
+
+    [Fact]
+    public async Task BuildTreeViewAsync_80Width_ParentChain_LongTitleTruncated()
+    {
+        var renderer = CreateRenderer(80);
+
+        var epic = CreateItem(1, LongTitle, WorkItemType.Epic);
+        var focused = CreateItem(2, ShortTitle, WorkItemType.Task, parentId: 1);
+        var parentChain = new List<WorkItem> { epic };
+
+        var result = await renderer.BuildTreeViewAsync(
+            focused, parentChain, Array.Empty<WorkItem>(),
+            maxDepth: 1, activeId: null);
+
+        var output = RenderToString(result, 80);
+        output.ShouldContain("…");
+        output.ShouldContain(ShortTitle);
+    }
+
+    [Fact]
+    public async Task BuildTreeViewAsync_80Width_MultipleChildren_AllLongTruncated()
+    {
+        var renderer = CreateRenderer(80);
+
+        var focused = CreateItem(1, ShortTitle, WorkItemType.Issue);
+        var children = new[]
+        {
+            CreateItem(10, LongTitle, WorkItemType.Task, parentId: 1),
+            CreateItem(11, LongTitle, WorkItemType.Task, parentId: 1),
+        };
+
+        var result = await renderer.BuildTreeViewAsync(
+            focused, Array.Empty<WorkItem>(), children,
+            maxDepth: 1, activeId: null);
+
+        var output = RenderToString(result, 80);
+        output.ShouldContain("…");
+        output.ShouldContain("#10");
+        output.ShouldContain("#11");
+    }
+
+    [Fact]
+    public async Task BuildTreeViewAsync_80Width_ActiveMarkerPreserved()
+    {
+        var renderer = CreateRenderer(80);
+
+        var focused = CreateItem(1, ShortTitle, WorkItemType.Issue);
+        var child = CreateItem(10, LongTitle, WorkItemType.Task, parentId: 1);
+
+        var result = await renderer.BuildTreeViewAsync(
+            focused, Array.Empty<WorkItem>(), new[] { child },
+            maxDepth: 1, activeId: 10);
+
+        var output = RenderToString(result, 80);
+        output.ShouldContain("●");
+        output.ShouldContain("…");
+    }
+
+    [Fact]
+    public async Task BuildTreeViewAsync_80Width_DeepParentChain_AllLevelsTruncated()
+    {
+        var renderer = CreateRenderer(80);
+
+        var epic = CreateItem(1, LongTitle, WorkItemType.Epic);
+        var issue = CreateItem(2, LongTitle, WorkItemType.Issue, parentId: 1);
+        var task = CreateItem(3, LongTitle, WorkItemType.Task, parentId: 2);
+        var parentChain = new List<WorkItem> { epic, issue };
+
+        var result = await renderer.BuildTreeViewAsync(
+            task, parentChain, Array.Empty<WorkItem>(),
+            maxDepth: 1, activeId: 3);
+
+        var output = RenderToString(result, 80);
+        output.ShouldContain("…");
+        // Focused node includes ID
+        output.ShouldContain("#3");
+    }
+
+    [Fact]
+    public async Task BuildTreeViewAsync_80Width_FocusedNodeLongTitleTruncated()
+    {
+        var renderer = CreateRenderer(80);
+
+        var focused = CreateItem(1, LongTitle, WorkItemType.Issue);
+
+        var result = await renderer.BuildTreeViewAsync(
+            focused, Array.Empty<WorkItem>(), Array.Empty<WorkItem>(),
+            maxDepth: 1, activeId: null);
+
+        var output = RenderToString(result, 80);
+        output.ShouldContain("…");
+        output.ShouldNotContain("exponential backoff");
+    }
+
+    // ── BuildSpectreTreeAsync — 80-char width ──────────────────────────
+
+    [Fact]
+    public async Task BuildSpectreTreeAsync_80Width_TruncatesLongTitles()
+    {
+        var renderer = CreateRenderer(80);
+        var budget = new WidthBudget(80);
+
+        var epic = CreateItem(1, LongTitle, WorkItemType.Epic);
+        var task = CreateItem(2, LongTitle, WorkItemType.Task, parentId: 1);
+        var parentChain = new List<WorkItem> { epic };
+
+        var (tree, _) = await renderer.BuildSpectreTreeAsync(task, parentChain, activeId: 2, getSiblingCount: null, budget: budget);
+
+        var output = RenderToString(tree, 80);
+        output.ShouldContain("…");
+        output.ShouldNotContain("exponential backoff");
+    }
+
+    [Fact]
+    public async Task BuildSpectreTreeAsync_80Width_PreservesShortTitles()
+    {
+        var renderer = CreateRenderer(80);
+        var budget = new WidthBudget(80);
+
+        var epic = CreateItem(1, ShortTitle, WorkItemType.Epic);
+        var task = CreateItem(2, ShortTitle, WorkItemType.Task, parentId: 1);
+        var parentChain = new List<WorkItem> { epic };
+
+        var (tree, _) = await renderer.BuildSpectreTreeAsync(task, parentChain, activeId: 2, getSiblingCount: null, budget: budget);
+
+        var output = RenderToString(tree, 80);
+        output.ShouldContain(ShortTitle);
+        output.ShouldNotContain("…");
+    }
+
+    // ── FormatFocusedNode — 80-char width ──────────────────────────────
+
+    [Fact]
+    public void FormatFocusedNode_80Width_TruncatesLongTitle()
+    {
+        var renderer = CreateRenderer(80);
+        var budget = new WidthBudget(80);
+        var item = CreateItem(42, LongTitle);
+
+        var label = renderer.FormatFocusedNode(item, activeId: null, budget: budget, depth: 0);
+
+        label.ShouldContain("…");
+        label.ShouldNotContain("exponential backoff");
+    }
+
+    [Fact]
+    public void FormatFocusedNode_80Width_PreservesShortTitle()
+    {
+        var renderer = CreateRenderer(80);
+        var budget = new WidthBudget(80);
+        var item = CreateItem(42, ShortTitle);
+
+        var label = renderer.FormatFocusedNode(item, activeId: null, budget: budget, depth: 0);
+
+        label.ShouldContain(ShortTitle);
+        label.ShouldNotContain("…");
+    }
+
+    // ── FormatParentNode — 80-char width ───────────────────────────────
+
+    [Fact]
+    public void FormatParentNode_80Width_TruncatesLongTitle()
+    {
+        var renderer = CreateRenderer(80);
+        var budget = new WidthBudget(80);
+        var item = CreateItem(1, LongTitle, WorkItemType.Epic);
+
+        var label = renderer.FormatParentNode(item, aboveWorkingLevel: false, budget: budget, depth: 0);
+
+        label.ShouldContain("…");
+        label.ShouldNotContain("exponential backoff");
+    }
+
+    [Fact]
+    public void FormatParentNode_80Width_PreservesShortTitle()
+    {
+        var renderer = CreateRenderer(80);
+        var budget = new WidthBudget(80);
+        var item = CreateItem(1, ShortTitle, WorkItemType.Epic);
+
+        var label = renderer.FormatParentNode(item, aboveWorkingLevel: false, budget: budget, depth: 0);
+
+        label.ShouldContain(ShortTitle);
+        label.ShouldNotContain("…");
+    }
+
+    // ── Width comparison — 60 vs 80 ────────────────────────────────────
+
+    [Fact]
+    public async Task BuildTreeViewAsync_60vs80_NarrowerWidthTruncatesMore()
+    {
+        var focused = CreateItem(1, ShortTitle, WorkItemType.Issue);
+        var child = CreateItem(10, LongTitle, WorkItemType.Task, parentId: 1);
+
+        var renderer60 = CreateRenderer(60);
+        var result60 = await renderer60.BuildTreeViewAsync(
+            focused, Array.Empty<WorkItem>(), new[] { child },
+            maxDepth: 1, activeId: null);
+        var output60 = RenderToString(result60, 60);
+
+        var renderer80 = CreateRenderer(80);
+        var result80 = await renderer80.BuildTreeViewAsync(
+            focused, Array.Empty<WorkItem>(), new[] { child },
+            maxDepth: 1, activeId: null);
+        var output80 = RenderToString(result80, 80);
+
+        // Both truncate the long title
+        output60.ShouldContain("…");
+        output80.ShouldContain("…");
+
+        // 80-char width should produce more visible title text than 60
+        var plainText60 = Markup.Remove(output60);
+        var plainText80 = Markup.Remove(output80);
+        plainText80.Length.ShouldBeGreaterThan(plainText60.Length);
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────
 
     private static string RenderToString(IRenderable renderable, int width)

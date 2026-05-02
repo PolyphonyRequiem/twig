@@ -88,7 +88,7 @@ public sealed class TreeStatusShowWidthTests
     }
 
     [Fact]
-    public async Task BuildStatusViewAsync_NarrowWidth_LongAssignedTo_Rendered()
+    public async Task BuildStatusViewAsync_NarrowWidth_LongAssignedTo_Truncated()
     {
         var (renderer, console) = CreateRenderer(60);
         var item = CreateItem(104, ShortTitle, assignedTo: LongAssignedTo);
@@ -98,6 +98,9 @@ public sealed class TreeStatusShowWidthTests
 
         var output = console.Output;
         output.ShouldContain("Assigned");
+        // At compact breakpoint (60), AssignedToBudget = 15 — long name should be truncated
+        output.ShouldContain("…");
+        output.ShouldNotContain(LongAssignedTo);
     }
 
     [Fact]
@@ -191,7 +194,7 @@ public sealed class TreeStatusShowWidthTests
     }
 
     [Fact]
-    public async Task BuildStatusViewAsync_WideWidth_FullAssignedToPreserved()
+    public async Task BuildStatusViewAsync_WideWidth_LongAssignedTo_Truncated()
     {
         var (renderer, console) = CreateRenderer(120);
         var item = CreateItem(123, ShortTitle, assignedTo: LongAssignedTo);
@@ -200,7 +203,22 @@ public sealed class TreeStatusShowWidthTests
         console.Write(renderable);
 
         var output = console.Output;
-        output.ShouldContain(LongAssignedTo);
+        // At wide breakpoint (120), AssignedToBudget = 20 — 39-char name is still truncated
+        output.ShouldContain("…");
+        output.ShouldNotContain(LongAssignedTo);
+    }
+
+    [Fact]
+    public async Task BuildStatusViewAsync_WideWidth_ShortAssignedTo_Preserved()
+    {
+        var (renderer, console) = CreateRenderer(120);
+        var item = CreateItem(125, ShortTitle, assignedTo: "Jane Doe");
+
+        var renderable = await BuildStatusViewAsync(renderer, item);
+        console.Write(renderable);
+
+        var output = console.Output;
+        output.ShouldContain("Jane Doe");
     }
 
     [Fact]
@@ -409,7 +427,7 @@ public sealed class TreeStatusShowWidthTests
     }
 
     [Fact]
-    public async Task RenderWorkItemAsync_WideWidth_FullAssignedToPreserved()
+    public async Task RenderWorkItemAsync_WideWidth_LongAssignedTo_Truncated()
     {
         var (renderer, console) = CreateRenderer(120);
         var item = CreateItem(213, ShortTitle, assignedTo: LongAssignedTo);
@@ -418,7 +436,38 @@ public sealed class TreeStatusShowWidthTests
             () => Task.FromResult<WorkItem?>(item), false, CancellationToken.None);
 
         var output = console.Output;
-        output.ShouldContain(LongAssignedTo);
+        // At wide breakpoint (120), AssignedToBudget = 20 — 39-char name is still truncated
+        output.ShouldContain("…");
+        output.ShouldNotContain(LongAssignedTo);
+    }
+
+    [Fact]
+    public async Task RenderWorkItemAsync_WideWidth_ShortAssignedTo_Preserved()
+    {
+        var (renderer, console) = CreateRenderer(120);
+        var item = CreateItem(215, ShortTitle, assignedTo: "Jane Doe");
+
+        await renderer.RenderWorkItemAsync(
+            () => Task.FromResult<WorkItem?>(item), false, CancellationToken.None);
+
+        var output = console.Output;
+        output.ShouldContain("Jane Doe");
+    }
+
+    [Fact]
+    public async Task RenderWorkItemAsync_NarrowWidth_LongAssignedTo_Truncated()
+    {
+        var (renderer, console) = CreateRenderer(60);
+        var item = CreateItem(216, ShortTitle, assignedTo: LongAssignedTo);
+
+        await renderer.RenderWorkItemAsync(
+            () => Task.FromResult<WorkItem?>(item), false, CancellationToken.None);
+
+        var output = console.Output;
+        output.ShouldContain("Assigned");
+        // At compact breakpoint (60), AssignedToBudget = 15 — long name should be truncated
+        output.ShouldContain("…");
+        output.ShouldNotContain(LongAssignedTo);
     }
 
     [Fact]

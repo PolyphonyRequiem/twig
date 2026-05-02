@@ -1024,8 +1024,14 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                     new Markup(descriptionMarkup));
         }
 
+        var idPrefix = $"#{item.Id} ";
+        var dirtyVisibleLen = item.IsDirty ? 2 : 0;
+        var cacheAgeVisibleLen = cacheAge is not null ? cacheAge.Length + 1 : 0;
+        var headerTitle = Markup.Escape(FormatterHelpers.TruncateTitle(
+            item.Title, budget.PanelHeaderTitleBudget(idPrefix.Length + dirtyVisibleLen + cacheAgeVisibleLen)));
+
         var itemPanel = new Panel(panelContent)
-            .Header($"[bold]#{item.Id} {Markup.Escape(item.Title)}[/]{dirty}{cacheAgeMarkup}")
+            .Header($"[bold]{idPrefix}{headerTitle}[/]{dirty}{cacheAgeMarkup}")
             .Border(BoxBorder.Rounded)
             .Expand();
 
@@ -1070,6 +1076,10 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         // Build initial panel with core fields only (type, state, assigned, area, iteration)
         var dirty = showDirty && item.IsDirty ? " [yellow]●[/]" : "";
         var budget = new WidthBudget(_console.Profile.Width);
+        var idPrefix = $"#{item.Id} ";
+        var dirtyVisibleLen = (showDirty && item.IsDirty) ? 2 : 0;
+        var headerTitle = Markup.Escape(FormatterHelpers.TruncateTitle(
+            item.Title, budget.PanelHeaderTitleBudget(idPrefix.Length + dirtyVisibleLen)));
         var grid = new Grid().AddColumn().AddColumn();
         grid.AddRow("[dim]Type:[/]", _theme.FormatTypeBadge(item.Type) + " " + Markup.Escape(item.Type.ToString()));
         grid.AddRow("[dim]State:[/]", _theme.FormatState(item.State));
@@ -1092,7 +1102,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                         : grid;
 
                     return new Panel(panelContent)
-                        .Header($"[bold]#{item.Id} {Markup.Escape(item.Title)}[/]{dirty}")
+                        .Header($"[bold]{idPrefix}{headerTitle}[/]{dirty}")
                         .Border(BoxBorder.Rounded)
                         .Expand();
                 }

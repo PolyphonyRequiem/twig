@@ -117,6 +117,35 @@ public sealed class TreeStatusShowWidthTests
     }
 
     [Fact]
+    public async Task BuildStatusViewAsync_NarrowWidth_PanelHeaderTitleTruncated()
+    {
+        var (renderer, console) = CreateRenderer(60);
+        var item = CreateItem(105, LongTitle);
+
+        var renderable = await BuildStatusViewAsync(renderer, item);
+        console.Write(renderable);
+
+        var output = console.Output;
+        output.ShouldContain("#105");
+        // Long title should be truncated in the panel header at narrow width
+        output.ShouldNotContain(LongTitle);
+        output.ShouldContain("…");
+    }
+
+    [Fact]
+    public async Task BuildStatusViewAsync_WideWidth_PanelHeaderTitlePreserved()
+    {
+        var (renderer, console) = CreateRenderer(200);
+        var item = CreateItem(105, LongTitle);
+
+        var renderable = await BuildStatusViewAsync(renderer, item);
+        console.Write(renderable);
+
+        var output = console.Output;
+        output.ShouldContain(LongTitle);
+    }
+
+    [Fact]
     public async Task BuildStatusViewAsync_NarrowWidth_WithRelationships_Renders()
     {
         var (renderer, console) = CreateRenderer(60);
@@ -336,6 +365,35 @@ public sealed class TreeStatusShowWidthTests
 
         var output = console.Output;
         output.ShouldContain("#204");
+    }
+
+    [Fact]
+    public async Task RenderWorkItemAsync_NarrowWidth_PanelHeaderTitleTruncated()
+    {
+        var (renderer, console) = CreateRenderer(60);
+        var item = CreateItem(204, LongTitle);
+
+        await renderer.RenderWorkItemAsync(
+            () => Task.FromResult<WorkItem?>(item), false, CancellationToken.None);
+
+        var output = console.Output;
+        output.ShouldContain("#204");
+        // Long title should be truncated in the panel header at narrow width
+        output.ShouldNotContain(LongTitle);
+        output.ShouldContain("…");
+    }
+
+    [Fact]
+    public async Task RenderWorkItemAsync_WideWidth_PanelHeaderTitlePreserved()
+    {
+        var (renderer, console) = CreateRenderer(200);
+        var item = CreateItem(204, LongTitle);
+
+        await renderer.RenderWorkItemAsync(
+            () => Task.FromResult<WorkItem?>(item), false, CancellationToken.None);
+
+        var output = console.Output;
+        output.ShouldContain(LongTitle);
     }
 
     [Fact]

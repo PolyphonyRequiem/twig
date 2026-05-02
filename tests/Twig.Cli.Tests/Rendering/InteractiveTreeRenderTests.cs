@@ -13,6 +13,7 @@ namespace Twig.Cli.Tests.Rendering;
 public class InteractiveTreeRenderTests
 {
     private readonly SpectreTheme _theme = new(new DisplayConfig());
+    private readonly WidthBudget _defaultBudget = new(120);
 
     // ── BuildInteractiveTreeRenderable ──────────────────────────────
 
@@ -153,7 +154,8 @@ public class InteractiveTreeRenderTests
             null,
             Array.Empty<WorkItemLink>(),
             Array.Empty<SeedLink>(),
-            _theme);
+            _theme,
+            _defaultBudget);
 
         var output = RenderToString(panel);
         output.ShouldContain("No item selected");
@@ -168,7 +170,8 @@ public class InteractiveTreeRenderTests
             item,
             Array.Empty<WorkItemLink>(),
             Array.Empty<SeedLink>(),
-            _theme);
+            _theme,
+            _defaultBudget);
 
         var output = RenderToString(panel);
         output.ShouldContain("#42");
@@ -184,7 +187,8 @@ public class InteractiveTreeRenderTests
             item,
             Array.Empty<WorkItemLink>(),
             Array.Empty<SeedLink>(),
-            _theme);
+            _theme,
+            _defaultBudget);
 
         var output = RenderToString(panel);
         output.ShouldContain("Type");
@@ -201,7 +205,8 @@ public class InteractiveTreeRenderTests
             item,
             Array.Empty<WorkItemLink>(),
             Array.Empty<SeedLink>(),
-            _theme);
+            _theme,
+            _defaultBudget);
 
         var output = RenderToString(panel);
         output.ShouldContain("unassigned");
@@ -225,7 +230,8 @@ public class InteractiveTreeRenderTests
             item,
             Array.Empty<WorkItemLink>(),
             Array.Empty<SeedLink>(),
-            _theme);
+            _theme,
+            _defaultBudget);
 
         var output = RenderToString(panel);
         output.ShouldContain("Jane Doe");
@@ -248,7 +254,8 @@ public class InteractiveTreeRenderTests
             item,
             Array.Empty<WorkItemLink>(),
             Array.Empty<SeedLink>(),
-            _theme);
+            _theme,
+            _defaultBudget);
 
         var output = RenderToString(panel);
         output.ShouldContain("Sprint 3");
@@ -264,7 +271,7 @@ public class InteractiveTreeRenderTests
             new(SourceId: 1, TargetId: 99, LinkType: "Predecessor"),
         };
 
-        var panel = SpectreRenderer.BuildPreviewPanel(item, links, Array.Empty<SeedLink>(), _theme);
+        var panel = SpectreRenderer.BuildPreviewPanel(item, links, Array.Empty<SeedLink>(), _theme, _defaultBudget);
 
         var output = RenderToString(panel);
         output.ShouldContain("Links:");
@@ -284,7 +291,7 @@ public class InteractiveTreeRenderTests
         };
 
         var panel = SpectreRenderer.BuildPreviewPanel(
-            item, Array.Empty<WorkItemLink>(), seedLinks, _theme);
+            item, Array.Empty<WorkItemLink>(), seedLinks, _theme, _defaultBudget);
 
         var output = RenderToString(panel);
         output.ShouldContain("Links:");
@@ -298,7 +305,7 @@ public class InteractiveTreeRenderTests
         var item = CreateWorkItem(1, "No Links");
 
         var panel = SpectreRenderer.BuildPreviewPanel(
-            item, Array.Empty<WorkItemLink>(), Array.Empty<SeedLink>(), _theme);
+            item, Array.Empty<WorkItemLink>(), Array.Empty<SeedLink>(), _theme, _defaultBudget);
 
         var output = RenderToString(panel);
         output.ShouldNotContain("Links:");
@@ -310,10 +317,11 @@ public class InteractiveTreeRenderTests
     public void BuildPreviewPanel_LongTitleWithBrackets_DoesNotProduceMalformedMarkup()
     {
         // Title with brackets that would expand under Markup.Escape — verifies I-003 fix
+        // Use a narrow budget to force truncation of this 83-char title
         var item = CreateWorkItem(42, "Fix [regression] in parser when handling [edge case] for long input strings that exceed");
 
         var panel = SpectreRenderer.BuildPreviewPanel(
-            item, Array.Empty<WorkItemLink>(), Array.Empty<SeedLink>(), _theme);
+            item, Array.Empty<WorkItemLink>(), Array.Empty<SeedLink>(), _theme, new WidthBudget(80));
 
         // Should not throw and should contain truncation indicator
         var output = RenderToString(panel);
@@ -720,7 +728,7 @@ public class InteractiveTreeRenderTests
 
         // Render with ANSI sequences to detect aqua color highlighting
         var panel = SpectreRenderer.BuildPreviewPanel(
-            item, links, Array.Empty<SeedLink>(), _theme, linkJumpIndex: 0);
+            item, links, Array.Empty<SeedLink>(), _theme, _defaultBudget, linkJumpIndex: 0);
         var output = RenderToAnsiString(panel);
 
         // Both link IDs should appear
@@ -750,7 +758,7 @@ public class InteractiveTreeRenderTests
             new(SourceId: 1, TargetId: 42, LinkType: "Related"),
         };
 
-        var panel = SpectreRenderer.BuildPreviewPanel(item, links, Array.Empty<SeedLink>(), _theme);
+        var panel = SpectreRenderer.BuildPreviewPanel(item, links, Array.Empty<SeedLink>(), _theme, _defaultBudget);
 
         var output = RenderToString(panel);
         output.ShouldContain("#42");
@@ -771,7 +779,7 @@ public class InteractiveTreeRenderTests
         };
 
         // linkJumpIndex=1 → points to the seed link (index 0 in seedLinks, combined index 1)
-        var panel = SpectreRenderer.BuildPreviewPanel(item, links, seedLinks, _theme, linkJumpIndex: 1);
+        var panel = SpectreRenderer.BuildPreviewPanel(item, links, seedLinks, _theme, _defaultBudget, linkJumpIndex: 1);
 
         var output = RenderToString(panel);
         output.ShouldContain("#-5");

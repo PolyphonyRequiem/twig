@@ -154,13 +154,15 @@ public sealed class InteractiveTreeWidthTests
     }
 
     [Fact]
-    public void BuildPreviewPanel_NoBudget_FallsBackToDefault56()
+    public void BuildPreviewPanel_StandardBudget_TruncatesLongTitle()
     {
-        // Without budget, the method falls back to titleBudget of 56
+        // Budget is now required — verify standard width budget truncates long titles
+        var budget = new WidthBudget(120);
         var item = CreateWorkItem(42, LongTitle);
 
         var panel = SpectreRenderer.BuildPreviewPanel(
-            item, Array.Empty<WorkItemLink>(), Array.Empty<SeedLink>(), _theme);
+            item, Array.Empty<WorkItemLink>(), Array.Empty<SeedLink>(), _theme,
+            budget);
 
         var output = RenderToString(panel, 120);
         output.ShouldContain("…");
@@ -194,24 +196,26 @@ public sealed class InteractiveTreeWidthTests
     }
 
     [Fact]
-    public void BuildPreviewPanel_NoBudget_PreservesFullAssignee()
+    public void BuildPreviewPanel_WideBudget_PreservesFullAssignee()
     {
+        // Wide budget preserves full assignee (AssignedToBudget is 20 at standard width)
+        var budget = new WidthBudget(120);
         var item = new WorkItem
         {
             Id = 1,
             Type = WorkItemType.Task,
             Title = ShortTitle,
             State = "Active",
-            AssignedTo = LongAssignee,
+            AssignedTo = "Jane Doe",
             IterationPath = IterationPath.Parse("Project\\Sprint 1").Value,
             AreaPath = AreaPath.Parse("Project").Value,
         };
 
         var panel = SpectreRenderer.BuildPreviewPanel(
-            item, Array.Empty<WorkItemLink>(), Array.Empty<SeedLink>(), _theme);
+            item, Array.Empty<WorkItemLink>(), Array.Empty<SeedLink>(), _theme, budget);
 
         var output = RenderToString(panel, 120);
-        output.ShouldContain(LongAssignee);
+        output.ShouldContain("Jane Doe");
     }
 
     // ── BuildPreviewPanel — null item still works ────────────────────
@@ -223,7 +227,7 @@ public sealed class InteractiveTreeWidthTests
 
         var panel = SpectreRenderer.BuildPreviewPanel(
             null, Array.Empty<WorkItemLink>(), Array.Empty<SeedLink>(), _theme,
-            budget: budget);
+            budget);
 
         var output = RenderToString(panel, 60);
         output.ShouldContain("No item selected");
@@ -521,7 +525,7 @@ public sealed class InteractiveTreeWidthTests
 
         var panel = SpectreRenderer.BuildPreviewPanel(
             item, links, Array.Empty<SeedLink>(), _theme,
-            linkJumpIndex: 0, budget: budget);
+            budget, linkJumpIndex: 0);
 
         var output = RenderToString(panel, 60);
         output.ShouldContain("#42");
@@ -616,7 +620,7 @@ public sealed class InteractiveTreeWidthTests
     }
 
     [Fact]
-    public void BuildPreviewPanel_NarrowBudget_TruncatesAssignee_NoBudgetPreserves()
+    public void BuildPreviewPanel_NarrowVsWide_AssigneeTruncation()
     {
         var item = new WorkItem
         {
@@ -632,13 +636,17 @@ public sealed class InteractiveTreeWidthTests
         var narrow = RenderToString(
             SpectreRenderer.BuildPreviewPanel(
                 item, Array.Empty<WorkItemLink>(), Array.Empty<SeedLink>(), _theme,
-                budget: new WidthBudget(60)), 60);
-        var noBudget = RenderToString(
+                new WidthBudget(60)), 60);
+        var wide = RenderToString(
             SpectreRenderer.BuildPreviewPanel(
-                item, Array.Empty<WorkItemLink>(), Array.Empty<SeedLink>(), _theme), 200);
+                item, Array.Empty<WorkItemLink>(), Array.Empty<SeedLink>(), _theme,
+                new WidthBudget(200)), 200);
 
+        // Both truncate the long assignee, but narrow truncates more aggressively
         narrow.ShouldNotContain(LongAssignee);
-        noBudget.ShouldContain(LongAssignee);
+        wide.ShouldNotContain(LongAssignee);
+        // Wide (AssignedToBudget=20) preserves more than narrow (AssignedToBudget=15)
+        wide.ShouldContain("Bartholomew Jingleh");
     }
 
     // ── Helpers ──────────────────────────────────────────────────────

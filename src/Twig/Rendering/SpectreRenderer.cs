@@ -1860,7 +1860,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                         {
                             previewPanel = BuildPreviewPanel(
                                 state.CursorItem, state.Links, state.SeedLinks, _theme,
-                                state.LinkJumpIndex, budget);
+                                budget, state.LinkJumpIndex);
                         }
                         renderable = new Columns(treePanel, previewPanel);
                     }
@@ -2244,8 +2244,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         IReadOnlyList<WorkItemLink> links,
         IReadOnlyList<SeedLink> seedLinks,
         SpectreTheme theme,
-        int linkJumpIndex = -1,
-        WidthBudget? budget = null)
+        WidthBudget budget,
+        int linkJumpIndex = -1)
     {
         if (item is null)
         {
@@ -2257,7 +2257,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
         // Truncate raw title before escaping to avoid cutting into escape sequences
         var rawTitle = item.Title;
-        var titleBudget = budget?.TreeTitleBudget(0) ?? 56;
+        var titleBudget = budget.TreeTitleBudget(0);
         var displayTitle = FormatterHelpers.TruncateTitle(rawTitle, titleBudget);
         var headerTitle = $"#{item.Id} {Markup.Escape(displayTitle)}";
 
@@ -2269,9 +2269,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         grid.AddRow("[bold]State[/]", theme.FormatState(item.State));
 
         var assignedDisplay = item.AssignedTo is not null
-            ? (budget.HasValue
-                ? Markup.Escape(FormatterHelpers.TruncateTitle(item.AssignedTo, budget.Value.AssignedToBudget))
-                : Markup.Escape(item.AssignedTo))
+            ? Markup.Escape(FormatterHelpers.TruncateTitle(item.AssignedTo, budget.AssignedToBudget))
             : "[dim]unassigned[/]";
         grid.AddRow("[bold]Assigned[/]", assignedDisplay);
 

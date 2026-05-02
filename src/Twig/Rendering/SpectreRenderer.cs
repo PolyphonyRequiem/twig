@@ -213,7 +213,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                                     };
 
                                     if (isTeamView)
-                                        seedRow.Add(Markup.Escape(seed.AssignedTo ?? "(unassigned)"));
+                                        seedRow.Add(Markup.Escape(FormatterHelpers.Truncate(seed.AssignedTo ?? "(unassigned)", budget.AssignedToBudget)));
 
                                     if (dynamicColumns is not null)
                                     {

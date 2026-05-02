@@ -474,6 +474,37 @@ public sealed class WorkspaceWidthTests
         output.ShouldContain("Jane Doe");
     }
 
+    // ── Assigned-to truncation (team view — seed rows) ──────────────
+
+    [Fact]
+    public async Task FlatTable_NarrowWidth_TeamView_SeedRow_LongAssignedTo_IsTruncated()
+    {
+        var seed = new WorkItemBuilder(-1, ShortTitle)
+            .InState("New")
+            .AssignedTo(LongAssignedTo)
+            .AsSeed()
+            .Build();
+
+        var output = await RenderFlatTeamViewWithSeeds(60, Array.Empty<WorkItem>(), new[] { seed });
+
+        output.ShouldContain("…");
+        output.ShouldNotContain(LongAssignedTo);
+    }
+
+    [Fact]
+    public async Task FlatTable_WideWidth_TeamView_SeedRow_ShortAssignedTo_NotTruncated()
+    {
+        var seed = new WorkItemBuilder(-2, ShortTitle)
+            .InState("New")
+            .AssignedTo("Jane Doe")
+            .AsSeed()
+            .Build();
+
+        var output = await RenderFlatTeamViewWithSeeds(120, Array.Empty<WorkItem>(), new[] { seed });
+
+        output.ShouldContain("Jane Doe");
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     private static async Task<string> RenderFlat(int width, params WorkItem[] items)
@@ -495,6 +526,19 @@ public sealed class WorkspaceWidthTests
             new ContextLoaded(null),
             new SprintItemsLoaded(items),
             new SeedsLoaded(Array.Empty<WorkItem>()));
+
+        await renderer.RenderWorkspaceAsync(chunks, 14, true, CancellationToken.None);
+        return console.Output;
+    }
+
+    private static async Task<string> RenderFlatTeamViewWithSeeds(
+        int width, WorkItem[] sprintItems, WorkItem[] seeds)
+    {
+        var (renderer, console) = CreateRenderer(width);
+        var chunks = CreateChunksAsync(
+            new ContextLoaded(null),
+            new SprintItemsLoaded(sprintItems),
+            new SeedsLoaded(seeds));
 
         await renderer.RenderWorkspaceAsync(chunks, 14, true, CancellationToken.None);
         return console.Output;

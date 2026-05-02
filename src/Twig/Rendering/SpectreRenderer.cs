@@ -935,12 +935,13 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
 
         // Work item detail panel — dirty indicator uses ● (DD-03)
         var dirty = item.IsDirty ? " [yellow]●[/]" : "";
+        var budget = new WidthBudget(_console.Profile.Width);
         var itemGrid = new Grid().AddColumn().AddColumn();
         itemGrid.AddRow("[dim]Type:[/]", _theme.FormatTypeBadge(item.Type) + " " + Markup.Escape(item.Type.ToString()));
         itemGrid.AddRow("[dim]State:[/]", _theme.FormatState(item.State));
         itemGrid.AddRow("[dim]Assigned:[/]", Markup.Escape(item.AssignedTo ?? "(unassigned)"));
-        itemGrid.AddRow("[dim]Area:[/]", Markup.Escape(item.AreaPath.ToString()));
-        itemGrid.AddRow("[dim]Iteration:[/]", Markup.Escape(item.IterationPath.ToString()));
+        itemGrid.AddRow("[dim]Area:[/]", Markup.Escape(Formatters.FormatterHelpers.TruncatePath(item.AreaPath.ToString(), budget.PathBudget)));
+        itemGrid.AddRow("[dim]Iteration:[/]", Markup.Escape(Formatters.FormatterHelpers.TruncatePath(item.IterationPath.ToString(), budget.PathBudget)));
 
         // Extended fields from the Fields dictionary
         AddExtendedFieldRows(itemGrid, item, fieldDefinitions, statusFieldEntries);

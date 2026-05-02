@@ -249,32 +249,6 @@ public class RenderWorkItemTests
         output.ShouldContain("more lines)");
     }
 
-    // ── Truncation ──────────────────────────────────────────────────
-
-    [Fact]
-    public void TruncateField_ShortValue_ReturnsUnchanged()
-    {
-        SpectreRenderer.TruncateField("hello", 200).ShouldBe("hello");
-    }
-
-    [Fact]
-    public void TruncateField_LongValue_TruncatesWithEllipsis()
-    {
-        var longText = new string('x', 250);
-        var result = SpectreRenderer.TruncateField(longText, 200);
-        result.Length.ShouldBe(200);
-        result.ShouldEndWith("…");
-    }
-
-    [Fact]
-    public void TruncateField_HtmlContent_StrippedBeforeTruncation()
-    {
-        var html = "<p>" + new string('a', 100) + "</p>";
-        var result = SpectreRenderer.TruncateField(html, 200);
-        result.ShouldNotContain("<p>");
-        result.ShouldNotContain("</p>");
-    }
-
     // ── StripHtmlTags unit tests ────────────────────────────────────
 
     [Fact]

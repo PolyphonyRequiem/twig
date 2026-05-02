@@ -9,6 +9,7 @@ using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
+using Twig.Formatters;
 
 namespace Twig.Rendering;
 
@@ -1087,7 +1088,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                 if (item.Fields.TryGetValue("System.History", out var history)
                     && !string.IsNullOrWhiteSpace(history))
                 {
-                    grid.AddRow("[dim]History:[/]", Markup.Escape(TruncateField(history, 200)));
+                    grid.AddRow("[dim]History:[/]", Markup.Escape(FormatterHelpers.Truncate(StripHtmlTags(history), 200)));
                     ctx.UpdateTarget(BuildPanel());
                     ctx.Refresh();
                 }
@@ -1096,7 +1097,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                 if (item.Fields.TryGetValue("System.Tags", out var tags)
                     && !string.IsNullOrWhiteSpace(tags))
                 {
-                    grid.AddRow("[dim]Tags:[/]", Markup.Escape(TruncateField(tags, 200)));
+                    grid.AddRow("[dim]Tags:[/]", Markup.Escape(FormatterHelpers.Truncate(StripHtmlTags(tags), 200)));
                     ctx.UpdateTarget(BuildPanel());
                     ctx.Refresh();
                 }
@@ -1187,19 +1188,6 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                 count++;
             }
         }
-    }
-
-    /// <summary>
-    /// Truncates a field value to the specified maximum length, appending "…" if truncated.
-    /// Strips HTML tags for clean display.
-    /// </summary>
-    internal static string TruncateField(string value, int maxLength)
-    {
-        // Strip basic HTML tags (ADO fields often contain HTML)
-        var stripped = StripHtmlTags(value).Trim();
-        if (stripped.Length <= maxLength)
-            return stripped;
-        return stripped[..(maxLength - 1)] + "…";
     }
 
     /// <summary>

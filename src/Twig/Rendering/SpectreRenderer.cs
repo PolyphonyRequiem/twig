@@ -1734,6 +1734,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     /// </summary>
     private void RenderAreaHierarchyTree(SprintHierarchy hierarchy)
     {
+        var budget = new WidthBudget(_console.Profile.Width);
+
         foreach (var kvp in hierarchy.AssigneeGroups)
         {
             foreach (var root in kvp.Value)
@@ -1743,15 +1745,15 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                     _console.MarkupLine($"    [dim]── {Markup.Escape(root.GroupLabel ?? "Unparented")} ──[/]");
                     foreach (var child in root.Children)
                     {
-                        var tree = new Tree(FormatAreaNode(child));
-                        AddAreaChildNodes(tree, child);
+                        var tree = new Tree(FormatAreaNode(child, budget, depth: 0));
+                        AddAreaChildNodes(tree, child, budget, depth: 1);
                         _console.Write(tree);
                     }
                 }
                 else
                 {
-                    var tree = new Tree(FormatAreaNode(root));
-                    AddAreaChildNodes(tree, root);
+                    var tree = new Tree(FormatAreaNode(root, budget, depth: 0));
+                    AddAreaChildNodes(tree, root, budget, depth: 1);
                     _console.Write(tree);
                 }
             }
@@ -1762,25 +1764,31 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     /// Formats a hierarchy node for area view. Out-of-area parents get dim styling;
     /// in-area items get full detail with ID and state.
     /// </summary>
-    internal string FormatAreaNode(SprintHierarchyNode node)
+    internal string FormatAreaNode(SprintHierarchyNode node, WidthBudget? budget = null, int depth = 0)
     {
         if (node.IsSprintItem)
         {
             // In-area item — full detail
             var dirty = node.Item.IsDirty ? " [yellow]✎[/]" : "";
-            return $"{_theme.FormatTypeBadge(node.Item.Type)} #{node.Item.Id} {Markup.Escape(node.Item.Title)}{dirty} {_theme.FormatState(node.Item.State)}";
+            var title = budget.HasValue
+                ? FormatterHelpers.TruncateTitle(node.Item.Title, budget.Value.TreeTitleBudget(depth))
+                : node.Item.Title;
+            return $"{_theme.FormatTypeBadge(node.Item.Type)} #{node.Item.Id} {Markup.Escape(title)}{dirty} {_theme.FormatState(node.Item.State)}";
         }
 
         // Out-of-area parent — dimmed
-        return $"[dim]{_theme.FormatTypeBadge(node.Item.Type)} {Markup.Escape(node.Item.Title)} {_theme.FormatState(node.Item.State)}[/]";
+        var parentTitle = budget.HasValue
+            ? FormatterHelpers.TruncateTitle(node.Item.Title, budget.Value.TreeTitleBudget(depth))
+            : node.Item.Title;
+        return $"[dim]{_theme.FormatTypeBadge(node.Item.Type)} {Markup.Escape(parentTitle)} {_theme.FormatState(node.Item.State)}[/]";
     }
 
-    private void AddAreaChildNodes(IHasTreeNodes parent, SprintHierarchyNode node)
+    private void AddAreaChildNodes(IHasTreeNodes parent, SprintHierarchyNode node, WidthBudget budget, int depth)
     {
         foreach (var child in node.Children)
         {
-            var childNode = parent.AddNode(FormatAreaNode(child));
-            AddAreaChildNodes(childNode, child);
+            var childNode = parent.AddNode(FormatAreaNode(child, budget, depth));
+            AddAreaChildNodes(childNode, child, budget, depth + 1);
         }
     }
 
@@ -1789,6 +1797,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
     /// </summary>
     private void RenderAreaFlatTable(AreaView areaView)
     {
+        var budget = new WidthBudget(_console.Profile.Width);
         var table = new Table()
             .Border(TableBorder.None)
             .HideHeaders()
@@ -1802,7 +1811,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             table.AddRow(
                 $"{item.Id}",
                 _theme.FormatTypeBadge(item.Type),
-                Markup.Escape(item.Title),
+                Markup.Escape(FormatterHelpers.TruncateTitle(item.Title, budget.TableTitleBudget)),
                 _theme.FormatState(item.State));
         }
 

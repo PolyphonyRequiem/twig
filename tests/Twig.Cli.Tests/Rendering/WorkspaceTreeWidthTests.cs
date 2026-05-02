@@ -561,6 +561,75 @@ public sealed class WorkspaceTreeWidthTests
         output.ShouldContain("Orphan Task");
     }
 
+    // ── Flat fallback title truncation ─────────────────────────────
+
+    [Fact]
+    public async Task FlatFallback_NarrowWidth_LongTitleTruncated()
+    {
+        var item = new WorkItemBuilder(10, LongTitle).AsUserStory().InState("Active").Build();
+        var output = await RenderFlat(60, new[] { item });
+
+        output.ShouldContain("10");
+        output.ShouldContain("…");
+        output.ShouldNotContain("exponential backoff");
+    }
+
+    [Fact]
+    public async Task FlatFallback_NarrowWidth_ShortTitleNotTruncated()
+    {
+        var item = new WorkItemBuilder(20, ShortTitle).AsTask().InState("Active").Build();
+        var output = await RenderFlat(60, new[] { item });
+
+        output.ShouldContain(ShortTitle);
+        output.ShouldNotContain("…");
+    }
+
+    [Fact]
+    public async Task FlatFallback_StandardWidth_LongTitleTruncated()
+    {
+        var item = new WorkItemBuilder(30, LongTitle).AsUserStory().InState("Active").Build();
+        var output = await RenderFlat(80, new[] { item });
+
+        output.ShouldContain("30");
+        output.ShouldContain("…");
+        output.ShouldNotContain("exponential backoff");
+    }
+
+    [Fact]
+    public async Task FlatFallback_StandardWidth_MediumTitleFits()
+    {
+        var item = new WorkItemBuilder(40, MediumTitle).AsTask().InState("Active").Build();
+        var output = await RenderFlat(80, new[] { item });
+
+        output.ShouldContain(MediumTitle);
+        output.ShouldNotContain("…");
+    }
+
+    [Fact]
+    public async Task FlatFallback_WideWidth_LongTitleFits()
+    {
+        var item = new WorkItemBuilder(50, LongTitle).AsUserStory().InState("Active").Build();
+        var output = await RenderFlat(200, new[] { item });
+
+        output.ShouldContain(LongTitle);
+        output.ShouldNotContain("…");
+    }
+
+    [Fact]
+    public async Task FlatFallback_NarrowVsStandard_NarrowTruncatesMore()
+    {
+        var title = new string('Z', 60);
+        var item = new WorkItemBuilder(60, title).AsTask().InState("Active").Build();
+
+        var narrowOutput = await RenderFlat(60, new[] { item });
+        var stdOutput = await RenderFlat(80, new[] { item });
+
+        narrowOutput.ShouldContain("…");
+        stdOutput.ShouldContain("…");
+        // Narrow output should be shorter due to more aggressive truncation
+        narrowOutput.Length.ShouldBeLessThan(stdOutput.Length);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     private static (TestConsole Console, SpectreRenderer Renderer) CreateTreeRenderer(
@@ -624,6 +693,21 @@ public sealed class WorkspaceTreeWidthTests
         var chunks = CreateChunksAsync(
             new ContextLoaded(null),
             new SprintItemsLoaded(sprintItems, sections),
+            new SeedsLoaded(Array.Empty<WorkItem>()));
+
+        await renderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None);
+        return console.Output;
+    }
+
+    private static async Task<string> RenderFlat(
+        int width, WorkItem[] sprintItems)
+    {
+        var (console, renderer) = CreateTreeRenderer(width);
+
+        // SprintItemsLoaded with null Sections triggers the flat fallback path
+        var chunks = CreateChunksAsync(
+            new ContextLoaded(null),
+            new SprintItemsLoaded(sprintItems),
             new SeedsLoaded(Array.Empty<WorkItem>()));
 
         await renderer.RenderWorkspaceAsync(chunks, 14, false, CancellationToken.None);

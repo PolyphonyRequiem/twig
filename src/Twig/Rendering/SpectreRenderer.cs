@@ -428,7 +428,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                                 else
                                 {
                                     RenderFlatItemsIntoContainer(container, section.Items,
-                                        activeContextId, cacheStaleMinutes);
+                                        activeContextId, cacheStaleMinutes, budget);
                                 }
 
                                 sectionIndex++;
@@ -448,7 +448,7 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
                             else { container.Rows.Clear(); }
 
                             RenderFlatItemsIntoContainer(container, loaded.Items,
-                                activeContextId, cacheStaleMinutes);
+                                activeContextId, cacheStaleMinutes, budget);
                             RenderTreeProgressFooter(container, loaded.Items);
                             ctx.Refresh();
                             break;
@@ -603,7 +603,8 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
         Table container,
         IReadOnlyList<WorkItem> items,
         int? activeContextId,
-        int cacheStaleMinutes)
+        int cacheStaleMinutes,
+        WidthBudget budget)
     {
         foreach (var item in items)
         {
@@ -616,8 +617,10 @@ internal sealed class SpectreRenderer(IAnsiConsole console, SpectreTheme theme) 
             var cacheAge = CacheAgeFormatter.Format(item.LastSyncedAt, cacheStaleMinutes);
             var cacheAgeMarkup = cacheAge is not null ? $" [dim]{Markup.Escape(cacheAge)}[/]" : "";
 
+            var truncatedTitle = Markup.Escape(FormatterHelpers.TruncateTitle(item.Title, budget.TreeTitleBudget(0)));
+
             container.AddRow(new Markup(
-                $"  {marker}{boldOpen}{_theme.FormatTypeBadge(item.Type)} #{item.Id} {Markup.Escape(item.Title)}{boldClose} {_theme.FormatState(item.State)}{cacheAgeMarkup}"));
+                $"  {marker}{boldOpen}{_theme.FormatTypeBadge(item.Type)} #{item.Id} {truncatedTitle}{boldClose} {_theme.FormatState(item.State)}{cacheAgeMarkup}"));
         }
     }
 

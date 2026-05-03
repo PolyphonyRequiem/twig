@@ -68,14 +68,20 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         if (!resolveResult.IsSuccess)
             return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidStateTransition, resolveResult.Error, ctx, ct);
 
-        var newState = resolveResult.Value;
+        var resolution = resolveResult.Value;
+        var newState = resolution.ResolvedName;
         var previousStateAdo = item.State;
 
         if (string.Equals(item.State, newState, StringComparison.OrdinalIgnoreCase))
             return await EnvelopeBuilder.SuccessAsync(ctx, w =>
             {
-                w.WriteString("message", $"Already in state '{newState}'.");
+                var msg = resolution.Kind == ResolutionKind.Category
+                    ? $"Already in state '{newState}' (category '{stateName}')."
+                    : $"Already in state '{newState}'.";
+                w.WriteString("message", msg);
                 w.WriteString("state", newState);
+                if (resolution.Kind == ResolutionKind.Category)
+                    w.WriteString("resolved_from_category", stateName);
             }, verbose, ct);
 
         var transition = StateTransitionService.Evaluate(processConfig, item.Type, item.State, newState);
@@ -84,15 +90,33 @@ public sealed class MutationTools(WorkspaceResolver resolver)
             return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidStateTransition, $"Transition from '{item.State}' to '{newState}' is not allowed.", ctx, ct);
 
         WorkItem remote;
+        StateTransitionResult execution;
         try
         {
             remote = await ctx.AdoService.FetchAsync(item.Id, ct);
-            var changes = new[] { new FieldChange("System.State", item.State, newState) };
-            await ConflictRetryHelper.PatchWithRetryAsync(ctx.AdoService, item.Id, changes, remote.Revision, ct);
+            execution = await StateTransitionExecutor.ExecuteAsync(
+                ctx.AdoService, item, newState, typeConfig, remote.Revision, ct);
         }
         catch (AdoException ex)
         {
             return await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable, ex.Message, ctx, ct);
+        }
+
+        if (!execution.IsSuccess)
+        {
+            // Best-effort cache resync so subsequent calls see partial-progress state.
+            try
+            {
+                var partial = await ctx.AdoService.FetchAsync(item.Id, ct);
+                await ctx.WorkItemRepo.SaveAsync(partial, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
+
+            var pathRendered = string.Join(" → ", execution.Path);
+            var failureMsg = execution.Path.Count > 1
+                ? $"chain stopped at '{execution.FinalState}'. Reached: {pathRendered}. ADO: {execution.ErrorMessage}"
+                : $"transition rejected. ADO: {execution.ErrorMessage}";
+            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidStateTransition, failureMsg, ctx, ct);
         }
 
         try { await AutoPushNotesHelper.PushAndClearAsync(item.Id, ctx.PendingChangeStore, ctx.AdoService); }
@@ -120,7 +144,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
 
         return await EnvelopeBuilder.WrapAsync(ctx,
-            McpResultBuilder.FormatStateChange(updated, previousStateAdo), verbose, ct);
+            McpResultBuilder.FormatStateChange(updated, previousStateAdo, execution.Path), verbose, ct);
     }
 
     [McpServerTool(Name = "twig_update"), Description("Update a field on a work item and push to ADO. Operates on the active work item by default, or specify id to target a specific item without changing context.")]

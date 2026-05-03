@@ -124,7 +124,8 @@ public class StateResolverTests
     {
         var result = StateResolver.ResolveByName(input, AgileUserStoryStates);
         result.IsSuccess.ShouldBeTrue();
-        result.Value.ShouldBe(expected);
+        result.Value.ResolvedName.ShouldBe(expected);
+        result.Value.Kind.ShouldBe(ResolutionKind.ExactState);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -140,7 +141,8 @@ public class StateResolverTests
     {
         var result = StateResolver.ResolveByName(input, AgileUserStoryStates);
         result.IsSuccess.ShouldBeTrue();
-        result.Value.ShouldBe(expected);
+        result.Value.ResolvedName.ShouldBe(expected);
+        result.Value.Kind.ShouldBe(ResolutionKind.PrefixState);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -183,8 +185,106 @@ public class StateResolverTests
             ("Working", StateCategory.InProgress),
             ("Shipped", StateCategory.Completed));
 
-        StateResolver.ResolveByName("Draft", states).Value.ShouldBe("Draft");
-        StateResolver.ResolveByName("work", states).Value.ShouldBe("Working");
-        StateResolver.ResolveByName("Sh", states).Value.ShouldBe("Shipped");
+        StateResolver.ResolveByName("Draft", states).Value.ResolvedName.ShouldBe("Draft");
+        StateResolver.ResolveByName("work", states).Value.ResolvedName.ShouldBe("Working");
+        StateResolver.ResolveByName("Sh", states).Value.ResolvedName.ShouldBe("Shipped");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  ResolveByName — Category resolution (new)
+    // ═══════════════════════════════════════════════════════════════
+
+    private static readonly StateEntry[] CmmiRequirementStates = S(
+        ("Proposed", StateCategory.Proposed),
+        ("Active", StateCategory.InProgress),
+        ("Resolved", StateCategory.Resolved),
+        ("Closed", StateCategory.Completed),
+        ("Removed", StateCategory.Removed));
+
+    [Theory]
+    [InlineData("Proposed", "New")]
+    [InlineData("InProgress", "Active")]
+    [InlineData("Resolved", "Resolved")] // Resolved is BOTH a state and a category — exact state wins
+    [InlineData("Completed", "Closed")]
+    [InlineData("Removed", "Removed")] // Removed is BOTH — exact state wins
+    public void ResolveByName_AgileUserStory_CategoryAndExact(string input, string expected)
+    {
+        var result = StateResolver.ResolveByName(input, AgileUserStoryStates);
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ResolvedName.ShouldBe(expected);
+    }
+
+    [Theory]
+    [InlineData("Proposed", ResolutionKind.Category)]
+    [InlineData("InProgress", ResolutionKind.Category)]
+    [InlineData("Completed", ResolutionKind.Category)]
+    [InlineData("Resolved", ResolutionKind.ExactState)]   // also a state name
+    [InlineData("Removed", ResolutionKind.ExactState)]    // also a state name
+    public void ResolveByName_AgileUserStory_KindClassification(string input, ResolutionKind expectedKind)
+    {
+        var result = StateResolver.ResolveByName(input, AgileUserStoryStates);
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.Kind.ShouldBe(expectedKind);
+    }
+
+    [Fact]
+    public void ResolveByName_ExactStateBeatsCategory_OnCmmi()
+    {
+        // CMMI has a state literally named "Proposed". Even though "Proposed" is also
+        // a category name, exact state match must win to preserve backward compatibility.
+        var result = StateResolver.ResolveByName("Proposed", CmmiRequirementStates);
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ResolvedName.ShouldBe("Proposed");
+        result.Value.Kind.ShouldBe(ResolutionKind.ExactState);
+    }
+
+    [Theory]
+    [InlineData("Proposed", "To Do")]
+    [InlineData("InProgress", "Doing")]
+    [InlineData("Completed", "Done")]
+    public void ResolveByName_Basic_Categories(string input, string expected)
+    {
+        var result = StateResolver.ResolveByName(input, BasicStates);
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ResolvedName.ShouldBe(expected);
+        result.Value.Kind.ShouldBe(ResolutionKind.Category);
+    }
+
+    [Theory]
+    [InlineData("Resolved")]
+    [InlineData("Removed")]
+    public void ResolveByName_Basic_CategoryWithNoMatchingState_ReturnsUnknown(string input)
+    {
+        // Basic has no Resolved or Removed states. Category lookup fails; we fall through
+        // to prefix match (no match) and then to "Unknown state" with the type's valid states.
+        var result = StateResolver.ResolveByName(input, BasicStates);
+        result.IsSuccess.ShouldBeFalse();
+        result.Error.ShouldContain("Unknown state");
+        result.Error.ShouldContain("To Do");
+    }
+
+    [Fact]
+    public void ResolveByName_ScrumProposed_PicksFirstByStateListOrder()
+    {
+        // Scrum has both "New" and "Approved" in the Proposed category.
+        // Twig picks the first one in state-list order (= ADO's workflow declaration order).
+        var result = StateResolver.ResolveByName("Proposed", ScrumPbiStates);
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ResolvedName.ShouldBe("New");
+        result.Value.Kind.ShouldBe(ResolutionKind.Category);
+    }
+
+    [Theory]
+    [InlineData("inprogress")]
+    [InlineData("in progress")]
+    [InlineData("In-Progress")]
+    [InlineData("IN_PROGRESS")]
+    [InlineData("INPROGRESS")]
+    public void ResolveByName_CategoryName_NormalizesWhitespaceAndCasing(string input)
+    {
+        var result = StateResolver.ResolveByName(input, AgileUserStoryStates);
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.ResolvedName.ShouldBe("Active");
+        result.Value.Kind.ShouldBe(ResolutionKind.Category);
     }
 }

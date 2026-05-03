@@ -635,4 +635,217 @@ public class StateCommandTests
         await _adoService.DidNotReceive().PatchAsync(
             100, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Category resolution
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task State_CategoryName_ResolvesToFirstStateAndIssuesTransition()
+    {
+        var item = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
+        SetupActiveItem(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+
+        var (result, stdout) = await CaptureStdoutAsync(() => _cmd.ExecuteAsync("InProgress"));
+
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(
+            1,
+            Arg.Is<IReadOnlyList<FieldChange>>(c =>
+                c.Count == 1 && c[0].FieldName == "System.State" && c[0].NewValue == "Active"),
+            Arg.Any<int>(),
+            Arg.Any<CancellationToken>());
+        stdout.ShouldContain("→ Active");
+        stdout.ShouldContain("resolved category 'InProgress' → 'Active'");
+    }
+
+    [Fact]
+    public async Task State_CategoryName_AlreadyInTargetState_NoOpsAndAnnotates()
+    {
+        var item = CreateWorkItem(1, "Test", "Active", WorkItemType.UserStory);
+        SetupActiveItem(item);
+
+        var (result, stdout) = await CaptureStdoutAsync(() => _cmd.ExecuteAsync("InProgress"));
+
+        result.ShouldBe(0);
+        await _adoService.DidNotReceive().PatchAsync(
+            Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        stdout.ShouldContain("already in 'Active'");
+        stdout.ShouldContain("category 'InProgress'");
+    }
+
+    [Fact]
+    public async Task State_ExactStateName_DoesNotEmitCategoryHint()
+    {
+        var item = CreateWorkItem(1, "Test", "New", WorkItemType.UserStory);
+        SetupActiveItem(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(2);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+
+        var (result, stdout) = await CaptureStdoutAsync(() => _cmd.ExecuteAsync("Active"));
+
+        result.ShouldBe(0);
+        stdout.ShouldContain("→ Active");
+        stdout.ShouldNotContain("resolved category");
+    }
+
+    [Fact]
+    public async Task State_CategoryNoMatchingStateOnType_ReturnsError()
+    {
+        // Configure a Basic-style process where Resolved is not present.
+        _processConfigProvider.GetConfiguration().Returns(ProcessConfigBuilder.Basic());
+        var item = CreateWorkItem(1, "Test", "To Do", WorkItemType.Issue);
+        SetupActiveItem(item);
+
+        var result = await _cmd.ExecuteAsync("Resolved");
+
+        result.ShouldBe(1);
+        await _adoService.DidNotReceive().PatchAsync(
+            Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        var err = _stderr.ToString();
+        err.ShouldContain("Unknown state 'Resolved'");
+        err.ShouldContain("To Do");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Auto-chain (multi-hop transitions)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task State_DirectTransitionRejected_ChainsThroughIntermediates()
+    {
+        var item = CreateWorkItem(1, "Story", "New", WorkItemType.UserStory);
+        SetupActiveItem(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+
+        // Direct New → Closed: rejected
+        _adoService.PatchAsync(1,
+                Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Closed" && c.Single().OldValue == "New"),
+                0, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoBadRequestException("TF401320: state transition is not allowed"));
+        // New → Active
+        _adoService.PatchAsync(1,
+                Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Active" && c.Single().OldValue == "New"),
+                0, Arg.Any<CancellationToken>())
+            .Returns(1);
+        // Active → Resolved
+        _adoService.PatchAsync(1,
+                Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Resolved" && c.Single().OldValue == "Active"),
+                1, Arg.Any<CancellationToken>())
+            .Returns(2);
+        // Resolved → Closed
+        _adoService.PatchAsync(1,
+                Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Closed" && c.Single().OldValue == "Resolved"),
+                2, Arg.Any<CancellationToken>())
+            .Returns(3);
+
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+
+        var (result, stdout) = await CaptureStdoutAsync(() => _cmd.ExecuteAsync("Closed"));
+
+        result.ShouldBe(0);
+        stdout.ShouldContain("New → Active → Resolved → Closed");
+        stdout.ShouldContain("(3 transitions)");
+    }
+
+    [Fact]
+    public async Task State_ChainStopsMidPath_ReturnsErrorAndShowsReachedStates()
+    {
+        var item = CreateWorkItem(1, "Story", "New", WorkItemType.UserStory);
+        SetupActiveItem(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+
+        // Direct New → Closed: rejected
+        _adoService.PatchAsync(1,
+                Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Closed" && c.Single().OldValue == "New"),
+                0, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoBadRequestException("TF401320: state transition is not allowed"));
+        // New → Active: succeeds
+        _adoService.PatchAsync(1,
+                Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Active" && c.Single().OldValue == "New"),
+                0, Arg.Any<CancellationToken>())
+            .Returns(1);
+        // Active → Resolved: rejected
+        _adoService.PatchAsync(1,
+                Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Resolved" && c.Single().OldValue == "Active"),
+                1, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoBadRequestException("TF401320: state transition is not allowed"));
+        // Active → Closed (final retry): also rejected
+        _adoService.PatchAsync(1,
+                Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Closed" && c.Single().OldValue == "Active"),
+                1, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoBadRequestException("TF401320: state transition is not allowed"));
+
+        var result = await _cmd.ExecuteAsync("Closed");
+
+        result.ShouldBe(1);
+        var err = _stderr.ToString();
+        err.ShouldContain("chain stopped at 'Active'");
+        err.ShouldContain("New → Active");
+    }
+
+    [Fact]
+    public async Task State_NonTransitionError_FastFailsWithoutChaining()
+    {
+        var item = CreateWorkItem(1, "Story", "New", WorkItemType.UserStory);
+        SetupActiveItem(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+
+        _adoService.PatchAsync(1, Arg.Any<IReadOnlyList<FieldChange>>(),
+                Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new AdoAuthenticationException());
+
+        await Should.ThrowAsync<AdoAuthenticationException>(() => _cmd.ExecuteAsync("Closed"));
+
+        // Single PATCH attempt; no chain follow-ups.
+        await _adoService.Received(1).PatchAsync(
+            1, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task State_SingleHopSuccess_ShowsSimpleArrowFormat()
+    {
+        var item = CreateWorkItem(1, "Story", "New", WorkItemType.UserStory);
+        SetupActiveItem(item);
+        _adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(1,
+                Arg.Is<IReadOnlyList<FieldChange>>(c => c.Single().NewValue == "Active"),
+                0, Arg.Any<CancellationToken>())
+            .Returns(1);
+        _pendingChangeStore.GetChangesAsync(1, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+
+        var (result, stdout) = await CaptureStdoutAsync(() => _cmd.ExecuteAsync("Active"));
+
+        result.ShouldBe(0);
+        stdout.ShouldContain("→ Active");
+        // Multi-hop format only kicks in when transitions > 1.
+        stdout.ShouldNotContain("(1 transitions)");
+        stdout.ShouldNotContain("transitions)");
+    }
+
+    private static async Task<(int Result, string Stdout)> CaptureStdoutAsync(Func<Task<int>> action)
+    {
+        var originalOut = Console.Out;
+        var sw = new StringWriter();
+        Console.SetOut(sw);
+        try
+        {
+            var result = await action();
+            return (result, sw.ToString());
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+        }
+    }
 }

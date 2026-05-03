@@ -91,10 +91,14 @@ public sealed class StateCommand(
             return 1;
         }
 
-        var newState = resolveResult.Value;
+        var resolution = resolveResult.Value;
+        var newState = resolution.ResolvedName;
         if (string.Equals(item.State, newState, StringComparison.OrdinalIgnoreCase))
         {
-            Console.WriteLine(fmt.FormatInfo($"Already in state '{newState}'."));
+            var alreadyMessage = resolution.Kind == ResolutionKind.Category
+                ? $"#{item.Id} already in '{newState}' (category '{stateName}')"
+                : $"Already in state '{newState}'.";
+            Console.WriteLine(fmt.FormatInfo(alreadyMessage));
             return 0;
         }
 
@@ -117,9 +121,26 @@ public sealed class StateCommand(
         if (conflictOutcome is ConflictOutcome.AcceptedRemote or ConflictOutcome.Aborted)
             return 0;
 
-        var changes = new[] { new FieldChange("System.State", item.State, newState) };
-        await ConflictRetryHelper.PatchWithRetryAsync(
-            adoService, item.Id, changes, remote.Revision, ct);
+        var execution = await StateTransitionExecutor.ExecuteAsync(
+            adoService, item, newState, typeConfig, remote.Revision, ct);
+
+        if (!execution.IsSuccess)
+        {
+            _stderr.WriteLine(fmt.FormatError(FormatChainFailure(item.Id, execution)));
+
+            // Best-effort cache resync so subsequent commands see the partial-progress state.
+            try
+            {
+                var partial = await adoService.FetchAsync(item.Id, ct);
+                await workItemRepo.SaveAsync(partial, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _stderr.WriteLine($"warning: cache may be stale after partial state chain ({ex.Message})");
+            }
+
+            return 1;
+        }
 
         // Auto-push pending notes (preserve field changes)
         await AutoPushNotesHelper.PushAndClearAsync(item.Id, pendingChangeStore, adoService);
@@ -151,7 +172,14 @@ public sealed class StateCommand(
             ? await workItemRepo.GetChildrenAsync(item.ParentId.Value)
             : Array.Empty<Domain.Aggregates.WorkItem>();
 
-        Console.WriteLine(fmt.FormatSuccess($"#{item.Id} {item.Title} → {newState}"));
+        var pathSuffix = execution.TransitionCount > 1
+            ? $": {string.Join(" → ", execution.Path)} ({execution.TransitionCount} transitions)"
+            : $" → {newState}";
+
+        var successMessage = resolution.Kind == ResolutionKind.Category
+            ? $"#{item.Id} {item.Title}{pathSuffix} (resolved category '{stateName}' → '{newState}')"
+            : $"#{item.Id} {item.Title}{pathSuffix}";
+        Console.WriteLine(fmt.FormatSuccess(successMessage));
 
         var hints = ctx.HintEngine.GetHints("state",
             item: item,
@@ -166,6 +194,14 @@ public sealed class StateCommand(
         }
 
         return 0;
+    }
+
+    private static string FormatChainFailure(int itemId, StateTransitionResult execution)
+    {
+        var pathRendered = string.Join(" → ", execution.Path);
+        return execution.Path.Count > 1
+            ? $"#{itemId} chain stopped at '{execution.FinalState}'. Reached: {pathRendered}. ADO: {execution.ErrorMessage}"
+            : $"#{itemId} transition rejected. ADO: {execution.ErrorMessage}";
     }
 
 }

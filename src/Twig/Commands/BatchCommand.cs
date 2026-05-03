@@ -372,7 +372,7 @@ public sealed class BatchCommand(
             if (!resolveResult.IsSuccess)
                 return new BatchItemResult(item.Id, item.Title, false, resolveResult.Error, null, null, 0);
 
-            resolvedState = resolveResult.Value;
+            resolvedState = resolveResult.Value.ResolvedName;
 
             if (string.Equals(item.State, resolvedState, StringComparison.OrdinalIgnoreCase))
             {
@@ -403,6 +403,10 @@ public sealed class BatchCommand(
         }
 
         // 5. PATCH (only if there are field changes)
+        // Note: batch intentionally does NOT auto-chain multi-hop state transitions.
+        // It combines state + fields in a single atomic PATCH; chaining would break that
+        // guarantee. Multi-hop state changes should use `twig state <name>` directly,
+        // which auto-chains via StateTransitionExecutor.
         if (changes.Count > 0)
         {
             try

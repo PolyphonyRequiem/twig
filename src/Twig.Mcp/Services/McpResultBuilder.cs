@@ -274,10 +274,26 @@ internal static class McpResultBuilder
         });
 
     public static CallToolResult FormatStateChange(WorkItem updated, string previousState) =>
+        FormatStateChange(updated, previousState, path: null);
+
+    public static CallToolResult FormatStateChange(
+        WorkItem updated,
+        string previousState,
+        IReadOnlyList<string>? path) =>
         BuildJson(writer =>
         {
             WriteWorkItemCore(writer, updated);
             writer.WriteString("previousState", previousState);
+            // Only include path/transitionCount when the chain actually had multiple
+            // hops; single-hop transitions stay minimal in the JSON envelope.
+            if (path is not null && path.Count > 2)
+            {
+                writer.WriteStartArray("path");
+                foreach (var step in path)
+                    writer.WriteStringValue(step);
+                writer.WriteEndArray();
+                writer.WriteNumber("transitionCount", path.Count - 1);
+            }
         });
 
     public static CallToolResult FormatFieldUpdate(WorkItem updated, string field, string displayValue) =>

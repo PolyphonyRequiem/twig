@@ -30,12 +30,19 @@ All workflows are registered in the `twig` conductor registry. Use short names �
 
 ### Workflow Inputs
 
-| Input | Type | Default | Description |
-|-------|------|---------|-------------|
-| `work_item_id` | number | — | ADO work item ID (Epic, Issue, or Task). Required for `resume` and `redo`. |
-| `prompt` | string | — | Natural language description. Creates a new Epic. Forces `intent=new`. |
-| `intent` | string | `resume` | User intent: `new` (fresh start), `redo` (delete and redo), `resume` (pick up where left off). |
-| `plan_path` | string | — | Debugging override: explicit plan file. Only valid with `resume` or `redo`. |
+| Input | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `work_item_id` | string | conditional | — | ADO work item ID (Epic, Issue, or Task). Required for `resume` and `redo`. |
+| `prompt` | string | conditional | `""` | Natural language description. Creates a new Epic. Forces `intent=new`. |
+| `intent` | string | no | `resume` | User intent: `new` (fresh start), `redo` (delete and redo), `resume` (pick up where left off). |
+| `pr_owner` | string | **yes** | — | GitHub owner (org or user) of the PR target repository. For twig: `PolyphonyRequiem`. |
+| `pr_repo_name` | string | **yes** | — | GitHub repository name (without owner) of the PR target. For twig: `twig`. |
+| `gh_user` | string | no | `""` | Explicit `gh` CLI user identity. Pinned via `$env:GH_CONDUCTOR_USER`. Empty = use active gh account. |
+
+> **`pr_owner` and `pr_repo_name` are required.** They tell the workflow which GitHub
+> repository to target for PR creation, review, and merge. Omitting them causes the
+> workflow to fail at the PR lifecycle stage. For twig, always pass
+> `pr_owner=PolyphonyRequiem` and `pr_repo_name=twig`.
 
 > **`skip_plan_review` is removed** — use `intent=resume` instead (default behavior).
 > For new runs from a prompt, `intent=new` is inferred automatically.
@@ -75,13 +82,13 @@ twig set <ID>
 twig sync
 
 # 4. Run the full SDLC — default intent is "resume"
-conductor run twig-sdlc-full@twig --input work_item_id=<ID> -m tracker=ado -m project_url=https://dev.azure.com/dangreen-msft/Twig -m git_repo=C:\Users\dangreen\projects\twig2 -m workitem_id=<ID> -m worktree_name=twig2-<ID> -m cwd=C:\Users\dangreen\projects\twig2-<ID> --web
+conductor run twig-sdlc-full@twig --input work_item_id=<ID> --input pr_owner=PolyphonyRequiem --input pr_repo_name=twig -m tracker=ado -m project_url=https://dev.azure.com/dangreen-msft/Twig -m git_repo=C:\Users\dangreen\projects\twig2 -m workitem_id=<ID> -m worktree_name=twig2-<ID> -m cwd=C:\Users\dangreen\projects\twig2-<ID> --web
 
 # For a brand new work item (no prior work):
-conductor run twig-sdlc-full@twig --input work_item_id=<ID> --input intent=new -m tracker=ado -m project_url=https://dev.azure.com/dangreen-msft/Twig -m git_repo=C:\Users\dangreen\projects\twig2 -m workitem_id=<ID> -m worktree_name=twig2-<ID> -m cwd=C:\Users\dangreen\projects\twig2-<ID> --web
+conductor run twig-sdlc-full@twig --input work_item_id=<ID> --input intent=new --input pr_owner=PolyphonyRequiem --input pr_repo_name=twig -m tracker=ado -m project_url=https://dev.azure.com/dangreen-msft/Twig -m git_repo=C:\Users\dangreen\projects\twig2 -m workitem_id=<ID> -m worktree_name=twig2-<ID> -m cwd=C:\Users\dangreen\projects\twig2-<ID> --web
 
 # To redo from scratch (deletes existing children/branches):
-conductor run twig-sdlc-full@twig --input work_item_id=<ID> --input intent=redo -m tracker=ado -m project_url=https://dev.azure.com/dangreen-msft/Twig -m git_repo=C:\Users\dangreen\projects\twig2 -m workitem_id=<ID> -m worktree_name=twig2-<ID> -m cwd=C:\Users\dangreen\projects\twig2-<ID> --web
+conductor run twig-sdlc-full@twig --input work_item_id=<ID> --input intent=redo --input pr_owner=PolyphonyRequiem --input pr_repo_name=twig -m tracker=ado -m project_url=https://dev.azure.com/dangreen-msft/Twig -m git_repo=C:\Users\dangreen\projects\twig2 -m workitem_id=<ID> -m worktree_name=twig2-<ID> -m cwd=C:\Users\dangreen\projects\twig2-<ID> --web
 ```
 
 ## Launching Multiple Runs
@@ -103,7 +110,7 @@ $ids = 1673, 1782
 foreach ($id in $ids) {
     $wt = "C:\Users\dangreen\projects\twig2-$id"
     Start-Process -FilePath "pwsh" -ArgumentList "-NoProfile", "-Command",
-        "cd $wt; conductor run twig-sdlc-full@twig --input work_item_id=$id -m tracker=ado -m project_url=https://dev.azure.com/dangreen-msft/Twig -m git_repo=C:\Users\dangreen\projects\twig2 -m workitem_id=$id -m worktree_name=twig2-$id -m cwd=$wt --web 2>&1 | Tee-Object -FilePath $wt\conductor.log" `
+        "cd $wt; conductor run twig-sdlc-full@twig --input work_item_id=$id --input pr_owner=PolyphonyRequiem --input pr_repo_name=twig -m tracker=ado -m project_url=https://dev.azure.com/dangreen-msft/Twig -m git_repo=C:\Users\dangreen\projects\twig2 -m workitem_id=$id -m worktree_name=twig2-$id -m cwd=$wt --web 2>&1 | Tee-Object -FilePath $wt\conductor.log" `
         -WindowStyle Hidden -PassThru | ForEach-Object { "Launched #$id — PID $($_.Id)" }
     if ($id -ne $ids[-1]) { Start-Sleep -Seconds 10 }
 }
@@ -129,7 +136,7 @@ kills all child processes when conductor exits.
 $ids = 1673, 1782
 foreach ($id in $ids) {
     $wt = "C:\Users\dangreen\projects\twig2-$id"
-    $args = "run twig-sdlc-full@twig --input work_item_id=$id -m tracker=ado -m project_url=https://dev.azure.com/dangreen-msft/Twig -m git_repo=C:\Users\dangreen\projects\twig2 -m workitem_id=$id -m worktree_name=twig2-$id -m cwd=$wt --web"
+    $args = "run twig-sdlc-full@twig --input work_item_id=$id --input pr_owner=PolyphonyRequiem --input pr_repo_name=twig -m tracker=ado -m project_url=https://dev.azure.com/dangreen-msft/Twig -m git_repo=C:\Users\dangreen\projects\twig2 -m workitem_id=$id -m worktree_name=twig2-$id -m cwd=$wt --web"
     Start-Process -FilePath "pwsh" -ArgumentList "-NoProfile", "-File",
         "tools\run-conductor.ps1",
         "-WorkingDirectory", "`"$wt`"",

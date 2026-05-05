@@ -94,6 +94,9 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(AppInsightsEnvelope))]
 // MSAL token cache DTOs (Epic — sync-perf-optimization)
 [JsonSerializable(typeof(MsalTokenCache))]
+[JsonSerializable(typeof(MsalRefreshTokenEntry))]
+[JsonSerializable(typeof(MsalAccountEntry))]
+[JsonSerializable(typeof(TokenRefreshResponse))]
 // Workspace mode domain types (Epic — workspace-mode-infrastructure)
 [JsonSerializable(typeof(WorkspaceConfig))]
 [JsonSerializable(typeof(TrackingConfig))]

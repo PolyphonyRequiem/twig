@@ -629,6 +629,197 @@ public class MsalCacheTokenProviderTests
         inner.CallCount.ShouldBe(1);
     }
 
+    #region HTTP Refresh integration tests
+
+    [Fact]
+    public async Task GetAccessTokenAsync_ExpiredAccessToken_RefreshesViaHttp()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var expiredToken = now.AddMinutes(-10).ToUnixTimeSeconds();
+        var json = CreateCacheJsonWithRefreshToken(
+            accessTokenSecret: "expired-at",
+            accessTokenExpiresOn: expiredToken,
+            refreshTokenSecret: "my-refresh-token",
+            clientId: "my-client",
+            homeAccountId: "user.tenant123",
+            realm: "tenant123",
+            environment: "login.microsoftonline.com");
+
+        var inner = CreateInnerProvider("should-not-reach");
+        var handler = new FakeHttpHandler(System.Net.HttpStatusCode.OK,
+            """{"access_token":"refreshed-token","expires_in":3600}""");
+        var refresher = new MsalTokenRefresher(handler);
+        string? cachedToken = null;
+        DateTimeOffset cachedExpiry = default;
+
+        var provider = new MsalCacheTokenProvider(
+            inner,
+            cacheFilePath: "fake-path",
+            fileReader: (_, _) => Task.FromResult<string?>(json),
+            clock: () => now,
+            refresher: refresher,
+            tokenCacheWriter: (token, expiry) => { cachedToken = token; cachedExpiry = expiry; });
+
+        var result = await provider.GetAccessTokenAsync();
+
+        result.ShouldBe("refreshed-token");
+        inner.CallCount.ShouldBe(0); // Did NOT fall through to az CLI
+        cachedToken.ShouldBe("refreshed-token"); // Written to cross-process cache
+        cachedExpiry.ShouldBeGreaterThan(now);
+    }
+
+    [Fact]
+    public async Task GetAccessTokenAsync_RefreshFails_FallsThroughToInner()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var expiredToken = now.AddMinutes(-10).ToUnixTimeSeconds();
+        var json = CreateCacheJsonWithRefreshToken(
+            accessTokenSecret: "expired-at",
+            accessTokenExpiresOn: expiredToken,
+            refreshTokenSecret: "bad-rt",
+            clientId: "client",
+            homeAccountId: "user.tenant",
+            realm: "tenant",
+            environment: "login.microsoftonline.com");
+
+        var inner = CreateInnerProvider("from-az-cli");
+        var handler = new FakeHttpHandler(System.Net.HttpStatusCode.InternalServerError, "error");
+        var refresher = new MsalTokenRefresher(handler);
+
+        var provider = new MsalCacheTokenProvider(
+            inner,
+            cacheFilePath: "fake-path",
+            fileReader: (_, _) => Task.FromResult<string?>(json),
+            clock: () => now,
+            refresher: refresher);
+
+        var result = await provider.GetAccessTokenAsync();
+
+        result.ShouldBe("from-az-cli");
+        inner.CallCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task GetAccessTokenAsync_InvalidGrant_ClearsCacheAndFallsThrough()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var clock = now;
+        var validExpiry = now.AddHours(2).ToUnixTimeSeconds();
+
+        // First call with valid access token → caches it
+        var validJson = CreateCacheJsonWithRefreshToken(
+            accessTokenSecret: "valid-token",
+            accessTokenExpiresOn: validExpiry,
+            refreshTokenSecret: "revoked-rt",
+            clientId: "client",
+            homeAccountId: "user.tenant",
+            realm: "tenant",
+            environment: "login.microsoftonline.com");
+
+        var inner = CreateInnerProvider("fresh-from-cli");
+        var handler = new FakeHttpHandler(System.Net.HttpStatusCode.BadRequest,
+            """{"error":"invalid_grant","error_description":"Token revoked"}""");
+        var refresher = new MsalTokenRefresher(handler);
+
+        // After TTL expires, return json with expired access token to trigger refresh
+        var expiredJson = CreateCacheJsonWithRefreshToken(
+            accessTokenSecret: "expired",
+            accessTokenExpiresOn: now.AddMinutes(-5).ToUnixTimeSeconds(),
+            refreshTokenSecret: "revoked-rt",
+            clientId: "client",
+            homeAccountId: "user.tenant",
+            realm: "tenant",
+            environment: "login.microsoftonline.com");
+
+        var callCount = 0;
+        var provider = new MsalCacheTokenProvider(
+            inner,
+            cacheFilePath: "fake-path",
+            fileReader: (_, _) =>
+            {
+                callCount++;
+                return callCount == 1
+                    ? Task.FromResult<string?>(validJson)
+                    : Task.FromResult<string?>(expiredJson);
+            },
+            clock: () => clock,
+            refresher: refresher);
+
+        // First call — uses valid access token
+        var token1 = await provider.GetAccessTokenAsync();
+        token1.ShouldBe("valid-token");
+
+        // Advance past TTL
+        clock = now + TimeSpan.FromMinutes(51);
+
+        // Second call — access expired, refresh fails with invalid_grant → falls to inner
+        var token2 = await provider.GetAccessTokenAsync();
+        token2.ShouldBe("fresh-from-cli");
+        inner.CallCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task GetAccessTokenAsync_NoRefreshTokenInCache_FallsThroughToInner()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var expiredToken = now.AddMinutes(-10).ToUnixTimeSeconds();
+        // Cache with expired access token but NO refresh token
+        var json = CreateCacheJson("expired", AdoResourceId, expiredToken);
+        var inner = CreateInnerProvider("inner-token");
+
+        var provider = new MsalCacheTokenProvider(
+            inner,
+            cacheFilePath: "fake-path",
+            fileReader: (_, _) => Task.FromResult<string?>(json),
+            clock: () => now);
+
+        var result = await provider.GetAccessTokenAsync();
+
+        result.ShouldBe("inner-token");
+        inner.CallCount.ShouldBe(1);
+    }
+
+    #endregion
+
+    #region Test helpers
+
+    private static string CreateCacheJsonWithRefreshToken(
+        string accessTokenSecret,
+        long accessTokenExpiresOn,
+        string refreshTokenSecret,
+        string clientId,
+        string homeAccountId,
+        string realm,
+        string environment)
+    {
+        return $$"""
+        {
+            "AccessToken": {
+                "entry1": {
+                    "secret": "{{accessTokenSecret}}",
+                    "target": "{{AdoResourceId}}",
+                    "expires_on": "{{accessTokenExpiresOn}}"
+                }
+            },
+            "RefreshToken": {
+                "rt1": {
+                    "secret": "{{refreshTokenSecret}}",
+                    "client_id": "{{clientId}}",
+                    "home_account_id": "{{homeAccountId}}",
+                    "environment": "{{environment}}"
+                }
+            },
+            "Account": {
+                "acc1": {
+                    "home_account_id": "{{homeAccountId}}",
+                    "realm": "{{realm}}",
+                    "environment": "{{environment}}"
+                }
+            }
+        }
+        """;
+    }
+
     /// <summary>
     /// Fake inner auth provider for test isolation.
     /// </summary>
@@ -660,4 +851,19 @@ public class MsalCacheTokenProviderTests
 
         public void InvalidateToken() { }
     }
+
+    private sealed class FakeHttpHandler(System.Net.HttpStatusCode statusCode, string body) : System.Net.Http.HttpMessageHandler
+    {
+        protected override Task<System.Net.Http.HttpResponseMessage> SendAsync(
+            System.Net.Http.HttpRequestMessage request, CancellationToken ct)
+        {
+            var response = new System.Net.Http.HttpResponseMessage(statusCode)
+            {
+                Content = new System.Net.Http.StringContent(body)
+            };
+            return Task.FromResult(response);
+        }
+    }
+
+    #endregion
 }

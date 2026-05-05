@@ -21,6 +21,16 @@ public interface IOutputFormatter
     string FormatHint(string hint);
     string FormatInfo(string message);
 
+    // ── Creation result formatting ──────────────────────────────────
+
+    /// <summary>
+    /// Returns the formatted output after <c>twig new</c> creates a work item.
+    /// Human: <c>✓ Created #42 Title (Type)</c>.
+    /// JSON/JsonCompact: <c>{"id":42,"type":"...","title":"...","parent":N,"url":"..."}</c>.
+    /// Minimal: <c>#42</c>.
+    /// </summary>
+    string FormatCreated(WorkItem item, string url);
+
     // ── Set confirmation formatting ─────────────────────────────────
 
     /// <summary>

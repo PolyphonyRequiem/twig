@@ -351,6 +351,26 @@ public sealed class JsonOutputFormatter : IOutputFormatter
         return Encoding.UTF8.GetString(stream.ToArray());
     }
 
+    public string FormatCreated(WorkItem item, string url)
+    {
+        using var stream = new MemoryStream();
+        using var writer = new Utf8JsonWriter(stream, WriterOptions);
+
+        writer.WriteStartObject();
+        writer.WriteNumber("id", item.Id);
+        writer.WriteString("type", item.Type.ToString());
+        writer.WriteString("title", item.Title);
+        if (item.ParentId.HasValue)
+            writer.WriteNumber("parent", item.ParentId.Value);
+        else
+            writer.WriteNull("parent");
+        writer.WriteString("url", url);
+        writer.WriteEndObject();
+
+        writer.Flush();
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
     public string FormatDisambiguation(IReadOnlyList<(int Id, string Title)> matches)
     {
         using var stream = new MemoryStream();

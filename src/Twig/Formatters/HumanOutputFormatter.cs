@@ -1161,6 +1161,11 @@ public sealed class HumanOutputFormatter : IOutputFormatter
         return $"{Green}✓{Reset} {message}";
     }
 
+    public string FormatCreated(WorkItem item, string url)
+    {
+        return $"{Green}✓{Reset} Created #{item.Id} {item.Title} ({item.Type})";
+    }
+
     public string FormatDisambiguation(IReadOnlyList<(int Id, string Title)> matches)
     {
         var sb = new StringBuilder();

@@ -130,6 +130,7 @@ public sealed class JsonCompactOutputFormatter(JsonOutputFormatter full) : IOutp
     public string FormatFieldChange(FieldChange change) => full.FormatFieldChange(change);
     public string FormatError(string message) => full.FormatError(message);
     public string FormatSuccess(string message) => full.FormatSuccess(message);
+    public string FormatCreated(WorkItem item, string url) => full.FormatCreated(item, url);
     public string FormatDisambiguation(IReadOnlyList<(int Id, string Title)> matches) => full.FormatDisambiguation(matches);
     public string FormatHint(string hint) => full.FormatHint(hint);
     public string FormatInfo(string message) => full.FormatInfo(message);

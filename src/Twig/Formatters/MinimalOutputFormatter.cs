@@ -135,6 +135,11 @@ public sealed class MinimalOutputFormatter : IOutputFormatter
         return message;
     }
 
+    public string FormatCreated(WorkItem item, string url)
+    {
+        return $"#{item.Id}";
+    }
+
     public string FormatHint(string hint)
     {
         return "";

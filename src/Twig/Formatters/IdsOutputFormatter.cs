@@ -65,6 +65,7 @@ public sealed class IdsOutputFormatter : IOutputFormatter
     public string FormatFieldChange(FieldChange change) => string.Empty;
     public string FormatError(string message) => string.Empty;
     public string FormatSuccess(string message) => string.Empty;
+    public string FormatCreated(WorkItem item, string url) => item.Id.ToString();
     public string FormatDisambiguation(IReadOnlyList<(int Id, string Title)> matches) => string.Empty;
     public string FormatHint(string hint) => string.Empty;
     public string FormatInfo(string message) => string.Empty;

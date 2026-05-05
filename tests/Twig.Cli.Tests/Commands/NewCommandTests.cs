@@ -411,4 +411,78 @@ public class NewCommandTests : IDisposable
             Arg.Is<WorkItem>(w => w.ParentId == 55 && w.Id == 300),
             Arg.Any<CancellationToken>());
     }
+
+    [Fact]
+    public async Task New_JsonOutput_ReturnsStructuredObject()
+    {
+        ArrangeCreateSuccess(42, "My Issue", parentId: 10);
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+
+        var result = await _cmd.ExecuteAsync("My Issue", "Issue", parent: 10, outputFormat: "json");
+
+        result.ShouldBe(0);
+        var output = writer.ToString().Trim();
+        var doc = System.Text.Json.JsonDocument.Parse(output);
+        var root = doc.RootElement;
+
+        root.GetProperty("id").GetInt32().ShouldBe(42);
+        root.GetProperty("type").GetString().ShouldBe("Epic"); // fetched type from ADO
+        root.GetProperty("title").GetString().ShouldBe("My Issue");
+        root.GetProperty("parent").GetInt32().ShouldBe(10);
+        root.GetProperty("url").GetString()!.ShouldContain("_workitems/edit/42");
+    }
+
+    [Fact]
+    public async Task New_JsonOutput_NullParent_WritesNullParentField()
+    {
+        ArrangeCreateSuccess(50, "Orphan Epic");
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+
+        var result = await _cmd.ExecuteAsync("Orphan Epic", "Epic", outputFormat: "json");
+
+        result.ShouldBe(0);
+        var output = writer.ToString().Trim();
+        var doc = System.Text.Json.JsonDocument.Parse(output);
+        var root = doc.RootElement;
+
+        root.GetProperty("id").GetInt32().ShouldBe(50);
+        root.GetProperty("parent").ValueKind.ShouldBe(System.Text.Json.JsonValueKind.Null);
+    }
+
+    [Fact]
+    public async Task New_JsoncOutput_ReturnsStructuredObject()
+    {
+        ArrangeCreateSuccess(77, "Compact Item", parentId: 5);
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+
+        var result = await _cmd.ExecuteAsync("Compact Item", "Issue", parent: 5, outputFormat: "json-compact");
+
+        result.ShouldBe(0);
+        var output = writer.ToString().Trim();
+        var doc = System.Text.Json.JsonDocument.Parse(output);
+        var root = doc.RootElement;
+
+        root.GetProperty("id").GetInt32().ShouldBe(77);
+        root.GetProperty("type").GetString().ShouldBe("Epic");
+        root.GetProperty("title").GetString().ShouldBe("Compact Item");
+        root.GetProperty("parent").GetInt32().ShouldBe(5);
+        root.GetProperty("url").GetString()!.ShouldContain("_workitems/edit/77");
+    }
+
+    [Fact]
+    public async Task New_MinimalOutput_ReturnsIdOnly()
+    {
+        ArrangeCreateSuccess(88, "Minimal Task", parentId: 3);
+        var writer = new StringWriter();
+        Console.SetOut(writer);
+
+        var result = await _cmd.ExecuteAsync("Minimal Task", "Task", parent: 3, outputFormat: "minimal");
+
+        result.ShouldBe(0);
+        var output = writer.ToString().Trim();
+        output.ShouldBe("#88");
+    }
 }

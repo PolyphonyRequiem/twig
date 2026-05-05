@@ -147,8 +147,8 @@ public sealed class NewCommand(
         if (set)
             await contextStore.SetActiveWorkItemIdAsync(newId, ct);
 
-        Console.WriteLine(fmt.FormatSuccess(
-            $"Created #{newId} {fetched.Title} ({typeResult.Value})"));
+        var url = $"https://dev.azure.com/{Uri.EscapeDataString(config.Organization)}/{Uri.EscapeDataString(config.Project)}/_workitems/edit/{newId}";
+        Console.WriteLine(fmt.FormatCreated(fetched, url));
 
         var hints = hintEngine.GetHints("new",
             outputFormat: outputFormat,

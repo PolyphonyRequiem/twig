@@ -1,0 +1,48 @@
+name: Benchmarks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'tests/Twig.Benchmarks/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  benchmarks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Restore
+        run: dotnet restore tests/Twig.Benchmarks/Twig.Benchmarks.csproj
+
+      - name: Build
+        run: dotnet build tests/Twig.Benchmarks/Twig.Benchmarks.csproj -c Release --no-restore
+
+      - name: Run SQLite benchmarks
+        run: dotnet run --project tests/Twig.Benchmarks -c Release -- --filter "*Sqlite*" --exporters json
+
+      - name: Run Command benchmarks
+        run: dotnet run --project tests/Twig.Benchmarks -c Release -- --filter "*Command*" --exporters json
+
+      - name: Run Rendering benchmarks
+        run: dotnet run --project tests/Twig.Benchmarks -c Release -- --filter "*Rendering*" --exporters json
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: BenchmarkDotNet.Artifacts/
+          retention-days: 30

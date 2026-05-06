@@ -13,5 +13,6 @@
     <Project Path="tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj" />
     <Project Path="tests/Twig.Mcp.Tests/Twig.Mcp.Tests.csproj" />
     <Project Path="tests/Twig.Tui.Tests/Twig.Tui.Tests.csproj" />
+    <Project Path="tests/Twig.Benchmarks/Twig.Benchmarks.csproj" />
   </Folder>
 </Solution>

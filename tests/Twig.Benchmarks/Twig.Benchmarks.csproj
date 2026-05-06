@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>false</IsTestProject>
+    <!-- BenchmarkDotNet needs this to avoid AOT/trim interference -->
+    <PublishAot>false</PublishAot>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" />
+    <PackageReference Include="Spectre.Console.Testing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Twig\Twig.csproj" />
+    <ProjectReference Include="..\..\src\Twig.Domain\Twig.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Twig.Infrastructure\Twig.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

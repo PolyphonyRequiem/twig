@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.ValueObjects;
@@ -33,7 +32,7 @@ public sealed class DeleteCommand(
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
     {
-        var startTimestamp = Stopwatch.GetTimestamp();
+        using var scope = new CommandActivityScope("delete", outputFormat);
         var fmt = ctx.FormatterFactory.GetFormatter(outputFormat);
         int exitCode;
 
@@ -47,12 +46,13 @@ public sealed class DeleteCommand(
             exitCode = 1;
         }
 
+        scope.Complete(exitCode);
         TelemetryHelper.TrackCommand(
             ctx.TelemetryClient,
             "delete",
             outputFormat,
             exitCode,
-            startTimestamp,
+            scope.StartTimestamp,
             extraProperties: new Dictionary<string, string>
             {
                 ["used_force"] = force.ToString(),

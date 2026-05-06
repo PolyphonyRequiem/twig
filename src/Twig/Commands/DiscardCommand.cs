@@ -32,40 +32,49 @@ public sealed class DiscardCommand(
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
     {
-        var startTimestamp = Stopwatch.GetTimestamp();
+        using var scope = new CommandActivityScope("discard", outputFormat);
         var fmt = formatterFactory.GetFormatter(outputFormat);
 
         int exitCode;
         int itemCount = 0;
-        if (id.HasValue && all)
+        try
         {
-            Console.Error.WriteLine(fmt.FormatError("Specify either <id> or --all, not both."));
-            exitCode = 1;
-        }
-        else if (!id.HasValue && !all)
-        {
-            Console.Error.WriteLine(fmt.FormatError("Specify <id> or --all. Run 'twig discard --help' for usage."));
-            exitCode = 1;
-        }
-        else
-        {
-            (exitCode, itemCount) = all
-                ? await ExecuteAllAsync(fmt, yes, outputFormat, ct)
-                : await ExecuteSingleAsync(id!.Value, fmt, yes, outputFormat, ct);
-        }
+            if (id.HasValue && all)
+            {
+                Console.Error.WriteLine(fmt.FormatError("Specify either <id> or --all, not both."));
+                exitCode = 1;
+            }
+            else if (!id.HasValue && !all)
+            {
+                Console.Error.WriteLine(fmt.FormatError("Specify <id> or --all. Run 'twig discard --help' for usage."));
+                exitCode = 1;
+            }
+            else
+            {
+                (exitCode, itemCount) = all
+                    ? await ExecuteAllAsync(fmt, yes, outputFormat, ct)
+                    : await ExecuteSingleAsync(id!.Value, fmt, yes, outputFormat, ct);
+            }
 
-        telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
+            scope.Complete(exitCode);
+            telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
+            {
+                ["command"] = "discard",
+                ["exit_code"] = exitCode.ToString(),
+                ["output_format"] = outputFormat,
+                ["item_count"] = itemCount.ToString(),
+                ["used_all"] = all.ToString(),
+            }, new Dictionary<string, double>
+            {
+                ["duration_ms"] = Stopwatch.GetElapsedTime(scope.StartTimestamp).TotalMilliseconds,
+            });
+            return exitCode;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            ["command"] = "discard",
-            ["exit_code"] = exitCode.ToString(),
-            ["output_format"] = outputFormat,
-            ["item_count"] = itemCount.ToString(),
-            ["used_all"] = all.ToString(),
-        }, new Dictionary<string, double>
-        {
-            ["duration_ms"] = Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds,
-        });
-        return exitCode;
+            scope.Fail(ex);
+            throw;
+        }
     }
 
     // ── Single-item flow ────────────────────────────────────────────

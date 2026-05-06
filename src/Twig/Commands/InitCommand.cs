@@ -71,22 +71,34 @@ public sealed class InitCommand
 
     public async Task<int> ExecuteAsync(string org, string project, string? team = null, string? gitProject = null, bool force = false, string outputFormat = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, CancellationToken ct = default)
     {
-        var startTimestamp = Stopwatch.GetTimestamp();
-        var (exitCode, hadGlobalProfile, fieldCount) = await ExecuteCoreAsync(org, project, team, gitProject, force, outputFormat, sprint, area, ct);
-        _telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
+        using var scope = new CommandActivityScope("init", "human");
+        int exitCode;
+        try
         {
-            ["command"] = "init",
-            ["exit_code"] = exitCode.ToString(),
-            ["output_format"] = outputFormat,
-            ["twig_version"] = VersionHelper.GetVersion(),
-            ["os_platform"] = System.Runtime.InteropServices.RuntimeInformation.OSDescription,
-            ["had_global_profile"] = hadGlobalProfile.ToString()
-        }, new Dictionary<string, double>
+            int fieldCount;
+            bool hadGlobalProfile;
+            (exitCode, hadGlobalProfile, fieldCount) = await ExecuteCoreAsync(org, project, team, gitProject, force, outputFormat, sprint, area, ct);
+            scope.Complete(exitCode);
+            _telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
+            {
+                ["command"] = "init",
+                ["exit_code"] = exitCode.ToString(),
+                ["output_format"] = outputFormat,
+                ["twig_version"] = VersionHelper.GetVersion(),
+                ["os_platform"] = System.Runtime.InteropServices.RuntimeInformation.OSDescription,
+                ["had_global_profile"] = hadGlobalProfile.ToString()
+            }, new Dictionary<string, double>
+            {
+                ["duration_ms"] = Stopwatch.GetElapsedTime(scope.StartTimestamp).TotalMilliseconds,
+                ["field_count"] = fieldCount
+            });
+            return exitCode;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            ["duration_ms"] = Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds,
-            ["field_count"] = fieldCount
-        });
-        return exitCode;
+            scope.Fail(ex);
+            throw;
+        }
     }
 
     private async Task<(int ExitCode, bool HadGlobalProfile, int FieldCount)> ExecuteCoreAsync(string org, string project, string? team, string? gitProject, bool force, string outputFormat, string? sprint, string? area, CancellationToken ct)

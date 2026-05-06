@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Navigation;
 using Twig.Formatters;
@@ -20,10 +19,20 @@ public sealed class SetCommand(
 {
     public async Task<int> ExecuteAsync(string idOrPattern, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
-        var startTimestamp = Stopwatch.GetTimestamp();
-        var exitCode = await ExecuteCoreAsync(idOrPattern, outputFormat, ct);
-        TelemetryHelper.TrackCommand(ctx.TelemetryClient, "set", outputFormat, exitCode, startTimestamp);
-        return exitCode;
+        using var scope = new CommandActivityScope("set", outputFormat);
+        int exitCode;
+        try
+        {
+            exitCode = await ExecuteCoreAsync(idOrPattern, outputFormat, ct);
+            scope.Complete(exitCode);
+            TelemetryHelper.TrackCommand(ctx.TelemetryClient, "set", outputFormat, exitCode, scope.StartTimestamp);
+            return exitCode;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            scope.Fail(ex);
+            throw;
+        }
     }
 
     private async Task<int> ExecuteCoreAsync(string idOrPattern, string outputFormat, CancellationToken ct)

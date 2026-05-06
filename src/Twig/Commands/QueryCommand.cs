@@ -44,29 +44,40 @@ public sealed partial class QueryCommand(
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
     {
-        var startTimestamp = Stopwatch.GetTimestamp();
-        var hasFilters = HasAnyFilter(searchText, title, description, type, state, assignedTo, areaPath, iterationPath, createdSince, changedSince);
-        var (exitCode, resultCount) = await ExecuteCoreAsync(
-            hasFilters,
-            searchText, title, description, type, state, assignedTo, areaPath, iterationPath,
-            createdSince, changedSince, top, outputFormat, ct);
-
-        telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
+        using var scope = new CommandActivityScope("query", outputFormat);
+        int exitCode;
+        try
         {
-            ["command"] = "query",
-            ["exit_code"] = exitCode.ToString(),
-            ["output_format"] = outputFormat,
-            ["had_filters"] = hasFilters ? "true" : "false",
-            ["showed_summary"] = !hasFilters ? "true" : "false",
-            ["twig_version"] = VersionHelper.GetVersion(),
-            ["os_platform"] = System.Runtime.InteropServices.RuntimeInformation.OSDescription
-        }, new Dictionary<string, double>
-        {
-            ["duration_ms"] = Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds,
-            ["result_count"] = resultCount
-        });
+            var hasFilters = HasAnyFilter(searchText, title, description, type, state, assignedTo, areaPath, iterationPath, createdSince, changedSince);
+            int resultCount;
+            (exitCode, resultCount) = await ExecuteCoreAsync(
+                hasFilters,
+                searchText, title, description, type, state, assignedTo, areaPath, iterationPath,
+                createdSince, changedSince, top, outputFormat, ct);
 
-        return exitCode;
+            scope.Complete(exitCode);
+            telemetryClient?.TrackEvent("CommandExecuted", new Dictionary<string, string>
+            {
+                ["command"] = "query",
+                ["exit_code"] = exitCode.ToString(),
+                ["output_format"] = outputFormat,
+                ["had_filters"] = hasFilters ? "true" : "false",
+                ["showed_summary"] = !hasFilters ? "true" : "false",
+                ["twig_version"] = VersionHelper.GetVersion(),
+                ["os_platform"] = System.Runtime.InteropServices.RuntimeInformation.OSDescription
+            }, new Dictionary<string, double>
+            {
+                ["duration_ms"] = Stopwatch.GetElapsedTime(scope.StartTimestamp).TotalMilliseconds,
+                ["result_count"] = resultCount
+            });
+
+            return exitCode;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            scope.Fail(ex);
+            throw;
+        }
     }
 
     private async Task<(int ExitCode, int ResultCount)> ExecuteCoreAsync(

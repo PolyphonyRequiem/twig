@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Navigation;
@@ -30,10 +29,20 @@ public sealed class LinkCommand(
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
     {
-        var startTimestamp = Stopwatch.GetTimestamp();
-        var exitCode = await ParentCoreAsync(targetId, outputFormat, ct);
-        TelemetryHelper.TrackCommand(telemetryClient, "link-parent", outputFormat, exitCode, startTimestamp);
-        return exitCode;
+        using var scope = new CommandActivityScope("link-parent", outputFormat);
+        int exitCode;
+        try
+        {
+            exitCode = await ParentCoreAsync(targetId, outputFormat, ct);
+            scope.Complete(exitCode);
+            TelemetryHelper.TrackCommand(telemetryClient, "link-parent", outputFormat, exitCode, scope.StartTimestamp);
+            return exitCode;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            scope.Fail(ex);
+            throw;
+        }
     }
 
     private async Task<int> ParentCoreAsync(
@@ -81,10 +90,20 @@ public sealed class LinkCommand(
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
     {
-        var startTimestamp = Stopwatch.GetTimestamp();
-        var exitCode = await UnparentCoreAsync(outputFormat, ct);
-        TelemetryHelper.TrackCommand(telemetryClient, "link-unparent", outputFormat, exitCode, startTimestamp);
-        return exitCode;
+        using var scope = new CommandActivityScope("link-unparent", outputFormat);
+        int exitCode;
+        try
+        {
+            exitCode = await UnparentCoreAsync(outputFormat, ct);
+            scope.Complete(exitCode);
+            TelemetryHelper.TrackCommand(telemetryClient, "link-unparent", outputFormat, exitCode, scope.StartTimestamp);
+            return exitCode;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            scope.Fail(ex);
+            throw;
+        }
     }
 
     private async Task<int> UnparentCoreAsync(
@@ -122,10 +141,20 @@ public sealed class LinkCommand(
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
     {
-        var startTimestamp = Stopwatch.GetTimestamp();
-        var exitCode = await ReparentCoreAsync(targetId, outputFormat, ct);
-        TelemetryHelper.TrackCommand(telemetryClient, "link-reparent", outputFormat, exitCode, startTimestamp);
-        return exitCode;
+        using var scope = new CommandActivityScope("link-reparent", outputFormat);
+        int exitCode;
+        try
+        {
+            exitCode = await ReparentCoreAsync(targetId, outputFormat, ct);
+            scope.Complete(exitCode);
+            TelemetryHelper.TrackCommand(telemetryClient, "link-reparent", outputFormat, exitCode, scope.StartTimestamp);
+            return exitCode;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            scope.Fail(ex);
+            throw;
+        }
     }
 
     private async Task<int> ReparentCoreAsync(

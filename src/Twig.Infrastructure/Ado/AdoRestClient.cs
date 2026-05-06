@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Twig.Domain.Aggregates;
+using Twig.Domain.Diagnostics;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services;
 using Twig.Domain.ValueObjects;
@@ -289,6 +290,9 @@ internal sealed class AdoRestClient : IAdoWorkItemService
     /// </summary>
     public async Task<IReadOnlyList<WorkItem>> FetchBatchAsync(IReadOnlyList<int> ids, CancellationToken ct)
     {
+        using var activity = ActivityHelper.StartAdoOperation("fetch_batch");
+        ActivityHelper.SetItemCount(activity, ids.Count);
+
         if (ids.Count <= MaxBatchSize)
             return await FetchBatchChunkAsync(ids, ct);
 
@@ -382,6 +386,8 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         string? ifMatch,
         CancellationToken ct)
     {
+        using var activity = ActivityHelper.StartAdoOperation(method.Method.ToLowerInvariant());
+
         using var request = new HttpRequestMessage(method, url);
         request.Content = content;
 
@@ -407,12 +413,16 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         }
         catch (HttpRequestException ex)
         {
+            ActivityHelper.Fail(activity, ex);
             throw new AdoOfflineException(ex);
         }
         catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
         {
+            ActivityHelper.Fail(activity, ex);
             throw new AdoOfflineException(ex);
         }
+
+        ActivityHelper.SetStatusCodeClass(activity, (int)response.StatusCode);
 
         try
         {
@@ -422,11 +432,13 @@ internal sealed class AdoRestClient : IAdoWorkItemService
         {
             response.Dispose();
             _throttle?.SetPause(ex.RetryAfter);
+            ActivityHelper.Fail(activity, ex);
             throw;
         }
-        catch
+        catch (Exception ex)
         {
             response.Dispose();
+            ActivityHelper.Fail(activity, ex);
             throw;
         }
 

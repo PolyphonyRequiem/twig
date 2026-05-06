@@ -45,29 +45,39 @@ public sealed class ShowCommand(
 
     public async Task<int> ExecuteAsync(int? id = null, string outputFormat = OutputFormatterFactory.DefaultFormat, bool tree = false, bool noRefresh = false, CancellationToken ct = default, int? depth = null, bool noLive = false)
     {
-        var startTimestamp = Stopwatch.GetTimestamp();
+        using var scope = new CommandActivityScope("show", outputFormat);
         int exitCode;
 
-        if (tree)
+        try
         {
-            if (treeRenderingService is null)
+            if (tree)
             {
-                ctx.StderrWriter.WriteLine("error: Tree rendering is not available.");
-                exitCode = 1;
-            }
-            else
-            {
-                exitCode = await treeRenderingService.RenderTreeAsync(id, outputFormat, depth, noLive, noRefresh, ct);
+                if (treeRenderingService is null)
+                {
+                    ctx.StderrWriter.WriteLine("error: Tree rendering is not available.");
+                    exitCode = 1;
+                }
+                else
+                {
+                    exitCode = await treeRenderingService.RenderTreeAsync(id, outputFormat, depth, noLive, noRefresh, ct);
+                }
+
+                scope.Complete(exitCode);
+                TelemetryHelper.TrackCommand(ctx.TelemetryClient, "show", outputFormat, exitCode, scope.StartTimestamp,
+                    new Dictionary<string, string> { ["tree"] = "true" });
+                return exitCode;
             }
 
-            TelemetryHelper.TrackCommand(ctx.TelemetryClient, "show", outputFormat, exitCode, startTimestamp,
-                new Dictionary<string, string> { ["tree"] = "true" });
+            exitCode = await ExecuteCoreAsync(id, outputFormat, noRefresh, ct);
+            scope.Complete(exitCode);
+            TelemetryHelper.TrackCommand(ctx.TelemetryClient, "show", outputFormat, exitCode, scope.StartTimestamp);
             return exitCode;
         }
-
-        exitCode = await ExecuteCoreAsync(id, outputFormat, noRefresh, ct);
-        TelemetryHelper.TrackCommand(ctx.TelemetryClient, "show", outputFormat, exitCode, startTimestamp);
-        return exitCode;
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            scope.Fail(ex);
+            throw;
+        }
     }
 
     /// <summary>
@@ -76,10 +86,19 @@ public sealed class ShowCommand(
     /// </summary>
     public async Task<int> ExecuteBatchAsync(string batch, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
-        var startTimestamp = Stopwatch.GetTimestamp();
-        var exitCode = await ExecuteBatchCoreAsync(batch, outputFormat, ct);
-        TelemetryHelper.TrackCommand(ctx.TelemetryClient, "show-batch", outputFormat, exitCode, startTimestamp);
-        return exitCode;
+        using var scope = new CommandActivityScope("show-batch", outputFormat);
+        try
+        {
+            var exitCode = await ExecuteBatchCoreAsync(batch, outputFormat, ct);
+            scope.Complete(exitCode);
+            TelemetryHelper.TrackCommand(ctx.TelemetryClient, "show-batch", outputFormat, exitCode, scope.StartTimestamp);
+            return exitCode;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            scope.Fail(ex);
+            throw;
+        }
     }
 
     private async Task<int> ExecuteCoreAsync(int? id, string outputFormat, bool noRefresh, CancellationToken ct)

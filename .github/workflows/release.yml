@@ -6,9 +6,62 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
+  verify-ci:
+    name: Verify CI green on tagged commit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for CI to succeed on this commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # Tags are typically pushed after main; tolerate a short window where CI
+          # for this commit is still queued or running. Refuse to publish if CI
+          # ultimately fails or never appears within the deadline.
+          DEADLINE=$(( $(date +%s) + 1800 ))   # 30 minutes
+          POLL_INTERVAL=20
+
+          echo "Looking up CI runs on ${REPO}@${SHA}..."
+
+          while true; do
+            RAW=$(gh api "repos/${REPO}/actions/workflows/ci.yml/runs?head_sha=${SHA}&per_page=1" 2>/dev/null || echo '{"workflow_runs":[]}')
+            COUNT=$(echo "$RAW" | jq '.workflow_runs | length')
+
+            if [ "$COUNT" = "0" ]; then
+              STATUS="not-yet-triggered"
+              CONCLUSION=""
+            else
+              STATUS=$(echo "$RAW" | jq -r '.workflow_runs[0].status')
+              CONCLUSION=$(echo "$RAW" | jq -r '.workflow_runs[0].conclusion')
+              RUN_URL=$(echo "$RAW" | jq -r '.workflow_runs[0].html_url')
+            fi
+
+            echo "[$(date -u +%H:%M:%S)] CI status=${STATUS} conclusion=${CONCLUSION:-<none>}"
+
+            if [ "$STATUS" = "completed" ]; then
+              if [ "$CONCLUSION" = "success" ]; then
+                echo "::notice::CI passed on ${SHA} — proceeding with release. Run: ${RUN_URL}"
+                exit 0
+              fi
+              echo "::error::CI did not succeed on ${SHA} (conclusion=${CONCLUSION}). Refusing to publish a release. Run: ${RUN_URL}"
+              exit 1
+            fi
+
+            if [ $(date +%s) -ge $DEADLINE ]; then
+              echo "::error::Timed out waiting for CI on ${SHA} (last status=${STATUS}). Refusing to publish. Re-trigger this Release workflow once CI is green."
+              exit 1
+            fi
+
+            sleep $POLL_INTERVAL
+          done
+
   build:
+    needs: verify-ci
     strategy:
       fail-fast: false
       matrix:

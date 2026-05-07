@@ -20,8 +20,8 @@ public sealed class AuthProviderFactoryTests
     [InlineData("AZCLI")]
     [InlineData("unknown")]
     [InlineData("")]
-    public void Create_NonPatMethod_ReturnsMsalCacheTokenProvider(string method)
+    public void Create_NonPatMethod_ReturnsAdoAccessTokenProvider(string method)
     {
-        AuthProviderFactory.Create(method).ShouldBeOfType<MsalCacheTokenProvider>();
+        AuthProviderFactory.Create(method).ShouldBeOfType<AdoAccessTokenProvider>();
     }
 }

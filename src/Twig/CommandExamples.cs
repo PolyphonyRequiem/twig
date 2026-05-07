@@ -312,6 +312,16 @@ internal static class CommandExamples
             "twig config status-fields                    Show configured status fields",
             "twig config status-fields --output json      Output status fields as JSON",
         ],
+        ["auth status"] =
+        [
+            "twig auth status               Inspect the cached ADO access token",
+            "twig auth status --output json Output token diagnostics as JSON",
+        ],
+        ["auth clear"] =
+        [
+            "twig auth clear                Wipe the cached ADO access token",
+            "twig auth clear                Use after auth changes or to recover from a poisoned cache",
+        ],
         ["version"] =
         [
             "twig version               Print the installed twig version",

@@ -97,6 +97,7 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(MsalRefreshTokenEntry))]
 [JsonSerializable(typeof(MsalAccountEntry))]
 [JsonSerializable(typeof(TokenRefreshResponse))]
+[JsonSerializable(typeof(JwtAccessTokenPayload))]
 // Workspace mode domain types (Epic — workspace-mode-infrastructure)
 [JsonSerializable(typeof(WorkspaceConfig))]
 [JsonSerializable(typeof(TrackingConfig))]

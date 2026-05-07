@@ -55,6 +55,26 @@ internal static partial class AdoErrorHandler
             case HttpStatusCode.Unauthorized:
                 throw new AdoAuthenticationException();
 
+            case HttpStatusCode.Forbidden:
+                // 403 from ADO is most often one of:
+                //   1. Wrong-audience access token (token was issued for a different
+                //      resource — e.g. management.azure.com — and ADO rejects it).
+                //   2. Identity not yet "materialized" in the org (user must do an
+                //      interactive web sign-in once before API calls are honored).
+                //   3. PAT missing required scopes (e.g. Work Items: Read & Write).
+                // We surface this as an auth challenge so the caller invalidates the
+                // cached token and the next call re-fetches a fresh one. If the issue
+                // is identity materialization or scope, the retry will still 403 and
+                // the user sees the guidance below.
+                var forbiddenBody = await TryReadErrorMessageAsync(response, ct);
+                throw new AdoAuthenticationException(
+                    $"Azure DevOps returned HTTP 403 (Forbidden) for {requestUrl}. " +
+                    "Common causes: (1) the cached access token has the wrong audience — " +
+                    "run 'twig auth status' to verify; " +
+                    "(2) your identity has not been materialized in this org — sign in to the org once at https://dev.azure.com/; " +
+                    "(3) PAT is missing the required scopes (Work Items: Read & Write). " +
+                    $"Server: {forbiddenBody ?? "(no body)"}");
+
             case HttpStatusCode.NotFound:
                 var notFoundId = TryExtractWorkItemIdFromUrl(requestUrl);
                 throw new AdoNotFoundException(notFoundId > 0 ? notFoundId : null);

@@ -911,6 +911,18 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> ConfigStatusFields(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ConfigStatusFieldsCommand>().ExecuteAsync(output, ct);
 
+    /// <summary>Inspect the cached ADO access token (audience, expiry, principal). Diagnoses 403s caused by wrong-audience tokens.</summary>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    [Command("auth status")]
+    public async Task<int> AuthStatus(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<AuthStatusCommand>().ExecuteAsync(output, ct);
+
+    /// <summary>Wipe the cached ADO access token. Use after auth changes or to recover from a poisoned cache.</summary>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    [Command("auth clear")]
+    public async Task<int> AuthClear(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => await services.GetRequiredService<AuthClearCommand>().ExecuteAsync(output, ct);
+
     /// <summary>Show the current version.</summary>
     public Task<int> Version()
     {
@@ -1103,6 +1115,8 @@ internal static class GroupedHelp
         // System
         "config",
         "config status-fields",
+        "auth status",
+        "auth clear",
         "version",
         "upgrade",
         "changelog",
@@ -1241,6 +1255,8 @@ Seeds:
 System:
   config <key> [val]   Read or set a configuration value.
   config status-fields Configure which fields appear in status view.
+  auth status          Inspect the cached ADO access token (audience, expiry).
+  auth clear           Wipe the cached ADO access token.
   version              Show the current version.
   upgrade              Check for and apply updates.
   changelog            Display recent release notes.

@@ -17,6 +17,6 @@ internal static class AuthProviderFactory
         if (string.Equals(authMethod, "pat", StringComparison.OrdinalIgnoreCase))
             return new PatAuthProvider();
 
-        return new MsalCacheTokenProvider(new AzCliAuthProvider());
+        return new AdoAccessTokenProvider();
     }
 }

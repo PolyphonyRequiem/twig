@@ -11,7 +11,7 @@ namespace Twig.Infrastructure.Auth;
 /// Eliminates the need to shell out to <c>az account get-access-token</c> (Python process)
 /// when the access token expires, reducing refresh latency from 5-15s to ~200-500ms.
 /// </summary>
-internal sealed class MsalTokenRefresher
+internal sealed class MsalTokenRefresher : ITokenRefresher
 {
     private const string AdoScope = "499b84ac-1321-427f-aa17-267ca6975798/.default";
     private static readonly TimeSpan DefaultRefreshTimeout = TimeSpan.FromSeconds(5);
@@ -50,6 +50,14 @@ internal sealed class MsalTokenRefresher
     /// A tuple of (accessToken, isInvalidGrant). accessToken is non-null on success.
     /// isInvalidGrant is true when the server rejects the refresh token (caller should invalidate caches).
     /// </returns>
+    Task<(string? AccessToken, bool IsInvalidGrant)> ITokenRefresher.TryRefreshAsync(
+        string refreshToken,
+        string clientId,
+        string tenantId,
+        string authorityHost,
+        CancellationToken ct)
+        => TryRefreshAsync(refreshToken, clientId, tenantId, authorityHost, ct);
+
     internal async Task<(string? AccessToken, bool IsInvalidGrant)> TryRefreshAsync(
         string refreshToken,
         string clientId,

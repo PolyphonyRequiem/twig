@@ -17,20 +17,29 @@ public sealed class AuthClearCommand(
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
         var fileCache = new TwigTokenFileCache();
-        var existed = File.Exists(fileCache.Path);
+        var refreshStore = new TwigRefreshTokenStore();
+
+        var fileCacheExisted = File.Exists(fileCache.Path);
+        var refreshStoreExisted = refreshStore.Exists();
 
         fileCache.TryDelete();
+        refreshStore.TryDelete();
 
         // Also flush the live provider's in-memory copy, otherwise this process keeps
         // reusing the cached token until restart.
         authProvider.InvalidateToken();
 
-        if (existed)
+        if (fileCacheExisted)
             Console.WriteLine(fmt.FormatSuccess($"Cleared cached token at {fileCache.Path}."));
         else
             Console.WriteLine(fmt.FormatInfo($"No cached token to clear (no file at {fileCache.Path})."));
 
-        Console.WriteLine(fmt.FormatInfo("Next ADO call will refresh credentials via the MSAL cache or REST exchange."));
+        if (refreshStoreExisted)
+            Console.WriteLine(fmt.FormatSuccess($"Cleared refresh-token store at {refreshStore.Path}."));
+        else
+            Console.WriteLine(fmt.FormatInfo($"No refresh-token store to clear (no file at {refreshStore.Path})."));
+
+        Console.WriteLine(fmt.FormatInfo("Next ADO call will re-bootstrap from the MSAL cache (run 'az login' first if needed)."));
         return Task.FromResult(0);
     }
 }

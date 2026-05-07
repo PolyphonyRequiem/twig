@@ -1255,8 +1255,8 @@ Seeds:
 System:
   config <key> [val]   Read or set a configuration value.
   config status-fields Configure which fields appear in status view.
-  auth status          Inspect the cached ADO access token (audience, expiry).
-  auth clear           Wipe the cached ADO access token.
+  auth status          Inspect refresh-token store + cached ADO access token.
+  auth clear           Wipe refresh-token store and cached access token.
   version              Show the current version.
   upgrade              Check for and apply updates.
   changelog            Display recent release notes.

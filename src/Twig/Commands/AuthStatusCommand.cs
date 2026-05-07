@@ -14,11 +14,30 @@ public sealed class AuthStatusCommand(OutputFormatterFactory formatterFactory)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
         var fileCache = new TwigTokenFileCache();
+        var refreshStore = new TwigRefreshTokenStore();
         var (token, expiry) = fileCache.TryRead();
+
+        // Refresh-token store report: this is the bootstrap-once anchor.
+        var entry = refreshStore.TryRead();
+        Console.WriteLine($"refresh-store: {refreshStore.Path}");
+        if (entry is null)
+        {
+            Console.WriteLine("  (not bootstrapped — first ADO call will read ~/.azure/msal_token_cache.json)");
+        }
+        else
+        {
+            Console.WriteLine($"  source:       {entry.Source ?? "(unknown)"}");
+            Console.WriteLine($"  bootstrapped: {entry.BootstrappedAt ?? "(unknown)"}");
+            Console.WriteLine($"  tenant:       {entry.TenantId ?? "(unknown)"}");
+            Console.WriteLine($"  oid:          {entry.ObjectId ?? "(unknown)"}");
+            Console.WriteLine($"  client_id:    {entry.ClientId ?? "(unknown)"}");
+            Console.WriteLine($"  authority:    {entry.AuthorityHost ?? "(unknown)"}");
+        }
+        Console.WriteLine();
 
         if (token is null)
         {
-            Console.WriteLine(fmt.FormatInfo($"No cached token at {fileCache.Path}."));
+            Console.WriteLine(fmt.FormatInfo($"No cached access token at {fileCache.Path}."));
             Console.WriteLine(fmt.FormatInfo("Run a twig command that hits ADO (e.g. 'twig refresh') to populate the cache."));
             return Task.FromResult(0);
         }

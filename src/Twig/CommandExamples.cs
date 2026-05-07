@@ -314,13 +314,13 @@ internal static class CommandExamples
         ],
         ["auth status"] =
         [
-            "twig auth status               Inspect the cached ADO access token",
+            "twig auth status               Inspect refresh-token store + cached ADO access token",
             "twig auth status --output json Output token diagnostics as JSON",
         ],
         ["auth clear"] =
         [
-            "twig auth clear                Wipe the cached ADO access token",
-            "twig auth clear                Use after auth changes or to recover from a poisoned cache",
+            "twig auth clear                Wipe refresh-token store and cached access token",
+            "twig auth clear                Use after 'az login' to re-bootstrap, or to recover from a poisoned cache",
         ],
         ["version"] =
         [

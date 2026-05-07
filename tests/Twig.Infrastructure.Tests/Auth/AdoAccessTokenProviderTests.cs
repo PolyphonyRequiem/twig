@@ -7,18 +7,21 @@ namespace Twig.Infrastructure.Tests.Auth;
 
 /// <summary>
 /// Tests for <see cref="AdoAccessTokenProvider"/>.
-/// Covers the audience-validation guard added in response to issue #164.
+/// Covers the bootstrap-once architecture (v0.76+) and the audience-validation guard
+/// added in response to issue #164.
 /// </summary>
 public sealed class AdoAccessTokenProviderTests : IDisposable
 {
     private readonly string _tempDir;
     private readonly TwigTokenFileCache _fileCache;
+    private readonly TwigRefreshTokenStore _refreshStore;
 
     public AdoAccessTokenProviderTests()
     {
         _tempDir = Path.Combine(Path.GetTempPath(), $"twig-auth-test-{Guid.NewGuid():N}");
         Directory.CreateDirectory(_tempDir);
         _fileCache = new TwigTokenFileCache(Path.Combine(_tempDir, ".token-cache"));
+        _refreshStore = new TwigRefreshTokenStore(Path.Combine(_tempDir, ".refresh-token"));
     }
 
     public void Dispose()
@@ -29,13 +32,25 @@ public sealed class AdoAccessTokenProviderTests : IDisposable
     private AdoAccessTokenProvider CreateProvider(
         string? msalCacheJson = null,
         Func<DateTimeOffset>? clock = null,
-        MsalTokenRefresher? refresher = null)
-        => new(
+        ITokenRefresher? refresher = null,
+        Action<int>? msalReadCounter = null)
+    {
+        var reads = 0;
+        return new AdoAccessTokenProvider(
             msalCachePath: Path.Combine(_tempDir, "msal_token_cache.json"),
-            msalCacheReader: (_, _) => Task.FromResult(msalCacheJson),
+            msalCacheReader: (_, _) =>
+            {
+                reads++;
+                msalReadCounter?.Invoke(reads);
+                return Task.FromResult(msalCacheJson);
+            },
             clock: clock,
             refresher: refresher,
-            fileCache: _fileCache);
+            fileCache: _fileCache,
+            refreshStore: _refreshStore);
+    }
+
+    #region File cache (audience guard for #164)
 
     [Fact]
     public async Task GetAccessTokenAsync_FileCacheHitWithValidAudience_ReturnsCachedToken()
@@ -63,7 +78,7 @@ public sealed class AdoAccessTokenProviderTests : IDisposable
 
         await Should.ThrowAsync<AdoAuthenticationException>(() => provider.GetAccessTokenAsync());
 
-        // The poisoned file cache must have been wiped so subsequent calls don't poison again.
+        // The poisoned file cache must have been wiped so subsequent calls don't re-poison.
         File.Exists(_fileCache.Path).ShouldBeFalse();
     }
 
@@ -76,48 +91,179 @@ public sealed class AdoAccessTokenProviderTests : IDisposable
 
         var provider = CreateProvider(msalCacheJson: null, clock: () => now);
 
-        // No MSAL cache, no fallback — must throw.
+        // No MSAL bootstrap available → must throw with guidance.
         await Should.ThrowAsync<AdoAuthenticationException>(() => provider.GetAccessTokenAsync());
     }
 
+    #endregion
+
+    #region Bootstrap-once flow
+
     [Fact]
-    public async Task GetAccessTokenAsync_MsalCacheValidAdoToken_ReturnsAndPersists()
+    public async Task GetAccessTokenAsync_NoStore_BootstrapsFromMsalAndMintsToken()
     {
         var now = DateTimeOffset.UtcNow;
-        var jwt = JwtTestFactory.Build(expiresAt: now.AddMinutes(45));
-        var msalJson = JwtTestFactory.BuildMsalCacheJson(
-            secret: jwt,
-            target: JwtTestFactory.AdoResourceId + "/.default",
-            expiresOnEpoch: now.AddMinutes(45).ToUnixTimeSeconds());
+        var msalJson = JwtTestFactory.BuildMsalCacheJsonWithRefreshToken(
+            refreshTokenSecret: "rt-from-msal",
+            tenantId: "tenant-A",
+            oid: "oid-A");
+        var freshJwt = JwtTestFactory.Build(expiresAt: now.AddMinutes(45), tenantId: "tenant-A");
+        var refresher = new FakeTokenRefresher().EnqueueSuccess(freshJwt);
 
-        var provider = CreateProvider(msalCacheJson: msalJson, clock: () => now);
+        var provider = CreateProvider(msalCacheJson: msalJson, clock: () => now, refresher: refresher);
 
         var token = await provider.GetAccessTokenAsync();
 
-        token.ShouldBe(jwt);
-        // Token persisted to file cache for sharing with other twig processes
+        token.ShouldBe(freshJwt);
+        refresher.Calls.Count.ShouldBe(1);
+        refresher.Calls[0].RefreshToken.ShouldBe("rt-from-msal");
+        refresher.Calls[0].TenantId.ShouldBe("tenant-A");
+
+        // Bootstrap entry must have been persisted with all fields populated.
+        _refreshStore.Exists().ShouldBeTrue();
+        var entry = _refreshStore.TryRead().ShouldNotBeNull();
+        entry.RefreshToken.ShouldBe("rt-from-msal");
+        entry.TenantId.ShouldBe("tenant-A");
+        entry.ObjectId.ShouldBe("oid-A");
+        entry.Source.ShouldBe("azcli");
+        entry.BootstrappedAt.ShouldNotBeNullOrEmpty();
+        entry.AuthorityHost.ShouldBe("login.microsoftonline.com");
+
+        // The minted token must have been written to the cross-process file cache.
         File.Exists(_fileCache.Path).ShouldBeTrue();
-        var (cachedToken, _) = _fileCache.TryRead();
-        cachedToken.ShouldBe(jwt);
     }
 
     [Fact]
-    public async Task GetAccessTokenAsync_MsalCacheTokenWithMatchingTargetButWrongJwtAudience_Skipped()
+    public async Task GetAccessTokenAsync_StoreExists_DoesNotReadMsalCache()
     {
-        // Subtle case: MSAL cache "Target" string contains the ADO resource ID
-        // (so the coarse prefilter passes) but the actual JWT's aud claim is different.
-        // This was the latent bug class — the prefilter trusted Target alone.
+        // Hazard surface guard: once bootstrapped, we must never touch ~/.azure/ again.
         var now = DateTimeOffset.UtcNow;
-        var wrongJwt = JwtTestFactory.BuildWrongAudience(expiresAt: now.AddMinutes(45));
-        var msalJson = JwtTestFactory.BuildMsalCacheJson(
-            secret: wrongJwt,
-            target: JwtTestFactory.AdoResourceId + "/.default", // Looks right
-            expiresOnEpoch: now.AddMinutes(45).ToUnixTimeSeconds());
+        _refreshStore.TryWrite(new TwigRefreshTokenStoreEntry
+        {
+            RefreshToken = "stored-rt",
+            ClientId = "client-1",
+            TenantId = "tenant-stored",
+            AuthorityHost = "login.microsoftonline.com",
+            Source = "azcli",
+            BootstrappedAt = "2025-01-01T00:00:00Z",
+        });
 
-        var provider = CreateProvider(msalCacheJson: msalJson, clock: () => now);
+        var freshJwt = JwtTestFactory.Build(expiresAt: now.AddMinutes(45));
+        var refresher = new FakeTokenRefresher().EnqueueSuccess(freshJwt);
+
+        var msalReads = 0;
+        var provider = CreateProvider(
+            msalCacheJson: "should-not-be-read",
+            clock: () => now,
+            refresher: refresher,
+            msalReadCounter: r => msalReads = r);
+
+        var token = await provider.GetAccessTokenAsync();
+
+        token.ShouldBe(freshJwt);
+        msalReads.ShouldBe(0); // The whole point of bootstrap-once.
+        refresher.Calls[0].RefreshToken.ShouldBe("stored-rt");
+        refresher.Calls[0].TenantId.ShouldBe("tenant-stored");
+    }
+
+    [Fact]
+    public async Task GetAccessTokenAsync_InvalidGrantWithStoredEntry_WipesAndReBootstraps()
+    {
+        // Stored refresh token has been revoked at AAD; user has since re-run `az login`.
+        // We should drop the stale entry, re-bootstrap from MSAL, and succeed without intervention.
+        var now = DateTimeOffset.UtcNow;
+        _refreshStore.TryWrite(new TwigRefreshTokenStoreEntry
+        {
+            RefreshToken = "revoked-rt",
+            ClientId = "client-1",
+            TenantId = "tenant-stored",
+            AuthorityHost = "login.microsoftonline.com",
+        });
+
+        var msalJson = JwtTestFactory.BuildMsalCacheJsonWithRefreshToken(
+            refreshTokenSecret: "fresh-rt-from-msal",
+            tenantId: "tenant-fresh");
+        var newJwt = JwtTestFactory.Build(expiresAt: now.AddMinutes(45), tenantId: "tenant-fresh");
+
+        var refresher = new FakeTokenRefresher()
+            .EnqueueInvalidGrant() // first call: stored token rejected
+            .EnqueueSuccess(newJwt); // second call: re-bootstrapped token works
+
+        var provider = CreateProvider(msalCacheJson: msalJson, clock: () => now, refresher: refresher);
+
+        var token = await provider.GetAccessTokenAsync();
+
+        token.ShouldBe(newJwt);
+        refresher.Calls.Count.ShouldBe(2);
+        refresher.Calls[0].RefreshToken.ShouldBe("revoked-rt");
+        refresher.Calls[1].RefreshToken.ShouldBe("fresh-rt-from-msal");
+
+        // Store should now hold the fresh entry, not the revoked one.
+        var entry = _refreshStore.TryRead().ShouldNotBeNull();
+        entry.RefreshToken.ShouldBe("fresh-rt-from-msal");
+        entry.TenantId.ShouldBe("tenant-fresh");
+    }
+
+    [Fact]
+    public async Task GetAccessTokenAsync_InvalidGrantAndNoMsal_ThrowsWithGuidance()
+    {
+        // Stored token revoked AND no MSAL fallback available — caller must intervene.
+        _refreshStore.TryWrite(new TwigRefreshTokenStoreEntry
+        {
+            RefreshToken = "revoked-rt",
+            ClientId = "client-1",
+            TenantId = "tenant-stored",
+            AuthorityHost = "login.microsoftonline.com",
+        });
+
+        var refresher = new FakeTokenRefresher().EnqueueInvalidGrant();
+        var provider = CreateProvider(msalCacheJson: null, refresher: refresher);
+
+        var ex = await Should.ThrowAsync<AdoAuthenticationException>(() => provider.GetAccessTokenAsync());
+
+        ex.Message.ShouldContain("az login");
+        ex.Message.ShouldContain("twig auth clear");
+
+        // The revoked entry should have been wiped during the failed re-bootstrap attempt.
+        _refreshStore.Exists().ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task GetAccessTokenAsync_RefresherReturnsWrongAudienceJwt_FallsThrough()
+    {
+        // Defensive: even though we ask for ADO scope, if the refresher somehow returns
+        // a wrong-audience JWT we must reject it (and not poison the file cache).
+        var now = DateTimeOffset.UtcNow;
+        var msalJson = JwtTestFactory.BuildMsalCacheJsonWithRefreshToken();
+        var wrongAudJwt = JwtTestFactory.BuildWrongAudience(expiresAt: now.AddMinutes(45));
+        var refresher = new FakeTokenRefresher().EnqueueSuccess(wrongAudJwt);
+
+        var provider = CreateProvider(msalCacheJson: msalJson, clock: () => now, refresher: refresher);
 
         await Should.ThrowAsync<AdoAuthenticationException>(() => provider.GetAccessTokenAsync());
+
+        File.Exists(_fileCache.Path).ShouldBeFalse();
     }
+
+    [Fact]
+    public async Task GetAccessTokenAsync_BootstrapSucceedsButRefreshFails_Throws()
+    {
+        // MSAL bootstrap context is found, but the AAD HTTP exchange fails (network/error,
+        // not invalid_grant). Provider should not retry — that path only triggers for
+        // invalid_grant on a pre-existing stored entry.
+        var msalJson = JwtTestFactory.BuildMsalCacheJsonWithRefreshToken();
+        var refresher = new FakeTokenRefresher().EnqueueFailure();
+
+        var provider = CreateProvider(msalCacheJson: msalJson, refresher: refresher);
+
+        await Should.ThrowAsync<AdoAuthenticationException>(() => provider.GetAccessTokenAsync());
+
+        refresher.Calls.Count.ShouldBe(1); // No retry on plain failure.
+    }
+
+    #endregion
+
+    #region General behavior
 
     [Fact]
     public async Task GetAccessTokenAsync_NoCachesAvailable_ThrowsWithGuidance()
@@ -137,12 +283,11 @@ public sealed class AdoAccessTokenProviderTests : IDisposable
         var jwt = JwtTestFactory.Build(expiresAt: now.AddMinutes(45));
         _fileCache.TryWrite(jwt, now.AddMinutes(45));
 
-        var readCount = 0;
-        var provider = new AdoAccessTokenProvider(
-            msalCachePath: Path.Combine(_tempDir, "msal.json"),
-            msalCacheReader: (_, _) => { readCount++; return Task.FromResult<string?>(null); },
+        var msalReads = 0;
+        var provider = CreateProvider(
+            msalCacheJson: null,
             clock: () => now,
-            fileCache: _fileCache);
+            msalReadCounter: r => msalReads = r);
 
         var token1 = await provider.GetAccessTokenAsync();
         var token2 = await provider.GetAccessTokenAsync();
@@ -151,8 +296,7 @@ public sealed class AdoAccessTokenProviderTests : IDisposable
         token1.ShouldBe(jwt);
         token2.ShouldBe(jwt);
         token3.ShouldBe(jwt);
-        // First call read file cache (which hit); subsequent calls used in-memory only
-        readCount.ShouldBe(0); // MSAL cache reader never invoked because file cache hit
+        msalReads.ShouldBe(0); // File cache hit short-circuits everything.
     }
 
     [Fact]
@@ -168,33 +312,9 @@ public sealed class AdoAccessTokenProviderTests : IDisposable
 
         File.Exists(_fileCache.Path).ShouldBeFalse();
 
-        // Subsequent call has nothing to fall back to → throws
+        // Subsequent call has nothing to fall back to → throws.
         await Should.ThrowAsync<AdoAuthenticationException>(() => provider.GetAccessTokenAsync());
     }
 
-    [Fact]
-    public async Task GetAccessTokenAsync_MsalCacheHasMultipleTokens_PicksLongestLivedValid()
-    {
-        var now = DateTimeOffset.UtcNow;
-        var shorterJwt = JwtTestFactory.Build(expiresAt: now.AddMinutes(20), upn: "shorter@x.com");
-        var longerJwt = JwtTestFactory.Build(expiresAt: now.AddMinutes(50), upn: "longer@x.com");
-        var wrongJwt = JwtTestFactory.BuildWrongAudience(expiresAt: now.AddMinutes(60));
-
-        var msalJson = $$"""
-        {
-            "AccessToken": {
-                "e1": { "secret": "{{shorterJwt}}", "target": "{{JwtTestFactory.AdoResourceId}}/.default", "expires_on": "{{now.AddMinutes(20).ToUnixTimeSeconds()}}" },
-                "e2": { "secret": "{{longerJwt}}",  "target": "{{JwtTestFactory.AdoResourceId}}/.default", "expires_on": "{{now.AddMinutes(50).ToUnixTimeSeconds()}}" },
-                "e3": { "secret": "{{wrongJwt}}",   "target": "{{JwtTestFactory.AdoResourceId}}/.default", "expires_on": "{{now.AddMinutes(60).ToUnixTimeSeconds()}}" }
-            }
-        }
-        """;
-
-        var provider = CreateProvider(msalCacheJson: msalJson, clock: () => now);
-
-        var token = await provider.GetAccessTokenAsync();
-
-        // Longest-lived ADO-audience token wins; the wrong-audience entry is skipped despite expiring later.
-        token.ShouldBe(longerJwt);
-    }
+    #endregion
 }

@@ -1,21 +1,27 @@
+using System.Globalization;
 using Twig.Domain.Interfaces;
 using Twig.Infrastructure.Ado.Exceptions;
 
 namespace Twig.Infrastructure.Auth;
 
 /// <summary>
-/// Acquires Azure DevOps access tokens via the AAD MSAL cache (written by Azure CLI's
-/// <c>az login</c>) plus a direct HTTP refresh exchange — no shell-out to <c>az</c>.
+/// Acquires Azure DevOps access tokens via twig's own refresh-token store, bootstrapped
+/// once from the Azure CLI MSAL cache.
 ///
+/// <para>
 /// Layered cache strategy:
-///   1. In-memory (50-min TTL, pre-validated)
-///   2. <c>~/.twig/.token-cache</c> cross-process file cache (audience-validated on read)
-///   3. <c>~/.azure/msal_token_cache.json</c> access tokens (audience-validated on read)
-///   4. AAD <c>/oauth2/v2.0/token</c> refresh exchange via <see cref="MsalTokenRefresher"/>
+/// <list type="number">
+/// <item>In-memory cache (50-min TTL, pre-validated).</item>
+/// <item><c>~/.twig/.token-cache</c> cross-process file cache (audience-validated on read).</item>
+/// <item><c>~/.twig/.refresh-token</c> twig-owned refresh token, exchanged via direct AAD HTTP.
+///       Bootstrapped once from <c>~/.azure/msal_token_cache.json</c> if absent — never read again.</item>
+/// </list>
+/// </para>
 ///
-/// Every cached token is decoded as a JWT and rejected unless its <c>aud</c> claim
-/// matches the ADO API resource ID. This defends against stale/wrong-audience tokens
-/// being silently reused — the bug class behind issue #164.
+/// Every cached token is decoded as a JWT and rejected unless its <c>aud</c> claim matches
+/// the ADO API resource ID. The MSAL cache is consulted only for the one-time refresh-token
+/// bootstrap; we never trust az's access tokens. This is what made #164's bug class
+/// structurally impossible.
 /// </summary>
 internal sealed class AdoAccessTokenProvider : IAuthenticationProvider
 {
@@ -27,7 +33,8 @@ internal sealed class AdoAccessTokenProvider : IAuthenticationProvider
         ".azure", "msal_token_cache.json");
 
     private readonly TwigTokenFileCache _fileCache;
-    private readonly MsalTokenRefresher _refresher;
+    private readonly TwigRefreshTokenStore _refreshStore;
+    private readonly ITokenRefresher _refresher;
     private readonly string _msalCachePath;
     private readonly Func<string, CancellationToken, Task<string?>> _msalCacheReader;
     private readonly Func<DateTimeOffset> _clock;
@@ -37,7 +44,7 @@ internal sealed class AdoAccessTokenProvider : IAuthenticationProvider
     private DateTimeOffset _cacheExpiry;
 
     public AdoAccessTokenProvider()
-        : this(null, null, null, null, null)
+        : this(null, null, null, null, null, null)
     {
     }
 
@@ -45,14 +52,16 @@ internal sealed class AdoAccessTokenProvider : IAuthenticationProvider
         string? msalCachePath = null,
         Func<string, CancellationToken, Task<string?>>? msalCacheReader = null,
         Func<DateTimeOffset>? clock = null,
-        MsalTokenRefresher? refresher = null,
-        TwigTokenFileCache? fileCache = null)
+        ITokenRefresher? refresher = null,
+        TwigTokenFileCache? fileCache = null,
+        TwigRefreshTokenStore? refreshStore = null)
     {
         _msalCachePath = msalCachePath ?? DefaultMsalCachePath;
         _msalCacheReader = msalCacheReader ?? DefaultMsalCacheReaderAsync;
         _clock = clock ?? (() => DateTimeOffset.UtcNow);
         _refresher = refresher ?? new MsalTokenRefresher();
         _fileCache = fileCache ?? new TwigTokenFileCache();
+        _refreshStore = refreshStore ?? new TwigRefreshTokenStore();
     }
 
     public async Task<string> GetAccessTokenAsync(CancellationToken ct = default)
@@ -81,47 +90,20 @@ internal sealed class AdoAccessTokenProvider : IAuthenticationProvider
             if (fileToken is not null)
                 _fileCache.TryDelete();
 
-            // 3. MSAL cache file (written by az CLI) — validate audience per entry
-            var msalCache = await TryReadMsalCacheAsync(ct);
-            if (msalCache?.AccessToken is { } accessTokens)
-            {
-                var (token, tokenExpiry) = FindBestValidatedToken(accessTokens, now);
-                if (token is not null)
-                {
-                    StoreAndPersist(token, tokenExpiry, now);
-                    return token;
-                }
-            }
+            // 3. Refresh via twig's own refresh-token store. If the store doesn't exist,
+            // bootstrap it once from the MSAL cache. After this call we never touch
+            // ~/.azure/ again unless the user explicitly re-bootstraps via 'twig auth clear'.
+            var minted = await TryMintFromRefreshStoreAsync(now, ct);
+            if (minted is not null)
+                return minted;
 
-            // 4. HTTP refresh using refresh token from MSAL cache — request ADO scope explicitly
-            if (msalCache is not null)
-            {
-                var refreshContext = MsalTokenRefresher.FindRefreshContext(msalCache);
-                if (refreshContext is var (rt, clientId, tenantId, authorityHost))
-                {
-                    var (refreshedToken, isInvalidGrant) = await _refresher.TryRefreshAsync(
-                        rt, clientId, tenantId, authorityHost, ct);
-
-                    if (refreshedToken is not null
-                        && JwtAccessTokenInspector.HasValidAdoAudience(refreshedToken))
-                    {
-                        var refreshedExpiry = ResolveExpiryFromJwt(refreshedToken, now);
-                        StoreAndPersist(refreshedToken, refreshedExpiry, now);
-                        return refreshedToken;
-                    }
-
-                    if (isInvalidGrant)
-                    {
-                        _cachedToken = null;
-                        _cacheExpiry = default;
-                    }
-                }
-            }
-
+            // Bootstrap may not have been possible (no MSAL cache, no refresh token there,
+            // or refresh failed). Throw with actionable guidance.
             throw new AdoAuthenticationException(
-                $"Could not acquire an Azure DevOps access token from the MSAL cache at {_msalCachePath}. " +
-                "Run 'az login --scope 499b84ac-1321-427f-aa17-267ca6975798/.default' to refresh credentials, " +
-                "then retry. If you keep seeing this, run 'twig auth status' to inspect the cached token.");
+                $"Could not acquire an Azure DevOps access token. " +
+                $"Run 'az login --scope 499b84ac-1321-427f-aa17-267ca6975798/.default' " +
+                $"then 'twig auth clear' to re-bootstrap. " +
+                $"For details run 'twig auth status'.");
         }
         finally
         {
@@ -138,44 +120,121 @@ internal sealed class AdoAccessTokenProvider : IAuthenticationProvider
     }
 
     /// <summary>
-    /// Returns the longest-lived MSAL access token whose JWT audience matches the ADO API
-    /// resource. Entries that look right by Target string but decode to a different
-    /// audience are rejected — that's the bug class behind issue #164.
+    /// Mint an access token using the refresh-token store. If the store is empty, attempts
+    /// a one-time bootstrap from the MSAL cache. On <c>invalid_grant</c> against a previously
+    /// stored entry, attempts one re-bootstrap from MSAL — the user may have re-run
+    /// <c>az login</c> after their refresh token was revoked.
     /// </summary>
-    private static (string? Token, DateTimeOffset Expiry) FindBestValidatedToken(
-        Dictionary<string, MsalAccessTokenEntry> accessTokens,
-        DateTimeOffset now)
+    private async Task<string?> TryMintFromRefreshStoreAsync(DateTimeOffset now, CancellationToken ct)
     {
-        string? bestToken = null;
-        var bestExpiry = DateTimeOffset.MinValue;
+        var entry = _refreshStore.TryRead();
+        var hadStoredEntry = entry is not null;
+        entry ??= await BootstrapFromMsalAsync(ct);
+        if (entry is null) return null;
 
-        foreach (var entry in accessTokens.Values)
+        var (minted, isInvalidGrant) = await TryRefreshAndStoreAsync(entry, now, ct);
+        if (minted is not null) return minted;
+
+        // Only re-bootstrap when a pre-existing stored entry was rejected by AAD.
+        // Plain failures (network, transient) must not silently re-bootstrap.
+        // A failure on a freshly bootstrapped entry must not loop either.
+        if (hadStoredEntry && isInvalidGrant)
         {
-            if (entry.Secret is null) continue;
-
-            // Coarse Target prefilter — cheap; final audience check happens on the JWT.
-            if (entry.Target is null
-                || !entry.Target.Contains(JwtAccessTokenInspector.AdoResourceId, StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            if (entry.ExpiresOn is null
-                || !long.TryParse(entry.ExpiresOn, out var epoch))
-                continue;
-
-            var expiry = DateTimeOffset.FromUnixTimeSeconds(epoch);
-            if (expiry <= now + ExpiryBuffer) continue;
-
-            if (!JwtAccessTokenInspector.HasValidAdoAudience(entry.Secret))
-                continue;
-
-            if (expiry > bestExpiry)
-            {
-                bestExpiry = expiry;
-                bestToken = entry.Secret;
-            }
+            var rebooted = await BootstrapFromMsalAsync(ct);
+            if (rebooted is null) return null;
+            var (retryMinted, _) = await TryRefreshAndStoreAsync(rebooted, now, ct);
+            return retryMinted;
         }
 
-        return (bestToken, bestExpiry);
+        return null;
+    }
+
+    private async Task<(string? Token, bool IsInvalidGrant)> TryRefreshAndStoreAsync(
+        TwigRefreshTokenStoreEntry entry, DateTimeOffset now, CancellationToken ct)
+    {
+        if (entry.RefreshToken is not { Length: > 0 } rt
+            || entry.ClientId is not { Length: > 0 } clientId
+            || entry.TenantId is not { Length: > 0 } tenantId
+            || entry.AuthorityHost is not { Length: > 0 } authorityHost)
+            return (null, false);
+
+        var (refreshedToken, isInvalidGrant) = await _refresher.TryRefreshAsync(
+            rt, clientId, tenantId, authorityHost, ct);
+
+        if (refreshedToken is null)
+        {
+            if (isInvalidGrant)
+            {
+                _cachedToken = null;
+                _cacheExpiry = default;
+                _refreshStore.TryDelete();
+            }
+            return (null, isInvalidGrant);
+        }
+
+        if (!JwtAccessTokenInspector.HasValidAdoAudience(refreshedToken))
+            return (null, false);
+
+        var refreshedExpiry = ResolveExpiryFromJwt(refreshedToken, now);
+        StoreAndPersist(refreshedToken, refreshedExpiry, now);
+        return (refreshedToken, false);
+    }
+
+    /// <summary>
+    /// One-time bootstrap: read the MSAL cache, extract the refresh-token context, persist
+    /// it to twig's own store. Returns the new entry on success, null on any failure.
+    /// </summary>
+    private async Task<TwigRefreshTokenStoreEntry?> BootstrapFromMsalAsync(CancellationToken ct)
+    {
+        var cache = await TryReadMsalCacheAsync(ct);
+        if (cache is null) return null;
+
+        var ctx = MsalTokenRefresher.FindRefreshContext(cache);
+        if (ctx is not var (rt, clientId, tenantId, authorityHost)) return null;
+
+        // Identity stamp: pick the matching account's home_account_id (oid.tenant) if present.
+        // Best-effort — diagnostics-only, not a security boundary.
+        var (upn, oid) = ResolveIdentityFromMsalCache(cache, tenantId);
+
+        var entry = new TwigRefreshTokenStoreEntry
+        {
+            RefreshToken = rt,
+            ClientId = clientId,
+            TenantId = tenantId,
+            AuthorityHost = authorityHost,
+            UserPrincipalName = upn,
+            ObjectId = oid,
+            BootstrappedAt = DateTimeOffset.UtcNow.ToString("u", CultureInfo.InvariantCulture),
+            Source = "azcli",
+        };
+        _refreshStore.TryWrite(entry);
+        return entry;
+    }
+
+    /// <summary>
+    /// Walks the Account entries to extract a UPN/OID for the bootstrapped tenant.
+    /// MSAL doesn't expose UPN consistently across versions; OID falls out of home_account_id.
+    /// </summary>
+    private static (string? Upn, string? Oid) ResolveIdentityFromMsalCache(MsalTokenCache cache, string tenantId)
+    {
+        if (cache.Account is not { Count: > 0 } accounts)
+            return (null, null);
+
+        foreach (var account in accounts.Values)
+        {
+            if (!string.Equals(account.Realm, tenantId, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            string? oid = null;
+            if (account.HomeAccountId is { } hai)
+            {
+                var dot = hai.IndexOf('.', StringComparison.Ordinal);
+                if (dot > 0) oid = hai[..dot];
+            }
+            return (Upn: null, Oid: oid);
+        }
+
+        return (null, null);
     }
 
     private void StoreAndPersist(string token, DateTimeOffset tokenExpiry, DateTimeOffset now)

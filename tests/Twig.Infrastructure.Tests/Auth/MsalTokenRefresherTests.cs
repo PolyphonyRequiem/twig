@@ -208,11 +208,44 @@ public class MsalTokenRefresherTests
             """{"access_token":"new-access-token","expires_in":3600,"token_type":"Bearer"}""");
         var refresher = new MsalTokenRefresher(handler);
 
-        var (token, isInvalidGrant) = await refresher.TryRefreshAsync(
+        var (token, rotatedRt, isInvalidGrant) = await refresher.TryRefreshAsync(
             "refresh-token", "client-id", "tenant-id", "login.microsoftonline.com");
 
         token.ShouldBe("new-access-token");
+        rotatedRt.ShouldBeNull(); // server didn't rotate
         isInvalidGrant.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task TryRefreshAsync_ResponseIncludesRotatedRefreshToken_CapturesIt()
+    {
+        // AAD typically rotates refresh tokens on every successful exchange. Capturing the
+        // rotated RT is what keeps the 90-day inactivity window sliding.
+        var handler = new FakeHttpHandler(HttpStatusCode.OK,
+            """{"access_token":"new-access-token","refresh_token":"rotated-rt-xyz","expires_in":3600}""");
+        var refresher = new MsalTokenRefresher(handler);
+
+        var (token, rotatedRt, isInvalidGrant) = await refresher.TryRefreshAsync(
+            "old-rt", "client", "tenant", "login.microsoftonline.com");
+
+        token.ShouldBe("new-access-token");
+        rotatedRt.ShouldBe("rotated-rt-xyz");
+        isInvalidGrant.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task TryRefreshAsync_RequestsOfflineAccessScope()
+    {
+        // offline_access is required for AAD to return refresh_token in the response —
+        // without it the rotation never happens.
+        var handler = new FakeHttpHandler(HttpStatusCode.OK,
+            """{"access_token":"tok","expires_in":3600}""");
+        var refresher = new MsalTokenRefresher(handler);
+
+        await refresher.TryRefreshAsync("rt", "client", "tenant", "login.microsoftonline.com");
+
+        var body = await handler.LastRequest!.Content!.ReadAsStringAsync();
+        body.ShouldContain("offline_access");
     }
 
     [Fact]
@@ -244,10 +277,11 @@ public class MsalTokenRefresherTests
             """{"error":"invalid_grant","error_description":"AADSTS700082: The refresh token has expired."}""");
         var refresher = new MsalTokenRefresher(handler);
 
-        var (token, isInvalidGrant) = await refresher.TryRefreshAsync(
+        var (token, rotatedRt, isInvalidGrant) = await refresher.TryRefreshAsync(
             "expired-rt", "client", "tenant", "login.microsoftonline.com");
 
         token.ShouldBeNull();
+        rotatedRt.ShouldBeNull();
         isInvalidGrant.ShouldBeTrue();
     }
 
@@ -257,10 +291,11 @@ public class MsalTokenRefresherTests
         var handler = new FakeHttpHandler(HttpStatusCode.InternalServerError, "Server Error");
         var refresher = new MsalTokenRefresher(handler);
 
-        var (token, isInvalidGrant) = await refresher.TryRefreshAsync(
+        var (token, rotatedRt, isInvalidGrant) = await refresher.TryRefreshAsync(
             "rt", "client", "tenant", "login.microsoftonline.com");
 
         token.ShouldBeNull();
+        rotatedRt.ShouldBeNull();
         isInvalidGrant.ShouldBeFalse();
     }
 
@@ -270,10 +305,11 @@ public class MsalTokenRefresherTests
         var handler = new SlowHttpHandler(delay: TimeSpan.FromSeconds(10));
         var refresher = new MsalTokenRefresher(handler, timeout: TimeSpan.FromMilliseconds(50));
 
-        var (token, isInvalidGrant) = await refresher.TryRefreshAsync(
+        var (token, rotatedRt, isInvalidGrant) = await refresher.TryRefreshAsync(
             "rt", "client", "tenant", "login.microsoftonline.com");
 
         token.ShouldBeNull();
+        rotatedRt.ShouldBeNull();
         isInvalidGrant.ShouldBeFalse();
     }
 
@@ -283,10 +319,11 @@ public class MsalTokenRefresherTests
         var handler = new ThrowingHttpHandler(new HttpRequestException("DNS failure"));
         var refresher = new MsalTokenRefresher(handler);
 
-        var (token, isInvalidGrant) = await refresher.TryRefreshAsync(
+        var (token, rotatedRt, isInvalidGrant) = await refresher.TryRefreshAsync(
             "rt", "client", "tenant", "login.microsoftonline.com");
 
         token.ShouldBeNull();
+        rotatedRt.ShouldBeNull();
         isInvalidGrant.ShouldBeFalse();
     }
 
@@ -297,10 +334,11 @@ public class MsalTokenRefresherTests
             """{"access_token":"","expires_in":3600}""");
         var refresher = new MsalTokenRefresher(handler);
 
-        var (token, isInvalidGrant) = await refresher.TryRefreshAsync(
+        var (token, rotatedRt, isInvalidGrant) = await refresher.TryRefreshAsync(
             "rt", "client", "tenant", "login.microsoftonline.com");
 
         token.ShouldBeNull();
+        rotatedRt.ShouldBeNull();
         isInvalidGrant.ShouldBeFalse();
     }
 

@@ -58,6 +58,14 @@ internal sealed class TokenRefreshResponse
     [JsonPropertyName("access_token")]
     public string? AccessToken { get; set; }
 
+    /// <summary>
+    /// AAD rotates refresh tokens on every successful exchange. Capturing this and writing
+    /// it back to the store is what keeps the 90-day sliding inactivity window sliding —
+    /// without this, our stored RT slowly ages out even for active users.
+    /// </summary>
+    [JsonPropertyName("refresh_token")]
+    public string? RefreshToken { get; set; }
+
     [JsonPropertyName("expires_in")]
     public int? ExpiresIn { get; set; }
 

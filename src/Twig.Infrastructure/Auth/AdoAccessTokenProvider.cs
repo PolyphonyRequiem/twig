@@ -158,7 +158,7 @@ internal sealed class AdoAccessTokenProvider : IAuthenticationProvider
             || entry.AuthorityHost is not { Length: > 0 } authorityHost)
             return (null, false);
 
-        var (refreshedToken, isInvalidGrant) = await _refresher.TryRefreshAsync(
+        var (refreshedToken, rotatedRefreshToken, isInvalidGrant) = await _refresher.TryRefreshAsync(
             rt, clientId, tenantId, authorityHost, ct);
 
         if (refreshedToken is null)
@@ -174,6 +174,16 @@ internal sealed class AdoAccessTokenProvider : IAuthenticationProvider
 
         if (!JwtAccessTokenInspector.HasValidAdoAudience(refreshedToken))
             return (null, false);
+
+        // Capture rotated refresh token: AAD slides the 90-day inactivity window every time
+        // we exchange. Without writing the rotated RT back, our stored RT slowly ages out
+        // even though we're using twig regularly. The server may reuse the existing RT
+        // (rotatedRefreshToken == null) — keep what we have in that case.
+        if (rotatedRefreshToken is not null && rotatedRefreshToken != entry.RefreshToken)
+        {
+            entry.RefreshToken = rotatedRefreshToken;
+            _refreshStore.TryWrite(entry);
+        }
 
         var refreshedExpiry = ResolveExpiryFromJwt(refreshedToken, now);
         StoreAndPersist(refreshedToken, refreshedExpiry, now);

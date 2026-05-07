@@ -8,29 +8,29 @@ namespace Twig.Infrastructure.Tests.Auth;
 /// </summary>
 internal sealed class FakeTokenRefresher : ITokenRefresher
 {
-    private readonly Queue<(string? Token, bool InvalidGrant)> _responses = new();
+    private readonly Queue<(string? AccessToken, string? RotatedRefreshToken, bool InvalidGrant)> _responses = new();
 
     public List<(string RefreshToken, string ClientId, string TenantId, string AuthorityHost)> Calls { get; } = new();
 
-    public FakeTokenRefresher EnqueueSuccess(string token)
+    public FakeTokenRefresher EnqueueSuccess(string accessToken, string? rotatedRefreshToken = null)
     {
-        _responses.Enqueue((token, false));
+        _responses.Enqueue((accessToken, rotatedRefreshToken, false));
         return this;
     }
 
     public FakeTokenRefresher EnqueueInvalidGrant()
     {
-        _responses.Enqueue((null, true));
+        _responses.Enqueue((null, null, true));
         return this;
     }
 
     public FakeTokenRefresher EnqueueFailure()
     {
-        _responses.Enqueue((null, false));
+        _responses.Enqueue((null, null, false));
         return this;
     }
 
-    public Task<(string? AccessToken, bool IsInvalidGrant)> TryRefreshAsync(
+    public Task<(string? AccessToken, string? RefreshToken, bool IsInvalidGrant)> TryRefreshAsync(
         string refreshToken,
         string clientId,
         string tenantId,
@@ -38,7 +38,7 @@ internal sealed class FakeTokenRefresher : ITokenRefresher
         CancellationToken ct = default)
     {
         Calls.Add((refreshToken, clientId, tenantId, authorityHost));
-        var response = _responses.Count > 0 ? _responses.Dequeue() : (null, false);
-        return Task.FromResult<(string?, bool)>(response);
+        var response = _responses.Count > 0 ? _responses.Dequeue() : (null, null, false);
+        return Task.FromResult<(string?, string?, bool)>(response);
     }
 }

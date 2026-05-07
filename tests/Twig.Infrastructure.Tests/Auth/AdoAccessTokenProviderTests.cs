@@ -261,6 +261,61 @@ public sealed class AdoAccessTokenProviderTests : IDisposable
         refresher.Calls.Count.ShouldBe(1); // No retry on plain failure.
     }
 
+    [Fact]
+    public async Task GetAccessTokenAsync_RefresherReturnsRotatedRefreshToken_PersistsToStore()
+    {
+        // Captures the 90-day-sliding-window mechanic: AAD rotates the RT on every refresh,
+        // and we must write it back. Without this the stored RT slowly ages out.
+        var now = DateTimeOffset.UtcNow;
+        _refreshStore.TryWrite(new TwigRefreshTokenStoreEntry
+        {
+            RefreshToken = "old-rt",
+            ClientId = "client-1",
+            TenantId = "tenant-1",
+            AuthorityHost = "login.microsoftonline.com",
+            ObjectId = "oid-keep-me",
+            BootstrappedAt = "2025-01-01T00:00:00Z",
+            Source = "azcli",
+        });
+
+        var newJwt = JwtTestFactory.Build(expiresAt: now.AddMinutes(45));
+        var refresher = new FakeTokenRefresher().EnqueueSuccess(newJwt, rotatedRefreshToken: "rotated-rt");
+
+        var provider = CreateProvider(clock: () => now, refresher: refresher);
+
+        var token = await provider.GetAccessTokenAsync();
+
+        token.ShouldBe(newJwt);
+        var entry = _refreshStore.TryRead().ShouldNotBeNull();
+        entry.RefreshToken.ShouldBe("rotated-rt"); // rotated value persisted
+        entry.ObjectId.ShouldBe("oid-keep-me");    // identity stamp preserved
+        entry.TenantId.ShouldBe("tenant-1");
+    }
+
+    [Fact]
+    public async Task GetAccessTokenAsync_RefresherReturnsNoRotatedRefreshToken_KeepsExistingRt()
+    {
+        // Server may legitimately not rotate (rare but allowed). Don't clobber the existing RT.
+        var now = DateTimeOffset.UtcNow;
+        _refreshStore.TryWrite(new TwigRefreshTokenStoreEntry
+        {
+            RefreshToken = "stable-rt",
+            ClientId = "client-1",
+            TenantId = "tenant-1",
+            AuthorityHost = "login.microsoftonline.com",
+        });
+
+        var newJwt = JwtTestFactory.Build(expiresAt: now.AddMinutes(45));
+        var refresher = new FakeTokenRefresher().EnqueueSuccess(newJwt, rotatedRefreshToken: null);
+
+        var provider = CreateProvider(clock: () => now, refresher: refresher);
+
+        await provider.GetAccessTokenAsync();
+
+        var entry = _refreshStore.TryRead().ShouldNotBeNull();
+        entry.RefreshToken.ShouldBe("stable-rt");
+    }
+
     #endregion
 
     #region General behavior

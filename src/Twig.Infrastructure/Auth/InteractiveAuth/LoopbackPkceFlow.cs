@@ -65,6 +65,17 @@ internal sealed class LoopbackPkceFlow
             port = _portPicker();
             listener = new HttpListener();
             listener.Prefixes.Add(string.Create(CultureInfo.InvariantCulture, $"http://127.0.0.1:{port}/"));
+            // On Linux/macOS, "localhost" typically resolves to ::1 first. AAD's redirect
+            // sends the browser to the literal "localhost:<port>", so we must accept on
+            // both loopback families. IPv6 may be unavailable on some hosts — best-effort.
+            try
+            {
+                listener.Prefixes.Add(string.Create(CultureInfo.InvariantCulture, $"http://[::1]:{port}/"));
+            }
+            catch
+            {
+                // IPv6 loopback not available; IPv4-only is fine on those hosts.
+            }
             listener.Start();
         }
         catch (Exception ex)

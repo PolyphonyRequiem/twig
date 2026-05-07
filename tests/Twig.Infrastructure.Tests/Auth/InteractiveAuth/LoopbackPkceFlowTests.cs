@@ -230,12 +230,14 @@ public class LoopbackPkceFlowTests
 
     /// <summary>
     /// Sends a real HTTP GET to the loopback port to simulate the browser following the
-    /// AAD redirect back to <c>http://localhost:{port}/{query}</c>.
+    /// AAD redirect. We hit <c>127.0.0.1</c> directly (rather than <c>localhost</c>) to
+    /// avoid the OS DNS resolution preferring IPv6 on Linux/macOS while the listener may
+    /// have only bound IPv4.
     /// </summary>
     private static async Task SendRedirectAsync(int port, string queryString)
     {
         // The HttpListener takes a moment to start accepting; retry briefly on connect failure.
-        var url = string.Create(CultureInfo.InvariantCulture, $"http://localhost:{port}/{queryString}");
+        var url = string.Create(CultureInfo.InvariantCulture, $"http://127.0.0.1:{port}/{queryString}");
         using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
         Exception? lastEx = null;
         for (var attempt = 0; attempt < 25; attempt++)

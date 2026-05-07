@@ -10,15 +10,20 @@ namespace Twig.Infrastructure.Auth.InteractiveAuth;
 /// The flow:
 /// <list type="number">
 ///   <item>Generate PKCE verifier+challenge and a CSRF state token.</item>
-///   <item>Bind <see cref="HttpListener"/> to <c>http://127.0.0.1:&lt;random-port&gt;/</c>.</item>
+///   <item>Bind <see cref="TcpListener"/>s to <c>127.0.0.1</c> and (best-effort) <c>[::1]</c>
+///         on the same port. Two explicit-family sockets (with <c>IPV6_V6ONLY</c> on the
+///         IPv6 one) avoid the dual-stack port collision that plagues a single
+///         <see cref="HttpListener"/> with both prefixes on Linux.</item>
 ///   <item>Build the authorize URL and launch the user's browser at it (or print it).</item>
-///   <item>Wait for AAD to redirect the browser back to the loopback URL with a code.</item>
+///   <item>Accept whichever loopback family the OS picks for <c>localhost</c> and parse
+///         the redirect query string by hand — we only handle one GET, so a 30-line HTTP
+///         responder is simpler and more portable than <see cref="HttpListener"/>.</item>
 ///   <item>Validate state, return a friendly HTML page, then POST the code+verifier to
 ///         the token endpoint and persist the resulting refresh token.</item>
 /// </list>
 /// AAD allows native/public clients to use <c>http://localhost</c> with any port without
-/// pre-registration, but we bind to <c>127.0.0.1</c> for IPv6/hosts-file robustness and
-/// rewrite to <c>localhost</c> only in the redirect_uri to satisfy AAD.
+/// pre-registration. We accept on both loopback families because <c>localhost</c> resolves
+/// to <c>::1</c> first on Linux/macOS but <c>127.0.0.1</c> on Windows.
 /// </summary>
 internal sealed class LoopbackPkceFlow
 {
@@ -59,24 +64,28 @@ internal sealed class LoopbackPkceFlow
         var state = AuthorizeRequestBuilder.GenerateState();
 
         int port;
-        HttpListener listener;
+        TcpListener v4Listener;
+        TcpListener? v6Listener = null;
         try
         {
             port = _portPicker();
-            listener = new HttpListener();
-            listener.Prefixes.Add(string.Create(CultureInfo.InvariantCulture, $"http://127.0.0.1:{port}/"));
-            // On Linux/macOS, "localhost" typically resolves to ::1 first. AAD's redirect
-            // sends the browser to the literal "localhost:<port>", so we must accept on
-            // both loopback families. IPv6 may be unavailable on some hosts — best-effort.
+            v4Listener = new TcpListener(IPAddress.Loopback, port);
+            v4Listener.Start();
+
+            // Best-effort IPv6 loopback bind. Set IPV6_V6ONLY first so the kernel won't
+            // try to dual-stack to 0.0.0.0:<port> (which collides with v4Listener).
             try
             {
-                listener.Prefixes.Add(string.Create(CultureInfo.InvariantCulture, $"http://[::1]:{port}/"));
+                var v6 = new TcpListener(IPAddress.IPv6Loopback, port);
+                v6.Server.SetSocketOption(SocketOptionLevel.IPv6, SocketOptionName.IPv6Only, true);
+                v6.Start();
+                v6Listener = v6;
             }
             catch
             {
-                // IPv6 loopback not available; IPv4-only is fine on those hosts.
+                // IPv6 loopback unavailable on this host (or the OS has IPv6 disabled).
+                // Fall back to IPv4 only — fine on hosts where 'localhost' resolves to v4.
             }
-            listener.Start();
         }
         catch (Exception ex)
         {
@@ -108,10 +117,10 @@ internal sealed class LoopbackPkceFlow
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeoutCts.CancelAfter(_listenTimeout);
 
-            HttpListenerContext context;
+            AcceptedRequest accepted;
             try
             {
-                context = await listener.GetContextAsync().WaitAsync(timeoutCts.Token);
+                accepted = await AcceptOneRequestAsync(v4Listener, v6Listener, timeoutCts.Token);
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
@@ -124,13 +133,14 @@ internal sealed class LoopbackPkceFlow
                     "Sign-in cancelled.");
             }
 
-            var query = context.Request.Url?.Query ?? string.Empty;
-            var parsed = ParseQuery(query);
+            using var requestScope = accepted.Client;
+
+            var parsed = ParseQuery(accepted.Query);
 
             if (parsed.TryGetValue("error", out var error))
             {
                 var description = parsed.TryGetValue("error_description", out var d) ? d : "(no description)";
-                await WriteResponseAsync(context, BuildErrorPage(error, description), ct);
+                await accepted.RespondAsync(BuildErrorPage(error, description), ct);
                 return InteractiveAuthResult.Failure(InteractiveAuthErrorKind.AuthorizationServerError,
                     $"Authorization server returned '{error}': {description}");
             }
@@ -138,7 +148,7 @@ internal sealed class LoopbackPkceFlow
             if (!parsed.TryGetValue("state", out var returnedState) ||
                 !AuthorizeRequestBuilder.ValidateState(state, returnedState))
             {
-                await WriteResponseAsync(context, BuildErrorPage("state_mismatch",
+                await accepted.RespondAsync(BuildErrorPage("state_mismatch",
                     "The 'state' parameter did not match — possible CSRF or tampering."), ct);
                 return InteractiveAuthResult.Failure(InteractiveAuthErrorKind.StateMismatch,
                     "OAuth state parameter did not round-trip — aborting to prevent CSRF.");
@@ -146,13 +156,13 @@ internal sealed class LoopbackPkceFlow
 
             if (!parsed.TryGetValue("code", out var code) || string.IsNullOrWhiteSpace(code))
             {
-                await WriteResponseAsync(context, BuildErrorPage("missing_code",
+                await accepted.RespondAsync(BuildErrorPage("missing_code",
                     "Authorization server redirect did not include an authorization code."), ct);
                 return InteractiveAuthResult.Failure(InteractiveAuthErrorKind.AuthorizationServerError,
                     "Authorization server redirect did not include an authorization code.");
             }
 
-            await WriteResponseAsync(context, BuildSuccessPage(), ct);
+            await accepted.RespondAsync(BuildSuccessPage(), ct);
 
             var exchange = await _exchanger.ExchangeCodeAsync(
                 code, pkce.Verifier, redirectUri, clientId, tenant, ct: ct);
@@ -186,8 +196,69 @@ internal sealed class LoopbackPkceFlow
         }
         finally
         {
-            try { listener.Stop(); } catch { /* best-effort */ }
-            try { listener.Close(); } catch { /* best-effort */ }
+            try { v4Listener.Stop(); } catch { /* best-effort */ }
+            try { v6Listener?.Stop(); } catch { /* best-effort */ }
+        }
+    }
+
+    /// <summary>
+    /// Accepts the first incoming HTTP request on either loopback family, parses just enough
+    /// of the request line to extract the query string, and returns a closure that can write
+    /// back a 200 HTML response on the same connection.
+    /// </summary>
+    private static async Task<AcceptedRequest> AcceptOneRequestAsync(
+        TcpListener v4, TcpListener? v6, CancellationToken ct)
+    {
+        var acceptV4 = v4.AcceptTcpClientAsync(ct).AsTask();
+        var acceptV6 = v6 is null
+            ? new TaskCompletionSource<TcpClient>().Task // never completes
+            : v6.AcceptTcpClientAsync(ct).AsTask();
+
+        var winner = await Task.WhenAny(acceptV4, acceptV6).WaitAsync(ct);
+        var client = await winner;
+
+        var stream = client.GetStream();
+        var buffer = new byte[4096];
+        var read = await stream.ReadAsync(buffer, ct);
+        var headerText = read > 0 ? Encoding.ASCII.GetString(buffer, 0, read) : string.Empty;
+
+        // Request line is "GET /path?query HTTP/1.1\r\n"
+        var firstLineEnd = headerText.IndexOf('\r');
+        var requestLine = firstLineEnd > 0 ? headerText[..firstLineEnd] : headerText;
+        var parts = requestLine.Split(' ');
+        var path = parts.Length >= 2 ? parts[1] : "/";
+        var qIdx = path.IndexOf('?');
+        var query = qIdx >= 0 ? path[qIdx..] : string.Empty;
+
+        return new AcceptedRequest(client, stream, query);
+    }
+
+    private sealed class AcceptedRequest(TcpClient client, NetworkStream stream, string query) : IDisposable
+    {
+        public TcpClient Client { get; } = client;
+        public string Query { get; } = query;
+
+        public async Task RespondAsync(string html, CancellationToken ct)
+        {
+            try
+            {
+                var bodyBytes = Encoding.UTF8.GetBytes(html);
+                var headers = string.Create(CultureInfo.InvariantCulture,
+                    $"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {bodyBytes.Length}\r\nConnection: close\r\n\r\n");
+                await stream.WriteAsync(Encoding.ASCII.GetBytes(headers), ct);
+                await stream.WriteAsync(bodyBytes, ct);
+                await stream.FlushAsync(ct);
+            }
+            catch
+            {
+                // Browser may have already disconnected — ignore.
+            }
+        }
+
+        public void Dispose()
+        {
+            try { stream.Dispose(); } catch { /* best-effort */ }
+            try { Client.Dispose(); } catch { /* best-effort */ }
         }
     }
 
@@ -230,23 +301,6 @@ internal sealed class LoopbackPkceFlow
             }
         }
         return result;
-    }
-
-    private static async Task WriteResponseAsync(HttpListenerContext context, string html, CancellationToken ct)
-    {
-        try
-        {
-            var bytes = Encoding.UTF8.GetBytes(html);
-            context.Response.ContentType = "text/html; charset=utf-8";
-            context.Response.ContentLength64 = bytes.Length;
-            context.Response.StatusCode = 200;
-            await context.Response.OutputStream.WriteAsync(bytes, ct);
-            context.Response.OutputStream.Close();
-        }
-        catch
-        {
-            // Browser may have already disconnected — ignore.
-        }
     }
 
     private static string BuildSuccessPage() =>

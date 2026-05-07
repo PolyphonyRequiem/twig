@@ -4,6 +4,7 @@ using Twig.Domain.ReadModels;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Ado.Dtos;
 using Twig.Infrastructure.Auth;
+using Twig.Infrastructure.Auth.InteractiveAuth;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.GitHub;
 using Twig.Infrastructure.Persistence;
@@ -99,6 +100,9 @@ namespace Twig.Infrastructure.Serialization;
 [JsonSerializable(typeof(TokenRefreshResponse))]
 [JsonSerializable(typeof(JwtAccessTokenPayload))]
 [JsonSerializable(typeof(TwigRefreshTokenStoreEntry))]
+// Interactive auth (twig login) DTOs
+[JsonSerializable(typeof(AuthCodeTokenResponse))]
+[JsonSerializable(typeof(DeviceCodeResponse))]
 // Workspace mode domain types (Epic — workspace-mode-infrastructure)
 [JsonSerializable(typeof(WorkspaceConfig))]
 [JsonSerializable(typeof(TrackingConfig))]

@@ -322,6 +322,13 @@ internal static class CommandExamples
             "twig auth clear                Wipe refresh-token store and cached access token",
             "twig auth clear                Use after 'az login' to re-bootstrap, or to recover from a poisoned cache",
         ],
+        ["auth login"] =
+        [
+            "twig auth login                          Sign in interactively (opens a browser, loopback PKCE)",
+            "twig auth login --device-code            Use device code grant (for headless boxes; often blocked by tenant policy)",
+            "twig auth login --tenant <tenant-id>     Sign in to a specific AAD tenant",
+            "twig auth login --no-browser             Print the authorize URL instead of launching the browser",
+        ],
         ["version"] =
         [
             "twig version               Print the installed twig version",

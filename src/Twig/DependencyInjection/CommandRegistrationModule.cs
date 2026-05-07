@@ -77,6 +77,7 @@ public static class CommandRegistrationModule
         services.AddSingleton<ConfigStatusFieldsCommand>();
         services.AddSingleton<AuthStatusCommand>();
         services.AddSingleton<AuthClearCommand>();
+        services.AddSingleton<AuthLoginCommand>();
         services.AddSingleton<QueryCommand>();
         services.AddSingleton<ProcessCommand>();
         services.AddSingleton<BatchCommand>();

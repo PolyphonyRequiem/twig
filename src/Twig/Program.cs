@@ -923,6 +923,20 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> AuthClear(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<AuthClearCommand>().ExecuteAsync(output, ct);
 
+    /// <summary>Sign in to Azure DevOps interactively and store a refresh token. Default flow is loopback PKCE (opens a browser); use --device-code for headless boxes.</summary>
+    /// <param name="deviceCode">Use the OAuth device authorization grant instead of loopback PKCE. Required on headless or sandboxed environments where a browser cannot be opened, but often blocked by enterprise Conditional Access policy.</param>
+    /// <param name="tenant">AAD tenant ID, domain, or 'organizations' (default). Use a specific tenant when your account is a guest in multiple directories.</param>
+    /// <param name="noBrowser">Print the authorize URL instead of launching the system browser. Use when running over SSH or when the OS browser launcher is unreliable.</param>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    [Command("auth login")]
+    public async Task<int> AuthLogin(
+        bool deviceCode = false,
+        string? tenant = null,
+        bool noBrowser = false,
+        string output = OutputFormatterFactory.DefaultFormat,
+        CancellationToken ct = default)
+        => await services.GetRequiredService<AuthLoginCommand>().ExecuteAsync(deviceCode, tenant, noBrowser, output, ct);
+
     /// <summary>Show the current version.</summary>
     public Task<int> Version()
     {
@@ -1115,8 +1129,10 @@ internal static class GroupedHelp
         // System
         "config",
         "config status-fields",
+        "auth",
         "auth status",
         "auth clear",
+        "auth login",
         "version",
         "upgrade",
         "changelog",
@@ -1257,6 +1273,7 @@ System:
   config status-fields Configure which fields appear in status view.
   auth status          Inspect refresh-token store + cached ADO access token.
   auth clear           Wipe refresh-token store and cached access token.
+  auth login           Sign in interactively (loopback PKCE; --device-code for headless).
   version              Show the current version.
   upgrade              Check for and apply updates.
   changelog            Display recent release notes.

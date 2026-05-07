@@ -14,8 +14,11 @@ public sealed class SelfUpdateCommand(
     string? processPath = null)
 {
     private readonly string? _processPath = processPath ?? Environment.ProcessPath;
+
     /// <summary>Check for and apply updates from GitHub Releases.</summary>
-    public async Task<int> ExecuteAsync(CancellationToken ct = default)
+    /// <param name="force">When true, terminates any process holding a peer binary open
+    /// (e.g. a running <c>twig-mcp</c> instance) before applying the update.</param>
+    public async Task<int> ExecuteAsync(bool force = false, CancellationToken ct = default)
     {
         var currentVersion = VersionHelper.GetVersion();
         Console.WriteLine($"Current version: {currentVersion}");
@@ -47,7 +50,7 @@ public sealed class SelfUpdateCommand(
         if (comparison >= 0)
         {
             Console.WriteLine($"Already up to date ({latestTag})");
-            return await InstallMissingCompanionsAsync(latest, companionExeNames, ct);
+            return await InstallMissingCompanionsAsync(latest, companionExeNames, force, ct);
         }
 
         Console.WriteLine($"New version available: {latestTag}");
@@ -71,7 +74,7 @@ public sealed class SelfUpdateCommand(
 
         try
         {
-            var updateResult = await selfUpdater.UpdateBinaryAsync(asset.BrowserDownloadUrl, archiveName, companionExeNames, ct);
+            var updateResult = await selfUpdater.UpdateBinaryAsync(asset.BrowserDownloadUrl, archiveName, companionExeNames, ct, force);
             Console.WriteLine();
 
             ReportCompanionResults(updateResult.Companions);
@@ -85,6 +88,11 @@ public sealed class SelfUpdateCommand(
             }
 
             Console.WriteLine($"Update complete. Restart to use {latestTag}.");
+        }
+        catch (UpdateBlockedException blocked)
+        {
+            ReportBlocked(blocked);
+            return 1;
         }
         catch (Exception ex)
         {
@@ -102,6 +110,7 @@ public sealed class SelfUpdateCommand(
     private async Task<int> InstallMissingCompanionsAsync(
         GitHubReleaseInfo release,
         IReadOnlyList<string> companionExeNames,
+        bool force,
         CancellationToken ct)
     {
         var installDir = Path.GetDirectoryName(_processPath);
@@ -134,9 +143,14 @@ public sealed class SelfUpdateCommand(
         try
         {
             var results = await selfUpdater.InstallCompanionsOnlyAsync(
-                asset.BrowserDownloadUrl, archiveName, missing, installDir, ct);
+                asset.BrowserDownloadUrl, archiveName, missing, installDir, ct, force);
 
             ReportCompanionResults(results);
+        }
+        catch (UpdateBlockedException blocked)
+        {
+            ReportBlocked(blocked);
+            return 1;
         }
         catch (Exception ex)
         {
@@ -144,6 +158,29 @@ public sealed class SelfUpdateCommand(
         }
 
         return 0;
+    }
+
+    /// <summary>Renders a friendly diagnostic for blocked updates including offending PIDs and a --force hint.</summary>
+    private static void ReportBlocked(UpdateBlockedException blocked)
+    {
+        Console.Error.WriteLine("error: Update blocked — one or more peer binaries are in use by another process.");
+        foreach (var entry in blocked.Blocked)
+        {
+            var name = Path.GetFileName(entry.Path);
+            if (entry.HoldingProcessIds.Count > 0)
+            {
+                var pids = string.Join(", ", entry.HoldingProcessIds);
+                Console.Error.WriteLine($"  • {name}  (held by PID {pids})");
+            }
+            else
+            {
+                Console.Error.WriteLine($"  • {name}  (holder PID could not be identified)");
+            }
+        }
+        Console.Error.WriteLine();
+        Console.Error.WriteLine("Close the holding process (e.g. exit your editor / Copilot session) and retry,");
+        Console.Error.WriteLine("or re-run with --force to terminate the holders automatically:");
+        Console.Error.WriteLine("  twig upgrade --force");
     }
 
     /// <summary>Reports per-companion upgrade/install results to the console.</summary>

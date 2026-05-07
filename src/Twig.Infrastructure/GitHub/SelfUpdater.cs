@@ -31,17 +31,28 @@ public sealed class SelfUpdater : ICompanionInstaller
     /// Downloads the archive from <paramref name="downloadUrl"/>, extracts the main binary
     /// and any companion binaries, and replaces the current executable.
     /// </summary>
+    /// <param name="force">When true, terminates any process holding a target binary open
+    /// before downloading. When false (default), throws <see cref="UpdateBlockedException"/>
+    /// if any peer binary is locked so the caller can surface the offending PIDs.</param>
     /// <returns>An <see cref="UpdateResult"/> with the main binary path and per-companion status.</returns>
+    /// <exception cref="UpdateBlockedException">Thrown when <paramref name="force"/> is false
+    /// and one or more peer binaries (companions) are held open by another process.</exception>
     public async Task<UpdateResult> UpdateBinaryAsync(
         string downloadUrl,
         string archiveName,
         IReadOnlyList<string>? companionExeNames,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool force = false)
     {
         var currentExe = _processPath
             ?? throw new InvalidOperationException("Cannot determine current executable path.");
         var currentDir = Path.GetDirectoryName(currentExe)
             ?? throw new InvalidOperationException("Cannot determine current executable directory.");
+
+        // Probe peer binaries (companions) BEFORE downloading. The main exe is excluded from
+        // the lock check because Windows lets us rename a running .exe via the .old trick;
+        // companions don't have that luxury when held by long-lived MCP/TUI processes.
+        EnsurePeersWritable(currentDir, companionExeNames, force);
 
         var tempArchive = await DownloadArchiveAsync(downloadUrl, archiveName, ct);
         var tempExtractDir = ExtractArchive(tempArchive, archiveName);
@@ -69,13 +80,17 @@ public sealed class SelfUpdater : ICompanionInstaller
     /// Downloads the archive at <paramref name="archiveUrl"/> and extracts only the
     /// companion executables whose names appear in <paramref name="companionExeNames"/>.
     /// </summary>
+    /// <param name="force">When true, terminates processes holding any target companion open
+    /// before downloading. When false (default), throws <see cref="UpdateBlockedException"/>.</param>
     public async Task<IReadOnlyList<CompanionUpdateResult>> InstallCompanionsOnlyAsync(
         string archiveUrl,
         string archiveName,
         IReadOnlyList<string> companionExeNames,
         string installDir,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool force = false)
     {
+        EnsurePeersWritable(installDir, companionExeNames, force);
         var tempArchive = await DownloadArchiveAsync(archiveUrl, archiveName, ct);
         var tempExtractDir = ExtractArchive(tempArchive, archiveName);
         try
@@ -140,6 +155,45 @@ public sealed class SelfUpdater : ICompanionInstaller
     // ═══════════════════════════════════════════════════════════════
     //  Shared helpers
     // ═══════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Probes companion binaries for write-locks and either kills the holders (when
+    /// <paramref name="force"/> is true) or throws <see cref="UpdateBlockedException"/>.
+    /// Always opportunistically removes stale <c>.tmp</c> siblings so re-runs after a
+    /// previous failed update don't accumulate junk.
+    /// </summary>
+    private static void EnsurePeersWritable(string installDir, IReadOnlyList<string>? companionExeNames, bool force)
+    {
+        if (companionExeNames is null or { Count: 0 }) return;
+
+        var paths = companionExeNames
+            .Select(name => Path.Combine(installDir, name))
+            .ToArray();
+
+        // Always clean stale .tmp leftovers from prior failed attempts.
+        foreach (var p in paths) FileLockProbe.TryRemoveStaleTemp(p);
+
+        var probes = FileLockProbe.ProbeAll(paths);
+        var blocked = probes.Where(r => r.IsLocked).ToList();
+        if (blocked.Count == 0) return;
+
+        if (!force)
+        {
+            throw new UpdateBlockedException(blocked);
+        }
+
+        foreach (var entry in blocked)
+        {
+            FileLockProbe.KillHolders(entry.Path);
+        }
+
+        // Re-probe; if anything is still locked after kill attempts, give up cleanly.
+        var residual = FileLockProbe.ProbeAll(paths).Where(r => r.IsLocked).ToList();
+        if (residual.Count > 0)
+        {
+            throw new UpdateBlockedException(residual);
+        }
+    }
 
     private async Task<string> DownloadArchiveAsync(string downloadUrl, string archiveName, CancellationToken ct)
     {

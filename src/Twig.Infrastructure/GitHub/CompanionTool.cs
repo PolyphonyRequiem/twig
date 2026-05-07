@@ -28,7 +28,8 @@ internal interface ICompanionInstaller
         string archiveName,
         IReadOnlyList<string> companionExeNames,
         string installDir,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        bool force = false);
 }
 
 /// <summary>

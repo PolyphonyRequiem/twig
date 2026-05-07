@@ -945,8 +945,9 @@ public sealed class TwigCommands(IServiceProvider services)
     }
 
     /// <summary>Check for and apply updates from GitHub Releases.</summary>
-    public async Task<int> Upgrade(CancellationToken ct = default)
-        => await services.GetRequiredService<SelfUpdateCommand>().ExecuteAsync(ct);
+    /// <param name="force">-f, Terminate any process holding a peer binary open (e.g. running twig-mcp) before applying the update.</param>
+    public async Task<int> Upgrade(bool force = false, CancellationToken ct = default)
+        => await services.GetRequiredService<SelfUpdateCommand>().ExecuteAsync(force, ct);
 
     /// <summary>Display recent release notes from GitHub Releases.</summary>
     /// <param name="count">Number of releases to display.</param>

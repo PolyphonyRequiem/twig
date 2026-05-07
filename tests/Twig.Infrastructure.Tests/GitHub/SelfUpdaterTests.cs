@@ -452,6 +452,68 @@ public sealed class SelfUpdaterTests : IDisposable
         ex.Message.ShouldContain("Unsupported archive format");
     }
 
+    [Fact]
+    public async Task UpdateBinaryAsync_LockedCompanion_NoForce_ThrowsUpdateBlocked()
+    {
+        // Windows is the platform where companion locks actually block writes. On Unix the
+        // probe reports unlocked even with a held handle, so the throw won't fire and the
+        // assertion would be incorrect. Skip cleanly off-Windows.
+        if (!OperatingSystem.IsWindows()) return;
+
+        var currentExe = Path.Combine(_tempDir, ExeName);
+        File.WriteAllText(currentExe, "old-main");
+
+        // Create a companion peer file and hold an exclusive handle on it.
+        var companionPath = Path.Combine(_tempDir, CompanionExe);
+        File.WriteAllText(companionPath, "old-companion");
+        using var hold = new FileStream(companionPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+
+        var zipBytes = CreateZipArchive(
+            (ExeName, "new-main"u8.ToArray()),
+            (CompanionExe, "new-companion"u8.ToArray()));
+        var downloader = new FakeDownloader(zipBytes);
+        var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
+
+        var ex = await Should.ThrowAsync<UpdateBlockedException>(
+            () => sut.UpdateBinaryAsync("https://example.com/dl.zip", "twig-win-x64.zip", new[] { CompanionExe }));
+
+        ex.Blocked.Count.ShouldBe(1);
+        ex.Blocked[0].Path.ShouldBe(companionPath);
+        ex.Blocked[0].IsLocked.ShouldBeTrue();
+        // HoldingProcessIds is best-effort: enumeration matches Process.MainModule.FileName,
+        // which only resolves when a process is actually executing the binary at that path.
+        // In tests the lock is from a plain FileStream handle, so the holder list is empty —
+        // that's accurate behavior, not a bug.
+
+        // Main exe should not have been touched (probe-then-download means no I/O on failure).
+        File.ReadAllText(currentExe).ShouldBe("old-main");
+    }
+
+    [Fact]
+    public async Task UpdateBinaryAsync_StaleTmpSibling_RemovedBeforeInstall()
+    {
+        var currentExe = Path.Combine(_tempDir, ExeName);
+        File.WriteAllText(currentExe, "old-main");
+
+        // Leave a stale .tmp file as if a previous update crashed mid-install.
+        var companionPath = Path.Combine(_tempDir, CompanionExe);
+        File.WriteAllText(companionPath + ".tmp", "stale-leftover");
+
+        var zipBytes = CreateZipArchive(
+            (ExeName, "new-main"u8.ToArray()),
+            (CompanionExe, "new-companion"u8.ToArray()));
+        var downloader = new FakeDownloader(zipBytes);
+        var sut = new SelfUpdater(downloader, new DefaultFileSystem(), currentExe);
+
+        await sut.UpdateBinaryAsync(
+            "https://example.com/dl.zip", "twig-win-x64.zip",
+            new[] { CompanionExe });
+
+        // Stale .tmp must not be sitting next to the installed companion.
+        File.Exists(companionPath + ".tmp").ShouldBeFalse();
+        File.Exists(companionPath).ShouldBeTrue();
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //  Companion extraction — UpdateBinaryAsync with companions
     // ═══════════════════════════════════════════════════════════════

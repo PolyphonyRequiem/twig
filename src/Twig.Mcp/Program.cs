@@ -56,6 +56,22 @@ builder.Services.AddSingleton<Twig.Domain.Services.Seed.SeedFactory>();
 // Batch dispatch — interface enables BatchExecutionEngine to be tested in isolation (NFR-7).
 builder.Services.AddSingleton<IToolDispatcher, ToolDispatcher>();
 
+// Tool classes — registered as singletons so DI can resolve cross-tool dependencies
+// (e.g., ReadTools depends on NavigationTools) and so ToolDispatcher can compose them.
+// WithTools<T>() below registers MCP tool metadata for discovery but does NOT add the
+// type to the service container; that's our responsibility.
+builder.Services.AddSingleton<ContextTools>();
+builder.Services.AddSingleton<ReadTools>();
+builder.Services.AddSingleton<MutationTools>();
+builder.Services.AddSingleton<NavigationTools>();
+builder.Services.AddSingleton<CreationTools>();
+builder.Services.AddSingleton<WorkspaceTools>();
+builder.Services.AddSingleton<ProcessTools>();
+builder.Services.AddSingleton<AdminTools>();
+builder.Services.AddSingleton<TrackingTools>();
+builder.Services.AddSingleton<BatchTools>();
+builder.Services.AddSingleton<SeedTools>();
+
 // Parent-process watchdog — self-terminates when the host process exits,
 // preventing orphaned twig-mcp instances on VS Code reload or CLI exit.
 builder.Services.AddHostedService<ParentProcessWatchdog>();

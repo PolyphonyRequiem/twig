@@ -151,7 +151,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
     public async Task<CallToolResult> Update(
         [Description("Field reference name (e.g. System.Title, System.Description, Microsoft.VSTS.Scheduling.StoryPoints)")] string field,
         [Description("New field value")] string value,
-        [Description("Set to 'markdown' to convert the value from Markdown to HTML before storing (useful for System.Description)")] string? format = null,
+        [Description("Convert the input value before sending to ADO. Supported: \"markdown\" (force-convert), \"raw\" (pass through unchanged). Default: auto — converts only when the destination field is HTML-typed in ADO (e.g. System.Description).")] string? format = null,
         [Description("When true, append the value to the existing field content instead of replacing it")] bool append = false,
         [Description("Work item ID to operate on. When omitted, uses the active work item. When provided, the active context is not changed.")] int? id = null,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
@@ -161,14 +161,14 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         if (string.IsNullOrWhiteSpace(field) || value is null)
             return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, "Usage: twig_update requires a field name and value.");
 
-        if (format is not null && !string.Equals(format, "markdown", StringComparison.OrdinalIgnoreCase))
-            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, $"Unknown format '{format}'. Supported formats: markdown");
-
-        var effectiveValue = string.Equals(format, "markdown", StringComparison.OrdinalIgnoreCase)
-            ? MarkdownConverter.ToHtml(value)
-            : value;
+        var formatError = HtmlFieldFormatter.ValidateFormat(format);
+        if (formatError is not null)
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, formatError);
 
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
+
+        var resolution = await HtmlFieldFormatter.ResolveAsync(field, value, format, ctx.FieldDefinitionStore, onMissingFieldDef: null, ct);
+        var effectiveValue = resolution.EffectiveValue;
 
         var (item, resolveError) = await WorkItemResolver.ResolveWorkItemAsync(ctx, id, ct);
         if (item is null) return resolveError!;
@@ -179,7 +179,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
             if (append)
             {
                 item.Fields.TryGetValue(field, out var existingValue);
-                effectiveValue = FieldAppender.Append(existingValue, effectiveValue, asHtml: format is not null);
+                effectiveValue = FieldAppender.Append(existingValue, effectiveValue, asHtml: resolution.IsHtml);
             }
 
             var change = new FieldChange(field, null, effectiveValue);
@@ -203,7 +203,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
             if (append)
             {
                 remote.Fields.TryGetValue(field, out var existingValue);
-                effectiveValue = FieldAppender.Append(existingValue, effectiveValue, asHtml: format is not null);
+                effectiveValue = FieldAppender.Append(existingValue, effectiveValue, asHtml: resolution.IsHtml);
             }
 
             var changes = new[] { new FieldChange(field, null, effectiveValue) };
@@ -239,7 +239,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
     [McpServerTool(Name = "twig_patch"), Description("Atomically patch multiple fields on a work item. Operates on the active work item by default, or specify id to target a specific item without changing context.")]
     public async Task<CallToolResult> Patch(
         [Description("JSON object with field reference name → value pairs (e.g. {\"System.Title\":\"New\",\"System.Description\":\"Desc\"})")] string fields,
-        [Description("Convert values before sending. Supported: \"markdown\" (converts Markdown to HTML)")] string? format = null,
+        [Description("Convert values before sending. Supported: \"markdown\" (force-convert all fields), \"raw\" (pass through unchanged). Default: auto — converts each field individually when its ADO type is HTML.")] string? format = null,
         [Description("Work item ID to operate on. When omitted, uses the active work item. When provided, the active context is not changed.")] int? id = null,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
@@ -248,8 +248,9 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         if (string.IsNullOrWhiteSpace(fields))
             return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, "Usage: twig_patch requires a non-empty JSON object of field name → value pairs.");
 
-        if (format is not null && !string.Equals(format, "markdown", StringComparison.OrdinalIgnoreCase))
-            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, $"Unknown format '{format}'. Supported formats: markdown");
+        var formatError = HtmlFieldFormatter.ValidateFormat(format);
+        if (formatError is not null)
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, formatError);
 
         // Parse JSON into field dictionary (AOT-safe via source-generated context)
         Dictionary<string, string>? fieldMap;
@@ -270,16 +271,14 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         var (item, resolveError) = await WorkItemResolver.ResolveWorkItemAsync(ctx, id, ct);
         if (item is null) return resolveError!;
 
-        // Build FieldChange[] with optional markdown conversion
+        // Build FieldChange[] with per-field conversion (auto-detected via field type)
         var changes = new List<FieldChange>(fieldMap.Count);
         var fieldChanges = new Dictionary<string, (string? OldValue, string? NewValue)>(fieldMap.Count);
         foreach (var (key, value) in fieldMap)
         {
-            var effectiveValue = string.Equals(format, "markdown", StringComparison.OrdinalIgnoreCase)
-                ? MarkdownConverter.ToHtml(value)
-                : value;
-            changes.Add(new FieldChange(key, null, effectiveValue));
-            fieldChanges[key] = (null, effectiveValue);
+            var fieldResolution = await HtmlFieldFormatter.ResolveAsync(key, value, format, ctx.FieldDefinitionStore, onMissingFieldDef: null, ct);
+            changes.Add(new FieldChange(key, null, fieldResolution.EffectiveValue));
+            fieldChanges[key] = (null, fieldResolution.EffectiveValue);
         }
 
         // Seed routing: apply each field change via SeedMutationProvider.
@@ -339,29 +338,37 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         [Description("Note text to add as a comment")] string text,
         [Description("Work item ID to operate on. When omitted, uses the active work item. When provided, the active context is not changed.")] int? id = null,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("Convert the note text before sending. Supported: \"markdown\" (default) converts Markdown to HTML; \"raw\" sends pre-rendered HTML or plain text unchanged.")] string? format = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(text))
             return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, "Usage: twig_note requires non-empty text.");
 
+        var formatError = HtmlFieldFormatter.ValidateFormat(format);
+        if (formatError is not null)
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, formatError);
+
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         var (item, resolveError) = await WorkItemResolver.ResolveWorkItemAsync(ctx, id, ct);
         if (item is null) return resolveError!;
 
+        var noteResolution = HtmlFieldFormatter.ResolveComment(text, format);
+        var effectiveText = noteResolution.EffectiveValue;
+
         // Push comment to ADO— fall back to local staging on failure
         bool isPending;
         try
         {
-            await ctx.AdoService.AddCommentAsync(item.Id, text, ct);
+            await ctx.AdoService.AddCommentAsync(item.Id, effectiveText, ct);
             isPending = false;
 
             await ctx.PendingChangeStore.ClearChangesByTypeAsync(item.Id, "note", ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            await ctx.PendingChangeStore.AddChangeAsync(item.Id, "note", fieldName: null, oldValue: null, newValue: text, ct);
+            await ctx.PendingChangeStore.AddChangeAsync(item.Id, "note", fieldName: null, oldValue: null, newValue: effectiveText, ct);
             isPending = true;
         }
 

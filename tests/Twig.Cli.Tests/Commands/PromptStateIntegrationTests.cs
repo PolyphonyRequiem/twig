@@ -289,7 +289,7 @@ public class PromptStateIntegrationTests : IDisposable
         var writer = CreateWriter();
         var updateResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var cmd = new UpdateCommand(updateResolver, _workItemRepo, _adoService,
-            _pendingChangeStore, _consoleInput, _formatterFactory,
+            _pendingChangeStore, _consoleInput, _fieldDefinitionStore, _formatterFactory,
             new SeedMutationProvider(_workItemRepo), writer);
 
         var result = await cmd.ExecuteAsync("System.Title", "New Title");

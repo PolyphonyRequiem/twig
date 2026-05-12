@@ -21,6 +21,7 @@ public sealed class UpdateCommand(
     IAdoWorkItemService adoService,
     IPendingChangeStore pendingChangeStore,
     IConsoleInput consoleInput,
+    IFieldDefinitionStore fieldDefStore,
     OutputFormatterFactory formatterFactory,
     SeedMutationProvider seedMutationProvider,
     IPromptStateWriter? promptStateWriter = null,
@@ -55,9 +56,10 @@ public sealed class UpdateCommand(
             return 2;
         }
 
-        if (format is not null && !string.Equals(format, "markdown", StringComparison.OrdinalIgnoreCase))
+        var formatError = HtmlFieldFormatter.ValidateFormat(format);
+        if (formatError is not null)
         {
-            _stderr.WriteLine(fmt.FormatError($"Unknown format '{format}'. Supported formats: markdown"));
+            _stderr.WriteLine(fmt.FormatError(formatError));
             return 2;
         }
 
@@ -82,7 +84,13 @@ public sealed class UpdateCommand(
         }
         if (format is null && (filePath is not null || readStdin))
             resolvedValue = resolvedValue.TrimEnd('\r', '\n');
-        var effectiveValue = format is null ? resolvedValue : MarkdownConverter.ToHtml(resolvedValue);
+
+        var resolution = await HtmlFieldFormatter.ResolveAsync(
+            field, resolvedValue, format, fieldDefStore,
+            onMissingFieldDef: name =>
+                _stderr.WriteLine($"warning: field type unknown for '{name}'; not converting. Use --format markdown to force conversion."),
+            ct);
+        var effectiveValue = resolution.EffectiveValue;
 
         var resolved = id.HasValue
             ? await activeItemResolver.ResolveByIdAsync(id.Value, ct)
@@ -101,7 +109,7 @@ public sealed class UpdateCommand(
             if (append)
             {
                 local.Fields.TryGetValue(field, out var existingValue);
-                effectiveValue = FieldAppender.Append(existingValue, effectiveValue, asHtml: format is not null);
+                effectiveValue = FieldAppender.Append(existingValue, effectiveValue, asHtml: resolution.IsHtml);
             }
 
             var change = new FieldChange(field, null, effectiveValue);
@@ -136,7 +144,7 @@ public sealed class UpdateCommand(
         if (append)
         {
             remote.Fields.TryGetValue(field, out var existingValue);
-            effectiveValue = FieldAppender.Append(existingValue, effectiveValue, asHtml: format is not null);
+            effectiveValue = FieldAppender.Append(existingValue, effectiveValue, asHtml: resolution.IsHtml);
         }
 
         var changes = new[] { new FieldChange(field, null, effectiveValue) };

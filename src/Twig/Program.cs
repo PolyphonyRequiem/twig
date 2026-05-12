@@ -400,11 +400,12 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="parent">Parent work item ID to link under.</param>
     /// <param name="set">Set the new work item as the active context after creation.</param>
     /// <param name="editor">Open an external editor to fill in fields.</param>
+    /// <param name="format">Convert --description before sending. Supported: "markdown" (force convert) or "raw" (never convert). Default: auto — convert when System.Description is HTML-typed.</param>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
-    public async Task<int> New(string? title = null, string? type = null, string? area = null, string? iteration = null, string? description = null, int? parent = null, bool set = false, bool editor = false, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, params string[] titleParts)
+    public async Task<int> New(string? title = null, string? type = null, string? area = null, string? iteration = null, string? description = null, int? parent = null, bool set = false, bool editor = false, string? format = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default, params string[] titleParts)
     {
         var resolvedTitle = JoinTrailingText(title, titleParts);
-        return await services.GetRequiredService<NewCommand>().ExecuteAsync(resolvedTitle, type, area, iteration, description, parent, set, editor, output, ct);
+        return await services.GetRequiredService<NewCommand>().ExecuteAsync(resolvedTitle, type, area, iteration, description, parent, set, editor, format, output, ct);
     }
 
     /// <summary>Display the work item tree hierarchy (hidden alias: routes to show --tree, or workspace --tree when --all).</summary>
@@ -653,14 +654,15 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <param name="text">Note text to add; omit to open an editor.</param>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     /// <param name="id">Work item ID to target; omit to use the active work item.</param>
-    public async Task<int> Note(string? text = null, string output = OutputFormatterFactory.DefaultFormat, int? id = null, CancellationToken ct = default, params string[] textParts)
-        => await services.GetRequiredService<NoteCommand>().ExecuteAsync(JoinTrailingText(text, textParts), id, output, ct);
+    /// <param name="format">Convert the note text before sending. Supported: "raw" to send pre-rendered HTML or plain text unchanged; "markdown" (default) converts Markdown to HTML.</param>
+    public async Task<int> Note(string? text = null, string output = OutputFormatterFactory.DefaultFormat, int? id = null, string? format = null, CancellationToken ct = default, params string[] textParts)
+        => await services.GetRequiredService<NoteCommand>().ExecuteAsync(JoinTrailingText(text, textParts), id, output, format, ct);
 
     /// <summary>Update a field on the active work item.</summary>
     /// <param name="field">ADO field name or alias to update (e.g., System.Title, title).</param>
     /// <param name="value">New value for the field; omit when using --file or --stdin.</param>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
-    /// <param name="format">Convert the input value before sending to ADO. Supported: "markdown" (converts Markdown to HTML). Distinct from --output, which controls display format.</param>
+    /// <param name="format">Convert the input value before sending to ADO. Supported: "markdown" (force-convert), "raw" (pass through unchanged). Default: auto — converts only when the field is HTML-typed in ADO.</param>
     /// <param name="file">Read the field value from a file instead of an inline argument.</param>
     /// <param name="stdin">Read the field value from piped standard input.</param>
     /// <param name="id">Work item ID to update; omit to use the active work item.</param>
@@ -671,7 +673,7 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <summary>Atomically patch multiple fields on a work item via JSON input.</summary>
     /// <param name="json">JSON object with field name → value pairs (e.g., '{"System.Title":"New title"}').</param>
     /// <param name="stdin">Read JSON from standard input instead of --json.</param>
-    /// <param name="format">Convert values before sending. Supported: "markdown" (converts Markdown to HTML).</param>
+    /// <param name="format">Convert values before sending. Supported: "markdown" (force-convert all fields), "raw" (pass through unchanged). Default: auto — converts each field individually when its ADO type is HTML.</param>
     /// <param name="id">Work item ID to target; omit to use the active work item.</param>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     public async Task<int> Patch(string? json = null, bool stdin = false, string? format = null, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)

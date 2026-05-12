@@ -25,10 +25,11 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         [Description("Work item type (e.g. Epic, Issue, Task, Bug, User Story)")] string type,
         [Description("Title for the new work item")] string title,
         [Description("Parent work item ID (optional — used for path inheritance and child type validation)")] int? parentId = null,
-        [Description("Description text (optional — treated as Markdown and converted to HTML)")] string? description = null,
+        [Description("Description text (optional — treated as Markdown and converted to HTML by default; pass format=\"raw\" to send unchanged)")] string? description = null,
         [Description("Assignee display name (optional)")] string? assignedTo = null,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
         [Description("When true and parentId is provided, skips the duplicate title+type check. Default is false (dedup enabled).")] bool skipDuplicateCheck = false,
+        [Description("Convert description before sending. Supported: \"markdown\" (default) converts Markdown to HTML; \"raw\" sends pre-rendered HTML or plain text unchanged.")] string? format = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
@@ -44,6 +45,10 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         if (parentId is <= 0)
             return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, $"parentId must be a positive work item ID (got {parentId.Value}).");
 
+        var formatError = HtmlFieldFormatter.ValidateFormat(format);
+        if (formatError is not null)
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, formatError);
+
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
         if (parentId.HasValue)
@@ -54,7 +59,7 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
                 if (dupeResult is not null) return await EnvelopeBuilder.WrapAsync(ctx, dupeResult, verbose, ct);
             }
 
-            var parentedResult = await CreateParentedAsync(ctx, parentId.Value, title, parsedType, description, assignedTo, ct);
+            var parentedResult = await CreateParentedAsync(ctx, parentId.Value, title, parsedType, description, format, assignedTo, ct);
             return await EnvelopeBuilder.WrapAsync(ctx, parentedResult, verbose, ct);
         }
 
@@ -85,7 +90,10 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         var seed = unparentedResult.Value;
 
         if (!string.IsNullOrWhiteSpace(description))
-            seed.SetField("System.Description", MarkdownConverter.ToHtml(description));
+        {
+            var descResolution = HtmlFieldFormatter.ResolveForcedMarkdownDefault(description, format);
+            seed.SetField("System.Description", descResolution.EffectiveValue);
+        }
 
         int newId;
         try { newId = await ctx.AdoService.CreateAsync(seed.ToCreateRequest(), ct); }
@@ -114,13 +122,14 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         [Description("Work item type (e.g. Epic, Issue, Task, Bug, User Story)")] string type,
         [Description("Title for the work item to find or create")] string title,
         [Description("Parent work item ID — required for scoped dedup check")] int parentId,
-        [Description("Description text (optional — treated as Markdown and converted to HTML)")] string? description = null,
+        [Description("Description text (optional — treated as Markdown and converted to HTML by default; pass format=\"raw\" to send unchanged)")] string? description = null,
         [Description("Assignee display name (optional)")] string? assignedTo = null,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("Convert description before sending. Supported: \"markdown\" (default) converts Markdown to HTML; \"raw\" sends pre-rendered HTML or plain text unchanged.")] string? format = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
-        return await New(type, title, parentId, description, assignedTo, workspace, skipDuplicateCheck: false, verbose: verbose, ct);
+        return await New(type, title, parentId, description, assignedTo, workspace, skipDuplicateCheck: false, format: format, verbose: verbose, ct);
     }
 
     [McpServerTool(Name = "twig_link"), Description("Create a relationship between two work items")]
@@ -249,6 +258,7 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         string title,
         WorkItemType parsedType,
         string? description,
+        string? format,
         string? assignedTo,
         CancellationToken ct)
     {
@@ -270,7 +280,10 @@ public sealed class CreationTools(WorkspaceResolver resolver, SeedFactory seedFa
         var seed = seedResult.Value;
 
         if (!string.IsNullOrWhiteSpace(description))
-            seed.SetField("System.Description", MarkdownConverter.ToHtml(description));
+        {
+            var descResolution = HtmlFieldFormatter.ResolveForcedMarkdownDefault(description, format);
+            seed.SetField("System.Description", descResolution.EffectiveValue);
+        }
 
         int newId;
         try { newId = await ctx.AdoService.CreateAsync(seed.ToCreateRequest(), ct); }

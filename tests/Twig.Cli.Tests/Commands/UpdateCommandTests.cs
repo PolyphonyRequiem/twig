@@ -23,6 +23,7 @@ public class UpdateCommandTests
     private readonly IAdoWorkItemService _adoService;
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IConsoleInput _consoleInput;
+    private readonly IFieldDefinitionStore _fieldDefStore;
     private readonly SeedMutationProvider _seedMutationProvider;
     private readonly UpdateCommand _cmd;
 
@@ -33,6 +34,9 @@ public class UpdateCommandTests
         _adoService = Substitute.For<IAdoWorkItemService>();
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
         _consoleInput = Substitute.For<IConsoleInput>();
+        _fieldDefStore = Substitute.For<IFieldDefinitionStore>();
+        _fieldDefStore.GetByReferenceNameAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns((FieldDefinition?)null);
         _seedMutationProvider = new SeedMutationProvider(_workItemRepo);
 
         _cmd = CreateCommand();
@@ -44,7 +48,7 @@ public class UpdateCommandTests
             new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         return new UpdateCommand(resolver, _workItemRepo, _adoService, _pendingChangeStore,
-            _consoleInput, formatterFactory, _seedMutationProvider, stdinReader: stdinReader, stderr: stderr, stdout: stdout);
+            _consoleInput, _fieldDefStore, formatterFactory, _seedMutationProvider, stdinReader: stdinReader, stderr: stderr, stdout: stdout);
     }
 
     private void SetupSuccessfulPatch()
@@ -164,7 +168,7 @@ public class UpdateCommandTests
         var result = await cmd.ExecuteAsync("System.Description", "value", format: "xyz");
 
         result.ShouldBe(2);
-        stderr.ToString().ShouldContain("Unknown format 'xyz'. Supported formats: markdown");
+        stderr.ToString().ShouldContain("Unknown format 'xyz'. Supported formats: markdown, raw");
         await _adoService.DidNotReceive().PatchAsync(
             Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
@@ -180,6 +184,56 @@ public class UpdateCommandTests
         await _adoService.Received().PatchAsync(1,
             Arg.Is<IReadOnlyList<FieldChange>>(c =>
                 c[0].NewValue == "plain text"),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Format_Null_HtmlField_AutoConvertsMarkdown()
+    {
+        SetupSuccessfulPatch();
+        _fieldDefStore.GetByReferenceNameAsync("System.Description", Arg.Any<CancellationToken>())
+            .Returns(new FieldDefinition("System.Description", "Description", "html", false));
+
+        var result = await _cmd.ExecuteAsync("System.Description", "# Hello", format: null);
+
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(1,
+            Arg.Is<IReadOnlyList<FieldChange>>(c =>
+                c[0].FieldName == "System.Description" &&
+                c[0].NewValue!.Contains("<h1") &&
+                c[0].NewValue!.Contains("Hello</h1>")),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Format_Raw_HtmlField_PassesThroughUnchanged()
+    {
+        SetupSuccessfulPatch();
+        _fieldDefStore.GetByReferenceNameAsync("System.Description", Arg.Any<CancellationToken>())
+            .Returns(new FieldDefinition("System.Description", "Description", "html", false));
+
+        var result = await _cmd.ExecuteAsync("System.Description", "<p>raw html</p>", format: "raw");
+
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(1,
+            Arg.Is<IReadOnlyList<FieldChange>>(c =>
+                c[0].NewValue == "<p>raw html</p>"),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Format_Null_PlainTextField_PassesThroughUnchanged()
+    {
+        SetupSuccessfulPatch();
+        _fieldDefStore.GetByReferenceNameAsync("System.Title", Arg.Any<CancellationToken>())
+            .Returns(new FieldDefinition("System.Title", "Title", "string", false));
+
+        var result = await _cmd.ExecuteAsync("System.Title", "## not converted", format: null);
+
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(1,
+            Arg.Is<IReadOnlyList<FieldChange>>(c =>
+                c[0].NewValue == "## not converted"),
             Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 

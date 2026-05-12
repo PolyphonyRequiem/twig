@@ -4,6 +4,7 @@ using Twig.Domain.Services.Sync;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
+using Twig.Infrastructure.Content;
 
 namespace Twig.Commands;
 
@@ -66,9 +67,16 @@ public sealed class NoteCommand(
     private readonly IAdoWorkItemService _adoService = adoService;
 
     /// <summary>Add a note/comment to the active work item.</summary>
-    public async Task<int> ExecuteAsync(string? text = null, int? id = null, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    public async Task<int> ExecuteAsync(string? text = null, int? id = null, string outputFormat = OutputFormatterFactory.DefaultFormat, string? format = null, CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
+
+        var formatError = HtmlFieldFormatter.ValidateFormat(format);
+        if (formatError is not null)
+        {
+            Console.Error.WriteLine(fmt.FormatError(formatError));
+            return 2;
+        }
 
         var resolved = id.HasValue
             ? await activeItemResolver.ResolveByIdAsync(id.Value, ct)
@@ -108,16 +116,19 @@ public sealed class NoteCommand(
 
         string successMessage;
 
+        var commentResolution = HtmlFieldFormatter.ResolveComment(noteText, format);
+        var noteToSend = commentResolution.EffectiveValue;
+
         if (item.IsSeed)
         {
-            await StageLocallyAsync(item, noteText, ct);
+            await StageLocallyAsync(item, noteToSend, commentResolution.IsHtml, ct);
             successMessage = fmt.FormatSuccess($"Note added to #{item.Id} (pending).");
         }
         else
         {
             try
             {
-                await _adoService.AddCommentAsync(item.Id, noteText, ct);
+                await _adoService.AddCommentAsync(item.Id, noteToSend, ct);
                 await pendingChangeStore.ClearChangesByTypeAsync(item.Id, "note", ct);
 
                 try
@@ -135,7 +146,7 @@ public sealed class NoteCommand(
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 Console.Error.WriteLine($"Note staged locally (ADO unreachable): {ex.Message}");
-                await StageLocallyAsync(item, noteText, ct);
+                await StageLocallyAsync(item, noteToSend, commentResolution.IsHtml, ct);
                 successMessage = fmt.FormatSuccess($"Note added to #{item.Id} (pending).");
             }
         }
@@ -155,7 +166,7 @@ public sealed class NoteCommand(
         return 0;
     }
 
-    private async Task StageLocallyAsync(Twig.Domain.Aggregates.WorkItem item, string noteText, CancellationToken ct)
+    private async Task StageLocallyAsync(Twig.Domain.Aggregates.WorkItem item, string noteText, bool isHtml, CancellationToken ct)
     {
         await pendingChangeStore.AddChangeAsync(
             item.Id,
@@ -164,7 +175,7 @@ public sealed class NoteCommand(
             oldValue: null,
             newValue: noteText);
 
-        item.AddNote(new PendingNote(noteText, DateTimeOffset.UtcNow, IsHtml: false));
+        item.AddNote(new PendingNote(noteText, DateTimeOffset.UtcNow, IsHtml: isHtml));
         await workItemRepo.SaveAsync(item, ct);
     }
 }

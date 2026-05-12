@@ -48,8 +48,9 @@ public class NoteCommandTests
         var result = await _cmd.ExecuteAsync("This is a note");
 
         result.ShouldBe(0);
+        // Note text is converted Markdown→HTML by default
         await _pendingChangeStore.Received().AddChangeAsync(
-            1, "note", null, null, "This is a note", Arg.Any<CancellationToken>());
+            1, "note", null, null, "<p>This is a note</p>\n", Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -65,7 +66,7 @@ public class NoteCommandTests
         result.ShouldBe(0);
         await _editorLauncher.Received().LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
         await _pendingChangeStore.Received().AddChangeAsync(
-            1, "note", null, null, "Edited note content", Arg.Any<CancellationToken>());
+            1, "note", null, null, "<p>Edited note content</p>\n", Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -119,7 +120,7 @@ public class NoteCommandTests
         var result = await _cmd.ExecuteAsync("Fix applied");
 
         result.ShouldBe(0);
-        await _adoService.Received(1).AddCommentAsync(42, "Fix applied", Arg.Any<CancellationToken>());
+        await _adoService.Received(1).AddCommentAsync(42, "<p>Fix applied</p>\n", Arg.Any<CancellationToken>());
         await _pendingChangeStore.Received(1).ClearChangesByTypeAsync(42, "note", Arg.Any<CancellationToken>());
         await _adoService.Received(1).FetchAsync(42, Arg.Any<CancellationToken>());
         await _workItemRepo.Received(1).SaveAsync(serverItem, Arg.Any<CancellationToken>());
@@ -140,7 +141,7 @@ public class NoteCommandTests
         await _adoService.DidNotReceive().AddCommentAsync(
             Arg.Any<int>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
         await _pendingChangeStore.Received(1).AddChangeAsync(
-            7, "note", null, null, "Draft note", Arg.Any<CancellationToken>());
+            7, "note", null, null, "<p>Draft note</p>\n", Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -148,14 +149,14 @@ public class NoteCommandTests
     {
         var item = CreateWorkItem(10, "Remote Item", isSeed: false);
         SetupActiveItem(item);
-        _adoService.AddCommentAsync(10, "Offline note", Arg.Any<CancellationToken>())
+        _adoService.AddCommentAsync(10, Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromException(new HttpRequestException("Network error")));
 
         var (result, stderr) = await StderrCapture.RunAsync(() => _cmd.ExecuteAsync("Offline note"));
 
         result.ShouldBe(0);
         await _pendingChangeStore.Received(1).AddChangeAsync(
-            10, "note", null, null, "Offline note", Arg.Any<CancellationToken>());
+            10, "note", null, null, "<p>Offline note</p>\n", Arg.Any<CancellationToken>());
         stderr.ShouldContain("staged locally");
     }
 
@@ -170,7 +171,7 @@ public class NoteCommandTests
         var (result, stderr) = await StderrCapture.RunAsync(() => _cmd.ExecuteAsync("Resync fail note"));
 
         result.ShouldBe(0);
-        await _adoService.Received(1).AddCommentAsync(20, "Resync fail note", Arg.Any<CancellationToken>());
+        await _adoService.Received(1).AddCommentAsync(20, "<p>Resync fail note</p>\n", Arg.Any<CancellationToken>());
         await _pendingChangeStore.DidNotReceive().AddChangeAsync(
             Arg.Any<int>(), Arg.Any<string>(), Arg.Any<string?>(),
             Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
@@ -209,7 +210,7 @@ public class NoteCommandTests
         var result = await _cmd.ExecuteAsync("Note text", id: 42);
 
         result.ShouldBe(0);
-        await _adoService.Received(1).AddCommentAsync(42, "Note text", Arg.Any<CancellationToken>());
+        await _adoService.Received(1).AddCommentAsync(42, "<p>Note text</p>\n", Arg.Any<CancellationToken>());
         await _contextStore.DidNotReceive().SetActiveWorkItemIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 

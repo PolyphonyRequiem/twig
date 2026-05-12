@@ -28,6 +28,7 @@ public class ConflictUxTests
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IConsoleInput _consoleInput;
     private readonly IProcessConfigurationProvider _processConfigProvider;
+    private readonly IFieldDefinitionStore _fieldDefStore;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly CommandContext _ctx;
     private readonly Domain.Services.Navigation.ActiveItemResolver _resolver;
@@ -40,6 +41,9 @@ public class ConflictUxTests
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
         _consoleInput = Substitute.For<IConsoleInput>();
         _processConfigProvider = Substitute.For<IProcessConfigurationProvider>();
+        _fieldDefStore = Substitute.For<IFieldDefinitionStore>();
+        _fieldDefStore.GetByReferenceNameAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns((Twig.Domain.ValueObjects.FieldDefinition?)null);
 
         _processConfigProvider.GetConfiguration()
             .Returns(ProcessConfigBuilder.Agile());
@@ -146,7 +150,7 @@ public class ConflictUxTests
         _consoleInput.ReadLine().Returns("l"); // keep local
 
         var cmd = new UpdateCommand(_resolver, _workItemRepo, _adoService, _pendingChangeStore,
-            _consoleInput, _formatterFactory, new SeedMutationProvider(_workItemRepo));
+            _consoleInput, _fieldDefStore, _formatterFactory, new SeedMutationProvider(_workItemRepo));
         var result = await cmd.ExecuteAsync("System.Title", "New Title");
 
         result.ShouldBe(0);
@@ -168,7 +172,7 @@ public class ConflictUxTests
         _consoleInput.ReadLine().Returns("r"); // keep remote
 
         var cmd = new UpdateCommand(_resolver, _workItemRepo, _adoService, _pendingChangeStore,
-            _consoleInput, _formatterFactory, new SeedMutationProvider(_workItemRepo));
+            _consoleInput, _fieldDefStore, _formatterFactory, new SeedMutationProvider(_workItemRepo));
         var result = await cmd.ExecuteAsync("System.Title", "New Title");
 
         result.ShouldBe(0);

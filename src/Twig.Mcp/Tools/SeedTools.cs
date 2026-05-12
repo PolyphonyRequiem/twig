@@ -25,14 +25,19 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
         [Description("Title for the new seed work item")] string title,
         [Description("Work item type (e.g. Task, Issue, Bug). Required when no parentId is provided; inferred from parent's allowed child types when omitted.")] string? type = null,
         [Description("Parent work item ID (positive for ADO items, negative for other seeds). Used for type inference and path inheritance.")] int? parentId = null,
-        [Description("Description text (optional — treated as Markdown and converted to HTML)")] string? description = null,
+        [Description("Description text (optional — treated as Markdown and converted to HTML by default; pass format=\"raw\" to send unchanged)")] string? description = null,
         [Description("Assignee display name (optional)")] string? assignedTo = null,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("Convert description before sending. Supported: \"markdown\" (default) converts Markdown to HTML; \"raw\" sends pre-rendered HTML or plain text unchanged.")] string? format = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(title))
             return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, "Title is required.");
+
+        var formatError = HtmlFieldFormatter.ValidateFormat(format);
+        if (formatError is not null)
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, formatError);
 
         if (!resolver.TryResolve(workspace, out var ctx, out var err))
             return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
@@ -89,7 +94,10 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
         var seed = seedResult.Value;
 
         if (!string.IsNullOrWhiteSpace(description))
-            seed.SetField("System.Description", MarkdownConverter.ToHtml(description));
+        {
+            var descResolution = HtmlFieldFormatter.ResolveForcedMarkdownDefault(description, format);
+            seed.SetField("System.Description", descResolution.EffectiveValue);
+        }
 
         // Persist locally — no ADO interaction
         await ctx.WorkItemRepo.SaveAsync(seed, ct);
@@ -554,10 +562,11 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
     public async Task<CallToolResult> SeedEdit(
         [Description("Seed ID to edit (negative integer).")] int id,
         [Description("New title for the seed (optional — unchanged if omitted)")] string? title = null,
-        [Description("New description in Markdown (optional — converted to HTML)")] string? description = null,
+        [Description("New description (optional — treated as Markdown and converted to HTML by default; pass format=\"raw\" to send unchanged)")] string? description = null,
         [Description("New work item type (e.g. Task, Issue, Bug). Optional — unchanged if omitted.")] string? type = null,
         [Description("New parent work item ID (positive for ADO items, negative for other seeds). Pass 0 to clear the parent.")] int? parentId = null,
         [Description("Target workspace (format: \"org/project\"). When omitted, inferred from context or single-workspace default.")] string? workspace = null,
+        [Description("Convert description before sending. Supported: \"markdown\" (default) converts Markdown to HTML; \"raw\" sends pre-rendered HTML or plain text unchanged.")] string? format = null,
         [Description("When true, includes contextual hints in the response")] bool verbose = false,
         CancellationToken ct = default)
     {
@@ -569,6 +578,10 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
 
         if (title is not null && string.IsNullOrWhiteSpace(title))
             return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, "Title cannot be empty or whitespace.");
+
+        var formatError = HtmlFieldFormatter.ValidateFormat(format);
+        if (formatError is not null)
+            return EnvelopeBuilder.Error(McpErrorCode.InvalidInput, formatError);
 
         if (!resolver.TryResolve(workspace, out var ctx, out var err))
             return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
@@ -591,8 +604,8 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
         // Apply description change
         if (description is not null)
         {
-            var html = MarkdownConverter.ToHtml(description);
-            fields["System.Description"] = html;
+            var descResolution = HtmlFieldFormatter.ResolveForcedMarkdownDefault(description, format);
+            fields["System.Description"] = descResolution.EffectiveValue;
             changedFields.Add("description");
         }
 

@@ -71,7 +71,9 @@ internal sealed class ToolDispatcher(
             "twig_note" => mutationTools.Note(
                 GetRequiredString(args, "text"),
                 GetNullableInt(args, "id"),
-                workspace, verbose: false, ct),
+                workspace,
+                GetString(args, "format"),
+                verbose: false, ct),
 
             "twig_sync"=> mutationTools.Sync(workspace, GetBool(args, "pull_only"), verbose: false, ct),
 
@@ -88,6 +90,7 @@ internal sealed class ToolDispatcher(
                 GetString(args, "assignedTo"),
                 workspace,
                 GetBool(args, "skipDuplicateCheck"),
+                GetString(args, "format"),
                 verbose: false,
                 ct),
 
@@ -97,7 +100,9 @@ internal sealed class ToolDispatcher(
                 GetRequiredInt(args, "parentId"),
                 GetString(args, "description"),
                 GetString(args, "assignedTo"),
-                workspace, verbose: false, ct),
+                workspace,
+                GetString(args, "format"),
+                verbose: false, ct),
 
             "twig_link" => creationTools.Link(
                 GetRequiredInt(args, "sourceId"),
@@ -165,7 +170,9 @@ internal sealed class ToolDispatcher(
                 GetNullableInt(args, "parentId"),
                 GetString(args, "description"),
                 GetString(args, "assignedTo"),
-                workspace, verbose: false, ct),
+                workspace,
+                GetString(args, "format"),
+                verbose: false, ct),
 
             "twig_seed_view" => seedTools.SeedView(workspace, verbose: false, ct),
 

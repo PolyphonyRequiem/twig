@@ -21,6 +21,7 @@ public sealed class PatchCommandTests : IDisposable
     private readonly IAdoWorkItemService _adoService;
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IConsoleInput _consoleInput;
+    private readonly IFieldDefinitionStore _fieldDefStore;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly StringWriter _stderr;
     private readonly StringWriter _stdout;
@@ -32,6 +33,9 @@ public sealed class PatchCommandTests : IDisposable
         _adoService = Substitute.For<IAdoWorkItemService>();
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
         _consoleInput = Substitute.For<IConsoleInput>();
+        _fieldDefStore = Substitute.For<IFieldDefinitionStore>();
+        _fieldDefStore.GetByReferenceNameAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns((FieldDefinition?)null);
 
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(),
@@ -52,6 +56,7 @@ public sealed class PatchCommandTests : IDisposable
             _pendingChangeStore,
             _consoleInput,
             _workItemRepo,
+            _fieldDefStore,
             _formatterFactory,
             promptStateWriter: promptStateWriter,
             stdinReader: stdin,
@@ -231,6 +236,100 @@ public sealed class PatchCommandTests : IDisposable
                 c[0].NewValue!.Contains("<h1") &&
                 c[0].NewValue!.Contains("Hello</h1>")),
             Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  No format, field def cache miss — pass through unchanged + warn
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ExecuteAsync_NoFormat_FieldDefMissing_PassesThroughUnchangedWithWarning()
+    {
+        var item = new WorkItemBuilder(42, "Test Item").Build();
+        SetupActiveItem(item);
+        // _fieldDefStore returns null for any field by default — simulates cache miss.
+
+        var result = await CreateCommand().ExecuteAsync(
+            json: """{"System.Description":"# Hello"}""");
+
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(42,
+            Arg.Is<IReadOnlyList<FieldChange>>(c =>
+                c[0].NewValue == "# Hello"),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+        _stderr.ToString().ShouldContain("System.Description");
+        _stderr.ToString().ShouldContain("--format markdown");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  No format, HTML-typed field — auto-converts Markdown→HTML
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ExecuteAsync_NoFormat_HtmlField_AutoConvertsMarkdown()
+    {
+        var item = new WorkItemBuilder(42, "Test Item").Build();
+        SetupActiveItem(item);
+        _fieldDefStore.GetByReferenceNameAsync("System.Description", Arg.Any<CancellationToken>())
+            .Returns(new FieldDefinition("System.Description", "Description", "html", false));
+
+        var result = await CreateCommand().ExecuteAsync(
+            json: """{"System.Description":"# Hello"}""");
+
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(42,
+            Arg.Is<IReadOnlyList<FieldChange>>(c =>
+                c.Count == 1 &&
+                c[0].FieldName == "System.Description" &&
+                c[0].NewValue!.Contains("<h1") &&
+                c[0].NewValue!.Contains("Hello</h1>")),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+        _stderr.ToString().ShouldNotContain("warning");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  --format raw — opts out of auto-conversion for HTML field
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ExecuteAsync_FormatRaw_HtmlField_PassesThroughUnchanged()
+    {
+        var item = new WorkItemBuilder(42, "Test Item").Build();
+        SetupActiveItem(item);
+        _fieldDefStore.GetByReferenceNameAsync("System.Description", Arg.Any<CancellationToken>())
+            .Returns(new FieldDefinition("System.Description", "Description", "html", false));
+
+        var result = await CreateCommand().ExecuteAsync(
+            json: """{"System.Description":"<p>raw html</p>"}""", format: "raw");
+
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(42,
+            Arg.Is<IReadOnlyList<FieldChange>>(c =>
+                c[0].NewValue == "<p>raw html</p>"),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  No format, plain-text field — unaffected even without warning
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ExecuteAsync_NoFormat_PlainTextField_PassesThroughWithoutWarning()
+    {
+        var item = new WorkItemBuilder(42, "Test Item").Build();
+        SetupActiveItem(item);
+        _fieldDefStore.GetByReferenceNameAsync("System.Title", Arg.Any<CancellationToken>())
+            .Returns(new FieldDefinition("System.Title", "Title", "string", false));
+
+        var result = await CreateCommand().ExecuteAsync(
+            json: """{"System.Title":"## not converted"}""");
+
+        result.ShouldBe(0);
+        await _adoService.Received().PatchAsync(42,
+            Arg.Is<IReadOnlyList<FieldChange>>(c =>
+                c[0].NewValue == "## not converted"),
+            Arg.Any<int>(), Arg.Any<CancellationToken>());
+        _stderr.ToString().ShouldNotContain("warning");
     }
 
     // ═══════════════════════════════════════════════════════════════

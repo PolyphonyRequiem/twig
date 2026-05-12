@@ -11,8 +11,10 @@ using Twig.Infrastructure.Serialization;
 namespace Twig.Commands;
 
 /// <summary>
-/// Implements <c>twig patch --json '{...}' [--id N] [--format markdown]</c>:
+/// Implements <c>twig patch --json '{...}' [--id N] [--format markdown|raw]</c>:
 /// atomically patches multiple fields on a single work item via JSON input.
+/// HTML-typed fields default to Markdown→HTML conversion; pass <c>--format raw</c>
+/// to send pre-rendered HTML or to suppress conversion on plain-text fields.
 /// </summary>
 public sealed class PatchCommand(
     ActiveItemResolver activeItemResolver,
@@ -20,6 +22,7 @@ public sealed class PatchCommand(
     IPendingChangeStore pendingChangeStore,
     IConsoleInput consoleInput,
     IWorkItemRepository workItemRepo,
+    IFieldDefinitionStore fieldDefStore,
     OutputFormatterFactory formatterFactory,
     ITelemetryClient? telemetryClient = null,
     IPromptStateWriter? promptStateWriter = null,
@@ -100,9 +103,10 @@ public sealed class PatchCommand(
         }
 
         // Validate --format
-        if (format is not null && !string.Equals(format, "markdown", StringComparison.OrdinalIgnoreCase))
+        var formatError = HtmlFieldFormatter.ValidateFormat(format);
+        if (formatError is not null)
         {
-            _stderr.WriteLine(fmt.FormatError($"Unknown format '{format}'. Supported formats: markdown"));
+            _stderr.WriteLine(fmt.FormatError(formatError));
             return (2, fieldCount);
         }
 
@@ -129,14 +133,22 @@ public sealed class PatchCommand(
 
         fieldCount = fields.Count;
 
-        // Build FieldChange[] with optional markdown conversion
+        // Resolve effective values per-field. Auto mode (format == null) defers to
+        // the field definition store: HTML-typed fields get Markdown→HTML conversion;
+        // plain-text fields are passed through unchanged.
         var changes = new List<FieldChange>(fields.Count);
+        var warnedFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (key, value) in fields)
         {
-            var effectiveValue = format is not null
-                ? MarkdownConverter.ToHtml(value)
-                : value;
-            changes.Add(new FieldChange(key, null, effectiveValue));
+            var fieldResolution = await HtmlFieldFormatter.ResolveAsync(
+                key, value, format, fieldDefStore,
+                onMissingFieldDef: name =>
+                {
+                    if (warnedFields.Add(name))
+                        _stderr.WriteLine($"warning: field type unknown for '{name}'; not converting. Use --format markdown to force conversion.");
+                },
+                ct);
+            changes.Add(new FieldChange(key, null, fieldResolution.EffectiveValue));
         }
 
         // Resolve the target work item

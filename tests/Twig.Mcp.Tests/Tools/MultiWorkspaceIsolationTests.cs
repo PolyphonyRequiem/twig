@@ -100,9 +100,9 @@ public sealed class MultiWorkspaceIsolationTests : ReadToolsTestBase
 
         result.IsError.ShouldBeNull();
 
-        // Workspace A should have staged the pending change
+        // Workspace A should have staged the pending change (text converted Markdown→HTML by default)
         await mocks[WsAlpha].PendingChangeStore.Received(1).AddChangeAsync(
-            42, "note", Arg.Any<string?>(), Arg.Any<string?>(), "Test note for A", Arg.Any<CancellationToken>());
+            42, "note", Arg.Any<string?>(), Arg.Any<string?>(), "<p>Test note for A</p>\n", Arg.Any<CancellationToken>());
 
         // Workspace B should not have any pending change interactions
         await mocks[WsBeta].PendingChangeStore.DidNotReceive().AddChangeAsync(

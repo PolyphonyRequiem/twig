@@ -25,6 +25,7 @@ public class BatchCommandTests
     private readonly IAdoWorkItemService _adoService;
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IProcessConfigurationProvider _processConfigProvider;
+    private readonly IFieldDefinitionStore _fieldDefStore;
     private readonly IConsoleInput _consoleInput;
     private readonly StringWriter _stdout;
     private readonly StringWriter _stderr;
@@ -38,6 +39,9 @@ public class BatchCommandTests
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
         _processConfigProvider = Substitute.For<IProcessConfigurationProvider>();
         _consoleInput = Substitute.For<IConsoleInput>();
+        _fieldDefStore = Substitute.For<IFieldDefinitionStore>();
+        _fieldDefStore.GetByReferenceNameAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns((FieldDefinition?)null);
         _stdout = new StringWriter();
         _stderr = new StringWriter();
 
@@ -58,7 +62,7 @@ public class BatchCommandTests
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         _cmd = new BatchCommand(
             ctx, resolver, _workItemRepo, _adoService,
-            _pendingChangeStore, _processConfigProvider, _consoleInput,
+            _pendingChangeStore, _processConfigProvider, _fieldDefStore, _consoleInput,
             stdout: _stdout);
     }
 
@@ -312,7 +316,7 @@ public class BatchCommandTests
         var result = await _cmd.ExecuteAsync(note: "Test note");
 
         result.ShouldBe(0);
-        await _adoService.Received().AddCommentAsync(1, "Test note", Arg.Any<CancellationToken>());
+        await _adoService.Received().AddCommentAsync(1, "<p>Test note</p>\n", Arg.Any<CancellationToken>());
         // No PATCH should have been called (no state/field changes)
         await _adoService.DidNotReceive().PatchAsync(
             Arg.Any<int>(), Arg.Any<IReadOnlyList<FieldChange>>(),
@@ -363,7 +367,7 @@ public class BatchCommandTests
             Arg.Any<int>(), Arg.Any<CancellationToken>());
 
         // Comment added after PATCH
-        await _adoService.Received().AddCommentAsync(1, "Starting work", Arg.Any<CancellationToken>());
+        await _adoService.Received().AddCommentAsync(1, "<p>Starting work</p>\n", Arg.Any<CancellationToken>());
     }
 
     // ── AutoPush notes ──────────────────────────────────────────────
@@ -717,8 +721,8 @@ public class BatchCommandTests
             ids: "10,20");
 
         result.ShouldBe(0);
-        await _adoService.Received().AddCommentAsync(10, "Batch note", Arg.Any<CancellationToken>());
-        await _adoService.Received().AddCommentAsync(20, "Batch note", Arg.Any<CancellationToken>());
+        await _adoService.Received().AddCommentAsync(10, "<p>Batch note</p>\n", Arg.Any<CancellationToken>());
+        await _adoService.Received().AddCommentAsync(20, "<p>Batch note</p>\n", Arg.Any<CancellationToken>());
     }
 
     [Fact]

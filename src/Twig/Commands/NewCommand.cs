@@ -10,6 +10,7 @@ using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
+using Twig.Infrastructure.Content;
 
 namespace Twig.Commands;
 
@@ -34,6 +35,7 @@ public sealed class NewCommand(
         int? parent = null,
         bool set = false,
         bool editor = false,
+        string? format = null,
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
     {
@@ -42,6 +44,13 @@ public sealed class NewCommand(
         if (!editor && string.IsNullOrWhiteSpace(title))
         {
             Console.Error.WriteLine(fmt.FormatError("Usage: twig new --title \"title\" --type <type>"));
+            return 2;
+        }
+
+        var formatError = HtmlFieldFormatter.ValidateFormat(format);
+        if (formatError is not null)
+        {
+            Console.Error.WriteLine(fmt.FormatError(formatError));
             return 2;
         }
 
@@ -99,7 +108,27 @@ public sealed class NewCommand(
         var seed = seedResult.Value;
 
         if (!string.IsNullOrWhiteSpace(description))
-            seed.SetField("System.Description", description);
+        {
+            // When --editor is set, leave the description raw so the editor buffer
+            // is operator-authored rather than pre-rendered HTML. Explicit
+            // --format markdown still forces conversion before launch.
+            string descriptionToStore;
+            if (editor && format is null)
+            {
+                descriptionToStore = description;
+            }
+            else
+            {
+                var resolved = await HtmlFieldFormatter.ResolveAsync(
+                    "System.Description", description, format, fieldDefStore,
+                    onMissingFieldDef: name =>
+                        Console.Error.WriteLine($"warning: field type unknown for '{name}'; not converting. Use --format markdown to force conversion."),
+                    ct);
+                descriptionToStore = resolved.EffectiveValue;
+            }
+
+            seed.SetField("System.Description", descriptionToStore);
+        }
 
         if (editor)
         {

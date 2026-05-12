@@ -218,6 +218,53 @@ public class NewCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task New_WithDescription_HtmlField_AutoConvertsMarkdown()
+    {
+        ArrangeCreateSuccess();
+        _fieldDefStore.GetByReferenceNameAsync("System.Description", Arg.Any<CancellationToken>())
+            .Returns(new FieldDefinition("System.Description", "Description", "html", false));
+
+        await _cmd.ExecuteAsync("My Epic", "Epic", description: "# Hello");
+
+        await _adoService.Received(1).CreateAsync(
+            Arg.Is<CreateWorkItemRequest>(r =>
+                r.Fields.ContainsKey("System.Description") &&
+                r.Fields["System.Description"]!.Contains("<h1") &&
+                r.Fields["System.Description"]!.Contains("Hello</h1>")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task New_WithDescription_FormatRaw_PassesThroughUnchanged()
+    {
+        ArrangeCreateSuccess();
+        _fieldDefStore.GetByReferenceNameAsync("System.Description", Arg.Any<CancellationToken>())
+            .Returns(new FieldDefinition("System.Description", "Description", "html", false));
+
+        await _cmd.ExecuteAsync("My Epic", "Epic", description: "<p>raw html</p>", format: "raw");
+
+        await _adoService.Received(1).CreateAsync(
+            Arg.Is<CreateWorkItemRequest>(r =>
+                r.Fields["System.Description"] == "<p>raw html</p>"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task New_WithDescription_FormatMarkdown_AlwaysConverts()
+    {
+        ArrangeCreateSuccess();
+        // Even without HTML field def, --format markdown forces conversion.
+
+        await _cmd.ExecuteAsync("My Epic", "Epic", description: "# Hello", format: "markdown");
+
+        await _adoService.Received(1).CreateAsync(
+            Arg.Is<CreateWorkItemRequest>(r =>
+                r.Fields["System.Description"]!.Contains("<h1") &&
+                r.Fields["System.Description"]!.Contains("Hello</h1>")),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task New_MissingTitle_Returns2()
     {
         var errWriter = new StringWriter();

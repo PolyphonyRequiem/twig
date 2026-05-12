@@ -4,6 +4,7 @@ using Shouldly;
 using Twig.Commands;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Navigation;
+using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Infrastructure.Ado.Exceptions;
 using Twig.TestKit;
@@ -18,6 +19,7 @@ public sealed class PatchCommandTelemetryTests : IDisposable
     private readonly IAdoWorkItemService _adoService;
     private readonly IPendingChangeStore _pendingChangeStore;
     private readonly IConsoleInput _consoleInput;
+    private readonly IFieldDefinitionStore _fieldDefStore;
     private readonly OutputFormatterFactory _formatterFactory;
     private readonly ITelemetryClient _telemetryClient;
     private readonly StringWriter _stderr;
@@ -31,6 +33,9 @@ public sealed class PatchCommandTelemetryTests : IDisposable
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
         _consoleInput = Substitute.For<IConsoleInput>();
         _telemetryClient = Substitute.For<ITelemetryClient>();
+        _fieldDefStore = Substitute.For<IFieldDefinitionStore>();
+        _fieldDefStore.GetByReferenceNameAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns((FieldDefinition?)null);
 
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(),
@@ -51,6 +56,7 @@ public sealed class PatchCommandTelemetryTests : IDisposable
             _pendingChangeStore,
             _consoleInput,
             _workItemRepo,
+            _fieldDefStore,
             _formatterFactory,
             telemetryClient: telemetry ?? _telemetryClient,
             stdinReader: stdin,
@@ -211,6 +217,7 @@ public sealed class PatchCommandTelemetryTests : IDisposable
             _pendingChangeStore,
             _consoleInput,
             _workItemRepo,
+            _fieldDefStore,
             _formatterFactory,
             telemetryClient: null,
             stderr: _stderr,

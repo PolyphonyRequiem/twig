@@ -79,7 +79,7 @@ public sealed class MutationToolsNoteTests : MutationToolsTestBase
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
         _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        _adoService.AddCommentAsync(42, "A note", Arg.Any<CancellationToken>())
+        _adoService.AddCommentAsync(42, Arg.Any<string>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("Network error"));
 
         var result = await CreateMutationSut().Note("A note");
@@ -88,9 +88,9 @@ public sealed class MutationToolsNoteTests : MutationToolsTestBase
         var root = ParseResult(result);
         root.GetProperty("isPending").GetBoolean().ShouldBe(true);
 
-        // Should have staged the change locally
+        // Should have staged the change locally (note text is converted Markdown→HTML by default)
         await _pendingChangeStore.Received(1).AddChangeAsync(
-            42, "note", Arg.Any<string?>(), Arg.Any<string?>(), "A note",
+            42, "note", Arg.Any<string?>(), Arg.Any<string?>(), "<p>A note</p>\n",
             Arg.Any<CancellationToken>());
     }
 
@@ -193,5 +193,43 @@ public sealed class MutationToolsNoteTests : MutationToolsTestBase
         var root = ParseResult(result);
         root.GetProperty("id").GetInt32().ShouldBe(42);
         root.GetProperty("title").GetString().ShouldBe("My Task");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Default — comment text auto-converted Markdown→HTML
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Note_DefaultFormat_ConvertsMarkdownToHtml()
+    {
+        var item = new WorkItemBuilder(42, "My Task").AsTask().InState("Doing").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+
+        var result = await CreateMutationSut().Note("# Heading");
+
+        result.IsError.ShouldBeNull();
+        await _adoService.Received(1).AddCommentAsync(42,
+            Arg.Is<string>(s => s.Contains("<h1") && s.Contains("Heading</h1>")),
+            Arg.Any<CancellationToken>());
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  format=raw — comment text passes through unchanged
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task Note_FormatRaw_PassesThroughUnchanged()
+    {
+        var item = new WorkItemBuilder(42, "My Task").AsTask().InState("Doing").Build();
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+
+        var result = await CreateMutationSut().Note("<p>raw html</p>", format: "raw");
+
+        result.IsError.ShouldBeNull();
+        await _adoService.Received(1).AddCommentAsync(42, "<p>raw html</p>", Arg.Any<CancellationToken>());
     }
 }

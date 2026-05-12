@@ -36,6 +36,7 @@ public sealed class BatchCommand(
     IAdoWorkItemService adoService,
     IPendingChangeStore pendingChangeStore,
     IProcessConfigurationProvider processConfigProvider,
+    IFieldDefinitionStore fieldDefStore,
     IConsoleInput consoleInput,
     IPromptStateWriter? promptStateWriter = null,
     TextWriter? stdout = null)
@@ -86,9 +87,10 @@ public sealed class BatchCommand(
         }
 
         // Validate --format
-        if (format is not null && !string.Equals(format, "markdown", StringComparison.OrdinalIgnoreCase))
+        var formatError = HtmlFieldFormatter.ValidateFormat(format);
+        if (formatError is not null)
         {
-            _stderr.WriteLine(fmt.FormatError($"Unknown format '{format}'. Supported formats: markdown"));
+            _stderr.WriteLine(fmt.FormatError(formatError));
             return 2;
         }
 
@@ -97,6 +99,7 @@ public sealed class BatchCommand(
         if (hasFields)
         {
             fieldUpdates = new List<(string, string)>(set!.Length);
+            var warnedFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var pair in set)
             {
                 var eqIndex = pair.IndexOf('=');
@@ -108,11 +111,23 @@ public sealed class BatchCommand(
 
                 var key = pair[..eqIndex];
                 var rawValue = pair[(eqIndex + 1)..];
-                var effectiveValue = format is not null
-                    ? MarkdownConverter.ToHtml(rawValue)
-                    : rawValue;
-                fieldUpdates.Add((key, effectiveValue));
+                var resolved = await HtmlFieldFormatter.ResolveAsync(
+                    key, rawValue, format, fieldDefStore,
+                    onMissingFieldDef: name =>
+                    {
+                        if (warnedFields.Add(name))
+                            _stderr.WriteLine($"warning: field type unknown for '{name}'; not converting. Use --format markdown to force conversion.");
+                    },
+                    ct);
+                fieldUpdates.Add((key, resolved.EffectiveValue));
             }
+        }
+
+        // Convert --note text once (default Markdown→HTML; --format raw opts out)
+        if (!string.IsNullOrWhiteSpace(note))
+        {
+            var noteResolution = HtmlFieldFormatter.ResolveComment(note, format);
+            note = noteResolution.EffectiveValue;
         }
 
         // Parse --ids into list of target IDs

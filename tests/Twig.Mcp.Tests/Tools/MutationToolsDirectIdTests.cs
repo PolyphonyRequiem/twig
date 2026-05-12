@@ -193,8 +193,8 @@ public sealed class MutationToolsDirectIdTests : MutationToolsTestBase
 
         result.IsError.ShouldBeNull();
 
-        // Verify comment was added to the correct item
-        await _adoService.Received(1).AddCommentAsync(33, "A direct note", Arg.Any<CancellationToken>());
+        // Verify comment was added to the correct item (text is converted Markdown→HTML by default)
+        await _adoService.Received(1).AddCommentAsync(33, "<p>A direct note</p>\n", Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -229,7 +229,7 @@ public sealed class MutationToolsDirectIdTests : MutationToolsTestBase
         var result = await CreateMutationSut().Note("ADO fallback note", id: 66);
 
         result.IsError.ShouldBeNull();
-        await _adoService.Received().AddCommentAsync(66, "ADO fallback note", Arg.Any<CancellationToken>());
+        await _adoService.Received().AddCommentAsync(66, "<p>ADO fallback note</p>\n", Arg.Any<CancellationToken>());
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -460,7 +460,7 @@ public sealed class MutationToolsDirectIdTests : MutationToolsTestBase
             Arg.Any<int>(), Arg.Any<CancellationToken>());
 
         // Note targeted item 40
-        await _adoService.Received().AddCommentAsync(40, "Concurrent note", Arg.Any<CancellationToken>());
+        await _adoService.Received().AddCommentAsync(40, "<p>Concurrent note</p>\n", Arg.Any<CancellationToken>());
 
         // Active context unchanged
         await _contextStore.DidNotReceive()

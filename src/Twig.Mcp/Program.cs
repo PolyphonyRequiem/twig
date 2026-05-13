@@ -25,7 +25,8 @@ string? twigRoot = discoveredTwigDir;
 // WorkspaceRegistry scans .twig/{org}/{project}/config on disk (DD-5).
 // WorkspaceContextFactory lazily creates per-workspace service bundles.
 // WorkspaceResolver routes per-tool-call workspace selection.
-var registry = new WorkspaceRegistry(twigRoot ?? Path.Combine(Directory.GetCurrentDirectory(), ".twig"));
+var launchCwd = Directory.GetCurrentDirectory();
+var registry = new WorkspaceRegistry(twigRoot ?? Path.Combine(launchCwd, ".twig"), launchCwd);
 
 // Global singletons shared across all workspaces (auth is per-user, not per-workspace).
 // Determine auth method from workspace configs — if any workspace uses PAT, use PAT;
@@ -37,7 +38,7 @@ var authMethod = registry.Workspaces
     ?? "azcli";
 var authProvider = AuthProviderFactory.Create(authMethod);
 
-var factory = new WorkspaceContextFactory(registry, httpClient, authProvider, twigRoot ?? Path.Combine(Directory.GetCurrentDirectory(), ".twig"));
+var factory = new WorkspaceContextFactory(registry, httpClient, authProvider, twigRoot ?? Path.Combine(launchCwd, ".twig"));
 var resolver = new WorkspaceResolver(registry, factory);
 
 var builder = Host.CreateApplicationBuilder(args);

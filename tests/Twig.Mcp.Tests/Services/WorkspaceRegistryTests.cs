@@ -188,8 +188,53 @@ public sealed class WorkspaceRegistryTests : IDisposable
 
         var registry = new WorkspaceRegistry(_tempDir);
 
-        Should.Throw<KeyNotFoundException>(() =>
+        var ex = Should.Throw<KeyNotFoundException>(() =>
             registry.GetConfig(new WorkspaceKey("unknown", "missing")));
+
+        // Lists discovered workspaces and where they were discovered, so operators can
+        // tell the registry isn't empty — it just doesn't have the requested key.
+        ex.Message.ShouldContain("Available");
+        ex.Message.ShouldContain("org1/proj1");
+        ex.Message.ShouldContain(_tempDir);
+    }
+
+    // ── GetConfig empty-registry diagnostics ─────────────────────────
+
+    [Fact]
+    public void GetConfig_EmptyRegistry_NoTwigDirFound_ExplainsDiscoveryModel()
+    {
+        var nonExistentTwigRoot = Path.Combine(_tempDir, "no-such-twig-dir");
+        var launchCwd = "/some/launch/cwd";
+
+        var registry = new WorkspaceRegistry(nonExistentTwigRoot, launchCwd);
+
+        registry.Workspaces.ShouldBeEmpty();
+
+        var ex = Should.Throw<KeyNotFoundException>(() =>
+            registry.GetConfig(new WorkspaceKey("any-org", "any-proj")));
+
+        // Tells the operator WHY discovery is empty (no .twig/ ancestor) and HOW
+        // discovery works (walks upward from server cwd; siblings/children not scanned).
+        ex.Message.ShouldContain("No twig workspaces were discovered");
+        ex.Message.ShouldContain(launchCwd);
+        ex.Message.ShouldContain("walking upward");
+        ex.Message.ShouldContain("twig init");
+    }
+
+    [Fact]
+    public void GetConfig_EmptyRegistry_TwigDirExistsButEmpty_PointsAtTwigInit()
+    {
+        // _tempDir exists but has no {org}/{project}/config inside.
+        var registry = new WorkspaceRegistry(_tempDir);
+
+        registry.Workspaces.ShouldBeEmpty();
+
+        var ex = Should.Throw<KeyNotFoundException>(() =>
+            registry.GetConfig(new WorkspaceKey("any-org", "any-proj")));
+
+        ex.Message.ShouldContain("contains no valid workspace configs");
+        ex.Message.ShouldContain(_tempDir);
+        ex.Message.ShouldContain("twig init");
     }
 
     // ── Duplicate key (same org/project in config, different directory names) ─

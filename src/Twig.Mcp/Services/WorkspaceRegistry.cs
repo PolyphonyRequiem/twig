@@ -22,6 +22,8 @@ public interface IWorkspaceRegistry
 public sealed class WorkspaceRegistry : IWorkspaceRegistry
 {
     private readonly ReadOnlyDictionary<WorkspaceKey, TwigConfiguration> _workspaces;
+    private readonly string _twigRoot;
+    private readonly string? _launchCwd;
 
     /// <summary>
     /// All discovered workspace keys.
@@ -37,14 +39,39 @@ public sealed class WorkspaceRegistry : IWorkspaceRegistry
     /// Gets the <see cref="TwigConfiguration"/> for a given workspace.
     /// </summary>
     /// <exception cref="KeyNotFoundException">
-    /// Thrown when <paramref name="key"/> is not a registered workspace.
+    /// Thrown when <paramref name="key"/> is not a registered workspace. The message
+    /// distinguishes "no workspaces discovered at all" (likely a launch-cwd problem)
+    /// from "workspace not in the discovered set" so operators can self-diagnose.
     /// </exception>
     public TwigConfiguration GetConfig(WorkspaceKey key)
     {
         if (_workspaces.TryGetValue(key, out var config))
             return config;
 
-        throw new KeyNotFoundException($"Workspace '{key}' is not registered. Available: {string.Join(", ", Workspaces)}");
+        if (Workspaces.Count == 0)
+        {
+            var cwdHint = _launchCwd is null ? "" : $" (server launched from '{_launchCwd}')";
+
+            if (!Directory.Exists(_twigRoot))
+            {
+                throw new KeyNotFoundException(
+                    $"Workspace '{key}' is not registered. No twig workspaces were discovered: " +
+                    $"no '.twig/' directory found above the MCP server's launch directory{cwdHint}. " +
+                    $"The server discovers workspaces at startup by walking upward from its working " +
+                    $"directory; sibling and child directories are not scanned. Restart the server " +
+                    $"from inside a twig project (a directory with a '.twig/' ancestor), or run " +
+                    $"'twig init' in your project root first.");
+            }
+
+            throw new KeyNotFoundException(
+                $"Workspace '{key}' is not registered. Found '.twig/' at '{_twigRoot}' but it " +
+                $"contains no valid workspace configs ('.twig/{{org}}/{{project}}/config'). " +
+                $"Run 'twig init' to register a workspace.");
+        }
+
+        throw new KeyNotFoundException(
+            $"Workspace '{key}' is not registered. Available (discovered under '{_twigRoot}'): " +
+            $"{string.Join(", ", Workspaces)}.");
     }
 
     /// <summary>
@@ -53,8 +80,14 @@ public sealed class WorkspaceRegistry : IWorkspaceRegistry
     /// <param name="twigRoot">
     /// The <c>.twig/</c> directory to scan (e.g., <c>/repo/.twig</c>).
     /// </param>
-    public WorkspaceRegistry(string twigRoot)
+    /// <param name="launchCwd">
+    /// Optional context: the directory the MCP server was launched from, used to produce a
+    /// self-diagnosing error when no <c>.twig/</c> directory was discovered.
+    /// </param>
+    public WorkspaceRegistry(string twigRoot, string? launchCwd = null)
     {
+        _twigRoot = twigRoot;
+        _launchCwd = launchCwd;
         var discovered = new Dictionary<WorkspaceKey, TwigConfiguration>();
 
         if (Directory.Exists(twigRoot))

@@ -15,4 +15,23 @@
     <PackageReference Include="MinVer" PrivateAssets="All" />
   </ItemGroup>
 
+  <!-- Shared NuGet package metadata. Per-project csprojs add PackageId,
+       Description, and PackageTags. Non-packable projects (IsPackable=false)
+       ignore these. -->
+  <PropertyGroup>
+    <Authors>Daniel Green</Authors>
+    <Company>PolyphonyRequiem</Company>
+    <Copyright>Copyright (c) Daniel Green</Copyright>
+    <PackageProjectUrl>https://github.com/PolyphonyRequiem/twig</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/PolyphonyRequiem/twig</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
 </Project>

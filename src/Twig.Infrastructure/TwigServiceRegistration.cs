@@ -7,6 +7,7 @@ using Twig.Domain.Services.Seed;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Workspace;
 using Twig.Infrastructure.Config;
+using Twig.Infrastructure.DependencyInjection;
 using Twig.Infrastructure.Persistence;
 using Twig.Infrastructure.Services.Mutation;
 using Twig.Infrastructure.Telemetry;
@@ -133,6 +134,49 @@ public static class TwigServiceRegistration
             sp.GetRequiredService<TwigPaths>(),
             sp.GetRequiredService<IProcessTypeStore>()));
 
+        return services;
+    }
+
+    /// <summary>
+    /// Registers the full Twig infrastructure stack — both core services
+    /// (config, paths, SQLite persistence, repositories, process configuration,
+    /// telemetry, prompt state) and network services (auth, HTTP, ADO REST
+    /// clients, iteration service) — into the supplied
+    /// <see cref="IServiceCollection"/>.
+    /// </summary>
+    /// <remarks>
+    /// This is the supported public composition root for external consumers.
+    /// In-repo entry points (CLI, MCP, TUI) call
+    /// <see cref="AddTwigCoreServices"/> and
+    /// <see cref="NetworkServiceModule.AddTwigNetworkServices"/> separately
+    /// because they perform git auto-detection between the two phases; that
+    /// split is an in-repo concern and is not the recommended external API.
+    /// </remarks>
+    /// <param name="services">The service collection.</param>
+    /// <param name="config">Pre-loaded configuration. Used for org/project/team
+    /// (network registrations) and passed through as the registered singleton
+    /// (core registrations).</param>
+    /// <param name="twigDir">Optional explicit path to the <c>.twig</c>
+    /// directory. When null, falls back to
+    /// <c>Path.Combine(Directory.GetCurrentDirectory(), ".twig")</c>.</param>
+    /// <param name="startDir">Optional CWD override stored on
+    /// <see cref="TwigPaths.StartDir"/>.</param>
+    /// <param name="resolvedGitProject">Git project resolved after
+    /// auto-detection (may differ from <c>config.Project</c>). When null or
+    /// whitespace, no <c>IAdoGitService</c> is registered.</param>
+    /// <param name="resolvedRepository">Git repository resolved after
+    /// auto-detection. Optional — when null, repository-by-id lookups return
+    /// null but repository-by-name lookups still work.</param>
+    public static IServiceCollection AddTwigInfrastructure(
+        this IServiceCollection services,
+        TwigConfiguration config,
+        string? twigDir = null,
+        string? startDir = null,
+        string? resolvedGitProject = null,
+        string? resolvedRepository = null)
+    {
+        services.AddTwigCoreServices(config, twigDir, startDir);
+        services.AddTwigNetworkServices(config, resolvedGitProject, resolvedRepository);
         return services;
     }
 }

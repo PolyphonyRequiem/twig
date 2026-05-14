@@ -178,9 +178,23 @@ graph TD
 
 ### Shared libraries
 
-`Twig.Domain` and `Twig.Infrastructure` are `IsPackable=false` class
-libraries. Both use `InternalsVisibleTo` extensively to expose internal
-types to test projects and consuming executables.
+`Twig.Domain` and `Twig.Infrastructure` are published to nuget.org as
+`PolyphonyRequiem.Twig.Domain` and `PolyphonyRequiem.Twig.Infrastructure`.
+The packaged versions follow the CLI tag (MinVer derives the version
+from the `v*` git tag). The release workflow's `nuget` job runs on every
+`v*` tag push, after `verify-ci` succeeds, in parallel with the binary
+release job.
+
+External consumers wire everything up via
+`TwigServiceRegistration.AddTwigInfrastructure(IServiceCollection,
+TwigConfiguration, ...)` — the supported public composition root.
+
+Both projects keep `InternalsVisibleTo` grants for the in-repo CLI / MCP
+/ TUI assemblies and the test projects, so the in-repo apps continue to
+reach implementation details directly while the published packages
+expose only the deliberately-public surface (locked in by
+`Microsoft.CodeAnalysis.PublicApiAnalyzers` baselines in
+`PublicAPI.Shipped.txt`).
 
 ---
 

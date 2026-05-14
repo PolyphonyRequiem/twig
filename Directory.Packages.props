@@ -5,6 +5,9 @@
   <ItemGroup>
     <!-- Versioning -->
     <PackageVersion Include="MinVer" Version="7.0.0" />
+    <!-- Packaging -->
+    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="8.0.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" Version="3.11.0-beta1.26057.1" />
     <!-- CLI Framework -->
     <PackageVersion Include="ConsoleAppFramework" Version="5.7.13" />
     <!-- MCP -->

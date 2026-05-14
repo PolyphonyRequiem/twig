@@ -168,3 +168,47 @@ jobs:
             ./artifacts/twig-linux-x64.tar.gz
             ./artifacts/twig-osx-x64.tar.gz
             ./artifacts/twig-osx-arm64.tar.gz
+
+  nuget:
+    name: Publish NuGet packages
+    needs: verify-ci
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          filter: tree:0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Pack libraries
+        run: |
+          set -euo pipefail
+          dotnet pack src/Twig.Domain/Twig.Domain.csproj         -c Release -o ./nupkgs
+          dotnet pack src/Twig.Infrastructure/Twig.Infrastructure.csproj -c Release -o ./nupkgs
+          ls -la ./nupkgs
+
+      - name: Push to nuget.org
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${NUGET_API_KEY:-}" ]; then
+            echo "::error::NUGET_API_KEY secret is not set. Provision an API key on nuget.org and add it to the repo's Actions secrets."
+            exit 1
+          fi
+          # --skip-duplicate makes re-runs safe (same version already pushed → no error).
+          # *.nupkg matches both .nupkg and .snupkg, which the push command auto-pairs.
+          dotnet nuget push "./nupkgs/*.nupkg" \
+            --source https://api.nuget.org/v3/index.json \
+            --api-key "$NUGET_API_KEY" \
+            --skip-duplicate
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nupkgs
+          path: ./nupkgs/
+

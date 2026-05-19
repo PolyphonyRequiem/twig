@@ -1,1 +1,4 @@
 #nullable enable
+*REMOVED*Twig.Infrastructure.Config.AreasConfig.Mode.get -> string!
+Twig.Infrastructure.Config.AreasConfig.EffectiveMode.get -> string!
+Twig.Infrastructure.Config.AreasConfig.Mode.get -> string?

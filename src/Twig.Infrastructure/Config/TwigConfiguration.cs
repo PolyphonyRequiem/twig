@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Serialization;
 
@@ -111,6 +112,19 @@ public sealed class TwigConfiguration
 
     /// <summary>
     /// Saves configuration to a JSON file.
+    /// <para>
+    /// Short-circuits to a no-op when the serialized bytes are byte-identical to the
+    /// existing file. This keeps <c>.twig/config</c> stable across read-style paths that
+    /// nevertheless flow through a save (notably <c>twig sync</c>'s refresh, which
+    /// re-fetches <see cref="TypeAppearances"/> and rewrites them even when nothing
+    /// substantive changed). Without this guard, repeated syncs leave a committed file
+    /// dirty and break any tooling that asserts a clean working tree (ADO #3237).
+    /// </para>
+    /// <para>
+    /// Identity is canonical-byte identity: a file with hand-formatting, BOM, CRLF, or
+    /// stale property ordering will still be rewritten once into the source-gen
+    /// canonical UTF-8/no-BOM/compact form, and stabilize after that single write.
+    /// </para>
     /// </summary>
     public async Task SaveAsync(string path, CancellationToken ct = default)
     {
@@ -120,8 +134,25 @@ public sealed class TwigConfiguration
             Directory.CreateDirectory(directory);
         }
 
-        await using var stream = File.Create(path);
-        await JsonSerializer.SerializeAsync(stream, this, TwigJsonContext.Default.TwigConfiguration, ct);
+        using var buffer = new MemoryStream();
+        await JsonSerializer.SerializeAsync(buffer, this, TwigJsonContext.Default.TwigConfiguration, ct);
+        var newBytes = buffer.GetBuffer().AsMemory(0, (int)buffer.Length);
+
+        if (File.Exists(path))
+        {
+            try
+            {
+                var existing = await File.ReadAllBytesAsync(path, ct);
+                if (existing.AsSpan().SequenceEqual(newBytes.Span))
+                    return;
+            }
+            catch (IOException)
+            {
+                // Existing file unreadable — fall through and overwrite.
+            }
+        }
+
+        await File.WriteAllBytesAsync(path, newBytes.ToArray(), ct);
     }
 
     /// <summary>
@@ -206,7 +237,7 @@ public sealed class TwigConfiguration
             case "tracking.cleanuppolicy":
                 return (Tracking.CleanupPolicy, true);
             case "areas.mode":
-                return (Areas.Mode, true);
+                return (Areas.EffectiveMode, true);
             default:
                 return (null, false);
         }
@@ -450,6 +481,13 @@ public sealed class AreaPathEntry
 {
     public string Path { get; set; } = string.Empty;
     public bool IncludeChildren { get; set; } = true;
+
+    /// <summary>
+    /// Human-readable label derived from <see cref="IncludeChildren"/>. Computed only;
+    /// never serialized (no setter, so a deserialized round-trip would lose it anyway —
+    /// emitting it just creates pointless on-disk churn). See ADO #3237.
+    /// </summary>
+    [JsonIgnore]
     public string SemanticsLabel => IncludeChildren ? "under" : "exact";
 }
 
@@ -544,8 +582,20 @@ public sealed class AreasConfig
 {
     /// <summary>
     /// Default match mode for area entries: "under" (include children) or "exact".
+    /// <para>
+    /// <c>null</c> represents "no explicit configuration" and is omitted from serialized
+    /// output (per the <see cref="JsonIgnoreCondition.WhenWritingNull"/> default on
+    /// <see cref="TwigJsonContext"/>). Use <see cref="EffectiveMode"/> when consuming
+    /// the value — it returns <c>"under"</c> as the implicit default. See ADO #3237.
+    /// </para>
     /// </summary>
-    public string Mode { get; set; } = "under";
+    public string? Mode { get; set; }
+
+    /// <summary>
+    /// The configured mode, or <c>"under"</c> when none is explicitly set.
+    /// </summary>
+    [JsonIgnore]
+    public string EffectiveMode => Mode ?? "under";
 }
 
 /// <summary>

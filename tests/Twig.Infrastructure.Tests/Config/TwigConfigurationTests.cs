@@ -1211,7 +1211,8 @@ public class TwigConfigurationTests : IDisposable
     {
         var config = new TwigConfiguration();
         config.SetValue("areas.mode", "wildcard").ShouldBeFalse();
-        config.Areas.Mode.ShouldBe("under"); // unchanged default
+        config.Areas.Mode.ShouldBeNull(); // unchanged default (null = implicit "under")
+        config.Areas.EffectiveMode.ShouldBe("under");
     }
 
     [Fact]
@@ -1230,7 +1231,12 @@ public class TwigConfigurationTests : IDisposable
 
         var config = await TwigConfiguration.LoadAsync(configPath);
 
-        config.Areas.Mode.ShouldBe("under");
+        // Raw Mode is null (= implicit), but EffectiveMode and GetValue both surface "under".
+        // This preserves the user-visible contract while allowing the unset field to
+        // round-trip without churn (ADO #3237).
+        config.Areas.Mode.ShouldBeNull();
+        config.Areas.EffectiveMode.ShouldBe("under");
+        config.GetValue("areas.mode").Value.ShouldBe("under");
     }
 
     [Fact]
@@ -1390,5 +1396,133 @@ public class TwigConfigurationTests : IDisposable
         var (value, found) = config.GetValue("display.fillratethreshold");
         found.ShouldBeTrue();
         value.ShouldBe("0.75");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Idempotency tests (ADO #3237 — sync rewrites .twig/config)
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public async Task SaveAsync_DoesNotEmit_SemanticsLabel()
+    {
+        var configPath = Path.Combine(_tempDir, "semantics_label.json");
+        var config = new TwigConfiguration
+        {
+            Defaults = new DefaultsConfig
+            {
+                AreaPathEntries =
+                [
+                    new AreaPathEntry { Path = @"OS\CloudVault", IncludeChildren = true },
+                    new AreaPathEntry { Path = @"OS\CloudVault\Exact", IncludeChildren = false },
+                ],
+            },
+        };
+
+        await config.SaveAsync(configPath);
+
+        var json = await File.ReadAllTextAsync(configPath);
+        json.ShouldNotContain("semanticsLabel");
+        json.ShouldNotContain("SemanticsLabel");
+    }
+
+    [Fact]
+    public async Task SaveAsync_OmitsAreasMode_WhenUnset()
+    {
+        var configPath = Path.Combine(_tempDir, "areas_mode_unset.json");
+        var config = new TwigConfiguration { Organization = "org", Project = "proj" };
+
+        await config.SaveAsync(configPath);
+
+        var json = await File.ReadAllTextAsync(configPath);
+        // Implicit "under" mode is null on the POCO and therefore omitted by the
+        // default WhenWritingNull serializer behaviour. The "areas" object collapses
+        // to an empty object that contains no keys.
+        json.ShouldNotContain("\"mode\":\"under\"");
+    }
+
+    [Fact]
+    public async Task SaveAsync_EmitsAreasMode_WhenExplicit()
+    {
+        var configPath = Path.Combine(_tempDir, "areas_mode_explicit.json");
+        var config = new TwigConfiguration
+        {
+            Organization = "org",
+            Project = "proj",
+            Areas = new AreasConfig { Mode = "exact" },
+        };
+
+        await config.SaveAsync(configPath);
+
+        var json = await File.ReadAllTextAsync(configPath);
+        json.ShouldContain("\"mode\":\"exact\"");
+    }
+
+    [Fact]
+    public async Task SaveAsync_IsNoOp_WhenContentUnchanged()
+    {
+        // The keystone fix for ADO #3237: a Save with identical bytes must not touch
+        // the file. We pin the mtime to a sentinel and assert it survives a second
+        // SaveAsync call, which is only true if the write was short-circuited.
+        var configPath = Path.Combine(_tempDir, "noop_save.json");
+        var config = new TwigConfiguration { Organization = "org", Project = "proj" };
+
+        await config.SaveAsync(configPath);
+
+        var sentinel = new DateTime(2001, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(configPath, sentinel);
+
+        await config.SaveAsync(configPath);
+
+        File.GetLastWriteTimeUtc(configPath).ShouldBe(sentinel);
+    }
+
+    [Fact]
+    public async Task SaveAsync_StillWrites_WhenContentChanged()
+    {
+        var configPath = Path.Combine(_tempDir, "save_when_changed.json");
+        var config = new TwigConfiguration { Organization = "org", Project = "proj" };
+
+        await config.SaveAsync(configPath);
+        var firstBytes = await File.ReadAllBytesAsync(configPath);
+
+        config.Project = "different";
+        await config.SaveAsync(configPath);
+        var secondBytes = await File.ReadAllBytesAsync(configPath);
+
+        secondBytes.ShouldNotBe(firstBytes);
+    }
+
+    [Fact]
+    public async Task LoadSave_RoundTrip_IsIdempotent()
+    {
+        // Canonical-byte round-trip: a freshly-saved config, re-loaded and re-saved,
+        // must produce byte-identical output. This is the deeper invariant behind the
+        // mtime no-op test: even if SaveAsync didn't short-circuit, the bytes would
+        // match anyway because SemanticsLabel no longer churns and Areas.Mode no
+        // longer emits a default.
+        var configPath = Path.Combine(_tempDir, "roundtrip_idempotent.json");
+        var original = new TwigConfiguration
+        {
+            Organization = "org",
+            Project = "proj",
+            Defaults = new DefaultsConfig
+            {
+                AreaPathEntries =
+                [
+                    new AreaPathEntry { Path = @"OS\Foo", IncludeChildren = true },
+                    new AreaPathEntry { Path = @"OS\Bar", IncludeChildren = false },
+                ],
+            },
+        };
+
+        await original.SaveAsync(configPath);
+        var firstBytes = await File.ReadAllBytesAsync(configPath);
+
+        var reloaded = await TwigConfiguration.LoadAsync(configPath);
+        var secondPath = Path.Combine(_tempDir, "roundtrip_idempotent_second.json");
+        await reloaded.SaveAsync(secondPath);
+        var secondBytes = await File.ReadAllBytesAsync(secondPath);
+
+        secondBytes.ShouldBe(firstBytes);
     }
 }

@@ -84,7 +84,7 @@ public sealed class ConfigCommand(
             "defaults.areapathentries" or "areas.paths" => config.Defaults.AreaPathEntries is { Count: > 0 } entries
                 ? string.Join(";", entries.Select(e => e.IncludeChildren ? e.Path : $"{e.Path}:exact"))
                 : null,
-            "areas.mode" => config.Areas.Mode,
+            "areas.mode" => config.Areas.EffectiveMode,
             "workspace.worklevel" or "workspace.working_level" => config.Workspace.WorkingLevel,
             _ => null,
         };

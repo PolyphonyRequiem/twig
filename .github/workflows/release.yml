@@ -112,10 +112,23 @@ jobs:
         if: matrix.archive == 'tar.gz'
         run: tar -czf ./twig-${{ matrix.rid }}.tar.gz -C ./publish/${{ matrix.rid }} .
 
+      - name: Compute SHA256 checksum
+        shell: pwsh
+        run: |
+          $file = "twig-${{ matrix.rid }}.${{ matrix.archive }}"
+          $hash = (Get-FileHash -Algorithm SHA256 $file).Hash.ToLower()
+          # Standard sha256sum-compatible format: "<hash>  <filename>\n"
+          # so `sha256sum -c <file>.sha256` (Linux) or `shasum -a 256 -c` (macOS) verifies directly.
+          "$hash  $file" | Out-File -Encoding ascii -FilePath "$file.sha256"
+          Write-Host "Wrote $file.sha256:"
+          Get-Content "$file.sha256"
+
       - uses: actions/upload-artifact@v4
         with:
           name: twig-${{ matrix.rid }}
-          path: ./twig-${{ matrix.rid }}.${{ matrix.archive }}
+          path: |
+            ./twig-${{ matrix.rid }}.${{ matrix.archive }}
+            ./twig-${{ matrix.rid }}.${{ matrix.archive }}.sha256
 
   release:
     needs: build
@@ -131,6 +144,19 @@ jobs:
         with:
           path: ./artifacts
           merge-multiple: true
+
+      - name: Aggregate SHA256SUMS manifest
+        run: |
+          set -euo pipefail
+          cd ./artifacts
+          # Order deterministically so the manifest is reproducible across builds.
+          # Each per-asset .sha256 is already in `<hash>  <filename>` format, so a
+          # plain concat yields a valid sha256sum-compatible manifest:
+          # `sha256sum -c SHA256SUMS` will verify every listed asset.
+          ls -1 *.sha256 | sort | xargs cat > SHA256SUMS
+          echo "::group::SHA256SUMS contents"
+          cat SHA256SUMS
+          echo "::endgroup::"
 
       - name: Generate changelog
         run: |
@@ -165,9 +191,14 @@ jobs:
           body_path: release_notes.md
           files: |
             ./artifacts/twig-win-x64.zip
+            ./artifacts/twig-win-x64.zip.sha256
             ./artifacts/twig-linux-x64.tar.gz
+            ./artifacts/twig-linux-x64.tar.gz.sha256
             ./artifacts/twig-osx-x64.tar.gz
+            ./artifacts/twig-osx-x64.tar.gz.sha256
             ./artifacts/twig-osx-arm64.tar.gz
+            ./artifacts/twig-osx-arm64.tar.gz.sha256
+            ./artifacts/SHA256SUMS
 
   nuget:
     name: Publish NuGet packages

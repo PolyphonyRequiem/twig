@@ -243,6 +243,38 @@ twig upgrade
 
 Installs to `~/.twig/bin/` and adds it to your PATH. The installer is idempotent — safe to run again to reinstall or repair.
 
+### Verifying downloads
+
+Every release publishes a SHA256 hash next to each archive plus an aggregate `SHA256SUMS` manifest. If you download manually (rather than via `install.ps1` / `install.sh`), you can verify the archive against its hash before extracting:
+
+**Linux:**
+
+```bash
+curl -fsSLO https://github.com/PolyphonyRequiem/twig/releases/latest/download/twig-linux-x64.tar.gz
+curl -fsSLO https://github.com/PolyphonyRequiem/twig/releases/latest/download/twig-linux-x64.tar.gz.sha256
+sha256sum -c twig-linux-x64.tar.gz.sha256
+```
+
+**macOS:**
+
+```bash
+curl -fsSLO https://github.com/PolyphonyRequiem/twig/releases/latest/download/twig-osx-arm64.tar.gz
+curl -fsSLO https://github.com/PolyphonyRequiem/twig/releases/latest/download/twig-osx-arm64.tar.gz.sha256
+shasum -a 256 -c twig-osx-arm64.tar.gz.sha256
+```
+
+**Windows (PowerShell):**
+
+```powershell
+Invoke-WebRequest https://github.com/PolyphonyRequiem/twig/releases/latest/download/twig-win-x64.zip -OutFile twig-win-x64.zip
+Invoke-WebRequest https://github.com/PolyphonyRequiem/twig/releases/latest/download/twig-win-x64.zip.sha256 -OutFile twig-win-x64.zip.sha256
+$expected = (Get-Content twig-win-x64.zip.sha256).Split(' ')[0]
+$actual = (Get-FileHash -Algorithm SHA256 twig-win-x64.zip).Hash.ToLower()
+if ($expected -ne $actual) { throw "Hash mismatch" } else { "OK: $actual" }
+```
+
+The aggregate `SHA256SUMS` file on each release lists every asset's hash; `sha256sum -c SHA256SUMS` (or `shasum -a 256 -c SHA256SUMS`) verifies all of them in one shot once the matching archives are present in the working directory.
+
 ## Prerequisites
 
 - [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) (for authentication)

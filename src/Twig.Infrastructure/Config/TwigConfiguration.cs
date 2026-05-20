@@ -184,6 +184,10 @@ public sealed class TwigConfiguration
                 return (Defaults.IterationPath ?? "", true);
             case "defaults.mode":
                 return (Defaults.Mode, true);
+            case "defaults.inheritparentarea":
+                return (Defaults.InheritParentArea.ToString().ToLowerInvariant(), true);
+            case "defaults.inheritparentiteration":
+                return (Defaults.InheritParentIteration.ToString().ToLowerInvariant(), true);
             case "defaults.areapathentries":
             case "areas.paths":
                 return (Defaults.AreaPathEntries is { Count: > 0 }
@@ -396,6 +400,20 @@ public sealed class TwigConfiguration
                     return false;
                 Defaults.Mode = modeLower;
                 return true;
+            case "defaults.inheritparentarea":
+                if (bool.TryParse(value, out var inheritArea))
+                {
+                    Defaults.InheritParentArea = inheritArea;
+                    return true;
+                }
+                return false;
+            case "defaults.inheritparentiteration":
+                if (bool.TryParse(value, out var inheritIteration))
+                {
+                    Defaults.InheritParentIteration = inheritIteration;
+                    return true;
+                }
+                return false;
             case "defaults.areapathentries":
             case "areas.paths":
                 var entries = new List<AreaPathEntry>();
@@ -453,6 +471,24 @@ public sealed class DefaultsConfig
     /// Defaults to "sprint".
     /// </summary>
     public string Mode { get; set; } = "sprint";
+
+    /// <summary>
+    /// When <c>true</c> (the default), <c>twig new --parent &lt;id&gt;</c> fetches the parent
+    /// work item and uses its <c>System.AreaPath</c> as the default for the new child,
+    /// taking priority over <see cref="AreaPath"/>. Set to <c>false</c> to restore the
+    /// pre-AB#3242 behavior where <c>--area</c> falls straight through to <see cref="AreaPath"/>.
+    /// Has no effect when <c>--parent</c> is not given or <c>--area</c> is explicit.
+    /// </summary>
+    public bool InheritParentArea { get; set; } = true;
+
+    /// <summary>
+    /// When <c>true</c> (the default), <c>twig new --parent &lt;id&gt;</c> fetches the parent
+    /// work item and uses its <c>System.IterationPath</c> as the default for the new child,
+    /// taking priority over <see cref="IterationPath"/>. Set to <c>false</c> to restore the
+    /// pre-AB#3242 behavior. Has no effect when <c>--parent</c> is not given or
+    /// <c>--iteration</c> is explicit.
+    /// </summary>
+    public bool InheritParentIteration { get; set; } = true;
 
     /// <summary>
     /// Resolves the configured area paths using a 3-tier fallback:

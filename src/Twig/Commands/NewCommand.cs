@@ -75,14 +75,32 @@ public sealed class NewCommand(
             return 1;
         }
 
-        var areaResult = ResolveAreaPath(area);
+        // Per AB#3242: when --parent is given, fetch the parent once and inherit its
+        // System.AreaPath / System.IterationPath as defaults for the new child, ahead of
+        // config.Defaults. ADO does not auto-inherit these on create, and the project-root
+        // fallback usually trips TF237111 ("no permission to save under specified area path")
+        // for any caller without write access to the project root.
+        // Skip the fetch entirely when both slots are explicit or both opt-outs are set —
+        // no need to pay the round-trip or risk a spurious warning we can't use.
+        var needsParentArea = parent.HasValue && area is null && config.Defaults.InheritParentArea;
+        var needsParentIteration = parent.HasValue && iteration is null && config.Defaults.InheritParentIteration;
+
+        WorkItem? parentItem = null;
+        if (needsParentArea || needsParentIteration)
+            parentItem = await TryFetchParentForInheritanceAsync(parent!.Value, ct);
+
+        var areaResult = ResolveAreaPath(
+            area,
+            needsParentArea ? parentItem?.AreaPath.ToString() : null);
         if (!areaResult.IsSuccess)
         {
             Console.Error.WriteLine(fmt.FormatError(areaResult.Error));
             return 1;
         }
 
-        var iterResult = ResolveIterationPath(iteration);
+        var iterResult = ResolveIterationPath(
+            iteration,
+            needsParentIteration ? parentItem?.IterationPath.ToString() : null);
         if (!iterResult.IsSuccess)
         {
             Console.Error.WriteLine(fmt.FormatError(iterResult.Error));
@@ -197,22 +215,71 @@ public sealed class NewCommand(
         return 0;
     }
 
-    private string? ResolveRaw(string? flag, string? configDefault)
-        => flag ?? configDefault ?? (string.IsNullOrWhiteSpace(config.Project) ? null : config.Project);
-
-    private Result<AreaPath> ResolveAreaPath(string? flag)
+    private string? ResolveRaw(string? flag, string? configDefault, string? inheritedFromParent = null)
     {
-        var raw = ResolveRaw(flag, config.Defaults.AreaPath);
+        // Priority: explicit flag > parent inheritance > config default > project root.
+        // The inheritance slot uses a whitespace check because a parent value object can
+        // surface as empty string; flag and configDefault retain their original null-only
+        // semantics so an explicit `--area ""` continues to be a parse failure, not a
+        // silent fall-through.
+        if (flag is not null) return flag;
+        if (!string.IsNullOrWhiteSpace(inheritedFromParent)) return inheritedFromParent;
+        if (configDefault is not null) return configDefault;
+        return string.IsNullOrWhiteSpace(config.Project) ? null : config.Project;
+    }
+
+    private Result<AreaPath> ResolveAreaPath(string? flag, string? inheritedFromParent = null)
+    {
+        var raw = ResolveRaw(flag, config.Defaults.AreaPath, inheritedFromParent);
         return raw is null
             ? Result.Fail<AreaPath>("No area path: use --area, set defaults.areaPath in config, or ensure project is configured.")
             : AreaPath.Parse(raw);
     }
 
-    private Result<IterationPath> ResolveIterationPath(string? flag)
+    private Result<IterationPath> ResolveIterationPath(string? flag, string? inheritedFromParent = null)
     {
-        var raw = ResolveRaw(flag, config.Defaults.IterationPath);
+        var raw = ResolveRaw(flag, config.Defaults.IterationPath, inheritedFromParent);
         return raw is null
             ? Result.Fail<IterationPath>("No iteration path: use --iteration, set defaults.iterationPath in config, or ensure project is configured.")
             : IterationPath.Parse(raw);
+    }
+
+    /// <summary>
+    /// Fetches the parent work item so its <c>System.AreaPath</c> / <c>System.IterationPath</c>
+    /// can be used as defaults for a new child. Tries the local cache first (covers any item
+    /// the user has touched recently and is the only source for unpublished seeds); falls
+    /// through to ADO on cache miss. On any failure, emits a single structured warning to
+    /// stderr and returns <c>null</c> so the caller falls back to the configured default —
+    /// a flaky parent fetch must not block a create that would have succeeded under the
+    /// pre-AB#3242 code path.
+    /// </summary>
+    private async Task<WorkItem?> TryFetchParentForInheritanceAsync(int parentId, CancellationToken ct)
+    {
+        string? cacheError = null;
+        try
+        {
+            var cached = await workItemRepo.GetByIdAsync(parentId, ct);
+            if (cached is not null) return cached;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Cache lookup failure is unusual (SQLite I/O). Defer warning until we know
+            // ADO also failed — if ADO succeeds we recovered transparently.
+            cacheError = ex.Message;
+        }
+
+        try
+        {
+            return await adoService.FetchAsync(parentId, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            var detail = cacheError is null
+                ? ex.Message
+                : $"cache: {cacheError}; ado: {ex.Message}";
+            Console.Error.WriteLine(
+                $"warning: could not fetch parent {parentId} to inherit area/iteration: {detail}; falling back to configured defaults");
+            return null;
+        }
     }
 }

@@ -1279,6 +1279,8 @@ public class TwigConfigurationTests : IDisposable
     [InlineData("defaults.areapaths")]
     [InlineData("defaults.iterationpath")]
     [InlineData("defaults.mode")]
+    [InlineData("defaults.inheritparentarea")]
+    [InlineData("defaults.inheritparentiteration")]
     [InlineData("seed.staledays")]
     [InlineData("display.hints")]
     [InlineData("display.treedepth")]
@@ -1524,5 +1526,117 @@ public class TwigConfigurationTests : IDisposable
         var secondBytes = await File.ReadAllBytesAsync(secondPath);
 
         secondBytes.ShouldBe(firstBytes);
+    }
+
+    // ── AB#3242: defaults.inheritParentArea / inheritParentIteration ─────────
+
+    [Fact]
+    public void DefaultsConfig_InheritParentArea_DefaultsToTrue()
+    {
+        var config = new TwigConfiguration();
+        config.Defaults.InheritParentArea.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void DefaultsConfig_InheritParentIteration_DefaultsToTrue()
+    {
+        var config = new TwigConfiguration();
+        config.Defaults.InheritParentIteration.ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData("defaults.inheritParentArea")]
+    [InlineData("defaults.inheritparentarea")]
+    [InlineData("DEFAULTS.INHERITPARENTAREA")]
+    public void GetValue_DefaultsInheritParentArea_IsCaseInsensitive(string path)
+    {
+        var config = new TwigConfiguration();
+        config.Defaults.InheritParentArea = false;
+        var (value, found) = config.GetValue(path);
+        found.ShouldBeTrue();
+        value.ShouldBe("false");
+    }
+
+    [Fact]
+    public void GetValue_DefaultsInheritParentArea_TrueReturnsLowercase()
+    {
+        var config = new TwigConfiguration();
+        config.Defaults.InheritParentArea = true;
+        var (value, found) = config.GetValue("defaults.inheritParentArea");
+        found.ShouldBeTrue();
+        value.ShouldBe("true");
+    }
+
+    [Fact]
+    public void GetValue_DefaultsInheritParentIteration_TrueReturnsLowercase()
+    {
+        var config = new TwigConfiguration();
+        config.Defaults.InheritParentIteration = true;
+        var (value, found) = config.GetValue("defaults.inheritParentIteration");
+        found.ShouldBeTrue();
+        value.ShouldBe("true");
+    }
+
+    [Theory]
+    [InlineData("false", false)]
+    [InlineData("true", true)]
+    [InlineData("False", false)]
+    [InlineData("TRUE", true)]
+    public void SetValue_DefaultsInheritParentArea_ValidBool_ReturnsTrue(string input, bool expected)
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("defaults.inheritParentArea", input).ShouldBeTrue();
+        config.Defaults.InheritParentArea.ShouldBe(expected);
+    }
+
+    [Fact]
+    public void SetValue_DefaultsInheritParentArea_InvalidBool_ReturnsFalse()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("defaults.inheritParentArea", "yes").ShouldBeFalse();
+        // Property unchanged from default.
+        config.Defaults.InheritParentArea.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void SetValue_DefaultsInheritParentIteration_ValidBool_ReturnsTrue()
+    {
+        var config = new TwigConfiguration();
+        config.SetValue("defaults.inheritParentIteration", "false").ShouldBeTrue();
+        config.Defaults.InheritParentIteration.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task DefaultsConfig_InheritFlags_SerializationRoundTrip()
+    {
+        var configPath = Path.Combine(_tempDir, "config_inherit_flags.json");
+        var original = new TwigConfiguration
+        {
+            Organization = "org",
+            Project = "proj",
+            Defaults = new DefaultsConfig
+            {
+                InheritParentArea = false,
+                InheritParentIteration = false,
+            },
+        };
+        await original.SaveAsync(configPath);
+
+        var reloaded = await TwigConfiguration.LoadAsync(configPath);
+        reloaded.Defaults.InheritParentArea.ShouldBeFalse();
+        reloaded.Defaults.InheritParentIteration.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task DefaultsConfig_InheritFlags_AbsentFromConfig_DefaultsToTrue()
+    {
+        // Older configs (pre-AB#3242) don't include these fields. When loaded,
+        // they should default to true so the new inheritance behavior is opt-out, not opt-in.
+        var configPath = Path.Combine(_tempDir, "config_inherit_absent.json");
+        await File.WriteAllTextAsync(configPath, """{"organization":"org","project":"proj","defaults":{}}""");
+
+        var reloaded = await TwigConfiguration.LoadAsync(configPath);
+        reloaded.Defaults.InheritParentArea.ShouldBeTrue();
+        reloaded.Defaults.InheritParentIteration.ShouldBeTrue();
     }
 }

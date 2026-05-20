@@ -532,4 +532,200 @@ public class NewCommandTests : IDisposable
         var output = writer.ToString().Trim();
         output.ShouldBe("#88");
     }
+
+    // ── AB#3242: parent area/iteration inheritance ───────────────────────────
+
+    [Fact]
+    public async Task New_WithParent_InheritsAreaFromCachedParent()
+    {
+        ArrangeCreateSuccess(parentId: 42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new WorkItemBuilder(42, "Parent")
+                .AsEpic()
+                .WithAreaPath("TestProject\\Deep\\Area")
+                .WithIterationPath("TestProject\\Sprint 1")
+                .Build());
+
+        await _cmd.ExecuteAsync("Child", "Task", parent: 42);
+
+        await _adoService.Received(1).CreateAsync(
+            Arg.Is<CreateWorkItemRequest>(r => r.AreaPath == "TestProject\\Deep\\Area"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task New_WithParent_InheritsIterationFromCachedParent()
+    {
+        ArrangeCreateSuccess(parentId: 42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new WorkItemBuilder(42, "Parent")
+                .AsEpic()
+                .WithAreaPath("TestProject\\Area1")
+                .WithIterationPath("TestProject\\Sprint\\2026\\05")
+                .Build());
+
+        await _cmd.ExecuteAsync("Child", "Task", parent: 42);
+
+        await _adoService.Received(1).CreateAsync(
+            Arg.Is<CreateWorkItemRequest>(r => r.IterationPath == "TestProject\\Sprint\\2026\\05"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task New_WithParent_CacheHit_DoesNotCallAdoForParent()
+    {
+        // Locks in cache-first semantic. If a future refactor flips to ADO-first,
+        // this test fails loudly rather than silently regressing polyphony's batch flow.
+        ArrangeCreateSuccess(parentId: 42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new WorkItemBuilder(42, "Parent")
+                .AsEpic()
+                .WithAreaPath("TestProject\\Deep\\Area")
+                .WithIterationPath("TestProject\\Sprint 1")
+                .Build());
+
+        await _cmd.ExecuteAsync("Child", "Task", parent: 42);
+
+        await _adoService.DidNotReceive().FetchAsync(42, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task New_WithParent_CacheMiss_FallsBackToAdoForParent()
+    {
+        ArrangeCreateSuccess(parentId: 42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
+            .Returns((WorkItem?)null);
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new WorkItemBuilder(42, "Parent")
+                .AsEpic()
+                .WithAreaPath("TestProject\\From\\Ado")
+                .WithIterationPath("TestProject\\Sprint 1")
+                .Build());
+
+        await _cmd.ExecuteAsync("Child", "Task", parent: 42);
+
+        await _adoService.Received(1).FetchAsync(42, Arg.Any<CancellationToken>());
+        await _adoService.Received(1).CreateAsync(
+            Arg.Is<CreateWorkItemRequest>(r => r.AreaPath == "TestProject\\From\\Ado"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task New_WithParent_ExplicitArea_OverridesParentInheritance()
+    {
+        ArrangeCreateSuccess(parentId: 42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new WorkItemBuilder(42, "Parent")
+                .AsEpic()
+                .WithAreaPath("TestProject\\Parent\\Area")
+                .WithIterationPath("TestProject\\Sprint 1")
+                .Build());
+
+        await _cmd.ExecuteAsync("Child", "Task", parent: 42, area: "Custom\\Path");
+
+        await _adoService.Received(1).CreateAsync(
+            Arg.Is<CreateWorkItemRequest>(r => r.AreaPath == "Custom\\Path"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task New_WithParent_ExplicitAreaAndIteration_SkipsParentFetchEntirely()
+    {
+        // If both inherited slots are pre-filled by explicit flags, the parent fetch
+        // is wasted I/O and any failure-to-fetch warning would be a spurious user-facing
+        // gripe. Locks in the per-slot fetch-gating.
+        ArrangeCreateSuccess(parentId: 42);
+
+        await _cmd.ExecuteAsync("Child", "Task", parent: 42,
+            area: "Custom\\Path",
+            iteration: "Custom\\Sprint 5");
+
+        await _workItemRepo.DidNotReceive().GetByIdAsync(42, Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().FetchAsync(42, Arg.Any<CancellationToken>());
+        await _adoService.Received(1).CreateAsync(
+            Arg.Is<CreateWorkItemRequest>(r =>
+                r.AreaPath == "Custom\\Path" &&
+                r.IterationPath == "Custom\\Sprint 5"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task New_WithParent_ParentFetchFailure_FallsThroughToConfigDefault_WithWarning()
+    {
+        ArrangeCreateSuccess(parentId: 42);
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
+            .Returns((WorkItem?)null);
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("Parent unreachable"));
+
+        var errWriter = new StringWriter();
+        Console.SetError(errWriter);
+
+        var result = await _cmd.ExecuteAsync("Child", "Task", parent: 42);
+
+        result.ShouldBe(0); // create still succeeds with config default
+        var stderr = errWriter.ToString();
+        stderr.ShouldContain("warning:");
+        stderr.ShouldContain("parent 42");
+        stderr.ShouldContain("Parent unreachable");
+        stderr.ShouldContain("falling back");
+
+        // Falls through to config default, not project root.
+        await _adoService.Received(1).CreateAsync(
+            Arg.Is<CreateWorkItemRequest>(r => r.AreaPath == "TestProject\\Area1"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task New_WithParent_InheritParentAreaFalse_UsesConfigDefault_AndStillInheritsIteration()
+    {
+        _config.Defaults.InheritParentArea = false;
+        ArrangeCreateSuccess(parentId: 42);
+        // Parent in cache with a non-config-default area — area should be ignored (opt-out)
+        // but iteration should still inherit (independent flag).
+        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new WorkItemBuilder(42, "Parent")
+                .AsEpic()
+                .WithAreaPath("TestProject\\Parent\\Area")
+                .WithIterationPath("TestProject\\Parent\\Iteration")
+                .Build());
+
+        await _cmd.ExecuteAsync("Child", "Task", parent: 42);
+
+        await _adoService.Received(1).CreateAsync(
+            Arg.Is<CreateWorkItemRequest>(r =>
+                r.AreaPath == "TestProject\\Area1" &&
+                r.IterationPath == "TestProject\\Parent\\Iteration"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task New_WithParent_BothInheritFlagsFalse_DoesNotFetchParent()
+    {
+        _config.Defaults.InheritParentArea = false;
+        _config.Defaults.InheritParentIteration = false;
+        ArrangeCreateSuccess(parentId: 42);
+
+        await _cmd.ExecuteAsync("Child", "Task", parent: 42);
+
+        await _workItemRepo.DidNotReceive().GetByIdAsync(42, Arg.Any<CancellationToken>());
+        await _adoService.DidNotReceive().FetchAsync(42, Arg.Any<CancellationToken>());
+        await _adoService.Received(1).CreateAsync(
+            Arg.Is<CreateWorkItemRequest>(r =>
+                r.AreaPath == "TestProject\\Area1" &&
+                r.IterationPath == "TestProject\\Sprint 1"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task New_WithoutParent_DoesNotFetchAnythingForInheritance()
+    {
+        ArrangeCreateSuccess();
+
+        await _cmd.ExecuteAsync("Orphan", "Epic");
+
+        // No --parent → no inheritance fetch. The only ADO fetch should be the post-create
+        // re-fetch (newId=100), not a parent lookup.
+        await _workItemRepo.DidNotReceive().GetByIdAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
 }

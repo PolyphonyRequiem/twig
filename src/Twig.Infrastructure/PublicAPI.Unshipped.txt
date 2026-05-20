@@ -2,3 +2,7 @@
 *REMOVED*Twig.Infrastructure.Config.AreasConfig.Mode.get -> string!
 Twig.Infrastructure.Config.AreasConfig.EffectiveMode.get -> string!
 Twig.Infrastructure.Config.AreasConfig.Mode.get -> string?
+Twig.Infrastructure.Config.DefaultsConfig.InheritParentArea.get -> bool
+Twig.Infrastructure.Config.DefaultsConfig.InheritParentArea.set -> void
+Twig.Infrastructure.Config.DefaultsConfig.InheritParentIteration.get -> bool
+Twig.Infrastructure.Config.DefaultsConfig.InheritParentIteration.set -> void

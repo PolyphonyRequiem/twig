@@ -81,6 +81,15 @@ jobs:
 
     runs-on: ${{ matrix.os }}
 
+    # id-token: write is required for the win-x64 leg to obtain an OIDC token
+    # for Azure Trusted Signing. The other legs ignore it. contents: read is
+    # the default checkout permission and must be reasserted whenever a job
+    # declares its own permissions block (otherwise the top-level grant is
+    # replaced wholesale).
+    permissions:
+      contents: read
+      id-token: write
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -102,6 +111,33 @@ jobs:
       - run: dotnet publish src/Twig.Mcp/Twig.Mcp.csproj -c Release -r ${{ matrix.rid }} --self-contained true -o ./publish/${{ matrix.rid }}
 
       - run: dotnet publish src/Twig.Tui/Twig.Tui.csproj -c Release -r ${{ matrix.rid }} --self-contained true /p:PublishTrimmed=false /p:PublishAot=false -o ./publish/${{ matrix.rid }}
+
+      # Sign Windows binaries via Azure Trusted Signing (AB#3047). Runs only on
+      # the win-x64 leg, and only when the AZURE_SIGNING_* repo variables are
+      # set — keeps the workflow shipping unsigned Windows builds (today's
+      # behaviour) until the Trusted Signing account is provisioned, then
+      # automatically picks up signing once vars exist. OIDC federated
+      # credential means no client secret in the repo.
+      - name: Azure login (OIDC) for Trusted Signing
+        if: matrix.rid == 'win-x64' && vars.AZURE_SIGNING_CLIENT_ID != ''
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_SIGNING_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_SIGNING_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SIGNING_SUBSCRIPTION_ID }}
+
+      - name: Sign Windows binaries (Azure Trusted Signing)
+        if: matrix.rid == 'win-x64' && vars.AZURE_SIGNING_CLIENT_ID != ''
+        uses: azure/trusted-signing-action@v0.5.1
+        with:
+          endpoint: https://wus2.codesigning.azure.net/
+          trusted-signing-account-name: polyphonyrequiem
+          certificate-profile-name: public-trust
+          files-folder: ${{ github.workspace }}/publish/${{ matrix.rid }}
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
 
       - name: Archive (zip)
         if: matrix.archive == 'zip'

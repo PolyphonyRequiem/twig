@@ -288,9 +288,11 @@ public class PromptStateIntegrationTests : IDisposable
 
         var writer = CreateWriter();
         var updateResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var fieldUpdateWorkflow = new Twig.Infrastructure.Services.Mutation.FieldUpdateWorkflow(
+            _workItemRepo, _adoService, _pendingChangeStore, writer);
         var cmd = new UpdateCommand(updateResolver, _workItemRepo, _adoService,
-            _pendingChangeStore, _consoleInput, _fieldDefinitionStore, _formatterFactory,
-            new SeedMutationProvider(_workItemRepo), writer);
+            _consoleInput, _fieldDefinitionStore, _formatterFactory,
+            new SeedMutationProvider(_workItemRepo), fieldUpdateWorkflow, writer);
 
         var result = await cmd.ExecuteAsync("System.Title", "New Title");
 

@@ -1,0 +1,293 @@
+#nullable enable
+abstract Twig.RenderTree.RenderNode.<Clone>$() -> Twig.RenderTree.RenderNode!
+abstract Twig.RenderTree.RenderValue.<Clone>$() -> Twig.RenderTree.RenderValue!
+override sealed Twig.RenderTree.RenderNode.Hint.Equals(Twig.RenderTree.RenderNode? other) -> bool
+override sealed Twig.RenderTree.RenderNode.KeyValue.Equals(Twig.RenderTree.RenderNode? other) -> bool
+override sealed Twig.RenderTree.RenderNode.Record.Equals(Twig.RenderTree.RenderNode? other) -> bool
+override sealed Twig.RenderTree.RenderNode.Section.Equals(Twig.RenderTree.RenderNode? other) -> bool
+override sealed Twig.RenderTree.RenderNode.Table.Equals(Twig.RenderTree.RenderNode? other) -> bool
+override sealed Twig.RenderTree.RenderNode.Text.Equals(Twig.RenderTree.RenderNode? other) -> bool
+override sealed Twig.RenderTree.RenderNode.TreeView.Equals(Twig.RenderTree.RenderNode? other) -> bool
+override sealed Twig.RenderTree.RenderValue.Absent.Equals(Twig.RenderTree.RenderValue? other) -> bool
+override sealed Twig.RenderTree.RenderValue.Boolean.Equals(Twig.RenderTree.RenderValue? other) -> bool
+override sealed Twig.RenderTree.RenderValue.DateTime.Equals(Twig.RenderTree.RenderValue? other) -> bool
+override sealed Twig.RenderTree.RenderValue.Decimal.Equals(Twig.RenderTree.RenderValue? other) -> bool
+override sealed Twig.RenderTree.RenderValue.Integer.Equals(Twig.RenderTree.RenderValue? other) -> bool
+override sealed Twig.RenderTree.RenderValue.Null.Equals(Twig.RenderTree.RenderValue? other) -> bool
+override sealed Twig.RenderTree.RenderValue.String.Equals(Twig.RenderTree.RenderValue? other) -> bool
+override Twig.RenderTree.RenderCell.Equals(object? obj) -> bool
+override Twig.RenderTree.RenderCell.GetHashCode() -> int
+override Twig.RenderTree.RenderCell.ToString() -> string!
+override Twig.RenderTree.RenderColumn.Equals(object? obj) -> bool
+override Twig.RenderTree.RenderColumn.GetHashCode() -> int
+override Twig.RenderTree.RenderColumn.ToString() -> string!
+override Twig.RenderTree.RenderNode.Equals(object? obj) -> bool
+override Twig.RenderTree.RenderNode.GetHashCode() -> int
+override Twig.RenderTree.RenderNode.Hint.<Clone>$() -> Twig.RenderTree.RenderNode.Hint!
+override Twig.RenderTree.RenderNode.Hint.Equals(object? obj) -> bool
+override Twig.RenderTree.RenderNode.Hint.GetHashCode() -> int
+override Twig.RenderTree.RenderNode.Hint.ToString() -> string!
+override Twig.RenderTree.RenderNode.KeyValue.<Clone>$() -> Twig.RenderTree.RenderNode.KeyValue!
+override Twig.RenderTree.RenderNode.KeyValue.Equals(object? obj) -> bool
+override Twig.RenderTree.RenderNode.KeyValue.GetHashCode() -> int
+override Twig.RenderTree.RenderNode.KeyValue.ToString() -> string!
+override Twig.RenderTree.RenderNode.Record.<Clone>$() -> Twig.RenderTree.RenderNode.Record!
+override Twig.RenderTree.RenderNode.Record.Equals(object? obj) -> bool
+override Twig.RenderTree.RenderNode.Record.GetHashCode() -> int
+override Twig.RenderTree.RenderNode.Record.ToString() -> string!
+override Twig.RenderTree.RenderNode.Section.<Clone>$() -> Twig.RenderTree.RenderNode.Section!
+override Twig.RenderTree.RenderNode.Section.Equals(object? obj) -> bool
+override Twig.RenderTree.RenderNode.Section.GetHashCode() -> int
+override Twig.RenderTree.RenderNode.Section.ToString() -> string!
+override Twig.RenderTree.RenderNode.Table.<Clone>$() -> Twig.RenderTree.RenderNode.Table!
+override Twig.RenderTree.RenderNode.Table.Equals(object? obj) -> bool
+override Twig.RenderTree.RenderNode.Table.GetHashCode() -> int
+override Twig.RenderTree.RenderNode.Table.ToString() -> string!
+override Twig.RenderTree.RenderNode.Text.<Clone>$() -> Twig.RenderTree.RenderNode.Text!
+override Twig.RenderTree.RenderNode.Text.Equals(object? obj) -> bool
+override Twig.RenderTree.RenderNode.Text.GetHashCode() -> int
+override Twig.RenderTree.RenderNode.Text.ToString() -> string!
+override Twig.RenderTree.RenderNode.ToString() -> string!
+override Twig.RenderTree.RenderNode.TreeView.<Clone>$() -> Twig.RenderTree.RenderNode.TreeView!
+override Twig.RenderTree.RenderNode.TreeView.Equals(object? obj) -> bool
+override Twig.RenderTree.RenderNode.TreeView.GetHashCode() -> int
+override Twig.RenderTree.RenderNode.TreeView.ToString() -> string!
+override Twig.RenderTree.RenderRow.Equals(object? obj) -> bool
+override Twig.RenderTree.RenderRow.GetHashCode() -> int
+override Twig.RenderTree.RenderRow.ToString() -> string!
+override Twig.RenderTree.RenderTree.Equals(object? obj) -> bool
+override Twig.RenderTree.RenderTree.GetHashCode() -> int
+override Twig.RenderTree.RenderTree.ToString() -> string!
+override Twig.RenderTree.RenderTreeBranch.Equals(object? obj) -> bool
+override Twig.RenderTree.RenderTreeBranch.GetHashCode() -> int
+override Twig.RenderTree.RenderTreeBranch.ToString() -> string!
+override Twig.RenderTree.RenderValue.Absent.<Clone>$() -> Twig.RenderTree.RenderValue.Absent!
+override Twig.RenderTree.RenderValue.Absent.Equals(object? obj) -> bool
+override Twig.RenderTree.RenderValue.Absent.GetHashCode() -> int
+override Twig.RenderTree.RenderValue.Absent.ToString() -> string!
+override Twig.RenderTree.RenderValue.Boolean.<Clone>$() -> Twig.RenderTree.RenderValue.Boolean!
+override Twig.RenderTree.RenderValue.Boolean.Equals(object? obj) -> bool
+override Twig.RenderTree.RenderValue.Boolean.GetHashCode() -> int
+override Twig.RenderTree.RenderValue.Boolean.ToString() -> string!
+override Twig.RenderTree.RenderValue.DateTime.<Clone>$() -> Twig.RenderTree.RenderValue.DateTime!
+override Twig.RenderTree.RenderValue.DateTime.Equals(object? obj) -> bool
+override Twig.RenderTree.RenderValue.DateTime.GetHashCode() -> int
+override Twig.RenderTree.RenderValue.DateTime.ToString() -> string!
+override Twig.RenderTree.RenderValue.Decimal.<Clone>$() -> Twig.RenderTree.RenderValue.Decimal!
+override Twig.RenderTree.RenderValue.Decimal.Equals(object? obj) -> bool
+override Twig.RenderTree.RenderValue.Decimal.GetHashCode() -> int
+override Twig.RenderTree.RenderValue.Decimal.ToString() -> string!
+override Twig.RenderTree.RenderValue.Equals(object? obj) -> bool
+override Twig.RenderTree.RenderValue.GetHashCode() -> int
+override Twig.RenderTree.RenderValue.Integer.<Clone>$() -> Twig.RenderTree.RenderValue.Integer!
+override Twig.RenderTree.RenderValue.Integer.Equals(object? obj) -> bool
+override Twig.RenderTree.RenderValue.Integer.GetHashCode() -> int
+override Twig.RenderTree.RenderValue.Integer.ToString() -> string!
+override Twig.RenderTree.RenderValue.Null.<Clone>$() -> Twig.RenderTree.RenderValue.Null!
+override Twig.RenderTree.RenderValue.Null.Equals(object? obj) -> bool
+override Twig.RenderTree.RenderValue.Null.GetHashCode() -> int
+override Twig.RenderTree.RenderValue.Null.ToString() -> string!
+override Twig.RenderTree.RenderValue.String.<Clone>$() -> Twig.RenderTree.RenderValue.String!
+override Twig.RenderTree.RenderValue.String.Equals(object? obj) -> bool
+override Twig.RenderTree.RenderValue.String.GetHashCode() -> int
+override Twig.RenderTree.RenderValue.String.ToString() -> string!
+override Twig.RenderTree.RenderValue.ToString() -> string!
+static Twig.RenderTree.RenderCell.Boolean(bool value, string? displayText = null, Twig.RenderTree.Severity severity = Twig.RenderTree.Severity.None) -> Twig.RenderTree.RenderCell!
+static Twig.RenderTree.RenderCell.DisplayOnly(string! displayText, Twig.RenderTree.Severity severity = Twig.RenderTree.Severity.None) -> Twig.RenderTree.RenderCell!
+static Twig.RenderTree.RenderCell.Integer(long value, string? displayText = null, Twig.RenderTree.Severity severity = Twig.RenderTree.Severity.None) -> Twig.RenderTree.RenderCell!
+static Twig.RenderTree.RenderCell.operator !=(Twig.RenderTree.RenderCell? left, Twig.RenderTree.RenderCell? right) -> bool
+static Twig.RenderTree.RenderCell.operator ==(Twig.RenderTree.RenderCell? left, Twig.RenderTree.RenderCell? right) -> bool
+static Twig.RenderTree.RenderCell.String(string! value, Twig.RenderTree.Severity severity = Twig.RenderTree.Severity.None) -> Twig.RenderTree.RenderCell!
+static Twig.RenderTree.RenderColumn.operator !=(Twig.RenderTree.RenderColumn? left, Twig.RenderTree.RenderColumn? right) -> bool
+static Twig.RenderTree.RenderColumn.operator ==(Twig.RenderTree.RenderColumn? left, Twig.RenderTree.RenderColumn? right) -> bool
+static Twig.RenderTree.RenderNode.Hint.operator !=(Twig.RenderTree.RenderNode.Hint? left, Twig.RenderTree.RenderNode.Hint? right) -> bool
+static Twig.RenderTree.RenderNode.Hint.operator ==(Twig.RenderTree.RenderNode.Hint? left, Twig.RenderTree.RenderNode.Hint? right) -> bool
+static Twig.RenderTree.RenderNode.KeyValue.operator !=(Twig.RenderTree.RenderNode.KeyValue? left, Twig.RenderTree.RenderNode.KeyValue? right) -> bool
+static Twig.RenderTree.RenderNode.KeyValue.operator ==(Twig.RenderTree.RenderNode.KeyValue? left, Twig.RenderTree.RenderNode.KeyValue? right) -> bool
+static Twig.RenderTree.RenderNode.operator !=(Twig.RenderTree.RenderNode? left, Twig.RenderTree.RenderNode? right) -> bool
+static Twig.RenderTree.RenderNode.operator ==(Twig.RenderTree.RenderNode? left, Twig.RenderTree.RenderNode? right) -> bool
+static Twig.RenderTree.RenderNode.Record.operator !=(Twig.RenderTree.RenderNode.Record? left, Twig.RenderTree.RenderNode.Record? right) -> bool
+static Twig.RenderTree.RenderNode.Record.operator ==(Twig.RenderTree.RenderNode.Record? left, Twig.RenderTree.RenderNode.Record? right) -> bool
+static Twig.RenderTree.RenderNode.Section.operator !=(Twig.RenderTree.RenderNode.Section? left, Twig.RenderTree.RenderNode.Section? right) -> bool
+static Twig.RenderTree.RenderNode.Section.operator ==(Twig.RenderTree.RenderNode.Section? left, Twig.RenderTree.RenderNode.Section? right) -> bool
+static Twig.RenderTree.RenderNode.Table.operator !=(Twig.RenderTree.RenderNode.Table? left, Twig.RenderTree.RenderNode.Table? right) -> bool
+static Twig.RenderTree.RenderNode.Table.operator ==(Twig.RenderTree.RenderNode.Table? left, Twig.RenderTree.RenderNode.Table? right) -> bool
+static Twig.RenderTree.RenderNode.Text.operator !=(Twig.RenderTree.RenderNode.Text? left, Twig.RenderTree.RenderNode.Text? right) -> bool
+static Twig.RenderTree.RenderNode.Text.operator ==(Twig.RenderTree.RenderNode.Text? left, Twig.RenderTree.RenderNode.Text? right) -> bool
+static Twig.RenderTree.RenderNode.TreeView.operator !=(Twig.RenderTree.RenderNode.TreeView? left, Twig.RenderTree.RenderNode.TreeView? right) -> bool
+static Twig.RenderTree.RenderNode.TreeView.operator ==(Twig.RenderTree.RenderNode.TreeView? left, Twig.RenderTree.RenderNode.TreeView? right) -> bool
+static Twig.RenderTree.RenderRow.operator !=(Twig.RenderTree.RenderRow? left, Twig.RenderTree.RenderRow? right) -> bool
+static Twig.RenderTree.RenderRow.operator ==(Twig.RenderTree.RenderRow? left, Twig.RenderTree.RenderRow? right) -> bool
+static Twig.RenderTree.RenderTree.operator !=(Twig.RenderTree.RenderTree? left, Twig.RenderTree.RenderTree? right) -> bool
+static Twig.RenderTree.RenderTree.operator ==(Twig.RenderTree.RenderTree? left, Twig.RenderTree.RenderTree? right) -> bool
+static Twig.RenderTree.RenderTreeBranch.operator !=(Twig.RenderTree.RenderTreeBranch? left, Twig.RenderTree.RenderTreeBranch? right) -> bool
+static Twig.RenderTree.RenderTreeBranch.operator ==(Twig.RenderTree.RenderTreeBranch? left, Twig.RenderTree.RenderTreeBranch? right) -> bool
+static Twig.RenderTree.RenderValue.Absent.operator !=(Twig.RenderTree.RenderValue.Absent? left, Twig.RenderTree.RenderValue.Absent? right) -> bool
+static Twig.RenderTree.RenderValue.Absent.operator ==(Twig.RenderTree.RenderValue.Absent? left, Twig.RenderTree.RenderValue.Absent? right) -> bool
+static Twig.RenderTree.RenderValue.Boolean.operator !=(Twig.RenderTree.RenderValue.Boolean? left, Twig.RenderTree.RenderValue.Boolean? right) -> bool
+static Twig.RenderTree.RenderValue.Boolean.operator ==(Twig.RenderTree.RenderValue.Boolean? left, Twig.RenderTree.RenderValue.Boolean? right) -> bool
+static Twig.RenderTree.RenderValue.DateTime.operator !=(Twig.RenderTree.RenderValue.DateTime? left, Twig.RenderTree.RenderValue.DateTime? right) -> bool
+static Twig.RenderTree.RenderValue.DateTime.operator ==(Twig.RenderTree.RenderValue.DateTime? left, Twig.RenderTree.RenderValue.DateTime? right) -> bool
+static Twig.RenderTree.RenderValue.Decimal.operator !=(Twig.RenderTree.RenderValue.Decimal? left, Twig.RenderTree.RenderValue.Decimal? right) -> bool
+static Twig.RenderTree.RenderValue.Decimal.operator ==(Twig.RenderTree.RenderValue.Decimal? left, Twig.RenderTree.RenderValue.Decimal? right) -> bool
+static Twig.RenderTree.RenderValue.Integer.operator !=(Twig.RenderTree.RenderValue.Integer? left, Twig.RenderTree.RenderValue.Integer? right) -> bool
+static Twig.RenderTree.RenderValue.Integer.operator ==(Twig.RenderTree.RenderValue.Integer? left, Twig.RenderTree.RenderValue.Integer? right) -> bool
+static Twig.RenderTree.RenderValue.Null.operator !=(Twig.RenderTree.RenderValue.Null? left, Twig.RenderTree.RenderValue.Null? right) -> bool
+static Twig.RenderTree.RenderValue.Null.operator ==(Twig.RenderTree.RenderValue.Null? left, Twig.RenderTree.RenderValue.Null? right) -> bool
+static Twig.RenderTree.RenderValue.operator !=(Twig.RenderTree.RenderValue? left, Twig.RenderTree.RenderValue? right) -> bool
+static Twig.RenderTree.RenderValue.operator ==(Twig.RenderTree.RenderValue? left, Twig.RenderTree.RenderValue? right) -> bool
+static Twig.RenderTree.RenderValue.String.operator !=(Twig.RenderTree.RenderValue.String? left, Twig.RenderTree.RenderValue.String? right) -> bool
+static Twig.RenderTree.RenderValue.String.operator ==(Twig.RenderTree.RenderValue.String? left, Twig.RenderTree.RenderValue.String? right) -> bool
+Twig.RenderTree.RenderCell
+Twig.RenderTree.RenderCell.<Clone>$() -> Twig.RenderTree.RenderCell!
+Twig.RenderTree.RenderCell.Deconstruct(out string! DisplayText, out Twig.RenderTree.RenderValue! Value, out Twig.RenderTree.Severity Severity) -> void
+Twig.RenderTree.RenderCell.DisplayText.get -> string!
+Twig.RenderTree.RenderCell.DisplayText.init -> void
+Twig.RenderTree.RenderCell.Equals(Twig.RenderTree.RenderCell? other) -> bool
+Twig.RenderTree.RenderCell.RenderCell(string! DisplayText, Twig.RenderTree.RenderValue! Value, Twig.RenderTree.Severity Severity = Twig.RenderTree.Severity.None) -> void
+Twig.RenderTree.RenderCell.Severity.get -> Twig.RenderTree.Severity
+Twig.RenderTree.RenderCell.Severity.init -> void
+Twig.RenderTree.RenderCell.Value.get -> Twig.RenderTree.RenderValue!
+Twig.RenderTree.RenderCell.Value.init -> void
+Twig.RenderTree.RenderColumn
+Twig.RenderTree.RenderColumn.<Clone>$() -> Twig.RenderTree.RenderColumn!
+Twig.RenderTree.RenderColumn.Deconstruct(out string! Key, out string! DisplayName) -> void
+Twig.RenderTree.RenderColumn.DisplayName.get -> string!
+Twig.RenderTree.RenderColumn.DisplayName.init -> void
+Twig.RenderTree.RenderColumn.Equals(Twig.RenderTree.RenderColumn? other) -> bool
+Twig.RenderTree.RenderColumn.Key.get -> string!
+Twig.RenderTree.RenderColumn.Key.init -> void
+Twig.RenderTree.RenderColumn.RenderColumn(string! Key, string! DisplayName) -> void
+Twig.RenderTree.RenderNode
+Twig.RenderTree.RenderNode.Hint
+Twig.RenderTree.RenderNode.Hint.Content.get -> string!
+Twig.RenderTree.RenderNode.Hint.Content.init -> void
+Twig.RenderTree.RenderNode.Hint.Deconstruct(out string! Content) -> void
+Twig.RenderTree.RenderNode.Hint.Equals(Twig.RenderTree.RenderNode.Hint? other) -> bool
+Twig.RenderTree.RenderNode.Hint.Hint(string! Content) -> void
+Twig.RenderTree.RenderNode.KeyValue
+Twig.RenderTree.RenderNode.KeyValue.Deconstruct(out string! Key, out Twig.RenderTree.RenderCell! Value, out Twig.RenderTree.Severity Severity) -> void
+Twig.RenderTree.RenderNode.KeyValue.Equals(Twig.RenderTree.RenderNode.KeyValue? other) -> bool
+Twig.RenderTree.RenderNode.KeyValue.Key.get -> string!
+Twig.RenderTree.RenderNode.KeyValue.Key.init -> void
+Twig.RenderTree.RenderNode.KeyValue.KeyValue(string! Key, Twig.RenderTree.RenderCell! Value, Twig.RenderTree.Severity Severity = Twig.RenderTree.Severity.None) -> void
+Twig.RenderTree.RenderNode.KeyValue.Severity.get -> Twig.RenderTree.Severity
+Twig.RenderTree.RenderNode.KeyValue.Severity.init -> void
+Twig.RenderTree.RenderNode.KeyValue.Value.get -> Twig.RenderTree.RenderCell!
+Twig.RenderTree.RenderNode.KeyValue.Value.init -> void
+Twig.RenderTree.RenderNode.Record
+Twig.RenderTree.RenderNode.Record.Deconstruct(out string? Kind, out System.Collections.Generic.IReadOnlyDictionary<string!, Twig.RenderTree.RenderCell!>! Fields) -> void
+Twig.RenderTree.RenderNode.Record.Equals(Twig.RenderTree.RenderNode.Record? other) -> bool
+Twig.RenderTree.RenderNode.Record.Fields.get -> System.Collections.Generic.IReadOnlyDictionary<string!, Twig.RenderTree.RenderCell!>!
+Twig.RenderTree.RenderNode.Record.Fields.init -> void
+Twig.RenderTree.RenderNode.Record.Kind.get -> string?
+Twig.RenderTree.RenderNode.Record.Kind.init -> void
+Twig.RenderTree.RenderNode.Record.Record(string? Kind, System.Collections.Generic.IReadOnlyDictionary<string!, Twig.RenderTree.RenderCell!>! Fields) -> void
+Twig.RenderTree.RenderNode.RenderNode(Twig.RenderTree.RenderNode! original) -> void
+Twig.RenderTree.RenderNode.Section
+Twig.RenderTree.RenderNode.Section.Children.get -> System.Collections.Generic.IReadOnlyList<Twig.RenderTree.RenderNode!>!
+Twig.RenderTree.RenderNode.Section.Children.init -> void
+Twig.RenderTree.RenderNode.Section.Deconstruct(out string? Header, out System.Collections.Generic.IReadOnlyList<Twig.RenderTree.RenderNode!>! Children) -> void
+Twig.RenderTree.RenderNode.Section.Equals(Twig.RenderTree.RenderNode.Section? other) -> bool
+Twig.RenderTree.RenderNode.Section.Header.get -> string?
+Twig.RenderTree.RenderNode.Section.Header.init -> void
+Twig.RenderTree.RenderNode.Section.Section(string? Header, System.Collections.Generic.IReadOnlyList<Twig.RenderTree.RenderNode!>! Children) -> void
+Twig.RenderTree.RenderNode.Table
+Twig.RenderTree.RenderNode.Table.Caption.get -> string?
+Twig.RenderTree.RenderNode.Table.Caption.init -> void
+Twig.RenderTree.RenderNode.Table.Columns.get -> System.Collections.Generic.IReadOnlyList<Twig.RenderTree.RenderColumn!>!
+Twig.RenderTree.RenderNode.Table.Columns.init -> void
+Twig.RenderTree.RenderNode.Table.Deconstruct(out string? Caption, out System.Collections.Generic.IReadOnlyList<Twig.RenderTree.RenderColumn!>! Columns, out System.Collections.Generic.IReadOnlyList<Twig.RenderTree.RenderRow!>! Rows) -> void
+Twig.RenderTree.RenderNode.Table.Equals(Twig.RenderTree.RenderNode.Table? other) -> bool
+Twig.RenderTree.RenderNode.Table.Rows.get -> System.Collections.Generic.IReadOnlyList<Twig.RenderTree.RenderRow!>!
+Twig.RenderTree.RenderNode.Table.Rows.init -> void
+Twig.RenderTree.RenderNode.Table.Table(string? Caption, System.Collections.Generic.IReadOnlyList<Twig.RenderTree.RenderColumn!>! Columns, System.Collections.Generic.IReadOnlyList<Twig.RenderTree.RenderRow!>! Rows) -> void
+Twig.RenderTree.RenderNode.Text
+Twig.RenderTree.RenderNode.Text.Content.get -> string!
+Twig.RenderTree.RenderNode.Text.Content.init -> void
+Twig.RenderTree.RenderNode.Text.Deconstruct(out string! Content, out Twig.RenderTree.Severity Severity) -> void
+Twig.RenderTree.RenderNode.Text.Equals(Twig.RenderTree.RenderNode.Text? other) -> bool
+Twig.RenderTree.RenderNode.Text.Severity.get -> Twig.RenderTree.Severity
+Twig.RenderTree.RenderNode.Text.Severity.init -> void
+Twig.RenderTree.RenderNode.Text.Text(string! Content, Twig.RenderTree.Severity Severity = Twig.RenderTree.Severity.None) -> void
+Twig.RenderTree.RenderNode.TreeView
+Twig.RenderTree.RenderNode.TreeView.Deconstruct(out Twig.RenderTree.RenderTreeBranch! Root) -> void
+Twig.RenderTree.RenderNode.TreeView.Equals(Twig.RenderTree.RenderNode.TreeView? other) -> bool
+Twig.RenderTree.RenderNode.TreeView.Root.get -> Twig.RenderTree.RenderTreeBranch!
+Twig.RenderTree.RenderNode.TreeView.Root.init -> void
+Twig.RenderTree.RenderNode.TreeView.TreeView(Twig.RenderTree.RenderTreeBranch! Root) -> void
+Twig.RenderTree.RenderRow
+Twig.RenderTree.RenderRow.<Clone>$() -> Twig.RenderTree.RenderRow!
+Twig.RenderTree.RenderRow.Cells.get -> System.Collections.Generic.IReadOnlyDictionary<string!, Twig.RenderTree.RenderCell!>!
+Twig.RenderTree.RenderRow.Cells.init -> void
+Twig.RenderTree.RenderRow.Deconstruct(out string? Kind, out System.Collections.Generic.IReadOnlyDictionary<string!, Twig.RenderTree.RenderCell!>! Cells) -> void
+Twig.RenderTree.RenderRow.Equals(Twig.RenderTree.RenderRow? other) -> bool
+Twig.RenderTree.RenderRow.Kind.get -> string?
+Twig.RenderTree.RenderRow.Kind.init -> void
+Twig.RenderTree.RenderRow.RenderRow(string? Kind, System.Collections.Generic.IReadOnlyDictionary<string!, Twig.RenderTree.RenderCell!>! Cells) -> void
+Twig.RenderTree.RenderTree
+Twig.RenderTree.RenderTree.<Clone>$() -> Twig.RenderTree.RenderTree!
+Twig.RenderTree.RenderTree.Deconstruct(out System.Collections.Generic.IReadOnlyList<Twig.RenderTree.RenderNode!>! Nodes) -> void
+Twig.RenderTree.RenderTree.Equals(Twig.RenderTree.RenderTree? other) -> bool
+Twig.RenderTree.RenderTree.Nodes.get -> System.Collections.Generic.IReadOnlyList<Twig.RenderTree.RenderNode!>!
+Twig.RenderTree.RenderTree.Nodes.init -> void
+Twig.RenderTree.RenderTree.RenderTree(System.Collections.Generic.IReadOnlyList<Twig.RenderTree.RenderNode!>! Nodes) -> void
+Twig.RenderTree.RenderTreeBranch
+Twig.RenderTree.RenderTreeBranch.<Clone>$() -> Twig.RenderTree.RenderTreeBranch!
+Twig.RenderTree.RenderTreeBranch.Children.get -> System.Collections.Generic.IReadOnlyList<Twig.RenderTree.RenderTreeBranch!>!
+Twig.RenderTree.RenderTreeBranch.Children.init -> void
+Twig.RenderTree.RenderTreeBranch.Deconstruct(out Twig.RenderTree.RenderRow! Row, out System.Collections.Generic.IReadOnlyList<Twig.RenderTree.RenderTreeBranch!>! Children) -> void
+Twig.RenderTree.RenderTreeBranch.Equals(Twig.RenderTree.RenderTreeBranch? other) -> bool
+Twig.RenderTree.RenderTreeBranch.RenderTreeBranch(Twig.RenderTree.RenderRow! Row, System.Collections.Generic.IReadOnlyList<Twig.RenderTree.RenderTreeBranch!>! Children) -> void
+Twig.RenderTree.RenderTreeBranch.Row.get -> Twig.RenderTree.RenderRow!
+Twig.RenderTree.RenderTreeBranch.Row.init -> void
+Twig.RenderTree.RenderValue
+Twig.RenderTree.RenderValue.Absent
+Twig.RenderTree.RenderValue.Absent.Absent() -> void
+Twig.RenderTree.RenderValue.Absent.Equals(Twig.RenderTree.RenderValue.Absent? other) -> bool
+Twig.RenderTree.RenderValue.Boolean
+Twig.RenderTree.RenderValue.Boolean.Boolean(bool Value) -> void
+Twig.RenderTree.RenderValue.Boolean.Deconstruct(out bool Value) -> void
+Twig.RenderTree.RenderValue.Boolean.Equals(Twig.RenderTree.RenderValue.Boolean? other) -> bool
+Twig.RenderTree.RenderValue.Boolean.Value.get -> bool
+Twig.RenderTree.RenderValue.Boolean.Value.init -> void
+Twig.RenderTree.RenderValue.DateTime
+Twig.RenderTree.RenderValue.DateTime.DateTime(System.DateTimeOffset Value) -> void
+Twig.RenderTree.RenderValue.DateTime.Deconstruct(out System.DateTimeOffset Value) -> void
+Twig.RenderTree.RenderValue.DateTime.Equals(Twig.RenderTree.RenderValue.DateTime? other) -> bool
+Twig.RenderTree.RenderValue.DateTime.Value.get -> System.DateTimeOffset
+Twig.RenderTree.RenderValue.DateTime.Value.init -> void
+Twig.RenderTree.RenderValue.Decimal
+Twig.RenderTree.RenderValue.Decimal.Decimal(decimal Value) -> void
+Twig.RenderTree.RenderValue.Decimal.Deconstruct(out decimal Value) -> void
+Twig.RenderTree.RenderValue.Decimal.Equals(Twig.RenderTree.RenderValue.Decimal? other) -> bool
+Twig.RenderTree.RenderValue.Decimal.Value.get -> decimal
+Twig.RenderTree.RenderValue.Decimal.Value.init -> void
+Twig.RenderTree.RenderValue.Integer
+Twig.RenderTree.RenderValue.Integer.Deconstruct(out long Value) -> void
+Twig.RenderTree.RenderValue.Integer.Equals(Twig.RenderTree.RenderValue.Integer? other) -> bool
+Twig.RenderTree.RenderValue.Integer.Integer(long Value) -> void
+Twig.RenderTree.RenderValue.Integer.Value.get -> long
+Twig.RenderTree.RenderValue.Integer.Value.init -> void
+Twig.RenderTree.RenderValue.Null
+Twig.RenderTree.RenderValue.Null.Equals(Twig.RenderTree.RenderValue.Null? other) -> bool
+Twig.RenderTree.RenderValue.Null.Null() -> void
+Twig.RenderTree.RenderValue.RenderValue(Twig.RenderTree.RenderValue! original) -> void
+Twig.RenderTree.RenderValue.String
+Twig.RenderTree.RenderValue.String.Deconstruct(out string! Value) -> void
+Twig.RenderTree.RenderValue.String.Equals(Twig.RenderTree.RenderValue.String? other) -> bool
+Twig.RenderTree.RenderValue.String.String(string! Value) -> void
+Twig.RenderTree.RenderValue.String.Value.get -> string!
+Twig.RenderTree.RenderValue.String.Value.init -> void
+Twig.RenderTree.Severity
+Twig.RenderTree.Severity.Error = 4 -> Twig.RenderTree.Severity
+Twig.RenderTree.Severity.Info = 1 -> Twig.RenderTree.Severity
+Twig.RenderTree.Severity.None = 0 -> Twig.RenderTree.Severity
+Twig.RenderTree.Severity.Success = 2 -> Twig.RenderTree.Severity
+Twig.RenderTree.Severity.Warning = 3 -> Twig.RenderTree.Severity
+virtual Twig.RenderTree.RenderNode.EqualityContract.get -> System.Type!
+virtual Twig.RenderTree.RenderNode.Equals(Twig.RenderTree.RenderNode? other) -> bool
+virtual Twig.RenderTree.RenderNode.PrintMembers(System.Text.StringBuilder! builder) -> bool
+virtual Twig.RenderTree.RenderValue.EqualityContract.get -> System.Type!
+virtual Twig.RenderTree.RenderValue.Equals(Twig.RenderTree.RenderValue? other) -> bool
+virtual Twig.RenderTree.RenderValue.PrintMembers(System.Text.StringBuilder! builder) -> bool

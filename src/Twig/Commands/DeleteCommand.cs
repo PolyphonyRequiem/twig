@@ -1,7 +1,10 @@
+using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.Mutation;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
+using Twig.Infrastructure.Services.Mutation;
 
 namespace Twig.Commands;
 
@@ -12,13 +15,9 @@ namespace Twig.Commands;
 /// </summary>
 public sealed class DeleteCommand(
     ActiveItemResolver activeItemResolver,
-    IAdoWorkItemService adoService,
-    IWorkItemRepository workItemRepo,
-    IWorkItemLinkRepository linkRepo,
-    IPendingChangeStore pendingChangeStore,
+    DeleteWorkflow deleteWorkflow,
     IConsoleInput consoleInput,
-    CommandContext ctx,
-    IPromptStateWriter? promptStateWriter = null)
+    CommandContext ctx)
 {
     private readonly TextWriter _stderr = ctx.StderrWriter;
 
@@ -68,7 +67,7 @@ public sealed class DeleteCommand(
         IOutputFormatter fmt,
         CancellationToken ct)
     {
-        // 1. Resolve item from cache or ADO
+        // 1. Resolve item from cache or ADO (for seed guard + early not-found error)
         var resolved = await activeItemResolver.ResolveByIdAsync(id, ct);
         if (!resolved.TryGetWorkItem(out var item, out var errorId, out var errorReason))
         {
@@ -85,23 +84,27 @@ public sealed class DeleteCommand(
             return 1;
         }
 
-        // 3. Fresh fetch with links from ADO (not cache)
-        var (freshItem, links) = await adoService.FetchWithLinksAsync(id, ct);
-
-        // 4. Children guard
-        var children = await adoService.FetchChildrenAsync(id, ct);
-
-        // 5. Link guard — refuse if any links exist
-        var linkSummary = BuildLinkSummary(freshItem.ParentId, children.Count, links);
-        if (linkSummary.TotalCount > 0)
+        // 3. Workflow: fresh fetch + link guard
+        var preparation = await deleteWorkflow.PrepareAsync(id, ct);
+        WorkItem freshItem;
+        switch (preparation)
         {
-            _stderr.WriteLine(fmt.FormatError(
-                $"Cannot delete #{id} '{freshItem.Title}' — it has {linkSummary.TotalCount} link(s): {linkSummary.Description}. " +
-                "Remove all links before deleting. Consider 'twig state Closed' instead — it preserves history and is reversible."));
-            return 1;
+            case DeletePreparation.FetchFailed f:
+                _stderr.WriteLine(fmt.FormatError($"Failed to fetch #{id} for deletion: {f.Reason}"));
+                return 1;
+            case DeletePreparation.BlockedByLinks b:
+                _stderr.WriteLine(fmt.FormatError(
+                    $"Cannot delete #{id} '{b.FreshItem.Title}' — it has {b.TotalLinkCount} link(s): {b.LinkSummary}. " +
+                    "Remove all links before deleting. Consider 'twig state Closed' instead — it preserves history and is reversible."));
+                return 1;
+            case DeletePreparation.Ready r:
+                freshItem = r.FreshItem;
+                break;
+            default:
+                throw new System.Diagnostics.UnreachableException($"Unhandled DeletePreparation: {preparation.GetType().Name}");
         }
 
-        // 6. Confirmation prompt
+        // 4. Confirmation prompt
         if (!force)
         {
             if (consoleInput.IsOutputRedirected)
@@ -129,86 +132,26 @@ public sealed class DeleteCommand(
             }
         }
 
-        // 7. Audit trail — best-effort note on parent
-        if (freshItem.ParentId.HasValue)
+        // 5. Workflow: audit + delete + cache cleanup + prompt-state
+        var outcome = await deleteWorkflow.ExecuteAsync(freshItem, ct);
+        switch (outcome)
         {
-            try
-            {
-                await adoService.AddCommentAsync(
-                    freshItem.ParentId.Value,
-                    $"Child work item #{id} '{freshItem.Title}' ({freshItem.Type}) was deleted via twig.",
-                    ct);
-            }
-            catch
-            {
-                // Best-effort — parent may be inaccessible or deleted
-            }
+            case DeleteOutcome.AdoFailed f:
+                _stderr.WriteLine(fmt.FormatError($"Delete failed: {f.Reason}"));
+                return 1;
+            case DeleteOutcome.Deleted d:
+                Console.WriteLine(fmt.FormatSuccess($"Deleted #{freshItem.Id} '{freshItem.Title}'."));
+
+                var hints = ctx.HintEngine.GetHints("delete", item: freshItem, outputFormat: outputFormat);
+                foreach (var hint in hints)
+                {
+                    var formatted = fmt.FormatHint(hint);
+                    if (!string.IsNullOrEmpty(formatted))
+                        Console.WriteLine(formatted);
+                }
+                return 0;
+            default:
+                throw new System.Diagnostics.UnreachableException($"Unhandled DeleteOutcome: {outcome.GetType().Name}");
         }
-
-        // 8. Delete from ADO
-        await adoService.DeleteAsync(id, ct);
-
-        // 9. Cache cleanup
-        await workItemRepo.DeleteByIdAsync(id, ct);
-        await linkRepo.SaveLinksAsync(id, Array.Empty<WorkItemLink>(), ct);
-        await pendingChangeStore.ClearChangesAsync(id, ct);
-
-        // 10. Prompt state refresh
-        if (promptStateWriter is not null)
-            await promptStateWriter.WritePromptStateAsync();
-
-        // 11. Output
-        Console.WriteLine(fmt.FormatSuccess($"Deleted #{id} '{freshItem.Title}'."));
-
-        var hints = ctx.HintEngine.GetHints("delete", item: freshItem, outputFormat: outputFormat);
-        foreach (var hint in hints)
-        {
-            var formatted = fmt.FormatHint(hint);
-            if (!string.IsNullOrEmpty(formatted))
-                Console.WriteLine(formatted);
-        }
-
-        return 0;
     }
-
-    // ── Link summary helpers ────────────────────────────────────────
-
-    private static LinkSummaryResult BuildLinkSummary(
-        int? parentId,
-        int childCount,
-        IReadOnlyList<WorkItemLink> nonHierarchyLinks)
-    {
-        var parts = new List<string>();
-        var total = 0;
-
-        if (parentId.HasValue)
-        {
-            parts.Add("1 parent");
-            total++;
-        }
-
-        if (childCount > 0)
-        {
-            parts.Add($"{childCount} child{(childCount != 1 ? "ren" : "")}");
-            total += childCount;
-        }
-
-        // Group non-hierarchy links by type
-        var linksByType = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (var link in nonHierarchyLinks)
-        {
-            linksByType.TryGetValue(link.LinkType, out var count);
-            linksByType[link.LinkType] = count + 1;
-        }
-
-        foreach (var (linkType, count) in linksByType)
-        {
-            parts.Add($"{count} {linkType.ToLowerInvariant()}");
-            total += count;
-        }
-
-        return new LinkSummaryResult(total, string.Join(", ", parts));
-    }
-
-    private readonly record struct LinkSummaryResult(int TotalCount, string Description);
 }

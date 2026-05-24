@@ -144,6 +144,13 @@ public static class CommandServiceModule
             sp.GetRequiredService<IPendingChangeStore>(),
             sp.GetService<IPromptStateWriter>()));
 
+        services.AddSingleton<Twig.Infrastructure.Services.Mutation.DeleteWorkflow>(sp => new Twig.Infrastructure.Services.Mutation.DeleteWorkflow(
+            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IWorkItemLinkRepository>(),
+            sp.GetRequiredService<IPendingChangeStore>(),
+            sp.GetService<IPromptStateWriter>()));
+
         services.AddSingleton<RefreshOrchestrator>(sp => new RefreshOrchestrator(
             sp.GetRequiredService<IContextStore>(),
             sp.GetRequiredService<IWorkItemRepository>(),

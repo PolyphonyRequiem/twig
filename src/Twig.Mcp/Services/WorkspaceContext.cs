@@ -35,6 +35,7 @@ public sealed class WorkspaceContext : IDisposable
     public IPromptStateWriter PromptStateWriter { get; }
     public ParentStatePropagationService ParentPropagationService { get; }
     public StateTransitionWorkflow StateTransitionWorkflow { get; }
+    public FieldUpdateWorkflow FieldUpdateWorkflow { get; }
     public ITrackingRepository? TrackingRepo { get; }
     public IProcessTypeStore ProcessTypeStore { get; }
     public IFieldDefinitionStore FieldDefinitionStore { get; }
@@ -90,6 +91,7 @@ public sealed class WorkspaceContext : IDisposable
         IPromptStateWriter promptStateWriter,
         ParentStatePropagationService parentPropagationService,
         StateTransitionWorkflow stateTransitionWorkflow,
+        FieldUpdateWorkflow fieldUpdateWorkflow,
         SprintIterationResolver sprintIterationResolver,
         IProcessTypeStore processTypeStore,
         IFieldDefinitionStore fieldDefinitionStore,
@@ -118,6 +120,7 @@ public sealed class WorkspaceContext : IDisposable
         PromptStateWriter = promptStateWriter;
         ParentPropagationService = parentPropagationService;
         StateTransitionWorkflow = stateTransitionWorkflow;
+        FieldUpdateWorkflow = fieldUpdateWorkflow;
         SprintIterationResolver = sprintIterationResolver;
         ProcessTypeStore = processTypeStore;
         FieldDefinitionStore = fieldDefinitionStore;

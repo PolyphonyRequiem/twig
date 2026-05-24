@@ -47,8 +47,11 @@ public class UpdateCommandTests
         var formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        return new UpdateCommand(resolver, _workItemRepo, _adoService, _pendingChangeStore,
-            _consoleInput, _fieldDefStore, formatterFactory, _seedMutationProvider, stdinReader: stdinReader, stderr: stderr, stdout: stdout);
+        var fieldUpdateWorkflow = new Twig.Infrastructure.Services.Mutation.FieldUpdateWorkflow(
+            _workItemRepo, _adoService, _pendingChangeStore);
+        return new UpdateCommand(resolver, _workItemRepo, _adoService,
+            _consoleInput, _fieldDefStore, formatterFactory, _seedMutationProvider, fieldUpdateWorkflow,
+            stdinReader: stdinReader, stderr: stderr, stdout: stdout);
     }
 
     private void SetupSuccessfulPatch()

@@ -457,6 +457,7 @@ public sealed class WorkspaceResolverTests
             stateTransitionWorkflow: null!,
             fieldUpdateWorkflow: null!,
             noteWorkflow: null!,
+            discardWorkflow: null!,
             sprintIterationResolver: null!,
             processTypeStore: null!,
             fieldDefinitionStore: null!,

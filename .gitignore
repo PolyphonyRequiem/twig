@@ -45,7 +45,6 @@ coverage/
 .twig/*/
 .twig/twig.db*
 .twig/prompt.json
-!.twig/config
 !.twig/status-fields
 
 # Local dev builds (publish-local.ps1)
@@ -66,3 +65,4 @@ desktop.ini
 
 # Playwright test artifacts
 .playwright-mcp/
+.twig/

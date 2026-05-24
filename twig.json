@@ -1,0 +1,30 @@
+{
+  "organization": "dangreen-msft",
+  "project": "Twig",
+  "team": "",
+  "processTemplate": "",
+  "defaults": {
+    "areaPaths": [
+      "Twig"
+    ],
+    "areaPathEntries": [
+      {
+        "path": "Twig",
+        "includeChildren": false
+      }
+    ],
+    "mode": "sprint",
+    "inheritParentArea": true,
+    "inheritParentIteration": true
+  },
+  "seed": {
+    "staleDays": 14
+  },
+  "git": {
+    "branchPattern": "(?:^|/)(?\u003Cid\u003E\\d{3,})(?:-|/|$)"
+  },
+  "workspace": {},
+  "areas": {
+    "mode": "under"
+  }
+}

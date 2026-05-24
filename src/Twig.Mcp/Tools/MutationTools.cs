@@ -243,56 +243,42 @@ public sealed class MutationTools(WorkspaceResolver resolver)
             fieldChanges[key] = (null, fieldResolution.EffectiveValue);
         }
 
-        // Seed routing: apply each field change via SeedMutationProvider.
+        // Seed path: workflow handles seed routing.
         if (item.IsSeed)
         {
-            var seedProvider = new SeedMutationProvider(ctx.WorkItemRepo);
-            foreach (var change in changes)
+            var seedOutcome = await ctx.PatchWorkflow.ExecuteAsync(item, changes, remote: null, ct);
+            return seedOutcome switch
             {
-                var seedResult = await seedProvider.UpdateFieldAsync(item.Id, change, ct);
-                if (!seedResult.IsSuccess)
-                    return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput, $"Field '{change.FieldName}' failed: {seedResult.ErrorMessage}", ctx, ct);
-            }
-
-            try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
-            catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
-
-            return await EnvelopeBuilder.WrapAsync(ctx,
-                McpResultBuilder.FormatPatch(item, fieldChanges), verbose, ct);
+                PatchOutcome.SeedPatched =>
+                    await EnvelopeBuilder.WrapAsync(ctx, McpResultBuilder.FormatPatch(item, fieldChanges), verbose, ct),
+                PatchOutcome.SeedFieldRejected r =>
+                    await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput, $"Field '{r.FieldName}' failed: {r.Reason}", ctx, ct),
+                _ => throw new System.Diagnostics.UnreachableException($"Unhandled seed PatchOutcome: {seedOutcome.GetType().Name}"),
+            };
         }
 
-        // Fetch remote and PATCH with conflict retry
+        // Non-seed: fetch remote, then call workflow.
         WorkItem remote;
         try
         {
             remote = await ctx.AdoService.FetchAsync(item.Id, ct);
-            await ConflictRetryHelper.PatchWithRetryAsync(ctx.AdoService, item.Id, changes, remote.Revision, ct);
         }
         catch (AdoException ex)
         {
             return await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable, ex.Message, ctx, ct);
         }
 
-        try { await AutoPushNotesHelper.PushAndClearAsync(item.Id, ctx.PendingChangeStore, ctx.AdoService); }
-        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
-
-        // Resync cache — best-effort, non-fatal
-        WorkItem updated;
-        try
+        var outcome = await ctx.PatchWorkflow.ExecuteAsync(item, changes, remote, ct);
+        return outcome switch
         {
-            updated = await ctx.AdoService.FetchAsync(item.Id, ct);
-            await ctx.WorkItemRepo.SaveAsync(updated, ct);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            updated = item;
-        }
-
-        try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
-        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
-
-        return await EnvelopeBuilder.WrapAsync(ctx,
-            McpResultBuilder.FormatPatch(updated, fieldChanges), verbose, ct);
+            PatchOutcome.Patched p =>
+                await EnvelopeBuilder.WrapAsync(ctx, McpResultBuilder.FormatPatch(p.UpdatedItem, fieldChanges), verbose, ct),
+            PatchOutcome.ConflictAfterRetry =>
+                await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable, "Concurrency conflict after retry. Run twig_sync and retry.", ctx, ct),
+            PatchOutcome.AdoUnreachable a =>
+                await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable, a.Reason, ctx, ct),
+            _ => throw new System.Diagnostics.UnreachableException($"Unhandled PatchOutcome: {outcome.GetType().Name}"),
+        };
     }
 
     [McpServerTool(Name = "twig_note"), Description("Add a comment/note to a work item. Operates on the active work item by default, or specify id to target a specific item without changing context.")]

@@ -484,6 +484,7 @@ public sealed class McpEnvelopeShapeTests
             noteWorkflow: null!,
             discardWorkflow: null!,
             deleteWorkflow: null!,
+            patchWorkflow: null!,
             sprintIterationResolver,
             processTypeStore, fieldDefStore,
             Substitute.For<ISeedLinkRepository>(), Substitute.For<IPublishIdMapRepository>(), Substitute.For<ISeedPublishRulesProvider>(), Substitute.For<IUnitOfWork>());

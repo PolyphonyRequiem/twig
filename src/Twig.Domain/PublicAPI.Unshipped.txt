@@ -348,3 +348,86 @@ virtual Twig.Domain.Services.Mutation.DeletePreparation.EqualityContract.get -> 
 virtual Twig.Domain.Services.Mutation.DeletePreparation.PrintMembers(System.Text.StringBuilder! builder) -> bool
 Twig.Domain.Services.Mutation.DeletePreparation.BlockedByLinks.Equals(Twig.Domain.Services.Mutation.DeletePreparation.BlockedByLinks? other) -> bool
 Twig.Domain.Services.Mutation.DeletePreparation.FetchFailed.Equals(Twig.Domain.Services.Mutation.DeletePreparation.FetchFailed? other) -> bool
+abstract Twig.Domain.Services.Mutation.PatchOutcome.<Clone>$() -> Twig.Domain.Services.Mutation.PatchOutcome!
+override sealed Twig.Domain.Services.Mutation.PatchOutcome.AdoUnreachable.Equals(Twig.Domain.Services.Mutation.PatchOutcome? other) -> bool
+override sealed Twig.Domain.Services.Mutation.PatchOutcome.ConflictAfterRetry.Equals(Twig.Domain.Services.Mutation.PatchOutcome? other) -> bool
+override sealed Twig.Domain.Services.Mutation.PatchOutcome.Patched.Equals(Twig.Domain.Services.Mutation.PatchOutcome? other) -> bool
+override sealed Twig.Domain.Services.Mutation.PatchOutcome.SeedFieldRejected.Equals(Twig.Domain.Services.Mutation.PatchOutcome? other) -> bool
+override sealed Twig.Domain.Services.Mutation.PatchOutcome.SeedPatched.Equals(Twig.Domain.Services.Mutation.PatchOutcome? other) -> bool
+override Twig.Domain.Services.Mutation.PatchOutcome.AdoUnreachable.<Clone>$() -> Twig.Domain.Services.Mutation.PatchOutcome.AdoUnreachable!
+override Twig.Domain.Services.Mutation.PatchOutcome.AdoUnreachable.Equals(object? obj) -> bool
+override Twig.Domain.Services.Mutation.PatchOutcome.AdoUnreachable.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.PatchOutcome.AdoUnreachable.ToString() -> string!
+override Twig.Domain.Services.Mutation.PatchOutcome.ConflictAfterRetry.<Clone>$() -> Twig.Domain.Services.Mutation.PatchOutcome.ConflictAfterRetry!
+override Twig.Domain.Services.Mutation.PatchOutcome.ConflictAfterRetry.Equals(object? obj) -> bool
+override Twig.Domain.Services.Mutation.PatchOutcome.ConflictAfterRetry.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.PatchOutcome.ConflictAfterRetry.ToString() -> string!
+override Twig.Domain.Services.Mutation.PatchOutcome.Equals(object? obj) -> bool
+override Twig.Domain.Services.Mutation.PatchOutcome.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.PatchOutcome.Patched.<Clone>$() -> Twig.Domain.Services.Mutation.PatchOutcome.Patched!
+override Twig.Domain.Services.Mutation.PatchOutcome.Patched.Equals(object? obj) -> bool
+override Twig.Domain.Services.Mutation.PatchOutcome.Patched.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.PatchOutcome.Patched.ToString() -> string!
+override Twig.Domain.Services.Mutation.PatchOutcome.SeedFieldRejected.<Clone>$() -> Twig.Domain.Services.Mutation.PatchOutcome.SeedFieldRejected!
+override Twig.Domain.Services.Mutation.PatchOutcome.SeedFieldRejected.Equals(object? obj) -> bool
+override Twig.Domain.Services.Mutation.PatchOutcome.SeedFieldRejected.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.PatchOutcome.SeedFieldRejected.ToString() -> string!
+override Twig.Domain.Services.Mutation.PatchOutcome.SeedPatched.<Clone>$() -> Twig.Domain.Services.Mutation.PatchOutcome.SeedPatched!
+override Twig.Domain.Services.Mutation.PatchOutcome.SeedPatched.Equals(object? obj) -> bool
+override Twig.Domain.Services.Mutation.PatchOutcome.SeedPatched.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.PatchOutcome.SeedPatched.ToString() -> string!
+override Twig.Domain.Services.Mutation.PatchOutcome.ToString() -> string!
+static Twig.Domain.Services.Mutation.PatchOutcome.AdoUnreachable.operator !=(Twig.Domain.Services.Mutation.PatchOutcome.AdoUnreachable? left, Twig.Domain.Services.Mutation.PatchOutcome.AdoUnreachable? right) -> bool
+static Twig.Domain.Services.Mutation.PatchOutcome.AdoUnreachable.operator ==(Twig.Domain.Services.Mutation.PatchOutcome.AdoUnreachable? left, Twig.Domain.Services.Mutation.PatchOutcome.AdoUnreachable? right) -> bool
+static Twig.Domain.Services.Mutation.PatchOutcome.ConflictAfterRetry.operator !=(Twig.Domain.Services.Mutation.PatchOutcome.ConflictAfterRetry? left, Twig.Domain.Services.Mutation.PatchOutcome.ConflictAfterRetry? right) -> bool
+static Twig.Domain.Services.Mutation.PatchOutcome.ConflictAfterRetry.operator ==(Twig.Domain.Services.Mutation.PatchOutcome.ConflictAfterRetry? left, Twig.Domain.Services.Mutation.PatchOutcome.ConflictAfterRetry? right) -> bool
+static Twig.Domain.Services.Mutation.PatchOutcome.operator !=(Twig.Domain.Services.Mutation.PatchOutcome? left, Twig.Domain.Services.Mutation.PatchOutcome? right) -> bool
+static Twig.Domain.Services.Mutation.PatchOutcome.operator ==(Twig.Domain.Services.Mutation.PatchOutcome? left, Twig.Domain.Services.Mutation.PatchOutcome? right) -> bool
+static Twig.Domain.Services.Mutation.PatchOutcome.Patched.operator !=(Twig.Domain.Services.Mutation.PatchOutcome.Patched? left, Twig.Domain.Services.Mutation.PatchOutcome.Patched? right) -> bool
+static Twig.Domain.Services.Mutation.PatchOutcome.Patched.operator ==(Twig.Domain.Services.Mutation.PatchOutcome.Patched? left, Twig.Domain.Services.Mutation.PatchOutcome.Patched? right) -> bool
+static Twig.Domain.Services.Mutation.PatchOutcome.SeedFieldRejected.operator !=(Twig.Domain.Services.Mutation.PatchOutcome.SeedFieldRejected? left, Twig.Domain.Services.Mutation.PatchOutcome.SeedFieldRejected? right) -> bool
+static Twig.Domain.Services.Mutation.PatchOutcome.SeedFieldRejected.operator ==(Twig.Domain.Services.Mutation.PatchOutcome.SeedFieldRejected? left, Twig.Domain.Services.Mutation.PatchOutcome.SeedFieldRejected? right) -> bool
+static Twig.Domain.Services.Mutation.PatchOutcome.SeedPatched.operator !=(Twig.Domain.Services.Mutation.PatchOutcome.SeedPatched? left, Twig.Domain.Services.Mutation.PatchOutcome.SeedPatched? right) -> bool
+static Twig.Domain.Services.Mutation.PatchOutcome.SeedPatched.operator ==(Twig.Domain.Services.Mutation.PatchOutcome.SeedPatched? left, Twig.Domain.Services.Mutation.PatchOutcome.SeedPatched? right) -> bool
+Twig.Domain.Services.Mutation.PatchOutcome
+Twig.Domain.Services.Mutation.PatchOutcome.AdoUnreachable
+Twig.Domain.Services.Mutation.PatchOutcome.AdoUnreachable.AdoUnreachable(string! Reason) -> void
+Twig.Domain.Services.Mutation.PatchOutcome.AdoUnreachable.Deconstruct(out string! Reason) -> void
+Twig.Domain.Services.Mutation.PatchOutcome.AdoUnreachable.Reason.get -> string!
+Twig.Domain.Services.Mutation.PatchOutcome.AdoUnreachable.Reason.init -> void
+Twig.Domain.Services.Mutation.PatchOutcome.ConflictAfterRetry
+Twig.Domain.Services.Mutation.PatchOutcome.ConflictAfterRetry.ConflictAfterRetry() -> void
+Twig.Domain.Services.Mutation.PatchOutcome.Patched
+Twig.Domain.Services.Mutation.PatchOutcome.Patched.Changes.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.FieldChange>!
+Twig.Domain.Services.Mutation.PatchOutcome.Patched.Changes.init -> void
+Twig.Domain.Services.Mutation.PatchOutcome.Patched.Deconstruct(out Twig.Domain.Aggregates.WorkItem! UpdatedItem, out System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.FieldChange>! Changes, out System.Collections.Generic.IReadOnlyList<string!>! Warnings) -> void
+Twig.Domain.Services.Mutation.PatchOutcome.Patched.Patched(Twig.Domain.Aggregates.WorkItem! UpdatedItem, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.FieldChange>! Changes, System.Collections.Generic.IReadOnlyList<string!>! Warnings) -> void
+Twig.Domain.Services.Mutation.PatchOutcome.Patched.UpdatedItem.get -> Twig.Domain.Aggregates.WorkItem!
+Twig.Domain.Services.Mutation.PatchOutcome.Patched.UpdatedItem.init -> void
+Twig.Domain.Services.Mutation.PatchOutcome.Patched.Warnings.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Twig.Domain.Services.Mutation.PatchOutcome.Patched.Warnings.init -> void
+Twig.Domain.Services.Mutation.PatchOutcome.PatchOutcome(Twig.Domain.Services.Mutation.PatchOutcome! original) -> void
+Twig.Domain.Services.Mutation.PatchOutcome.SeedFieldRejected
+Twig.Domain.Services.Mutation.PatchOutcome.SeedFieldRejected.Deconstruct(out string! FieldName, out string! Reason) -> void
+Twig.Domain.Services.Mutation.PatchOutcome.SeedFieldRejected.FieldName.get -> string!
+Twig.Domain.Services.Mutation.PatchOutcome.SeedFieldRejected.FieldName.init -> void
+Twig.Domain.Services.Mutation.PatchOutcome.SeedFieldRejected.Reason.get -> string!
+Twig.Domain.Services.Mutation.PatchOutcome.SeedFieldRejected.Reason.init -> void
+Twig.Domain.Services.Mutation.PatchOutcome.SeedFieldRejected.SeedFieldRejected(string! FieldName, string! Reason) -> void
+Twig.Domain.Services.Mutation.PatchOutcome.SeedPatched
+Twig.Domain.Services.Mutation.PatchOutcome.SeedPatched.Changes.get -> System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.FieldChange>!
+Twig.Domain.Services.Mutation.PatchOutcome.SeedPatched.Changes.init -> void
+Twig.Domain.Services.Mutation.PatchOutcome.SeedPatched.Deconstruct(out Twig.Domain.Aggregates.WorkItem! Item, out System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.FieldChange>! Changes, out System.Collections.Generic.IReadOnlyList<string!>! Warnings) -> void
+Twig.Domain.Services.Mutation.PatchOutcome.SeedPatched.Item.get -> Twig.Domain.Aggregates.WorkItem!
+Twig.Domain.Services.Mutation.PatchOutcome.SeedPatched.Item.init -> void
+Twig.Domain.Services.Mutation.PatchOutcome.SeedPatched.SeedPatched(Twig.Domain.Aggregates.WorkItem! Item, System.Collections.Generic.IReadOnlyList<Twig.Domain.ValueObjects.FieldChange>! Changes, System.Collections.Generic.IReadOnlyList<string!>! Warnings) -> void
+Twig.Domain.Services.Mutation.PatchOutcome.SeedPatched.Warnings.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Twig.Domain.Services.Mutation.PatchOutcome.SeedPatched.Warnings.init -> void
+virtual Twig.Domain.Services.Mutation.PatchOutcome.EqualityContract.get -> System.Type!
+virtual Twig.Domain.Services.Mutation.PatchOutcome.Equals(Twig.Domain.Services.Mutation.PatchOutcome? other) -> bool
+virtual Twig.Domain.Services.Mutation.PatchOutcome.PrintMembers(System.Text.StringBuilder! builder) -> bool
+Twig.Domain.Services.Mutation.PatchOutcome.SeedPatched.Equals(Twig.Domain.Services.Mutation.PatchOutcome.SeedPatched? other) -> bool
+Twig.Domain.Services.Mutation.PatchOutcome.SeedFieldRejected.Equals(Twig.Domain.Services.Mutation.PatchOutcome.SeedFieldRejected? other) -> bool
+Twig.Domain.Services.Mutation.PatchOutcome.Patched.Equals(Twig.Domain.Services.Mutation.PatchOutcome.Patched? other) -> bool
+Twig.Domain.Services.Mutation.PatchOutcome.ConflictAfterRetry.Equals(Twig.Domain.Services.Mutation.PatchOutcome.ConflictAfterRetry? other) -> bool
+Twig.Domain.Services.Mutation.PatchOutcome.AdoUnreachable.Equals(Twig.Domain.Services.Mutation.PatchOutcome.AdoUnreachable? other) -> bool

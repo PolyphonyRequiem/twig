@@ -151,6 +151,12 @@ public static class CommandServiceModule
             sp.GetRequiredService<IPendingChangeStore>(),
             sp.GetService<IPromptStateWriter>()));
 
+        services.AddSingleton<Twig.Infrastructure.Services.Mutation.PatchWorkflow>(sp => new Twig.Infrastructure.Services.Mutation.PatchWorkflow(
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IPendingChangeStore>(),
+            sp.GetService<IPromptStateWriter>()));
+
         services.AddSingleton<RefreshOrchestrator>(sp => new RefreshOrchestrator(
             sp.GetRequiredService<IContextStore>(),
             sp.GetRequiredService<IWorkItemRepository>(),

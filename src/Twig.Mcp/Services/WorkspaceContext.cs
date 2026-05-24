@@ -39,6 +39,7 @@ public sealed class WorkspaceContext : IDisposable
     public NoteWorkflow NoteWorkflow { get; }
     public DiscardWorkflow DiscardWorkflow { get; }
     public DeleteWorkflow DeleteWorkflow { get; }
+    public PatchWorkflow PatchWorkflow { get; }
     public ITrackingRepository? TrackingRepo { get; }
     public IProcessTypeStore ProcessTypeStore { get; }
     public IFieldDefinitionStore FieldDefinitionStore { get; }
@@ -98,6 +99,7 @@ public sealed class WorkspaceContext : IDisposable
         NoteWorkflow noteWorkflow,
         DiscardWorkflow discardWorkflow,
         DeleteWorkflow deleteWorkflow,
+        PatchWorkflow patchWorkflow,
         SprintIterationResolver sprintIterationResolver,
         IProcessTypeStore processTypeStore,
         IFieldDefinitionStore fieldDefinitionStore,
@@ -130,6 +132,7 @@ public sealed class WorkspaceContext : IDisposable
         NoteWorkflow = noteWorkflow;
         DiscardWorkflow = discardWorkflow;
         DeleteWorkflow = deleteWorkflow;
+        PatchWorkflow = patchWorkflow;
         SprintIterationResolver = sprintIterationResolver;
         ProcessTypeStore = processTypeStore;
         FieldDefinitionStore = fieldDefinitionStore;

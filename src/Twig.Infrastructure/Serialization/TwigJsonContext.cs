@@ -19,6 +19,8 @@ namespace Twig.Infrastructure.Serialization;
 /// Add <c>[JsonSerializable]</c> attributes here for every DTO type as they are introduced.
 /// </summary>
 [JsonSerializable(typeof(TwigConfiguration))]
+[JsonSerializable(typeof(TwigRepoConfig))]
+[JsonSerializable(typeof(TwigUserConfig))]
 [JsonSerializable(typeof(AuthConfig))]
 [JsonSerializable(typeof(DefaultsConfig))]
 [JsonSerializable(typeof(SeedConfig))]

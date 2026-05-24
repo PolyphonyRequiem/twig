@@ -1400,6 +1400,110 @@ public class TwigConfigurationTests : IDisposable
         value.ShouldBe("0.75");
     }
 
+    // ----------------------------------------------------------------------
+    // AB#3296 PR-1: partition correctness — every public top-level property on
+    // TwigConfiguration must route through either RepoCoords or UserPrefs, and
+    // the on-disk JSON shape must be unchanged.
+    // ----------------------------------------------------------------------
+
+    [Fact]
+    public void Partition_RepoCoords_Delegation_OrganizationAndDefaults()
+    {
+        var config = new TwigConfiguration
+        {
+            Organization = "neworg",
+            Defaults = { AreaPath = @"neworg\area" },
+        };
+
+        config.RepoCoords.Organization.ShouldBe("neworg");
+        config.RepoCoords.Defaults.AreaPath.ShouldBe(@"neworg\area");
+    }
+
+    [Fact]
+    public void Partition_UserPrefs_Delegation_AuthAndDisplayAndUser()
+    {
+        var config = new TwigConfiguration
+        {
+            Auth = new AuthConfig { Method = "pat" },
+            Display = new DisplayConfig { Icons = "nerd" },
+            User = new UserConfig { DisplayName = "Test User" },
+            TypeAppearances = new List<TypeAppearanceConfig> { new() { Name = "Bug", Color = "FF0000" } },
+        };
+
+        config.UserPrefs.Auth.Method.ShouldBe("pat");
+        config.UserPrefs.Display.Icons.ShouldBe("nerd");
+        config.UserPrefs.User.DisplayName.ShouldBe("Test User");
+        config.UserPrefs.TypeAppearances.ShouldNotBeNull();
+        config.UserPrefs.TypeAppearances[0].Name.ShouldBe("Bug");
+    }
+
+    [Fact]
+    public void Partition_SubConfigMutation_VisibleOnWrapper()
+    {
+        // Mutating a sub-config directly must be visible through the delegating
+        // wrapper property. Proves the wrapper is not snapshotting state.
+        var config = new TwigConfiguration();
+        config.RepoCoords.Organization = "deepset";
+        config.UserPrefs.Display.TreeDepth = 99;
+
+        config.Organization.ShouldBe("deepset");
+        config.Display.TreeDepth.ShouldBe(99);
+    }
+
+    [Fact]
+    public async Task Partition_OnDiskShape_DoesNotContainRepoCoordsOrUserPrefsKeys()
+    {
+        // PR-1 invariant: the partition is internal. Serialization must continue
+        // to emit the same flat shape as before. PR-2 changes this; until then,
+        // the on-disk JSON must NOT mention the new container property names.
+        var configPath = Path.Combine(_tempDir, "shape.json");
+        var config = new TwigConfiguration
+        {
+            Organization = "shapeorg",
+            Display = new DisplayConfig { Icons = "nerd" },
+        };
+
+        await config.SaveAsync(configPath);
+        var json = await File.ReadAllTextAsync(configPath);
+
+        json.ShouldNotContain("repoCoords");
+        json.ShouldNotContain("userPrefs");
+        json.ShouldContain("organization");
+        json.ShouldContain("display");
+    }
+
+    [Fact]
+    public async Task Partition_LegacyOnDiskShape_DeserializesIntoBothSubConfigs()
+    {
+        // Reading a pre-PR-1 single-file shape must populate both RepoCoords
+        // and UserPrefs via the delegating setters. This is the back-compat
+        // path that lets PR-1 deploy without disturbing existing config files.
+        var configPath = Path.Combine(_tempDir, "legacy.json");
+        const string legacyJson = """
+            {
+              "organization": "legacyorg",
+              "project": "legacyproj",
+              "team": "legacyteam",
+              "auth": { "method": "pat" },
+              "display": { "icons": "nerd", "treeDepth": 7 },
+              "user": { "displayName": "Legacy User" },
+              "areas": { "mode": "exact" }
+            }
+            """;
+        await File.WriteAllTextAsync(configPath, legacyJson);
+
+        var loaded = await TwigConfiguration.LoadAsync(configPath);
+
+        loaded.RepoCoords.Organization.ShouldBe("legacyorg");
+        loaded.RepoCoords.Project.ShouldBe("legacyproj");
+        loaded.RepoCoords.Team.ShouldBe("legacyteam");
+        loaded.RepoCoords.Areas.Mode.ShouldBe("exact");
+        loaded.UserPrefs.Auth.Method.ShouldBe("pat");
+        loaded.UserPrefs.Display.Icons.ShouldBe("nerd");
+        loaded.UserPrefs.Display.TreeDepth.ShouldBe(7);
+        loaded.UserPrefs.User.DisplayName.ShouldBe("Legacy User");
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //  Idempotency tests (ADO #3237 — sync rewrites .twig/config)
     // ═══════════════════════════════════════════════════════════════

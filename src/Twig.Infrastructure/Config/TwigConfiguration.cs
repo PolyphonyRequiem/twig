@@ -7,30 +7,59 @@ namespace Twig.Infrastructure.Config;
 
 /// <summary>
 /// POCO representing the .twig/config JSON file.
+/// <para>
+/// As of AB#3296 PR-1, internally composed of two sub-configs
+/// (<see cref="TwigRepoConfig"/> and <see cref="TwigUserConfig"/>) that
+/// establish a partition between repo coordinates (committed) and user
+/// preferences (gitignored). PR-1 only introduces the partition —
+/// serialization still produces the same flat single-file shape on disk.
+/// PR-2 splits the on-disk shape into <c>twig.json</c> + <c>.twig/config</c>.
+/// </para>
+/// <para>
+/// Every public top-level property here delegates to one of the sub-configs.
+/// The sub-configs themselves are <see cref="JsonIgnoreAttribute"/>'d so
+/// source-gen emits the same JSON shape as before the refactor.
+/// </para>
 /// Supports LoadAsync, SaveAsync, and SetValue for known configuration paths.
 /// </summary>
 public sealed class TwigConfiguration
 {
-    public string Organization { get; set; } = string.Empty;
-    public string Project { get; set; } = string.Empty;
-    public string Team { get; set; } = string.Empty;
-    public string ProcessTemplate { get; set; } = string.Empty;
-    public AuthConfig Auth { get; set; } = new();
-    public DefaultsConfig Defaults { get; set; } = new();
-    public SeedConfig Seed { get; set; } = new();
-    public DisplayConfig Display { get; set; } = new();
-    public UserConfig User { get; set; } = new();
-    public GitConfig Git { get; set; } = new();
-    public WorkspaceConfig Workspace { get; set; } = new();
-    public TrackingConfig Tracking { get; set; } = new();
-    public AreasConfig Areas { get; set; } = new();
+    /// <summary>
+    /// Repo-scoped coordinates that every contributor needs. Internal partition
+    /// container for AB#3296. Not serialized in PR-1 (the on-disk shape stays a
+    /// single flat file); PR-2 will serialize this independently to a
+    /// committed <c>twig.json</c> at the repo root.
+    /// </summary>
+    [JsonIgnore]
+    public TwigRepoConfig RepoCoords { get; set; } = new();
+
+    /// <summary>
+    /// Per-user preferences that vary by machine. Internal partition container
+    /// for AB#3296. Not serialized in PR-1. See <see cref="RepoCoords"/>.
+    /// </summary>
+    [JsonIgnore]
+    public TwigUserConfig UserPrefs { get; set; } = new();
+
+    public string Organization { get => RepoCoords.Organization; set => RepoCoords.Organization = value; }
+    public string Project { get => RepoCoords.Project; set => RepoCoords.Project = value; }
+    public string Team { get => RepoCoords.Team; set => RepoCoords.Team = value; }
+    public string ProcessTemplate { get => RepoCoords.ProcessTemplate; set => RepoCoords.ProcessTemplate = value; }
+    public AuthConfig Auth { get => UserPrefs.Auth; set => UserPrefs.Auth = value; }
+    public DefaultsConfig Defaults { get => RepoCoords.Defaults; set => RepoCoords.Defaults = value; }
+    public SeedConfig Seed { get => RepoCoords.Seed; set => RepoCoords.Seed = value; }
+    public DisplayConfig Display { get => UserPrefs.Display; set => UserPrefs.Display = value; }
+    public UserConfig User { get => UserPrefs.User; set => UserPrefs.User = value; }
+    public GitConfig Git { get => RepoCoords.Git; set => RepoCoords.Git = value; }
+    public WorkspaceConfig Workspace { get => RepoCoords.Workspace; set => RepoCoords.Workspace = value; }
+    public TrackingConfig Tracking { get => UserPrefs.Tracking; set => UserPrefs.Tracking = value; }
+    public AreasConfig Areas { get => RepoCoords.Areas; set => RepoCoords.Areas = value; }
 
     /// <summary>
     /// Returns the project to use for git/PR API calls.
     /// Falls back to the root <see cref="Project"/> if <see cref="GitConfig.Project"/> is not set.
     /// </summary>
     public string GetGitProject() => !string.IsNullOrWhiteSpace(Git.Project) ? Git.Project : Project;
-    public List<TypeAppearanceConfig>? TypeAppearances { get; set; }
+    public List<TypeAppearanceConfig>? TypeAppearances { get => UserPrefs.TypeAppearances; set => UserPrefs.TypeAppearances = value; }
 
     /// <summary>
     /// Loads configuration synchronously from a JSON file. Preferred for CLI bootstrap
@@ -457,6 +486,39 @@ public sealed class TwigConfiguration
 public sealed class AuthConfig
 {
     public string Method { get; set; } = "azcli";
+}
+
+/// <summary>
+/// Repo-scoped configuration: coordinates that every contributor needs to talk
+/// to the same Azure DevOps project. As of AB#3296 PR-1 this is an internal
+/// partition target; PR-2 will serialize this independently to a committed
+/// <c>twig.json</c> at the repo root.
+/// </summary>
+public sealed class TwigRepoConfig
+{
+    public string Organization { get; set; } = string.Empty;
+    public string Project { get; set; } = string.Empty;
+    public string Team { get; set; } = string.Empty;
+    public string ProcessTemplate { get; set; } = string.Empty;
+    public DefaultsConfig Defaults { get; set; } = new();
+    public SeedConfig Seed { get; set; } = new();
+    public GitConfig Git { get; set; } = new();
+    public WorkspaceConfig Workspace { get; set; } = new();
+    public AreasConfig Areas { get; set; } = new();
+}
+
+/// <summary>
+/// Per-user configuration: preferences that vary by machine and should never
+/// produce a git diff. As of AB#3296 PR-1 this is an internal partition target;
+/// PR-2 will serialize this independently to a gitignored <c>.twig/config</c>.
+/// </summary>
+public sealed class TwigUserConfig
+{
+    public AuthConfig Auth { get; set; } = new();
+    public DisplayConfig Display { get; set; } = new();
+    public UserConfig User { get; set; } = new();
+    public TrackingConfig Tracking { get; set; } = new();
+    public List<TypeAppearanceConfig>? TypeAppearances { get; set; }
 }
 
 public sealed class DefaultsConfig

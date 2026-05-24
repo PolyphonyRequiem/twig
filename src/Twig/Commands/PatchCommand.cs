@@ -1,12 +1,12 @@
 using System.Text.Json;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.Mutation;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
-using Twig.Infrastructure.Ado;
-using Twig.Infrastructure.Ado.Exceptions;
 using Twig.Infrastructure.Content;
 using Twig.Infrastructure.Serialization;
+using Twig.Infrastructure.Services.Mutation;
 
 namespace Twig.Commands;
 
@@ -19,13 +19,12 @@ namespace Twig.Commands;
 public sealed class PatchCommand(
     ActiveItemResolver activeItemResolver,
     IAdoWorkItemService adoService,
-    IPendingChangeStore pendingChangeStore,
     IConsoleInput consoleInput,
     IWorkItemRepository workItemRepo,
     IFieldDefinitionStore fieldDefStore,
+    PatchWorkflow patchWorkflow,
     OutputFormatterFactory formatterFactory,
     ITelemetryClient? telemetryClient = null,
-    IPromptStateWriter? promptStateWriter = null,
     TextReader? stdinReader = null,
     TextWriter? stderr = null,
     TextWriter? stdout = null)
@@ -164,7 +163,14 @@ public sealed class PatchCommand(
             return (1, fieldCount);
         }
 
-        // Fetch remote and resolve conflicts
+        // Seed path: workflow handles seed routing entirely.
+        if (item.IsSeed)
+        {
+            var seedOutcome = await patchWorkflow.ExecuteAsync(item, changes, remote: null, ct);
+            return RenderOutcome(seedOutcome, item, fmt, fieldCount);
+        }
+
+        // Non-seed: fetch remote, run conflict-resolution UI, then call workflow.
         var remote = await adoService.FetchAsync(item.Id, ct);
 
         var conflictOutcome = await ConflictResolutionFlow.ResolveAsync(
@@ -175,38 +181,36 @@ public sealed class PatchCommand(
         if (conflictOutcome is ConflictOutcome.AcceptedRemote or ConflictOutcome.Aborted)
             return (0, fieldCount);
 
-        // PATCH with conflict retry
-        try
+        var outcome = await patchWorkflow.ExecuteAsync(item, changes, remote, ct);
+        return RenderOutcome(outcome, item, fmt, fieldCount);
+    }
+
+    private (int ExitCode, int FieldCount) RenderOutcome(
+        PatchOutcome outcome, Domain.Aggregates.WorkItem item, IOutputFormatter fmt, int fieldCount)
+    {
+        switch (outcome)
         {
-            await ConflictRetryHelper.PatchWithRetryAsync(
-                adoService, item.Id, changes, remote.Revision, ct);
+            case PatchOutcome.SeedPatched s:
+                _stdout.WriteLine(fmt.FormatSuccess(
+                    $"#{s.Item.Id} {s.Item.Title}: patched {s.Changes.Count} field(s)."));
+                foreach (var w in s.Warnings) _stderr.WriteLine($"warning: {w}");
+                return (0, fieldCount);
+            case PatchOutcome.SeedFieldRejected r:
+                _stderr.WriteLine(fmt.FormatError($"Field '{r.FieldName}' failed: {r.Reason}"));
+                return (1, fieldCount);
+            case PatchOutcome.Patched p:
+                _stdout.WriteLine(fmt.FormatSuccess(
+                    $"#{p.UpdatedItem.Id} {p.UpdatedItem.Title}: patched {p.Changes.Count} field(s)."));
+                foreach (var w in p.Warnings) _stderr.WriteLine($"warning: {w}");
+                return (0, fieldCount);
+            case PatchOutcome.ConflictAfterRetry:
+                _stderr.WriteLine(fmt.FormatError("Concurrency conflict after retry. Run 'twig sync' and retry."));
+                return (1, fieldCount);
+            case PatchOutcome.AdoUnreachable a:
+                _stderr.WriteLine(fmt.FormatError($"ADO call failed: {a.Reason}"));
+                return (1, fieldCount);
+            default:
+                throw new System.Diagnostics.UnreachableException($"Unhandled PatchOutcome: {outcome.GetType().Name}");
         }
-        catch (AdoConflictException)
-        {
-            _stderr.WriteLine(fmt.FormatError("Concurrency conflict after retry. Run 'twig sync' and retry."));
-            return (1, fieldCount);
-        }
-
-        // Auto-push pending notes
-        await AutoPushNotesHelper.PushAndClearAsync(item.Id, pendingChangeStore, adoService);
-
-        // Resync cache (non-fatal on failure)
-        try
-        {
-            var updated = await adoService.FetchAsync(item.Id, ct);
-            await workItemRepo.SaveAsync(updated, ct);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _stderr.WriteLine(
-                $"warning: Patch succeeded but cache may be stale — run 'twig sync' to resync ({ex.Message})");
-        }
-
-        if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
-
-        _stdout.WriteLine(fmt.FormatSuccess(
-            $"#{item.Id} {item.Title}: patched {changes.Count} field(s)."));
-
-        return (0, fieldCount);
     }
 }

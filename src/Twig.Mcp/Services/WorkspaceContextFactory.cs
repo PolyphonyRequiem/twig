@@ -192,6 +192,12 @@ public sealed class WorkspaceContextFactory : IWorkspaceContextFactory, IDisposa
             pendingChangeStore,
             promptStateWriter: promptStateWriter);
 
+        var patchWorkflow = new PatchWorkflow(
+            workItemRepo,
+            adoService,
+            pendingChangeStore,
+            promptStateWriter: promptStateWriter);
+
         var sprintIterationResolver = new SprintIterationResolver(iterationService, workItemRepo);
 
         // Seed publishing dependencies
@@ -242,6 +248,7 @@ public sealed class WorkspaceContextFactory : IWorkspaceContextFactory, IDisposa
             noteWorkflow,
             discardWorkflow,
             deleteWorkflow,
+            patchWorkflow,
             sprintIterationResolver,
             processTypeStore,
             fieldDefStore,

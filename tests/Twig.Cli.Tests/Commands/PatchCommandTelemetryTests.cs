@@ -50,13 +50,15 @@ public sealed class PatchCommandTelemetryTests : IDisposable
     private PatchCommand CreateCommand(ITelemetryClient? telemetry = null, TextReader? stdin = null)
     {
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var workflow = new Twig.Infrastructure.Services.Mutation.PatchWorkflow(
+            _workItemRepo, _adoService, _pendingChangeStore);
         return new PatchCommand(
             resolver,
             _adoService,
-            _pendingChangeStore,
             _consoleInput,
             _workItemRepo,
             _fieldDefStore,
+            workflow,
             _formatterFactory,
             telemetryClient: telemetry ?? _telemetryClient,
             stdinReader: stdin,
@@ -211,13 +213,15 @@ public sealed class PatchCommandTelemetryTests : IDisposable
         var cmd = CreateCommand(telemetry: null!);
         // Re-create without telemetry client
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var workflow2 = new Twig.Infrastructure.Services.Mutation.PatchWorkflow(
+            _workItemRepo, _adoService, _pendingChangeStore);
         cmd = new PatchCommand(
             resolver,
             _adoService,
-            _pendingChangeStore,
             _consoleInput,
             _workItemRepo,
             _fieldDefStore,
+            workflow2,
             _formatterFactory,
             telemetryClient: null,
             stderr: _stderr,

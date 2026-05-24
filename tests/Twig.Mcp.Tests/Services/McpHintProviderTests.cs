@@ -252,6 +252,7 @@ public sealed class McpHintProviderTests
             workingSet, flusher, promptStateWriter, parentPropagation,
             stateTransitionWorkflow: null!,
             fieldUpdateWorkflow: null!,
+            noteWorkflow: null!,
             sprintIterationResolver,
             processTypeStore, fieldDefStore,
             Substitute.For<ISeedLinkRepository>(), Substitute.For<IPublishIdMapRepository>(), Substitute.For<ISeedPublishRulesProvider>(), Substitute.For<IUnitOfWork>());

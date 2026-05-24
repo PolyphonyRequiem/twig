@@ -316,39 +316,16 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         var (item, resolveError) = await WorkItemResolver.ResolveWorkItemAsync(ctx, id, ct);
         if (item is null) return resolveError!;
 
-        var noteResolution = HtmlFieldFormatter.ResolveComment(text, format);
-        var effectiveText = noteResolution.EffectiveValue;
+        var commentResolution = HtmlFieldFormatter.ResolveComment(text, format);
 
-        // Push comment to ADO— fall back to local staging on failure
-        bool isPending;
-        try
+        var outcome = await ctx.NoteWorkflow.ExecuteAsync(item, commentResolution.EffectiveValue, commentResolution.IsHtml, ct);
+
+        bool isPending = outcome switch
         {
-            await ctx.AdoService.AddCommentAsync(item.Id, effectiveText, ct);
-            isPending = false;
-
-            await ctx.PendingChangeStore.ClearChangesByTypeAsync(item.Id, "note", ct);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            await ctx.PendingChangeStore.AddChangeAsync(item.Id, "note", fieldName: null, oldValue: null, newValue: effectiveText, ct);
-            isPending = true;
-        }
-
-        // Resync cache — best-effort, only on successful push
-        if (!isPending)
-        {
-            try
-            {
-                var updated = await ctx.AdoService.FetchAsync(item.Id, ct);
-                await ctx.WorkItemRepo.SaveAsync(updated, ct);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                // best-effort
-            }
-        }
-
-        await ctx.PromptStateWriter.WritePromptStateAsync();
+            NoteOutcome.Pushed => false,
+            NoteOutcome.Staged => true,
+            _ => throw new System.Diagnostics.UnreachableException($"Unhandled NoteOutcome: {outcome.GetType().Name}"),
+        };
 
         return await EnvelopeBuilder.WrapAsync(ctx,
             McpResultBuilder.FormatNoteAdded(item.Id, item.Title, isPending), verbose, ct);

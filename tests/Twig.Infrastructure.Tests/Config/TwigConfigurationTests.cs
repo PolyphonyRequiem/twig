@@ -416,8 +416,12 @@ public class TwigConfigurationTests : IDisposable
     }
 
     [Fact]
-    public async Task TypeAppearances_SerializationRoundTrip()
+    public async Task TypeAppearances_NeverSerializedToDisk_AB3296PR3()
     {
+        // AB#3296 PR-3: TypeAppearances is hydrated at bootstrap from the
+        // SQLite cache (process_types table) and must never round-trip via
+        // the config file. The 60-line JSON array used to be rewritten on
+        // every 'twig sync'; this test guards against the regression.
         var configPath = Path.Combine(_tempDir, "config_appearances.json");
         var config = new TwigConfiguration
         {
@@ -431,16 +435,14 @@ public class TwigConfigurationTests : IDisposable
         };
 
         await config.SaveAsync(configPath);
-        var loaded = await TwigConfiguration.LoadAsync(configPath);
+        var json = await File.ReadAllTextAsync(configPath);
 
-        loaded.TypeAppearances.ShouldNotBeNull();
-        loaded.TypeAppearances!.Count.ShouldBe(2);
-        loaded.TypeAppearances[0].Name.ShouldBe("Epic");
-        loaded.TypeAppearances[0].Color.ShouldBe("FF0000");
-        loaded.TypeAppearances[0].IconId.ShouldBe("icon_epic");
-        loaded.TypeAppearances[1].Name.ShouldBe("Task");
-        loaded.TypeAppearances[1].Color.ShouldBe("0000FF");
-        loaded.TypeAppearances[1].IconId.ShouldBeNull();
+        json.ShouldNotContain("typeAppearances");
+        json.ShouldNotContain("TypeAppearances");
+        json.ShouldNotContain("icon_epic");
+
+        var loaded = await TwigConfiguration.LoadAsync(configPath);
+        loaded.TypeAppearances.ShouldBeNull();
     }
 
     // --- git.project / git.repository SetValue tests ---

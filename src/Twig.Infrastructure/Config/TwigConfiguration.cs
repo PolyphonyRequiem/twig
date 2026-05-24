@@ -69,6 +69,11 @@ public sealed class TwigConfiguration
     /// Falls back to the root <see cref="Project"/> if <see cref="GitConfig.Project"/> is not set.
     /// </summary>
     public string GetGitProject() => !string.IsNullOrWhiteSpace(Git.Project) ? Git.Project : Project;
+    /// <summary>
+    /// AB#3296 PR-3: hydrated at bootstrap from the SQLite <c>process_types</c>
+    /// cache; never serialized to disk. See <see cref="TwigUserConfig.TypeAppearances"/>.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
     public List<TypeAppearanceConfig>? TypeAppearances { get => UserPrefs.TypeAppearances; set => UserPrefs.TypeAppearances = value; }
 
     /// <summary>
@@ -783,6 +788,17 @@ public sealed class TwigUserConfig
     public DisplayConfig Display { get; set; } = new();
     public UserConfig User { get; set; } = new();
     public TrackingConfig Tracking { get; set; } = new();
+
+    /// <summary>
+    /// AB#3296 PR-3: this field is hydrated at bootstrap from the SQLite
+    /// <c>process_types</c> cache (see <c>SqliteProcessTypeStore</c>) and is
+    /// never serialized to disk. The data is already cached per-context in
+    /// the SQLite store; keeping it out of the user-prefs file eliminates the
+    /// 60-line JSON array that <c>twig sync</c> used to rewrite on every
+    /// invocation. <c>migrate-config</c> drops this field when rewriting a
+    /// legacy <c>.twig/config</c>.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
     public List<TypeAppearanceConfig>? TypeAppearances { get; set; }
 }
 

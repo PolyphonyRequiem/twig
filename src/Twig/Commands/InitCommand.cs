@@ -208,20 +208,11 @@ public sealed class InitCommand
         var template = await iterationService.DetectTemplateNameAsync();
         config.ProcessTemplate = template ?? string.Empty;
 
-        Console.WriteLine(fmt.FormatInfo("Fetching type appearances..."));
-        var appearances = await iterationService.GetWorkItemTypeAppearancesAsync();
-        var typeAppearances = new List<TypeAppearanceConfig>(appearances.Count);
-        foreach (var appearance in appearances)
-        {
-            typeAppearances.Add(new TypeAppearanceConfig
-            {
-                Name = appearance.Name,
-                Color = appearance.Color ?? string.Empty,
-                IconId = appearance.IconId
-            });
-        }
-        config.TypeAppearances = typeAppearances;
-        Console.WriteLine(fmt.FormatInfo($"  Loaded {appearances.Count} type appearance(s)."));
+        // AB#3296 PR-3: type appearances are sourced from the SQLite cache
+        // (process_types table, populated below by ProcessTypeSyncService).
+        // The previous explicit GetWorkItemTypeAppearancesAsync fetch was
+        // redundant — same data, written to two places. The 60-line JSON
+        // array no longer ships to .twig/config.
 
         // DD-8/FR-17: Only auto-detect area paths in interactive mode.
         // Non-interactive init starts empty; use --area flag for explicit config.

@@ -88,6 +88,20 @@ var app = ConsoleApp.Create()
                 var processTypeStore = new SqliteProcessTypeStore(cacheStore);
                 var records = processTypeStore.GetAllAsync().GetAwaiter().GetResult();
                 stateEntries = records.SelectMany(r => r.States).ToList();
+
+                // AB#3296 PR-3: hydrate type appearances from the SQLite cache
+                // rather than reading them out of .twig/config. The data is
+                // identical (process_types table has color_hex + icon_id per
+                // type) but lives in cache only so 'twig sync' no longer
+                // rewrites a 60-line JSON array on every invocation.
+                config.TypeAppearances = records
+                    .Select(r => new TypeAppearanceConfig
+                    {
+                        Name = r.TypeName,
+                        Color = r.ColorHex ?? string.Empty,
+                        IconId = r.IconId,
+                    })
+                    .ToList();
             }
         }
         catch (Exception ex) when (ex is InvalidOperationException or Microsoft.Data.Sqlite.SqliteException)

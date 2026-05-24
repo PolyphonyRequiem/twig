@@ -312,17 +312,36 @@ public class InitCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task Init_PersistsTypeAppearances_InConfig()
+    public async Task Init_PersistsTypeAppearances_InProcessTypesCache_AB3296PR3()
     {
+        // AB#3296 PR-3: type appearances are stored in the process_types
+        // SQLite cache, NOT in .twig/config. Init populates the cache via
+        // ProcessTypeSyncService; the config file no longer carries the
+        // 60-line typeAppearances array.
         var cmd = new InitCommand(_iterationService, _paths, _formatterFactory, _hintEngine);
 
         await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
+        // The user-prefs file must not contain any appearance data.
         File.Exists(_configPath).ShouldBeTrue();
         var content = await File.ReadAllTextAsync(_configPath);
-        content.ShouldContain("typeAppearances");
-        content.ShouldContain("CC293D");
-        content.ShouldContain("icon_insect");
+        content.ShouldNotContain("typeAppearances");
+        content.ShouldNotContain("icon_insect");
+        content.ShouldNotContain("CC293D");
+
+        // The SQLite cache must hold the appearance data (queried by the
+        // bootstrap hydrator in subsequent CLI invocations).
+        var contextPaths = TwigPaths.ForContext(_twigDir, "https://dev.azure.com/org", "MyProject");
+        File.Exists(contextPaths.DbPath).ShouldBeTrue();
+        using var cacheStore = new Twig.Infrastructure.Persistence.SqliteCacheStore(
+            $"Data Source={contextPaths.DbPath}");
+        var processTypeStore = new Twig.Infrastructure.Persistence.SqliteProcessTypeStore(cacheStore);
+        var records = await processTypeStore.GetAllAsync();
+        records.ShouldNotBeEmpty();
+        var bug = records.FirstOrDefault(r => r.TypeName == "Bug");
+        bug.ShouldNotBeNull();
+        bug.ColorHex.ShouldBe("CC293D");
+        bug.IconId.ShouldBe("icon_insect");
     }
 
     [Fact]

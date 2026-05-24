@@ -263,8 +263,9 @@ public class PromptStateIntegrationTests : IDisposable
 
         var writer = CreateWriter();
         var noteResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        var cmd = new NoteCommand(noteResolver, _workItemRepo, _pendingChangeStore, _adoService,
-            editorLauncher, _formatterFactory, _hintEngine, writer);
+        var noteWorkflow = new Twig.Infrastructure.Services.Mutation.NoteWorkflow(
+            _workItemRepo, _adoService, _pendingChangeStore, writer);
+        var cmd = new NoteCommand(noteResolver, editorLauncher, _formatterFactory, _hintEngine, noteWorkflow);
 
         var result = await cmd.ExecuteAsync("A test note");
 

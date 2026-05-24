@@ -1,10 +1,13 @@
+using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.Mutation;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Content;
+using Twig.Infrastructure.Services.Mutation;
 
 namespace Twig.Commands;
 
@@ -13,59 +16,18 @@ namespace Twig.Commands;
 /// If text is provided inline it is pushed immediately; otherwise an editor is launched.
 /// </summary>
 /// <remarks>
-/// <para><strong>Code paths</strong></para>
-/// <list type="number">
-///   <item>
-///     <term>Push-on-write (non-seed, online)</term>
-///     <description>
-///       Calls <see cref="IAdoWorkItemService.AddCommentAsync"/> directly, then clears any
-///       locally-staged notes via <see cref="IPendingChangeStore.ClearChangesByTypeAsync"/>.
-///       An inner try-catch re-fetches the work item to resync the local cache; resync failure
-///       is non-fatal — the note is already in ADO.
-///     </description>
-///   </item>
-///   <item>
-///     <term>Offline fallback (non-seed, ADO unreachable)</term>
-///     <description>
-///       When <c>AddCommentAsync</c> throws, the note is staged locally via
-///       <see cref="StageLocallyAsync"/> and will be flushed later by
-///       <see cref="PendingChangeFlusher"/> (save/sync/flow-done) or by
-///       <see cref="Twig.Infrastructure.Ado.AutoPushNotesHelper"/> (update/state/edit).
-///     </description>
-///   </item>
-///   <item>
-///     <term>Seed staging</term>
-///     <description>
-///       Seed items have no ADO identity, so notes are always staged locally via
-///       <see cref="StageLocallyAsync"/>. They are flushed when the seed is published
-///       through <see cref="PendingChangeFlusher"/>.
-///     </description>
-///   </item>
-/// </list>
-/// <para><strong>Related components</strong></para>
-/// <list type="bullet">
-///   <item>
-///     <see cref="Twig.Infrastructure.Ado.AutoPushNotesHelper"/> — side-effect flusher that
-///     pushes residual staged notes during <c>update</c>, <c>state</c>, and <c>edit</c> commands.
-///   </item>
-///   <item>
-///     <see cref="PendingChangeFlusher"/> — batch flusher used by <c>save</c>, <c>sync</c>,
-///     and <c>flow-done</c> for any remaining staged notes (offline fallback or seed publish).
-///   </item>
-/// </list>
+/// Adapter around <see cref="NoteWorkflow"/>. This command owns:
+/// argument parsing, editor launch, output formatting, and hint rendering.
+/// The workflow owns: push-with-fallback, cache resync, prompt-state write,
+/// and pending-changes bookkeeping.
 /// </remarks>
 public sealed class NoteCommand(
     ActiveItemResolver activeItemResolver,
-    IWorkItemRepository workItemRepo,
-    IPendingChangeStore pendingChangeStore,
-    IAdoWorkItemService adoService,
     IEditorLauncher editorLauncher,
     OutputFormatterFactory formatterFactory,
     HintEngine hintEngine,
-    IPromptStateWriter? promptStateWriter = null)
+    NoteWorkflow noteWorkflow)
 {
-    private readonly IAdoWorkItemService _adoService = adoService;
-
     /// <summary>Add a note/comment to the active work item.</summary>
     public async Task<int> ExecuteAsync(string? text = null, int? id = null, string outputFormat = OutputFormatterFactory.DefaultFormat, string? format = null, CancellationToken ct = default)
     {
@@ -114,46 +76,31 @@ public sealed class NoteCommand(
             }
         }
 
-        string successMessage;
-
         var commentResolution = HtmlFieldFormatter.ResolveComment(noteText, format);
-        var noteToSend = commentResolution.EffectiveValue;
+        var outcome = await noteWorkflow.ExecuteAsync(item, commentResolution.EffectiveValue, commentResolution.IsHtml, ct);
 
-        if (item.IsSeed)
+        string successMessage;
+        switch (outcome)
         {
-            await StageLocallyAsync(item, noteToSend, commentResolution.IsHtml, ct);
-            successMessage = fmt.FormatSuccess($"Note added to #{item.Id} (pending).");
-        }
-        else
-        {
-            try
-            {
-                await _adoService.AddCommentAsync(item.Id, noteToSend, ct);
-                await pendingChangeStore.ClearChangesByTypeAsync(item.Id, "note", ct);
-
-                try
-                {
-                    var updated = await _adoService.FetchAsync(item.Id, ct);
-                    await workItemRepo.SaveAsync(updated, ct);
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    Console.Error.WriteLine($"Note pushed but cache may be stale — run 'twig sync' to resync ({ex.Message})");
-                }
-
+            case NoteOutcome.Pushed pushed:
+                foreach (var warning in pushed.Warnings)
+                    Console.Error.WriteLine(warning);
                 successMessage = fmt.FormatSuccess($"Note added to #{item.Id}.");
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                Console.Error.WriteLine($"Note staged locally (ADO unreachable): {ex.Message}");
-                await StageLocallyAsync(item, noteToSend, commentResolution.IsHtml, ct);
+                break;
+
+            case NoteOutcome.Staged staged:
+                if (staged.WasOfflineFallback)
+                    Console.Error.WriteLine($"Note staged locally (ADO unreachable): {staged.FailureReason}");
+                foreach (var warning in staged.Warnings)
+                    Console.Error.WriteLine(warning);
                 successMessage = fmt.FormatSuccess($"Note added to #{item.Id} (pending).");
-            }
+                break;
+
+            default:
+                throw new System.Diagnostics.UnreachableException($"Unhandled NoteOutcome: {outcome.GetType().Name}");
         }
 
         Console.WriteLine(successMessage);
-
-        if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
         var hints = hintEngine.GetHints("note", outputFormat: outputFormat);
         foreach (var hint in hints)
@@ -164,18 +111,5 @@ public sealed class NoteCommand(
         }
 
         return 0;
-    }
-
-    private async Task StageLocallyAsync(Twig.Domain.Aggregates.WorkItem item, string noteText, bool isHtml, CancellationToken ct)
-    {
-        await pendingChangeStore.AddChangeAsync(
-            item.Id,
-            "note",
-            fieldName: null,
-            oldValue: null,
-            newValue: noteText);
-
-        item.AddNote(new PendingNote(noteText, DateTimeOffset.UtcNow, IsHtml: isHtml));
-        await workItemRepo.SaveAsync(item, ct);
     }
 }

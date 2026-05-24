@@ -4,26 +4,26 @@ using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
-using Twig.Infrastructure.Ado;
-using Twig.Infrastructure.Ado.Exceptions;
 using Twig.Infrastructure.Content;
+using Twig.Infrastructure.Services.Mutation;
 
 namespace Twig.Commands;
 
 /// <summary>
 /// Implements <c>twig update &lt;field&gt; &lt;value&gt;</c>: pulls latest from ADO,
 /// conflict-resolves, applies change, pushes, auto-pushes notes, clears pending, updates cache.
-/// Routes through <see cref="SeedMutationProvider"/> for local-only seeds.
+/// Routes through <see cref="SeedMutationProvider"/> for local-only seeds and
+/// through <see cref="FieldUpdateWorkflow"/> for published items.
 /// </summary>
 public sealed class UpdateCommand(
     ActiveItemResolver activeItemResolver,
     IWorkItemRepository workItemRepo,
     IAdoWorkItemService adoService,
-    IPendingChangeStore pendingChangeStore,
     IConsoleInput consoleInput,
     IFieldDefinitionStore fieldDefStore,
     OutputFormatterFactory formatterFactory,
     SeedMutationProvider seedMutationProvider,
+    FieldUpdateWorkflow fieldUpdateWorkflow,
     IPromptStateWriter? promptStateWriter = null,
     TextReader? stdinReader = null,
     TextWriter? stderr = null,
@@ -129,7 +129,7 @@ public sealed class UpdateCommand(
             return 0;
         }
 
-        // ── Published (ADO) flow ────────────────────────────────────────
+        // ── Published (ADO) flow — fetch, conflict-resolve, delegate to workflow ──
 
         var remote = await adoService.FetchAsync(local.Id);
 
@@ -141,36 +141,28 @@ public sealed class UpdateCommand(
         if (conflictOutcome is ConflictOutcome.AcceptedRemote or ConflictOutcome.Aborted)
             return 0;
 
-        if (append)
+        var outcome = await fieldUpdateWorkflow.ExecuteAsync(
+            local, remote, field, effectiveValue, resolution.IsHtml, append, ct);
+
+        switch (outcome)
         {
-            remote.Fields.TryGetValue(field, out var existingValue);
-            effectiveValue = FieldAppender.Append(existingValue, effectiveValue, asHtml: resolution.IsHtml);
+            case FieldUpdateOutcome.ConflictAfterRetry:
+                _stderr.WriteLine(fmt.FormatError("Concurrency conflict after retry. Run 'twig sync' and retry."));
+                return 1;
+
+            case FieldUpdateOutcome.Succeeded x:
+                foreach (var warning in x.Warnings)
+                    _stderr.WriteLine($"warning: {warning}");
+
+                var displayValue2 = filePath is not null ? $"[from file: {filePath}]"
+                                 : readStdin ? "[from stdin]"
+                                 : resolvedValue;
+                _stdout.WriteLine(fmt.FormatSuccess($"#{local.Id} {local.Title} updated: {field} = '{displayValue2}'"));
+                return 0;
+
+            default:
+                throw new System.Diagnostics.UnreachableException($"Unhandled FieldUpdateOutcome: {outcome.GetType().Name}");
         }
-
-        var changes = new[] { new FieldChange(field, null, effectiveValue) };
-        try
-        {
-            await ConflictRetryHelper.PatchWithRetryAsync(adoService, local.Id, changes, remote.Revision, ct);
-        }
-        catch (AdoConflictException)
-        {
-            _stderr.WriteLine(fmt.FormatError("Concurrency conflict after retry. Run 'twig sync' and retry."));
-            return 1;
-        }
-
-        await AutoPushNotesHelper.PushAndClearAsync(local.Id, pendingChangeStore, adoService);
-
-        var updated = await adoService.FetchAsync(local.Id);
-        await workItemRepo.SaveAsync(updated);
-
-        if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
-
-        var displayValue2 = filePath is not null ? $"[from file: {filePath}]"
-                         : readStdin ? "[from stdin]"
-                         : resolvedValue;
-        _stdout.WriteLine(fmt.FormatSuccess($"#{local.Id} {local.Title} updated: {field} = '{displayValue2}'"));
-
-        return 0;
     }
 
 }

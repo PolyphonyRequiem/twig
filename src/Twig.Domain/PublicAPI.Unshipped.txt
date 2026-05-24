@@ -116,3 +116,39 @@ override Twig.Domain.Services.Mutation.StateTransitionOutcome.InvalidStateName.T
 override Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessConfigNotFound.ToString() -> string!
 override Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded.ToString() -> string!
 override Twig.Domain.Services.Mutation.StateTransitionOutcome.TransitionNotAllowed.ToString() -> string!
+Twig.Domain.Services.Mutation.FieldUpdateOutcome
+Twig.Domain.Services.Mutation.FieldUpdateOutcome.Succeeded
+Twig.Domain.Services.Mutation.FieldUpdateOutcome.Succeeded.Succeeded(Twig.Domain.Aggregates.WorkItem! UpdatedItem, System.Collections.Generic.IReadOnlyList<string!>! Warnings) -> void
+Twig.Domain.Services.Mutation.FieldUpdateOutcome.Succeeded.UpdatedItem.get -> Twig.Domain.Aggregates.WorkItem!
+Twig.Domain.Services.Mutation.FieldUpdateOutcome.Succeeded.UpdatedItem.init -> void
+Twig.Domain.Services.Mutation.FieldUpdateOutcome.Succeeded.Warnings.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Twig.Domain.Services.Mutation.FieldUpdateOutcome.Succeeded.Warnings.init -> void
+Twig.Domain.Services.Mutation.FieldUpdateOutcome.Succeeded.Deconstruct(out Twig.Domain.Aggregates.WorkItem! UpdatedItem, out System.Collections.Generic.IReadOnlyList<string!>! Warnings) -> void
+Twig.Domain.Services.Mutation.FieldUpdateOutcome.Succeeded.Equals(Twig.Domain.Services.Mutation.FieldUpdateOutcome.Succeeded? other) -> bool
+override Twig.Domain.Services.Mutation.FieldUpdateOutcome.Succeeded.Equals(object? obj) -> bool
+override sealed Twig.Domain.Services.Mutation.FieldUpdateOutcome.Succeeded.Equals(Twig.Domain.Services.Mutation.FieldUpdateOutcome? other) -> bool
+override Twig.Domain.Services.Mutation.FieldUpdateOutcome.Succeeded.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.FieldUpdateOutcome.Succeeded.ToString() -> string!
+override Twig.Domain.Services.Mutation.FieldUpdateOutcome.Succeeded.<Clone>$() -> Twig.Domain.Services.Mutation.FieldUpdateOutcome.Succeeded!
+static Twig.Domain.Services.Mutation.FieldUpdateOutcome.Succeeded.operator !=(Twig.Domain.Services.Mutation.FieldUpdateOutcome.Succeeded? left, Twig.Domain.Services.Mutation.FieldUpdateOutcome.Succeeded? right) -> bool
+static Twig.Domain.Services.Mutation.FieldUpdateOutcome.Succeeded.operator ==(Twig.Domain.Services.Mutation.FieldUpdateOutcome.Succeeded? left, Twig.Domain.Services.Mutation.FieldUpdateOutcome.Succeeded? right) -> bool
+Twig.Domain.Services.Mutation.FieldUpdateOutcome.ConflictAfterRetry
+Twig.Domain.Services.Mutation.FieldUpdateOutcome.ConflictAfterRetry.ConflictAfterRetry() -> void
+Twig.Domain.Services.Mutation.FieldUpdateOutcome.ConflictAfterRetry.Equals(Twig.Domain.Services.Mutation.FieldUpdateOutcome.ConflictAfterRetry? other) -> bool
+override Twig.Domain.Services.Mutation.FieldUpdateOutcome.ConflictAfterRetry.Equals(object? obj) -> bool
+override sealed Twig.Domain.Services.Mutation.FieldUpdateOutcome.ConflictAfterRetry.Equals(Twig.Domain.Services.Mutation.FieldUpdateOutcome? other) -> bool
+override Twig.Domain.Services.Mutation.FieldUpdateOutcome.ConflictAfterRetry.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.FieldUpdateOutcome.ConflictAfterRetry.ToString() -> string!
+override Twig.Domain.Services.Mutation.FieldUpdateOutcome.ConflictAfterRetry.<Clone>$() -> Twig.Domain.Services.Mutation.FieldUpdateOutcome.ConflictAfterRetry!
+static Twig.Domain.Services.Mutation.FieldUpdateOutcome.ConflictAfterRetry.operator !=(Twig.Domain.Services.Mutation.FieldUpdateOutcome.ConflictAfterRetry? left, Twig.Domain.Services.Mutation.FieldUpdateOutcome.ConflictAfterRetry? right) -> bool
+static Twig.Domain.Services.Mutation.FieldUpdateOutcome.ConflictAfterRetry.operator ==(Twig.Domain.Services.Mutation.FieldUpdateOutcome.ConflictAfterRetry? left, Twig.Domain.Services.Mutation.FieldUpdateOutcome.ConflictAfterRetry? right) -> bool
+override Twig.Domain.Services.Mutation.FieldUpdateOutcome.Equals(object? obj) -> bool
+virtual Twig.Domain.Services.Mutation.FieldUpdateOutcome.Equals(Twig.Domain.Services.Mutation.FieldUpdateOutcome? other) -> bool
+override Twig.Domain.Services.Mutation.FieldUpdateOutcome.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.FieldUpdateOutcome.ToString() -> string!
+virtual Twig.Domain.Services.Mutation.FieldUpdateOutcome.EqualityContract.get -> System.Type!
+virtual Twig.Domain.Services.Mutation.FieldUpdateOutcome.PrintMembers(System.Text.StringBuilder! builder) -> bool
+Twig.Domain.Services.Mutation.FieldUpdateOutcome.FieldUpdateOutcome(Twig.Domain.Services.Mutation.FieldUpdateOutcome! original) -> void
+abstract Twig.Domain.Services.Mutation.FieldUpdateOutcome.<Clone>$() -> Twig.Domain.Services.Mutation.FieldUpdateOutcome!
+static Twig.Domain.Services.Mutation.FieldUpdateOutcome.operator !=(Twig.Domain.Services.Mutation.FieldUpdateOutcome? left, Twig.Domain.Services.Mutation.FieldUpdateOutcome? right) -> bool
+static Twig.Domain.Services.Mutation.FieldUpdateOutcome.operator ==(Twig.Domain.Services.Mutation.FieldUpdateOutcome? left, Twig.Domain.Services.Mutation.FieldUpdateOutcome? right) -> bool

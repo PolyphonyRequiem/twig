@@ -172,44 +172,30 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         }
 
         WorkItem remote;
+        FieldUpdateOutcome outcome;
         try
         {
             remote = await ctx.AdoService.FetchAsync(item.Id, ct);
-
-            if (append)
-            {
-                remote.Fields.TryGetValue(field, out var existingValue);
-                effectiveValue = FieldAppender.Append(existingValue, effectiveValue, asHtml: resolution.IsHtml);
-            }
-
-            var changes = new[] { new FieldChange(field, null, effectiveValue) };
-            await ConflictRetryHelper.PatchWithRetryAsync(ctx.AdoService, item.Id, changes, remote.Revision, ct);
+            outcome = await ctx.FieldUpdateWorkflow.ExecuteAsync(
+                item, remote, field, effectiveValue, resolution.IsHtml, append, ct);
         }
         catch (AdoException ex)
         {
             return await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable, ex.Message, ctx, ct);
         }
 
-        try { await AutoPushNotesHelper.PushAndClearAsync(item.Id, ctx.PendingChangeStore, ctx.AdoService); }
-        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
-
-        // Resync cache — best-effort, non-fatal
-        WorkItem updated;
-        try
+        switch (outcome)
         {
-            updated = await ctx.AdoService.FetchAsync(item.Id, ct);
-            await ctx.WorkItemRepo.SaveAsync(updated, ct);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            updated = item;
-        }
+            case FieldUpdateOutcome.ConflictAfterRetry:
+                return await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable, "Concurrency conflict after retry. Run 'twig sync' and retry.", ctx, ct);
 
-        try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
-        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
+            case FieldUpdateOutcome.Succeeded x:
+                return await EnvelopeBuilder.WrapAsync(ctx,
+                    McpResultBuilder.FormatFieldUpdate(x.UpdatedItem, field, value), verbose, ct);
 
-        return await EnvelopeBuilder.WrapAsync(ctx,
-            McpResultBuilder.FormatFieldUpdate(updated, field, value), verbose, ct);
+            default:
+                throw new System.Diagnostics.UnreachableException($"Unhandled FieldUpdateOutcome: {outcome.GetType().Name}");
+        }
     }
 
     [McpServerTool(Name = "twig_patch"), Description("Atomically patch multiple fields on a work item. Operates on the active work item by default, or specify id to target a specific item without changing context.")]

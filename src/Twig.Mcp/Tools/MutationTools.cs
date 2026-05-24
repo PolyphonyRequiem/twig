@@ -469,20 +469,18 @@ public sealed class MutationTools(WorkspaceResolver resolver)
             }
         }
 
-        var (notes, fieldEdits) = await ctx.PendingChangeStore.GetChangeSummaryAsync(itemId, ct);
+        var outcome = await ctx.DiscardWorkflow.ExecuteAsync(item, ct);
 
-        if (notes == 0 && fieldEdits == 0)
-            return await EnvelopeBuilder.WrapAsync(ctx,
-                McpResultBuilder.FormatDiscardedNone(itemId, item.Title), verbose, ct);
-
-        await ctx.PendingChangeStore.ClearChangesAsync(itemId, ct);
-        await ctx.WorkItemRepo.ClearDirtyFlagAsync(itemId, ct);
-
-        try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
-        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
-
-        return await EnvelopeBuilder.WrapAsync(ctx,
-            McpResultBuilder.FormatDiscarded(itemId, notes, fieldEdits), verbose, ct);
+        return outcome switch
+        {
+            DiscardOutcome.NoChanges =>
+                await EnvelopeBuilder.WrapAsync(ctx, McpResultBuilder.FormatDiscardedNone(itemId, item.Title), verbose, ct),
+            DiscardOutcome.PhantomDirtyCleared =>
+                await EnvelopeBuilder.WrapAsync(ctx, McpResultBuilder.FormatDiscardedNone(itemId, item.Title), verbose, ct),
+            DiscardOutcome.Discarded x =>
+                await EnvelopeBuilder.WrapAsync(ctx, McpResultBuilder.FormatDiscarded(itemId, x.NotesCount, x.FieldEditsCount), verbose, ct),
+            _ => throw new System.Diagnostics.UnreachableException($"Unhandled DiscardOutcome: {outcome.GetType().Name}"),
+        };
     }
 
     [McpServerTool(Name = "twig_sync"),Description("Flush pending local changes to ADO then refresh the local cache from ADO")]

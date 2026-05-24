@@ -253,6 +253,7 @@ public sealed class McpHintProviderTests
             stateTransitionWorkflow: null!,
             fieldUpdateWorkflow: null!,
             noteWorkflow: null!,
+            discardWorkflow: null!,
             sprintIterationResolver,
             processTypeStore, fieldDefStore,
             Substitute.For<ISeedLinkRepository>(), Substitute.For<IPublishIdMapRepository>(), Substitute.For<ISeedPublishRulesProvider>(), Substitute.For<IUnitOfWork>());

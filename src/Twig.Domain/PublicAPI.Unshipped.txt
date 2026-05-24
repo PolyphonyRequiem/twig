@@ -197,3 +197,61 @@ Twig.Domain.Services.Mutation.NoteOutcome.NoteOutcome(Twig.Domain.Services.Mutat
 abstract Twig.Domain.Services.Mutation.NoteOutcome.<Clone>$() -> Twig.Domain.Services.Mutation.NoteOutcome!
 static Twig.Domain.Services.Mutation.NoteOutcome.operator !=(Twig.Domain.Services.Mutation.NoteOutcome? left, Twig.Domain.Services.Mutation.NoteOutcome? right) -> bool
 static Twig.Domain.Services.Mutation.NoteOutcome.operator ==(Twig.Domain.Services.Mutation.NoteOutcome? left, Twig.Domain.Services.Mutation.NoteOutcome? right) -> bool
+Twig.Domain.Services.Mutation.DiscardOutcome
+Twig.Domain.Services.Mutation.DiscardOutcome.NoChanges
+Twig.Domain.Services.Mutation.DiscardOutcome.NoChanges.NoChanges(Twig.Domain.Aggregates.WorkItem! Item) -> void
+Twig.Domain.Services.Mutation.DiscardOutcome.NoChanges.Item.get -> Twig.Domain.Aggregates.WorkItem!
+Twig.Domain.Services.Mutation.DiscardOutcome.NoChanges.Item.init -> void
+Twig.Domain.Services.Mutation.DiscardOutcome.NoChanges.Deconstruct(out Twig.Domain.Aggregates.WorkItem! Item) -> void
+Twig.Domain.Services.Mutation.DiscardOutcome.NoChanges.Equals(Twig.Domain.Services.Mutation.DiscardOutcome.NoChanges? other) -> bool
+override Twig.Domain.Services.Mutation.DiscardOutcome.NoChanges.Equals(object? obj) -> bool
+override sealed Twig.Domain.Services.Mutation.DiscardOutcome.NoChanges.Equals(Twig.Domain.Services.Mutation.DiscardOutcome? other) -> bool
+override Twig.Domain.Services.Mutation.DiscardOutcome.NoChanges.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.DiscardOutcome.NoChanges.ToString() -> string!
+override Twig.Domain.Services.Mutation.DiscardOutcome.NoChanges.<Clone>$() -> Twig.Domain.Services.Mutation.DiscardOutcome.NoChanges!
+static Twig.Domain.Services.Mutation.DiscardOutcome.NoChanges.operator !=(Twig.Domain.Services.Mutation.DiscardOutcome.NoChanges? left, Twig.Domain.Services.Mutation.DiscardOutcome.NoChanges? right) -> bool
+static Twig.Domain.Services.Mutation.DiscardOutcome.NoChanges.operator ==(Twig.Domain.Services.Mutation.DiscardOutcome.NoChanges? left, Twig.Domain.Services.Mutation.DiscardOutcome.NoChanges? right) -> bool
+Twig.Domain.Services.Mutation.DiscardOutcome.PhantomDirtyCleared
+Twig.Domain.Services.Mutation.DiscardOutcome.PhantomDirtyCleared.PhantomDirtyCleared(Twig.Domain.Aggregates.WorkItem! Item, System.Collections.Generic.IReadOnlyList<string!>! Warnings) -> void
+Twig.Domain.Services.Mutation.DiscardOutcome.PhantomDirtyCleared.Item.get -> Twig.Domain.Aggregates.WorkItem!
+Twig.Domain.Services.Mutation.DiscardOutcome.PhantomDirtyCleared.Item.init -> void
+Twig.Domain.Services.Mutation.DiscardOutcome.PhantomDirtyCleared.Warnings.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Twig.Domain.Services.Mutation.DiscardOutcome.PhantomDirtyCleared.Warnings.init -> void
+Twig.Domain.Services.Mutation.DiscardOutcome.PhantomDirtyCleared.Deconstruct(out Twig.Domain.Aggregates.WorkItem! Item, out System.Collections.Generic.IReadOnlyList<string!>! Warnings) -> void
+Twig.Domain.Services.Mutation.DiscardOutcome.PhantomDirtyCleared.Equals(Twig.Domain.Services.Mutation.DiscardOutcome.PhantomDirtyCleared? other) -> bool
+override Twig.Domain.Services.Mutation.DiscardOutcome.PhantomDirtyCleared.Equals(object? obj) -> bool
+override sealed Twig.Domain.Services.Mutation.DiscardOutcome.PhantomDirtyCleared.Equals(Twig.Domain.Services.Mutation.DiscardOutcome? other) -> bool
+override Twig.Domain.Services.Mutation.DiscardOutcome.PhantomDirtyCleared.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.DiscardOutcome.PhantomDirtyCleared.ToString() -> string!
+override Twig.Domain.Services.Mutation.DiscardOutcome.PhantomDirtyCleared.<Clone>$() -> Twig.Domain.Services.Mutation.DiscardOutcome.PhantomDirtyCleared!
+static Twig.Domain.Services.Mutation.DiscardOutcome.PhantomDirtyCleared.operator !=(Twig.Domain.Services.Mutation.DiscardOutcome.PhantomDirtyCleared? left, Twig.Domain.Services.Mutation.DiscardOutcome.PhantomDirtyCleared? right) -> bool
+static Twig.Domain.Services.Mutation.DiscardOutcome.PhantomDirtyCleared.operator ==(Twig.Domain.Services.Mutation.DiscardOutcome.PhantomDirtyCleared? left, Twig.Domain.Services.Mutation.DiscardOutcome.PhantomDirtyCleared? right) -> bool
+Twig.Domain.Services.Mutation.DiscardOutcome.Discarded
+Twig.Domain.Services.Mutation.DiscardOutcome.Discarded.Discarded(Twig.Domain.Aggregates.WorkItem! Item, int NotesCount, int FieldEditsCount, System.Collections.Generic.IReadOnlyList<string!>! Warnings) -> void
+Twig.Domain.Services.Mutation.DiscardOutcome.Discarded.Item.get -> Twig.Domain.Aggregates.WorkItem!
+Twig.Domain.Services.Mutation.DiscardOutcome.Discarded.Item.init -> void
+Twig.Domain.Services.Mutation.DiscardOutcome.Discarded.NotesCount.get -> int
+Twig.Domain.Services.Mutation.DiscardOutcome.Discarded.NotesCount.init -> void
+Twig.Domain.Services.Mutation.DiscardOutcome.Discarded.FieldEditsCount.get -> int
+Twig.Domain.Services.Mutation.DiscardOutcome.Discarded.FieldEditsCount.init -> void
+Twig.Domain.Services.Mutation.DiscardOutcome.Discarded.Warnings.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Twig.Domain.Services.Mutation.DiscardOutcome.Discarded.Warnings.init -> void
+Twig.Domain.Services.Mutation.DiscardOutcome.Discarded.Deconstruct(out Twig.Domain.Aggregates.WorkItem! Item, out int NotesCount, out int FieldEditsCount, out System.Collections.Generic.IReadOnlyList<string!>! Warnings) -> void
+Twig.Domain.Services.Mutation.DiscardOutcome.Discarded.Equals(Twig.Domain.Services.Mutation.DiscardOutcome.Discarded? other) -> bool
+override Twig.Domain.Services.Mutation.DiscardOutcome.Discarded.Equals(object? obj) -> bool
+override sealed Twig.Domain.Services.Mutation.DiscardOutcome.Discarded.Equals(Twig.Domain.Services.Mutation.DiscardOutcome? other) -> bool
+override Twig.Domain.Services.Mutation.DiscardOutcome.Discarded.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.DiscardOutcome.Discarded.ToString() -> string!
+override Twig.Domain.Services.Mutation.DiscardOutcome.Discarded.<Clone>$() -> Twig.Domain.Services.Mutation.DiscardOutcome.Discarded!
+static Twig.Domain.Services.Mutation.DiscardOutcome.Discarded.operator !=(Twig.Domain.Services.Mutation.DiscardOutcome.Discarded? left, Twig.Domain.Services.Mutation.DiscardOutcome.Discarded? right) -> bool
+static Twig.Domain.Services.Mutation.DiscardOutcome.Discarded.operator ==(Twig.Domain.Services.Mutation.DiscardOutcome.Discarded? left, Twig.Domain.Services.Mutation.DiscardOutcome.Discarded? right) -> bool
+override Twig.Domain.Services.Mutation.DiscardOutcome.Equals(object? obj) -> bool
+virtual Twig.Domain.Services.Mutation.DiscardOutcome.Equals(Twig.Domain.Services.Mutation.DiscardOutcome? other) -> bool
+override Twig.Domain.Services.Mutation.DiscardOutcome.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.DiscardOutcome.ToString() -> string!
+virtual Twig.Domain.Services.Mutation.DiscardOutcome.EqualityContract.get -> System.Type!
+virtual Twig.Domain.Services.Mutation.DiscardOutcome.PrintMembers(System.Text.StringBuilder! builder) -> bool
+Twig.Domain.Services.Mutation.DiscardOutcome.DiscardOutcome(Twig.Domain.Services.Mutation.DiscardOutcome! original) -> void
+abstract Twig.Domain.Services.Mutation.DiscardOutcome.<Clone>$() -> Twig.Domain.Services.Mutation.DiscardOutcome!
+static Twig.Domain.Services.Mutation.DiscardOutcome.operator !=(Twig.Domain.Services.Mutation.DiscardOutcome? left, Twig.Domain.Services.Mutation.DiscardOutcome? right) -> bool
+static Twig.Domain.Services.Mutation.DiscardOutcome.operator ==(Twig.Domain.Services.Mutation.DiscardOutcome? left, Twig.Domain.Services.Mutation.DiscardOutcome? right) -> bool

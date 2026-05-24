@@ -67,3 +67,6 @@ Twig.Infrastructure.Services.Mutation.FieldUpdateWorkflow.ExecuteAsync(Twig.Doma
 Twig.Infrastructure.Services.Mutation.NoteWorkflow
 Twig.Infrastructure.Services.Mutation.NoteWorkflow.NoteWorkflow(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IAdoWorkItemService! adoService, Twig.Domain.Interfaces.IPendingChangeStore! pendingChangeStore, Twig.Domain.Interfaces.IPromptStateWriter? promptStateWriter = null) -> void
 Twig.Infrastructure.Services.Mutation.NoteWorkflow.ExecuteAsync(Twig.Domain.Aggregates.WorkItem! item, string! noteText, bool isHtml, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Mutation.NoteOutcome!>!
+Twig.Infrastructure.Services.Mutation.DiscardWorkflow
+Twig.Infrastructure.Services.Mutation.DiscardWorkflow.DiscardWorkflow(Twig.Domain.Interfaces.IWorkItemRepository! workItemRepo, Twig.Domain.Interfaces.IPendingChangeStore! pendingChangeStore, Twig.Domain.Interfaces.IPromptStateWriter? promptStateWriter = null) -> void
+Twig.Infrastructure.Services.Mutation.DiscardWorkflow.ExecuteAsync(Twig.Domain.Aggregates.WorkItem! item, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Domain.Services.Mutation.DiscardOutcome!>!

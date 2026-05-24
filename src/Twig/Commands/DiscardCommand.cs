@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using System.Text.Json;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.Mutation;
 using Twig.Formatters;
+using Twig.Infrastructure.Services.Mutation;
 
 namespace Twig.Commands;
 
@@ -10,11 +12,18 @@ namespace Twig.Commands;
 /// drops pending changes (notes and field edits) for a single work item or all dirty items.
 /// Seeds are excluded — use <c>twig seed discard</c> for seeds.
 /// </summary>
+/// <remarks>
+/// Single-item discard delegates to <see cref="DiscardWorkflow"/>. The <c>--all</c>
+/// flow stays here because it uses different store methods
+/// (<c>ClearAllChangesAsync</c>, <c>ClearPhantomDirtyFlagsAsync</c>) and operates
+/// across the workspace rather than on one item.
+/// </remarks>
 public sealed class DiscardCommand(
     IWorkItemRepository workItemRepo,
     IPendingChangeStore pendingChangeStore,
     IConsoleInput consoleInput,
     OutputFormatterFactory formatterFactory,
+    DiscardWorkflow discardWorkflow,
     IPromptStateWriter? promptStateWriter = null,
     ITelemetryClient? telemetryClient = null)
 {
@@ -102,43 +111,43 @@ public sealed class DiscardCommand(
 
         var (notes, fieldEdits) = await pendingChangeStore.GetChangeSummaryAsync(itemId, ct);
 
-        // Early-return guard: three branches
-        if (!item.IsDirty && notes == 0 && fieldEdits == 0)
+        // Pre-confirm peek for change summary text (workflow re-queries, which is
+        // acceptable since the store is local-only and cheap).
+        if (item.IsDirty || notes > 0 || fieldEdits > 0)
         {
-            // Phantom-dirty impossible here (not dirty, no changes) — true no-op
-            Console.WriteLine(fmt.FormatInfo($"#{itemId} '{item.Title}' has no pending changes."));
-            return (0, 0);
+            if (notes > 0 || fieldEdits > 0)
+            {
+                var summary = FormatChangeSummary(notes, fieldEdits);
+                if (!Confirm($"Discard {summary} for #{itemId} '{item.Title}'", yes, fmt))
+                    return (0, 0);
+            }
         }
 
-        if (item.IsDirty && notes == 0 && fieldEdits == 0)
+        var outcome = await discardWorkflow.ExecuteAsync(item, ct);
+
+        switch (outcome)
         {
-            // Phantom-dirty: dirty flag set but no actual pending changes
-            await workItemRepo.ClearDirtyFlagAsync(itemId, ct);
-            Console.WriteLine(fmt.FormatInfo($"#{itemId} '{item.Title}' had a stale dirty flag (cleared)."));
-            if (promptStateWriter is not null)
-                await promptStateWriter.WritePromptStateAsync();
-            return (0, 0);
+            case DiscardOutcome.NoChanges:
+                Console.WriteLine(fmt.FormatInfo($"#{itemId} '{item.Title}' has no pending changes."));
+                return (0, 0);
+
+            case DiscardOutcome.PhantomDirtyCleared phantom:
+                Console.WriteLine(fmt.FormatInfo($"#{itemId} '{item.Title}' had a stale dirty flag (cleared)."));
+                foreach (var w in phantom.Warnings) Console.Error.WriteLine(w);
+                return (0, 0);
+
+            case DiscardOutcome.Discarded discarded:
+                var summaryText = FormatChangeSummary(discarded.NotesCount, discarded.FieldEditsCount);
+                if (outputFormat.StartsWith("json", StringComparison.OrdinalIgnoreCase))
+                    WriteJson([(itemId, discarded.NotesCount, discarded.FieldEditsCount)], discarded.NotesCount, discarded.FieldEditsCount);
+                else
+                    Console.WriteLine(fmt.FormatSuccess($"Discarded {summaryText} for #{itemId} '{item.Title}'."));
+                foreach (var w in discarded.Warnings) Console.Error.WriteLine(w);
+                return (0, 1);
+
+            default:
+                throw new System.Diagnostics.UnreachableException($"Unhandled DiscardOutcome: {outcome.GetType().Name}");
         }
-
-        var summary = FormatChangeSummary(notes, fieldEdits);
-        if (!Confirm($"Discard {summary} for #{itemId} '{item.Title}'", yes, fmt))
-            return (0, 0);
-
-        // Clear pending changes and dirty flag
-        await pendingChangeStore.ClearChangesAsync(itemId, ct);
-        await workItemRepo.ClearDirtyFlagAsync(itemId, ct);
-
-        // Report
-        if (outputFormat.StartsWith("json", StringComparison.OrdinalIgnoreCase))
-            WriteJson([(itemId, notes, fieldEdits)], notes, fieldEdits);
-        else
-            Console.WriteLine(fmt.FormatSuccess($"Discarded {summary} for #{itemId} '{item.Title}'."));
-
-        // DD-9: Update prompt state after successful discard
-        if (promptStateWriter is not null)
-            await promptStateWriter.WritePromptStateAsync();
-
-        return (0, 1);
     }
 
     // ── All-items flow ──────────────────────────────────────────────

@@ -416,8 +416,12 @@ public class TwigConfigurationTests : IDisposable
     }
 
     [Fact]
-    public async Task TypeAppearances_SerializationRoundTrip()
+    public async Task TypeAppearances_NeverSerializedToDisk_AB3296PR3()
     {
+        // AB#3296 PR-3: TypeAppearances is hydrated at bootstrap from the
+        // SQLite cache (process_types table) and must never round-trip via
+        // the config file. The 60-line JSON array used to be rewritten on
+        // every 'twig sync'; this test guards against the regression.
         var configPath = Path.Combine(_tempDir, "config_appearances.json");
         var config = new TwigConfiguration
         {
@@ -431,16 +435,14 @@ public class TwigConfigurationTests : IDisposable
         };
 
         await config.SaveAsync(configPath);
-        var loaded = await TwigConfiguration.LoadAsync(configPath);
+        var json = await File.ReadAllTextAsync(configPath);
 
-        loaded.TypeAppearances.ShouldNotBeNull();
-        loaded.TypeAppearances!.Count.ShouldBe(2);
-        loaded.TypeAppearances[0].Name.ShouldBe("Epic");
-        loaded.TypeAppearances[0].Color.ShouldBe("FF0000");
-        loaded.TypeAppearances[0].IconId.ShouldBe("icon_epic");
-        loaded.TypeAppearances[1].Name.ShouldBe("Task");
-        loaded.TypeAppearances[1].Color.ShouldBe("0000FF");
-        loaded.TypeAppearances[1].IconId.ShouldBeNull();
+        json.ShouldNotContain("typeAppearances");
+        json.ShouldNotContain("TypeAppearances");
+        json.ShouldNotContain("icon_epic");
+
+        var loaded = await TwigConfiguration.LoadAsync(configPath);
+        loaded.TypeAppearances.ShouldBeNull();
     }
 
     // --- git.project / git.repository SetValue tests ---
@@ -1400,6 +1402,110 @@ public class TwigConfigurationTests : IDisposable
         value.ShouldBe("0.75");
     }
 
+    // ----------------------------------------------------------------------
+    // AB#3296 PR-1: partition correctness — every public top-level property on
+    // TwigConfiguration must route through either RepoCoords or UserPrefs, and
+    // the on-disk JSON shape must be unchanged.
+    // ----------------------------------------------------------------------
+
+    [Fact]
+    public void Partition_RepoCoords_Delegation_OrganizationAndDefaults()
+    {
+        var config = new TwigConfiguration
+        {
+            Organization = "neworg",
+            Defaults = { AreaPath = @"neworg\area" },
+        };
+
+        config.RepoCoords.Organization.ShouldBe("neworg");
+        config.RepoCoords.Defaults.AreaPath.ShouldBe(@"neworg\area");
+    }
+
+    [Fact]
+    public void Partition_UserPrefs_Delegation_AuthAndDisplayAndUser()
+    {
+        var config = new TwigConfiguration
+        {
+            Auth = new AuthConfig { Method = "pat" },
+            Display = new DisplayConfig { Icons = "nerd" },
+            User = new UserConfig { DisplayName = "Test User" },
+            TypeAppearances = new List<TypeAppearanceConfig> { new() { Name = "Bug", Color = "FF0000" } },
+        };
+
+        config.UserPrefs.Auth.Method.ShouldBe("pat");
+        config.UserPrefs.Display.Icons.ShouldBe("nerd");
+        config.UserPrefs.User.DisplayName.ShouldBe("Test User");
+        config.UserPrefs.TypeAppearances.ShouldNotBeNull();
+        config.UserPrefs.TypeAppearances[0].Name.ShouldBe("Bug");
+    }
+
+    [Fact]
+    public void Partition_SubConfigMutation_VisibleOnWrapper()
+    {
+        // Mutating a sub-config directly must be visible through the delegating
+        // wrapper property. Proves the wrapper is not snapshotting state.
+        var config = new TwigConfiguration();
+        config.RepoCoords.Organization = "deepset";
+        config.UserPrefs.Display.TreeDepth = 99;
+
+        config.Organization.ShouldBe("deepset");
+        config.Display.TreeDepth.ShouldBe(99);
+    }
+
+    [Fact]
+    public async Task Partition_OnDiskShape_DoesNotContainRepoCoordsOrUserPrefsKeys()
+    {
+        // PR-1 invariant: the partition is internal. Serialization must continue
+        // to emit the same flat shape as before. PR-2 changes this; until then,
+        // the on-disk JSON must NOT mention the new container property names.
+        var configPath = Path.Combine(_tempDir, "shape.json");
+        var config = new TwigConfiguration
+        {
+            Organization = "shapeorg",
+            Display = new DisplayConfig { Icons = "nerd" },
+        };
+
+        await config.SaveAsync(configPath);
+        var json = await File.ReadAllTextAsync(configPath);
+
+        json.ShouldNotContain("repoCoords");
+        json.ShouldNotContain("userPrefs");
+        json.ShouldContain("organization");
+        json.ShouldContain("display");
+    }
+
+    [Fact]
+    public async Task Partition_LegacyOnDiskShape_DeserializesIntoBothSubConfigs()
+    {
+        // Reading a pre-PR-1 single-file shape must populate both RepoCoords
+        // and UserPrefs via the delegating setters. This is the back-compat
+        // path that lets PR-1 deploy without disturbing existing config files.
+        var configPath = Path.Combine(_tempDir, "legacy.json");
+        const string legacyJson = """
+            {
+              "organization": "legacyorg",
+              "project": "legacyproj",
+              "team": "legacyteam",
+              "auth": { "method": "pat" },
+              "display": { "icons": "nerd", "treeDepth": 7 },
+              "user": { "displayName": "Legacy User" },
+              "areas": { "mode": "exact" }
+            }
+            """;
+        await File.WriteAllTextAsync(configPath, legacyJson);
+
+        var loaded = await TwigConfiguration.LoadAsync(configPath);
+
+        loaded.RepoCoords.Organization.ShouldBe("legacyorg");
+        loaded.RepoCoords.Project.ShouldBe("legacyproj");
+        loaded.RepoCoords.Team.ShouldBe("legacyteam");
+        loaded.RepoCoords.Areas.Mode.ShouldBe("exact");
+        loaded.UserPrefs.Auth.Method.ShouldBe("pat");
+        loaded.UserPrefs.Display.Icons.ShouldBe("nerd");
+        loaded.UserPrefs.Display.TreeDepth.ShouldBe(7);
+        loaded.UserPrefs.User.DisplayName.ShouldBe("Legacy User");
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //  Idempotency tests (ADO #3237 — sync rewrites .twig/config)
     // ═══════════════════════════════════════════════════════════════
@@ -1638,5 +1744,249 @@ public class TwigConfigurationTests : IDisposable
         var reloaded = await TwigConfiguration.LoadAsync(configPath);
         reloaded.Defaults.InheritParentArea.ShouldBeTrue();
         reloaded.Defaults.InheritParentIteration.ShouldBeTrue();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  AB#3296 PR-2: split twig.json (repo coords) + .twig/config (user prefs)
+    // ═══════════════════════════════════════════════════════════════
+
+    private TwigPaths MakeSplitPaths(string subdir = "split")
+    {
+        // Simulates a repo workspace: <root>/twig.json + <root>/.twig/config
+        var root = Path.Combine(_tempDir, subdir);
+        var twigDir = Path.Combine(root, ".twig");
+        Directory.CreateDirectory(twigDir);
+        var configPath = Path.Combine(twigDir, "config");
+        var dbPath = Path.Combine(twigDir, "twig.db");
+        return new TwigPaths(twigDir, configPath, dbPath);
+    }
+
+    [Fact]
+    public async Task LoadSplitAsync_ReadsBothFiles_AndComposesIntoSingleConfig()
+    {
+        var paths = MakeSplitPaths("loadsplit_both");
+
+        var repo = new TwigConfiguration
+        {
+            Organization = "splitorg",
+            Project = "splitproj",
+            Defaults = { AreaPath = @"OS\Split" },
+        };
+        await repo.SaveRepoAsync(paths.RepoConfigPath);
+
+        var user = new TwigConfiguration
+        {
+            Auth = new AuthConfig { Method = "pat" },
+            Display = new DisplayConfig { Icons = "nerd", TreeDepth = 5 },
+            User = new UserConfig { DisplayName = "Daniel" },
+        };
+        await user.SaveUserAsync(paths.ConfigPath);
+
+        var loaded = await TwigConfiguration.LoadSplitAsync(paths);
+
+        loaded.IsLegacyMode.ShouldBeFalse();
+        loaded.Organization.ShouldBe("splitorg");
+        loaded.Project.ShouldBe("splitproj");
+        loaded.Defaults.AreaPath.ShouldBe(@"OS\Split");
+        loaded.Auth.Method.ShouldBe("pat");
+        loaded.Display.Icons.ShouldBe("nerd");
+        loaded.Display.TreeDepth.ShouldBe(5);
+        loaded.User.DisplayName.ShouldBe("Daniel");
+    }
+
+    [Fact]
+    public async Task LoadSplitAsync_FallsBackToLegacy_WhenOnlyConfigExists()
+    {
+        var paths = MakeSplitPaths("loadsplit_legacy");
+        // Write a legacy single-file shape into .twig/config; no twig.json present.
+        const string legacyJson = """
+            {
+              "organization": "legacy",
+              "project": "legacyproj",
+              "auth": { "method": "azcli" },
+              "display": { "icons": "ascii" }
+            }
+            """;
+        await File.WriteAllTextAsync(paths.ConfigPath, legacyJson);
+
+        var loaded = await TwigConfiguration.LoadSplitAsync(paths);
+
+        loaded.IsLegacyMode.ShouldBeTrue();
+        loaded.Organization.ShouldBe("legacy");
+        loaded.Auth.Method.ShouldBe("azcli");
+        loaded.Display.Icons.ShouldBe("ascii");
+    }
+
+    [Fact]
+    public async Task LoadSplitAsync_ReturnsDefaults_WhenNeitherFileExists()
+    {
+        var paths = MakeSplitPaths("loadsplit_empty");
+        // Don't write anything. Pre-init repo. Should not throw.
+
+        var loaded = await TwigConfiguration.LoadSplitAsync(paths);
+
+        loaded.IsLegacyMode.ShouldBeFalse();
+        loaded.Organization.ShouldBe(string.Empty);
+        loaded.Auth.Method.ShouldBe("azcli");
+    }
+
+    [Fact]
+    public async Task SaveRepoAsync_EmitsOnlyRepoCoords_NotUserPrefs()
+    {
+        var path = Path.Combine(_tempDir, "repo_only.json");
+        var config = new TwigConfiguration
+        {
+            Organization = "ro",
+            Project = "proj",
+            Auth = new AuthConfig { Method = "pat" },
+            Display = new DisplayConfig { Icons = "nerd" },
+            User = new UserConfig { DisplayName = "Should Not Appear" },
+        };
+
+        await config.SaveRepoAsync(path);
+        var json = await File.ReadAllTextAsync(path);
+
+        json.ShouldContain("\"organization\"");
+        json.ShouldContain("\"project\"");
+        json.ShouldNotContain("auth");
+        json.ShouldNotContain("display");
+        json.ShouldNotContain("Should Not Appear");
+    }
+
+    [Fact]
+    public async Task SaveRepoAsync_WritesIndentedJson()
+    {
+        var path = Path.Combine(_tempDir, "repo_indented.json");
+        var config = new TwigConfiguration { Organization = "org", Project = "proj" };
+
+        await config.SaveRepoAsync(path);
+        var json = await File.ReadAllTextAsync(path);
+
+        // Indented JSON has newlines and leading whitespace inside the object.
+        json.ShouldContain("\n");
+        json.ShouldContain("  \"organization\"");
+    }
+
+    [Fact]
+    public async Task SaveUserAsync_EmitsOnlyUserPrefs_NotRepoCoords()
+    {
+        var path = Path.Combine(_tempDir, "user_only.json");
+        var config = new TwigConfiguration
+        {
+            Organization = "ShouldNotAppearOrg",
+            Project = "ShouldNotAppearProj",
+            Auth = new AuthConfig { Method = "pat" },
+            Display = new DisplayConfig { Icons = "nerd" },
+            User = new UserConfig { DisplayName = "Daniel" },
+        };
+
+        await config.SaveUserAsync(path);
+        var json = await File.ReadAllTextAsync(path);
+
+        json.ShouldNotContain("ShouldNotAppearOrg");
+        json.ShouldNotContain("ShouldNotAppearProj");
+        json.ShouldContain("\"auth\"");
+        json.ShouldContain("\"display\"");
+        json.ShouldContain("Daniel");
+    }
+
+    [Fact]
+    public async Task SaveUserAsync_DoesNotTouchRepoManifest_LoadBearingSyncInvariant()
+    {
+        // The load-bearing invariant from the design brief: `twig sync` must
+        // never modify any tracked file. After init we capture twig.json bytes;
+        // after a user-pref write they must be byte-identical.
+        var paths = MakeSplitPaths("sync_invariant");
+
+        var config = new TwigConfiguration
+        {
+            Organization = "invariant",
+            Project = "proj",
+            Display = new DisplayConfig { Icons = "nerd" },
+        };
+        await config.SaveSplitAsync(paths);
+        var repoBytesBefore = await File.ReadAllBytesAsync(paths.RepoConfigPath);
+
+        // Mutate a user-only pref and write only the user file.
+        config.Display.TreeDepth = 9;
+        await config.SaveUserAsync(paths.ConfigPath);
+
+        var repoBytesAfter = await File.ReadAllBytesAsync(paths.RepoConfigPath);
+        repoBytesAfter.ShouldBe(repoBytesBefore);
+    }
+
+    [Fact]
+    public async Task SaveSplitAsync_WritesBothFiles_WithCorrectPartition()
+    {
+        var paths = MakeSplitPaths("savesplit_both");
+        var config = new TwigConfiguration
+        {
+            Organization = "both",
+            Project = "proj",
+            Display = new DisplayConfig { Icons = "nerd" },
+            User = new UserConfig { DisplayName = "Daniel" },
+        };
+
+        await config.SaveSplitAsync(paths);
+
+        File.Exists(paths.RepoConfigPath).ShouldBeTrue();
+        File.Exists(paths.ConfigPath).ShouldBeTrue();
+
+        var repoJson = await File.ReadAllTextAsync(paths.RepoConfigPath);
+        var userJson = await File.ReadAllTextAsync(paths.ConfigPath);
+
+        repoJson.ShouldContain("both");
+        repoJson.ShouldNotContain("Daniel");
+        userJson.ShouldContain("Daniel");
+        userJson.ShouldNotContain("\"organization\"");
+    }
+
+    [Fact]
+    public void GetConfigScope_RoutesKnownKeysCorrectly()
+    {
+        // Repo-coord keys
+        TwigConfiguration.GetConfigScope("organization").ShouldBe(ConfigScope.Repo);
+        TwigConfiguration.GetConfigScope("project").ShouldBe(ConfigScope.Repo);
+        TwigConfiguration.GetConfigScope("team").ShouldBe(ConfigScope.Repo);
+        TwigConfiguration.GetConfigScope("defaults.areapath").ShouldBe(ConfigScope.Repo);
+        TwigConfiguration.GetConfigScope("areas.mode").ShouldBe(ConfigScope.Repo);
+        TwigConfiguration.GetConfigScope("git.branchpattern").ShouldBe(ConfigScope.Repo);
+
+        // User-pref keys
+        TwigConfiguration.GetConfigScope("display.icons").ShouldBe(ConfigScope.User);
+        TwigConfiguration.GetConfigScope("display.treedepth").ShouldBe(ConfigScope.User);
+        TwigConfiguration.GetConfigScope("auth.method").ShouldBe(ConfigScope.User);
+        TwigConfiguration.GetConfigScope("user.displayname").ShouldBe(ConfigScope.User);
+        TwigConfiguration.GetConfigScope("tracking.cleanuppolicy").ShouldBe(ConfigScope.User);
+    }
+
+    [Fact]
+    public async Task SaveSplitAsync_Roundtrip_PreservesAllValues()
+    {
+        var paths = MakeSplitPaths("roundtrip");
+        var original = new TwigConfiguration
+        {
+            Organization = "rt",
+            Project = "proj",
+            Team = "team",
+            Defaults = new DefaultsConfig { AreaPath = @"OS\X", IterationPath = @"Proj\Sprint 1" },
+            Auth = new AuthConfig { Method = "pat" },
+            Display = new DisplayConfig { Icons = "nerd", TreeDepth = 4 },
+            User = new UserConfig { DisplayName = "Daniel" },
+        };
+
+        await original.SaveSplitAsync(paths);
+        var reloaded = await TwigConfiguration.LoadSplitAsync(paths);
+
+        reloaded.Organization.ShouldBe("rt");
+        reloaded.Project.ShouldBe("proj");
+        reloaded.Team.ShouldBe("team");
+        reloaded.Defaults.AreaPath.ShouldBe(@"OS\X");
+        reloaded.Defaults.IterationPath.ShouldBe(@"Proj\Sprint 1");
+        reloaded.Auth.Method.ShouldBe("pat");
+        reloaded.Display.Icons.ShouldBe("nerd");
+        reloaded.Display.TreeDepth.ShouldBe(4);
+        reloaded.User.DisplayName.ShouldBe("Daniel");
+        reloaded.IsLegacyMode.ShouldBeFalse();
     }
 }

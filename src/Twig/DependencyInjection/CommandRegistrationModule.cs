@@ -74,6 +74,7 @@ public static class CommandRegistrationModule
         services.AddSingleton<SyncCommand>();
         services.AddSingleton<WorkspaceCommand>();
         services.AddSingleton<ConfigCommand>();
+        services.AddSingleton<MigrateConfigCommand>();
         services.AddSingleton<ConfigStatusFieldsCommand>();
         services.AddSingleton<AuthStatusCommand>();
         services.AddSingleton<AuthClearCommand>();

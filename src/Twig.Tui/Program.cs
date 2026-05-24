@@ -12,16 +12,18 @@ using Twig.Tui.Views;
 
 SQLitePCL.Batteries.Init();
 
-var twigDir = WorkspaceDiscovery.FindTwigDir();
-
-if (twigDir is null)
+// AB#3296: discover the workspace root (parent of .twig/ OR directory containing twig.json).
+var workspaceRoot = WorkspaceDiscovery.FindWorkspaceRoot();
+if (workspaceRoot is null)
 {
     Console.Error.WriteLine("Twig workspace not found (searched current and ancestor directories). Run 'twig init' first.");
     return 1;
 }
 
+var twigDir = Path.Combine(workspaceRoot, ".twig");
 var configPath = Path.Combine(twigDir, "config");
-var config = TwigConfiguration.Load(configPath);
+var probePaths = new TwigPaths(twigDir, configPath, Path.Combine(twigDir, "twig.db"));
+var config = TwigConfiguration.LoadSplit(probePaths);
 
 var tempPaths = (!string.IsNullOrWhiteSpace(config.Organization) && !string.IsNullOrWhiteSpace(config.Project))
     ? TwigPaths.ForContext(twigDir, config.Organization, config.Project)
@@ -31,6 +33,27 @@ if (!File.Exists(tempPaths.DbPath))
 {
     Console.Error.WriteLine("Twig database not found. Run 'twig init' first.");
     return 1;
+}
+
+// AB#3296 PR-3: hydrate type appearances from the SQLite cache instead of
+// reading them from .twig/config. Cache is the source of truth.
+try
+{
+    using var cacheStore = new Twig.Infrastructure.Persistence.SqliteCacheStore($"Data Source={tempPaths.DbPath}");
+    var processTypeStore = new Twig.Infrastructure.Persistence.SqliteProcessTypeStore(cacheStore);
+    var records = await processTypeStore.GetAllAsync();
+    config.TypeAppearances = records
+        .Select(r => new TypeAppearanceConfig
+        {
+            Name = r.TypeName,
+            Color = r.ColorHex ?? string.Empty,
+            IconId = r.IconId,
+        })
+        .ToList();
+}
+catch (Exception ex) when (ex is InvalidOperationException or Microsoft.Data.Sqlite.SqliteException)
+{
+    // SQLite cache uninitialized; fall through with null TypeAppearances.
 }
 
 // Build DI container using shared registration

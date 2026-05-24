@@ -6,3 +6,54 @@ Twig.Infrastructure.Config.DefaultsConfig.InheritParentArea.get -> bool
 Twig.Infrastructure.Config.DefaultsConfig.InheritParentArea.set -> void
 Twig.Infrastructure.Config.DefaultsConfig.InheritParentIteration.get -> bool
 Twig.Infrastructure.Config.DefaultsConfig.InheritParentIteration.set -> void
+Twig.Infrastructure.Config.TwigConfiguration.RepoCoords.get -> Twig.Infrastructure.Config.TwigRepoConfig!
+Twig.Infrastructure.Config.TwigConfiguration.RepoCoords.set -> void
+Twig.Infrastructure.Config.TwigConfiguration.UserPrefs.get -> Twig.Infrastructure.Config.TwigUserConfig!
+Twig.Infrastructure.Config.TwigConfiguration.UserPrefs.set -> void
+Twig.Infrastructure.Config.TwigRepoConfig
+Twig.Infrastructure.Config.TwigRepoConfig.Areas.get -> Twig.Infrastructure.Config.AreasConfig!
+Twig.Infrastructure.Config.TwigRepoConfig.Areas.set -> void
+Twig.Infrastructure.Config.TwigRepoConfig.Defaults.get -> Twig.Infrastructure.Config.DefaultsConfig!
+Twig.Infrastructure.Config.TwigRepoConfig.Defaults.set -> void
+Twig.Infrastructure.Config.TwigRepoConfig.Git.get -> Twig.Infrastructure.Config.GitConfig!
+Twig.Infrastructure.Config.TwigRepoConfig.Git.set -> void
+Twig.Infrastructure.Config.TwigRepoConfig.Organization.get -> string!
+Twig.Infrastructure.Config.TwigRepoConfig.Organization.set -> void
+Twig.Infrastructure.Config.TwigRepoConfig.ProcessTemplate.get -> string!
+Twig.Infrastructure.Config.TwigRepoConfig.ProcessTemplate.set -> void
+Twig.Infrastructure.Config.TwigRepoConfig.Project.get -> string!
+Twig.Infrastructure.Config.TwigRepoConfig.Project.set -> void
+Twig.Infrastructure.Config.TwigRepoConfig.Seed.get -> Twig.Infrastructure.Config.SeedConfig!
+Twig.Infrastructure.Config.TwigRepoConfig.Seed.set -> void
+Twig.Infrastructure.Config.TwigRepoConfig.Team.get -> string!
+Twig.Infrastructure.Config.TwigRepoConfig.Team.set -> void
+Twig.Infrastructure.Config.TwigRepoConfig.TwigRepoConfig() -> void
+Twig.Infrastructure.Config.TwigRepoConfig.Workspace.get -> Twig.Infrastructure.Config.WorkspaceConfig!
+Twig.Infrastructure.Config.TwigRepoConfig.Workspace.set -> void
+Twig.Infrastructure.Config.TwigUserConfig
+Twig.Infrastructure.Config.TwigUserConfig.Auth.get -> Twig.Infrastructure.Config.AuthConfig!
+Twig.Infrastructure.Config.TwigUserConfig.Auth.set -> void
+Twig.Infrastructure.Config.TwigUserConfig.Display.get -> Twig.Infrastructure.Config.DisplayConfig!
+Twig.Infrastructure.Config.TwigUserConfig.Display.set -> void
+Twig.Infrastructure.Config.TwigUserConfig.Tracking.get -> Twig.Infrastructure.Config.TrackingConfig!
+Twig.Infrastructure.Config.TwigUserConfig.Tracking.set -> void
+Twig.Infrastructure.Config.TwigUserConfig.TwigUserConfig() -> void
+Twig.Infrastructure.Config.TwigUserConfig.TypeAppearances.get -> System.Collections.Generic.List<Twig.Infrastructure.Config.TypeAppearanceConfig!>?
+Twig.Infrastructure.Config.TwigUserConfig.TypeAppearances.set -> void
+Twig.Infrastructure.Config.TwigUserConfig.User.get -> Twig.Infrastructure.Config.UserConfig!
+Twig.Infrastructure.Config.TwigUserConfig.User.set -> void
+Twig.Infrastructure.Config.TwigConfiguration.IsLegacyMode.get -> bool
+Twig.Infrastructure.Config.TwigConfiguration.SaveRepoAsync(string! repoPath, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Infrastructure.Config.TwigConfiguration.SaveUserAsync(string! userPath, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Infrastructure.Config.TwigConfiguration.SaveSplitAsync(Twig.Infrastructure.Config.TwigPaths! paths, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Infrastructure.Config.TwigPaths.RepoConfigPath.get -> string!
+Twig.Infrastructure.Config.TwigPaths.RepoRoot.get -> string!
+Twig.Infrastructure.Config.ConfigScope
+Twig.Infrastructure.Config.ConfigScope.Repo = 1 -> Twig.Infrastructure.Config.ConfigScope
+Twig.Infrastructure.Config.ConfigScope.Unknown = 0 -> Twig.Infrastructure.Config.ConfigScope
+Twig.Infrastructure.Config.ConfigScope.User = 2 -> Twig.Infrastructure.Config.ConfigScope
+static Twig.Infrastructure.Config.WorkspaceDiscovery.FindWorkspaceRoot(string? startDir = null) -> string?
+const Twig.Infrastructure.Config.WorkspaceDiscovery.RepoManifestFileName = "twig.json" -> string!
+static Twig.Infrastructure.Config.TwigConfiguration.GetConfigScope(string! dotPath) -> Twig.Infrastructure.Config.ConfigScope
+static Twig.Infrastructure.Config.TwigConfiguration.LoadSplit(Twig.Infrastructure.Config.TwigPaths! paths) -> Twig.Infrastructure.Config.TwigConfiguration!
+static Twig.Infrastructure.Config.TwigConfiguration.LoadSplitAsync(Twig.Infrastructure.Config.TwigPaths! paths, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Infrastructure.Config.TwigConfiguration!>!

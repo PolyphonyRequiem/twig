@@ -43,7 +43,9 @@ public sealed class ConfigCommand(
             return 1;
         }
 
-        await config.SaveAsync(paths.ConfigPath);
+        // AB#3296: route the write to the correct file. In legacy mode, fall back
+        // to the single-file save (preserves existing behavior for un-migrated repos).
+        await config.SaveSplitAsync(paths);
         Console.WriteLine(fmt.FormatSuccess($"Set {key} = {value}"));
 
         // Regenerate prompt state when display settings change (badge, color, icons)

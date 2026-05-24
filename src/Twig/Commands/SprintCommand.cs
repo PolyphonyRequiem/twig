@@ -39,7 +39,7 @@ public sealed class SprintCommand(
 
         var entry = new SprintEntry { Expression = expression };
         config.Workspace.Sprints.Add(entry);
-        await config.SaveAsync(paths.ConfigPath, ct);
+        await config.SaveSplitAsync(paths, ct);
 
         Console.WriteLine(fmt.FormatSuccess($"Added sprint expression '{expression}'."));
         return 0;
@@ -66,7 +66,7 @@ public sealed class SprintCommand(
         }
 
         config.Workspace.Sprints.RemoveAt(index);
-        await config.SaveAsync(paths.ConfigPath, ct);
+        await config.SaveSplitAsync(paths, ct);
 
         Console.WriteLine(fmt.FormatSuccess($"Removed sprint expression '{expression}'."));
         return 0;

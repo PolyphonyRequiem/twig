@@ -74,29 +74,38 @@ public class RefreshCommandTests : RefreshCommandTestBase
     }
 
     [Fact]
-    public async Task Refresh_UpdatesTypeAppearances()
+    public async Task Refresh_HydratesTypeAppearances_FromCache_AB3296PR3()
     {
         _adoService.QueryByWiqlAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<int>());
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
+        // After ProcessTypeSyncService.SyncAsync writes to the store, the post-sync
+        // GetAllAsync call in RefreshCommand should return the freshly synced records.
+        _processTypeStore.GetAllAsync(Arg.Any<CancellationToken>()).Returns(new List<ProcessTypeRecord>
+        {
+            new() { TypeName = "Bug", ColorHex = "CC293D", IconId = "icon_insect", States = [] },
+            new() { TypeName = "Task", ColorHex = "F2CB1D", IconId = "icon_clipboard", States = [] },
+        });
+
         var result = await _cmd.ExecuteAsync();
 
         result.ShouldBe(0);
 
-        // Verify config in-memory update
+        // In-memory hydration from the SQLite cache (AB#3296 PR-3 contract).
         _config.TypeAppearances.ShouldNotBeNull();
         _config.TypeAppearances.Count.ShouldBe(2);
         _config.TypeAppearances.ShouldContain(a => a.Name == "Bug" && a.Color == "CC293D");
         _config.TypeAppearances.ShouldContain(a => a.Name == "Task" && a.Color == "F2CB1D");
 
-        // Verify config was persisted to disk
+        // The user-prefs file MUST NOT contain typeAppearances — eliminating the
+        // 60-line JSON array that twig sync used to rewrite on every invocation.
         File.Exists(_paths.ConfigPath).ShouldBeTrue();
         var content = await File.ReadAllTextAsync(_paths.ConfigPath);
-        content.ShouldContain("typeAppearances");
-        content.ShouldContain("CC293D");
+        content.ShouldNotContain("typeAppearances");
+        content.ShouldNotContain("CC293D");
 
-        // Verify SQLite process_types rows were saved via the mock
+        // SQLite process_types writes still happen via ProcessTypeSyncService.
         await _processTypeStore.Received(2).SaveAsync(Arg.Any<ProcessTypeRecord>(), Arg.Any<CancellationToken>());
         await _processTypeStore.Received().SaveAsync(
             Arg.Is<ProcessTypeRecord>(r => r.TypeName == "Bug" && r.ColorHex == "CC293D" && r.IconId == "icon_insect"),

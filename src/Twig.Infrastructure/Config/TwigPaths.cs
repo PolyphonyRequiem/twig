@@ -18,8 +18,21 @@ public sealed class TwigPaths
     /// </summary>
     public string StartDir { get; }
 
-    /// <summary>Path to the config file: <c>.twig/config</c>.</summary>
+    /// <summary>Path to the per-user config file: <c>.twig/config</c>. AB#3296: gitignored, holds preferences only.</summary>
     public string ConfigPath { get; }
+
+    /// <summary>
+    /// Path to the committed repo coordinates file at the repo root: <c>&lt;repo-root&gt;/twig.json</c>.
+    /// Derived as the parent of <see cref="TwigDir"/>. AB#3296: this file is committed and reviewed;
+    /// every contributor needs these coordinates to talk to the same ADO project.
+    /// </summary>
+    public string RepoConfigPath { get; }
+
+    /// <summary>
+    /// The repo root directory (parent of <see cref="TwigDir"/>). Useful for placing
+    /// committed manifest files (<c>twig.json</c>) and for editing <c>.gitignore</c>.
+    /// </summary>
+    public string RepoRoot { get; }
 
     /// <summary>Path to the context-specific SQLite database.</summary>
     public string DbPath { get; }
@@ -36,6 +49,8 @@ public sealed class TwigPaths
         ConfigPath = configPath;
         DbPath = dbPath;
         StartDir = startDir ?? Directory.GetCurrentDirectory();
+        RepoRoot = Path.GetDirectoryName(twigDir) ?? twigDir;
+        RepoConfigPath = Path.Combine(RepoRoot, "twig.json");
     }
 
     /// <summary>

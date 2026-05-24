@@ -39,10 +39,17 @@ var app = ConsoleApp.Create()
         // startDir is captured separately so InitCommand can create workspaces in CWD
         // even when walk-up discovers an ancestor .twig/ (e.g., ~/.twig).
         var startDir = Directory.GetCurrentDirectory();
-        var twigDir = WorkspaceDiscovery.FindTwigDir()
-            ?? Path.Combine(startDir, ".twig");
-        var configPath = Path.Combine(twigDir, "config");
-        var config = TwigConfiguration.Load(configPath);
+        var workspaceRoot = WorkspaceDiscovery.FindWorkspaceRoot();
+        var twigDir = workspaceRoot is not null
+            ? Path.Combine(workspaceRoot, ".twig")
+            : Path.Combine(startDir, ".twig");
+
+        // AB#3296: split-aware load. Reads twig.json + .twig/config when the
+        // manifest exists; falls back to legacy single-file load otherwise.
+        // Build a probe TwigPaths just for loading (the real TwigPaths needs the
+        // org/project from config to derive the DB context dir).
+        var probePaths = new TwigPaths(twigDir, Path.Combine(twigDir, "config"), Path.Combine(twigDir, "twig.db"), startDir);
+        var config = TwigConfiguration.LoadSplit(probePaths);
         services.AddTwigCoreServices(config, twigDir, startDir);
 
         // ITEM-138: Migrate legacy flat twig.db → nested context path.
@@ -81,6 +88,20 @@ var app = ConsoleApp.Create()
                 var processTypeStore = new SqliteProcessTypeStore(cacheStore);
                 var records = processTypeStore.GetAllAsync().GetAwaiter().GetResult();
                 stateEntries = records.SelectMany(r => r.States).ToList();
+
+                // AB#3296 PR-3: hydrate type appearances from the SQLite cache
+                // rather than reading them out of .twig/config. The data is
+                // identical (process_types table has color_hex + icon_id per
+                // type) but lives in cache only so 'twig sync' no longer
+                // rewrites a 60-line JSON array on every invocation.
+                config.TypeAppearances = records
+                    .Select(r => new TypeAppearanceConfig
+                    {
+                        Name = r.TypeName,
+                        Color = r.ColorHex ?? string.Empty,
+                        IconId = r.IconId,
+                    })
+                    .ToList();
             }
         }
         catch (Exception ex) when (ex is InvalidOperationException or Microsoft.Data.Sqlite.SqliteException)
@@ -907,6 +928,13 @@ public sealed class TwigCommands(IServiceProvider services)
     public async Task<int> Config([Argument] string key, [Argument] string? value = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ConfigCommand>().ExecuteAsync(key, value, output, ct);
 
+    /// <summary>Split a legacy .twig/config into a committed twig.json (repo coords) and gitignored .twig/config (user prefs). AB#3296.</summary>
+    /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
+    /// <param name="dryRun">Preview the changes without modifying any files.</param>
+    [Command("migrate-config")]
+    public async Task<int> MigrateConfig(string output = OutputFormatterFactory.DefaultFormat, bool dryRun = false, CancellationToken ct = default)
+        => await services.GetRequiredService<MigrateConfigCommand>().ExecuteAsync(output, dryRun, ct);
+
     /// <summary>Configure which fields appear in status view.</summary>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     [Command("config status-fields")]
@@ -1132,6 +1160,7 @@ internal static class GroupedHelp
         // System
         "config",
         "config status-fields",
+        "migrate-config",
         "auth",
         "auth status",
         "auth clear",
@@ -1274,6 +1303,7 @@ Seeds:
 System:
   config <key> [val]   Read or set a configuration value.
   config status-fields Configure which fields appear in status view.
+  migrate-config       Split legacy .twig/config into twig.json + user prefs (AB#3296).
   auth status          Inspect refresh-token store + cached ADO access token.
   auth clear           Wipe refresh-token store and cached access token.
   auth login           Sign in interactively (loopback PKCE; --device-code for headless).

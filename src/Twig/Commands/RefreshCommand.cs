@@ -190,17 +190,44 @@ public sealed class RefreshCommand(
             }
         }
 
-        // Fetch and persist type appearances (always, regardless of work item count)
-        var appearances = await iterationService.GetWorkItemTypeAppearancesAsync();
-        ctx.Config.TypeAppearances = appearances
-            .Select(a => new TypeAppearanceConfig { Name = a.Name, Color = a.Color ?? string.Empty, IconId = a.IconId })
-            .ToList();
-        await ctx.Config.SaveAsync(paths.ConfigPath);
+        // AB#3296 PR-3: type appearances live in the SQLite cache (process_types
+        // table) — populated below by ProcessTypeSyncService. We no longer write
+        // a 60-line JSON array to .twig/config on every sync.
+
+        // AB#3296: sync invariant — refresh may only touch user-prefs file.
+        // The only field that may have changed in TwigUserConfig above is
+        // User.DisplayName (if it was empty and we just detected it).
+        if (ctx.Config.IsLegacyMode)
+            await ctx.Config.SaveAsync(paths.ConfigPath);
+        else
+            await ctx.Config.SaveUserAsync(paths.ConfigPath);
 
         // Sync process types and field definitions concurrently (FR-5)
         await Task.WhenAll(
             SafeSyncAsync(() => ProcessTypeSyncService.SyncAsync(iterationService, processTypeStore), "type data"),
             SafeSyncAsync(() => FieldDefinitionSyncService.SyncAsync(iterationService, fieldDefinitionStore), "field definitions"));
+
+        // AB#3296 PR-3: rehydrate in-memory TypeAppearances from the freshly
+        // synced cache so the rest of this command (and the renderer in the
+        // current process) sees the up-to-date appearance set without going
+        // back to disk for the config file.
+        try
+        {
+            var allTypes = await processTypeStore.GetAllAsync(ct);
+            ctx.Config.TypeAppearances = allTypes
+                .Select(r => new TypeAppearanceConfig
+                {
+                    Name = r.TypeName,
+                    Color = r.ColorHex ?? string.Empty,
+                    IconId = r.IconId,
+                })
+                .ToList();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Best-effort hydration; if the store read fails, fall through.
+            _stderr.WriteLine(fmt.FormatInfo($"⚠ Could not refresh type appearances: {ex.Message}"));
+        }
 
         async Task SafeSyncAsync(Func<Task> action, string label)
         {

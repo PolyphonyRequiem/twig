@@ -193,8 +193,10 @@ public sealed class InitCommand
             Console.WriteLine(fmt.FormatInfo($"  Git project: {gitProject}"));
         }
 
-        // Write config early so iteration service can use it
-        await config.SaveAsync(configPath);
+        // AB#3296: write the new split shape — twig.json (committed manifest) at
+        // repo root and .twig/config (gitignored user prefs). Fresh init always
+        // produces the new shape; migration handles legacy upgrades.
+        await config.SaveSplitAsync(contextPaths);
 
         // Build iteration service with the supplied org/project (not from DI config)
         var effectiveTeam = string.IsNullOrWhiteSpace(team) ? $"{project} Team" : team;
@@ -206,20 +208,11 @@ public sealed class InitCommand
         var template = await iterationService.DetectTemplateNameAsync();
         config.ProcessTemplate = template ?? string.Empty;
 
-        Console.WriteLine(fmt.FormatInfo("Fetching type appearances..."));
-        var appearances = await iterationService.GetWorkItemTypeAppearancesAsync();
-        var typeAppearances = new List<TypeAppearanceConfig>(appearances.Count);
-        foreach (var appearance in appearances)
-        {
-            typeAppearances.Add(new TypeAppearanceConfig
-            {
-                Name = appearance.Name,
-                Color = appearance.Color ?? string.Empty,
-                IconId = appearance.IconId
-            });
-        }
-        config.TypeAppearances = typeAppearances;
-        Console.WriteLine(fmt.FormatInfo($"  Loaded {appearances.Count} type appearance(s)."));
+        // AB#3296 PR-3: type appearances are sourced from the SQLite cache
+        // (process_types table, populated below by ProcessTypeSyncService).
+        // The previous explicit GetWorkItemTypeAppearancesAsync fetch was
+        // redundant — same data, written to two places. The 60-line JSON
+        // array no longer ships to .twig/config.
 
         // DD-8/FR-17: Only auto-detect area paths in interactive mode.
         // Non-interactive init starts empty; use --area flag for explicit config.
@@ -382,7 +375,7 @@ public sealed class InitCommand
                 Console.WriteLine(fmt.FormatInfo($"  Area: {entry.Path}{(entry.IncludeChildren ? "" : " (exact)")}"));
         }
 
-        await config.SaveAsync(configPath);
+        await config.SaveSplitAsync(contextPaths);
 
         // Initialize SQLite cache in context-specific path and persist process type data
         using var cacheStore = new Infrastructure.Persistence.SqliteCacheStore($"Data Source={contextPaths.DbPath}");

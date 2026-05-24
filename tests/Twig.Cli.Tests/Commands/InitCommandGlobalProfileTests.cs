@@ -99,7 +99,7 @@ public class InitCommandGlobalProfileTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.ProcessTemplate.ShouldBe("Agile");
     }
 
@@ -344,7 +344,7 @@ public class InitCommandGlobalProfileTests : IDisposable
         content.ShouldBe(SampleStatusFieldsContent);
 
         // Verify config has ProcessTemplate persisted
-        var config = await TwigConfiguration.LoadAsync(_configPath);
+        var config = await TwigConfiguration.LoadSplitAsync(_paths);
         config.ProcessTemplate.ShouldBe(template);
     }
 }

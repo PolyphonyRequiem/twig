@@ -36,6 +36,7 @@ public class DiscardCommandTests
             _pendingChangeStore,
             _consoleInput,
             _formatterFactory,
+            new Twig.Infrastructure.Services.Mutation.DiscardWorkflow(_workItemRepo, _pendingChangeStore, _promptStateWriter),
             _promptStateWriter,
             _telemetryClient);
     }

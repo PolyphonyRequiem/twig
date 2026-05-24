@@ -184,6 +184,8 @@ public abstract class ReadToolsTestBase
             workItemRepo, adoService, pendingChangeStore, promptStateWriter);
         var noteWorkflow = new Twig.Infrastructure.Services.Mutation.NoteWorkflow(
             workItemRepo, adoService, pendingChangeStore, promptStateWriter);
+        var discardWorkflow = new Twig.Infrastructure.Services.Mutation.DiscardWorkflow(
+            workItemRepo, pendingChangeStore, promptStateWriter);
         var sprintIterationResolver = new SprintIterationResolver(iterationService, workItemRepo);
         var paths = TwigPaths.ForContext(Path.GetTempPath(), key.Org, key.Project);
         var cacheStore = new SqliteCacheStore("Data Source=:memory:");
@@ -197,6 +199,7 @@ public abstract class ReadToolsTestBase
             stateTransitionWorkflow,
             fieldUpdateWorkflow,
             noteWorkflow,
+            discardWorkflow,
             sprintIterationResolver,
             processTypeStore, fieldDefinitionStore,
             seedLinkRepo, publishIdMapRepo, seedPublishRulesProvider, unitOfWork,

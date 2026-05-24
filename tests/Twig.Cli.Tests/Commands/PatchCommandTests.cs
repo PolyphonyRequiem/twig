@@ -50,15 +50,16 @@ public sealed class PatchCommandTests : IDisposable
     private PatchCommand CreateCommand(TextReader? stdin = null, IPromptStateWriter? promptStateWriter = null)
     {
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
+        var workflow = new Twig.Infrastructure.Services.Mutation.PatchWorkflow(
+            _workItemRepo, _adoService, _pendingChangeStore, promptStateWriter);
         return new PatchCommand(
             resolver,
             _adoService,
-            _pendingChangeStore,
             _consoleInput,
             _workItemRepo,
             _fieldDefStore,
+            workflow,
             _formatterFactory,
-            promptStateWriter: promptStateWriter,
             stdinReader: stdin,
             stderr: _stderr,
             stdout: _stdout);

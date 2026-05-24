@@ -10,6 +10,7 @@ using Twig.Domain.Services.Mutation;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Process;
 using Twig.Domain.Services.Sync;
+using Twig.Infrastructure.Services.Mutation;
 using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
@@ -151,9 +152,8 @@ public class PromptStateIntegrationTests : IDisposable
         var cmd = new StateCommand(
             new CommandContext(new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true), _formatterFactory, _hintEngine, _config),
             resolver, _workItemRepo, _adoService,
-            _pendingChangeStore, _processConfigProvider, _consoleInput,
-            new SeedMutationProvider(_workItemRepo),
-            promptStateWriter: writer);
+            _consoleInput, new SeedMutationProvider(_workItemRepo),
+            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider, promptStateWriter: writer));
 
         var result = await cmd.ExecuteAsync("Resolved");
 

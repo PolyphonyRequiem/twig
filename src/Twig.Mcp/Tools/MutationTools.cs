@@ -60,91 +60,67 @@ public sealed class MutationTools(WorkspaceResolver resolver)
                 McpResultBuilder.FormatStateChange(seedUpdated, previousState), verbose, ct);
         }
 
-        var processConfig = ctx.ProcessConfigProvider.GetConfiguration();
-        if (!processConfig.TypeConfigs.TryGetValue(item.Type, out var typeConfig))
-            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.CacheStale, $"No process configuration found for type '{item.Type}'.", ctx, ct);
-
-        var resolveResult = StateResolver.ResolveByName(stateName, typeConfig.StateEntries);
-        if (!resolveResult.IsSuccess)
-            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidStateTransition, resolveResult.Error, ctx, ct);
-
-        var resolution = resolveResult.Value;
-        var newState = resolution.ResolvedName;
-        var previousStateAdo = item.State;
-
-        if (string.Equals(item.State, newState, StringComparison.OrdinalIgnoreCase))
-            return await EnvelopeBuilder.SuccessAsync(ctx, w =>
-            {
-                var msg = resolution.Kind == ResolutionKind.Category
-                    ? $"Already in state '{newState}' (category '{stateName}')."
-                    : $"Already in state '{newState}'.";
-                w.WriteString("message", msg);
-                w.WriteString("state", newState);
-                if (resolution.Kind == ResolutionKind.Category)
-                    w.WriteString("resolved_from_category", stateName);
-            }, verbose, ct);
-
-        var transition = StateTransitionService.Evaluate(processConfig, item.Type, item.State, newState);
-
-        if (!transition.IsAllowed)
-            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidStateTransition, $"Transition from '{item.State}' to '{newState}' is not allowed.", ctx, ct);
+        // Pre-flight validation (pure, no side effects). Bails on bad input
+        // before fetching remote.
+        var preflight = ctx.StateTransitionWorkflow.Validate(item, stateName);
+        if (preflight is not null)
+            return await RenderOutcomeAsync(ctx, item, preflight, verbose, ct);
 
         WorkItem remote;
-        StateTransitionResult execution;
+        StateTransitionOutcome outcome;
         try
         {
             remote = await ctx.AdoService.FetchAsync(item.Id, ct);
-            execution = await StateTransitionExecutor.ExecuteAsync(
-                ctx.AdoService, item, newState, typeConfig, remote.Revision, ct);
+            outcome = await ctx.StateTransitionWorkflow.ExecuteAsync(item, stateName, remote.Revision, ct);
         }
         catch (AdoException ex)
         {
             return await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable, ex.Message, ctx, ct);
         }
 
-        if (!execution.IsSuccess)
+        return await RenderOutcomeAsync(ctx, item, outcome, verbose, ct);
+    }
+
+    private static async Task<CallToolResult> RenderOutcomeAsync(
+        WorkspaceContext ctx, WorkItem item, StateTransitionOutcome outcome, bool verbose, CancellationToken ct)
+    {
+        switch (outcome)
         {
-            // Best-effort cache resync so subsequent calls see partial-progress state.
-            try
-            {
-                var partial = await ctx.AdoService.FetchAsync(item.Id, ct);
-                await ctx.WorkItemRepo.SaveAsync(partial, ct);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
+            case StateTransitionOutcome.InvalidStateName x:
+                return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidStateTransition, x.Error, ctx, ct);
 
-            var pathRendered = string.Join(" → ", execution.Path);
-            var failureMsg = execution.Path.Count > 1
-                ? $"chain stopped at '{execution.FinalState}'. Reached: {pathRendered}. ADO: {execution.ErrorMessage}"
-                : $"transition rejected. ADO: {execution.ErrorMessage}";
-            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidStateTransition, failureMsg, ctx, ct);
+            case StateTransitionOutcome.ProcessConfigNotFound x:
+                return await EnvelopeBuilder.ErrorAsync(McpErrorCode.CacheStale, $"No process configuration found for type '{x.Type}'.", ctx, ct);
+
+            case StateTransitionOutcome.AlreadyInState x:
+                return await EnvelopeBuilder.SuccessAsync(ctx, w =>
+                {
+                    var msg = x.ResolutionKind == ResolutionKind.Category
+                        ? $"Already in state '{x.ResolvedState}' (category '{x.Input}')."
+                        : $"Already in state '{x.ResolvedState}'.";
+                    w.WriteString("message", msg);
+                    w.WriteString("state", x.ResolvedState);
+                    if (x.ResolutionKind == ResolutionKind.Category)
+                        w.WriteString("resolved_from_category", x.Input);
+                }, verbose, ct);
+
+            case StateTransitionOutcome.TransitionNotAllowed x:
+                return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidStateTransition, $"Transition from '{x.FromState}' to '{x.ToState}' is not allowed.", ctx, ct);
+
+            case StateTransitionOutcome.ChainFailed x:
+                var pathRendered = string.Join(" → ", x.Path);
+                var failureMsg = x.Path.Count > 1
+                    ? $"chain stopped at '{x.FinalState}'. Reached: {pathRendered}. ADO: {x.AdoError}"
+                    : $"transition rejected. ADO: {x.AdoError}";
+                return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidStateTransition, failureMsg, ctx, ct);
+
+            case StateTransitionOutcome.Succeeded x:
+                return await EnvelopeBuilder.WrapAsync(ctx,
+                    McpResultBuilder.FormatStateChange(x.UpdatedItem, x.PreviousState, x.Path), verbose, ct);
+
+            default:
+                throw new System.Diagnostics.UnreachableException($"Unhandled StateTransitionOutcome: {outcome.GetType().Name}");
         }
-
-        try { await AutoPushNotesHelper.PushAndClearAsync(item.Id, ctx.PendingChangeStore, ctx.AdoService); }
-        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
-
-        // Resync cache — best-effort, non-fatal
-        WorkItem updated;
-        try
-        {
-            updated = await ctx.AdoService.FetchAsync(item.Id, ct);
-            await ctx.WorkItemRepo.SaveAsync(updated, ct);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            updated = item;
-        }
-
-        // Parent propagation: if child moved to InProgress, activate parent if still Proposed.
-        // The service is best-effort and never throws (except OperationCanceledException).
-        var newCategory = StateCategoryResolver.Resolve(newState, typeConfig.StateEntries);
-        if (newCategory == StateCategory.InProgress)
-            _ = await ctx.ParentPropagationService.TryPropagateToParentAsync(updated, StateCategory.InProgress, ct);
-
-        try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
-        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
-
-        return await EnvelopeBuilder.WrapAsync(ctx,
-            McpResultBuilder.FormatStateChange(updated, previousStateAdo, execution.Path), verbose, ct);
     }
 
     [McpServerTool(Name = "twig_update"), Description("Update a field on a work item and push to ADO. Operates on the active work item by default, or specify id to target a specific item without changing context.")]

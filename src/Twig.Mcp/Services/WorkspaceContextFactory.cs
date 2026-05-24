@@ -9,6 +9,7 @@ using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Services.Mutation;
 
 namespace Twig.Mcp.Services;
 
@@ -152,14 +153,22 @@ public sealed class WorkspaceContextFactory : IWorkspaceContextFactory, IDisposa
         var parentPropagationService = new ParentStatePropagationService(
             workItemRepo, adoService, processConfigProvider, protectedCacheWriter);
 
-        var sprintIterationResolver = new SprintIterationResolver(iterationService, workItemRepo);
-
         var promptStateWriter = new PromptStateWriter(
             contextStore,
             workItemRepo,
             config,
             paths,
             processTypeStore);
+
+        var stateTransitionWorkflow = new StateTransitionWorkflow(
+            workItemRepo,
+            adoService,
+            pendingChangeStore,
+            processConfigProvider,
+            parentPropagation: parentPropagationService,
+            promptStateWriter: promptStateWriter);
+
+        var sprintIterationResolver = new SprintIterationResolver(iterationService, workItemRepo);
 
         // Seed publishing dependencies
         var seedLinkRepo = new SqliteSeedLinkRepository(cacheStore);
@@ -204,6 +213,7 @@ public sealed class WorkspaceContextFactory : IWorkspaceContextFactory, IDisposa
             flusher,
             promptStateWriter,
             parentPropagationService,
+            stateTransitionWorkflow,
             sprintIterationResolver,
             processTypeStore,
             fieldDefStore,

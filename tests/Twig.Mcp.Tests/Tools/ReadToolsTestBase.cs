@@ -10,6 +10,7 @@ using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Workspace;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Services.Mutation;
 using Twig.Mcp.Services;
 using Twig.Mcp.Tools;
 
@@ -175,6 +176,10 @@ public abstract class ReadToolsTestBase
         var flusher = new McpPendingChangeFlusher(workItemRepo, adoService, pendingChangeStore);
         var parentPropagation = new ParentStatePropagationService(
             workItemRepo, adoService, processConfigProvider, protectedWriter);
+        var stateTransitionWorkflow = new StateTransitionWorkflow(
+            workItemRepo, adoService, pendingChangeStore, processConfigProvider,
+            parentPropagation: parentPropagation,
+            promptStateWriter: promptStateWriter);
         var sprintIterationResolver = new SprintIterationResolver(iterationService, workItemRepo);
         var paths = TwigPaths.ForContext(Path.GetTempPath(), key.Org, key.Project);
         var cacheStore = new SqliteCacheStore("Data Source=:memory:");
@@ -185,6 +190,7 @@ public abstract class ReadToolsTestBase
             adoService, iterationService, processConfigProvider,
             activeItemResolver, syncFactory, contextChange,
             workingSet, flusher, promptStateWriter, parentPropagation,
+            stateTransitionWorkflow,
             sprintIterationResolver,
             processTypeStore, fieldDefinitionStore,
             seedLinkRepo, publishIdMapRepo, seedPublishRulesProvider, unitOfWork,

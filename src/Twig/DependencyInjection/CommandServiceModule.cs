@@ -118,6 +118,15 @@ public static class CommandServiceModule
             sp.GetRequiredService<IProcessConfigurationProvider>(),
             sp.GetRequiredService<ProtectedCacheWriter>()));
 
+        // Mutation workflows — extracted orchestration shared by CLI commands and MCP tools.
+        services.AddSingleton<Twig.Infrastructure.Services.Mutation.StateTransitionWorkflow>(sp => new Twig.Infrastructure.Services.Mutation.StateTransitionWorkflow(
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IAdoWorkItemService>(),
+            sp.GetRequiredService<IPendingChangeStore>(),
+            sp.GetRequiredService<IProcessConfigurationProvider>(),
+            sp.GetService<ParentStatePropagationService>(),
+            sp.GetService<IPromptStateWriter>()));
+
         services.AddSingleton<RefreshOrchestrator>(sp => new RefreshOrchestrator(
             sp.GetRequiredService<IContextStore>(),
             sp.GetRequiredService<IWorkItemRepository>(),

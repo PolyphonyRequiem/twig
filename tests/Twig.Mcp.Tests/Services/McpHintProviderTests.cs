@@ -250,6 +250,7 @@ public sealed class McpHintProviderTests
             adoService, iterationService, processConfigProvider,
             activeItemResolver, syncFactory, contextChange,
             workingSet, flusher, promptStateWriter, parentPropagation,
+            stateTransitionWorkflow: null!,
             sprintIterationResolver,
             processTypeStore, fieldDefStore,
             Substitute.For<ISeedLinkRepository>(), Substitute.For<IPublishIdMapRepository>(), Substitute.For<ISeedPublishRulesProvider>(), Substitute.For<IUnitOfWork>());

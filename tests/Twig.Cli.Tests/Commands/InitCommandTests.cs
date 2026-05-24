@@ -90,8 +90,10 @@ public class InitCommandTests : IDisposable
 
         await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
-        File.Exists(_configPath).ShouldBeTrue();
-        var content = await File.ReadAllTextAsync(_configPath);
+        // AB#3296: repo coords (organization, project, team, defaults, ...) live in twig.json;
+        // .twig/config holds only per-user prefs (auth, display, user, ...).
+        File.Exists(_paths.RepoConfigPath).ShouldBeTrue();
+        var content = await File.ReadAllTextAsync(_paths.RepoConfigPath);
         content.ShouldContain("MyProject");
     }
 
@@ -172,7 +174,7 @@ public class InitCommandTests : IDisposable
 
         result.ShouldBe(0);
         File.Exists(_configPath).ShouldBeTrue();
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Team.ShouldBe("Z Team");
     }
 
@@ -184,7 +186,7 @@ public class InitCommandTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Team.ShouldBe(string.Empty);
     }
 
@@ -208,7 +210,7 @@ public class InitCommandTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Defaults.AreaPathEntries.ShouldNotBeNull();
         loaded.Defaults.AreaPathEntries.Count.ShouldBe(2);
         loaded.Defaults.AreaPathEntries[0].Path.ShouldBe("MyProject\\TeamA");
@@ -238,7 +240,7 @@ public class InitCommandTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0); // Should succeed despite area path failure
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Defaults.AreaPaths.ShouldBeNull(); // No area paths stored
     }
 
@@ -482,7 +484,7 @@ public class InitCommandTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Defaults.Mode.ShouldBe("sprint");
     }
 
@@ -498,7 +500,7 @@ public class InitCommandTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Defaults.Mode.ShouldBe("sprint");
     }
 
@@ -514,7 +516,7 @@ public class InitCommandTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Defaults.Mode.ShouldBe("workspace");
     }
 
@@ -529,7 +531,7 @@ public class InitCommandTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Defaults.Mode.ShouldBe("sprint");
     }
 
@@ -616,7 +618,7 @@ public class InitCommandTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", sprint: "@current");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Workspace.Sprints.ShouldNotBeNull();
         loaded.Workspace.Sprints.Count.ShouldBe(1);
         loaded.Workspace.Sprints[0].Expression.ShouldBe("@current");
@@ -630,7 +632,7 @@ public class InitCommandTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", sprint: "@current;@current-1");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Workspace.Sprints.ShouldNotBeNull();
         loaded.Workspace.Sprints.Count.ShouldBe(2);
         loaded.Workspace.Sprints[0].Expression.ShouldBe("@current");
@@ -655,7 +657,7 @@ public class InitCommandTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", area: @"MyProject\TeamA");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Defaults.AreaPathEntries.ShouldNotBeNull();
         loaded.Defaults.AreaPathEntries.Count.ShouldBe(1);
         loaded.Defaults.AreaPathEntries[0].Path.ShouldBe(@"MyProject\TeamA");
@@ -673,7 +675,7 @@ public class InitCommandTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", area: @"MyProject\TeamA;MyProject\TeamB");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Defaults.AreaPathEntries.ShouldNotBeNull();
         loaded.Defaults.AreaPathEntries.Count.ShouldBe(2);
         loaded.Defaults.AreaPathEntries[0].Path.ShouldBe(@"MyProject\TeamA");
@@ -688,7 +690,7 @@ public class InitCommandTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", area: @"MyProject\TeamA:exact");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Defaults.AreaPathEntries.ShouldNotBeNull();
         loaded.Defaults.AreaPathEntries.Count.ShouldBe(1);
         loaded.Defaults.AreaPathEntries[0].Path.ShouldBe(@"MyProject\TeamA");
@@ -715,7 +717,7 @@ public class InitCommandTests : IDisposable
             sprint: "@current", area: @"MyProject\TeamA");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Workspace.Sprints.ShouldNotBeNull();
         loaded.Workspace.Sprints.Count.ShouldBe(1);
         loaded.Workspace.Sprints[0].Expression.ShouldBe("@current");
@@ -739,7 +741,7 @@ public class InitCommandTests : IDisposable
             area: @"MyProject\ManualTeam");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         // --area flag should override the auto-detected areas
         loaded.Defaults.AreaPathEntries.ShouldNotBeNull();
         loaded.Defaults.AreaPathEntries.Count.ShouldBe(1);
@@ -755,7 +757,7 @@ public class InitCommandTests : IDisposable
             sprint: @"MyProject\Sprint 5");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Workspace.Sprints.ShouldNotBeNull();
         loaded.Workspace.Sprints.Count.ShouldBe(1);
         loaded.Workspace.Sprints[0].Expression.ShouldBe(@"MyProject\Sprint 5");
@@ -778,7 +780,7 @@ public class InitCommandTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Workspace.Sprints.ShouldNotBeNull();
         loaded.Workspace.Sprints.Count.ShouldBe(1);
         loaded.Workspace.Sprints[0].Expression.ShouldBe("@current");
@@ -799,7 +801,7 @@ public class InitCommandTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Workspace.Sprints.ShouldBeNull();
         loaded.Defaults.AreaPathEntries.ShouldNotBeNull();
         loaded.Defaults.AreaPathEntries.Count.ShouldBe(1);
@@ -820,7 +822,7 @@ public class InitCommandTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Workspace.Sprints.ShouldNotBeNull();
         loaded.Workspace.Sprints.Count.ShouldBe(1);
         loaded.Workspace.Sprints[0].Expression.ShouldBe("@current");
@@ -843,7 +845,7 @@ public class InitCommandTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Workspace.Sprints.ShouldBeNull();
         loaded.Defaults.AreaPathEntries.ShouldBeEmpty();
     }
@@ -863,7 +865,7 @@ public class InitCommandTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Workspace.Sprints.ShouldBeNull();
         loaded.Defaults.AreaPathEntries.ShouldBeEmpty();
     }
@@ -881,7 +883,7 @@ public class InitCommandTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         // DD-8: Non-interactive init starts with empty workspace — area paths not auto-detected
         loaded.Defaults.AreaPathEntries.ShouldBeNull();
         loaded.Workspace.Sprints.ShouldBeNull();
@@ -902,7 +904,7 @@ public class InitCommandTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", sprint: "@current");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         // Sprint from flag, not from prompt
         loaded.Workspace.Sprints.ShouldNotBeNull();
         loaded.Workspace.Sprints.Count.ShouldBe(1);
@@ -923,7 +925,7 @@ public class InitCommandTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", area: @"MyProject\ManualTeam");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         // Area from flag, not from prompt
         loaded.Defaults.AreaPathEntries.ShouldNotBeNull();
         loaded.Defaults.AreaPathEntries.Count.ShouldBe(1);
@@ -946,7 +948,7 @@ public class InitCommandTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Workspace.Sprints.ShouldBeNull();
         loaded.Defaults.AreaPathEntries.ShouldBeEmpty();
     }
@@ -961,7 +963,7 @@ public class InitCommandTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         // DD-8: Non-interactive init starts with empty workspace
         loaded.Defaults.AreaPathEntries.ShouldBeNull();
         loaded.Defaults.AreaPaths.ShouldBeNull();
@@ -979,7 +981,7 @@ public class InitCommandTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         // Area paths should NOT be auto-detected in non-interactive mode
         loaded.Defaults.AreaPathEntries.ShouldBeNull();
         loaded.Defaults.AreaPaths.ShouldBeNull();
@@ -997,7 +999,7 @@ public class InitCommandTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject", sprint: "@current");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         // Sprint flag applied
         loaded.Workspace.Sprints.ShouldNotBeNull();
         loaded.Workspace.Sprints.Count.ShouldBe(1);
@@ -1018,7 +1020,7 @@ public class InitCommandTests : IDisposable
             area: @"MyProject\ManualTeam");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         // Area from flag, not from auto-detection
         loaded.Defaults.AreaPathEntries.ShouldNotBeNull();
         loaded.Defaults.AreaPathEntries.Count.ShouldBe(1);

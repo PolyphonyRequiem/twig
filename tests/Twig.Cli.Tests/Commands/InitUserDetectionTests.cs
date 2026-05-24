@@ -68,7 +68,7 @@ public class InitUserDetectionTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.User.DisplayName.ShouldBe("Alice Smith");
     }
 
@@ -82,7 +82,7 @@ public class InitUserDetectionTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0); // Init should still succeed
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.User.DisplayName.ShouldBeNull();
     }
 
@@ -96,7 +96,7 @@ public class InitUserDetectionTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0); // Init should still succeed
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.User.DisplayName.ShouldBeNull();
     }
 

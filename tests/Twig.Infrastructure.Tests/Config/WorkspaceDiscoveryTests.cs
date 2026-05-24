@@ -260,4 +260,63 @@ public sealed class WorkspaceDiscoveryTests : IDisposable
         // Should skip the inner non-workspace .twig/ and find the outer workspace
         result.ShouldBe(outerTwig);
     }
+
+    // ──────────────────── AB#3296 PR-2: twig.json discovery ────────────────────
+
+    [Fact]
+    public void FindWorkspaceRoot_TwigJsonOnly_FoundAtRoot()
+    {
+        // A fresh clone with only the committed manifest must be discoverable —
+        // no `twig init` required.
+        File.WriteAllText(Path.Combine(_tempRoot, "twig.json"), "{}");
+
+        var result = WorkspaceDiscovery.FindWorkspaceRoot(_tempRoot);
+
+        result.ShouldBe(_tempRoot);
+    }
+
+    [Fact]
+    public void FindWorkspaceRoot_TwigJsonInAncestor_WalksUp()
+    {
+        File.WriteAllText(Path.Combine(_tempRoot, "twig.json"), "{}");
+        var child = Path.Combine(_tempRoot, "src", "deep");
+        Directory.CreateDirectory(child);
+
+        var result = WorkspaceDiscovery.FindWorkspaceRoot(child);
+
+        result.ShouldBe(_tempRoot);
+    }
+
+    [Fact]
+    public void FindWorkspaceRoot_LegacyTwigDirOnly_FoundAtRoot()
+    {
+        var twigDir = Path.Combine(_tempRoot, ".twig");
+        Directory.CreateDirectory(twigDir);
+        File.WriteAllText(Path.Combine(twigDir, "config"), "");
+
+        var result = WorkspaceDiscovery.FindWorkspaceRoot(_tempRoot);
+
+        result.ShouldBe(_tempRoot);
+    }
+
+    [Fact]
+    public void FindWorkspaceRoot_BothMarkers_FoundAtRoot()
+    {
+        var twigDir = Path.Combine(_tempRoot, ".twig");
+        Directory.CreateDirectory(twigDir);
+        File.WriteAllText(Path.Combine(twigDir, "config"), "");
+        File.WriteAllText(Path.Combine(_tempRoot, "twig.json"), "{}");
+
+        var result = WorkspaceDiscovery.FindWorkspaceRoot(_tempRoot);
+
+        result.ShouldBe(_tempRoot);
+    }
+
+    [Fact]
+    public void FindWorkspaceRoot_NoMarkers_ReturnsNull()
+    {
+        var result = WorkspaceDiscovery.FindWorkspaceRoot(_tempRoot);
+
+        result.ShouldBeNull();
+    }
 }

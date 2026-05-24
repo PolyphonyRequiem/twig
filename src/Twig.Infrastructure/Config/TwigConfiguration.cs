@@ -40,6 +40,16 @@ public sealed class TwigConfiguration
     [JsonIgnore]
     public TwigUserConfig UserPrefs { get; set; } = new();
 
+    /// <summary>
+    /// AB#3296: <c>true</c> when this configuration was loaded from a single
+    /// legacy <c>.twig/config</c> file (no <c>twig.json</c> manifest present).
+    /// Legacy mode preserves the original write behavior — <see cref="SaveAsync(TwigPaths, CancellationToken)"/>
+    /// writes back to the single file so polyphony worktrees and other un-migrated
+    /// repos keep working until an explicit <c>twig migrate-config</c> runs.
+    /// </summary>
+    [JsonIgnore]
+    public bool IsLegacyMode { get; internal set; }
+
     public string Organization { get => RepoCoords.Organization; set => RepoCoords.Organization = value; }
     public string Project { get => RepoCoords.Project; set => RepoCoords.Project = value; }
     public string Team { get => RepoCoords.Team; set => RepoCoords.Team = value; }
@@ -182,6 +192,246 @@ public sealed class TwigConfiguration
         }
 
         await File.WriteAllBytesAsync(path, newBytes.ToArray(), ct);
+    }
+
+    /// <summary>
+    /// AB#3296: split-aware loader. Reads the committed <c>twig.json</c> manifest
+    /// (repo coords) and the gitignored <c>.twig/config</c> (user prefs) as separate
+    /// files when the manifest exists. Falls back to the legacy single-file load
+    /// when only <c>.twig/config</c> is present, setting <see cref="IsLegacyMode"/>
+    /// so subsequent saves preserve the un-migrated shape.
+    /// </summary>
+    public static async Task<TwigConfiguration> LoadSplitAsync(TwigPaths paths, CancellationToken ct = default)
+    {
+        if (File.Exists(paths.RepoConfigPath))
+        {
+            var repo = await LoadJsonAsync(paths.RepoConfigPath, TwigJsonContext.Default.TwigRepoConfig, ct)
+                ?? new TwigRepoConfig();
+            var user = File.Exists(paths.ConfigPath)
+                ? await LoadJsonAsync(paths.ConfigPath, TwigJsonContext.Default.TwigUserConfig, ct) ?? new TwigUserConfig()
+                : new TwigUserConfig();
+            return new TwigConfiguration
+            {
+                RepoCoords = repo,
+                UserPrefs = user,
+                IsLegacyMode = false,
+            };
+        }
+
+        // Legacy single-file shape — load via the existing flat path. The delegating
+        // accessors route each top-level property into the right container, so
+        // RepoCoords and UserPrefs both end up populated.
+        var legacy = await LoadAsync(paths.ConfigPath, ct);
+        legacy.IsLegacyMode = File.Exists(paths.ConfigPath);
+        return legacy;
+    }
+
+    /// <summary>
+    /// AB#3296: synchronous split-aware loader. Mirrors <see cref="LoadSplitAsync"/>
+    /// for CLI bootstrap paths that run before any async context exists.
+    /// </summary>
+    public static TwigConfiguration LoadSplit(TwigPaths paths)
+    {
+        if (File.Exists(paths.RepoConfigPath))
+        {
+            var repo = LoadJson(paths.RepoConfigPath, TwigJsonContext.Default.TwigRepoConfig) ?? new TwigRepoConfig();
+            var user = File.Exists(paths.ConfigPath)
+                ? LoadJson(paths.ConfigPath, TwigJsonContext.Default.TwigUserConfig) ?? new TwigUserConfig()
+                : new TwigUserConfig();
+            return new TwigConfiguration
+            {
+                RepoCoords = repo,
+                UserPrefs = user,
+                IsLegacyMode = false,
+            };
+        }
+
+        var legacy = Load(paths.ConfigPath);
+        legacy.IsLegacyMode = File.Exists(paths.ConfigPath);
+        return legacy;
+    }
+
+    private static async Task<T?> LoadJsonAsync<T>(string path, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo, CancellationToken ct)
+    {
+        FileStream stream;
+        try
+        {
+            stream = File.OpenRead(path);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            throw new TwigConfigurationException(
+                $"Cannot read config file '{path}': permission denied. Check file permissions.", ex);
+        }
+        catch (IOException ex)
+        {
+            throw new TwigConfigurationException(
+                $"Cannot read config file '{path}': {ex.Message}", ex);
+        }
+
+        try
+        {
+            await using (stream)
+            {
+                return await JsonSerializer.DeserializeAsync(stream, typeInfo, ct);
+            }
+        }
+        catch (JsonException ex)
+        {
+            throw new TwigConfigurationException(
+                $"Config file '{path}' contains invalid JSON. Delete the file or fix the syntax. Details: {ex.Message}", ex);
+        }
+    }
+
+    private static T? LoadJson<T>(string path, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo)
+    {
+        byte[] bytes;
+        try
+        {
+            bytes = File.ReadAllBytes(path);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            throw new TwigConfigurationException(
+                $"Cannot read config file '{path}': permission denied. Check file permissions.", ex);
+        }
+        catch (IOException ex)
+        {
+            throw new TwigConfigurationException(
+                $"Cannot read config file '{path}': {ex.Message}", ex);
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize(bytes, typeInfo);
+        }
+        catch (JsonException ex)
+        {
+            throw new TwigConfigurationException(
+                $"Config file '{path}' contains invalid JSON. Delete the file or fix the syntax. Details: {ex.Message}", ex);
+        }
+    }
+
+    /// <summary>
+    /// AB#3296: writes only the repo-coords portion to <paramref name="repoPath"/>
+    /// using the indented JSON context (human-reviewable). Byte-identity
+    /// short-circuit, same as <see cref="SaveAsync(string, CancellationToken)"/>.
+    /// </summary>
+    public async Task SaveRepoAsync(string repoPath, CancellationToken ct = default)
+    {
+        var directory = Path.GetDirectoryName(repoPath);
+        if (directory is not null && directory.Length > 0 && !Directory.Exists(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        using var buffer = new MemoryStream();
+        await JsonSerializer.SerializeAsync(buffer, RepoCoords, TwigRepoJsonContext.Default.TwigRepoConfig, ct);
+        var newBytes = buffer.GetBuffer().AsMemory(0, (int)buffer.Length);
+
+        if (File.Exists(repoPath))
+        {
+            try
+            {
+                var existing = await File.ReadAllBytesAsync(repoPath, ct);
+                if (existing.AsSpan().SequenceEqual(newBytes.Span))
+                    return;
+            }
+            catch (IOException)
+            {
+                // fall through and overwrite
+            }
+        }
+
+        await File.WriteAllBytesAsync(repoPath, newBytes.ToArray(), ct);
+    }
+
+    /// <summary>
+    /// AB#3296: writes only the user-prefs portion to <paramref name="userPath"/>
+    /// using the compact JSON context. This is the write that <c>twig sync</c> /
+    /// <c>twig refresh</c> are constrained to — the load-bearing invariant is
+    /// "sync never modifies tracked files."
+    /// </summary>
+    public async Task SaveUserAsync(string userPath, CancellationToken ct = default)
+    {
+        var directory = Path.GetDirectoryName(userPath);
+        if (directory is not null && directory.Length > 0 && !Directory.Exists(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        using var buffer = new MemoryStream();
+        await JsonSerializer.SerializeAsync(buffer, UserPrefs, TwigJsonContext.Default.TwigUserConfig, ct);
+        var newBytes = buffer.GetBuffer().AsMemory(0, (int)buffer.Length);
+
+        if (File.Exists(userPath))
+        {
+            try
+            {
+                var existing = await File.ReadAllBytesAsync(userPath, ct);
+                if (existing.AsSpan().SequenceEqual(newBytes.Span))
+                    return;
+            }
+            catch (IOException)
+            {
+                // fall through and overwrite
+            }
+        }
+
+        await File.WriteAllBytesAsync(userPath, newBytes.ToArray(), ct);
+    }
+
+    /// <summary>
+    /// AB#3296: dispatcher. Writes the split shape (<c>twig.json</c> + <c>.twig/config</c>)
+    /// when not in legacy mode; falls back to the single-file legacy shape when
+    /// <see cref="IsLegacyMode"/> is true so un-migrated repos keep working unchanged.
+    /// </summary>
+    public Task SaveSplitAsync(TwigPaths paths, CancellationToken ct = default)
+    {
+        if (IsLegacyMode)
+        {
+            return SaveAsync(paths.ConfigPath, ct);
+        }
+
+        return SaveBothAsync(paths, ct);
+    }
+
+    private async Task SaveBothAsync(TwigPaths paths, CancellationToken ct)
+    {
+        await SaveRepoAsync(paths.RepoConfigPath, ct);
+        await SaveUserAsync(paths.ConfigPath, ct);
+    }
+
+    /// <summary>
+    /// AB#3296: returns the scope (<see cref="ConfigScope.Repo"/> or
+    /// <see cref="ConfigScope.User"/>) that owns the given dot-path. Returns
+    /// <see cref="ConfigScope.Unknown"/> for unrecognized keys so callers can
+    /// emit a descriptive error. Single source of truth for write-routing
+    /// decisions, mirrored by <see cref="SetValue"/>.
+    /// </summary>
+    public static ConfigScope GetConfigScope(string dotPath)
+    {
+        return dotPath.ToLowerInvariant() switch
+        {
+            "organization" or "project" or "team" or "processtemplate" => ConfigScope.Repo,
+            "defaults.areapath" or "defaults.areapaths" or "defaults.iterationpath"
+                or "defaults.mode" or "defaults.areapathentries"
+                or "defaults.inheritparentarea" or "defaults.inheritparentiteration" => ConfigScope.Repo,
+            "areas.mode" or "areas.paths" => ConfigScope.Repo,
+            "seed.staledays" => ConfigScope.Repo,
+            "git.branchpattern" or "git.project" or "git.repository" => ConfigScope.Repo,
+            "workspace.workinglevel" or "workspace.sprints" => ConfigScope.Repo,
+            "auth.method" => ConfigScope.User,
+            "user.displayname" or "user.email" => ConfigScope.User,
+            "display.hints" or "display.treedepth" or "display.treedepthup"
+                or "display.treedepthdown" or "display.treedepthsideways"
+                or "display.icons" or "display.cachestaleminutes"
+                or "display.cachestaleminutesreadonly"
+                or "display.fillratethreshold" or "display.maxextracolumns"
+                or "display.columns.workspace" or "display.columns.sprint" => ConfigScope.User,
+            "tracking.cleanuppolicy" or "tracking.mode" => ConfigScope.User,
+            _ => ConfigScope.Unknown,
+        };
     }
 
     /// <summary>
@@ -481,6 +731,21 @@ public sealed class TwigConfiguration
                 return false;
         }
     }
+}
+
+/// <summary>
+/// AB#3296: where a configuration key lives once the split is in effect.
+/// Used by <see cref="TwigConfiguration.GetConfigScope"/> as a single source
+/// of truth for write-routing decisions (which file a key writes to).
+/// </summary>
+public enum ConfigScope
+{
+    /// <summary>Key is unknown to twig. Caller should emit a descriptive error.</summary>
+    Unknown,
+    /// <summary>Key lives in the committed <c>twig.json</c> manifest (repo coords).</summary>
+    Repo,
+    /// <summary>Key lives in the gitignored <c>.twig/config</c> file (per-user preferences).</summary>
+    User,
 }
 
 public sealed class AuthConfig

@@ -87,7 +87,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
             sprint: "@current", area: @"MyProject\ManualTeam");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Workspace.Sprints.ShouldNotBeNull();
         loaded.Workspace.Sprints.Count.ShouldBe(1);
         loaded.Workspace.Sprints[0].Expression.ShouldBe("@current");
@@ -107,7 +107,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
             sprint: "@current;@current-1", area: @"MyProject\TeamA;MyProject\TeamB:exact");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Workspace.Sprints.ShouldNotBeNull();
         loaded.Workspace.Sprints.Count.ShouldBe(2);
         loaded.Workspace.Sprints[0].Expression.ShouldBe("@current");
@@ -139,7 +139,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Defaults.Mode.ShouldBe("sprint");
     }
 
@@ -161,7 +161,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
             sprint: "@current", area: @"MyProject\ManualTeam");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         // Sprint from flag
         loaded.Workspace.Sprints.ShouldNotBeNull();
         loaded.Workspace.Sprints.Count.ShouldBe(1);
@@ -189,7 +189,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Defaults.Mode.ShouldBe("workspace");
         loaded.Workspace.Sprints.ShouldNotBeNull();
         loaded.Workspace.Sprints.Count.ShouldBe(1);
@@ -212,7 +212,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Defaults.Mode.ShouldBe("workspace");
         loaded.Workspace.Sprints.ShouldNotBeNull();
         loaded.Workspace.Sprints.Count.ShouldBe(1);
@@ -236,7 +236,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Defaults.Mode.ShouldBe("workspace");
         loaded.Workspace.Sprints.ShouldBeNull();
         loaded.Defaults.AreaPathEntries.ShouldBeEmpty();
@@ -260,7 +260,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         var expected = modeInput.ToLowerInvariant() == "workspace" ? "workspace" : "sprint";
         loaded.Defaults.Mode.ShouldBe(expected);
     }
@@ -280,7 +280,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Defaults.Mode.ShouldBe("sprint");
     }
 
@@ -296,7 +296,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
         result1.ShouldBe(0);
 
         // Verify initial config has sprint mode (default)
-        var loaded1 = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded1 = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded1.Defaults.Mode.ShouldBe("sprint");
 
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
@@ -313,7 +313,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
         var result2 = await cmd2.ExecuteAsync("https://dev.azure.com/org", "MyProject", force: true);
 
         result2.ShouldBe(0);
-        var loaded2 = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded2 = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded2.Defaults.Mode.ShouldBe("workspace");
         loaded2.Workspace.Sprints.ShouldNotBeNull();
         loaded2.Workspace.Sprints.Count.ShouldBe(1);
@@ -330,7 +330,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
         var result1 = await cmd1.ExecuteAsync("https://dev.azure.com/org", "MyProject", sprint: "@current");
         result1.ShouldBe(0);
 
-        var loaded1 = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded1 = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded1.Workspace.Sprints.ShouldNotBeNull();
         loaded1.Workspace.Sprints.Count.ShouldBe(1);
 
@@ -342,7 +342,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
             force: true, area: @"MyProject\TeamB");
 
         result2.ShouldBe(0);
-        var loaded2 = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded2 = await TwigConfiguration.LoadSplitAsync(_paths);
         // Previous sprint config should be gone (fresh config)
         loaded2.Workspace.Sprints.ShouldBeNull();
         // New area config should be present
@@ -386,7 +386,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Defaults.Mode.ShouldBe("workspace");
         loaded.Workspace.Sprints.ShouldBeNull();
         loaded.Defaults.AreaPathEntries.ShouldBeEmpty();
@@ -407,7 +407,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Defaults.Mode.ShouldBe("sprint");
         loaded.Workspace.Sprints.ShouldNotBeNull();
         loaded.Workspace.Sprints.Count.ShouldBe(1);
@@ -433,7 +433,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
             sprint: "@current;@current-1");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         // Sprint from flag (not @current from prompt choice "1")
         loaded.Workspace.Sprints.ShouldNotBeNull();
         loaded.Workspace.Sprints.Count.ShouldBe(2);
@@ -457,7 +457,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
             area: @"MyProject\ManualTeam:exact");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         // Area from flag overrides auto-detected
         loaded.Defaults.AreaPathEntries.ShouldNotBeNull();
         loaded.Defaults.AreaPathEntries.Count.ShouldBe(1);
@@ -478,7 +478,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
             sprint: "@current", area: @"MyProject\TeamA");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Workspace.Sprints.ShouldNotBeNull();
         loaded.Workspace.Sprints.Count.ShouldBe(1);
         loaded.Defaults.AreaPathEntries.ShouldNotBeNull();
@@ -499,7 +499,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Defaults.AreaPathEntries.ShouldBeNull();
         loaded.Workspace.Sprints.ShouldBeNull();
         loaded.Defaults.Mode.ShouldBe("sprint");
@@ -517,7 +517,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
             sprint: "@current");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Workspace.Sprints.ShouldNotBeNull();
         loaded.Workspace.Sprints.Count.ShouldBe(1);
         // No area detection (non-interactive)
@@ -534,7 +534,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
             area: @"MyProject\TeamA;MyProject\TeamB:exact");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Defaults.AreaPathEntries.ShouldNotBeNull();
         loaded.Defaults.AreaPathEntries.Count.ShouldBe(2);
         loaded.Defaults.AreaPathEntries[0].IncludeChildren.ShouldBeTrue();
@@ -551,7 +551,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
             sprint: "@current", area: @"MyProject\TeamA");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Workspace.Sprints.ShouldNotBeNull();
         loaded.Workspace.Sprints.Count.ShouldBe(1);
         loaded.Defaults.AreaPathEntries.ShouldNotBeNull();
@@ -569,7 +569,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
             sprint: @"MyProject\Sprint 5;@current");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Workspace.Sprints.ShouldNotBeNull();
         loaded.Workspace.Sprints.Count.ShouldBe(2);
         loaded.Workspace.Sprints[0].Expression.ShouldBe(@"MyProject\Sprint 5");
@@ -598,7 +598,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Workspace.Sprints.ShouldBeNull();
         loaded.Defaults.AreaPathEntries.ShouldNotBeNull();
         loaded.Defaults.AreaPathEntries.Count.ShouldBe(3);
@@ -625,7 +625,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
             sprint: "@current");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Workspace.Sprints.ShouldNotBeNull();
         loaded.Workspace.Sprints.Count.ShouldBe(1);
         loaded.Workspace.Sprints[0].Expression.ShouldBe("@current");
@@ -641,7 +641,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Workspace.Sprints.ShouldBeNull();
         loaded.Defaults.AreaPathEntries.ShouldBeNull();
         await _iterationService.DidNotReceive().GetTeamIterationsAsync(Arg.Any<CancellationToken>());
@@ -658,7 +658,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
             sprint: @"@current;@current-1;MyProject\Sprint 3");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         loaded.Workspace.Sprints.ShouldNotBeNull();
         loaded.Workspace.Sprints.Count.ShouldBe(3);
         loaded.Workspace.Sprints[0].Expression.ShouldBe("@current");
@@ -683,7 +683,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
         var result = await cmd.ExecuteAsync("https://dev.azure.com/org", "MyProject");
 
         result.ShouldBe(0);
-        var loaded = await TwigConfiguration.LoadAsync(_configPath);
+        var loaded = await TwigConfiguration.LoadSplitAsync(_paths);
         // Sprint still configured from preference choice
         loaded.Workspace.Sprints.ShouldNotBeNull();
         loaded.Workspace.Sprints.Count.ShouldBe(1);

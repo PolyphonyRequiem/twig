@@ -129,3 +129,27 @@ namespace Twig.Infrastructure.Serialization;
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 internal sealed partial class TwigJsonContext : JsonSerializerContext { }
+
+/// <summary>
+/// AB#3296: parallel source-generated context with <c>WriteIndented = true</c>,
+/// used only for emitting the committed <c>twig.json</c> manifest so it stays
+/// human-reviewable. Compact JSON is fine for the gitignored user-prefs file
+/// (matches today's behavior); the indented form is for the file humans read in PRs.
+/// </summary>
+[JsonSerializable(typeof(TwigRepoConfig))]
+[JsonSerializable(typeof(DefaultsConfig))]
+[JsonSerializable(typeof(SeedConfig))]
+[JsonSerializable(typeof(GitConfig))]
+[JsonSerializable(typeof(WorkspaceConfig))]
+[JsonSerializable(typeof(AreasConfig))]
+[JsonSerializable(typeof(AreaPathEntry))]
+[JsonSerializable(typeof(List<AreaPathEntry>))]
+[JsonSerializable(typeof(SprintEntry))]
+[JsonSerializable(typeof(List<SprintEntry>))]
+[JsonSerializable(typeof(List<string>))]
+[JsonSerializable(typeof(Dictionary<string, string>))]
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    WriteIndented = true)]
+internal sealed partial class TwigRepoJsonContext : JsonSerializerContext { }

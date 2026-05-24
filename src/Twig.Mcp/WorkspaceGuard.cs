@@ -8,14 +8,24 @@ internal static class WorkspaceGuard
     /// <summary>
     /// Ambient-mode guard for MCP multi-workspace: walks up from <paramref name="cwd"/>
     /// to find <c>.twig/</c>, then succeeds if any <c>.twig/{org}/{project}/config</c>
-    /// exists OR the legacy <c>.twig/config</c> exists. Does not require the top-level
-    /// <c>.twig/config</c> when per-workspace configs are present.
+    /// exists OR the legacy <c>.twig/config</c> exists.
+    /// <para>
+    /// AB#3296: also succeeds if the repo root contains a committed <c>twig.json</c>
+    /// manifest — that proves the repo is a twig workspace even before any local
+    /// <c>.twig/</c> exists (fresh clone case).
+    /// </para>
     /// </summary>
     internal static (bool IsValid, string? Error, string? TwigDir) CheckWorkspaceAmbient(string cwd)
     {
-        var twigDir = WorkspaceDiscovery.FindTwigDir(cwd);
-        if (twigDir is null)
+        var workspaceRoot = WorkspaceDiscovery.FindWorkspaceRoot(cwd);
+        if (workspaceRoot is null)
             return (false, "No twig workspace found. Run 'twig init' in your project root.", null);
+
+        var twigDir = Path.Combine(workspaceRoot, ".twig");
+
+        // AB#3296: committed twig.json at repo root is a first-class workspace marker.
+        if (File.Exists(Path.Combine(workspaceRoot, WorkspaceDiscovery.RepoManifestFileName)))
+            return (true, null, twigDir);
 
         // Legacy single-workspace: .twig/config
         if (File.Exists(Path.Combine(twigDir, "config")))

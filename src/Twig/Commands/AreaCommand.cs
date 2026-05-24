@@ -154,7 +154,7 @@ public sealed class AreaCommand(
         };
 
         config.Defaults.AreaPathEntries.Add(entry);
-        await config.SaveAsync(paths.ConfigPath, ct);
+        await config.SaveSplitAsync(paths, ct);
 
         var semantics = entry.SemanticsLabel;
         Console.WriteLine(fmt.FormatSuccess($"Added area path '{entry.Path}' ({semantics})."));
@@ -182,7 +182,7 @@ public sealed class AreaCommand(
         }
 
         config.Defaults.AreaPathEntries.RemoveAt(index);
-        await config.SaveAsync(paths.ConfigPath, ct);
+        await config.SaveSplitAsync(paths, ct);
 
         Console.WriteLine(fmt.FormatSuccess($"Removed area path '{path}'."));
         return 0;
@@ -240,7 +240,7 @@ public sealed class AreaCommand(
             .Select(a => new AreaPathEntry { Path = a.Path, IncludeChildren = a.IncludeChildren })
             .ToList();
 
-        await config.SaveAsync(paths.ConfigPath, ct);
+        await config.SaveSplitAsync(paths, ct);
 
         foreach (var entry in config.Defaults.AreaPathEntries)
             Console.WriteLine(fmt.FormatInfo($"{entry.Path}  ({entry.SemanticsLabel})"));

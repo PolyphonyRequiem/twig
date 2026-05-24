@@ -12,16 +12,18 @@ using Twig.Tui.Views;
 
 SQLitePCL.Batteries.Init();
 
-var twigDir = WorkspaceDiscovery.FindTwigDir();
-
-if (twigDir is null)
+// AB#3296: discover the workspace root (parent of .twig/ OR directory containing twig.json).
+var workspaceRoot = WorkspaceDiscovery.FindWorkspaceRoot();
+if (workspaceRoot is null)
 {
     Console.Error.WriteLine("Twig workspace not found (searched current and ancestor directories). Run 'twig init' first.");
     return 1;
 }
 
+var twigDir = Path.Combine(workspaceRoot, ".twig");
 var configPath = Path.Combine(twigDir, "config");
-var config = TwigConfiguration.Load(configPath);
+var probePaths = new TwigPaths(twigDir, configPath, Path.Combine(twigDir, "twig.db"));
+var config = TwigConfiguration.LoadSplit(probePaths);
 
 var tempPaths = (!string.IsNullOrWhiteSpace(config.Organization) && !string.IsNullOrWhiteSpace(config.Project))
     ? TwigPaths.ForContext(twigDir, config.Organization, config.Project)

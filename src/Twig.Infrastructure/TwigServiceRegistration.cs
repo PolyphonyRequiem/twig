@@ -62,8 +62,10 @@ public static class TwigServiceRegistration
         {
             services.AddSingleton(_ =>
             {
-                var configPath = Path.Combine(resolvedTwigDir, "config");
-                return TwigConfiguration.Load(configPath);
+                // AB#3296: split-aware load. Probe TwigPaths needed for path derivation;
+                // the real TwigPaths comes from BuildPaths after config is loaded.
+                var probePaths = new TwigPaths(resolvedTwigDir, Path.Combine(resolvedTwigDir, "config"), Path.Combine(resolvedTwigDir, "twig.db"));
+                return TwigConfiguration.LoadSplit(probePaths);
             });
         }
 

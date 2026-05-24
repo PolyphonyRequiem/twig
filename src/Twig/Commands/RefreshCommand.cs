@@ -195,7 +195,13 @@ public sealed class RefreshCommand(
         ctx.Config.TypeAppearances = appearances
             .Select(a => new TypeAppearanceConfig { Name = a.Name, Color = a.Color ?? string.Empty, IconId = a.IconId })
             .ToList();
-        await ctx.Config.SaveAsync(paths.ConfigPath);
+        // AB#3296: sync invariant — refresh may only touch user-prefs file.
+        // Both fields written above (User.DisplayName, TypeAppearances) live in
+        // TwigUserConfig, so SaveUserAsync is the correct sub-write here.
+        if (ctx.Config.IsLegacyMode)
+            await ctx.Config.SaveAsync(paths.ConfigPath);
+        else
+            await ctx.Config.SaveUserAsync(paths.ConfigPath);
 
         // Sync process types and field definitions concurrently (FR-5)
         await Task.WhenAll(

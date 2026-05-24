@@ -318,7 +318,7 @@ public class MultiContextInitTests : IDisposable
             var cmd = new InitCommand(_iterationService, paths, _formatterFactory, _hintEngine);
             await cmd.ExecuteAsync("myorg", "myproj");
 
-            var config = await TwigConfiguration.LoadAsync(configPath);
+            var config = await TwigConfiguration.LoadSplitAsync(paths);
             config.Organization.ShouldBe("myorg");
             config.Project.ShouldBe("myproj");
         }

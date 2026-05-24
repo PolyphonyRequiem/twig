@@ -42,3 +42,18 @@ Twig.Infrastructure.Config.TwigUserConfig.TypeAppearances.get -> System.Collecti
 Twig.Infrastructure.Config.TwigUserConfig.TypeAppearances.set -> void
 Twig.Infrastructure.Config.TwigUserConfig.User.get -> Twig.Infrastructure.Config.UserConfig!
 Twig.Infrastructure.Config.TwigUserConfig.User.set -> void
+Twig.Infrastructure.Config.TwigConfiguration.IsLegacyMode.get -> bool
+Twig.Infrastructure.Config.TwigConfiguration.SaveRepoAsync(string! repoPath, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Infrastructure.Config.TwigConfiguration.SaveUserAsync(string! userPath, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Infrastructure.Config.TwigConfiguration.SaveSplitAsync(Twig.Infrastructure.Config.TwigPaths! paths, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+Twig.Infrastructure.Config.TwigPaths.RepoConfigPath.get -> string!
+Twig.Infrastructure.Config.TwigPaths.RepoRoot.get -> string!
+Twig.Infrastructure.Config.ConfigScope
+Twig.Infrastructure.Config.ConfigScope.Repo = 1 -> Twig.Infrastructure.Config.ConfigScope
+Twig.Infrastructure.Config.ConfigScope.Unknown = 0 -> Twig.Infrastructure.Config.ConfigScope
+Twig.Infrastructure.Config.ConfigScope.User = 2 -> Twig.Infrastructure.Config.ConfigScope
+static Twig.Infrastructure.Config.WorkspaceDiscovery.FindWorkspaceRoot(string? startDir = null) -> string?
+const Twig.Infrastructure.Config.WorkspaceDiscovery.RepoManifestFileName = "twig.json" -> string!
+static Twig.Infrastructure.Config.TwigConfiguration.GetConfigScope(string! dotPath) -> Twig.Infrastructure.Config.ConfigScope
+static Twig.Infrastructure.Config.TwigConfiguration.LoadSplit(Twig.Infrastructure.Config.TwigPaths! paths) -> Twig.Infrastructure.Config.TwigConfiguration!
+static Twig.Infrastructure.Config.TwigConfiguration.LoadSplitAsync(Twig.Infrastructure.Config.TwigPaths! paths, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Infrastructure.Config.TwigConfiguration!>!

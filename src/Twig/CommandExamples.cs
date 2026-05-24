@@ -307,6 +307,11 @@ internal static class CommandExamples
             "twig config pat            Show the configured PAT setting",
             "twig config pat <token>    Set the PAT to a new value",
         ],
+        ["migrate-config"] =
+        [
+            "twig migrate-config            Split legacy .twig/config into twig.json + user prefs (AB#3296)",
+            "twig migrate-config --dry-run  Preview the migration without writing any files",
+        ],
         ["config status-fields"] =
         [
             "twig config status-fields                    Show configured status fields",

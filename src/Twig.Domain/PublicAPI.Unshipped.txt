@@ -152,3 +152,48 @@ Twig.Domain.Services.Mutation.FieldUpdateOutcome.FieldUpdateOutcome(Twig.Domain.
 abstract Twig.Domain.Services.Mutation.FieldUpdateOutcome.<Clone>$() -> Twig.Domain.Services.Mutation.FieldUpdateOutcome!
 static Twig.Domain.Services.Mutation.FieldUpdateOutcome.operator !=(Twig.Domain.Services.Mutation.FieldUpdateOutcome? left, Twig.Domain.Services.Mutation.FieldUpdateOutcome? right) -> bool
 static Twig.Domain.Services.Mutation.FieldUpdateOutcome.operator ==(Twig.Domain.Services.Mutation.FieldUpdateOutcome? left, Twig.Domain.Services.Mutation.FieldUpdateOutcome? right) -> bool
+Twig.Domain.Services.Mutation.NoteOutcome
+Twig.Domain.Services.Mutation.NoteOutcome.Pushed
+Twig.Domain.Services.Mutation.NoteOutcome.Pushed.Pushed(Twig.Domain.Aggregates.WorkItem! UpdatedItem, System.Collections.Generic.IReadOnlyList<string!>! Warnings) -> void
+Twig.Domain.Services.Mutation.NoteOutcome.Pushed.UpdatedItem.get -> Twig.Domain.Aggregates.WorkItem!
+Twig.Domain.Services.Mutation.NoteOutcome.Pushed.UpdatedItem.init -> void
+Twig.Domain.Services.Mutation.NoteOutcome.Pushed.Warnings.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Twig.Domain.Services.Mutation.NoteOutcome.Pushed.Warnings.init -> void
+Twig.Domain.Services.Mutation.NoteOutcome.Pushed.Deconstruct(out Twig.Domain.Aggregates.WorkItem! UpdatedItem, out System.Collections.Generic.IReadOnlyList<string!>! Warnings) -> void
+Twig.Domain.Services.Mutation.NoteOutcome.Pushed.Equals(Twig.Domain.Services.Mutation.NoteOutcome.Pushed? other) -> bool
+override Twig.Domain.Services.Mutation.NoteOutcome.Pushed.Equals(object? obj) -> bool
+override sealed Twig.Domain.Services.Mutation.NoteOutcome.Pushed.Equals(Twig.Domain.Services.Mutation.NoteOutcome? other) -> bool
+override Twig.Domain.Services.Mutation.NoteOutcome.Pushed.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.NoteOutcome.Pushed.ToString() -> string!
+override Twig.Domain.Services.Mutation.NoteOutcome.Pushed.<Clone>$() -> Twig.Domain.Services.Mutation.NoteOutcome.Pushed!
+static Twig.Domain.Services.Mutation.NoteOutcome.Pushed.operator !=(Twig.Domain.Services.Mutation.NoteOutcome.Pushed? left, Twig.Domain.Services.Mutation.NoteOutcome.Pushed? right) -> bool
+static Twig.Domain.Services.Mutation.NoteOutcome.Pushed.operator ==(Twig.Domain.Services.Mutation.NoteOutcome.Pushed? left, Twig.Domain.Services.Mutation.NoteOutcome.Pushed? right) -> bool
+Twig.Domain.Services.Mutation.NoteOutcome.Staged
+Twig.Domain.Services.Mutation.NoteOutcome.Staged.Staged(Twig.Domain.Aggregates.WorkItem! Item, bool WasOfflineFallback, string? FailureReason, System.Collections.Generic.IReadOnlyList<string!>! Warnings) -> void
+Twig.Domain.Services.Mutation.NoteOutcome.Staged.Item.get -> Twig.Domain.Aggregates.WorkItem!
+Twig.Domain.Services.Mutation.NoteOutcome.Staged.Item.init -> void
+Twig.Domain.Services.Mutation.NoteOutcome.Staged.WasOfflineFallback.get -> bool
+Twig.Domain.Services.Mutation.NoteOutcome.Staged.WasOfflineFallback.init -> void
+Twig.Domain.Services.Mutation.NoteOutcome.Staged.FailureReason.get -> string?
+Twig.Domain.Services.Mutation.NoteOutcome.Staged.FailureReason.init -> void
+Twig.Domain.Services.Mutation.NoteOutcome.Staged.Warnings.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Twig.Domain.Services.Mutation.NoteOutcome.Staged.Warnings.init -> void
+Twig.Domain.Services.Mutation.NoteOutcome.Staged.Deconstruct(out Twig.Domain.Aggregates.WorkItem! Item, out bool WasOfflineFallback, out string? FailureReason, out System.Collections.Generic.IReadOnlyList<string!>! Warnings) -> void
+Twig.Domain.Services.Mutation.NoteOutcome.Staged.Equals(Twig.Domain.Services.Mutation.NoteOutcome.Staged? other) -> bool
+override Twig.Domain.Services.Mutation.NoteOutcome.Staged.Equals(object? obj) -> bool
+override sealed Twig.Domain.Services.Mutation.NoteOutcome.Staged.Equals(Twig.Domain.Services.Mutation.NoteOutcome? other) -> bool
+override Twig.Domain.Services.Mutation.NoteOutcome.Staged.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.NoteOutcome.Staged.ToString() -> string!
+override Twig.Domain.Services.Mutation.NoteOutcome.Staged.<Clone>$() -> Twig.Domain.Services.Mutation.NoteOutcome.Staged!
+static Twig.Domain.Services.Mutation.NoteOutcome.Staged.operator !=(Twig.Domain.Services.Mutation.NoteOutcome.Staged? left, Twig.Domain.Services.Mutation.NoteOutcome.Staged? right) -> bool
+static Twig.Domain.Services.Mutation.NoteOutcome.Staged.operator ==(Twig.Domain.Services.Mutation.NoteOutcome.Staged? left, Twig.Domain.Services.Mutation.NoteOutcome.Staged? right) -> bool
+override Twig.Domain.Services.Mutation.NoteOutcome.Equals(object? obj) -> bool
+virtual Twig.Domain.Services.Mutation.NoteOutcome.Equals(Twig.Domain.Services.Mutation.NoteOutcome? other) -> bool
+override Twig.Domain.Services.Mutation.NoteOutcome.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.NoteOutcome.ToString() -> string!
+virtual Twig.Domain.Services.Mutation.NoteOutcome.EqualityContract.get -> System.Type!
+virtual Twig.Domain.Services.Mutation.NoteOutcome.PrintMembers(System.Text.StringBuilder! builder) -> bool
+Twig.Domain.Services.Mutation.NoteOutcome.NoteOutcome(Twig.Domain.Services.Mutation.NoteOutcome! original) -> void
+abstract Twig.Domain.Services.Mutation.NoteOutcome.<Clone>$() -> Twig.Domain.Services.Mutation.NoteOutcome!
+static Twig.Domain.Services.Mutation.NoteOutcome.operator !=(Twig.Domain.Services.Mutation.NoteOutcome? left, Twig.Domain.Services.Mutation.NoteOutcome? right) -> bool
+static Twig.Domain.Services.Mutation.NoteOutcome.operator ==(Twig.Domain.Services.Mutation.NoteOutcome? left, Twig.Domain.Services.Mutation.NoteOutcome? right) -> bool

@@ -35,8 +35,9 @@ public class NoteCommandTests
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
 
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        _cmd = new NoteCommand(resolver, _workItemRepo, _pendingChangeStore, _adoService,
-            _editorLauncher, formatterFactory, hintEngine);
+        var noteWorkflow = new Twig.Infrastructure.Services.Mutation.NoteWorkflow(
+            _workItemRepo, _adoService, _pendingChangeStore);
+        _cmd = new NoteCommand(resolver, _editorLauncher, formatterFactory, hintEngine, noteWorkflow);
     }
 
     [Fact]

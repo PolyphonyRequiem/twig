@@ -344,7 +344,7 @@ public sealed class MutationTools(WorkspaceResolver resolver)
 
         if (!resolver.TryResolve(workspace, out var ctx, out var err)) return EnvelopeBuilder.Error(McpErrorCode.WorkspaceNotFound, err!);
 
-        // Resolve item from cache or ADO
+        // Resolve item from cache or ADO (for seed guard + early not-found error)
         var (item, fetchError) = await ctx.FetchWithFallbackAsync(id, ct);
         if (item is null)
             return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound, fetchError ?? $"Work item #{id} not found.", ctx, ct);
@@ -353,87 +353,39 @@ public sealed class MutationTools(WorkspaceResolver resolver)
         if (item.IsSeed)
             return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput, $"#{id} is a seed. Use 'twig seed discard {id}' instead.", ctx, ct);
 
-        // Fresh fetch with links from ADO
+        // Workflow: fresh fetch + link guard
+        var preparation = await ctx.DeleteWorkflow.PrepareAsync(id, ct);
         WorkItem freshItem;
-        IReadOnlyList<WorkItemLink> links;
-        IReadOnlyList<WorkItem> children;
-        try
+        switch (preparation)
         {
-            (freshItem, links) = await ctx.AdoService.FetchWithLinksAsync(id, ct);
-            children = await ctx.AdoService.FetchChildrenAsync(id, ct);
-        }
-        catch (AdoException ex)
-        {
-            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable, ex.Message, ctx, ct);
-        }
-
-        // Link guard — refuse if any links exist
-        var linkCount = (freshItem.ParentId.HasValue ? 1 : 0) + children.Count + links.Count;
-        if (linkCount > 0)
-        {
-            var parts = new List<string>();
-            if (freshItem.ParentId.HasValue) parts.Add("1 parent");
-            if (children.Count > 0) parts.Add($"{children.Count} child{(children.Count != 1 ? "ren" : "")}");
-            if (links.Count > 0)
-            {
-                var byType = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                foreach (var link in links)
-                {
-                    byType.TryGetValue(link.LinkType, out var c);
-                    byType[link.LinkType] = c + 1;
-                }
-                foreach (var (lt, c) in byType)
-                    parts.Add($"{c} {lt.ToLowerInvariant()}");
-            }
-
-            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput,
-                $"Cannot delete #{id} '{freshItem.Title}' — it has {linkCount} link(s): {string.Join(", ", parts)}. " +
-                "Remove all links before deleting. Consider 'twig_state Closed' instead — it preserves history and is reversible.",
-                ctx, ct);
+            case DeletePreparation.FetchFailed f:
+                return await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable, f.Reason, ctx, ct);
+            case DeletePreparation.BlockedByLinks b:
+                return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput,
+                    $"Cannot delete #{id} '{b.FreshItem.Title}' — it has {b.TotalLinkCount} link(s): {b.LinkSummary}. " +
+                    "Remove all links before deleting. Consider 'twig_state Closed' instead — it preserves history and is reversible.",
+                    ctx, ct);
+            case DeletePreparation.Ready r:
+                freshItem = r.FreshItem;
+                break;
+            default:
+                throw new System.Diagnostics.UnreachableException($"Unhandled DeletePreparation: {preparation.GetType().Name}");
         }
 
         // Phase 1: Confirmation prompt
         if (!confirmed)
             return await EnvelopeBuilder.WrapAsync(ctx, McpResultBuilder.FormatDeleteConfirmation(freshItem), verbose, ct);
 
-        // Phase 2: Execute deletion
-
-        // Audit trail — best-effort note on parent
-        if (freshItem.ParentId.HasValue)
+        // Phase 2: Workflow execution (audit + delete + cache cleanup + prompt-state)
+        var outcome = await ctx.DeleteWorkflow.ExecuteAsync(freshItem, ct);
+        return outcome switch
         {
-            try
-            {
-                await ctx.AdoService.AddCommentAsync(
-                    freshItem.ParentId.Value,
-                    $"Child work item #{id} '{freshItem.Title}' ({freshItem.Type}) was deleted via twig.",
-                    ct);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                // Best-effort — parent may be inaccessible
-            }
-        }
-
-        // Delete from ADO
-        try
-        {
-            await ctx.AdoService.DeleteAsync(id, ct);
-        }
-        catch (AdoException ex)
-        {
-            return await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable, $"Delete failed: {ex.Message}", ctx, ct);
-        }
-
-        // Cache cleanup
-        await ctx.WorkItemRepo.DeleteByIdAsync(id, ct);
-        await ctx.PendingChangeStore.ClearChangesAsync(id, ct);
-
-        // Prompt state refresh — best-effort
-        try { await ctx.PromptStateWriter.WritePromptStateAsync(); }
-        catch (Exception ex) when (ex is not OperationCanceledException) { /* best-effort */ }
-
-        return await EnvelopeBuilder.WrapAsync(ctx,
-            McpResultBuilder.FormatDeleted(id, freshItem.Title), verbose, ct);
+            DeleteOutcome.AdoFailed f =>
+                await EnvelopeBuilder.ErrorAsync(McpErrorCode.AdoUnreachable, $"Delete failed: {f.Reason}", ctx, ct),
+            DeleteOutcome.Deleted =>
+                await EnvelopeBuilder.WrapAsync(ctx, McpResultBuilder.FormatDeleted(id, freshItem.Title), verbose, ct),
+            _ => throw new System.Diagnostics.UnreachableException($"Unhandled DeleteOutcome: {outcome.GetType().Name}"),
+        };
     }
 
     [McpServerTool(Name = "twig_discard"), Description("Discard pending local changes for a work item")]

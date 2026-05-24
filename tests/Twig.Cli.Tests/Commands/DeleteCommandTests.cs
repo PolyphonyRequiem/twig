@@ -53,8 +53,9 @@ public class DeleteCommandTests
             Stderr: _stderr);
 
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        _cmd = new DeleteCommand(resolver, _adoService, _workItemRepo, _linkRepo,
-            _pendingChangeStore, _consoleInput, ctx, _promptStateWriter);
+        var workflow = new Twig.Infrastructure.Services.Mutation.DeleteWorkflow(
+            _adoService, _workItemRepo, _linkRepo, _pendingChangeStore, _promptStateWriter);
+        _cmd = new DeleteCommand(resolver, workflow, _consoleInput, ctx);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -823,8 +824,9 @@ public class DeleteCommandTests
             TelemetryClient: _telemetryClient,
             Stderr: stderr);
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        var cmd = new DeleteCommand(resolver, _adoService, _workItemRepo, _linkRepo,
-            _pendingChangeStore, _consoleInput, ctx, promptStateWriter: null);
+        var workflow = new Twig.Infrastructure.Services.Mutation.DeleteWorkflow(
+            _adoService, _workItemRepo, _linkRepo, _pendingChangeStore, promptStateWriter: null);
+        var cmd = new DeleteCommand(resolver, workflow, _consoleInput, ctx);
 
         var item = new WorkItemBuilder(42, "No Writer Item").Build();
         SetupResolveAndFetch(item);

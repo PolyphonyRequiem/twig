@@ -255,3 +255,96 @@ Twig.Domain.Services.Mutation.DiscardOutcome.DiscardOutcome(Twig.Domain.Services
 abstract Twig.Domain.Services.Mutation.DiscardOutcome.<Clone>$() -> Twig.Domain.Services.Mutation.DiscardOutcome!
 static Twig.Domain.Services.Mutation.DiscardOutcome.operator !=(Twig.Domain.Services.Mutation.DiscardOutcome? left, Twig.Domain.Services.Mutation.DiscardOutcome? right) -> bool
 static Twig.Domain.Services.Mutation.DiscardOutcome.operator ==(Twig.Domain.Services.Mutation.DiscardOutcome? left, Twig.Domain.Services.Mutation.DiscardOutcome? right) -> bool
+abstract Twig.Domain.Services.Mutation.DeletePreparation.<Clone>$() -> Twig.Domain.Services.Mutation.DeletePreparation!
+override sealed Twig.Domain.Services.Mutation.DeleteOutcome.AdoFailed.Equals(Twig.Domain.Services.Mutation.DeleteOutcome? other) -> bool
+override sealed Twig.Domain.Services.Mutation.DeleteOutcome.Deleted.Equals(Twig.Domain.Services.Mutation.DeleteOutcome? other) -> bool
+override sealed Twig.Domain.Services.Mutation.DeletePreparation.BlockedByLinks.Equals(Twig.Domain.Services.Mutation.DeletePreparation? other) -> bool
+override sealed Twig.Domain.Services.Mutation.DeletePreparation.FetchFailed.Equals(Twig.Domain.Services.Mutation.DeletePreparation? other) -> bool
+override sealed Twig.Domain.Services.Mutation.DeletePreparation.Ready.Equals(Twig.Domain.Services.Mutation.DeletePreparation? other) -> bool
+override Twig.Domain.Services.Mutation.DeleteOutcome.AdoFailed.<Clone>$() -> Twig.Domain.Services.Mutation.DeleteOutcome.AdoFailed!
+override Twig.Domain.Services.Mutation.DeleteOutcome.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.DeleteOutcome.ToString() -> string!
+override Twig.Domain.Services.Mutation.DeletePreparation.BlockedByLinks.<Clone>$() -> Twig.Domain.Services.Mutation.DeletePreparation.BlockedByLinks!
+override Twig.Domain.Services.Mutation.DeletePreparation.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.DeletePreparation.Ready.<Clone>$() -> Twig.Domain.Services.Mutation.DeletePreparation.Ready!
+static Twig.Domain.Services.Mutation.DeleteOutcome.AdoFailed.operator !=(Twig.Domain.Services.Mutation.DeleteOutcome.AdoFailed? left, Twig.Domain.Services.Mutation.DeleteOutcome.AdoFailed? right) -> bool
+static Twig.Domain.Services.Mutation.DeleteOutcome.AdoFailed.operator ==(Twig.Domain.Services.Mutation.DeleteOutcome.AdoFailed? left, Twig.Domain.Services.Mutation.DeleteOutcome.AdoFailed? right) -> bool
+static Twig.Domain.Services.Mutation.DeleteOutcome.Deleted.operator !=(Twig.Domain.Services.Mutation.DeleteOutcome.Deleted? left, Twig.Domain.Services.Mutation.DeleteOutcome.Deleted? right) -> bool
+static Twig.Domain.Services.Mutation.DeleteOutcome.Deleted.operator ==(Twig.Domain.Services.Mutation.DeleteOutcome.Deleted? left, Twig.Domain.Services.Mutation.DeleteOutcome.Deleted? right) -> bool
+static Twig.Domain.Services.Mutation.DeleteOutcome.operator !=(Twig.Domain.Services.Mutation.DeleteOutcome? left, Twig.Domain.Services.Mutation.DeleteOutcome? right) -> bool
+static Twig.Domain.Services.Mutation.DeleteOutcome.operator ==(Twig.Domain.Services.Mutation.DeleteOutcome? left, Twig.Domain.Services.Mutation.DeleteOutcome? right) -> bool
+static Twig.Domain.Services.Mutation.DeletePreparation.BlockedByLinks.operator !=(Twig.Domain.Services.Mutation.DeletePreparation.BlockedByLinks? left, Twig.Domain.Services.Mutation.DeletePreparation.BlockedByLinks? right) -> bool
+static Twig.Domain.Services.Mutation.DeletePreparation.BlockedByLinks.operator ==(Twig.Domain.Services.Mutation.DeletePreparation.BlockedByLinks? left, Twig.Domain.Services.Mutation.DeletePreparation.BlockedByLinks? right) -> bool
+static Twig.Domain.Services.Mutation.DeletePreparation.FetchFailed.operator !=(Twig.Domain.Services.Mutation.DeletePreparation.FetchFailed? left, Twig.Domain.Services.Mutation.DeletePreparation.FetchFailed? right) -> bool
+static Twig.Domain.Services.Mutation.DeletePreparation.FetchFailed.operator ==(Twig.Domain.Services.Mutation.DeletePreparation.FetchFailed? left, Twig.Domain.Services.Mutation.DeletePreparation.FetchFailed? right) -> bool
+static Twig.Domain.Services.Mutation.DeletePreparation.operator !=(Twig.Domain.Services.Mutation.DeletePreparation? left, Twig.Domain.Services.Mutation.DeletePreparation? right) -> bool
+static Twig.Domain.Services.Mutation.DeletePreparation.operator ==(Twig.Domain.Services.Mutation.DeletePreparation? left, Twig.Domain.Services.Mutation.DeletePreparation? right) -> bool
+static Twig.Domain.Services.Mutation.DeletePreparation.Ready.operator !=(Twig.Domain.Services.Mutation.DeletePreparation.Ready? left, Twig.Domain.Services.Mutation.DeletePreparation.Ready? right) -> bool
+static Twig.Domain.Services.Mutation.DeletePreparation.Ready.operator ==(Twig.Domain.Services.Mutation.DeletePreparation.Ready? left, Twig.Domain.Services.Mutation.DeletePreparation.Ready? right) -> bool
+Twig.Domain.Services.Mutation.DeleteOutcome
+Twig.Domain.Services.Mutation.DeleteOutcome.AdoFailed
+Twig.Domain.Services.Mutation.DeleteOutcome.AdoFailed.Equals(Twig.Domain.Services.Mutation.DeleteOutcome.AdoFailed? other) -> bool
+Twig.Domain.Services.Mutation.DeleteOutcome.AdoFailed.Reason.get -> string!
+Twig.Domain.Services.Mutation.DeleteOutcome.AdoFailed.Reason.init -> void
+Twig.Domain.Services.Mutation.DeleteOutcome.Deleted
+Twig.Domain.Services.Mutation.DeleteOutcome.Deleted.FreshItem.init -> void
+Twig.Domain.Services.Mutation.DeleteOutcome.Deleted.Warnings.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Twig.Domain.Services.Mutation.DeleteOutcome.Deleted.Warnings.init -> void
+Twig.Domain.Services.Mutation.DeletePreparation
+Twig.Domain.Services.Mutation.DeletePreparation.BlockedByLinks
+Twig.Domain.Services.Mutation.DeletePreparation.DeletePreparation(Twig.Domain.Services.Mutation.DeletePreparation! original) -> void
+Twig.Domain.Services.Mutation.DeletePreparation.FetchFailed
+Twig.Domain.Services.Mutation.DeletePreparation.Ready
+Twig.Domain.Services.Mutation.DeletePreparation.Ready.Deconstruct(out Twig.Domain.Aggregates.WorkItem! FreshItem) -> void
+Twig.Domain.Services.Mutation.DeletePreparation.Ready.Equals(Twig.Domain.Services.Mutation.DeletePreparation.Ready? other) -> bool
+Twig.Domain.Services.Mutation.DeletePreparation.Ready.FreshItem.init -> void
+virtual Twig.Domain.Services.Mutation.DeleteOutcome.Equals(Twig.Domain.Services.Mutation.DeleteOutcome? other) -> bool
+virtual Twig.Domain.Services.Mutation.DeletePreparation.Equals(Twig.Domain.Services.Mutation.DeletePreparation? other) -> bool
+abstract Twig.Domain.Services.Mutation.DeleteOutcome.<Clone>$() -> Twig.Domain.Services.Mutation.DeleteOutcome!
+override Twig.Domain.Services.Mutation.DeleteOutcome.AdoFailed.Equals(object? obj) -> bool
+override Twig.Domain.Services.Mutation.DeleteOutcome.AdoFailed.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.DeleteOutcome.AdoFailed.ToString() -> string!
+override Twig.Domain.Services.Mutation.DeleteOutcome.Deleted.<Clone>$() -> Twig.Domain.Services.Mutation.DeleteOutcome.Deleted!
+override Twig.Domain.Services.Mutation.DeleteOutcome.Deleted.Equals(object? obj) -> bool
+override Twig.Domain.Services.Mutation.DeleteOutcome.Deleted.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.DeleteOutcome.Deleted.ToString() -> string!
+override Twig.Domain.Services.Mutation.DeleteOutcome.Equals(object? obj) -> bool
+override Twig.Domain.Services.Mutation.DeletePreparation.BlockedByLinks.Equals(object? obj) -> bool
+override Twig.Domain.Services.Mutation.DeletePreparation.BlockedByLinks.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.DeletePreparation.BlockedByLinks.ToString() -> string!
+override Twig.Domain.Services.Mutation.DeletePreparation.Equals(object? obj) -> bool
+override Twig.Domain.Services.Mutation.DeletePreparation.FetchFailed.<Clone>$() -> Twig.Domain.Services.Mutation.DeletePreparation.FetchFailed!
+override Twig.Domain.Services.Mutation.DeletePreparation.FetchFailed.Equals(object? obj) -> bool
+override Twig.Domain.Services.Mutation.DeletePreparation.FetchFailed.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.DeletePreparation.FetchFailed.ToString() -> string!
+override Twig.Domain.Services.Mutation.DeletePreparation.Ready.Equals(object? obj) -> bool
+override Twig.Domain.Services.Mutation.DeletePreparation.Ready.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.DeletePreparation.Ready.ToString() -> string!
+override Twig.Domain.Services.Mutation.DeletePreparation.ToString() -> string!
+Twig.Domain.Services.Mutation.DeleteOutcome.AdoFailed.AdoFailed(string! Reason) -> void
+Twig.Domain.Services.Mutation.DeleteOutcome.AdoFailed.Deconstruct(out string! Reason) -> void
+Twig.Domain.Services.Mutation.DeleteOutcome.Deleted.Deconstruct(out Twig.Domain.Aggregates.WorkItem! FreshItem, out System.Collections.Generic.IReadOnlyList<string!>! Warnings) -> void
+Twig.Domain.Services.Mutation.DeleteOutcome.Deleted.Deleted(Twig.Domain.Aggregates.WorkItem! FreshItem, System.Collections.Generic.IReadOnlyList<string!>! Warnings) -> void
+Twig.Domain.Services.Mutation.DeleteOutcome.Deleted.Equals(Twig.Domain.Services.Mutation.DeleteOutcome.Deleted? other) -> bool
+Twig.Domain.Services.Mutation.DeleteOutcome.Deleted.FreshItem.get -> Twig.Domain.Aggregates.WorkItem!
+Twig.Domain.Services.Mutation.DeleteOutcome.DeleteOutcome(Twig.Domain.Services.Mutation.DeleteOutcome! original) -> void
+Twig.Domain.Services.Mutation.DeletePreparation.BlockedByLinks.BlockedByLinks(Twig.Domain.Aggregates.WorkItem! FreshItem, int TotalLinkCount, string! LinkSummary) -> void
+Twig.Domain.Services.Mutation.DeletePreparation.BlockedByLinks.Deconstruct(out Twig.Domain.Aggregates.WorkItem! FreshItem, out int TotalLinkCount, out string! LinkSummary) -> void
+Twig.Domain.Services.Mutation.DeletePreparation.BlockedByLinks.FreshItem.get -> Twig.Domain.Aggregates.WorkItem!
+Twig.Domain.Services.Mutation.DeletePreparation.BlockedByLinks.FreshItem.init -> void
+Twig.Domain.Services.Mutation.DeletePreparation.BlockedByLinks.LinkSummary.get -> string!
+Twig.Domain.Services.Mutation.DeletePreparation.BlockedByLinks.LinkSummary.init -> void
+Twig.Domain.Services.Mutation.DeletePreparation.BlockedByLinks.TotalLinkCount.get -> int
+Twig.Domain.Services.Mutation.DeletePreparation.BlockedByLinks.TotalLinkCount.init -> void
+Twig.Domain.Services.Mutation.DeletePreparation.FetchFailed.Deconstruct(out string! Reason) -> void
+Twig.Domain.Services.Mutation.DeletePreparation.FetchFailed.FetchFailed(string! Reason) -> void
+Twig.Domain.Services.Mutation.DeletePreparation.FetchFailed.Reason.get -> string!
+Twig.Domain.Services.Mutation.DeletePreparation.FetchFailed.Reason.init -> void
+Twig.Domain.Services.Mutation.DeletePreparation.Ready.FreshItem.get -> Twig.Domain.Aggregates.WorkItem!
+Twig.Domain.Services.Mutation.DeletePreparation.Ready.Ready(Twig.Domain.Aggregates.WorkItem! FreshItem) -> void
+virtual Twig.Domain.Services.Mutation.DeleteOutcome.EqualityContract.get -> System.Type!
+virtual Twig.Domain.Services.Mutation.DeleteOutcome.PrintMembers(System.Text.StringBuilder! builder) -> bool
+virtual Twig.Domain.Services.Mutation.DeletePreparation.EqualityContract.get -> System.Type!
+virtual Twig.Domain.Services.Mutation.DeletePreparation.PrintMembers(System.Text.StringBuilder! builder) -> bool
+Twig.Domain.Services.Mutation.DeletePreparation.BlockedByLinks.Equals(Twig.Domain.Services.Mutation.DeletePreparation.BlockedByLinks? other) -> bool
+Twig.Domain.Services.Mutation.DeletePreparation.FetchFailed.Equals(Twig.Domain.Services.Mutation.DeletePreparation.FetchFailed? other) -> bool

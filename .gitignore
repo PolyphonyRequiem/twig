@@ -66,3 +66,7 @@ desktop.ini
 # Playwright test artifacts
 .playwright-mcp/
 .twig/
+
+# polyphony per-repo config — committed via a separate stack
+.polyphony-config/
+

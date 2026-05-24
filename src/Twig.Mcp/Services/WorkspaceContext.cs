@@ -7,6 +7,7 @@ using Twig.Domain.Services.Sync;
 using Twig.Domain.Services.Workspace;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Persistence;
+using Twig.Infrastructure.Services.Mutation;
 
 namespace Twig.Mcp.Services;
 
@@ -33,6 +34,7 @@ public sealed class WorkspaceContext : IDisposable
     public McpPendingChangeFlusher Flusher { get; }
     public IPromptStateWriter PromptStateWriter { get; }
     public ParentStatePropagationService ParentPropagationService { get; }
+    public StateTransitionWorkflow StateTransitionWorkflow { get; }
     public ITrackingRepository? TrackingRepo { get; }
     public IProcessTypeStore ProcessTypeStore { get; }
     public IFieldDefinitionStore FieldDefinitionStore { get; }
@@ -87,6 +89,7 @@ public sealed class WorkspaceContext : IDisposable
         McpPendingChangeFlusher flusher,
         IPromptStateWriter promptStateWriter,
         ParentStatePropagationService parentPropagationService,
+        StateTransitionWorkflow stateTransitionWorkflow,
         SprintIterationResolver sprintIterationResolver,
         IProcessTypeStore processTypeStore,
         IFieldDefinitionStore fieldDefinitionStore,
@@ -114,6 +117,7 @@ public sealed class WorkspaceContext : IDisposable
         Flusher = flusher;
         PromptStateWriter = promptStateWriter;
         ParentPropagationService = parentPropagationService;
+        StateTransitionWorkflow = stateTransitionWorkflow;
         SprintIterationResolver = sprintIterationResolver;
         ProcessTypeStore = processTypeStore;
         FieldDefinitionStore = fieldDefinitionStore;

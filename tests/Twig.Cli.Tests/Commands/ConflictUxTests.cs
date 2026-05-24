@@ -10,6 +10,7 @@ using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
+using Twig.Infrastructure.Services.Mutation;
 using Twig.Rendering;
 using Twig.TestKit;
 using Xunit;
@@ -76,8 +77,9 @@ public class ConflictUxTests
         _consoleInput.ReadLine().Returns("l"); // keep local
 
         var cmd = new StateCommand(
-            _ctx, _resolver, _workItemRepo, _adoService, _pendingChangeStore,
-            _processConfigProvider, _consoleInput, new SeedMutationProvider(_workItemRepo));
+            _ctx, _resolver, _workItemRepo, _adoService,
+            _consoleInput, new SeedMutationProvider(_workItemRepo),
+            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider));
 
         var result = await cmd.ExecuteAsync("c"); // c = Active
 
@@ -100,8 +102,9 @@ public class ConflictUxTests
         _consoleInput.ReadLine().Returns("r"); // keep remote
 
         var cmd = new StateCommand(
-            _ctx, _resolver, _workItemRepo, _adoService, _pendingChangeStore,
-            _processConfigProvider, _consoleInput, new SeedMutationProvider(_workItemRepo));
+            _ctx, _resolver, _workItemRepo, _adoService,
+            _consoleInput, new SeedMutationProvider(_workItemRepo),
+            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider));
 
         var result = await cmd.ExecuteAsync("c"); // c = Active
 
@@ -124,8 +127,9 @@ public class ConflictUxTests
         _consoleInput.ReadLine().Returns("a"); // abort
 
         var cmd = new StateCommand(
-            _ctx, _resolver, _workItemRepo, _adoService, _pendingChangeStore,
-            _processConfigProvider, _consoleInput, new SeedMutationProvider(_workItemRepo));
+            _ctx, _resolver, _workItemRepo, _adoService,
+            _consoleInput, new SeedMutationProvider(_workItemRepo),
+            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider));
 
         var result = await cmd.ExecuteAsync("c");
 

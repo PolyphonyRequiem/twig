@@ -1,3 +1,4 @@
+using Twig.Domain.Aggregates;
 using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Mutation;
@@ -7,6 +8,7 @@ using Twig.Domain.Services.Sync;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Infrastructure.Ado;
+using Twig.Infrastructure.Services.Mutation;
 
 namespace Twig.Commands;
 
@@ -14,19 +16,17 @@ namespace Twig.Commands;
 /// Implements <c>twig state &lt;name&gt;</c>: resolves a full or partial state name,
 /// validates transition, pushes to ADO, auto-pushes pending notes,
 /// and updates cache.
-/// Routes through <see cref="SeedMutationProvider"/> for local-only seeds.
+/// Routes through <see cref="SeedMutationProvider"/> for local-only seeds and
+/// through <see cref="StateTransitionWorkflow"/> for published items.
 /// </summary>
 public sealed class StateCommand(
     CommandContext ctx,
     ActiveItemResolver activeItemResolver,
     IWorkItemRepository workItemRepo,
     IAdoWorkItemService adoService,
-    IPendingChangeStore pendingChangeStore,
-    IProcessConfigurationProvider processConfigProvider,
     IConsoleInput consoleInput,
     SeedMutationProvider seedMutationProvider,
-    IPromptStateWriter? promptStateWriter = null,
-    ParentStatePropagationService? parentPropagationService = null)
+    StateTransitionWorkflow stateTransitionWorkflow)
 {
     private readonly TextWriter _stderr = ctx.StderrWriter;
 
@@ -54,65 +54,17 @@ public sealed class StateCommand(
 
         // Seed routing: local-only mutation, no process config or ADO interaction.
         if (item.IsSeed)
-        {
-            if (string.Equals(item.State, stateName, StringComparison.OrdinalIgnoreCase))
-            {
-                Console.WriteLine(fmt.FormatInfo($"Already in state '{stateName}'."));
-                return 0;
-            }
+            return await ExecuteSeedAsync(item, stateName, fmt, ct);
 
-            var change = new FieldChange("System.State", item.State, stateName);
-            var result = await seedMutationProvider.ChangeStateAsync(item.Id, change, ct);
-            if (!result.IsSuccess)
-            {
-                _stderr.WriteLine(fmt.FormatError(result.ErrorMessage ?? "Failed to change state."));
-                return 1;
-            }
+        // Pre-flight validation: bail before fetch on bad input, invalid transitions, etc.
+        var preflight = stateTransitionWorkflow.Validate(item, stateName);
+        if (preflight is not null)
+            return RenderOutcome(preflight, item, fmt, outputFormat);
 
-            if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
-            Console.WriteLine(fmt.FormatSuccess($"#{item.Id} {item.Title} → {stateName}"));
-            return 0;
-        }
-
-        // ── Published (ADO) flow ────────────────────────────────────────
-
-        var processConfig = processConfigProvider.GetConfiguration();
-
-        if (!processConfig.TypeConfigs.TryGetValue(item.Type, out var typeConfig))
-        {
-            _stderr.WriteLine(fmt.FormatError($"No process configuration found for type '{item.Type}'."));
-            return 1;
-        }
-
-        var resolveResult = StateResolver.ResolveByName(stateName, typeConfig.StateEntries);
-        if (!resolveResult.IsSuccess)
-        {
-            _stderr.WriteLine(fmt.FormatError(resolveResult.Error));
-            return 1;
-        }
-
-        var resolution = resolveResult.Value;
-        var newState = resolution.ResolvedName;
-        if (string.Equals(item.State, newState, StringComparison.OrdinalIgnoreCase))
-        {
-            var alreadyMessage = resolution.Kind == ResolutionKind.Category
-                ? $"#{item.Id} already in '{newState}' (category '{stateName}')"
-                : $"Already in state '{newState}'.";
-            Console.WriteLine(fmt.FormatInfo(alreadyMessage));
-            return 0;
-        }
-
-        var transition = StateTransitionService.Evaluate(processConfig, item.Type, item.State, newState);
-
-        if (!transition.IsAllowed)
-        {
-            _stderr.WriteLine(fmt.FormatError($"Transition from '{item.State}' to '{newState}' is not allowed."));
-            return 1;
-        }
-
+        // Published flow — fetch remote, perform interactive conflict resolution,
+        // then delegate the orchestration to the workflow.
         var remote = await adoService.FetchAsync(item.Id);
 
-        // FM-006: Conflict detection before state change
         var conflictOutcome = await ConflictResolutionFlow.ResolveAsync(
             item, remote, fmt, outputFormat, consoleInput, workItemRepo,
             $"#{item.Id} updated from remote.");
@@ -121,87 +73,93 @@ public sealed class StateCommand(
         if (conflictOutcome is ConflictOutcome.AcceptedRemote or ConflictOutcome.Aborted)
             return 0;
 
-        var execution = await StateTransitionExecutor.ExecuteAsync(
-            adoService, item, newState, typeConfig, remote.Revision, ct);
+        var outcome = await stateTransitionWorkflow.ExecuteAsync(item, stateName, remote.Revision, ct);
+        return RenderOutcome(outcome, item, fmt, outputFormat);
+    }
 
-        if (!execution.IsSuccess)
+    private async Task<int> ExecuteSeedAsync(WorkItem item, string stateName, IOutputFormatter fmt, CancellationToken ct)
+    {
+        if (string.Equals(item.State, stateName, StringComparison.OrdinalIgnoreCase))
         {
-            _stderr.WriteLine(fmt.FormatError(FormatChainFailure(item.Id, execution)));
+            Console.WriteLine(fmt.FormatInfo($"Already in state '{stateName}'."));
+            return 0;
+        }
 
-            // Best-effort cache resync so subsequent commands see the partial-progress state.
-            try
-            {
-                var partial = await adoService.FetchAsync(item.Id, ct);
-                await workItemRepo.SaveAsync(partial, ct);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                _stderr.WriteLine($"warning: cache may be stale after partial state chain ({ex.Message})");
-            }
-
+        var change = new FieldChange("System.State", item.State, stateName);
+        var result = await seedMutationProvider.ChangeStateAsync(item.Id, change, ct);
+        if (!result.IsSuccess)
+        {
+            _stderr.WriteLine(fmt.FormatError(result.ErrorMessage ?? "Failed to change state."));
             return 1;
         }
 
-        // Auto-push pending notes (preserve field changes)
-        await AutoPushNotesHelper.PushAndClearAsync(item.Id, pendingChangeStore, adoService);
-
-        // Resync: re-fetch server-computed fields and update cache.
-        // Failure is non-fatal — the ADO transition already succeeded.
-        try
-        {
-            var updated = await adoService.FetchAsync(item.Id, ct);
-            await workItemRepo.SaveAsync(updated, ct);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _stderr.WriteLine($"warning: State changed to '{newState}' but cache may be stale — run 'twig sync' to resync ({ex.Message})");
-        }
-
-        // Parent propagation: if child moved to InProgress, activate parent if still Proposed.
-        // Best-effort — failures are absorbed and never affect the child command's exit code.
-        if (parentPropagationService is not null)
-        {
-            var newCategory = StateCategoryResolver.Resolve(newState, typeConfig.StateEntries);
-            if (newCategory == StateCategory.InProgress)
-                _ = await parentPropagationService.TryPropagateToParentAsync(item, StateCategory.InProgress, ct);
-        }
-
-        if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
-
-        var siblings = item.ParentId.HasValue
-            ? await workItemRepo.GetChildrenAsync(item.ParentId.Value)
-            : Array.Empty<Domain.Aggregates.WorkItem>();
-
-        var pathSuffix = execution.TransitionCount > 1
-            ? $": {string.Join(" → ", execution.Path)} ({execution.TransitionCount} transitions)"
-            : $" → {newState}";
-
-        var successMessage = resolution.Kind == ResolutionKind.Category
-            ? $"#{item.Id} {item.Title}{pathSuffix} (resolved category '{stateName}' → '{newState}')"
-            : $"#{item.Id} {item.Title}{pathSuffix}";
-        Console.WriteLine(fmt.FormatSuccess(successMessage));
-
-        var hints = ctx.HintEngine.GetHints("state",
-            item: item,
-            outputFormat: outputFormat,
-            newStateName: newState,
-            siblings: siblings);
-        foreach (var hint in hints)
-        {
-            var formatted = fmt.FormatHint(hint);
-            if (!string.IsNullOrEmpty(formatted))
-                Console.WriteLine(formatted);
-        }
-
+        Console.WriteLine(fmt.FormatSuccess($"#{item.Id} {item.Title} → {stateName}"));
         return 0;
     }
 
-    private static string FormatChainFailure(int itemId, StateTransitionResult execution)
+    private int RenderOutcome(StateTransitionOutcome outcome, WorkItem item, IOutputFormatter fmt, string outputFormat)
     {
-        var pathRendered = string.Join(" → ", execution.Path);
-        return execution.Path.Count > 1
-            ? $"#{itemId} chain stopped at '{execution.FinalState}'. Reached: {pathRendered}. ADO: {execution.ErrorMessage}"
-            : $"#{itemId} transition rejected. ADO: {execution.ErrorMessage}";
-    }
+        switch (outcome)
+        {
+            case StateTransitionOutcome.InvalidStateName x:
+                _stderr.WriteLine(fmt.FormatError(x.Error));
+                return 1;
 
+            case StateTransitionOutcome.ProcessConfigNotFound x:
+                _stderr.WriteLine(fmt.FormatError($"No process configuration found for type '{x.Type}'."));
+                return 1;
+
+            case StateTransitionOutcome.AlreadyInState x:
+                var alreadyMessage = x.ResolutionKind == ResolutionKind.Category
+                    ? $"#{item.Id} already in '{x.ResolvedState}' (category '{x.Input}')"
+                    : $"Already in state '{x.ResolvedState}'.";
+                Console.WriteLine(fmt.FormatInfo(alreadyMessage));
+                return 0;
+
+            case StateTransitionOutcome.TransitionNotAllowed x:
+                _stderr.WriteLine(fmt.FormatError($"Transition from '{x.FromState}' to '{x.ToState}' is not allowed."));
+                return 1;
+
+            case StateTransitionOutcome.ChainFailed x:
+                var failureMessage = x.Path.Count > 1
+                    ? $"#{x.ItemId} chain stopped at '{x.FinalState}'. Reached: {string.Join(" → ", x.Path)}. ADO: {x.AdoError}"
+                    : $"#{x.ItemId} transition rejected. ADO: {x.AdoError}";
+                _stderr.WriteLine(fmt.FormatError(failureMessage));
+                if (x.CacheResyncWarning is not null)
+                    _stderr.WriteLine($"warning: {x.CacheResyncWarning}");
+                return 1;
+
+            case StateTransitionOutcome.Succeeded x:
+                foreach (var warning in x.Warnings)
+                    _stderr.WriteLine($"warning: {warning}");
+
+                var pathSuffix = x.Path.Count - 1 > 1
+                    ? $": {string.Join(" → ", x.Path)} ({x.Path.Count - 1} transitions)"
+                    : $" → {x.NewState}";
+                var successMessage = x.ResolutionKind == ResolutionKind.Category
+                    ? $"#{item.Id} {item.Title}{pathSuffix} (resolved category '{x.Input}' → '{x.NewState}')"
+                    : $"#{item.Id} {item.Title}{pathSuffix}";
+                Console.WriteLine(fmt.FormatSuccess(successMessage));
+
+                var siblings = item.ParentId.HasValue
+                    ? workItemRepo.GetChildrenAsync(item.ParentId.Value).GetAwaiter().GetResult()
+                    : Array.Empty<WorkItem>();
+
+                var hints = ctx.HintEngine.GetHints("state",
+                    item: item,
+                    outputFormat: outputFormat,
+                    newStateName: x.NewState,
+                    siblings: siblings);
+                foreach (var hint in hints)
+                {
+                    var formatted = fmt.FormatHint(hint);
+                    if (!string.IsNullOrEmpty(formatted))
+                        Console.WriteLine(formatted);
+                }
+                return 0;
+
+            default:
+                throw new System.Diagnostics.UnreachableException($"Unhandled StateTransitionOutcome: {outcome.GetType().Name}");
+        }
+    }
 }

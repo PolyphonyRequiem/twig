@@ -1,1 +1,118 @@
 #nullable enable
+Twig.Domain.Services.Mutation.StateTransitionOutcome
+Twig.Domain.Services.Mutation.StateTransitionOutcome.AlreadyInState
+Twig.Domain.Services.Mutation.StateTransitionOutcome.AlreadyInState.AlreadyInState(string! ResolvedState, Twig.Domain.ValueObjects.ResolutionKind ResolutionKind, string! Input) -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.AlreadyInState.Input.get -> string!
+Twig.Domain.Services.Mutation.StateTransitionOutcome.AlreadyInState.Input.init -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.AlreadyInState.ResolutionKind.get -> Twig.Domain.ValueObjects.ResolutionKind
+Twig.Domain.Services.Mutation.StateTransitionOutcome.AlreadyInState.ResolutionKind.init -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.AlreadyInState.ResolvedState.get -> string!
+Twig.Domain.Services.Mutation.StateTransitionOutcome.AlreadyInState.ResolvedState.init -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.AlreadyInState.Deconstruct(out string! ResolvedState, out Twig.Domain.ValueObjects.ResolutionKind ResolutionKind, out string! Input) -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.AlreadyInState.Equals(Twig.Domain.Services.Mutation.StateTransitionOutcome.AlreadyInState? other) -> bool
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.AlreadyInState.Equals(object? obj) -> bool
+override sealed Twig.Domain.Services.Mutation.StateTransitionOutcome.AlreadyInState.Equals(Twig.Domain.Services.Mutation.StateTransitionOutcome? other) -> bool
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.AlreadyInState.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.AlreadyInState.<Clone>$() -> Twig.Domain.Services.Mutation.StateTransitionOutcome.AlreadyInState!
+static Twig.Domain.Services.Mutation.StateTransitionOutcome.AlreadyInState.operator !=(Twig.Domain.Services.Mutation.StateTransitionOutcome.AlreadyInState? left, Twig.Domain.Services.Mutation.StateTransitionOutcome.AlreadyInState? right) -> bool
+static Twig.Domain.Services.Mutation.StateTransitionOutcome.AlreadyInState.operator ==(Twig.Domain.Services.Mutation.StateTransitionOutcome.AlreadyInState? left, Twig.Domain.Services.Mutation.StateTransitionOutcome.AlreadyInState? right) -> bool
+Twig.Domain.Services.Mutation.StateTransitionOutcome.ChainFailed
+Twig.Domain.Services.Mutation.StateTransitionOutcome.ChainFailed.ChainFailed(int ItemId, System.Collections.Generic.IReadOnlyList<string!>! Path, string! FinalState, string! AdoError, string? CacheResyncWarning) -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.ChainFailed.ItemId.get -> int
+Twig.Domain.Services.Mutation.StateTransitionOutcome.ChainFailed.ItemId.init -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.ChainFailed.Path.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Twig.Domain.Services.Mutation.StateTransitionOutcome.ChainFailed.Path.init -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.ChainFailed.FinalState.get -> string!
+Twig.Domain.Services.Mutation.StateTransitionOutcome.ChainFailed.FinalState.init -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.ChainFailed.AdoError.get -> string!
+Twig.Domain.Services.Mutation.StateTransitionOutcome.ChainFailed.AdoError.init -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.ChainFailed.CacheResyncWarning.get -> string?
+Twig.Domain.Services.Mutation.StateTransitionOutcome.ChainFailed.CacheResyncWarning.init -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.ChainFailed.Deconstruct(out int ItemId, out System.Collections.Generic.IReadOnlyList<string!>! Path, out string! FinalState, out string! AdoError, out string? CacheResyncWarning) -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.ChainFailed.Equals(Twig.Domain.Services.Mutation.StateTransitionOutcome.ChainFailed? other) -> bool
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.ChainFailed.Equals(object? obj) -> bool
+override sealed Twig.Domain.Services.Mutation.StateTransitionOutcome.ChainFailed.Equals(Twig.Domain.Services.Mutation.StateTransitionOutcome? other) -> bool
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.ChainFailed.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.ChainFailed.<Clone>$() -> Twig.Domain.Services.Mutation.StateTransitionOutcome.ChainFailed!
+static Twig.Domain.Services.Mutation.StateTransitionOutcome.ChainFailed.operator !=(Twig.Domain.Services.Mutation.StateTransitionOutcome.ChainFailed? left, Twig.Domain.Services.Mutation.StateTransitionOutcome.ChainFailed? right) -> bool
+static Twig.Domain.Services.Mutation.StateTransitionOutcome.ChainFailed.operator ==(Twig.Domain.Services.Mutation.StateTransitionOutcome.ChainFailed? left, Twig.Domain.Services.Mutation.StateTransitionOutcome.ChainFailed? right) -> bool
+Twig.Domain.Services.Mutation.StateTransitionOutcome.InvalidStateName
+Twig.Domain.Services.Mutation.StateTransitionOutcome.InvalidStateName.InvalidStateName(string! Error) -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.InvalidStateName.Error.get -> string!
+Twig.Domain.Services.Mutation.StateTransitionOutcome.InvalidStateName.Error.init -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.InvalidStateName.Deconstruct(out string! Error) -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.InvalidStateName.Equals(Twig.Domain.Services.Mutation.StateTransitionOutcome.InvalidStateName? other) -> bool
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.InvalidStateName.Equals(object? obj) -> bool
+override sealed Twig.Domain.Services.Mutation.StateTransitionOutcome.InvalidStateName.Equals(Twig.Domain.Services.Mutation.StateTransitionOutcome? other) -> bool
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.InvalidStateName.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.InvalidStateName.<Clone>$() -> Twig.Domain.Services.Mutation.StateTransitionOutcome.InvalidStateName!
+static Twig.Domain.Services.Mutation.StateTransitionOutcome.InvalidStateName.operator !=(Twig.Domain.Services.Mutation.StateTransitionOutcome.InvalidStateName? left, Twig.Domain.Services.Mutation.StateTransitionOutcome.InvalidStateName? right) -> bool
+static Twig.Domain.Services.Mutation.StateTransitionOutcome.InvalidStateName.operator ==(Twig.Domain.Services.Mutation.StateTransitionOutcome.InvalidStateName? left, Twig.Domain.Services.Mutation.StateTransitionOutcome.InvalidStateName? right) -> bool
+Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessConfigNotFound
+Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessConfigNotFound.ProcessConfigNotFound(string! Type) -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessConfigNotFound.Type.get -> string!
+Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessConfigNotFound.Type.init -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessConfigNotFound.Deconstruct(out string! Type) -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessConfigNotFound.Equals(Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessConfigNotFound? other) -> bool
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessConfigNotFound.Equals(object? obj) -> bool
+override sealed Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessConfigNotFound.Equals(Twig.Domain.Services.Mutation.StateTransitionOutcome? other) -> bool
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessConfigNotFound.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessConfigNotFound.<Clone>$() -> Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessConfigNotFound!
+static Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessConfigNotFound.operator !=(Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessConfigNotFound? left, Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessConfigNotFound? right) -> bool
+static Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessConfigNotFound.operator ==(Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessConfigNotFound? left, Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessConfigNotFound? right) -> bool
+Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded
+Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded.Succeeded(Twig.Domain.Aggregates.WorkItem! UpdatedItem, string! PreviousState, string! NewState, Twig.Domain.ValueObjects.ResolutionKind ResolutionKind, string! Input, System.Collections.Generic.IReadOnlyList<string!>! Path, Twig.Domain.Services.Navigation.ParentPropagationResult? ParentPropagation, System.Collections.Generic.IReadOnlyList<string!>! Warnings) -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded.UpdatedItem.get -> Twig.Domain.Aggregates.WorkItem!
+Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded.UpdatedItem.init -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded.PreviousState.get -> string!
+Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded.PreviousState.init -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded.NewState.get -> string!
+Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded.NewState.init -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded.ResolutionKind.get -> Twig.Domain.ValueObjects.ResolutionKind
+Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded.ResolutionKind.init -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded.Input.get -> string!
+Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded.Input.init -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded.Path.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded.Path.init -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded.ParentPropagation.get -> Twig.Domain.Services.Navigation.ParentPropagationResult?
+Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded.ParentPropagation.init -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded.Warnings.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded.Warnings.init -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded.Deconstruct(out Twig.Domain.Aggregates.WorkItem! UpdatedItem, out string! PreviousState, out string! NewState, out Twig.Domain.ValueObjects.ResolutionKind ResolutionKind, out string! Input, out System.Collections.Generic.IReadOnlyList<string!>! Path, out Twig.Domain.Services.Navigation.ParentPropagationResult? ParentPropagation, out System.Collections.Generic.IReadOnlyList<string!>! Warnings) -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded.Equals(Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded? other) -> bool
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded.Equals(object? obj) -> bool
+override sealed Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded.Equals(Twig.Domain.Services.Mutation.StateTransitionOutcome? other) -> bool
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded.<Clone>$() -> Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded!
+static Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded.operator !=(Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded? left, Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded? right) -> bool
+static Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded.operator ==(Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded? left, Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded? right) -> bool
+Twig.Domain.Services.Mutation.StateTransitionOutcome.TransitionNotAllowed
+Twig.Domain.Services.Mutation.StateTransitionOutcome.TransitionNotAllowed.TransitionNotAllowed(string! FromState, string! ToState) -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.TransitionNotAllowed.FromState.get -> string!
+Twig.Domain.Services.Mutation.StateTransitionOutcome.TransitionNotAllowed.FromState.init -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.TransitionNotAllowed.ToState.get -> string!
+Twig.Domain.Services.Mutation.StateTransitionOutcome.TransitionNotAllowed.ToState.init -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.TransitionNotAllowed.Deconstruct(out string! FromState, out string! ToState) -> void
+Twig.Domain.Services.Mutation.StateTransitionOutcome.TransitionNotAllowed.Equals(Twig.Domain.Services.Mutation.StateTransitionOutcome.TransitionNotAllowed? other) -> bool
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.TransitionNotAllowed.Equals(object? obj) -> bool
+override sealed Twig.Domain.Services.Mutation.StateTransitionOutcome.TransitionNotAllowed.Equals(Twig.Domain.Services.Mutation.StateTransitionOutcome? other) -> bool
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.TransitionNotAllowed.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.TransitionNotAllowed.<Clone>$() -> Twig.Domain.Services.Mutation.StateTransitionOutcome.TransitionNotAllowed!
+static Twig.Domain.Services.Mutation.StateTransitionOutcome.TransitionNotAllowed.operator !=(Twig.Domain.Services.Mutation.StateTransitionOutcome.TransitionNotAllowed? left, Twig.Domain.Services.Mutation.StateTransitionOutcome.TransitionNotAllowed? right) -> bool
+static Twig.Domain.Services.Mutation.StateTransitionOutcome.TransitionNotAllowed.operator ==(Twig.Domain.Services.Mutation.StateTransitionOutcome.TransitionNotAllowed? left, Twig.Domain.Services.Mutation.StateTransitionOutcome.TransitionNotAllowed? right) -> bool
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.Equals(object? obj) -> bool
+virtual Twig.Domain.Services.Mutation.StateTransitionOutcome.Equals(Twig.Domain.Services.Mutation.StateTransitionOutcome? other) -> bool
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.GetHashCode() -> int
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.ToString() -> string!
+virtual Twig.Domain.Services.Mutation.StateTransitionOutcome.EqualityContract.get -> System.Type!
+virtual Twig.Domain.Services.Mutation.StateTransitionOutcome.PrintMembers(System.Text.StringBuilder! builder) -> bool
+Twig.Domain.Services.Mutation.StateTransitionOutcome.StateTransitionOutcome(Twig.Domain.Services.Mutation.StateTransitionOutcome! original) -> void
+abstract Twig.Domain.Services.Mutation.StateTransitionOutcome.<Clone>$() -> Twig.Domain.Services.Mutation.StateTransitionOutcome!
+static Twig.Domain.Services.Mutation.StateTransitionOutcome.operator !=(Twig.Domain.Services.Mutation.StateTransitionOutcome? left, Twig.Domain.Services.Mutation.StateTransitionOutcome? right) -> bool
+static Twig.Domain.Services.Mutation.StateTransitionOutcome.operator ==(Twig.Domain.Services.Mutation.StateTransitionOutcome? left, Twig.Domain.Services.Mutation.StateTransitionOutcome? right) -> bool
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.AlreadyInState.ToString() -> string!
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.ChainFailed.ToString() -> string!
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.InvalidStateName.ToString() -> string!
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.ProcessConfigNotFound.ToString() -> string!
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.Succeeded.ToString() -> string!
+override Twig.Domain.Services.Mutation.StateTransitionOutcome.TransitionNotAllowed.ToString() -> string!

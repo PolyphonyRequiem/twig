@@ -13,6 +13,7 @@ using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Ado.Exceptions;
 using Twig.Infrastructure.Config;
+using Twig.Infrastructure.Services.Mutation;
 using Twig.Rendering;
 using Twig.TestKit;
 using Xunit;
@@ -58,8 +59,8 @@ public class StateCommandTests
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         _cmd = new StateCommand(
             ctx, resolver, _workItemRepo, _adoService,
-            _pendingChangeStore, _processConfigProvider, _consoleInput,
-            _seedMutationProvider);
+            _consoleInput, _seedMutationProvider,
+            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider));
     }
 
     [Fact]
@@ -399,9 +400,8 @@ public class StateCommandTests
 
         return new StateCommand(
             ctx, resolver, _workItemRepo, _adoService,
-            _pendingChangeStore, _processConfigProvider, _consoleInput,
-            _seedMutationProvider,
-            parentPropagationService: propagationService);
+            _consoleInput, _seedMutationProvider,
+            new StateTransitionWorkflow(_workItemRepo, _adoService, _pendingChangeStore, _processConfigProvider, parentPropagation: propagationService));
     }
 
     // ═══════════════════════════════════════════════════════════════

@@ -1,6 +1,9 @@
+using SpectreMarkup = Spectre.Console.Markup;
+using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Navigation;
 using Twig.Formatters;
+using Twig.RenderTree;
 using Twig.Rendering;
 
 namespace Twig.Commands;
@@ -9,14 +12,24 @@ namespace Twig.Commands;
 /// Implements <c>twig set &lt;idOrPattern&gt;</c>: resolves a work item by ID or title pattern,
 /// fetches from ADO if not cached, sets active context, and emits a single confirmation line.
 /// </summary>
+/// <remarks>
+/// Migrated to the AB#3301 <see cref="RendererFactory"/>/<see cref="IRenderer"/>
+/// seam: the command builds a <see cref="RenderTree.RenderTree"/> per output format
+/// and dispatches through <see cref="RendererFactory"/>. The legacy
+/// <see cref="IAsyncRenderer"/> dependency is retained only for the interactive
+/// disambiguation prompt (a TTY-only feature outside the rendering seam's scope);
+/// <see cref="OutputFormatterFactory"/> is used only for stderr error formatting.
+/// </remarks>
 public sealed class SetCommand(
     CommandContext ctx,
     IWorkItemRepository workItemRepo,
     IContextStore contextStore,
     ActiveItemResolver activeItemResolver,
+    RendererFactory? rendererFactory = null,
     IPromptStateWriter? promptStateWriter = null,
     INavigationHistoryStore? historyStore = null)
 {
+    private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
     public async Task<int> ExecuteAsync(string idOrPattern, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
         using var scope = new CommandActivityScope("set", outputFormat);
@@ -37,7 +50,7 @@ public sealed class SetCommand(
 
     private async Task<int> ExecuteCoreAsync(string idOrPattern, string outputFormat, CancellationToken ct)
     {
-        var (fmt, renderer) = ctx.Resolve(outputFormat);
+        var (fmt, interactiveRenderer) = ctx.Resolve(outputFormat);
 
         if (string.IsNullOrWhiteSpace(idOrPattern))
         {
@@ -60,7 +73,8 @@ public sealed class SetCommand(
             }
             if (result is FetchedFromAdo)
             {
-                Console.WriteLine(fmt.FormatInfo($"Fetching work item {id} from ADO..."));
+                var infoRenderer = _rendererFactory.GetRenderer(outputFormat);
+                infoRenderer.Render(new RenderTree.RenderTree(new[] { (RenderNode)new RenderNode.Hint($"Fetching work item {id} from ADO...") }));
             }
         }
         else
@@ -75,10 +89,10 @@ public sealed class SetCommand(
             {
                 var matches = cached.Select(c => (c.Id, $"{c.Title} [{c.State}]")).ToList();
 
-                if (renderer is not null)
+                if (interactiveRenderer is not null)
                 {
                     // Interactive disambiguation — TTY + human format
-                    var selected = await renderer.PromptDisambiguationAsync(matches, ct);
+                    var selected = await interactiveRenderer.PromptDisambiguationAsync(matches, ct);
                     if (selected is not null)
                     {
                         item = cached.FirstOrDefault(c => c.Id == selected.Value.Id);
@@ -93,7 +107,9 @@ public sealed class SetCommand(
                 else
                 {
                     // Static list fallback — JSON, minimal, piped, non-TTY
-                    Console.Error.WriteLine(fmt.FormatDisambiguation(matches));
+                    var disambigTree = BuildDisambiguationTree(matches);
+                    var stderrRenderer = _rendererFactory.GetRenderer(outputFormat, Console.Error);
+                    stderrRenderer.Render(disambigTree);
                     return 1;
                 }
             }
@@ -109,8 +125,76 @@ public sealed class SetCommand(
             await historyStore.RecordVisitAsync(item.Id, ct);
         if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
-        Console.WriteLine(fmt.FormatSetConfirmation(item));
+        var confirmTree = BuildConfirmationTree(item, outputFormat);
+        _rendererFactory.GetRenderer(outputFormat).Render(confirmTree);
 
         return 0;
     }
+
+    private static RenderTree.RenderTree BuildConfirmationTree(WorkItem item, string outputFormat)
+    {
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        RenderNode node = lower switch
+        {
+            "minimal" => new RenderNode.Text($"#{item.Id}"),
+            "json" or "json-full" or "json-compact" or "ids" => BuildConfirmationRecord(item),
+            _ => BuildHumanConfirmation(item),
+        };
+        return new RenderTree.RenderTree(new[] { node });
+    }
+
+    private static RenderNode BuildConfirmationRecord(WorkItem item)
+    {
+        var fields = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["id"]    = new RenderCell(item.Id.ToString(), new RenderValue.Integer(item.Id)),
+            ["title"] = new RenderCell(item.Title, new RenderValue.String(item.Title)),
+            ["state"] = new RenderCell(item.State, new RenderValue.String(item.State)),
+            ["type"]  = new RenderCell(item.Type.ToString(), new RenderValue.String(item.Type.ToString())),
+        };
+        return new RenderNode.Record("setConfirmation", fields);
+    }
+
+    private static RenderNode BuildHumanConfirmation(WorkItem item)
+    {
+        var stateColor = GetStateMarkupColor(item.State);
+        var escapedTitle = SpectreMarkup.Escape(item.Title);
+        var escapedState = SpectreMarkup.Escape(item.State);
+        // `[[` / `]]` are literal-bracket escapes in Spectre markup.
+        var content = $"Set active item: #{item.Id} {escapedTitle} [[[{stateColor}]{escapedState}[/]]]";
+        return new RenderNode.Markup(content);
+    }
+
+    private static RenderTree.RenderTree BuildDisambiguationTree(IReadOnlyList<(int Id, string Title)> matches)
+    {
+        var columns = new[]
+        {
+            new RenderColumn("id", "ID"),
+            new RenderColumn("title", "Title"),
+        };
+
+        var rows = new List<RenderRow>(matches.Count);
+        foreach (var (id, title) in matches)
+        {
+            var cells = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+            {
+                ["id"]    = new RenderCell(id.ToString(), new RenderValue.Integer(id)),
+                ["title"] = new RenderCell(title, new RenderValue.String(title)),
+            };
+            rows.Add(new RenderRow(null, cells));
+        }
+
+        var table = new RenderNode.Table("Multiple matches:", columns, rows);
+        return new RenderTree.RenderTree(new[] { (RenderNode)table });
+    }
+
+    private static string GetStateMarkupColor(string state) =>
+        state.ToLowerInvariant() switch
+        {
+            "active" or "doing" or "in progress" => "yellow",
+            "done" or "closed" or "completed" or "resolved" => "green",
+            "new" or "to do" or "proposed" => "blue",
+            "removed" or "cut" => "grey",
+            _ => "white",
+        };
 }

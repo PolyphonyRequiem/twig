@@ -127,6 +127,11 @@ public sealed class JsonRenderer : IRenderer
                 }
                 writer.WriteEndObject();
                 break;
+            case RenderNode.Markup markup:
+                writer.WriteStartObject();
+                writer.WriteString("text", MarkupHelpers.StripMarkup(markup.Content));
+                writer.WriteEndObject();
+                break;
             case RenderNode.Hint:
                 // Hints are human-only — omitted from machine output.
                 break;
@@ -306,6 +311,9 @@ public sealed class JsonRenderer : IRenderer
                 break;
             case RenderNode.Text text:
                 writer.WriteStringValue(text.Content);
+                break;
+            case RenderNode.Markup markup:
+                writer.WriteStringValue(MarkupHelpers.StripMarkup(markup.Content));
                 break;
             case RenderNode.Hint:
                 writer.WriteNullValue();

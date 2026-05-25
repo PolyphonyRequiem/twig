@@ -284,4 +284,33 @@ public sealed class SpectreNodeRendererTests
         headerPos.ShouldBeGreaterThanOrEqualTo(0);
         contentPos.ShouldBeGreaterThan(headerPos);
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Markup rendering
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void Markup_PassesContentThroughSpectreMarkupParser()
+    {
+        var (renderer, console) = CreateRenderer();
+        var tree = new RenderTree.RenderTree([new RenderNode.Markup("Set active item: #42 Foo [[[green]Active[/]]]")]);
+
+        renderer.Render(tree);
+
+        var output = console.Output;
+        output.ShouldContain("Set active item: #42 Foo [Active]");
+        output.ShouldNotContain("[green]");
+        output.ShouldNotContain("[/]");
+    }
+
+    [Fact]
+    public void Markup_LiteralBracketsAreUnescaped()
+    {
+        var (renderer, console) = CreateRenderer();
+        var tree = new RenderTree.RenderTree([new RenderNode.Markup("Plain [[brackets]] only")]);
+
+        renderer.Render(tree);
+
+        console.Output.ShouldContain("Plain [brackets] only");
+    }
 }

@@ -52,6 +52,9 @@ public sealed class MinimalRenderer(TextWriter output) : IRenderer
             case RenderNode.Text text:
                 output.WriteLine(text.Content);
                 break;
+            case RenderNode.Markup markup:
+                output.WriteLine(MarkupHelpers.StripMarkup(markup.Content));
+                break;
             case RenderNode.Hint:
                 // Hints are dim human guidance — suppressed in machine output.
                 break;

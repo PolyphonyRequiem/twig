@@ -46,15 +46,38 @@ public sealed class RendererFactory
             "json-compact" => new JsonRenderer(Console.Out, indented: true),
             "minimal"      => new MinimalRenderer(Console.Out),
             "ids"          => new IdsRenderer(Console.Out),
-            _              => new SpectreNodeRenderer(CreateAnsiConsole()),
+            _              => new SpectreNodeRenderer(CreateAnsiConsole(Console.Out)),
         };
     }
 
-    private static IAnsiConsole CreateAnsiConsole()
+    /// <summary>
+    /// Returns an <see cref="IRenderer"/> bound to the supplied
+    /// <paramref name="writer"/>. Use this when a command needs to route
+    /// rendered output to a destination other than <c>Console.Out</c> —
+    /// typically <c>Console.Error</c> for diagnostic output such as the
+    /// static disambiguation fallback when interactive selection is not
+    /// available.
+    /// </summary>
+    public IRenderer GetRenderer(string? format, TextWriter writer)
+    {
+        ArgumentNullException.ThrowIfNull(writer);
+
+        return (format ?? DefaultFormat).ToLowerInvariant() switch
+        {
+            "json"         => new JsonRenderer(writer, indented: true),
+            "json-full"    => new JsonRenderer(writer, indented: true),
+            "json-compact" => new JsonRenderer(writer, indented: true),
+            "minimal"      => new MinimalRenderer(writer),
+            "ids"          => new IdsRenderer(writer),
+            _              => new SpectreNodeRenderer(CreateAnsiConsole(writer)),
+        };
+    }
+
+    private static IAnsiConsole CreateAnsiConsole(TextWriter writer)
     {
         return AnsiConsole.Create(new AnsiConsoleSettings
         {
-            Out = new AnsiConsoleOutput(Console.Out),
+            Out = new AnsiConsoleOutput(writer),
         });
     }
 }

@@ -59,6 +59,7 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<SeedPublishOrchestrator>(),
             sp.GetRequiredService<IContextStore>(),
             sp.GetRequiredService<OutputFormatterFactory>(),
+            sp.GetRequiredService<Twig.Rendering.RendererFactory>(),
             sp.GetRequiredService<IAdoWorkItemService>(),
             sp.GetService<IAdoGitService>()));
         services.AddSingleton<SeedReconcileCommand>();

@@ -7,6 +7,7 @@ using Twig.Domain.Services.Workspace;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
+using Twig.Rendering;
 using Twig.TestKit;
 using Xunit;
 
@@ -55,7 +56,7 @@ public class SeedPublishCommandTests : IDisposable
             _workItemRepo, _adoService, _seedLinkRepo, _publishIdMapRepo,
             _rulesProvider, _unitOfWork, backlogOrderer);
 
-        _cmd = new SeedPublishCommand(orchestrator, _contextStore, _formatterFactory, _adoService);
+        _cmd = new SeedPublishCommand(orchestrator, _contextStore, _formatterFactory, new RendererFactory(), _adoService);
     }
 
     public void Dispose()
@@ -104,7 +105,9 @@ public class SeedPublishCommandTests : IDisposable
 
         result.ShouldBe(0);
         var output = writer.ToString();
-        output.ShouldContain("Published seed #-5 as #42");
+        output.ShouldContain("oldId: -5");
+        output.ShouldContain("newId: 42");
+        output.ShouldContain("status: Created");
         output.ShouldContain("My Task");
     }
 
@@ -161,7 +164,7 @@ public class SeedPublishCommandTests : IDisposable
         var result = await _cmd.ExecuteAsync(-5, dryRun: true);
 
         result.ShouldBe(0);
-        writer.ToString().ShouldContain("dry-run");
+        writer.ToString().ShouldContain("status: DryRun");
         writer.ToString().ShouldContain("Dry Run Seed");
         await _adoService.DidNotReceive().CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
     }
@@ -189,7 +192,8 @@ public class SeedPublishCommandTests : IDisposable
         var result = await _cmd.ExecuteAsync(-5, force: true);
 
         result.ShouldBe(0);
-        writer.ToString().ShouldContain("Published seed #-5 as #50");
+        writer.ToString().ShouldContain("oldId: -5");
+        writer.ToString().ShouldContain("newId: 50");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -208,7 +212,7 @@ public class SeedPublishCommandTests : IDisposable
         var result = await _cmd.ExecuteAsync(-5);
 
         result.ShouldBe(1);
-        writer.ToString().ShouldContain("failed validation");
+        writer.ToString().ShouldContain("status: ValidationFailed");
         await _adoService.DidNotReceive().CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
     }
 
@@ -225,7 +229,7 @@ public class SeedPublishCommandTests : IDisposable
         var result = await _cmd.ExecuteAsync(42);
 
         result.ShouldBe(0);
-        writer.ToString().ShouldContain("already published");
+        writer.ToString().ShouldContain("status: Skipped");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -309,7 +313,7 @@ public class SeedPublishCommandTests : IDisposable
         var result = await _cmd.ExecuteAsync(all: true, dryRun: true);
 
         result.ShouldBe(0);
-        writer.ToString().ShouldContain("dry-run");
+        writer.ToString().ShouldContain("status: DryRun");
         await _adoService.DidNotReceive().CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>());
     }
 
@@ -363,7 +367,8 @@ public class SeedPublishCommandTests : IDisposable
         var result = await _cmd.ExecuteAsync(-5, outputFormat: "minimal");
 
         result.ShouldBe(0);
-        writer.ToString().ShouldContain("PUBLISH #-5 => #42");
+        writer.ToString().ShouldContain("oldId=-5");
+        writer.ToString().ShouldContain("newId=42");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -416,7 +421,8 @@ public class SeedPublishCommandTests : IDisposable
         var result = await _cmd.ExecuteAsync(-5, linkBranch: "feature/xyz");
 
         result.ShouldBe(0);
-        writer.ToString().ShouldContain("Published seed #-5 as #42");
+        writer.ToString().ShouldContain("oldId: -5");
+        writer.ToString().ShouldContain("newId: 42");
         errWriter.ToString().ShouldContain("git service configuration");
     }
 
@@ -430,7 +436,7 @@ public class SeedPublishCommandTests : IDisposable
         var orchestrator = new SeedPublishOrchestrator(
             _workItemRepo, _adoService, _seedLinkRepo, _publishIdMapRepo,
             _rulesProvider, _unitOfWork, backlogOrderer);
-        return new SeedPublishCommand(orchestrator, _contextStore, _formatterFactory, _adoService, gitService);
+        return new SeedPublishCommand(orchestrator, _contextStore, _formatterFactory, new RendererFactory(), _adoService, gitService);
     }
 
     private SeedPublishCommand CreateCommandWithDefaultGitService(out IAdoGitService gitService)

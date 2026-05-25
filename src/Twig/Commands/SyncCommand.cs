@@ -1,5 +1,6 @@
-using System.Text.Json;
 using Twig.Formatters;
+using Twig.RenderTree;
+using Twig.Rendering;
 
 namespace Twig.Commands;
 
@@ -11,10 +12,11 @@ public sealed class SyncCommand(
     IPendingChangeFlusher pendingChangeFlusher,
     RefreshCommand refreshCommand,
     OutputFormatterFactory formatterFactory,
-    TextWriter? stderr = null)
+    TextWriter? stderr = null,
+    RendererFactory? rendererFactory = null)
 {
-    private static readonly JsonWriterOptions JsonWriterOptions = new() { Indented = true };
     private readonly TextWriter _stderr = stderr ?? Console.Error;
+    private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
 
     /// <summary>Flush pending changes then refresh the local cache.</summary>
     /// <param name="outputFormat">Output format: human, json, or minimal.</param>
@@ -51,9 +53,23 @@ public sealed class SyncCommand(
         var hasFlushFailures = flushResult?.Failures.Count > 0;
         var exitCode = hasFlushFailures || refreshExitCode != 0 ? 1 : 0;
 
-        if (outputFormat.StartsWith("json", StringComparison.OrdinalIgnoreCase))
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        if (lower is "json" or "json-full" or "json-compact" or "ids")
         {
-            WriteSyncJson(flushResult, refreshExitCode, pullOnly);
+            RenderSyncJson(flushResult, refreshExitCode, pullOnly, outputFormat ?? string.Empty);
+        }
+        else if (lower == "minimal")
+        {
+            if (!pullOnly)
+            {
+                var msg = flushResult!.ItemsFlushed > 0 || hasFlushFailures
+                    ? $"flushed: {flushResult.ItemsFlushed}, failed: {flushResult.Failures.Count}"
+                    : "nothing to flush";
+                _rendererFactory.GetRenderer(outputFormat ?? string.Empty).Render(new RenderTree.RenderTree(new[]
+                {
+                    (RenderNode)new RenderNode.Text(msg),
+                }));
+            }
         }
         else if (!pullOnly)
         {
@@ -71,46 +87,43 @@ public sealed class SyncCommand(
         return exitCode;
     }
 
-    private static void WriteSyncJson(FlushResult? flush, int refreshExitCode, bool pullOnly)
+    private void RenderSyncJson(FlushResult? flush, int refreshExitCode, bool pullOnly, string outputFormat)
     {
-        using var stream = new MemoryStream();
-        using var writer = new Utf8JsonWriter(stream, JsonWriterOptions);
-
-        writer.WriteStartObject();
-
-        writer.WriteBoolean("pullOnly", pullOnly);
-
-        writer.WritePropertyName("flush");
-        writer.WriteStartObject();
-        writer.WriteNumber("flushed", flush?.ItemsFlushed ?? 0);
-        writer.WriteNumber("fieldChangesPushed", flush?.FieldChangesPushed ?? 0);
-        writer.WriteNumber("notesPushed", flush?.NotesPushed ?? 0);
-        writer.WriteNumber("failed", flush?.Failures.Count ?? 0);
-
+        var flushFields = new List<DocumentField>
+        {
+            new("flushed", new RenderNode.KeyValue("flushed", RenderCell.Integer(flush?.ItemsFlushed ?? 0))),
+            new("fieldChangesPushed", new RenderNode.KeyValue("fieldChangesPushed", RenderCell.Integer(flush?.FieldChangesPushed ?? 0))),
+            new("notesPushed", new RenderNode.KeyValue("notesPushed", RenderCell.Integer(flush?.NotesPushed ?? 0))),
+            new("failed", new RenderNode.KeyValue("failed", RenderCell.Integer(flush?.Failures.Count ?? 0))),
+        };
         if (flush?.Failures.Count > 0)
         {
-            writer.WritePropertyName("failures");
-            writer.WriteStartArray();
-            foreach (var f in flush.Failures)
-            {
-                writer.WriteStartObject();
-                writer.WriteNumber("itemId", f.ItemId);
-                writer.WriteString("error", f.Error);
-                writer.WriteEndObject();
-            }
-            writer.WriteEndArray();
+            var failuresTable = new RenderNode.Table(null,
+                new List<RenderColumn>
+                {
+                    new("itemId", "Item ID"),
+                    new("error", "Error"),
+                },
+                flush.Failures.Select(f => new RenderRow("flushFailure", new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+                {
+                    ["itemId"] = RenderCell.Integer(f.ItemId),
+                    ["error"] = RenderCell.String(f.Error),
+                })).ToList());
+            flushFields.Add(new("failures", failuresTable));
         }
-
-        writer.WriteEndObject();
-
-        writer.WritePropertyName("refresh");
-        writer.WriteStartObject();
-        writer.WriteNumber("exitCode", refreshExitCode);
-        writer.WriteEndObject();
-
-        writer.WriteEndObject();
-        writer.Flush();
-
-        Console.WriteLine(System.Text.Encoding.UTF8.GetString(stream.ToArray()));
+        var refreshFields = new List<DocumentField>
+        {
+            new("exitCode", new RenderNode.KeyValue("exitCode", RenderCell.Integer(refreshExitCode))),
+        };
+        var rootFields = new List<DocumentField>
+        {
+            new("pullOnly", new RenderNode.KeyValue("pullOnly", RenderCell.Boolean(pullOnly))),
+            new("flush", new RenderNode.Document(null, flushFields)),
+            new("refresh", new RenderNode.Document(null, refreshFields)),
+        };
+        _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(new[]
+        {
+            (RenderNode)new RenderNode.Document("sync", rootFields),
+        }));
     }
 }

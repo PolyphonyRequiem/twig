@@ -37,8 +37,8 @@ public sealed class AuthStatusCommand(OutputFormatterFactory formatterFactory)
 
         if (token is null)
         {
-            Console.WriteLine(fmt.FormatInfo($"No cached access token at {fileCache.Path}."));
-            Console.WriteLine(fmt.FormatInfo("Run a twig command that hits ADO (e.g. 'twig refresh') to populate the cache."));
+            Console.WriteLine($"No cached access token at {fileCache.Path}.");
+            Console.WriteLine("Run a twig command that hits ADO (e.g. 'twig refresh') to populate the cache.");
             return Task.FromResult(0);
         }
 
@@ -51,8 +51,8 @@ public sealed class AuthStatusCommand(OutputFormatterFactory formatterFactory)
         {
             // PATs and other non-JWT tokens land here — the cache file is plain text
             // but we never print the secret, only that it's a non-JWT credential.
-            Console.WriteLine(fmt.FormatInfo("token is not a JWT (likely a PAT or opaque credential)."));
-            Console.WriteLine(fmt.FormatInfo("audience validation does not apply; ADO will reject if the credential is wrong."));
+            Console.WriteLine("token is not a JWT (likely a PAT or opaque credential).");
+            Console.WriteLine("audience validation does not apply; ADO will reject if the credential is wrong.");
             return Task.FromResult(0);
         }
 
@@ -61,17 +61,17 @@ public sealed class AuthStatusCommand(OutputFormatterFactory formatterFactory)
 
         if (!info.IsValidAdoAudience)
         {
-            Console.WriteLine();
-            Console.WriteLine(fmt.FormatError("This token's audience is NOT the Azure DevOps API."));
-            Console.WriteLine(fmt.FormatError("Run 'twig auth clear' then 'az login --scope 499b84ac-1321-427f-aa17-267ca6975798/.default' to refresh."));
+            Console.Error.WriteLine();
+            Console.Error.WriteLine(fmt.FormatError("This token's audience is NOT the Azure DevOps API."));
+            Console.Error.WriteLine(fmt.FormatError("Run 'twig auth clear' then 'az login --scope 499b84ac-1321-427f-aa17-267ca6975798/.default' to refresh."));
             return Task.FromResult(1);
         }
 
         if (!info.IsNotExpired(DateTimeOffset.UtcNow, TimeSpan.FromMinutes(5)))
         {
-            Console.WriteLine();
-            Console.WriteLine(fmt.FormatError("This token is expired or expiring within 5 minutes."));
-            Console.WriteLine(fmt.FormatError("Run 'twig auth clear' to drop the cache and re-acquire on the next call."));
+            Console.Error.WriteLine();
+            Console.Error.WriteLine(fmt.FormatError("This token is expired or expiring within 5 minutes."));
+            Console.Error.WriteLine(fmt.FormatError("Run 'twig auth clear' to drop the cache and re-acquire on the next call."));
             return Task.FromResult(1);
         }
 

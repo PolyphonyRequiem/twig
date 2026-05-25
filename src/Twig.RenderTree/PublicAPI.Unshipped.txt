@@ -293,3 +293,10 @@ virtual Twig.RenderTree.RenderValue.Equals(Twig.RenderTree.RenderValue? other) -
 virtual Twig.RenderTree.RenderValue.PrintMembers(System.Text.StringBuilder! builder) -> bool
 Twig.RenderTree.IRenderer
 Twig.RenderTree.IRenderer.Render(Twig.RenderTree.RenderTree! tree) -> void
+const Twig.RenderTree.IdsRenderer.IdKey = "id" -> string!
+Twig.RenderTree.IdsRenderer
+Twig.RenderTree.IdsRenderer.IdsRenderer(System.IO.TextWriter! output) -> void
+Twig.RenderTree.IdsRenderer.Render(Twig.RenderTree.RenderTree! tree) -> void
+Twig.RenderTree.MinimalRenderer
+Twig.RenderTree.MinimalRenderer.MinimalRenderer(System.IO.TextWriter! output) -> void
+Twig.RenderTree.MinimalRenderer.Render(Twig.RenderTree.RenderTree! tree) -> void

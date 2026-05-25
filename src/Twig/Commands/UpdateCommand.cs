@@ -6,6 +6,8 @@ using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Infrastructure.Content;
 using Twig.Infrastructure.Services.Mutation;
+using Twig.RenderTree;
+using Twig.Rendering;
 
 namespace Twig.Commands;
 
@@ -15,6 +17,13 @@ namespace Twig.Commands;
 /// Routes through <see cref="SeedMutationProvider"/> for local-only seeds and
 /// through <see cref="FieldUpdateWorkflow"/> for published items.
 /// </summary>
+/// <remarks>
+/// Migrated to the AB#3301 <see cref="RendererFactory"/>/<see cref="IRenderer"/>
+/// seam: success output is built as a <see cref="RenderTree.RenderTree"/>
+/// per output format. <see cref="OutputFormatterFactory"/> is retained only for
+/// stderr error formatting (matching the SetCommand / NoteCommand / StateCommand
+/// migrations).
+/// </remarks>
 public sealed class UpdateCommand(
     ActiveItemResolver activeItemResolver,
     IWorkItemRepository workItemRepo,
@@ -27,11 +36,13 @@ public sealed class UpdateCommand(
     IPromptStateWriter? promptStateWriter = null,
     TextReader? stdinReader = null,
     TextWriter? stderr = null,
-    TextWriter? stdout = null)
+    TextWriter? stdout = null,
+    RendererFactory? rendererFactory = null)
 {
     private readonly TextReader _stdin = stdinReader ?? Console.In;
     private readonly TextWriter _stderr = stderr ?? Console.Error;
     private readonly TextWriter _stdout = stdout ?? Console.Out;
+    private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
 
     public async Task<int> ExecuteAsync(string field, string? value = null, string outputFormat = OutputFormatterFactory.DefaultFormat, string? format = null, string? filePath = null, bool readStdin = false, int? id = null, bool append = false, CancellationToken ct = default)
     {
@@ -43,7 +54,6 @@ public sealed class UpdateCommand(
             return 2;
         }
 
-        // Value source validation: exactly one of inline value, --file, or --stdin must be specified.
         var sourceCount = (value is not null ? 1 : 0) + (filePath is not null ? 1 : 0) + (readStdin ? 1 : 0);
         if (sourceCount == 0)
         {
@@ -63,7 +73,6 @@ public sealed class UpdateCommand(
             return 2;
         }
 
-        // Resolve the effective value from the selected source.
         string resolvedValue;
         if (filePath is not null)
         {
@@ -103,7 +112,13 @@ public sealed class UpdateCommand(
             return 1;
         }
 
-        // Seed routing: local-only mutation, no ADO interaction.
+        var valueSource = filePath is not null ? "file"
+                       : readStdin ? "stdin"
+                       : "inline";
+        var displayValue = filePath is not null ? $"[from file: {filePath}]"
+                         : readStdin ? "[from stdin]"
+                         : resolvedValue;
+
         if (local.IsSeed)
         {
             if (append)
@@ -122,14 +137,10 @@ public sealed class UpdateCommand(
 
             if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
-            var displayValue = filePath is not null ? $"[from file: {filePath}]"
-                             : readStdin ? "[from stdin]"
-                             : resolvedValue;
-            _stdout.WriteLine(fmt.FormatSuccess($"#{local.Id} {local.Title} updated: {field} = '{displayValue}'"));
+            var message = $"#{local.Id} {local.Title} updated: {field} = '{displayValue}'";
+            RenderSuccess(local.Id, local.Title, field, displayValue, valueSource, append, wasSeed: true, message, outputFormat);
             return 0;
         }
-
-        // ── Published (ADO) flow — fetch, conflict-resolve, delegate to workflow ──
 
         var remote = await adoService.FetchAsync(local.Id);
 
@@ -154,10 +165,8 @@ public sealed class UpdateCommand(
                 foreach (var warning in x.Warnings)
                     _stderr.WriteLine($"warning: {warning}");
 
-                var displayValue2 = filePath is not null ? $"[from file: {filePath}]"
-                                 : readStdin ? "[from stdin]"
-                                 : resolvedValue;
-                _stdout.WriteLine(fmt.FormatSuccess($"#{local.Id} {local.Title} updated: {field} = '{displayValue2}'"));
+                var message = $"#{local.Id} {local.Title} updated: {field} = '{displayValue}'";
+                RenderSuccess(local.Id, local.Title, field, displayValue, valueSource, append, wasSeed: false, message, outputFormat);
                 return 0;
 
             default:
@@ -165,4 +174,38 @@ public sealed class UpdateCommand(
         }
     }
 
+    private void RenderSuccess(int itemId, string title, string field, string displayValue, string valueSource, bool append, bool wasSeed, string message, string outputFormat)
+    {
+        var tree = BuildSuccessTree(itemId, title, field, displayValue, valueSource, append, wasSeed, message, outputFormat);
+        _rendererFactory.GetRenderer(outputFormat, _stdout).Render(tree);
+    }
+
+    private static RenderTree.RenderTree BuildSuccessTree(int itemId, string title, string field, string displayValue, string valueSource, bool append, bool wasSeed, string message, string outputFormat)
+    {
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        RenderNode node = lower switch
+        {
+            "minimal" => new RenderNode.Text(message),
+            "json" or "json-full" or "json-compact" or "ids" =>
+                BuildFieldUpdatedRecord(itemId, title, field, displayValue, valueSource, append, wasSeed, message),
+            _ => new RenderNode.Text(message, Severity.Success),
+        };
+        return new RenderTree.RenderTree(new[] { node });
+    }
+
+    private static RenderNode BuildFieldUpdatedRecord(int itemId, string title, string field, string displayValue, string valueSource, bool append, bool wasSeed, string message)
+    {
+        var fields = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["id"] = new RenderCell(itemId.ToString(), new RenderValue.Integer(itemId)),
+            ["title"] = new RenderCell(title, new RenderValue.String(title)),
+            ["field"] = new RenderCell(field, new RenderValue.String(field)),
+            ["valueDisplay"] = new RenderCell(displayValue, new RenderValue.String(displayValue)),
+            ["valueSource"] = new RenderCell(valueSource, new RenderValue.String(valueSource)),
+            ["append"] = new RenderCell(append ? "true" : "false", new RenderValue.Boolean(append)),
+            ["wasSeed"] = new RenderCell(wasSeed ? "true" : "false", new RenderValue.Boolean(wasSeed)),
+            ["message"] = new RenderCell(message, new RenderValue.String(message)),
+        };
+        return new RenderNode.Record("fieldUpdated", fields);
+    }
 }

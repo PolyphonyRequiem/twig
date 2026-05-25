@@ -845,4 +845,58 @@ public class UpdateCommandTests
         output.ShouldContain("Seed Item");
         output.ShouldContain("New Title");
     }
+
+    [Fact]
+    public async Task Update_JsonOutput_EmitsFieldUpdatedRecord()
+    {
+        SetupSuccessfulPatch();
+        var stdout = new StringWriter();
+        var cmd = CreateCommand(stdout: stdout);
+
+        var result = await cmd.ExecuteAsync("System.Title", "New Title", outputFormat: "json");
+
+        result.ShouldBe(0);
+        var output = stdout.ToString();
+        using var doc = System.Text.Json.JsonDocument.Parse(output);
+        doc.RootElement.GetProperty("id").GetInt32().ShouldBe(1);
+        doc.RootElement.GetProperty("field").GetString().ShouldBe("System.Title");
+        doc.RootElement.GetProperty("valueDisplay").GetString().ShouldBe("New Title");
+        doc.RootElement.GetProperty("valueSource").GetString().ShouldBe("inline");
+        doc.RootElement.GetProperty("append").GetBoolean().ShouldBeFalse();
+        doc.RootElement.GetProperty("wasSeed").GetBoolean().ShouldBeFalse();
+        doc.RootElement.GetProperty("message").GetString()!.ShouldContain("New Title");
+    }
+
+    [Fact]
+    public async Task Update_JsonOutput_SeedSource_EmitsWasSeedTrue()
+    {
+        var seed = CreateSeedWorkItem(-5, "Seed Item");
+        SetupActiveItem(seed);
+        var stdout = new StringWriter();
+        var cmd = CreateCommand(stdout: stdout);
+
+        var result = await cmd.ExecuteAsync("System.Title", "Seed Title", outputFormat: "json");
+
+        result.ShouldBe(0);
+        var output = stdout.ToString();
+        using var doc = System.Text.Json.JsonDocument.Parse(output);
+        doc.RootElement.GetProperty("id").GetInt32().ShouldBe(-5);
+        doc.RootElement.GetProperty("wasSeed").GetBoolean().ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Update_MinimalOutput_OmitsCheckmark()
+    {
+        SetupSuccessfulPatch();
+        var stdout = new StringWriter();
+        var cmd = CreateCommand(stdout: stdout);
+
+        var result = await cmd.ExecuteAsync("System.Title", "New Title", outputFormat: "minimal");
+
+        result.ShouldBe(0);
+        var output = stdout.ToString();
+        output.ShouldNotContain("✓");
+        output.ShouldContain("updated:");
+        output.ShouldContain("New Title");
+    }
 }

@@ -75,9 +75,15 @@ public sealed class RendererFactory
 
     private static IAnsiConsole CreateAnsiConsole(TextWriter writer)
     {
-        return AnsiConsole.Create(new AnsiConsoleSettings
+        var console = AnsiConsole.Create(new AnsiConsoleSettings
         {
             Out = new AnsiConsoleOutput(writer),
         });
+        // Disable hard wrapping for migrated commands. Legacy `HumanOutputFormatter`
+        // wrote raw strings via `Console.WriteLine` which never wraps, and tests
+        // (plus pipelines) rely on long success messages staying on one line.
+        // Spectre defaults to 80-column width when stdout is redirected.
+        console.Profile.Width = int.MaxValue;
+        return console;
     }
 }

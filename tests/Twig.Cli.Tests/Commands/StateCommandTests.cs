@@ -833,6 +833,62 @@ public class StateCommandTests
         stdout.ShouldNotContain("transitions)");
     }
 
+    [Fact]
+    public async Task State_Success_JsonOutput_EmitsStateChangedRecord()
+    {
+        var item = CreateWorkItem(42, "Test", "New", WorkItemType.UserStory);
+        SetupActiveItem(item);
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(42, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(1);
+        _pendingChangeStore.GetChangesAsync(42, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+
+        var (result, stdout) = await CaptureStdoutAsync(() => _cmd.ExecuteAsync("Active", outputFormat: "json"));
+
+        result.ShouldBe(0);
+        stdout.ShouldContain("\"id\": 42");
+        stdout.ShouldContain("\"toState\": \"Active\"");
+        stdout.ShouldContain("\"fromState\": \"New\"");
+        stdout.ShouldContain("\"transitionCount\": 1");
+        stdout.ShouldContain("\"isCategoryResolution\": false");
+        // Hints must NOT appear in JSON output — would corrupt single-Record shape into an array.
+        stdout.ShouldNotContain("\"kind\":");
+    }
+
+    [Fact]
+    public async Task State_AlreadyInState_JsonOutput_EmitsAlreadyInStateRecord()
+    {
+        var item = CreateWorkItem(7, "Test", "Active", WorkItemType.UserStory);
+        SetupActiveItem(item);
+
+        var (result, stdout) = await CaptureStdoutAsync(() => _cmd.ExecuteAsync("Active", outputFormat: "json"));
+
+        result.ShouldBe(0);
+        stdout.ShouldContain("\"id\": 7");
+        stdout.ShouldContain("\"state\": \"Active\"");
+        stdout.ShouldContain("\"requestedState\": \"Active\"");
+        stdout.ShouldContain("\"isCategoryResolution\": false");
+    }
+
+    [Fact]
+    public async Task State_Success_MinimalOutput_OmitsCheckmark()
+    {
+        var item = CreateWorkItem(13, "Test", "New", WorkItemType.UserStory);
+        SetupActiveItem(item);
+        _adoService.FetchAsync(13, Arg.Any<CancellationToken>()).Returns(item);
+        _adoService.PatchAsync(13, Arg.Any<IReadOnlyList<FieldChange>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(1);
+        _pendingChangeStore.GetChangesAsync(13, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<PendingChangeRecord>());
+
+        var (result, stdout) = await CaptureStdoutAsync(() => _cmd.ExecuteAsync("Active", outputFormat: "minimal"));
+
+        result.ShouldBe(0);
+        stdout.ShouldNotContain("✓");
+        stdout.ShouldContain("→ Active");
+    }
+
     private static async Task<(int Result, string Stdout)> CaptureStdoutAsync(Func<Task<int>> action)
     {
         var originalOut = Console.Out;

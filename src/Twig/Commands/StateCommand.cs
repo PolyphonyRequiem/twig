@@ -9,6 +9,8 @@ using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Services.Mutation;
+using Twig.RenderTree;
+using Twig.Rendering;
 
 namespace Twig.Commands;
 
@@ -19,6 +21,12 @@ namespace Twig.Commands;
 /// Routes through <see cref="SeedMutationProvider"/> for local-only seeds and
 /// through <see cref="StateTransitionWorkflow"/> for published items.
 /// </summary>
+/// <remarks>
+/// Migrated to the AB#3301 <see cref="RendererFactory"/>/<see cref="IRenderer"/>
+/// seam: success/info/hint output is built as a <see cref="RenderTree.RenderTree"/>
+/// per output format. <see cref="OutputFormatterFactory"/> is retained only for
+/// stderr error formatting (matching the SetCommand and NoteCommand migrations).
+/// </remarks>
 public sealed class StateCommand(
     CommandContext ctx,
     ActiveItemResolver activeItemResolver,
@@ -26,9 +34,11 @@ public sealed class StateCommand(
     IAdoWorkItemService adoService,
     IConsoleInput consoleInput,
     SeedMutationProvider seedMutationProvider,
-    StateTransitionWorkflow stateTransitionWorkflow)
+    StateTransitionWorkflow stateTransitionWorkflow,
+    RendererFactory? rendererFactory = null)
 {
     private readonly TextWriter _stderr = ctx.StderrWriter;
+    private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
 
     /// <summary>Change the state of the active work item by full or partial state name.</summary>
     public async Task<int> ExecuteAsync(string stateName, int? id = null, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
@@ -52,17 +62,13 @@ public sealed class StateCommand(
             return 1;
         }
 
-        // Seed routing: local-only mutation, no process config or ADO interaction.
         if (item.IsSeed)
-            return await ExecuteSeedAsync(item, stateName, fmt, ct);
+            return await ExecuteSeedAsync(item, stateName, fmt, outputFormat, ct);
 
-        // Pre-flight validation: bail before fetch on bad input, invalid transitions, etc.
         var preflight = stateTransitionWorkflow.Validate(item, stateName);
         if (preflight is not null)
             return RenderOutcome(preflight, item, fmt, outputFormat);
 
-        // Published flow — fetch remote, perform interactive conflict resolution,
-        // then delegate the orchestration to the workflow.
         var remote = await adoService.FetchAsync(item.Id);
 
         var conflictOutcome = await ConflictResolutionFlow.ResolveAsync(
@@ -77,11 +83,12 @@ public sealed class StateCommand(
         return RenderOutcome(outcome, item, fmt, outputFormat);
     }
 
-    private async Task<int> ExecuteSeedAsync(WorkItem item, string stateName, IOutputFormatter fmt, CancellationToken ct)
+    private async Task<int> ExecuteSeedAsync(WorkItem item, string stateName, IOutputFormatter fmt, string outputFormat, CancellationToken ct)
     {
         if (string.Equals(item.State, stateName, StringComparison.OrdinalIgnoreCase))
         {
-            Console.WriteLine(fmt.FormatInfo($"Already in state '{stateName}'."));
+            var message = $"Already in state '{stateName}'.";
+            RenderAlreadyInState(item.Id, item.State, stateName, isCategoryResolution: false, message, outputFormat);
             return 0;
         }
 
@@ -93,7 +100,17 @@ public sealed class StateCommand(
             return 1;
         }
 
-        Console.WriteLine(fmt.FormatSuccess($"#{item.Id} {item.Title} → {stateName}"));
+        var successMessage = $"#{item.Id} {item.Title} → {stateName}";
+        RenderStateChanged(
+            item,
+            fromState: item.State,
+            toState: stateName,
+            requestedState: stateName,
+            transitionCount: 1,
+            isCategoryResolution: false,
+            message: successMessage,
+            hints: Array.Empty<string>(),
+            outputFormat: outputFormat);
         return 0;
     }
 
@@ -113,7 +130,13 @@ public sealed class StateCommand(
                 var alreadyMessage = x.ResolutionKind == ResolutionKind.Category
                     ? $"#{item.Id} already in '{x.ResolvedState}' (category '{x.Input}')"
                     : $"Already in state '{x.ResolvedState}'.";
-                Console.WriteLine(fmt.FormatInfo(alreadyMessage));
+                RenderAlreadyInState(
+                    item.Id,
+                    state: x.ResolvedState,
+                    requestedState: x.Input,
+                    isCategoryResolution: x.ResolutionKind == ResolutionKind.Category,
+                    message: alreadyMessage,
+                    outputFormat: outputFormat);
                 return 0;
 
             case StateTransitionOutcome.TransitionNotAllowed x:
@@ -133,13 +156,13 @@ public sealed class StateCommand(
                 foreach (var warning in x.Warnings)
                     _stderr.WriteLine($"warning: {warning}");
 
-                var pathSuffix = x.Path.Count - 1 > 1
-                    ? $": {string.Join(" → ", x.Path)} ({x.Path.Count - 1} transitions)"
+                var transitionCount = Math.Max(0, x.Path.Count - 1);
+                var pathSuffix = transitionCount > 1
+                    ? $": {string.Join(" → ", x.Path)} ({transitionCount} transitions)"
                     : $" → {x.NewState}";
                 var successMessage = x.ResolutionKind == ResolutionKind.Category
                     ? $"#{item.Id} {item.Title}{pathSuffix} (resolved category '{x.Input}' → '{x.NewState}')"
                     : $"#{item.Id} {item.Title}{pathSuffix}";
-                Console.WriteLine(fmt.FormatSuccess(successMessage));
 
                 var siblings = item.ParentId.HasValue
                     ? workItemRepo.GetChildrenAsync(item.ParentId.Value).GetAwaiter().GetResult()
@@ -150,16 +173,128 @@ public sealed class StateCommand(
                     outputFormat: outputFormat,
                     newStateName: x.NewState,
                     siblings: siblings);
-                foreach (var hint in hints)
-                {
-                    var formatted = fmt.FormatHint(hint);
-                    if (!string.IsNullOrEmpty(formatted))
-                        Console.WriteLine(formatted);
-                }
+
+                RenderStateChanged(
+                    item,
+                    fromState: x.Path.Count > 0 ? x.Path[0] : item.State,
+                    toState: x.NewState,
+                    requestedState: x.Input,
+                    transitionCount: transitionCount,
+                    isCategoryResolution: x.ResolutionKind == ResolutionKind.Category,
+                    message: successMessage,
+                    hints: hints,
+                    outputFormat: outputFormat);
                 return 0;
 
             default:
                 throw new System.Diagnostics.UnreachableException($"Unhandled StateTransitionOutcome: {outcome.GetType().Name}");
         }
+    }
+
+    private void RenderStateChanged(
+        WorkItem item,
+        string fromState,
+        string toState,
+        string requestedState,
+        int transitionCount,
+        bool isCategoryResolution,
+        string message,
+        IReadOnlyList<string> hints,
+        string outputFormat)
+    {
+        var tree = BuildStateChangedTree(item, fromState, toState, requestedState, transitionCount, isCategoryResolution, message, hints, outputFormat);
+        _rendererFactory.GetRenderer(outputFormat).Render(tree);
+    }
+
+    private void RenderAlreadyInState(int itemId, string state, string requestedState, bool isCategoryResolution, string message, string outputFormat)
+    {
+        var tree = BuildAlreadyInStateTree(itemId, state, requestedState, isCategoryResolution, message, outputFormat);
+        _rendererFactory.GetRenderer(outputFormat).Render(tree);
+    }
+
+    private static RenderTree.RenderTree BuildStateChangedTree(
+        WorkItem item,
+        string fromState,
+        string toState,
+        string requestedState,
+        int transitionCount,
+        bool isCategoryResolution,
+        string message,
+        IReadOnlyList<string> hints,
+        string outputFormat)
+    {
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        var isMachine = lower is "json" or "json-full" or "json-compact" or "minimal" or "ids";
+        var nodes = new List<RenderNode>(capacity: 1 + (isMachine ? 0 : hints.Count));
+
+        nodes.Add(lower switch
+        {
+            "minimal" => new RenderNode.Text(message),
+            "json" or "json-full" or "json-compact" or "ids" =>
+                BuildStateChangedRecord(item, fromState, toState, requestedState, transitionCount, isCategoryResolution, message),
+            _ => new RenderNode.Text(message, Severity.Success),
+        });
+
+        // Hints only on human output. Adding Hint nodes for JSON formats would
+        // turn a single-root Record document into an array with a `kind` discriminator.
+        if (!isMachine)
+        {
+            foreach (var hint in hints)
+            {
+                if (!string.IsNullOrWhiteSpace(hint))
+                    nodes.Add(new RenderNode.Hint(hint));
+            }
+        }
+
+        return new RenderTree.RenderTree(nodes);
+    }
+
+    private static RenderTree.RenderTree BuildAlreadyInStateTree(int itemId, string state, string requestedState, bool isCategoryResolution, string message, string outputFormat)
+    {
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        RenderNode node = lower switch
+        {
+            "minimal" => new RenderNode.Text(message),
+            "json" or "json-full" or "json-compact" or "ids" =>
+                BuildAlreadyInStateRecord(itemId, state, requestedState, isCategoryResolution, message),
+            _ => new RenderNode.Text(message, Severity.Info),
+        };
+        return new RenderTree.RenderTree(new[] { node });
+    }
+
+    private static RenderNode BuildStateChangedRecord(
+        WorkItem item,
+        string fromState,
+        string toState,
+        string requestedState,
+        int transitionCount,
+        bool isCategoryResolution,
+        string message)
+    {
+        var fields = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["id"] = new RenderCell(item.Id.ToString(), new RenderValue.Integer(item.Id)),
+            ["title"] = new RenderCell(item.Title, new RenderValue.String(item.Title)),
+            ["fromState"] = new RenderCell(fromState, new RenderValue.String(fromState)),
+            ["toState"] = new RenderCell(toState, new RenderValue.String(toState)),
+            ["requestedState"] = new RenderCell(requestedState, new RenderValue.String(requestedState)),
+            ["transitionCount"] = new RenderCell(transitionCount.ToString(), new RenderValue.Integer(transitionCount)),
+            ["isCategoryResolution"] = new RenderCell(isCategoryResolution ? "true" : "false", new RenderValue.Boolean(isCategoryResolution)),
+            ["message"] = new RenderCell(message, new RenderValue.String(message)),
+        };
+        return new RenderNode.Record("stateChanged", fields);
+    }
+
+    private static RenderNode BuildAlreadyInStateRecord(int itemId, string state, string requestedState, bool isCategoryResolution, string message)
+    {
+        var fields = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["id"] = new RenderCell(itemId.ToString(), new RenderValue.Integer(itemId)),
+            ["state"] = new RenderCell(state, new RenderValue.String(state)),
+            ["requestedState"] = new RenderCell(requestedState, new RenderValue.String(requestedState)),
+            ["isCategoryResolution"] = new RenderCell(isCategoryResolution ? "true" : "false", new RenderValue.Boolean(isCategoryResolution)),
+            ["message"] = new RenderCell(message, new RenderValue.String(message)),
+        };
+        return new RenderNode.Record("alreadyInState", fields);
     }
 }

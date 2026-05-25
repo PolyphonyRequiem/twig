@@ -512,15 +512,31 @@ public sealed class ShowCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task Show_JsonFormat_OmitsRelationsWhenNoLinks()
+    public async Task Show_JsonFormat_EmitsEmptyRelationsWhenNoLinks()
     {
+        // Polyphony's TwigClient (and similar consumers) need `relations`,
+        // `links`, and `children` to ALWAYS be readable as arrays so they
+        // can iterate without first probing for the key. Missing-vs-empty
+        // ambiguity silently breaks ExtractPredecessors.
         var item = new WorkItemBuilder(42, "Lonely Item").Build();
         SetupCachedItem(item);
 
         var output = await CaptureStdout(() => _cmd.ExecuteAsync(42, "json"));
 
         using var doc = System.Text.Json.JsonDocument.Parse(output);
-        doc.RootElement.TryGetProperty("relations", out _).ShouldBeFalse();
+        var root = doc.RootElement;
+
+        root.TryGetProperty("relations", out var relations).ShouldBeTrue();
+        relations.ValueKind.ShouldBe(System.Text.Json.JsonValueKind.Array);
+        relations.GetArrayLength().ShouldBe(0);
+
+        root.TryGetProperty("links", out var links).ShouldBeTrue();
+        links.ValueKind.ShouldBe(System.Text.Json.JsonValueKind.Array);
+        links.GetArrayLength().ShouldBe(0);
+
+        root.TryGetProperty("children", out var children).ShouldBeTrue();
+        children.ValueKind.ShouldBe(System.Text.Json.JsonValueKind.Array);
+        children.GetArrayLength().ShouldBe(0);
     }
 
     // ═══════════════════════════════════════════════════════════════

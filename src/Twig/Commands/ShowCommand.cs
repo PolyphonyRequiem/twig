@@ -417,34 +417,39 @@ public sealed class ShowCommand(
         if (parent is not null)
             fields.Add(new DocumentField("parent", BuildParentRecord(parent)));
 
+        // `children`, `links`, and `relations` are ALWAYS emitted as arrays
+        // (possibly empty) so integrators can iterate the key without first
+        // checking for its presence. Missing-vs-empty ambiguity silently
+        // breaks consumers like polyphony's ExtractPredecessors which
+        // expects `relations` to always be readable.
+        var childNodes = new List<RenderNode>(children?.Count ?? 0);
         if (children is { Count: > 0 })
         {
-            var childNodes = new List<RenderNode>(children.Count);
             foreach (var child in children)
                 childNodes.Add(BuildChildRecord(child));
-            fields.Add(new DocumentField("children", new RenderNode.Section(null, childNodes)));
         }
+        fields.Add(new DocumentField("children", new RenderNode.Section(null, childNodes)));
 
+        var linkNodes = new List<RenderNode>(links?.Count ?? 0);
         if (links is { Count: > 0 })
         {
-            var linkNodes = new List<RenderNode>(links.Count);
             foreach (var link in links)
                 linkNodes.Add(BuildLinkRecord(link));
-            fields.Add(new DocumentField("links", new RenderNode.Section(null, linkNodes)));
         }
+        fields.Add(new DocumentField("links", new RenderNode.Section(null, linkNodes)));
 
         // Top-level `relations` array mirrors the ADO REST shape that
         // polyphony's TwigClient reads — each entry carries `id`, `rel`
         // (ADO reference name), `url`, and `attributes.name` (friendly
         // name). Built from the same WorkItemLink set as `links` so
         // consumers can pick whichever shape they prefer.
+        var relationNodes = new List<RenderNode>(links?.Count ?? 0);
         if (links is { Count: > 0 })
         {
-            var relationNodes = new List<RenderNode>(links.Count);
             foreach (var link in links)
                 relationNodes.Add(BuildRelationRecord(link));
-            fields.Add(new DocumentField("relations", new RenderNode.Section(null, relationNodes)));
         }
+        fields.Add(new DocumentField("relations", new RenderNode.Section(null, relationNodes)));
 
         if (pendingChanges is { } pc && (pc.FieldCount > 0 || pc.NoteCount > 0))
         {

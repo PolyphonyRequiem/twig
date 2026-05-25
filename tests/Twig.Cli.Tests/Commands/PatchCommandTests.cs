@@ -675,4 +675,40 @@ public sealed class PatchCommandTests : IDisposable
         _stderr.Dispose();
         _stdout.Dispose();
     }
+
+    [Fact]
+    public async Task ExecuteAsync_JsonOutput_EmitsFieldsPatchedRecord()
+    {
+        var item = new WorkItemBuilder(42, "Test Item").Build();
+        SetupActiveItem(item);
+
+        var result = await CreateCommand().ExecuteAsync(
+            json: """{"System.Title":"Updated","System.State":"Active"}""",
+            outputFormat: "json");
+
+        result.ShouldBe(0);
+        var output = _stdout.ToString();
+        using var doc = System.Text.Json.JsonDocument.Parse(output);
+        doc.RootElement.GetProperty("id").GetInt32().ShouldBe(42);
+        doc.RootElement.GetProperty("title").GetString().ShouldBe("Test Item");
+        doc.RootElement.GetProperty("fieldCount").GetInt32().ShouldBe(2);
+        doc.RootElement.GetProperty("wasSeed").GetBoolean().ShouldBeFalse();
+        doc.RootElement.GetProperty("message").GetString()!.ShouldContain("patched 2 field(s)");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_MinimalOutput_OmitsCheckmark()
+    {
+        var item = new WorkItemBuilder(42, "Test Item").Build();
+        SetupActiveItem(item);
+
+        var result = await CreateCommand().ExecuteAsync(
+            json: """{"System.Title":"Updated"}""",
+            outputFormat: "minimal");
+
+        result.ShouldBe(0);
+        var output = _stdout.ToString();
+        output.ShouldNotContain("✓");
+        output.ShouldContain("patched 1 field(s)");
+    }
 }

@@ -7,6 +7,8 @@ using Twig.Formatters;
 using Twig.Infrastructure.Content;
 using Twig.Infrastructure.Serialization;
 using Twig.Infrastructure.Services.Mutation;
+using Twig.RenderTree;
+using Twig.Rendering;
 
 namespace Twig.Commands;
 
@@ -16,6 +18,12 @@ namespace Twig.Commands;
 /// HTML-typed fields default to Markdown→HTML conversion; pass <c>--format raw</c>
 /// to send pre-rendered HTML or to suppress conversion on plain-text fields.
 /// </summary>
+/// <remarks>
+/// Migrated to the AB#3301 <see cref="RendererFactory"/>/<see cref="IRenderer"/>
+/// seam: success output is built as a <see cref="RenderTree.RenderTree"/>
+/// per output format. <see cref="OutputFormatterFactory"/> is retained only for
+/// stderr error formatting (matches slices 7-10).
+/// </remarks>
 public sealed class PatchCommand(
     ActiveItemResolver activeItemResolver,
     IAdoWorkItemService adoService,
@@ -27,11 +35,13 @@ public sealed class PatchCommand(
     ITelemetryClient? telemetryClient = null,
     TextReader? stdinReader = null,
     TextWriter? stderr = null,
-    TextWriter? stdout = null)
+    TextWriter? stdout = null,
+    RendererFactory? rendererFactory = null)
 {
     private readonly TextReader _stdin = stdinReader ?? Console.In;
     private readonly TextWriter _stderr = stderr ?? Console.Error;
     private readonly TextWriter _stdout = stdout ?? Console.Out;
+    private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
 
     /// <summary>
     /// Execute an atomic multi-field patch on a single work item.
@@ -167,7 +177,7 @@ public sealed class PatchCommand(
         if (item.IsSeed)
         {
             var seedOutcome = await patchWorkflow.ExecuteAsync(item, changes, remote: null, ct);
-            return RenderOutcome(seedOutcome, item, fmt, fieldCount);
+            return RenderOutcome(seedOutcome, item, fmt, fieldCount, outputFormat);
         }
 
         // Non-seed: fetch remote, run conflict-resolution UI, then call workflow.
@@ -182,25 +192,23 @@ public sealed class PatchCommand(
             return (0, fieldCount);
 
         var outcome = await patchWorkflow.ExecuteAsync(item, changes, remote, ct);
-        return RenderOutcome(outcome, item, fmt, fieldCount);
+        return RenderOutcome(outcome, item, fmt, fieldCount, outputFormat);
     }
 
     private (int ExitCode, int FieldCount) RenderOutcome(
-        PatchOutcome outcome, Domain.Aggregates.WorkItem item, IOutputFormatter fmt, int fieldCount)
+        PatchOutcome outcome, Domain.Aggregates.WorkItem item, IOutputFormatter fmt, int fieldCount, string outputFormat)
     {
         switch (outcome)
         {
             case PatchOutcome.SeedPatched s:
-                _stdout.WriteLine(fmt.FormatSuccess(
-                    $"#{s.Item.Id} {s.Item.Title}: patched {s.Changes.Count} field(s)."));
+                RenderPatched(s.Item.Id, s.Item.Title, s.Changes.Count, wasSeed: true, outputFormat);
                 foreach (var w in s.Warnings) _stderr.WriteLine($"warning: {w}");
                 return (0, fieldCount);
             case PatchOutcome.SeedFieldRejected r:
                 _stderr.WriteLine(fmt.FormatError($"Field '{r.FieldName}' failed: {r.Reason}"));
                 return (1, fieldCount);
             case PatchOutcome.Patched p:
-                _stdout.WriteLine(fmt.FormatSuccess(
-                    $"#{p.UpdatedItem.Id} {p.UpdatedItem.Title}: patched {p.Changes.Count} field(s)."));
+                RenderPatched(p.UpdatedItem.Id, p.UpdatedItem.Title, p.Changes.Count, wasSeed: false, outputFormat);
                 foreach (var w in p.Warnings) _stderr.WriteLine($"warning: {w}");
                 return (0, fieldCount);
             case PatchOutcome.ConflictAfterRetry:
@@ -212,5 +220,38 @@ public sealed class PatchCommand(
             default:
                 throw new System.Diagnostics.UnreachableException($"Unhandled PatchOutcome: {outcome.GetType().Name}");
         }
+    }
+
+    private void RenderPatched(int itemId, string title, int fieldCount, bool wasSeed, string outputFormat)
+    {
+        var message = $"#{itemId} {title}: patched {fieldCount} field(s).";
+        var tree = BuildPatchedTree(itemId, title, fieldCount, wasSeed, message, outputFormat);
+        _rendererFactory.GetRenderer(outputFormat, _stdout).Render(tree);
+    }
+
+    private static RenderTree.RenderTree BuildPatchedTree(int itemId, string title, int fieldCount, bool wasSeed, string message, string outputFormat)
+    {
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        RenderNode node = lower switch
+        {
+            "minimal" => new RenderNode.Text(message),
+            "json" or "json-full" or "json-compact" or "ids" =>
+                BuildFieldsPatchedRecord(itemId, title, fieldCount, wasSeed, message),
+            _ => new RenderNode.Text(message, Severity.Success),
+        };
+        return new RenderTree.RenderTree(new[] { node });
+    }
+
+    private static RenderNode BuildFieldsPatchedRecord(int itemId, string title, int fieldCount, bool wasSeed, string message)
+    {
+        var fields = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["id"] = new RenderCell(itemId.ToString(), new RenderValue.Integer(itemId)),
+            ["title"] = new RenderCell(title, new RenderValue.String(title)),
+            ["fieldCount"] = new RenderCell(fieldCount.ToString(), new RenderValue.Integer(fieldCount)),
+            ["wasSeed"] = new RenderCell(wasSeed ? "true" : "false", new RenderValue.Boolean(wasSeed)),
+            ["message"] = new RenderCell(message, new RenderValue.String(message)),
+        };
+        return new RenderNode.Record("fieldsPatched", fields);
     }
 }

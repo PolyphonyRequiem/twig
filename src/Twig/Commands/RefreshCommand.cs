@@ -8,6 +8,8 @@ using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Infrastructure.Config;
+using Twig.RenderTree;
+using Twig.Rendering;
 
 namespace Twig.Commands;
 
@@ -15,6 +17,15 @@ namespace Twig.Commands;
 /// Implements <c>twig refresh</c>: builds the WIQL query, delegates fetch/save/conflict logic
 /// to <see cref="RefreshOrchestrator"/>, then runs post-refresh metadata and UI updates.
 /// </summary>
+/// <remarks>
+/// Migrated to the AB#3301 <see cref="RendererFactory"/>/<see cref="IRenderer"/> seam:
+/// progress lines stream as Text/Hint nodes on human/minimal formats; on machine
+/// formats (json/json-*) the streaming progress is suppressed and a single
+/// "refreshComplete" Document is emitted at the end summarising item count,
+/// conflicts, iterations, and (when present) the field-definition hash change.
+/// <see cref="OutputFormatterFactory"/> is retained only for stderr error/warning
+/// formatting that intermixes with the orchestrator's own writes.
+/// </remarks>
 public sealed class RefreshCommand(
     CommandContext ctx,
     IContextStore contextStore,
@@ -25,13 +36,13 @@ public sealed class RefreshCommand(
     RefreshOrchestrator orchestrator,
     SprintIterationResolver sprintResolver,
     IGlobalProfileStore? globalProfileStore = null,
-    IPromptStateWriter? promptStateWriter = null)
+    IPromptStateWriter? promptStateWriter = null,
+    RendererFactory? rendererFactory = null)
 {
     private readonly TextWriter _stderr = ctx.StderrWriter;
+    private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
 
     /// <summary>Refresh the local cache from Azure DevOps.</summary>
-    /// <param name="outputFormat">Output format: human, json, or minimal.</param>
-    /// <param name="force">When true, bypass the dirty guard and overwrite protected items.</param>
     public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool force = false, CancellationToken ct = default)
     {
         using var scope = new CommandActivityScope("refresh", outputFormat);
@@ -57,16 +68,16 @@ public sealed class RefreshCommand(
     private async Task<(int ExitCode, int ItemCount, bool HashChanged)> ExecuteCoreAsync(string outputFormat, bool force, CancellationToken ct)
     {
         var fmt = ctx.FormatterFactory.GetFormatter(outputFormat);
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        var isMachine = lower is "json" or "json-full" or "json-compact" or "ids";
         var telemetryItemCount = 0;
         var telemetryHashChanged = false;
 
-        Console.WriteLine(fmt.FormatInfo("Refreshing from ADO..."));
+        EmitHumanInfo("Refreshing from ADO...", isMachine);
 
-        // Resolve configured sprint expressions to concrete iteration paths
         var sprintEntries = ctx.Config.Workspace.Sprints;
         var resolvedIterations = await ResolveSprintIterationsAsync(sprintEntries, ct);
 
-        // Fall back to current iteration for SyncWorkingSetAsync (task 3.5 will update this)
         var iteration = resolvedIterations.Count > 0
             ? resolvedIterations[0]
             : await iterationService.GetCurrentIterationAsync(ct);
@@ -74,14 +85,13 @@ public sealed class RefreshCommand(
         if (resolvedIterations.Count > 0)
         {
             foreach (var ri in resolvedIterations)
-                Console.WriteLine(fmt.FormatInfo($"  Iteration: {ri}"));
+                EmitHumanInfo($"  Iteration: {ri}", isMachine);
         }
         else
         {
-            Console.WriteLine(fmt.FormatInfo($"  Iteration: {iteration}"));
+            EmitHumanInfo($"  Iteration: {iteration}", isMachine);
         }
 
-        // Build WIQL with multi-sprint OR-joined iteration clauses (or skip when empty)
         var wiql = "SELECT [System.Id] FROM WorkItems";
         var whereClauses = new List<string>();
 
@@ -93,7 +103,6 @@ public sealed class RefreshCommand(
             whereClauses.Add(resolvedIterations.Count == 1 ? joined : $"({joined})");
         }
 
-        // Build area path filter: prefer AreaPathEntries (with IncludeChildren), fall back to AreaPaths/AreaPath
         var areaPathEntries = ctx.Config.Defaults?.AreaPathEntries;
         if (areaPathEntries is { Count: > 0 })
         {
@@ -133,12 +142,11 @@ public sealed class RefreshCommand(
 
         wiql += " ORDER BY [System.Id]";
 
-        // Delegate fetch/save/conflict logic to the orchestrator
         var fetchResult = await orchestrator.FetchItemsAsync(wiql, force, ct);
 
         if (fetchResult.ItemCount == 0)
         {
-            Console.WriteLine(fmt.FormatInfo("  No items found in current iteration."));
+            EmitHumanInfo("  No items found in current iteration.", isMachine);
         }
         else
         {
@@ -154,13 +162,12 @@ public sealed class RefreshCommand(
             }
 
             telemetryItemCount = fetchResult.ItemCount;
-            Console.WriteLine(fmt.FormatSuccess($"Refreshed {fetchResult.ItemCount} item(s)."));
+            if (!isMachine)
+                EmitHumanText($"Refreshed {fetchResult.ItemCount} item(s).", Severity.Success);
         }
 
-        // Ancestor hydration and working set sync — delegated to orchestrator
         await orchestrator.SyncTrackedTreesAsync(ct);
 
-        // Apply cleanup policy after tree sync — parse kebab-case config string to enum
         var policyStr = ctx.Config.Tracking.CleanupPolicy.Replace("-", "");
         if (Enum.TryParse<Twig.Domain.Enums.TrackingCleanupPolicy>(policyStr, ignoreCase: true, out var cleanupPolicy))
         {
@@ -172,7 +179,7 @@ public sealed class RefreshCommand(
         await orchestrator.HydrateAncestorsAsync(ct);
         await orchestrator.SyncWorkingSetAsync(iteration, ct);
 
-        // Refresh user display name if not yet set
+        string? detectedUserDisplayName = null;
         if (string.IsNullOrWhiteSpace(ctx.Config.User.DisplayName))
         {
             try
@@ -181,7 +188,8 @@ public sealed class RefreshCommand(
                 if (!string.IsNullOrWhiteSpace(displayName))
                 {
                     ctx.Config.User.DisplayName = displayName;
-                    Console.WriteLine(fmt.FormatInfo($"  User: {displayName}"));
+                    detectedUserDisplayName = displayName;
+                    EmitHumanInfo($"  User: {displayName}", isMachine);
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -190,27 +198,15 @@ public sealed class RefreshCommand(
             }
         }
 
-        // AB#3296 PR-3: type appearances live in the SQLite cache (process_types
-        // table) — populated below by ProcessTypeSyncService. We no longer write
-        // a 60-line JSON array to .twig/config on every sync.
-
-        // AB#3296: sync invariant — refresh may only touch user-prefs file.
-        // The only field that may have changed in TwigUserConfig above is
-        // User.DisplayName (if it was empty and we just detected it).
         if (ctx.Config.IsLegacyMode)
             await ctx.Config.SaveAsync(paths.ConfigPath);
         else
             await ctx.Config.SaveUserAsync(paths.ConfigPath);
 
-        // Sync process types and field definitions concurrently (FR-5)
         await Task.WhenAll(
             SafeSyncAsync(() => ProcessTypeSyncService.SyncAsync(iterationService, processTypeStore), "type data"),
             SafeSyncAsync(() => FieldDefinitionSyncService.SyncAsync(iterationService, fieldDefinitionStore), "field definitions"));
 
-        // AB#3296 PR-3: rehydrate in-memory TypeAppearances from the freshly
-        // synced cache so the rest of this command (and the renderer in the
-        // current process) sees the up-to-date appearance set without going
-        // back to disk for the config file.
         try
         {
             var allTypes = await processTypeStore.GetAllAsync(ct);
@@ -225,7 +221,6 @@ public sealed class RefreshCommand(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // Best-effort hydration; if the store read fails, fall through.
             _stderr.WriteLine(fmt.FormatInfo($"⚠ Could not refresh type appearances: {ex.Message}"));
         }
 
@@ -236,7 +231,6 @@ public sealed class RefreshCommand(
             { _stderr.WriteLine(fmt.FormatInfo($"⚠ Could not fetch {label}: {ex.Message}")); }
         }
 
-        // Update global profile metadata with current field definition hash
         if (globalProfileStore is not null && !string.IsNullOrWhiteSpace(ctx.Config.ProcessTemplate))
         {
             try
@@ -276,22 +270,85 @@ public sealed class RefreshCommand(
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                // FR-09: Profile I/O failures must never block refresh
             }
         }
 
-        // Update cache freshness timestamp so subsequent reads don't show stale indicators
         await contextStore.SetValueAsync("last_refreshed_at", DateTimeOffset.UtcNow.ToString("O"));
 
         if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
+        if (isMachine)
+            EmitRefreshCompleteRecord(outputFormat ?? "json", resolvedIterations, iteration, fetchResult, telemetryHashChanged, detectedUserDisplayName);
+
         return (0, telemetryItemCount, telemetryHashChanged);
     }
 
-    /// <summary>
-    /// Resolves configured sprint entries to concrete <see cref="IterationPath"/> values.
-    /// Returns an empty list when no sprints are configured or none resolve successfully.
-    /// </summary>
+    private void EmitHumanInfo(string message, bool isMachine)
+    {
+        if (isMachine) return;
+        _rendererFactory.GetRenderer("human").Render(new RenderTree.RenderTree(new[]
+        {
+            (RenderNode)new RenderNode.Text(message, Severity.Info),
+        }));
+    }
+
+    private void EmitHumanText(string message, Severity severity)
+    {
+        _rendererFactory.GetRenderer("human").Render(new RenderTree.RenderTree(new[]
+        {
+            (RenderNode)new RenderNode.Text(message, severity),
+        }));
+    }
+
+    private void EmitRefreshCompleteRecord(
+        string outputFormat,
+        IReadOnlyList<IterationPath> resolvedIterations,
+        IterationPath iteration,
+        Twig.Domain.Services.Sync.RefreshFetchResult fetchResult,
+        bool hashChanged,
+        string? detectedUser)
+    {
+        var iterationStrings = resolvedIterations.Count > 0
+            ? resolvedIterations.Select(i => i.Value).ToList()
+            : new List<string> { iteration.Value };
+
+        var iterationRows = iterationStrings.Select(s => new RenderRow("iteration",
+            new Dictionary<string, RenderCell>(StringComparer.Ordinal) { ["path"] = RenderCell.String(s) })).ToList();
+        var iterationsTable = new RenderNode.Table(null,
+            new[] { new RenderColumn("path", "IterationPath") },
+            iterationRows);
+
+        var conflictRows = fetchResult.Conflicts.Select(c => new RenderRow("conflict",
+            new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+            {
+                ["id"] = RenderCell.Integer(c.Id),
+                ["localRevision"] = RenderCell.Integer(c.LocalRevision),
+                ["remoteRevision"] = RenderCell.Integer(c.RemoteRevision),
+            })).ToList();
+        var conflictsTable = new RenderNode.Table(null,
+            new[]
+            {
+                new RenderColumn("id", "ID"),
+                new RenderColumn("localRevision", "Local"),
+                new RenderColumn("remoteRevision", "Remote"),
+            },
+            conflictRows);
+
+        var fields = new List<DocumentField>(6)
+        {
+            new("itemCount", new RenderNode.KeyValue("itemCount", RenderCell.Integer(fetchResult.ItemCount))),
+            new("phantomsCleansed", new RenderNode.KeyValue("phantomsCleansed", RenderCell.Integer(fetchResult.PhantomsCleansed))),
+            new("hashChanged", new RenderNode.KeyValue("hashChanged", RenderCell.Boolean(hashChanged))),
+            new("iterations", iterationsTable),
+            new("conflicts", conflictsTable),
+        };
+        if (!string.IsNullOrEmpty(detectedUser))
+            fields.Add(new("detectedUser", new RenderNode.KeyValue("detectedUser", RenderCell.String(detectedUser))));
+
+        var doc = new RenderNode.Document("refreshComplete", fields);
+        _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(new[] { (RenderNode)doc }));
+    }
+
     private async Task<IReadOnlyList<IterationPath>> ResolveSprintIterationsAsync(
         List<SprintEntry>? sprintEntries, CancellationToken ct)
     {

@@ -2,6 +2,8 @@ using Twig.Domain.Enums;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Sync;
 using Twig.Formatters;
+using Twig.RenderTree;
+using Twig.Rendering;
 
 namespace Twig.Commands;
 
@@ -11,11 +13,21 @@ namespace Twig.Commands;
 /// <c>exclude &lt;id&gt;</c>, and <c>exclusions</c>.
 /// Delegates to <see cref="ITrackingService"/> for persistence.
 /// </summary>
+/// <remarks>
+/// Migrated to the AB#3301 <see cref="RendererFactory"/>/<see cref="IRenderer"/> seam:
+/// each outcome emits a per-format record (tracked, untracked, excluded, etc.). The
+/// exclusions list emits a Document with an entries Table on machine formats and
+/// streamed lines on human format (mirrors the SprintCommand list pattern).
+/// <see cref="OutputFormatterFactory"/> is retained only for stderr errors.
+/// </remarks>
 public sealed class TrackingCommand(
     ITrackingService trackingService,
     IWorkItemRepository workItemRepo,
-    OutputFormatterFactory formatterFactory)
+    OutputFormatterFactory formatterFactory,
+    RendererFactory? rendererFactory = null)
 {
+    private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
+
     /// <summary>Track a single work item by ID.</summary>
     public async Task<int> TrackAsync(int id, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await TrackCoreAsync(id, TrackingMode.Single, outputFormat, ct);
@@ -37,9 +49,9 @@ public sealed class TrackingCommand(
 
         var wasTracked = await trackingService.UntrackAsync(id, ct);
         if (wasTracked)
-            Console.WriteLine(fmt.FormatSuccess($"Untracked #{id}."));
+            RenderOutcome("untracked", $"Untracked #{id}.", id, outputFormat, Severity.Success);
         else
-            Console.WriteLine(fmt.FormatInfo($"#{id} was not tracked."));
+            RenderOutcome("untrackNotTracked", $"#{id} was not tracked.", id, outputFormat, Severity.Info);
 
         return 0;
     }
@@ -56,7 +68,7 @@ public sealed class TrackingCommand(
         }
 
         await trackingService.ExcludeAsync(id, ct);
-        Console.WriteLine(fmt.FormatSuccess($"Excluded #{id} from workspace view."));
+        RenderOutcome("excluded", $"Excluded #{id} from workspace view.", id, outputFormat, Severity.Success);
         return 0;
     }
 
@@ -68,9 +80,10 @@ public sealed class TrackingCommand(
         if (clear)
         {
             var count = await trackingService.ClearExclusionsAsync(ct);
-            Console.WriteLine(count > 0
-                ? fmt.FormatSuccess($"Cleared {count} exclusion(s).")
-                : fmt.FormatInfo("No exclusions to clear."));
+            if (count > 0)
+                RenderOutcome("exclusionsCleared", $"Cleared {count} exclusion(s).", null, outputFormat, Severity.Success, extra: ("count", RenderCell.Integer(count)));
+            else
+                RenderOutcome("exclusionsClearedEmpty", "No exclusions to clear.", null, outputFormat, Severity.Info);
             return 0;
         }
 
@@ -83,30 +96,67 @@ public sealed class TrackingCommand(
             }
 
             var wasExcluded = await trackingService.RemoveExclusionAsync(removeId, ct);
-            Console.WriteLine(wasExcluded
-                ? fmt.FormatSuccess($"Removed exclusion for #{removeId}.")
-                : fmt.FormatInfo($"#{removeId} was not excluded."));
+            if (wasExcluded)
+                RenderOutcome("exclusionRemoved", $"Removed exclusion for #{removeId}.", removeId, outputFormat, Severity.Success);
+            else
+                RenderOutcome("exclusionRemoveNotFound", $"#{removeId} was not excluded.", removeId, outputFormat, Severity.Info);
             return 0;
         }
 
         var exclusions = await trackingService.ListExclusionsAsync(ct);
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
 
-        if (exclusions.Count == 0)
+        if (lower is "json" or "json-full" or "json-compact" or "ids")
         {
-            Console.WriteLine(fmt.FormatInfo("No exclusions configured."));
+            var columns = new List<RenderColumn>
+            {
+                new("id", "ID"),
+                new("title", "Title"),
+            };
+            var rows = new List<RenderRow>(exclusions.Count);
+            foreach (var item in exclusions)
+            {
+                var title = await GetTitleAsync(item.WorkItemId, ct);
+                var cells = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+                {
+                    ["id"] = RenderCell.Integer(item.WorkItemId),
+                };
+                if (title is not null)
+                    cells["title"] = RenderCell.String(title);
+                rows.Add(new RenderRow("exclusion", cells));
+            }
+            var fields = new List<DocumentField>(2)
+            {
+                new("count", new RenderNode.KeyValue("count", RenderCell.Integer(exclusions.Count))),
+                new("entries", new RenderNode.Table(null, columns, rows)),
+            };
+            _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(new[]
+            {
+                (RenderNode)new RenderNode.Document("exclusionsList", fields),
+            }));
             return 0;
         }
 
+        if (exclusions.Count == 0)
+        {
+            _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(new[]
+            {
+                (RenderNode)new RenderNode.Text("No exclusions configured.", Severity.Info),
+            }));
+            return 0;
+        }
+
+        var humanNodes = new List<RenderNode>(exclusions.Count + 1);
         foreach (var item in exclusions)
         {
             var title = await GetTitleAsync(item.WorkItemId, ct);
             var display = title is not null
                 ? $"#{item.WorkItemId}: {title}"
                 : $"#{item.WorkItemId}";
-            Console.WriteLine(fmt.FormatInfo(display));
+            humanNodes.Add(new RenderNode.Text(display, Severity.Info));
         }
-
-        Console.WriteLine(fmt.FormatInfo($"{exclusions.Count} exclusion(s) total."));
+        humanNodes.Add(new RenderNode.Text($"{exclusions.Count} exclusion(s) total.", Severity.Info));
+        _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(humanNodes));
         return 0;
     }
 
@@ -130,8 +180,55 @@ public sealed class TrackingCommand(
         var display = title is not null
             ? $"Tracking #{id}: {title}{modeLabel}"
             : $"Tracking #{id}{modeLabel}";
-        Console.WriteLine(fmt.FormatSuccess(display));
+
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        RenderNode node = lower switch
+        {
+            "minimal" => new RenderNode.Text(display),
+            "json" or "json-full" or "json-compact" or "ids" =>
+                BuildTrackRecord(id, title, mode, display),
+            _ => new RenderNode.Text(display, Severity.Success),
+        };
+        _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(new[] { node }));
         return 0;
+    }
+
+    private static RenderNode BuildTrackRecord(int id, string? title, TrackingMode mode, string message)
+    {
+        var fields = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["itemId"] = RenderCell.Integer(id),
+            ["mode"] = RenderCell.String(mode.ToString()),
+            ["message"] = RenderCell.String(message),
+        };
+        if (title is not null)
+            fields["title"] = RenderCell.String(title);
+        return new RenderNode.Record("tracked", fields);
+    }
+
+    private void RenderOutcome(string kind, string message, int? itemId, string outputFormat, Severity severity, (string Key, RenderCell Value)? extra = null)
+    {
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        RenderNode node = lower switch
+        {
+            "minimal" => new RenderNode.Text(message),
+            "json" or "json-full" or "json-compact" or "ids" => BuildOutcomeRecord(kind, message, itemId, extra),
+            _ => new RenderNode.Text(message, severity),
+        };
+        _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(new[] { node }));
+    }
+
+    private static RenderNode BuildOutcomeRecord(string kind, string message, int? itemId, (string Key, RenderCell Value)? extra)
+    {
+        var fields = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["message"] = RenderCell.String(message),
+        };
+        if (itemId.HasValue)
+            fields["itemId"] = RenderCell.Integer(itemId.Value);
+        if (extra is { } e)
+            fields[e.Key] = e.Value;
+        return new RenderNode.Record(kind, fields);
     }
 
     private async Task<string?> GetTitleAsync(int id, CancellationToken ct)

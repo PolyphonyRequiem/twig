@@ -165,6 +165,41 @@ public class SeedEditCommandTests
             Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task SeedEdit_JsonOutput_Updated_EmitsSeedEditedRecord()
+    {
+        var seed = CreateSeed(-3, "Old Title");
+        _workItemRepo.GetByIdAsync(-3, Arg.Any<CancellationToken>()).Returns(seed);
+        _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns("# Title\nBrand New Title\n\n# Description\n\n");
+
+        var (result, stdout) = await StdoutCapture.RunAsync(
+            () => _cmd.ExecuteAsync(-3, outputFormat: "json"));
+
+        result.ShouldBe(0);
+        using var doc = System.Text.Json.JsonDocument.Parse(stdout);
+        doc.RootElement.GetProperty("id").GetInt32().ShouldBe(-3);
+        doc.RootElement.GetProperty("title").GetString().ShouldBe("Brand New Title");
+        doc.RootElement.GetProperty("changedFieldCount").GetInt32().ShouldBe(1);
+        doc.RootElement.GetProperty("message").GetString()!.ShouldContain("Updated seed #-3");
+    }
+
+    [Fact]
+    public async Task SeedEdit_MinimalOutput_OmitsCheckmark()
+    {
+        var seed = CreateSeed(-9, "Plain Seed");
+        _workItemRepo.GetByIdAsync(-9, Arg.Any<CancellationToken>()).Returns(seed);
+        _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns("# Title\nRenamed Plain Seed\n\n# Description\n\n");
+
+        var (result, stdout) = await StdoutCapture.RunAsync(
+            () => _cmd.ExecuteAsync(-9, outputFormat: "minimal"));
+
+        result.ShouldBe(0);
+        stdout.ShouldNotContain("✓");
+        stdout.ShouldContain("Updated seed #-9");
+    }
+
     private static WorkItem CreateSeed(int id, string title)
     {
         return new WorkItem

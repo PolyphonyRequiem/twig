@@ -9,6 +9,7 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
+using Twig.Rendering;
 using Twig.TestKit;
 using Xunit;
 
@@ -22,6 +23,7 @@ public sealed class ProcessCommandTests : IDisposable
     private readonly IProcessTypeStore _processTypeStore;
     private readonly IFieldDefinitionStore _fieldDefinitionStore;
     private readonly OutputFormatterFactory _formatterFactory;
+    private readonly RendererFactory _rendererFactory;
     private readonly ActiveItemResolver _activeItemResolver;
     private readonly StringWriter _stderr;
     private readonly ProcessCommand _cmd;
@@ -40,12 +42,14 @@ public sealed class ProcessCommandTests : IDisposable
         _formatterFactory = new OutputFormatterFactory(
             new HumanOutputFormatter(), new JsonOutputFormatter(),
             new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
+        _rendererFactory = new RendererFactory();
 
         _cmd = new ProcessCommand(
             _activeItemResolver,
             _processTypeStore,
             _fieldDefinitionStore,
             _formatterFactory,
+            _rendererFactory,
             stderr: _stderr);
     }
 

@@ -1,0 +1,60 @@
+using Spectre.Console;
+using Twig.RenderTree;
+
+namespace Twig.Rendering;
+
+/// <summary>
+/// Resolves an <see cref="IRenderer"/> by output-format name. Mirrors the
+/// alias normalization of
+/// <see cref="Twig.Formatters.OutputFormatterFactory"/>: <c>json</c>,
+/// <c>json-full</c>, and <c>json-compact</c> all resolve to
+/// <see cref="JsonRenderer"/>; <c>minimal</c> resolves to
+/// <see cref="MinimalRenderer"/>; <c>ids</c> resolves to
+/// <see cref="IdsRenderer"/>; anything else (or <c>human</c>) resolves to
+/// <see cref="SpectreNodeRenderer"/>.
+/// </summary>
+/// <remarks>
+/// <para>
+/// AOT-safe: uses a compile-time switch expression, no reflection.
+/// </para>
+/// <para>
+/// Renderers are constructed per call rather than cached so the output sink
+/// (<c>Console.Out</c> and the Spectre <see cref="IAnsiConsole"/>) is bound
+/// at render time. This matters for tests that swap <c>Console.Out</c> via
+/// <c>StdoutCapture</c>: a renderer constructed earlier would bind the
+/// pre-swap writer and the test would see no output.
+/// </para>
+/// </remarks>
+public sealed class RendererFactory
+{
+    /// <summary>The default format used when none is specified.</summary>
+    public const string DefaultFormat = "human";
+
+    /// <summary>
+    /// Returns an <see cref="IRenderer"/> bound to the current
+    /// <c>Console.Out</c>. <see cref="JsonRenderer"/> currently emits
+    /// indented (pretty) JSON for all JSON aliases — commands needing a
+    /// slimmer compact-schema variant project differently per format at the
+    /// tree level.
+    /// </summary>
+    public IRenderer GetRenderer(string? format)
+    {
+        return (format ?? DefaultFormat).ToLowerInvariant() switch
+        {
+            "json"         => new JsonRenderer(Console.Out, indented: true),
+            "json-full"    => new JsonRenderer(Console.Out, indented: true),
+            "json-compact" => new JsonRenderer(Console.Out, indented: true),
+            "minimal"      => new MinimalRenderer(Console.Out),
+            "ids"          => new IdsRenderer(Console.Out),
+            _              => new SpectreNodeRenderer(CreateAnsiConsole()),
+        };
+    }
+
+    private static IAnsiConsole CreateAnsiConsole()
+    {
+        return AnsiConsole.Create(new AnsiConsoleSettings
+        {
+            Out = new AnsiConsoleOutput(Console.Out),
+        });
+    }
+}

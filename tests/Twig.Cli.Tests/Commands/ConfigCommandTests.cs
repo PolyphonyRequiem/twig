@@ -196,13 +196,43 @@ public class ConfigCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task Config_Write_AreasMode_Invalid_ReturnsError()
+    public async Task Config_Read_Json_EmitsConfigValueRecord()
+    {
+        var config = new TwigConfiguration { Organization = "https://dev.azure.com/myorg" };
+        var cmd = new ConfigCommand(config, _paths, _formatterFactory);
+
+        var (result, stdout) = await StdoutCapture.RunAsync(() => cmd.ExecuteAsync("organization", outputFormat: "json"));
+
+        result.ShouldBe(0);
+        var json = System.Text.Json.JsonDocument.Parse(stdout);
+        json.RootElement.GetProperty("key").GetString().ShouldBe("organization");
+        json.RootElement.GetProperty("value").GetString().ShouldBe("https://dev.azure.com/myorg");
+    }
+
+    [Fact]
+    public async Task Config_Write_Json_EmitsConfigSetRecord()
     {
         var config = new TwigConfiguration();
         var cmd = new ConfigCommand(config, _paths, _formatterFactory);
 
-        var result = await cmd.ExecuteAsync("areas.mode", "wildcard");
+        var (result, stdout) = await StdoutCapture.RunAsync(() => cmd.ExecuteAsync("seed.staledays", "14", outputFormat: "json"));
 
-        result.ShouldBe(1);
+        result.ShouldBe(0);
+        var json = System.Text.Json.JsonDocument.Parse(stdout);
+        json.RootElement.GetProperty("key").GetString().ShouldBe("seed.staledays");
+        json.RootElement.GetProperty("value").GetString().ShouldBe("14");
+        json.RootElement.GetProperty("message").GetString()!.ShouldContain("Set seed.staledays = 14");
+    }
+
+    [Fact]
+    public async Task Config_Read_Minimal_EmitsPlainValue()
+    {
+        var config = new TwigConfiguration { Organization = "https://dev.azure.com/myorg" };
+        var cmd = new ConfigCommand(config, _paths, _formatterFactory);
+
+        var (result, stdout) = await StdoutCapture.RunAsync(() => cmd.ExecuteAsync("organization", outputFormat: "minimal"));
+
+        result.ShouldBe(0);
+        stdout.Trim().ShouldBe("https://dev.azure.com/myorg");
     }
 }

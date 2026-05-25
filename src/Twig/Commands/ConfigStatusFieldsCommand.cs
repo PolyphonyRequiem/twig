@@ -5,6 +5,8 @@ using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Infrastructure.Config;
+using Twig.RenderTree;
+using Twig.Rendering;
 
 namespace Twig.Commands;
 
@@ -13,6 +15,12 @@ namespace Twig.Commands;
 /// file, opens it in the user's editor, and persists the result to <c>.twig/status-fields</c>.
 /// After a successful workspace save, writes back to the global profile store (FR-08).
 /// </summary>
+/// <remarks>
+/// Migrated to the AB#3301 <see cref="RendererFactory"/>/<see cref="IRenderer"/> seam:
+/// emits "statusFieldsCancelled", "statusFieldsSaved", and optionally
+/// "statusFieldsSavedGlobally" records. <see cref="OutputFormatterFactory"/> is
+/// retained only for stderr error formatting.
+/// </remarks>
 public sealed class ConfigStatusFieldsCommand(
     IFieldDefinitionStore fieldDefinitionStore,
     IEditorLauncher editorLauncher,
@@ -20,8 +28,11 @@ public sealed class ConfigStatusFieldsCommand(
     OutputFormatterFactory formatterFactory,
     IGlobalProfileStore globalProfileStore,
     TwigConfiguration config,
-    ITelemetryClient? telemetryClient = null)
+    ITelemetryClient? telemetryClient = null,
+    RendererFactory? rendererFactory = null)
 {
+    private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
+
     public async Task<int> ExecuteAsync(
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
@@ -72,7 +83,7 @@ public sealed class ConfigStatusFieldsCommand(
         var edited = await editorLauncher.LaunchAsync(content, ct);
         if (edited is null)
         {
-            Console.WriteLine(fmt.FormatInfo("Configuration cancelled."));
+            RenderCancelled(outputFormat);
             return 0;
         }
 
@@ -81,7 +92,10 @@ public sealed class ConfigStatusFieldsCommand(
         var entries = StatusFieldsConfig.Parse(edited);
         var count = entries.Count(e => e.IsIncluded);
 
-        Console.WriteLine(fmt.FormatSuccess($"Saved {count} field(s) to .twig/status-fields."));
+        var nodes = new List<RenderNode>(2)
+        {
+            BuildSavedNode(count, paths.StatusFieldsPath, outputFormat),
+        };
 
         // FR-08: Write-back to global profile. FR-09: Silent on failure.
         try
@@ -106,7 +120,7 @@ public sealed class ConfigStatusFieldsCommand(
 
                 await globalProfileStore.SaveMetadataAsync(org, process, metadata, ct);
 
-                Console.WriteLine(fmt.FormatSuccess($"Saved field preferences globally for {org}/{process}."));
+                nodes.Add(BuildSavedGloballyNode(org, process, outputFormat));
             }
         }
         catch (OperationCanceledException) { throw; }
@@ -115,6 +129,61 @@ public sealed class ConfigStatusFieldsCommand(
             // FR-09: Write-back failure must not affect command result
         }
 
+        var tree = new RenderTree.RenderTree(nodes);
+        _rendererFactory.GetRenderer(outputFormat).Render(tree);
         return 0;
+    }
+
+    private void RenderCancelled(string outputFormat)
+    {
+        const string message = "Configuration cancelled.";
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        RenderNode node = lower switch
+        {
+            "minimal" => new RenderNode.Text(message),
+            "json" or "json-full" or "json-compact" or "ids" =>
+                new RenderNode.Record("statusFieldsCancelled", new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+                {
+                    ["message"] = RenderCell.String(message),
+                }),
+            _ => new RenderNode.Text(message, Severity.Info),
+        };
+        _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(new[] { node }));
+    }
+
+    private static RenderNode BuildSavedNode(int count, string path, string outputFormat)
+    {
+        var message = $"Saved {count} field(s) to .twig/status-fields.";
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        return lower switch
+        {
+            "minimal" => new RenderNode.Text(message),
+            "json" or "json-full" or "json-compact" or "ids" =>
+                new RenderNode.Record("statusFieldsSaved", new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+                {
+                    ["fieldCount"] = RenderCell.Integer(count),
+                    ["path"] = RenderCell.String(path),
+                    ["message"] = RenderCell.String(message),
+                }),
+            _ => new RenderNode.Text(message, Severity.Success),
+        };
+    }
+
+    private static RenderNode BuildSavedGloballyNode(string org, string process, string outputFormat)
+    {
+        var message = $"Saved field preferences globally for {org}/{process}.";
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        return lower switch
+        {
+            "minimal" => new RenderNode.Text(message),
+            "json" or "json-full" or "json-compact" or "ids" =>
+                new RenderNode.Record("statusFieldsSavedGlobally", new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+                {
+                    ["organization"] = RenderCell.String(org),
+                    ["processTemplate"] = RenderCell.String(process),
+                    ["message"] = RenderCell.String(message),
+                }),
+            _ => new RenderNode.Text(message, Severity.Success),
+        };
     }
 }

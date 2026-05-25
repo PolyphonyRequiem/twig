@@ -189,4 +189,37 @@ public class ConfigStatusFieldsCommandTests : IDisposable
             new("System.State", "State", "string", false),
         };
     }
+
+    [Fact]
+    public async Task ExecuteAsync_Json_EmitsStatusFieldsSavedRecord()
+    {
+        var definitions = CreateSampleDefinitions();
+        _fieldDefinitionStore.GetAllAsync(Arg.Any<CancellationToken>()).Returns(definitions);
+        _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns("* Priority  (Microsoft.VSTS.Common.Priority)  [integer]\n");
+
+        var (result, stdout) = await StdoutCapture.RunAsync(() => _cmd.ExecuteAsync(outputFormat: "json"));
+
+        result.ShouldBe(0);
+        // Without org/process config the global write-back is skipped → single Record root.
+        var json = System.Text.Json.JsonDocument.Parse(stdout);
+        json.RootElement.GetProperty("fieldCount").GetInt32().ShouldBe(1);
+        json.RootElement.GetProperty("path").GetString()!.ShouldContain("status-fields");
+        json.RootElement.GetProperty("message").GetString()!.ShouldContain("Saved 1 field");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_EditorCancelled_Json_EmitsCancelledRecord()
+    {
+        var definitions = CreateSampleDefinitions();
+        _fieldDefinitionStore.GetAllAsync(Arg.Any<CancellationToken>()).Returns(definitions);
+        _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns((string?)null);
+
+        var (result, stdout) = await StdoutCapture.RunAsync(() => _cmd.ExecuteAsync(outputFormat: "json"));
+
+        result.ShouldBe(0);
+        var json = System.Text.Json.JsonDocument.Parse(stdout);
+        json.RootElement.GetProperty("message").GetString()!.ShouldContain("cancelled");
+    }
 }

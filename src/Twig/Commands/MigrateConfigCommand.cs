@@ -1,5 +1,7 @@
 using Twig.Formatters;
 using Twig.Infrastructure.Config;
+using Twig.RenderTree;
+using Twig.Rendering;
 
 namespace Twig.Commands;
 
@@ -17,8 +19,20 @@ namespace Twig.Commands;
 /// Never auto-runs from <c>twig sync</c> — must be invoked explicitly so polyphony
 /// worktrees and other un-migrated repos are never re-dirtied behind the user's back.
 /// </summary>
-public sealed class MigrateConfigCommand(TwigPaths paths, OutputFormatterFactory formatterFactory)
+/// <remarks>
+/// Migrated to the AB#3301 <see cref="RendererFactory"/>/<see cref="IRenderer"/> seam:
+/// machine formats emit a single "configMigrated" / "configMigrationNoop" document with
+/// <c>changes</c> and (when applicable) <c>nextSteps</c> arrays. Human format streams
+/// the legacy multi-line layout via individual <see cref="RenderNode.Text"/> and
+/// <see cref="RenderNode.Hint"/> nodes.
+/// </remarks>
+public sealed class MigrateConfigCommand(
+    TwigPaths paths,
+    OutputFormatterFactory formatterFactory,
+    RendererFactory? rendererFactory = null)
 {
+    private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
+
     public async Task<int> ExecuteAsync(
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         bool dryRun = false,
@@ -36,15 +50,11 @@ public sealed class MigrateConfigCommand(TwigPaths paths, OutputFormatterFactory
             return 1;
         }
 
-        // Load whatever exists. LoadSplitAsync handles all three cases:
-        //   legacy-only, manifest-only, or both-already-split.
         var config = await TwigConfiguration.LoadSplitAsync(paths, ct);
 
         var didWork = false;
         var changes = new List<string>();
 
-        // Always write the manifest (split shape). The byte-identity short-circuit
-        // makes this a no-op if twig.json is already in canonical form.
         if (dryRun)
         {
             changes.Add($"  would write {paths.RepoConfigPath}");
@@ -63,8 +73,6 @@ public sealed class MigrateConfigCommand(TwigPaths paths, OutputFormatterFactory
             }
         }
 
-        // Rewrite the user-prefs file with only TwigUserConfig content. In legacy
-        // mode this strips repo coords from the file (the source of the leak).
         if (dryRun)
         {
             changes.Add($"  would rewrite {paths.ConfigPath} as user-prefs-only");
@@ -83,7 +91,6 @@ public sealed class MigrateConfigCommand(TwigPaths paths, OutputFormatterFactory
             }
         }
 
-        // Fix .gitignore at repo root.
         var gitignorePath = Path.Combine(paths.RepoRoot, ".gitignore");
         var gitignoreReport = UpdateGitignore(gitignorePath, dryRun);
         if (gitignoreReport.Changed)
@@ -94,36 +101,94 @@ public sealed class MigrateConfigCommand(TwigPaths paths, OutputFormatterFactory
             didWork = true;
         }
 
+        var nextSteps = (!dryRun && changes.Count > 0)
+            ? new List<string>
+            {
+                $"  git add {RelativeTo(paths.RepoConfigPath, paths.RepoRoot)} .gitignore",
+                "  git rm --cached .twig/config   # if the legacy file was previously tracked",
+                "  git commit -m \"chore(twig): adopt twig.json split (AB#3296)\"",
+            }
+            : new List<string>();
+
+        var tree = BuildTree(dryRun, didWork, changes, nextSteps, outputFormat);
+        _rendererFactory.GetRenderer(outputFormat).Render(tree);
+        return 0;
+    }
+
+    private static RenderTree.RenderTree BuildTree(
+        bool dryRun, bool didWork, List<string> changes, List<string> nextSteps, string outputFormat)
+    {
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        var isMachine = lower is "json" or "json-full" or "json-compact" or "minimal" or "ids";
+
         if (changes.Count == 0)
         {
-            Console.WriteLine(fmt.FormatInfo("Configuration is already in the split shape — nothing to do."));
-            return 0;
+            const string noopMessage = "Configuration is already in the split shape — nothing to do.";
+            RenderNode noopNode = lower switch
+            {
+                "minimal" => new RenderNode.Text(noopMessage),
+                "json" or "json-full" or "json-compact" or "ids" =>
+                    new RenderNode.Record("configMigrationNoop", new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+                    {
+                        ["message"] = RenderCell.String(noopMessage),
+                    }),
+                _ => new RenderNode.Text(noopMessage, Severity.Info),
+            };
+            return new RenderTree.RenderTree(new[] { noopNode });
         }
 
-        if (dryRun)
+        if (isMachine && lower != "minimal")
         {
-            Console.WriteLine(fmt.FormatInfo("Dry run — no files were modified:"));
+            var fields = new List<DocumentField>(4)
+            {
+                new("dryRun", new RenderNode.KeyValue("dryRun", RenderCell.Boolean(dryRun))),
+                new("didWork", new RenderNode.KeyValue("didWork", RenderCell.Boolean(didWork))),
+                new("changes", BuildMessageTable("change", changes)),
+            };
+            if (nextSteps.Count > 0)
+                fields.Add(new("nextSteps", BuildMessageTable("nextStep", nextSteps)));
+            var doc = new RenderNode.Document("configMigrated", fields);
+            return new RenderTree.RenderTree(new[] { (RenderNode)doc });
         }
-        else
-        {
-            Console.WriteLine(fmt.FormatSuccess(didWork
+
+        // Human (and minimal) format — stream line by line.
+        var summary = dryRun
+            ? "Dry run — no files were modified:"
+            : (didWork
                 ? "Migrated configuration to the split shape (AB#3296)."
-                : "Configuration already in split shape — no rewrites needed."));
-        }
+                : "Configuration already in split shape — no rewrites needed.");
+        var humanNodes = new List<RenderNode>(1 + changes.Count + (nextSteps.Count > 0 ? nextSteps.Count + 2 : 0));
+        humanNodes.Add(lower == "minimal"
+            ? new RenderNode.Text(summary)
+            : new RenderNode.Text(summary, dryRun ? Severity.Info : Severity.Success));
 
         foreach (var change in changes)
-            Console.WriteLine(fmt.FormatInfo(change));
+            humanNodes.Add(new RenderNode.Text(change, Severity.Info));
 
-        if (!dryRun)
+        if (lower != "minimal" && nextSteps.Count > 0)
         {
-            Console.WriteLine();
-            Console.WriteLine(fmt.FormatInfo("Next steps:"));
-            Console.WriteLine(fmt.FormatInfo($"  git add {RelativeTo(paths.RepoConfigPath, paths.RepoRoot)} .gitignore"));
-            Console.WriteLine(fmt.FormatInfo("  git rm --cached .twig/config   # if the legacy file was previously tracked"));
-            Console.WriteLine(fmt.FormatInfo("  git commit -m \"chore(twig): adopt twig.json split (AB#3296)\""));
+            humanNodes.Add(new RenderNode.Text(string.Empty));
+            humanNodes.Add(new RenderNode.Text("Next steps:", Severity.Info));
+            foreach (var step in nextSteps)
+                humanNodes.Add(new RenderNode.Hint(step));
         }
 
-        return 0;
+        return new RenderTree.RenderTree(humanNodes);
+    }
+
+    private static RenderNode.Table BuildMessageTable(string kind, List<string> messages)
+    {
+        var columns = new List<RenderColumn> { new("message", "Message") };
+        var rows = new List<RenderRow>(messages.Count);
+        foreach (var message in messages)
+        {
+            var cells = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+            {
+                ["message"] = RenderCell.String(message),
+            };
+            rows.Add(new RenderRow(kind, cells));
+        }
+        return new RenderNode.Table(null, columns, rows);
     }
 
     private static string RelativeTo(string fullPath, string root)
@@ -133,10 +198,6 @@ public sealed class MigrateConfigCommand(TwigPaths paths, OutputFormatterFactory
 
     private static (bool Changed, string Summary) UpdateGitignore(string gitignorePath, bool dryRun)
     {
-        // Postconditions:
-        //   - ".twig/" appears as an ignore pattern at least once.
-        //   - No "!.twig/config" or "!.twig/repo.json" negation patterns survive
-        //     (those used to leak user prefs back into committed history).
         const string ignorePattern = ".twig/";
         var changes = new List<string>();
 
@@ -144,8 +205,6 @@ public sealed class MigrateConfigCommand(TwigPaths paths, OutputFormatterFactory
             ? File.ReadAllLines(gitignorePath).ToList()
             : new List<string>();
 
-        // Strip negations of anything under .twig/.
-        var beforeCount = lines.Count;
         var negationsRemoved = lines.RemoveAll(l =>
         {
             var trimmed = l.Trim();

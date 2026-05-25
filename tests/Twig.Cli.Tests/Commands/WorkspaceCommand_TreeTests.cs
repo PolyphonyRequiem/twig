@@ -93,7 +93,7 @@ public sealed class WorkspaceCommand_TreeTests
         return new TreeRenderingService(
             CreateCtx(), _contextStore, _workItemRepo,
             _activeItemResolver, _workingSetService,
-            syncCoordinatorFactory, _processTypeStore);
+            syncCoordinatorFactory, _processTypeStore, new Twig.Rendering.RendererFactory());
     }
 
     private WorkspaceCommand CreateCommandWithTreeService(TreeRenderingService treeService) =>

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
 using Twig.Domain.Services.Navigation;
@@ -7,6 +8,7 @@ using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Rendering;
+using Twig.RenderTree;
 
 namespace Twig.Commands;
 
@@ -22,7 +24,8 @@ public sealed class TreeRenderingService(
     ActiveItemResolver activeItemResolver,
     WorkingSetService workingSetService,
     SyncCoordinatorFactory syncCoordinatorFactory,
-    IProcessTypeStore processTypeStore)
+    IProcessTypeStore processTypeStore,
+    RendererFactory rendererFactory)
 {
     /// <summary>
     /// Builds and renders a work-item tree, matching the behaviour of <c>twig tree</c>.
@@ -198,24 +201,7 @@ public sealed class TreeRenderingService(
 
         var tree = WorkTree.Build(item, parentChain, children, siblingCounts, links, descendantsByParentId);
 
-        if (fmt is HumanOutputFormatter humanFmt)
-        {
-            var treeProcessConfig = await processTypeStore.GetProcessConfigurationDataAsync();
-            if (treeProcessConfig is not null)
-            {
-                var typeLevelMap = BacklogHierarchyService.GetTypeLevelMap(treeProcessConfig);
-                var parentChildMap = BacklogHierarchyService.InferParentChildMap(treeProcessConfig);
-                Console.WriteLine(humanFmt.FormatTree(tree, maxDepth, activeId, typeLevelMap, parentChildMap, ctx.Config.Workspace.WorkingLevel));
-            }
-            else
-            {
-                Console.WriteLine(fmt.FormatTree(tree, maxDepth, activeId));
-            }
-        }
-        else
-        {
-            Console.WriteLine(fmt.FormatTree(tree, maxDepth, activeId));
-        }
+        RenderWorkTree(tree, outputFormat);
 
         // Sync working set silently after output — best-effort; skip if --no-refresh
         if (!noRefresh)
@@ -243,4 +229,67 @@ public sealed class TreeRenderingService(
             if (!parentId.HasValue) return null;
             return (await workItemRepo.GetChildrenAsync(parentId.Value, token)).Count;
         };
+
+    private void RenderWorkTree(WorkTree tree, string outputFormat)
+    {
+        var fields = new List<DocumentField>
+        {
+            new("parentChain", new RenderNode.Section(null,
+                tree.ParentChain.Select(p => (RenderNode)BuildWorkItemRecord(p)).ToList())),
+            new("focus", BuildWorkItemRecord(tree.FocusedItem)),
+            new("children", new RenderNode.Section(null,
+                tree.Children.Select(c => (RenderNode)new RenderNode.TreeView(BuildBranch(c, tree))).ToList())),
+            new("totalChildren", new RenderNode.KeyValue("totalChildren", RenderCell.Integer(tree.Children.Count))),
+            new("links", new RenderNode.Section(null,
+                tree.FocusedItemLinks.Select(BuildLinkRecord).ToList())),
+        };
+
+        var doc = new RenderNode.Document(null, fields);
+        var rt = new Twig.RenderTree.RenderTree([doc]);
+        rendererFactory.GetRenderer(outputFormat).Render(rt);
+        Console.WriteLine();
+    }
+
+    private static RenderNode.Record BuildWorkItemRecord(Domain.Aggregates.WorkItem item)
+    {
+        var tags = string.Empty;
+        if (item.Fields.TryGetValue("System.Tags", out var t) && t is not null)
+            tags = t;
+
+        var cells = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["id"] = RenderCell.Integer(item.Id),
+            ["title"] = RenderCell.String(item.Title ?? string.Empty),
+            ["type"] = RenderCell.String(item.Type.ToString()),
+            ["state"] = RenderCell.String(item.State ?? string.Empty),
+            ["assignedTo"] = RenderCell.String(item.AssignedTo ?? string.Empty),
+            ["isDirty"] = RenderCell.Boolean(item.IsDirty),
+            ["isSeed"] = RenderCell.Boolean(item.IsSeed),
+            ["parentId"] = item.ParentId.HasValue
+                ? RenderCell.Integer(item.ParentId.Value)
+                : new RenderCell(string.Empty, new RenderValue.Null()),
+            ["tags"] = RenderCell.String(tags),
+        };
+
+        return new RenderNode.Record("workItem", cells);
+    }
+
+    private static RenderTreeBranch BuildBranch(Domain.Aggregates.WorkItem item, WorkTree tree)
+    {
+        var record = BuildWorkItemRecord(item);
+        var row = new RenderRow(null, record.Fields);
+        var descendants = tree.GetDescendants(item.Id);
+        var childBranches = descendants.Select(d => BuildBranch(d, tree)).ToList();
+        return new RenderTreeBranch(row, childBranches);
+    }
+
+    private static RenderNode BuildLinkRecord(WorkItemLink link)
+    {
+        return new RenderNode.Record("workItemLink", new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["sourceId"] = RenderCell.Integer(link.SourceId),
+            ["targetId"] = RenderCell.Integer(link.TargetId),
+            ["linkType"] = RenderCell.String(link.LinkType ?? string.Empty),
+        });
+    }
 }

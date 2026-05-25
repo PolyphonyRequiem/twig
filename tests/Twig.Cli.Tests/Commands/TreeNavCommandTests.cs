@@ -78,7 +78,7 @@ public class TreeNavCommandTests
         _workItemRepo.GetChildrenAsync(2, Arg.Any<CancellationToken>())
             .Returns(new[] { child1, child2 });
 
-        var treeService = new TreeRenderingService(_ctx, _contextStore, _workItemRepo, _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore);
+        var treeService = new TreeRenderingService(_ctx, _contextStore, _workItemRepo, _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore, new Twig.Rendering.RendererFactory());
         var result = await treeService.RenderTreeAsync(id: null, "human", depth: null, noLive: true, noRefresh: true, CancellationToken.None);
 
         result.ShouldBe(0);
@@ -104,7 +104,7 @@ public class TreeNavCommandTests
         _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
             .Returns(new[] { seed });
 
-        var treeService = new TreeRenderingService(_ctx, _contextStore, _workItemRepo, _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore);
+        var treeService = new TreeRenderingService(_ctx, _contextStore, _workItemRepo, _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore, new Twig.Rendering.RendererFactory());
         var result = await treeService.RenderTreeAsync(id: null, "human", depth: null, noLive: true, noRefresh: true, CancellationToken.None);
 
         result.ShouldBe(0);

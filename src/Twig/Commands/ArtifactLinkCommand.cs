@@ -2,6 +2,8 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Sync;
 using Twig.Formatters;
+using Twig.RenderTree;
+using Twig.Rendering;
 
 namespace Twig.Commands;
 
@@ -10,14 +12,21 @@ namespace Twig.Commands;
 /// vstfs:// URIs, Hyperlink for http/https URLs) to a work item.
 /// Separate from <see cref="LinkCommand"/> which manages parent–child hierarchy links.
 /// </summary>
+/// <remarks>
+/// Migrated to the AB#3301 <see cref="RendererFactory"/>/<see cref="IRenderer"/> seam:
+/// success path emits an "artifactLinked" or "artifactAlreadyLinked" record per format.
+/// <see cref="OutputFormatterFactory"/> is retained only for stderr error formatting.
+/// </remarks>
 public sealed class ArtifactLinkCommand(
     ActiveItemResolver activeItemResolver,
     IAdoWorkItemService adoService,
     OutputFormatterFactory formatterFactory,
     ITelemetryClient? telemetryClient = null,
-    TextWriter? stderr = null)
+    TextWriter? stderr = null,
+    RendererFactory? rendererFactory = null)
 {
     private readonly TextWriter _stderr = stderr ?? Console.Error;
+    private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
 
     /// <summary>Add an artifact link to the active (or specified) work item.</summary>
     public async Task<int> ExecuteAsync(
@@ -78,7 +87,37 @@ public sealed class ArtifactLinkCommand(
         var message = alreadyLinked
             ? $"Already linked: {url} on #{item.Id}."
             : $"Linked {url} to #{item.Id}.";
-        Console.WriteLine(fmt.FormatSuccess(message));
+        var kind = alreadyLinked ? "artifactAlreadyLinked" : "artifactLinked";
+
+        var tree = BuildTree(kind, item.Id, url, name, alreadyLinked, message, outputFormat);
+        _rendererFactory.GetRenderer(outputFormat).Render(tree);
         return 0;
+    }
+
+    private static RenderTree.RenderTree BuildTree(string kind, int itemId, string url, string? name, bool alreadyLinked, string message, string outputFormat)
+    {
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        RenderNode node = lower switch
+        {
+            "minimal" => new RenderNode.Text(message),
+            "json" or "json-full" or "json-compact" or "ids" =>
+                BuildRecord(kind, itemId, url, name, alreadyLinked, message),
+            _ => new RenderNode.Text(message, alreadyLinked ? Severity.Info : Severity.Success),
+        };
+        return new RenderTree.RenderTree(new[] { node });
+    }
+
+    private static RenderNode BuildRecord(string kind, int itemId, string url, string? name, bool alreadyLinked, string message)
+    {
+        var fields = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["itemId"] = RenderCell.Integer(itemId),
+            ["url"] = RenderCell.String(url),
+            ["alreadyLinked"] = RenderCell.Boolean(alreadyLinked),
+            ["message"] = RenderCell.String(message),
+        };
+        if (!string.IsNullOrEmpty(name))
+            fields["name"] = RenderCell.String(name);
+        return new RenderNode.Record(kind, fields);
     }
 }

@@ -2,18 +2,28 @@ using System.Diagnostics;
 using Twig.Domain.Interfaces;
 using Twig.Formatters;
 using Twig.Infrastructure.Config;
+using Twig.RenderTree;
+using Twig.Rendering;
 
 namespace Twig.Commands;
 
 /// <summary>
 /// Implements <c>twig web</c>: opens the active work item in Azure DevOps in the default browser.
 /// </summary>
+/// <remarks>
+/// Migrated to the AB#3301 <see cref="RendererFactory"/>/<see cref="IRenderer"/> seam:
+/// emits a "browserOpened" record after launching the browser.
+/// <see cref="OutputFormatterFactory"/> is retained only for stderr error formatting.
+/// </remarks>
 public sealed class WebCommand(
     IContextStore contextStore,
     IWorkItemRepository workItemRepo,
     TwigConfiguration config,
-    OutputFormatterFactory formatterFactory)
+    OutputFormatterFactory formatterFactory,
+    RendererFactory? rendererFactory = null)
 {
+    private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
+
     /// <summary>Open the active (or specified) work item in the browser.</summary>
     public async Task<int> ExecuteAsync(
         int? id = null,
@@ -38,7 +48,6 @@ public sealed class WebCommand(
             targetId = activeId.Value;
         }
 
-        // Seeds (negative IDs) don't have an ADO URL
         if (targetId < 0)
         {
             Console.Error.WriteLine(fmt.FormatError($"#{targetId} is a local seed — publish it first to open in browser."));
@@ -56,7 +65,36 @@ public sealed class WebCommand(
         Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
         var item = await workItemRepo.GetByIdAsync(targetId, ct);
         var label = item is not null ? $"#{targetId} {item.Title}" : $"#{targetId}";
-        Console.WriteLine(fmt.FormatInfo($"Opened {label} in browser."));
+        var message = $"Opened {label} in browser.";
+
+        var tree = BuildTree(targetId, item?.Title, url, message, outputFormat);
+        _rendererFactory.GetRenderer(outputFormat).Render(tree);
         return 0;
+    }
+
+    private static RenderTree.RenderTree BuildTree(int itemId, string? title, string url, string message, string outputFormat)
+    {
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        RenderNode node = lower switch
+        {
+            "minimal" => new RenderNode.Text(message),
+            "json" or "json-full" or "json-compact" or "ids" =>
+                BuildRecord(itemId, title, url, message),
+            _ => new RenderNode.Text(message, Severity.Info),
+        };
+        return new RenderTree.RenderTree(new[] { node });
+    }
+
+    private static RenderNode BuildRecord(int itemId, string? title, string url, string message)
+    {
+        var fields = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["itemId"] = RenderCell.Integer(itemId),
+            ["url"] = RenderCell.String(url),
+            ["message"] = RenderCell.String(message),
+        };
+        if (!string.IsNullOrEmpty(title))
+            fields["title"] = RenderCell.String(title);
+        return new RenderNode.Record("browserOpened", fields);
     }
 }

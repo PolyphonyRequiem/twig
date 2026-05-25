@@ -143,7 +143,7 @@ public sealed class InitCommand
                 }
 
                 if (hasPending)
-                    Console.WriteLine(fmt.FormatInfo("\u26a0 Pending changes exist and will be lost."));
+                    Console.WriteLine("\u26a0 Pending changes exist and will be lost.");
 
                 // Release pooled connections before deleting the file
                 SqliteConnection.ClearAllPools();
@@ -190,7 +190,7 @@ public sealed class InitCommand
         if (!string.IsNullOrWhiteSpace(gitProject))
         {
             config.Git.Project = gitProject;
-            Console.WriteLine(fmt.FormatInfo($"  Git project: {gitProject}"));
+            Console.WriteLine($"  Git project: {gitProject}");
         }
 
         // AB#3296: write the new split shape — twig.json (committed manifest) at
@@ -218,7 +218,7 @@ public sealed class InitCommand
         // Non-interactive init starts empty; use --area flag for explicit config.
         if (isInteractive)
         {
-            Console.WriteLine(fmt.FormatInfo("Fetching team area paths..."));
+            Console.WriteLine("Fetching team area paths...");
             try
             {
                 var areaPaths = await iterationService.GetTeamAreaPathsAsync();
@@ -230,50 +230,50 @@ public sealed class InitCommand
                     // Also populate AreaPaths for backward compatibility
                     config.Defaults.AreaPaths = areaPaths.Select(ap => ap.Path).ToList();
                     foreach (var ap in areaPaths)
-                        Console.WriteLine(fmt.FormatInfo($"  Area path: {ap.Path}{(ap.IncludeChildren ? " (include children)" : "")}"));
+                        Console.WriteLine($"  Area path: {ap.Path}{(ap.IncludeChildren ? " (include children)" : "")}");
                 }
             }
             catch (Exception ex) when (ex is Twig.Infrastructure.Ado.Exceptions.AdoNotFoundException
                                          or Twig.Infrastructure.Ado.Exceptions.AdoException)
             {
-                Console.WriteLine(fmt.FormatInfo($"  \u26a0 Could not detect team area paths: {ex.Message}"));
-                Console.WriteLine(fmt.FormatHint("You can set it later with: twig config defaults.areapaths 'Path1;Path2'"));
+                Console.WriteLine($"  \u26a0 Could not detect team area paths: {ex.Message}");
+                Console.WriteLine("You can set it later with: twig config defaults.areapaths 'Path1;Path2'");
             }
         }
 
-        Console.WriteLine(fmt.FormatInfo("Getting current iteration..."));
+        Console.WriteLine("Getting current iteration...");
         Domain.ValueObjects.IterationPath? currentIteration = null;
         try
         {
             currentIteration = await iterationService.GetCurrentIterationAsync();
-            Console.WriteLine(fmt.FormatInfo($"  Current iteration: {currentIteration}"));
+            Console.WriteLine($"  Current iteration: {currentIteration}");
         }
         catch (Exception ex) when (ex is Twig.Infrastructure.Ado.Exceptions.AdoNotFoundException
                                      or Twig.Infrastructure.Ado.Exceptions.AdoException)
         {
-            Console.WriteLine(fmt.FormatInfo($"  \u26a0 Could not detect current iteration: {ex.Message}"));
+            Console.WriteLine($"  \u26a0 Could not detect current iteration: {ex.Message}");
         }
 
         // Detect authenticated user identity
-        Console.WriteLine(fmt.FormatInfo("Detecting user identity..."));
+        Console.WriteLine("Detecting user identity...");
         try
         {
             var displayName = await iterationService.GetAuthenticatedUserDisplayNameAsync();
             if (!string.IsNullOrWhiteSpace(displayName))
             {
                 config.User.DisplayName = displayName;
-                Console.WriteLine(fmt.FormatInfo($"  User: {displayName}"));
+                Console.WriteLine($"  User: {displayName}");
             }
             else
             {
-                Console.WriteLine(fmt.FormatInfo("  \u26a0 Could not detect user identity."));
-                Console.WriteLine(fmt.FormatHint("You can set it later with: twig config user.name '<Your Name>'"));
+                Console.WriteLine("  \u26a0 Could not detect user identity.");
+                Console.WriteLine("You can set it later with: twig config user.name '<Your Name>'");
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            Console.WriteLine(fmt.FormatInfo("  \u26a0 Could not detect user identity."));
-            Console.WriteLine(fmt.FormatHint("You can set it later with: twig config user.name '<Your Name>'"));
+            Console.WriteLine("  \u26a0 Could not detect user identity.");
+            Console.WriteLine("You can set it later with: twig config user.name '<Your Name>'");
         }
 
         // Prompt for workspace mode (TTY only; default to sprint in non-TTY)
@@ -303,20 +303,20 @@ public sealed class InitCommand
                     config.Workspace.Sprints = [new SprintEntry { Expression = "@current" }];
                     config.Defaults.AreaPathEntries = [];
                     config.Defaults.AreaPaths = [];
-                    Console.WriteLine(fmt.FormatInfo("  Sprint: @current"));
+                    Console.WriteLine("  Sprint: @current");
                     break;
                 case "2": // Area paths only — keep auto-detected areas
-                    Console.WriteLine(fmt.FormatInfo("  Keeping team area paths"));
+                    Console.WriteLine("  Keeping team area paths");
                     break;
                 case "3": // Both
                     config.Workspace.Sprints = [new SprintEntry { Expression = "@current" }];
-                    Console.WriteLine(fmt.FormatInfo("  Sprint: @current"));
-                    Console.WriteLine(fmt.FormatInfo("  Keeping team area paths"));
+                    Console.WriteLine("  Sprint: @current");
+                    Console.WriteLine("  Keeping team area paths");
                     break;
                 default: // "4" or any other input → Neither (start empty)
                     config.Defaults.AreaPathEntries = [];
                     config.Defaults.AreaPaths = [];
-                    Console.WriteLine(fmt.FormatInfo("  Starting empty \u2014 configure later with workspace commands"));
+                    Console.WriteLine("  Starting empty \u2014 configure later with workspace commands");
                     break;
             }
         }
@@ -338,7 +338,7 @@ public sealed class InitCommand
             }
             config.Workspace.Sprints = sprintEntries;
             foreach (var entry in sprintEntries)
-                Console.WriteLine(fmt.FormatInfo($"  Sprint: {entry.Expression}"));
+                Console.WriteLine($"  Sprint: {entry.Expression}");
         }
 
         // --area flag: add area path entries to defaults.areapathentries[]
@@ -372,7 +372,7 @@ public sealed class InitCommand
             config.Defaults.AreaPathEntries = areaEntries;
             config.Defaults.AreaPaths = areaEntries.Select(e => e.Path).ToList();
             foreach (var entry in areaEntries)
-                Console.WriteLine(fmt.FormatInfo($"  Area: {entry.Path}{(entry.IncludeChildren ? "" : " (exact)")}"));
+                Console.WriteLine($"  Area: {entry.Path}{(entry.IncludeChildren ? "" : " (exact)")}");
         }
 
         await config.SaveSplitAsync(contextPaths);
@@ -381,31 +381,31 @@ public sealed class InitCommand
         using var cacheStore = new Infrastructure.Persistence.SqliteCacheStore($"Data Source={contextPaths.DbPath}");
 
         // Fetch state sequences and process configuration for all types
-        Console.WriteLine(fmt.FormatInfo("Fetching type state sequences..."));
-        Console.WriteLine(fmt.FormatInfo("Fetching process configuration..."));
+        Console.WriteLine("Fetching type state sequences...");
+        Console.WriteLine("Fetching process configuration...");
         var processTypeStore = new Infrastructure.Persistence.SqliteProcessTypeStore(cacheStore);
         try
         {
             var count = await ProcessTypeSyncService.SyncAsync(iterationService, processTypeStore);
-            Console.WriteLine(fmt.FormatInfo($"  Loaded state sequences for {count} type(s)"));
+            Console.WriteLine($"  Loaded state sequences for {count} type(s)");
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            Console.WriteLine(fmt.FormatInfo($"  ⚠ Could not fetch type data: {ex.Message}"));
+            Console.WriteLine($"  ⚠ Could not fetch type data: {ex.Message}");
         }
 
         // DD-08: Fetch field definitions during init for immediate availability
         var fieldDefStore = new Infrastructure.Persistence.SqliteFieldDefinitionStore(cacheStore);
-        Console.WriteLine(fmt.FormatInfo("Fetching field definitions..."));
+        Console.WriteLine("Fetching field definitions...");
         try
         {
             var fieldDefCount = await FieldDefinitionSyncService.SyncAsync(iterationService, fieldDefStore, ct);
             telemetryFieldCount = fieldDefCount;
-            Console.WriteLine(fmt.FormatInfo($"  Loaded {fieldDefCount} field definition(s)"));
+            Console.WriteLine($"  Loaded {fieldDefCount} field definition(s)");
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            Console.WriteLine(fmt.FormatInfo($"  ⚠ Could not fetch field definitions: {ex.Message}"));
+            Console.WriteLine($"  ⚠ Could not fetch field definitions: {ex.Message}");
         }
 
         // Global profile resolution — apply or merge status-fields from global profile (FR-09: wrapped in try-catch)
@@ -428,7 +428,7 @@ public sealed class InitCommand
                             {
                                 // Hash match → copy profile status-fields verbatim (DD-05: workspace layer)
                                 await File.WriteAllTextAsync(contextPaths.StatusFieldsPath, profileContent, ct);
-                                Console.WriteLine(fmt.FormatInfo($"✓ Applied existing field configuration for {org}/{template}"));
+                                Console.WriteLine($"✓ Applied existing field configuration for {org}/{template}");
                             }
                             else
                             {
@@ -443,8 +443,8 @@ public sealed class InitCommand
                                     FieldCount = fieldDefs.Count
                                 };
                                 await _globalProfileStore.SaveMetadataAsync(org, template, updatedMetadata, ct);
-                                Console.WriteLine(fmt.FormatInfo("⚠ Process fields changed — merged with existing preferences"));
-                                Console.WriteLine(fmt.FormatHint("Run 'twig config status-fields' to review"));
+                                Console.WriteLine("⚠ Process fields changed — merged with existing preferences");
+                                Console.WriteLine("Run 'twig config status-fields' to review");
                             }
                         }
                     }
@@ -455,8 +455,8 @@ public sealed class InitCommand
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // FR-09: init failures in profile logic must never block init completion
-            Console.WriteLine(fmt.FormatInfo($"  ⚠ Could not apply global profile: {ex.Message}"));
-            Console.WriteLine(fmt.FormatHint("Run 'twig config status-fields' to configure manually"));
+            Console.WriteLine($"  ⚠ Could not apply global profile: {ex.Message}");
+            Console.WriteLine("Run 'twig config status-fields' to configure manually");
         }
 
         // SEC-001: Append .twig/ to .gitignore
@@ -472,7 +472,7 @@ public sealed class InitCommand
         {
             try
             {
-                Console.WriteLine(fmt.FormatInfo("Refreshing sprint items..."));
+                Console.WriteLine("Refreshing sprint items...");
                 var adoClient = new AdoRestClient(_httpClient, _authProvider, org, project, new WorkItemMapper());
                 var workItemRepo = new Infrastructure.Persistence.SqliteWorkItemRepository(cacheStore, new WorkItemMapper());
                 var contextStore = new Infrastructure.Persistence.SqliteContextStore(cacheStore);
@@ -543,7 +543,7 @@ public sealed class InitCommand
                 // Skip query when no WHERE clauses were generated (all expressions failed to resolve)
                 if (whereClauses.Count == 0)
                 {
-                    Console.WriteLine(fmt.FormatInfo("  No iterations or area paths resolved — skipping refresh."));
+                    Console.WriteLine("  No iterations or area paths resolved — skipping refresh.");
                 }
                 else
                 {
@@ -553,11 +553,11 @@ public sealed class InitCommand
                     {
                         var sprintItems = await adoClient.FetchBatchAsync(realIds, ct);
                         await workItemRepo.SaveBatchAsync(sprintItems);
-                        Console.WriteLine(fmt.FormatInfo($"  Cached {sprintItems.Count} sprint item(s)."));
+                        Console.WriteLine($"  Cached {sprintItems.Count} sprint item(s).");
                     }
                     else
                     {
-                        Console.WriteLine(fmt.FormatInfo("  No items found in configured iterations."));
+                        Console.WriteLine("  No items found in configured iterations.");
                     }
 
                     // Set cache freshness timestamp
@@ -566,8 +566,8 @@ public sealed class InitCommand
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                Console.WriteLine(fmt.FormatInfo($"  \u26a0 Could not refresh sprint items: {ex.Message}"));
-                Console.WriteLine(fmt.FormatHint("Run 'twig sync' to populate your workspace."));
+                Console.WriteLine($"  \u26a0 Could not refresh sprint items: {ex.Message}");
+                Console.WriteLine("Run 'twig sync' to populate your workspace.");
             }
         }
 
@@ -575,7 +575,7 @@ public sealed class InitCommand
         if (!string.Equals(outputFormat, "json", StringComparison.OrdinalIgnoreCase) &&
             !string.Equals(outputFormat, "minimal", StringComparison.OrdinalIgnoreCase))
             Console.WriteLine();
-        Console.WriteLine(fmt.FormatSuccess($"Initialized Twig workspace in {twigDir}"));
+        Console.WriteLine($"Initialized Twig workspace in {twigDir}");
 
         var hints = _hintEngine.GetHints("init", outputFormat: outputFormat);
         foreach (var hint in hints)

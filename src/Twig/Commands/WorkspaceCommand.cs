@@ -431,10 +431,10 @@ public sealed class WorkspaceCommand(
                     if (orphanItems.Count > 0)
                     {
                         Console.WriteLine();
-                        Console.WriteLine(fmt.FormatInfo("Unsaved changes:"));
+                        Console.WriteLine("Unsaved changes:");
                         foreach (var orphan in orphanItems)
                             Console.WriteLine(fmt.FormatWorkItem(orphan, showDirty: true));
-                        Console.WriteLine(fmt.FormatHint("Run 'twig save' to push these changes."));
+                        Console.WriteLine("Run 'twig save' to push these changes.");
                     }
                 }
             }

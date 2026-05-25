@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/Twig.RenderTree/Twig.RenderTree.csproj" />
     <Project Path="src/Twig.Domain/Twig.Domain.csproj" />
     <Project Path="src/Twig.Infrastructure/Twig.Infrastructure.csproj" />
     <Project Path="src/Twig/Twig.csproj" />
@@ -12,6 +13,7 @@
     <Project Path="tests/Twig.Domain.Tests/Twig.Domain.Tests.csproj" />
     <Project Path="tests/Twig.Infrastructure.Tests/Twig.Infrastructure.Tests.csproj" />
     <Project Path="tests/Twig.Mcp.Tests/Twig.Mcp.Tests.csproj" />
+    <Project Path="tests/Twig.RenderTree.Tests/Twig.RenderTree.Tests.csproj" />
     <Project Path="tests/Twig.Tui.Tests/Twig.Tui.Tests.csproj" />
     <Project Path="tests/Twig.Benchmarks/Twig.Benchmarks.csproj" />
   </Folder>

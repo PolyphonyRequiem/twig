@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>PolyphonyRequiem.Twig.RenderTree</PackageId>
+    <Description>Pure, AOT-clean presentation vocabulary for twig — render-tree node types (Text, Hint, KeyValue, Record, Table, TreeView, Section) that commands produce and renderers consume. Carries no dependency on Spectre.Console, ConsoleAppFramework, or any I/O.</Description>
+    <PackageTags>twig;rendering;render-tree;cli</PackageTags>
+    <IsAotCompatible>true</IsAotCompatible>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CS1573;CS1574;CS0419;CS1580;CS1584</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="All" />
+    <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" PrivateAssets="All" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="PublicAPI.Shipped.txt" />
+    <AdditionalFiles Include="PublicAPI.Unshipped.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Twig.RenderTree.Tests" />
+    <InternalsVisibleTo Include="Twig.Domain" />
+    <InternalsVisibleTo Include="Twig.Domain.Tests" />
+    <InternalsVisibleTo Include="Twig.Infrastructure" />
+    <InternalsVisibleTo Include="Twig.Infrastructure.Tests" />
+    <InternalsVisibleTo Include="Twig.Cli.Tests" />
+    <InternalsVisibleTo Include="Twig.Tui" />
+    <InternalsVisibleTo Include="Twig.Tui.Tests" />
+    <InternalsVisibleTo Include="twig" />
+    <InternalsVisibleTo Include="Twig.Mcp" />
+    <InternalsVisibleTo Include="twig-mcp" />
+    <InternalsVisibleTo Include="Twig.Mcp.Tests" />
+  </ItemGroup>
+
+</Project>

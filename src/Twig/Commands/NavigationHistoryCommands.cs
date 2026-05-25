@@ -41,16 +41,18 @@ public sealed class NavigationHistoryCommands(
         await contextStore.SetActiveWorkItemIdAsync(resolvedId, ct);
 
         var item = await workItemRepo.GetByIdAsync(resolvedId, ct);
-        if (item is not null)
-            Console.WriteLine(fmt.FormatWorkItem(item, showDirty: false));
-        else
-            Console.WriteLine(fmt.FormatInfo($"#{resolvedId}"));
+        Console.WriteLine(FormatNavTarget(item, resolvedId));
 
         if (promptStateWriter is not null)
             await promptStateWriter.WritePromptStateAsync();
 
         return 0;
     }
+
+    private static string FormatNavTarget(Domain.Aggregates.WorkItem? item, int resolvedId)
+        => item is not null
+            ? $"#{item.Id} {item.Type} — {item.Title} [{item.State}]"
+            : $"#{resolvedId}";
 
     /// <summary>Navigate forward in the navigation history.</summary>
     public async Task<int> ForeAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
@@ -71,10 +73,7 @@ public sealed class NavigationHistoryCommands(
         await contextStore.SetActiveWorkItemIdAsync(resolvedId, ct);
 
         var item = await workItemRepo.GetByIdAsync(resolvedId, ct);
-        if (item is not null)
-            Console.WriteLine(fmt.FormatWorkItem(item, showDirty: false));
-        else
-            Console.WriteLine(fmt.FormatInfo($"#{resolvedId}"));
+        Console.WriteLine(FormatNavTarget(item, resolvedId));
 
         if (promptStateWriter is not null)
             await promptStateWriter.WritePromptStateAsync();
@@ -178,10 +177,7 @@ public sealed class NavigationHistoryCommands(
                 await historyStore.RecordVisitAsync(selectedId, ct);
 
                 var selectedItem = await workItemRepo.GetByIdAsync(selectedId, ct);
-                if (selectedItem is not null)
-                    Console.WriteLine(fmt.FormatWorkItem(selectedItem, showDirty: false));
-                else
-                    Console.WriteLine(fmt.FormatInfo($"#{selectedId}"));
+                Console.WriteLine(FormatNavTarget(selectedItem, selectedId));
 
                 if (promptStateWriter is not null)
                     await promptStateWriter.WritePromptStateAsync();

@@ -433,7 +433,7 @@ public sealed class WorkspaceCommand(
                         Console.WriteLine();
                         Console.WriteLine("Unsaved changes:");
                         foreach (var orphan in orphanItems)
-                            Console.WriteLine(fmt.FormatWorkItem(orphan, showDirty: true));
+                            Console.WriteLine($"  #{orphan.Id} {orphan.Type} — {orphan.Title} [{orphan.State}] *");
                         Console.WriteLine("Run 'twig save' to push these changes.");
                     }
                 }

@@ -75,10 +75,26 @@ public sealed class RendererFactory
 
     private static IAnsiConsole CreateAnsiConsole(TextWriter writer)
     {
-        var console = AnsiConsole.Create(new AnsiConsoleSettings
+        // Spectre's auto-detection of ANSI support keys off the TERM env var
+        // when the upstream writer is not a terminal. On Linux CI runners
+        // TERM=xterm-256color is set, so Spectre emits ANSI escape codes
+        // even when stdout has been redirected to a StringWriter (tests) or
+        // a pipe (CI logs, `twig … | cat`). On Windows that env var is
+        // unset, so Spectre stays plain. The divergence breaks tests that
+        // assert on rendered output. Explicitly disable ANSI/color when the
+        // writer is not the live terminal so behaviour is deterministic
+        // across platforms and across capture mechanisms.
+        var isLiveTerminal = ReferenceEquals(writer, Console.Out)
+            && !Console.IsOutputRedirected;
+        var settings = new AnsiConsoleSettings
         {
             Out = new AnsiConsoleOutput(writer),
-        });
+            Ansi = isLiveTerminal ? AnsiSupport.Detect : AnsiSupport.No,
+            ColorSystem = isLiveTerminal
+                ? ColorSystemSupport.Detect
+                : ColorSystemSupport.NoColors,
+        };
+        var console = AnsiConsole.Create(settings);
         // Disable hard wrapping for migrated commands. Legacy `HumanOutputFormatter`
         // wrote raw strings via `Console.WriteLine` which never wraps, and tests
         // (plus pipelines) rely on long success messages staying on one line.

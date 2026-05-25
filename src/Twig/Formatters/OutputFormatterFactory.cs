@@ -3,19 +3,32 @@ namespace Twig.Formatters;
 /// <summary>
 /// Resolves an <see cref="IOutputFormatter"/> by format name. After the
 /// AB#3301 rendering refactor, <see cref="HumanOutputFormatter"/> is the
-/// sole implementation — all machine-shape output (JSON, JsonCompact,
-/// Minimal, Ids) now flows through the
+/// sole structured implementation — all machine-shape output (JSON,
+/// JsonCompact, Minimal, Ids) now flows through the
 /// <see cref="Twig.Rendering.RendererFactory"/> → <c>IRenderer</c> seam.
-/// The factory is kept (rather than collapsed into a direct
-/// <see cref="HumanOutputFormatter"/> dependency) so the many DI-wired
-/// commands and tests that already take an <c>IOutputFormatter</c> via
-/// the factory continue to compose cleanly; this also leaves room to
-/// reintroduce format-specific message-formatter variants without
-/// touching every call site.
+/// For machine formats the factory returns a <see cref="PlainOutputFormatter"/>
+/// wrapper so incidental stderr messages (warnings, errors) are emitted
+/// without ANSI styling; this keeps CI logs, <c>jq</c> pipelines, and other
+/// non-interactive consumers free of escape codes regardless of the host
+/// platform's TTY detection (Linux runners set <c>TERM=xterm-256color</c>
+/// which would otherwise keep ANSI live).
 /// </summary>
 public sealed class OutputFormatterFactory(HumanOutputFormatter human)
 {
     public const string DefaultFormat = "human";
 
-    public IOutputFormatter GetFormatter(string format) => human;
+    private readonly IOutputFormatter _plain = new PlainOutputFormatter(human);
+
+    public IOutputFormatter GetFormatter(string format)
+    {
+        return (format ?? DefaultFormat).ToLowerInvariant() switch
+        {
+            "json"         => _plain,
+            "json-full"    => _plain,
+            "json-compact" => _plain,
+            "minimal"      => _plain,
+            "ids"          => _plain,
+            _              => human,
+        };
+    }
 }

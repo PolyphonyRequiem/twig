@@ -308,6 +308,47 @@ public sealed class ShowCommand_TreeTests : IDisposable
         output.ShouldContain("Child Item");
     }
 
+    [Fact]
+    public async Task Show_TreeFlag_JsonOutput_IncludesPerNodeFieldsObject()
+    {
+        // Polyphony's PlanCommands.SeedChildren reads
+        // `child["fields"]["System.Description"]` from each tree node in the
+        // JSON output. Verify the per-node `fields` block carries the full
+        // field bag, including System.Tags (no exclusion) and
+        // System.Description.
+        var focus = new WorkItemBuilder(1, "Epic").AsEpic()
+            .WithField("System.Tags", "polyphony:planned")
+            .WithField("System.Description", "<p>Epic body</p>")
+            .Build();
+        var child = new WorkItemBuilder(10, "Issue").WithParent(1)
+            .WithField("System.Tags", "needs-review")
+            .WithField("System.Description", "<p>Child body</p>")
+            .Build();
+
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(focus);
+        _workItemRepo.GetChildrenAsync(1, Arg.Any<CancellationToken>())
+            .Returns(new[] { child });
+        _workItemRepo.GetChildrenAsync(10, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<WorkItem>());
+
+        var cmd = CreateShowCommand();
+        var output = await CaptureStdout(() => cmd.ExecuteAsync(1, "json", tree: true));
+
+        using var doc = System.Text.Json.JsonDocument.Parse(output);
+        var root = doc.RootElement;
+
+        var focusNode = root.GetProperty("focus");
+        var focusFields = focusNode.GetProperty("fields");
+        focusFields.GetProperty("System.Description").GetString().ShouldBe("<p>Epic body</p>");
+        focusFields.GetProperty("System.Tags").GetString().ShouldBe("polyphony:planned");
+
+        var childNode = root.GetProperty("children")[0];
+        var childFields = childNode.GetProperty("fields");
+        childFields.GetProperty("System.Description").GetString().ShouldBe("<p>Child body</p>");
+        childFields.GetProperty("System.Tags").GetString().ShouldBe("needs-review");
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //  Links rendering in --tree output (migrated from TreeCommandLinkTests)
     // ═══════════════════════════════════════════════════════════════

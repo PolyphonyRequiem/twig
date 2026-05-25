@@ -162,6 +162,28 @@ public sealed class IdsRendererTests
         writer.ToString().ShouldBeEmpty();
     }
 
+    [Fact]
+    public void Record_WithNestedObjectIdField_EmitsBothIds()
+    {
+        var (renderer, writer) = CreateRenderer();
+        var nested = new Dictionary<string, RenderCell>
+        {
+            ["id"] = RenderCell.Integer(99),
+            ["other"] = RenderCell.String("ignored"),
+        };
+        var fields = new Dictionary<string, RenderCell>
+        {
+            ["id"] = RenderCell.Integer(42),
+            ["fields"] = new RenderCell(string.Empty, new RenderValue.Object(nested)),
+        };
+        var tree = new RenderTree([new RenderNode.Record("workItem", fields)]);
+
+        renderer.Render(tree);
+
+        // Outer id first, then the nested object's id.
+        SplitLines(writer).ShouldBe(["42", "99"]);
+    }
+
     private static (IdsRenderer Renderer, StringWriter Writer) CreateRenderer()
     {
         var writer = new StringWriter();

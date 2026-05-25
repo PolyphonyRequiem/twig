@@ -271,7 +271,31 @@ public sealed class TreeRenderingService(
             ["tags"] = RenderCell.String(tags),
         };
 
+        // Mirror ShowCommand's `fields` block on each tree node so polyphony
+        // (and other JSON consumers) can read per-node System.Description,
+        // System.Tags, or any other ADO field directly from the tree output.
+        var fieldsBlock = BuildNodeFieldsBlock(item);
+        if (fieldsBlock is not null)
+            cells["fields"] = new RenderCell(string.Empty, new RenderValue.Object(fieldsBlock));
+
         return new RenderNode.Record("workItem", cells);
+    }
+
+    private static IReadOnlyDictionary<string, RenderCell>? BuildNodeFieldsBlock(Domain.Aggregates.WorkItem item)
+    {
+        if (item.Fields.Count == 0)
+            return null;
+
+        var cells = new Dictionary<string, RenderCell>(StringComparer.Ordinal);
+        foreach (var (refName, value) in item.Fields)
+        {
+            if (string.IsNullOrEmpty(value)) continue;
+            // Tags ARE included here — polyphony reads `fields["System.Tags"]`
+            // as a fallback alongside the top-level `tags` projection.
+            cells[refName] = RenderCell.String(value);
+        }
+
+        return cells.Count == 0 ? null : cells;
     }
 
     private static RenderTreeBranch BuildBranch(Domain.Aggregates.WorkItem item, WorkTree tree)

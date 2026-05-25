@@ -43,5 +43,21 @@ public abstract record RenderValue
     /// JSON output.
     /// </summary>
     public sealed record Absent : RenderValue;
+
+    /// <summary>
+    /// A nested object value carrying a dictionary of named child cells. JSON
+    /// renderers emit a JSON object whose properties are the cell keys with
+    /// each cell's <see cref="RenderValue"/> projected recursively. Human and
+    /// minimal renderers fall back to <see cref="RenderCell.DisplayText"/>;
+    /// the IDs renderer walks into the cells looking for the conventional
+    /// <c>id</c> key.
+    /// </summary>
+    /// <remarks>
+    /// Use this for per-node <c>fields</c> blocks (e.g. the work-item field
+    /// bag where polyphony reads <c>fields["System.Description"]</c>) — cases
+    /// where the machine wire shape needs nested structure but the human
+    /// rendering already has a compact display projection.
+    /// </remarks>
+    public sealed record Object(IReadOnlyDictionary<string, RenderCell> Cells) : RenderValue;
 }
 

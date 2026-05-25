@@ -52,6 +52,7 @@ namespace Twig.RenderTree;
 /// <see cref="RenderValue"/> projection:
 /// <c>Integer</c>→number, <c>Decimal</c>→number, <c>Boolean</c>→bool,
 /// <c>String</c>→string, <c>DateTime</c>→ISO-8601 string, <c>Null</c>→null,
+/// <c>Object</c>→nested JSON object whose properties are the contained cells,
 /// <c>Absent</c>→property omitted (cells with <c>Absent</c> values do not appear
 /// in machine output; the human renderer falls back to <see cref="RenderCell.DisplayText"/>).
 /// </para>
@@ -349,6 +350,25 @@ public sealed class JsonRenderer : IRenderer
                 // writer (e.g. KeyValue with Absent).
                 writer.WriteStringValue(displayFallback);
                 break;
+            case RenderValue.Object obj:
+                WriteObjectValue(writer, obj);
+                break;
         }
+    }
+
+    private static void WriteObjectValue(Utf8JsonWriter writer, RenderValue.Object obj)
+    {
+        writer.WriteStartObject();
+        foreach (var (key, cell) in obj.Cells)
+        {
+            if (cell.Value is RenderValue.Absent)
+            {
+                continue;
+            }
+
+            writer.WritePropertyName(key);
+            WriteRenderValue(writer, cell.Value, cell.DisplayText);
+        }
+        writer.WriteEndObject();
     }
 }

@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using Shouldly;
 using Twig.RenderTree;
 using Xunit;
@@ -58,6 +60,21 @@ public sealed class RenderValueTests
     }
 
     [Fact]
+    public void Object_carries_cells_dictionary()
+    {
+        var cells = new Dictionary<string, RenderCell>
+        {
+            ["a"] = RenderCell.String("hello"),
+            ["b"] = RenderCell.Integer(42),
+        };
+
+        var v = new RenderValue.Object(cells);
+
+        v.Cells.ShouldBeSameAs(cells);
+        v.Cells.Count.ShouldBe(2);
+    }
+
+    [Fact]
     public void RenderValue_pattern_matches_exhaustively()
     {
         // Compile-time proof that all variants are reachable through the closed DU.
@@ -71,6 +88,7 @@ public sealed class RenderValueTests
             RenderValue.DateTime dt => $"dt:{dt.Value:O}",
             RenderValue.Null => "null",
             RenderValue.Absent => "absent",
+            RenderValue.Object obj => $"obj:{obj.Cells.Count}",
             _ => throw new InvalidOperationException("unreachable"),
         };
 
@@ -78,5 +96,9 @@ public sealed class RenderValueTests
         Tag(new RenderValue.Integer(7)).ShouldBe("int:7");
         Tag(new RenderValue.Null()).ShouldBe("null");
         Tag(new RenderValue.Absent()).ShouldBe("absent");
+        Tag(new RenderValue.Object(new Dictionary<string, RenderCell>
+        {
+            ["k"] = RenderCell.String("v"),
+        })).ShouldBe("obj:1");
     }
 }

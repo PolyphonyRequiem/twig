@@ -132,7 +132,7 @@ public sealed class SeedChainCommand(
             }
 
             if (!isMachine)
-                Console.WriteLine(fmt.FormatInfo($"  #{seed.Id} {seed.Title}"));
+                Console.WriteLine($"  #{seed.Id} {seed.Title}");
             createdSeeds.Add(seed);
         }
 

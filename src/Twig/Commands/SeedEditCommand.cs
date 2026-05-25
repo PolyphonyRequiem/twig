@@ -3,6 +3,8 @@ using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.Services.Sync;
 using Twig.Formatters;
+using Twig.RenderTree;
+using Twig.Rendering;
 
 namespace Twig.Commands;
 
@@ -10,12 +12,20 @@ namespace Twig.Commands;
 /// Implements <c>twig seed edit &lt;id&gt;</c>: opens the seed in an external editor,
 /// parses changes, and saves the updated seed locally.
 /// </summary>
+/// <remarks>
+/// Migrated to the AB#3301 <see cref="RendererFactory"/>/<see cref="IRenderer"/> seam:
+/// success/info output is built as a <see cref="RenderTree.RenderTree"/> per output format.
+/// <see cref="OutputFormatterFactory"/> is retained only for stderr error formatting.
+/// </remarks>
 public sealed class SeedEditCommand(
     IWorkItemRepository workItemRepo,
     IFieldDefinitionStore fieldDefStore,
     IEditorLauncher editorLauncher,
-    OutputFormatterFactory formatterFactory)
+    OutputFormatterFactory formatterFactory,
+    RendererFactory? rendererFactory = null)
 {
+    private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
+
     /// <summary>Edit seed fields in an external editor.</summary>
     public async Task<int> ExecuteAsync(
         int id,
@@ -43,7 +53,7 @@ public sealed class SeedEditCommand(
 
         if (edited is null)
         {
-            Console.WriteLine(fmt.FormatInfo("Seed edit cancelled (editor aborted)."));
+            RenderInfo("Seed edit cancelled (editor aborted).", "seedEditCancelled", outputFormat);
             return 0;
         }
 
@@ -69,14 +79,75 @@ public sealed class SeedEditCommand(
 
         if (changedCount == 0)
         {
-            Console.WriteLine(fmt.FormatInfo("No changes detected."));
+            RenderInfo("No changes detected.", "seedEditNoChanges", outputFormat);
             return 0;
         }
 
         var updated = seed.WithSeedFields(newTitle, parsedFields);
         await workItemRepo.SaveAsync(updated, ct);
 
-        Console.WriteLine(fmt.FormatSuccess($"Updated seed #{id} {updated.Title} ({changedCount} field(s) changed)"));
+        var message = $"Updated seed #{id} {updated.Title} ({changedCount} field(s) changed)";
+        RenderUpdated(id, updated.Title, changedCount, message, outputFormat);
         return 0;
+    }
+
+    private void RenderUpdated(int id, string title, int changedCount, string message, string outputFormat)
+    {
+        var tree = BuildUpdatedTree(id, title, changedCount, message, outputFormat);
+        _rendererFactory.GetRenderer(outputFormat).Render(tree);
+    }
+
+    private void RenderInfo(string message, string recordKind, string outputFormat)
+    {
+        var tree = BuildInfoTree(message, recordKind, outputFormat);
+        _rendererFactory.GetRenderer(outputFormat).Render(tree);
+    }
+
+    private static RenderTree.RenderTree BuildUpdatedTree(
+        int id, string title, int changedCount, string message, string outputFormat)
+    {
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        RenderNode node = lower switch
+        {
+            "minimal" => new RenderNode.Text(message),
+            "json" or "json-full" or "json-compact" or "ids" =>
+                BuildUpdatedRecord(id, title, changedCount, message),
+            _ => new RenderNode.Text(message, Severity.Success),
+        };
+        return new RenderTree.RenderTree(new[] { node });
+    }
+
+    private static RenderTree.RenderTree BuildInfoTree(string message, string recordKind, string outputFormat)
+    {
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        RenderNode node = lower switch
+        {
+            "minimal" => new RenderNode.Text(message),
+            "json" or "json-full" or "json-compact" or "ids" =>
+                BuildInfoRecord(recordKind, message),
+            _ => new RenderNode.Text(message, Severity.Info),
+        };
+        return new RenderTree.RenderTree(new[] { node });
+    }
+
+    private static RenderNode BuildUpdatedRecord(int id, string title, int changedCount, string message)
+    {
+        var fields = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["id"] = new RenderCell(id.ToString(), new RenderValue.Integer(id)),
+            ["title"] = new RenderCell(title, new RenderValue.String(title)),
+            ["changedFieldCount"] = new RenderCell(changedCount.ToString(), new RenderValue.Integer(changedCount)),
+            ["message"] = new RenderCell(message, new RenderValue.String(message)),
+        };
+        return new RenderNode.Record("seedEdited", fields);
+    }
+
+    private static RenderNode BuildInfoRecord(string recordKind, string message)
+    {
+        var fields = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["message"] = new RenderCell(message, new RenderValue.String(message)),
+        };
+        return new RenderNode.Record(recordKind, fields);
     }
 }

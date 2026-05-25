@@ -1,18 +1,28 @@
 using Twig.Domain.Interfaces;
 using Twig.Formatters;
 using Twig.Infrastructure.Config;
+using Twig.RenderTree;
+using Twig.Rendering;
 
 namespace Twig.Commands;
 
 /// <summary>
 /// Implements <c>twig config &lt;key&gt; [&lt;value&gt;]</c>: read or write configuration values.
 /// </summary>
+/// <remarks>
+/// Migrated to the AB#3301 <see cref="RendererFactory"/>/<see cref="IRenderer"/> seam:
+/// read emits a "configValue" record, write emits a "configSet" record.
+/// <see cref="OutputFormatterFactory"/> is retained only for stderr error formatting.
+/// </remarks>
 public sealed class ConfigCommand(
     TwigConfiguration config,
     TwigPaths paths,
     OutputFormatterFactory formatterFactory,
-    IPromptStateWriter? promptStateWriter = null)
+    IPromptStateWriter? promptStateWriter = null,
+    RendererFactory? rendererFactory = null)
 {
+    private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
+
     public async Task<int> ExecuteAsync(string key, string? value = null, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
         var fmt = formatterFactory.GetFormatter(outputFormat);
@@ -32,7 +42,7 @@ public sealed class ConfigCommand(
                 Console.Error.WriteLine(fmt.FormatError($"Unknown configuration key: '{key}'."));
                 return 1;
             }
-            Console.WriteLine(fmt.FormatInfo(current));
+            RenderValueRead(key, current, outputFormat);
             return 0;
         }
 
@@ -43,16 +53,61 @@ public sealed class ConfigCommand(
             return 1;
         }
 
-        // AB#3296: route the write to the correct file. In legacy mode, fall back
-        // to the single-file save (preserves existing behavior for un-migrated repos).
         await config.SaveSplitAsync(paths);
-        Console.WriteLine(fmt.FormatSuccess($"Set {key} = {value}"));
+        RenderValueSet(key, value, outputFormat);
 
-        // Regenerate prompt state when display settings change (badge, color, icons)
         if (key.StartsWith("display.", StringComparison.OrdinalIgnoreCase))
             if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
         return 0;
+    }
+
+    private void RenderValueRead(string key, string current, string outputFormat)
+    {
+        var tree = BuildReadTree(key, current, outputFormat);
+        _rendererFactory.GetRenderer(outputFormat).Render(tree);
+    }
+
+    private void RenderValueSet(string key, string value, string outputFormat)
+    {
+        var tree = BuildSetTree(key, value, outputFormat);
+        _rendererFactory.GetRenderer(outputFormat).Render(tree);
+    }
+
+    private static RenderTree.RenderTree BuildReadTree(string key, string current, string outputFormat)
+    {
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        RenderNode node = lower switch
+        {
+            "minimal" => new RenderNode.Text(current),
+            "json" or "json-full" or "json-compact" or "ids" =>
+                new RenderNode.Record("configValue", new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+                {
+                    ["key"] = RenderCell.String(key),
+                    ["value"] = RenderCell.String(current),
+                }),
+            _ => new RenderNode.Text(current, Severity.Info),
+        };
+        return new RenderTree.RenderTree(new[] { node });
+    }
+
+    private static RenderTree.RenderTree BuildSetTree(string key, string value, string outputFormat)
+    {
+        var message = $"Set {key} = {value}";
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        RenderNode node = lower switch
+        {
+            "minimal" => new RenderNode.Text(message),
+            "json" or "json-full" or "json-compact" or "ids" =>
+                new RenderNode.Record("configSet", new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+                {
+                    ["key"] = RenderCell.String(key),
+                    ["value"] = RenderCell.String(value),
+                    ["message"] = RenderCell.String(message),
+                }),
+            _ => new RenderNode.Text(message, Severity.Success),
+        };
+        return new RenderTree.RenderTree(new[] { node });
     }
 
     private string? GetValue(string dotPath)

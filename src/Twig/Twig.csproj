@@ -31,6 +31,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Twig.Domain\Twig.Domain.csproj" />
     <ProjectReference Include="..\Twig.Infrastructure\Twig.Infrastructure.csproj" />
+    <ProjectReference Include="..\Twig.RenderTree\Twig.RenderTree.csproj" />
   </ItemGroup>
 
   <ItemGroup>

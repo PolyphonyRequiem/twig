@@ -291,3 +291,5 @@ virtual Twig.RenderTree.RenderNode.PrintMembers(System.Text.StringBuilder! build
 virtual Twig.RenderTree.RenderValue.EqualityContract.get -> System.Type!
 virtual Twig.RenderTree.RenderValue.Equals(Twig.RenderTree.RenderValue? other) -> bool
 virtual Twig.RenderTree.RenderValue.PrintMembers(System.Text.StringBuilder! builder) -> bool
+Twig.RenderTree.IRenderer
+Twig.RenderTree.IRenderer.Render(Twig.RenderTree.RenderTree! tree) -> void

@@ -28,6 +28,7 @@ public static class RenderingServiceModule
         services.AddSingleton<MinimalOutputFormatter>();
         services.AddSingleton<IdsOutputFormatter>();
         services.AddSingleton<OutputFormatterFactory>();
+        services.AddSingleton<RendererFactory>();
 
         // Spectre.Console rendering pipeline
         services.AddSingleton<IAnsiConsole>(AnsiConsole.Console);

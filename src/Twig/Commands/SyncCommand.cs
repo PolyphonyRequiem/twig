@@ -75,12 +75,11 @@ public sealed class SyncCommand(
         {
             if (flushResult!.ItemsFlushed > 0 || hasFlushFailures)
             {
-                Console.WriteLine(fmt.FormatSuccess(
-                    $"Sync push: {flushResult.ItemsFlushed} flushed, {flushResult.Failures.Count} failed."));
+                Console.WriteLine($"Sync push: {flushResult.ItemsFlushed} flushed, {flushResult.Failures.Count} failed.");
             }
             else
             {
-                Console.WriteLine(fmt.FormatInfo("Sync push: nothing to flush."));
+                Console.WriteLine("Sync push: nothing to flush.");
             }
         }
 

@@ -58,7 +58,7 @@ internal static class ConflictResolutionFlow
 
         if (choice == "a" || choice is null)
         {
-            Console.WriteLine(fmt.FormatInfo("Aborted."));
+            Console.WriteLine("Aborted.");
             return ConflictOutcome.Aborted;
         }
 
@@ -67,14 +67,14 @@ internal static class ConflictResolutionFlow
             if (onAcceptRemote is not null)
                 await onAcceptRemote();
             await workItemRepo.SaveAsync(remote);
-            Console.WriteLine(fmt.FormatSuccess(acceptRemoteMessage));
+            Console.WriteLine(acceptRemoteMessage);
             return ConflictOutcome.AcceptedRemote;
         }
 
         if (choice == "l")
             return ConflictOutcome.Proceed;
 
-        Console.WriteLine(fmt.FormatInfo("Unrecognized input. Aborted."));
+        Console.WriteLine("Unrecognized input. Aborted.");
         return ConflictOutcome.Aborted;
     }
 }

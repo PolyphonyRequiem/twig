@@ -161,7 +161,7 @@ public class SeedLifecycleIntegrationTests : IDisposable
         var seedViewCmd = new SeedViewCommand(
             _workItemRepo, _fieldDefStore,
             Substitute.For<ISeedLinkRepository>(),
-            new TwigConfiguration(), renderingPipelineFactory);
+            new TwigConfiguration(), renderingPipelineFactory, new RendererFactory());
 
         var viewWriter = new StringWriter();
         Console.SetOut(viewWriter);

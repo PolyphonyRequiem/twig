@@ -128,12 +128,21 @@ public class ConflictResolutionFlowTests
     {
         var (local, remote) = CreateConflictingPair();
         _consoleInput.ReadLine().Returns("r");
-        _fmt.FormatSuccess("Custom accept message").Returns("Custom accept message");
 
-        await ConflictResolutionFlow.ResolveAsync(
-            local, remote, _fmt, "human", _consoleInput, _workItemRepo, "Custom accept message");
+        var writer = new System.IO.StringWriter();
+        var originalOut = Console.Out;
+        Console.SetOut(writer);
+        try
+        {
+            await ConflictResolutionFlow.ResolveAsync(
+                local, remote, _fmt, "human", _consoleInput, _workItemRepo, "Custom accept message");
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+        }
 
-        _fmt.Received(1).FormatSuccess("Custom accept message");
+        writer.ToString().ShouldContain("Custom accept message");
     }
 
     [Fact]

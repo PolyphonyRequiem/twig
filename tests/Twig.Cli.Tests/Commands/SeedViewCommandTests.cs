@@ -59,7 +59,8 @@ public class SeedViewCommandTests : IDisposable
             _fieldDefStore,
             _seedLinkRepo,
             _config,
-            _renderingPipelineFactory);
+            _renderingPipelineFactory,
+            new RendererFactory());
     }
 
     [Fact]
@@ -228,9 +229,9 @@ public class SeedViewCommandTests : IDisposable
 
         result.ShouldBe(0);
         var output = writer.ToString();
-        output.ShouldContain("SEED #-1");
-        output.ShouldContain("Minimal test");
-        output.ShouldContain("parent:#10");
+        output.ShouldContain("id=-1");
+        output.ShouldContain("title=Minimal test");
+        output.ShouldContain("parentId=10");
     }
 
     [Fact]
@@ -245,7 +246,7 @@ public class SeedViewCommandTests : IDisposable
         var result = await _cmd.ExecuteAsync("minimal");
 
         result.ShouldBe(0);
-        writer.ToString().ShouldContain("No seeds");
+        writer.ToString().ShouldContain("totalSeeds=0");
     }
 
     [Fact]
@@ -477,7 +478,7 @@ public class SeedViewCommandTests : IDisposable
 
         result.ShouldBe(0);
         var output = writer.ToString();
-        output.ShouldContain("LINK → blocks -2");
+        output.ShouldContain("annotation=→ blocks -2");
     }
 
     [Fact]

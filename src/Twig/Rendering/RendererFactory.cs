@@ -95,8 +95,21 @@ public sealed class RendererFactory
             Out = new AnsiConsoleOutput(writer),
             Ansi = AnsiSupport.No,
             ColorSystem = ColorSystemSupport.NoColors,
+            Interactive = InteractionSupport.No,
         };
         var console = AnsiConsole.Create(settings);
+        // Belt-and-braces: Spectre's `AnsiSupport.No` setting is honoured by
+        // its capability detector, but on some platforms (notably GitHub
+        // Actions Linux runners) Spectre still emits ANSI escape codes for
+        // styling markup like `[bold]…[/]` even after construction. Force
+        // the profile capabilities explicitly so the renderer never writes
+        // escape sequences.
+        console.Profile.Capabilities.Ansi = false;
+        console.Profile.Capabilities.Links = false;
+        console.Profile.Capabilities.Legacy = false;
+        console.Profile.Capabilities.Interactive = false;
+        console.Profile.Capabilities.Unicode = true;
+        console.Profile.Capabilities.ColorSystem = ColorSystem.NoColors;
         // Disable hard wrapping for migrated commands. Legacy `HumanOutputFormatter`
         // wrote raw strings via `Console.WriteLine` which never wraps, and tests
         // (plus pipelines) rely on long success messages staying on one line.

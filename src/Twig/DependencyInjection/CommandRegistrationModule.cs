@@ -1,7 +1,10 @@
 using Microsoft.Extensions.DependencyInjection;
 using Twig.Commands;
 using Twig.Domain.Interfaces;
+using Twig.Domain.Services.Navigation;
 using Twig.Domain.Services.Seed;
+using Twig.Domain.Services.Sync;
+using Twig.Domain.Services.Workspace;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
@@ -40,7 +43,22 @@ public static class CommandRegistrationModule
             sp.GetRequiredService<IConsoleInput>(),
             sp.GetService<ITelemetryClient>()));
         services.AddSingleton<SetCommand>();
-        services.AddSingleton<ShowCommand>();
+        services.AddSingleton<ShowCommand>(sp => new ShowCommand(
+            sp.GetRequiredService<CommandContext>(),
+            sp.GetRequiredService<IWorkItemRepository>(),
+            sp.GetRequiredService<IWorkItemLinkRepository>(),
+            sp.GetRequiredService<SyncCoordinatorFactory>(),
+            sp.GetRequiredService<StatusFieldConfigReader>(),
+            fieldDefinitionStore: sp.GetService<IFieldDefinitionStore>(),
+            processConfigProvider: sp.GetService<IProcessConfigurationProvider>(),
+            contextStore: sp.GetService<IContextStore>(),
+            activeItemResolver: sp.GetService<ActiveItemResolver>(),
+            pendingChangeStore: sp.GetService<IPendingChangeStore>(),
+            workingSetService: sp.GetService<WorkingSetService>(),
+            twigPaths: sp.GetService<TwigPaths>(),
+            adoGitService: sp.GetService<IAdoGitService>(),
+            treeRenderingService: sp.GetService<TreeRenderingService>(),
+            rendererFactory: sp.GetRequiredService<Twig.Rendering.RendererFactory>()));
         services.AddSingleton<StateCommand>();
         services.AddSingleton<TreeRenderingService>();
         services.AddSingleton<NavigationCommands>();

@@ -5,6 +5,8 @@ using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Ado;
+using Twig.RenderTree;
+using Twig.Rendering;
 
 namespace Twig.Commands;
 
@@ -13,6 +15,13 @@ namespace Twig.Commands;
 /// launches editor, parses changes. For non-seed items, pushes immediately to ADO with
 /// conflict resolution and offline fallback. For seeds, stages locally.
 /// </summary>
+/// <remarks>
+/// Migrated to the AB#3301 <see cref="RendererFactory"/>/<see cref="IRenderer"/> seam:
+/// outcome messages (cancelled, no-changes, pushed, staged) emit per-format records.
+/// Hints emit human-only via the legacy formatter for now (HintEngine + format-aware
+/// rendering preserved). <see cref="OutputFormatterFactory"/> retained for stderr,
+/// hints, and ConflictResolutionFlow callouts.
+/// </remarks>
 public sealed class EditCommand(
     ActiveItemResolver activeItemResolver,
     IWorkItemRepository workItemRepo,
@@ -22,8 +31,11 @@ public sealed class EditCommand(
     IEditorLauncher editorLauncher,
     OutputFormatterFactory formatterFactory,
     HintEngine hintEngine,
-    IPromptStateWriter? promptStateWriter = null)
+    IPromptStateWriter? promptStateWriter = null,
+    RendererFactory? rendererFactory = null)
 {
+    private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
+
     /// <summary>Edit work item fields in an external editor.</summary>
     public async Task<int> ExecuteAsync(string? field = null, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
@@ -38,7 +50,6 @@ public sealed class EditCommand(
             return 1;
         }
 
-        // Generate editable content (YAML-like format per RD-037)
         string initialContent;
         if (field is not null)
         {
@@ -57,11 +68,10 @@ public sealed class EditCommand(
         var edited = await editorLauncher.LaunchAsync(initialContent);
         if (edited is null)
         {
-            Console.WriteLine(fmt.FormatInfo("Edit cancelled (unchanged or editor aborted)."));
+            RenderOutcome("editCancelled", "Edit cancelled (unchanged or editor aborted).", item.Id, 0, outputFormat, Severity.Info);
             return 0;
         }
 
-        // Parse changes from edited content
         var parsedChanges = new List<FieldChange>();
         foreach (var line in edited.Split('\n'))
         {
@@ -90,15 +100,15 @@ public sealed class EditCommand(
 
         if (parsedChanges.Count == 0)
         {
-            Console.WriteLine(fmt.FormatInfo("No changes detected."));
+            RenderOutcome("editNoChanges", "No changes detected.", item.Id, 0, outputFormat, Severity.Info);
             return 0;
         }
 
-        string successMessage;
+        string outcomeKind;
+        string outcomeMessage;
 
         if (!item.IsSeed)
         {
-            // Push-on-write: push field changes directly to ADO
             try
             {
                 var remote = await adoService.FetchAsync(item.Id, ct);
@@ -114,8 +124,6 @@ public sealed class EditCommand(
                 await ConflictRetryHelper.PatchWithRetryAsync(
                     adoService, item.Id, parsedChanges, remote.Revision, ct);
 
-                // Auto-push notes in its own scope — failures must not trigger staging-fallback
-                // since field changes are already in ADO (NFR-2)
                 try
                 {
                     await AutoPushNotesHelper.PushAndClearAsync(item.Id, pendingChangeStore, adoService);
@@ -125,7 +133,6 @@ public sealed class EditCommand(
                     Console.Error.WriteLine($"Note push failed (fields already pushed): {ex.Message}");
                 }
 
-                // DD-8: Resync failure after successful push — warn, do NOT stage locally
                 try
                 {
                     var updated = await adoService.FetchAsync(item.Id, ct);
@@ -137,24 +144,25 @@ public sealed class EditCommand(
                         $"Changes pushed but cache may be stale — run 'twig sync' to resync ({ex.Message})");
                 }
 
-                successMessage = fmt.FormatSuccess($"Pushed {parsedChanges.Count} change(s) for #{item.Id}.");
+                outcomeKind = "editPushed";
+                outcomeMessage = $"Pushed {parsedChanges.Count} change(s) for #{item.Id}.";
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                // Push failed — fall back to local staging
                 Console.Error.WriteLine($"Changes staged locally (push failed): {ex.Message}");
                 await StageLocallyAsync(item, parsedChanges, ct);
-                successMessage = fmt.FormatSuccess($"Staged {parsedChanges.Count} change(s) for #{item.Id}.");
+                outcomeKind = "editStaged";
+                outcomeMessage = $"Staged {parsedChanges.Count} change(s) for #{item.Id}.";
             }
         }
         else
         {
-            // Seed items: stage locally (existing behavior)
             await StageLocallyAsync(item, parsedChanges, ct);
-            successMessage = fmt.FormatSuccess($"Staged {parsedChanges.Count} change(s) for #{item.Id}.");
+            outcomeKind = "editStaged";
+            outcomeMessage = $"Staged {parsedChanges.Count} change(s) for #{item.Id}.";
         }
 
-        Console.WriteLine(successMessage);
+        RenderOutcome(outcomeKind, outcomeMessage, item.Id, parsedChanges.Count, outputFormat, Severity.Success);
 
         if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
 
@@ -167,6 +175,24 @@ public sealed class EditCommand(
         }
 
         return 0;
+    }
+
+    private void RenderOutcome(string kind, string message, int itemId, int changeCount, string outputFormat, Severity severity)
+    {
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        RenderNode node = lower switch
+        {
+            "minimal" => new RenderNode.Text(message),
+            "json" or "json-full" or "json-compact" or "ids" =>
+                new RenderNode.Record(kind, new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+                {
+                    ["itemId"] = RenderCell.Integer(itemId),
+                    ["changeCount"] = RenderCell.Integer(changeCount),
+                    ["message"] = RenderCell.String(message),
+                }),
+            _ => new RenderNode.Text(message, severity),
+        };
+        _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(new[] { node }));
     }
 
     private async Task StageLocallyAsync(

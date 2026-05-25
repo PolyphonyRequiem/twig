@@ -939,4 +939,39 @@ public class DeleteCommandTests
         _adoService.FetchChildrenAsync(item.Id, Arg.Any<CancellationToken>())
             .Returns(children ?? Array.Empty<WorkItem>());
     }
+
+    [Fact]
+    public async Task Execute_JsonOutput_EmitsDeletedRecord()
+    {
+        var item = new WorkItemBuilder(42, "Test Item")
+            .AsBug()
+            .InState("Active")
+            .Build();
+        SetupResolveAndFetch(item);
+
+        var (result, stdout) = await StdoutCapture.RunAsync(
+            () => _cmd.ExecuteAsync(42, force: true, outputFormat: "json"));
+
+        result.ShouldBe(0);
+        using var doc = System.Text.Json.JsonDocument.Parse(stdout);
+        doc.RootElement.GetProperty("id").GetInt32().ShouldBe(42);
+        doc.RootElement.GetProperty("title").GetString().ShouldBe("Test Item");
+        doc.RootElement.GetProperty("type").GetString().ShouldBe("Bug");
+        doc.RootElement.GetProperty("state").GetString().ShouldBe("Active");
+        doc.RootElement.GetProperty("message").GetString()!.ShouldContain("Deleted #42");
+    }
+
+    [Fact]
+    public async Task Execute_MinimalOutput_OmitsCheckmark()
+    {
+        var item = new WorkItemBuilder(42, "Test Item").Build();
+        SetupResolveAndFetch(item);
+
+        var (result, stdout) = await StdoutCapture.RunAsync(
+            () => _cmd.ExecuteAsync(42, force: true, outputFormat: "minimal"));
+
+        result.ShouldBe(0);
+        stdout.ShouldNotContain("✓");
+        stdout.ShouldContain("Deleted #42");
+    }
 }

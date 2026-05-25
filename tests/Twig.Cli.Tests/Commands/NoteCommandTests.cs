@@ -179,6 +179,62 @@ public class NoteCommandTests
         stderr.ShouldContain("cache may be stale");
     }
 
+    [Fact]
+    public async Task Note_PushedSuccess_JsonOutput_EmitsNoteAddedRecord()
+    {
+        var item = CreateWorkItem(42, "Published Item", isSeed: false);
+        SetupActiveItem(item);
+        var serverItem = CreateWorkItem(42, "Published Item", isSeed: false);
+        _adoService.FetchAsync(42, Arg.Any<CancellationToken>()).Returns(serverItem);
+
+        var (result, stdout) = await StdoutCapture.RunAsync(() => _cmd.ExecuteAsync("Fix applied", outputFormat: "json"));
+
+        result.ShouldBe(0);
+        stdout.ShouldContain("\"id\": 42");
+        stdout.ShouldContain("\"isPending\": false");
+        stdout.ShouldContain("Note added to #42.");
+    }
+
+    [Fact]
+    public async Task Note_StagedSeed_JsonOutput_EmitsPendingTrue()
+    {
+        var item = CreateWorkItem(7, "Seed Item", isSeed: true);
+        SetupActiveItem(item);
+
+        var (result, stdout) = await StdoutCapture.RunAsync(() => _cmd.ExecuteAsync("Draft note", outputFormat: "json"));
+
+        result.ShouldBe(0);
+        stdout.ShouldContain("\"id\": 7");
+        stdout.ShouldContain("\"isPending\": true");
+        stdout.ShouldContain("(pending)");
+    }
+
+    [Fact]
+    public async Task Note_Success_HumanOutput_EmitsCheckmark()
+    {
+        var item = CreateWorkItem(13, "Test", isSeed: true);
+        SetupActiveItem(item);
+
+        var (result, stdout) = await StdoutCapture.RunAsync(() => _cmd.ExecuteAsync("Quick note", outputFormat: "human"));
+
+        result.ShouldBe(0);
+        stdout.ShouldContain("✓");
+        stdout.ShouldContain("Note added to #13");
+    }
+
+    [Fact]
+    public async Task Note_Success_MinimalOutput_OmitsCheckmark()
+    {
+        var item = CreateWorkItem(13, "Test", isSeed: true);
+        SetupActiveItem(item);
+
+        var (result, stdout) = await StdoutCapture.RunAsync(() => _cmd.ExecuteAsync("Quick note", outputFormat: "minimal"));
+
+        result.ShouldBe(0);
+        stdout.ShouldNotContain("✓");
+        stdout.ShouldContain("Note added to #13");
+    }
+
     private void SetupActiveItem(WorkItem item)
     {
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(item.Id);

@@ -56,7 +56,9 @@ internal sealed class SpectreNodeRenderer(IAnsiConsole console) : IRenderer
                 console.MarkupLine(markup.Content);
                 break;
             case RenderNode.Hint hint:
-                console.MarkupLine($"[grey]{Markup.Escape(hint.Content)}[/]");
+                // Match legacy HumanOutputFormatter glyph + "hint:" prefix so commands
+                // migrated to RenderNode.Hint preserve UX parity.
+                console.MarkupLine($"[yellow]→[/] [grey]hint: {Markup.Escape(hint.Content)}[/]");
                 break;
             case RenderNode.KeyValue kv:
                 this.WriteKeyValue(kv);
@@ -82,16 +84,35 @@ internal sealed class SpectreNodeRenderer(IAnsiConsole console) : IRenderer
     private void WriteText(RenderNode.Text text)
     {
         var escaped = Markup.Escape(text.Content);
-        var color = MarkupColorForSeverity(text.Severity);
+        var (color, prefix) = SeverityDecoration(text.Severity);
         if (color is null)
         {
+            // No severity → write raw content (preserves whitespace, no markup escaping needed).
             console.WriteLine(text.Content);
+            return;
         }
-        else
+
+        // Render Spectre-coloured icon prefix (matches legacy HumanOutputFormatter
+        // glyphs: ✓ / ✗ / ! / →) followed by the escaped content. The prefix glyph
+        // colour matches the severity colour so the icon and message read as one.
+        if (prefix is null)
         {
             console.MarkupLine($"[{color}]{escaped}[/]");
         }
+        else
+        {
+            console.MarkupLine($"[{color}]{prefix}[/] {escaped}");
+        }
     }
+
+    private static (string? Color, string? Prefix) SeverityDecoration(Severity severity) => severity switch
+    {
+        Severity.Success => ("green", "✓"),
+        Severity.Error => ("red", "✗"),
+        Severity.Warning => ("yellow", "!"),
+        Severity.Info => ("blue", null),
+        _ => (null, null),
+    };
 
     private void WriteKeyValue(RenderNode.KeyValue kv)
     {

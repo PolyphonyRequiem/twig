@@ -3,6 +3,8 @@ using Twig.Domain.Services.Seed;
 using Twig.Domain.Services.Sync;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
+using Twig.Rendering;
+using Twig.RenderTree;
 
 namespace Twig.Commands;
 
@@ -19,6 +21,7 @@ public sealed class SeedPublishCommand(
     SeedPublishOrchestrator orchestrator,
     IContextStore contextStore,
     OutputFormatterFactory formatterFactory,
+    RendererFactory rendererFactory,
     IAdoWorkItemService adoService,
     IAdoGitService? adoGitService = null)
 {
@@ -42,7 +45,7 @@ public sealed class SeedPublishCommand(
         if (all)
         {
             var batchResult = await orchestrator.PublishAllAsync(force, dryRun, ct);
-            Console.WriteLine(fmt.FormatSeedPublishBatchResult(batchResult));
+            RenderBatchResult(batchResult, outputFormat);
 
             // Link each created seed to the branch (best-effort)
             if (artifactUri is not null)
@@ -70,7 +73,7 @@ public sealed class SeedPublishCommand(
         }
 
         var result = await orchestrator.PublishAsync(id.Value, force, dryRun, ct);
-        Console.WriteLine(fmt.FormatSeedPublishResult(result));
+        RenderSingleResult(result, outputFormat);
 
         // Link the created seed to the branch (best-effort)
         if (artifactUri is not null)
@@ -84,6 +87,73 @@ public sealed class SeedPublishCommand(
             await contextStore.SetActiveWorkItemIdAsync(result.NewId, ct);
 
         return result.IsSuccess ? 0 : 1;
+    }
+
+    private void RenderSingleResult(SeedPublishResult result, string outputFormat)
+    {
+        var tree = new Twig.RenderTree.RenderTree([BuildResultRecord(result)]);
+        rendererFactory.GetRenderer(outputFormat).Render(tree);
+        Console.WriteLine();
+    }
+
+    private void RenderBatchResult(SeedPublishBatchResult batch, string outputFormat)
+    {
+        var resultNodes = new List<RenderNode>(batch.Results.Count);
+        foreach (var r in batch.Results)
+            resultNodes.Add(BuildResultRecord(r));
+
+        var cycleNodes = new List<RenderNode>(batch.CycleErrors.Count);
+        foreach (var err in batch.CycleErrors)
+        {
+            cycleNodes.Add(new RenderNode.KeyValue("cycleError", RenderCell.String(err)));
+        }
+
+        var fields = new List<DocumentField>
+        {
+            new("results", new RenderNode.Section($"Seed Publish ({batch.Results.Count})", resultNodes)),
+            new("cycleErrors", new RenderNode.Section(null, cycleNodes)),
+            new("createdCount", new RenderNode.KeyValue("createdCount", RenderCell.Integer(batch.CreatedCount))),
+            new("skippedCount", new RenderNode.KeyValue("skippedCount", RenderCell.Integer(batch.SkippedCount))),
+            new("hasErrors", new RenderNode.KeyValue("hasErrors", RenderCell.Boolean(batch.HasErrors))),
+        };
+
+        if (batch.Results.Count == 0 && batch.CycleErrors.Count == 0)
+        {
+            fields.Add(new DocumentField(
+                "empty",
+                new RenderNode.KeyValue("status", RenderCell.String("No seeds to publish.")),
+                Audience: RenderAudience.HumanOnly));
+        }
+
+        var tree = new Twig.RenderTree.RenderTree([new RenderNode.Document(null, fields)]);
+        rendererFactory.GetRenderer(outputFormat).Render(tree);
+        Console.WriteLine();
+    }
+
+    private static RenderNode.Record BuildResultRecord(SeedPublishResult result)
+    {
+        var cells = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["oldId"] = RenderCell.Integer(result.OldId),
+            ["newId"] = RenderCell.Integer(result.NewId),
+            ["title"] = RenderCell.String(result.Title ?? string.Empty),
+            ["status"] = RenderCell.String(result.Status.ToString()),
+            ["isSuccess"] = RenderCell.Boolean(result.IsSuccess),
+            ["errorMessage"] = result.ErrorMessage is not null
+                ? RenderCell.String(result.ErrorMessage)
+                : new RenderCell(string.Empty, new RenderValue.Null()),
+        };
+
+        if (result.LinkWarnings.Count > 0)
+            cells["linkWarnings"] = RenderCell.String(string.Join("; ", result.LinkWarnings));
+
+        if (result.ValidationFailures.Count > 0)
+        {
+            var msgs = result.ValidationFailures.Select(f => $"[{f.Rule}] {f.Message}");
+            cells["validationFailures"] = RenderCell.String(string.Join("; ", msgs));
+        }
+
+        return new RenderNode.Record("seedPublishResult", cells);
     }
 
     /// <summary>

@@ -319,7 +319,7 @@ public class SeedLifecycleIntegrationTests : IDisposable
             _workItemRepo, _adoService, _seedLinkRepo, _publishIdMapRepo,
             _rulesProvider, _unitOfWork, backlogOrderer);
 
-        var publishCmd = new SeedPublishCommand(orchestrator, _contextStore, _formatterFactory, _adoService);
+        var publishCmd = new SeedPublishCommand(orchestrator, _contextStore, _formatterFactory, new RendererFactory(), _adoService);
         var publishWriter = new StringWriter();
         Console.SetOut(publishWriter);
 
@@ -327,8 +327,8 @@ public class SeedLifecycleIntegrationTests : IDisposable
         publishResult.ShouldBe(0);
 
         var publishOutput = publishWriter.ToString();
-        publishOutput.ShouldContain("Published seed");
-        publishOutput.ShouldContain("#500");
+        publishOutput.ShouldContain("status: Created");
+        publishOutput.ShouldContain("newId: 500");
         publishOutput.ShouldContain("Publishable Seed");
 
         // ── Step 4: Verify transactional side effects ──────────────────
@@ -378,7 +378,7 @@ public class SeedLifecycleIntegrationTests : IDisposable
             _workItemRepo, _adoService, _seedLinkRepo, _publishIdMapRepo,
             _rulesProvider, _unitOfWork, backlogOrderer);
 
-        var publishCmd = new SeedPublishCommand(orchestrator, _contextStore, _formatterFactory, _adoService);
+        var publishCmd = new SeedPublishCommand(orchestrator, _contextStore, _formatterFactory, new RendererFactory(), _adoService);
         var publishWriter = new StringWriter();
         Console.SetOut(publishWriter);
 

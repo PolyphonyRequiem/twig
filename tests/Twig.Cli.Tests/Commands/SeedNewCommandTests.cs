@@ -255,6 +255,39 @@ public class SeedNewCommandTests
         paramTypes.ShouldNotContain(typeof(IAdoWorkItemService));
     }
 
+    [Fact]
+    public async Task SeedNew_JsonOutput_EmitsSeedCreatedRecord()
+    {
+        var parent = CreateWorkItem(1, "Parent Feature", WorkItemType.Feature);
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(parent);
+
+        var (result, stdout) = await StdoutCapture.RunAsync(
+            () => _cmd.ExecuteAsync("Json Seed", outputFormat: "json"));
+
+        result.ShouldBe(0);
+        using var doc = System.Text.Json.JsonDocument.Parse(stdout);
+        doc.RootElement.GetProperty("id").GetInt32().ShouldBeLessThan(0);
+        doc.RootElement.GetProperty("title").GetString().ShouldBe("Json Seed");
+        doc.RootElement.GetProperty("isSeed").GetBoolean().ShouldBeTrue();
+        doc.RootElement.GetProperty("message").GetString()!.ShouldContain("Created local seed:");
+    }
+
+    [Fact]
+    public async Task SeedNew_MinimalOutput_OmitsCheckmark()
+    {
+        var parent = CreateWorkItem(1, "Parent Feature", WorkItemType.Feature);
+        _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns(1);
+        _workItemRepo.GetByIdAsync(1, Arg.Any<CancellationToken>()).Returns(parent);
+
+        var (result, stdout) = await StdoutCapture.RunAsync(
+            () => _cmd.ExecuteAsync("Plain Seed", outputFormat: "minimal"));
+
+        result.ShouldBe(0);
+        stdout.ShouldNotContain("✓");
+        stdout.ShouldContain("Created local seed:");
+    }
+
     private static WorkItem CreateWorkItem(int id, string title, WorkItemType type)
     {
         return new WorkItem

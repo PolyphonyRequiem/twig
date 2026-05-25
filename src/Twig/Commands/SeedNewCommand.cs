@@ -6,6 +6,8 @@ using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
+using Twig.RenderTree;
+using Twig.Rendering;
 
 namespace Twig.Commands;
 
@@ -14,6 +16,11 @@ namespace Twig.Commands;
 /// locally under the active parent without any ADO interaction.
 /// Also backs the bare <c>twig seed "title"</c> shortcut for backward compatibility.
 /// </summary>
+/// <remarks>
+/// Migrated to the AB#3301 <see cref="RendererFactory"/>/<see cref="IRenderer"/> seam:
+/// success/info output is built as a <see cref="RenderTree.RenderTree"/> per output format.
+/// <see cref="OutputFormatterFactory"/> is retained only for stderr error formatting.
+/// </remarks>
 public sealed class SeedNewCommand(
     ActiveItemResolver activeItemResolver,
     IWorkItemRepository workItemRepo,
@@ -24,8 +31,11 @@ public sealed class SeedNewCommand(
     HintEngine hintEngine,
     TwigConfiguration config,
     SeedFactory seedFactory,
-    ISeedIdCounter seedIdCounter)
+    ISeedIdCounter seedIdCounter,
+    RendererFactory? rendererFactory = null)
 {
+    private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
+
     /// <summary>Create a new local seed work item (no ADO push).</summary>
     public async Task<int> ExecuteAsync(
         string? title,
@@ -91,7 +101,7 @@ public sealed class SeedNewCommand(
 
             if (edited is null)
             {
-                Console.WriteLine(fmt.FormatInfo("Seed creation cancelled (editor aborted)."));
+                RenderEditorCancelled(outputFormat);
                 return 0;
             }
 
@@ -105,18 +115,86 @@ public sealed class SeedNewCommand(
         // Persist locally — no ADO interaction
         await workItemRepo.SaveAsync(seed, ct);
 
-        Console.WriteLine(fmt.FormatSuccess($"Created local seed: #{seed.Id} {seed.Title} ({seed.Type})"));
-
         var hints = hintEngine.GetHints("seed",
             outputFormat: outputFormat,
             createdId: seed.Id);
-        foreach (var hint in hints)
+
+        RenderCreated(seed, hints, outputFormat);
+        return 0;
+    }
+
+    private void RenderCreated(WorkItem seed, IReadOnlyList<string> hints, string outputFormat)
+    {
+        var message = $"Created local seed: #{seed.Id} {seed.Title} ({seed.Type})";
+        var tree = BuildCreatedTree(seed, message, hints, outputFormat);
+        _rendererFactory.GetRenderer(outputFormat).Render(tree);
+    }
+
+    private void RenderEditorCancelled(string outputFormat)
+    {
+        const string message = "Seed creation cancelled (editor aborted).";
+        var tree = BuildEditorCancelledTree(message, outputFormat);
+        _rendererFactory.GetRenderer(outputFormat).Render(tree);
+    }
+
+    private static RenderTree.RenderTree BuildCreatedTree(
+        WorkItem seed, string message, IReadOnlyList<string> hints, string outputFormat)
+    {
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        var isMachine = lower is "json" or "json-full" or "json-compact" or "minimal" or "ids";
+        var nodes = new List<RenderNode>(capacity: 1 + (isMachine ? 0 : hints.Count));
+
+        nodes.Add(lower switch
         {
-            var formatted = fmt.FormatHint(hint);
-            if (!string.IsNullOrEmpty(formatted))
-                Console.WriteLine(formatted);
+            "minimal" => new RenderNode.Text(message),
+            "json" or "json-full" or "json-compact" or "ids" => BuildCreatedRecord(seed, message),
+            _ => new RenderNode.Text(message, Severity.Success),
+        });
+
+        if (!isMachine)
+        {
+            foreach (var hint in hints)
+            {
+                if (!string.IsNullOrWhiteSpace(hint))
+                    nodes.Add(new RenderNode.Hint(hint));
+            }
         }
 
-        return 0;
+        return new RenderTree.RenderTree(nodes);
+    }
+
+    private static RenderTree.RenderTree BuildEditorCancelledTree(string message, string outputFormat)
+    {
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        RenderNode node = lower switch
+        {
+            "minimal" => new RenderNode.Text(message),
+            "json" or "json-full" or "json-compact" or "ids" => BuildEditorCancelledRecord(message),
+            _ => new RenderNode.Text(message, Severity.Info),
+        };
+        return new RenderTree.RenderTree(new[] { node });
+    }
+
+    private static RenderNode BuildCreatedRecord(WorkItem seed, string message)
+    {
+        var fields = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["id"] = new RenderCell(seed.Id.ToString(), new RenderValue.Integer(seed.Id)),
+            ["title"] = new RenderCell(seed.Title, new RenderValue.String(seed.Title)),
+            ["type"] = new RenderCell(seed.Type.Value, new RenderValue.String(seed.Type.Value)),
+            ["isSeed"] = new RenderCell("true", new RenderValue.Boolean(true)),
+            ["message"] = new RenderCell(message, new RenderValue.String(message)),
+        };
+        return new RenderNode.Record("seedCreated", fields);
+    }
+
+    private static RenderNode BuildEditorCancelledRecord(string message)
+    {
+        var fields = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["cancelled"] = new RenderCell("true", new RenderValue.Boolean(true)),
+            ["message"] = new RenderCell(message, new RenderValue.String(message)),
+        };
+        return new RenderNode.Record("seedCreationCancelled", fields);
     }
 }

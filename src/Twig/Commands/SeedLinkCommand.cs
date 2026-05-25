@@ -2,17 +2,28 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Seed;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
+using Twig.RenderTree;
+using Twig.Rendering;
 
 namespace Twig.Commands;
 
 /// <summary>
 /// Handles <c>twig seed link</c>, <c>seed unlink</c>, and <c>seed links</c> commands.
 /// </summary>
+/// <remarks>
+/// Migrated to the AB#3301 <see cref="RendererFactory"/>/<see cref="IRenderer"/> seam:
+/// success messages emit per-format Records; the links list emits a Document with a
+/// links Table on machine formats and streamed lines on human format.
+/// <see cref="OutputFormatterFactory"/> is retained only for stderr error formatting.
+/// </remarks>
 public sealed class SeedLinkCommand(
     ISeedLinkRepository seedLinkRepo,
     IWorkItemRepository workItemRepo,
-    OutputFormatterFactory formatterFactory)
+    OutputFormatterFactory formatterFactory,
+    RendererFactory? rendererFactory = null)
 {
+    private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
+
     /// <summary>Create a virtual link between two items.</summary>
     public async Task<int> LinkAsync(
         int sourceId,
@@ -50,10 +61,8 @@ public sealed class SeedLinkCommand(
                 $"Warning: work item #{targetId} is not in the local cache. Link created anyway."));
         }
 
-        // Cycle detection for directional link types
         if (linkType != SeedLinkTypes.Related && linkType != SeedLinkTypes.ParentChild)
         {
-            // Self-loop shortcut — reject immediately without loading the full graph
             if (sourceId == targetId)
             {
                 Console.Error.WriteLine(fmt.FormatError(
@@ -82,14 +91,12 @@ public sealed class SeedLinkCommand(
         }
         catch (Microsoft.Data.Sqlite.SqliteException ex) when (ex.SqliteErrorCode == 19)
         {
-            // UNIQUE constraint violation — duplicate link
             Console.Error.WriteLine(fmt.FormatError(
                 $"A '{linkType}' link from #{sourceId} to #{targetId} already exists."));
             return 1;
         }
 
-        Console.WriteLine(fmt.FormatSuccess(
-            $"Linked #{sourceId} ──{linkType}──▶ #{targetId}"));
+        RenderLinkOutcome("seedLinked", $"Linked #{sourceId} ──{linkType}──▶ #{targetId}", sourceId, targetId, linkType, outputFormat);
         return 0;
     }
 
@@ -113,8 +120,7 @@ public sealed class SeedLinkCommand(
 
         await seedLinkRepo.RemoveLinkAsync(sourceId, targetId, linkType, ct);
 
-        Console.WriteLine(fmt.FormatSuccess(
-            $"Unlinked #{sourceId} ──{linkType}──▶ #{targetId}"));
+        RenderLinkOutcome("seedUnlinked", $"Unlinked #{sourceId} ──{linkType}──▶ #{targetId}", sourceId, targetId, linkType, outputFormat);
         return 0;
     }
 
@@ -132,13 +138,82 @@ public sealed class SeedLinkCommand(
         string outputFormat = OutputFormatterFactory.DefaultFormat,
         CancellationToken ct = default)
     {
-        var fmt = formatterFactory.GetFormatter(outputFormat);
-
         var links = id.HasValue
             ? await seedLinkRepo.GetLinksForItemAsync(id.Value, ct)
             : await seedLinkRepo.GetAllSeedLinksAsync(ct);
 
-        Console.WriteLine(fmt.FormatSeedLinks(links));
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+
+        if (lower is "json" or "json-full" or "json-compact" or "ids")
+        {
+            var columns = new List<RenderColumn>
+            {
+                new("sourceId", "Source"),
+                new("targetId", "Target"),
+                new("linkType", "Type"),
+                new("createdAt", "Created"),
+            };
+            var rows = new List<RenderRow>(links.Count);
+            foreach (var link in links)
+            {
+                rows.Add(new RenderRow("seedLink", new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+                {
+                    ["sourceId"] = RenderCell.Integer(link.SourceId),
+                    ["targetId"] = RenderCell.Integer(link.TargetId),
+                    ["linkType"] = RenderCell.String(link.LinkType),
+                    ["createdAt"] = RenderCell.String(link.CreatedAt.ToString("o")),
+                }));
+            }
+            var fields = new List<DocumentField>(2)
+            {
+                new("links", new RenderNode.Table(null, columns, rows)),
+                new("count", new RenderNode.KeyValue("count", RenderCell.Integer(links.Count))),
+            };
+            _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(new[]
+            {
+                (RenderNode)new RenderNode.Document("seedLinks", fields),
+            }));
+            return 0;
+        }
+
+        if (links.Count == 0)
+        {
+            _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(new[]
+            {
+                (RenderNode)new RenderNode.Text(id.HasValue ? $"No links for #{id.Value}." : "No seed links.", Severity.Info),
+            }));
+            return 0;
+        }
+
+        var nodes = new List<RenderNode>(links.Count + 1);
+        foreach (var link in links)
+            nodes.Add(new RenderNode.Text($"#{link.SourceId} ──{link.LinkType}──▶ #{link.TargetId}", Severity.Info));
+        nodes.Add(new RenderNode.Text($"{links.Count} link(s) total.", Severity.Info));
+        _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(nodes));
         return 0;
+    }
+
+    private void RenderLinkOutcome(string kind, string message, int sourceId, int targetId, string linkType, string outputFormat)
+    {
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        RenderNode node = lower switch
+        {
+            "minimal" => new RenderNode.Text(message),
+            "json" or "json-full" or "json-compact" or "ids" => BuildLinkRecord(kind, message, sourceId, targetId, linkType),
+            _ => new RenderNode.Text(message, Severity.Success),
+        };
+        _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(new[] { node }));
+    }
+
+    private static RenderNode BuildLinkRecord(string kind, string message, int sourceId, int targetId, string linkType)
+    {
+        var fields = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["sourceId"] = RenderCell.Integer(sourceId),
+            ["targetId"] = RenderCell.Integer(targetId),
+            ["linkType"] = RenderCell.String(linkType),
+            ["message"] = RenderCell.String(message),
+        };
+        return new RenderNode.Record(kind, fields);
     }
 }

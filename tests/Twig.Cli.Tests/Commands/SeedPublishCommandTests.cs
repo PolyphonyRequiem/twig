@@ -48,8 +48,7 @@ public class SeedPublishCommandTests : IDisposable
         var tx = Substitute.For<ITransaction>();
         _unitOfWork.BeginAsync(Arg.Any<CancellationToken>()).Returns(tx);
 
-        _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
+        _formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
 
         var backlogOrderer = new BacklogOrderer(_adoService, _fieldDefStore);
         var orchestrator = new SeedPublishOrchestrator(

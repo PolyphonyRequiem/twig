@@ -49,8 +49,7 @@ public class ConflictUxTests
         _processConfigProvider.GetConfiguration()
             .Returns(ProcessConfigBuilder.Agile());
 
-        _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
+        _formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         _ctx = new CommandContext(
             new RenderingPipelineFactory(_formatterFactory, null!, isOutputRedirected: () => true),

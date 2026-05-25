@@ -35,8 +35,7 @@ public class CommandFormatterWiringTests
         var item = CreateWorkItem(42, "Test Item");
         workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(item);
 
-        var factory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
+        var factory = new OutputFormatterFactory(new HumanOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = true });
         var resolver = new ActiveItemResolver(contextStore, workItemRepo, adoService);
         var pipelineFactory = new RenderingPipelineFactory(factory, null!, isOutputRedirected: () => true);

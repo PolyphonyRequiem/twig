@@ -55,8 +55,7 @@ public class UserScopedWorkspaceTests
         _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<WorkItem>());
 
-        _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
+        _formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
     }
 
@@ -162,7 +161,7 @@ public class UserScopedWorkspaceTests
 
         // Use StringWriter to capture output without modifying global Console.Out.
         // FormatSprintView returns a string; we call it directly to avoid Console.SetOut.
-        var formatter = _formatterFactory.GetFormatter("human");
+        var formatter = (HumanOutputFormatter)_formatterFactory.GetFormatter("human");
         var workspace = Domain.ReadModels.Workspace.Build(null, new[] { aliceItem, bobItem }, Array.Empty<Domain.Aggregates.WorkItem>());
         var output = formatter.FormatSprintView(workspace, config.Seed.StaleDays);
 

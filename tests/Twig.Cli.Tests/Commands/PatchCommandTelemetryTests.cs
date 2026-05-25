@@ -37,11 +37,7 @@ public sealed class PatchCommandTelemetryTests : IDisposable
         _fieldDefStore.GetByReferenceNameAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns((FieldDefinition?)null);
 
-        _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(),
-            new JsonOutputFormatter(),
-            new JsonCompactOutputFormatter(new JsonOutputFormatter()),
-            new MinimalOutputFormatter(), new IdsOutputFormatter());
+        _formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
 
         _stderr = new StringWriter();
         _stdout = new StringWriter();

@@ -11,9 +11,7 @@ namespace Twig.Cli.Tests.Commands;
 /// </summary>
 public class ChangelogCommandTests
 {
-    private static readonly OutputFormatterFactory Formatter = new(
-        new HumanOutputFormatter(), new JsonOutputFormatter(),
-        new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
+    private static readonly OutputFormatterFactory Formatter = new(new HumanOutputFormatter());
 
     // ── Formatting ─────────────────────────────────────────────────────
 

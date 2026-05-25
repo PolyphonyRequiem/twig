@@ -278,7 +278,7 @@ public sealed class ShowCommand(
                 await RenderStaticAsync();
             }
         }
-        else if (fmt is HumanOutputFormatter humanFmt)
+        else if (!IsMachineFormat(outputFormat) && fmt is HumanOutputFormatter humanFmt)
         {
             (int FieldCount, int NoteCount)? pendingCounts = null;
             if (_pendingChangeStore is not null)
@@ -562,17 +562,54 @@ public sealed class ShowCommand(
 
         var fmt = ctx.FormatterFactory.GetFormatter(outputFormat);
 
-        if (fmt is JsonOutputFormatter jsonFmt)
+        // After AB#3301 the factory always returns HumanOutputFormatter, so
+        // dispatch on the requested format string rather than the formatter
+        // type. Human/unknown formats render the rich Spectre card; machine
+        // formats (json, json-compact, minimal, ids) flow through the
+        // RenderTree → IRenderer seam.
+        if (!IsMachineFormat(outputFormat) && fmt is HumanOutputFormatter humanFmt)
         {
-            Console.WriteLine(jsonFmt.FormatWorkItemBatch(items));
+            foreach (var item in items)
+                Console.WriteLine(humanFmt.FormatWorkItem(item, showDirty: false));
         }
         else
         {
-            foreach (var item in items)
-                Console.WriteLine(fmt.FormatWorkItem(item, showDirty: false));
+            RenderBatchAsTree(items, outputFormat);
         }
 
         return 0;
+    }
+
+    /// <summary>
+    /// Renders a batch lookup result through the
+    /// <see cref="RenderTree"/> → <see cref="IRenderer"/> seam. Projects each
+    /// work item as a row of a single top-level <see cref="RenderNode.Table"/>
+    /// so the JSON renderer emits a top-level array and the IDs renderer
+    /// emits one ID per row — matching the legacy
+    /// <c>JsonOutputFormatter.FormatWorkItemBatch</c> wire shape.
+    /// </summary>
+    private void RenderBatchAsTree(IReadOnlyList<Domain.Aggregates.WorkItem> items, string outputFormat)
+    {
+        var rows = new List<RenderRow>(items.Count);
+        foreach (var item in items)
+            rows.Add(new RenderRow(null, BuildCoreCells(item)));
+
+        var table = new RenderNode.Table(Caption: null, Columns: [], Rows: rows);
+        var tree = new Twig.RenderTree.RenderTree([table]);
+        _rendererFactory.GetRenderer(outputFormat).Render(tree);
+        Console.WriteLine();
+    }
+
+    /// <summary>
+    /// True for the machine output formats handled via the
+    /// <see cref="RenderTree"/> → <see cref="IRenderer"/> seam
+    /// (json, json-compact, minimal, ids). False for human/unknown formats,
+    /// which fall back to <see cref="HumanOutputFormatter"/>.
+    /// </summary>
+    private static bool IsMachineFormat(string? outputFormat)
+    {
+        var normalized = outputFormat?.ToLowerInvariant();
+        return normalized is "json" or "json-compact" or "minimal" or "ids";
     }
 
     private static List<int> ParseBatchIds(string batch)

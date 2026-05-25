@@ -15,11 +15,7 @@ public sealed class TrackingCommandTests
 {
     private readonly ITrackingService _trackingService = Substitute.For<ITrackingService>();
     private readonly IWorkItemRepository _workItemRepo = Substitute.For<IWorkItemRepository>();
-    private readonly OutputFormatterFactory _formatterFactory = new(
-        new HumanOutputFormatter(),
-        new JsonOutputFormatter(),
-        new JsonCompactOutputFormatter(new JsonOutputFormatter()),
-        new MinimalOutputFormatter(), new IdsOutputFormatter());
+    private readonly OutputFormatterFactory _formatterFactory = new(new HumanOutputFormatter());
 
     private TrackingCommand CreateCommand() => new(_trackingService, _workItemRepo, _formatterFactory);
 

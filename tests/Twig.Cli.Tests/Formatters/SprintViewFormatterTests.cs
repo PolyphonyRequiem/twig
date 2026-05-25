@@ -50,42 +50,6 @@ public class SprintViewFormatterTests
     }
 
     [Fact]
-    public void JsonFormatter_SprintView_GroupsByAssignee()
-    {
-        var fmt = new JsonOutputFormatter();
-        var items = new[]
-        {
-            CreateItem(1, "Task A", "Alice Smith"),
-            CreateItem(2, "Task B", "Bob Jones"),
-        };
-        var ws = Workspace.Build(null, items, Array.Empty<WorkItem>());
-
-        var output = fmt.FormatSprintView(ws, 14);
-
-        output.ShouldContain("sprintByAssignee");
-        output.ShouldContain("Alice Smith");
-        output.ShouldContain("Bob Jones");
-        output.ShouldContain("totalSprintItems");
-    }
-
-    [Fact]
-    public void MinimalFormatter_SprintView_IncludesAssignee()
-    {
-        var fmt = new MinimalOutputFormatter();
-        var items = new[]
-        {
-            CreateItem(1, "Task A", "Alice Smith"),
-            CreateItem(2, "Task B", "Bob Jones"),
-        };
-        var ws = Workspace.Build(null, items, Array.Empty<WorkItem>());
-
-        var output = fmt.FormatSprintView(ws, 14);
-
-        output.ShouldContain("@Alice Smith");
-        output.ShouldContain("@Bob Jones");
-    }
-
-    [Fact]
     public void HumanFormatter_SprintView_EmptySprint_ShowsZeroItems()
     {
         var fmt = new HumanOutputFormatter();

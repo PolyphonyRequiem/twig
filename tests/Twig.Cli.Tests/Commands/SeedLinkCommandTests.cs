@@ -28,8 +28,7 @@ public class SeedLinkCommandTests
         _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>())
             .Returns(Array.Empty<SeedLink>());
 
-        var formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
+        var formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
 
         _cmd = new SeedLinkCommand(_seedLinkRepo, _workItemRepo, formatterFactory);
     }

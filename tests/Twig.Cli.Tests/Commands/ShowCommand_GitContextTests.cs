@@ -46,9 +46,7 @@ public sealed class ShowCommand_GitContextTests : IDisposable
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, pendingChangeStore);
         _syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, adoService, protectedCacheWriter, pendingChangeStore, null, 30, 30);
 
-        _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(),
-            new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
+        _formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
 
         _tempDir = Path.Combine(Path.GetTempPath(), "twig-show-git-test-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_tempDir);

@@ -55,8 +55,7 @@ public class InitCommandTests : IDisposable
         // TwigPaths with a flat dbPath — InitCommand derives its own context paths.
         // startDir is set explicitly so InitCommand targets _testDir, not the test runner's CWD.
         _paths = new TwigPaths(_twigDir, _configPath, _dbPath, startDir: _testDir);
-        _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
+        _formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
     }
 

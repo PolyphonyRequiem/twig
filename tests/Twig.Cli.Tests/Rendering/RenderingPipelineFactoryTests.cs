@@ -6,15 +6,22 @@ using Xunit;
 
 namespace Twig.Cli.Tests.Rendering;
 
+/// <summary>
+/// After AB#3301 retired the machine-shape formatters,
+/// <see cref="OutputFormatterFactory"/> always returns
+/// <see cref="HumanOutputFormatter"/>. These tests pin the pipeline-factory
+/// contract that survives: a Spectre async renderer for TTY-bound human
+/// output, and a null renderer (sync fallback) for every other case
+/// (redirected output, <c>--no-live</c>, or a non-human format string —
+/// because machine output flows through the
+/// <see cref="Twig.Rendering.RendererFactory"/> → <c>IRenderer</c> seam,
+/// not through the pipeline factory).
+/// </summary>
 public class RenderingPipelineFactoryTests
 {
     private readonly IAsyncRenderer _asyncRenderer = Substitute.For<IAsyncRenderer>();
 
-    private readonly OutputFormatterFactory _formatterFactory = new(
-        new HumanOutputFormatter(),
-        new JsonOutputFormatter(),
-        new JsonCompactOutputFormatter(new JsonOutputFormatter()),
-        new MinimalOutputFormatter(), new IdsOutputFormatter());
+    private readonly OutputFormatterFactory _formatterFactory = new(new HumanOutputFormatter());
 
     private RenderingPipelineFactory CreateFactory() =>
         new(_formatterFactory, _asyncRenderer);
@@ -28,7 +35,7 @@ public class RenderingPipelineFactoryTests
         var factory = CreateFactory();
         var (formatter, renderer) = factory.Resolve("json");
 
-        formatter.ShouldBeOfType<JsonOutputFormatter>();
+        formatter.ShouldBeOfType<HumanOutputFormatter>();
         renderer.ShouldBeNull();
     }
 
@@ -38,7 +45,7 @@ public class RenderingPipelineFactoryTests
         var factory = CreateFactory();
         var (formatter, renderer) = factory.Resolve("minimal");
 
-        formatter.ShouldBeOfType<MinimalOutputFormatter>();
+        formatter.ShouldBeOfType<HumanOutputFormatter>();
         renderer.ShouldBeNull();
     }
 
@@ -122,13 +129,13 @@ public class RenderingPipelineFactoryTests
     }
 
     [Fact]
-    public void Resolve_ReturnsCorrectFormatterForEachFormat()
+    public void Resolve_AlwaysReturnsHumanOutputFormatter()
     {
         var factory = CreateFactory();
 
         factory.Resolve("human").Formatter.ShouldBeOfType<HumanOutputFormatter>();
-        factory.Resolve("json").Formatter.ShouldBeOfType<JsonOutputFormatter>();
-        factory.Resolve("minimal").Formatter.ShouldBeOfType<MinimalOutputFormatter>();
+        factory.Resolve("json").Formatter.ShouldBeOfType<HumanOutputFormatter>();
+        factory.Resolve("minimal").Formatter.ShouldBeOfType<HumanOutputFormatter>();
     }
 
     [Fact]

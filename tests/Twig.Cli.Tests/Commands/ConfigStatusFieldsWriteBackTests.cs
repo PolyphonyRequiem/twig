@@ -34,8 +34,7 @@ public class ConfigStatusFieldsWriteBackTests : IDisposable
         _globalProfileStore = Substitute.For<IGlobalProfileStore>();
         _config = new TwigConfiguration { Organization = "myorg", ProcessTemplate = "Agile" };
 
-        _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
+        _formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
     }
 
     public void Dispose()

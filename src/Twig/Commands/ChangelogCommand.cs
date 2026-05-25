@@ -79,7 +79,7 @@ public sealed class ChangelogCommand(
             if (!string.IsNullOrWhiteSpace(release.Body))
                 Console.WriteLine(release.Body.TrimEnd());
             else
-                Console.WriteLine(fmt.FormatInfo("No release notes."));
+                Console.WriteLine("(No release notes.)");
         }
 
         return 0;

@@ -6,6 +6,7 @@ using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Infrastructure.Config;
+using Twig.RenderTree;
 using Twig.Rendering;
 
 namespace Twig.Commands;
@@ -22,8 +23,10 @@ public sealed class AreaCommand(
     IProcessTypeStore? processTypeStore = null,
     IIterationService? iterationService = null,
     RenderingPipelineFactory? pipelineFactory = null,
-    ISprintHierarchyBuilder? sprintHierarchyBuilder = null)
+    ISprintHierarchyBuilder? sprintHierarchyBuilder = null,
+    RendererFactory? rendererFactory = null)
 {
+    private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
     /// <summary>
     /// Default action: render the area-filtered workspace view.
     /// Fetches items matching configured area paths, hydrates parent chains for hierarchy
@@ -39,7 +42,7 @@ public sealed class AreaCommand(
         var resolved = config.Defaults.ResolveAreaPaths();
         if (resolved is null || resolved.Count == 0)
         {
-            Console.WriteLine(fmt.FormatInfo("No area paths configured. Use 'twig area add <path>' or 'twig area sync' to configure."));
+            RenderInfo("No area paths configured. Use 'twig area add <path>' or 'twig area sync' to configure.", "noAreaPathsConfigured", outputFormat);
             return 0;
         }
 
@@ -157,7 +160,7 @@ public sealed class AreaCommand(
         await config.SaveSplitAsync(paths, ct);
 
         var semantics = entry.SemanticsLabel;
-        Console.WriteLine(fmt.FormatSuccess($"Added area path '{entry.Path}' ({semantics})."));
+        RenderAreaPathChange("areaPathAdded", $"Added area path '{entry.Path}' ({semantics}).", entry.Path, entry.IncludeChildren, outputFormat);
         return 0;
     }
 
@@ -184,7 +187,7 @@ public sealed class AreaCommand(
         config.Defaults.AreaPathEntries.RemoveAt(index);
         await config.SaveSplitAsync(paths, ct);
 
-        Console.WriteLine(fmt.FormatSuccess($"Removed area path '{path}'."));
+        RenderAreaPathChange("areaPathRemoved", $"Removed area path '{path}'.", path, includeChildren: null, outputFormat);
         return 0;
     }
 
@@ -192,19 +195,16 @@ public sealed class AreaCommand(
     public Task<int> ListAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
         _ = ct; // reserved for future use
-        var fmt = formatterFactory.GetFormatter(outputFormat);
 
         var entries = config.Defaults.AreaPathEntries;
 
         if (entries is not { Count: > 0 })
         {
-            Console.WriteLine(fmt.FormatInfo("No area paths configured."));
+            RenderInfo("No area paths configured.", "noAreaPathsConfigured", outputFormat);
             return Task.FromResult(0);
         }
 
-        foreach (var entry in entries)
-            Console.WriteLine(fmt.FormatInfo($"{entry.Path}  ({entry.SemanticsLabel})"));
-        Console.WriteLine(fmt.FormatInfo($"{entries.Count} area path(s) configured."));
+        RenderAreaPathList(entries, outputFormat);
         return Task.FromResult(0);
     }
 
@@ -242,10 +242,101 @@ public sealed class AreaCommand(
 
         await config.SaveSplitAsync(paths, ct);
 
-        foreach (var entry in config.Defaults.AreaPathEntries)
-            Console.WriteLine(fmt.FormatInfo($"{entry.Path}  ({entry.SemanticsLabel})"));
-
-        Console.WriteLine(fmt.FormatSuccess($"Synced {teamAreas.Count} area path(s) from team settings."));
+        RenderAreaPathSync(config.Defaults.AreaPathEntries, teamAreas.Count, outputFormat);
         return 0;
+    }
+
+    private void RenderInfo(string message, string kind, string outputFormat)
+    {
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        RenderNode node = lower switch
+        {
+            "minimal" => new RenderNode.Text(message),
+            "json" or "json-full" or "json-compact" or "ids" =>
+                new RenderNode.Record(kind, new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+                {
+                    ["message"] = RenderCell.String(message),
+                }),
+            _ => new RenderNode.Text(message, Severity.Info),
+        };
+        _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(new[] { node }));
+    }
+
+    private void RenderAreaPathChange(string kind, string message, string path, bool? includeChildren, string outputFormat)
+    {
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        RenderNode node = lower switch
+        {
+            "minimal" => new RenderNode.Text(message),
+            "json" or "json-full" or "json-compact" or "ids" => BuildAreaPathChangeRecord(kind, message, path, includeChildren),
+            _ => new RenderNode.Text(message, Severity.Success),
+        };
+        _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(new[] { node }));
+    }
+
+    private static RenderNode BuildAreaPathChangeRecord(string kind, string message, string path, bool? includeChildren)
+    {
+        var fields = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["message"] = RenderCell.String(message),
+            ["path"] = RenderCell.String(path),
+        };
+        if (includeChildren.HasValue)
+            fields["includeChildren"] = RenderCell.Boolean(includeChildren.Value);
+        return new RenderNode.Record(kind, fields);
+    }
+
+    private void RenderAreaPathList(IReadOnlyList<AreaPathEntry> entries, string outputFormat)
+    {
+        var columns = new List<RenderColumn>
+        {
+            new("path", "Path"),
+            new("includeChildren", "Include children"),
+            new("semantics", "Semantics"),
+        };
+        var rows = entries.Select(e => new RenderRow("areaPath", new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["path"] = RenderCell.String(e.Path),
+            ["includeChildren"] = RenderCell.Boolean(e.IncludeChildren),
+            ["semantics"] = RenderCell.String(e.SemanticsLabel),
+        })).ToList();
+
+        var fields = new List<DocumentField>
+        {
+            new("count", new RenderNode.KeyValue("count", RenderCell.Integer(entries.Count))),
+            new("entries", new RenderNode.Table(null, columns, rows)),
+        };
+        _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(new[]
+        {
+            (RenderNode)new RenderNode.Document("areaPaths", fields),
+        }));
+    }
+
+    private void RenderAreaPathSync(IReadOnlyList<AreaPathEntry> entries, int syncedCount, string outputFormat)
+    {
+        var columns = new List<RenderColumn>
+        {
+            new("path", "Path"),
+            new("includeChildren", "Include children"),
+            new("semantics", "Semantics"),
+        };
+        var rows = entries.Select(e => new RenderRow("areaPath", new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["path"] = RenderCell.String(e.Path),
+            ["includeChildren"] = RenderCell.Boolean(e.IncludeChildren),
+            ["semantics"] = RenderCell.String(e.SemanticsLabel),
+        })).ToList();
+
+        var message = $"Synced {syncedCount} area path(s) from team settings.";
+        var fields = new List<DocumentField>
+        {
+            new("message", new RenderNode.KeyValue("message", RenderCell.String(message))),
+            new("syncedCount", new RenderNode.KeyValue("syncedCount", RenderCell.Integer(syncedCount))),
+            new("entries", new RenderNode.Table(null, columns, rows)),
+        };
+        _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(new[]
+        {
+            (RenderNode)new RenderNode.Document("areaPathsSynced", fields),
+        }));
     }
 }

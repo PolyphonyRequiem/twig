@@ -75,6 +75,7 @@ public sealed class CommandRegistrationModuleTests
         // Rendering
         services.AddSingleton(Substitute.For<IAsyncRenderer>());
         services.AddSingleton<RenderingPipelineFactory>();
+        services.AddSingleton<Twig.Rendering.RendererFactory>();
 
         // Domain services (needed by factory) + command service registrations
         services.AddTwigCommandServices();

@@ -89,7 +89,7 @@ public sealed class ShowCommand_TreeTests : IDisposable
 
     private TreeRenderingService CreateTreeService(CommandContext? ctx = null) =>
         new(ctx ?? CreateCtx(), _contextStore, _workItemRepo, _activeItemResolver,
-            _workingSetService, _syncCoordinatorFactory, _processTypeStore);
+            _workingSetService, _syncCoordinatorFactory, _processTypeStore, new Twig.Rendering.RendererFactory());
 
     private ShowCommand CreateShowCommand(CommandContext? ctx = null, TreeRenderingService? treeSvc = null)
     {

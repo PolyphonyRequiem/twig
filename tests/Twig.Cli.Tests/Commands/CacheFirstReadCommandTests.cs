@@ -205,7 +205,7 @@ public class CacheFirstReadCommandTests
             .Returns(Array.Empty<WorkItem>());
 
         var treeService = new TreeRenderingService(_ctx, _contextStore, _workItemRepo,
-            _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore);
+            _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore, new Twig.Rendering.RendererFactory());
         var result = await treeService.RenderTreeAsync(id: null, "human", depth: null, noLive: true, noRefresh: true, CancellationToken.None);
 
         result.ShouldBe(0);
@@ -221,7 +221,7 @@ public class CacheFirstReadCommandTests
             .Throws(new HttpRequestException("Network error"));
 
         var treeService2 = new TreeRenderingService(_ctx, _contextStore, _workItemRepo,
-            _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore);
+            _activeItemResolver, _workingSetService, _syncCoordinatorFactory, _processTypeStore, new Twig.Rendering.RendererFactory());
 
         var result = await treeService2.RenderTreeAsync(id: null, "human", depth: null, noLive: true, noRefresh: true, CancellationToken.None);
         result.ShouldBe(1);

@@ -104,7 +104,7 @@ public sealed class ShowCommand_TreeCacheAwareTests : IDisposable
 
     private TreeRenderingService CreateTreeService(CommandContext ctx) =>
         new(ctx, _contextStore, _workItemRepo, _activeItemResolver,
-            _workingSetService, _syncCoordinatorFactory, _processTypeStore);
+            _workingSetService, _syncCoordinatorFactory, _processTypeStore, new Twig.Rendering.RendererFactory());
 
     private ShowCommand CreateCommand(RenderingPipelineFactory? pipelineFactory = null)
     {

@@ -147,7 +147,8 @@ public sealed class NewCommand_ContextChangeTests : IDisposable
             _fieldDefStore, _editorLauncher, _formatterFactory,
             _hintEngine, _config,
             new SeedFactory(new SeedIdCounter()),
-            contextChangeService);
+            rendererFactory: null,
+            contextChangeService: contextChangeService);
     }
 
     private void ArrangeCreateSuccess(int newId = 100, string title = "My Task")

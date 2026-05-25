@@ -63,6 +63,17 @@ public sealed class IdsRenderer(TextWriter output) : IRenderer
                     this.WriteNode(child);
                 }
                 break;
+            case RenderNode.Document doc:
+                foreach (var field in doc.Fields)
+                {
+                    if (field.Audience == RenderAudience.HumanOnly)
+                    {
+                        continue;
+                    }
+
+                    this.WriteNode(field.Node);
+                }
+                break;
         }
     }
 

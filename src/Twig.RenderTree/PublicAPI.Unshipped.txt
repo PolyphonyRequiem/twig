@@ -303,3 +303,43 @@ Twig.RenderTree.MinimalRenderer.Render(Twig.RenderTree.RenderTree! tree) -> void
 Twig.RenderTree.JsonRenderer
 Twig.RenderTree.JsonRenderer.JsonRenderer(System.IO.TextWriter! output) -> void
 Twig.RenderTree.JsonRenderer.Render(Twig.RenderTree.RenderTree! tree) -> void
+Twig.RenderTree.JsonRenderer.JsonRenderer(System.IO.TextWriter! output, bool indented) -> void
+Twig.RenderTree.RenderAudience
+Twig.RenderTree.RenderAudience.All = 0 -> Twig.RenderTree.RenderAudience
+Twig.RenderTree.RenderAudience.HumanOnly = 1 -> Twig.RenderTree.RenderAudience
+Twig.RenderTree.RenderAudience.MachineOnly = 2 -> Twig.RenderTree.RenderAudience
+Twig.RenderTree.DocumentField
+Twig.RenderTree.DocumentField.DocumentField(string! Key, Twig.RenderTree.RenderNode! Node, Twig.RenderTree.RenderAudience Audience = Twig.RenderTree.RenderAudience.All, string? Header = null, Twig.RenderTree.RenderNode? HumanOverride = null) -> void
+Twig.RenderTree.DocumentField.Key.get -> string!
+Twig.RenderTree.DocumentField.Key.init -> void
+Twig.RenderTree.DocumentField.Node.get -> Twig.RenderTree.RenderNode!
+Twig.RenderTree.DocumentField.Node.init -> void
+Twig.RenderTree.DocumentField.Audience.get -> Twig.RenderTree.RenderAudience
+Twig.RenderTree.DocumentField.Audience.init -> void
+Twig.RenderTree.DocumentField.Header.get -> string?
+Twig.RenderTree.DocumentField.Header.init -> void
+Twig.RenderTree.DocumentField.HumanOverride.get -> Twig.RenderTree.RenderNode?
+Twig.RenderTree.DocumentField.HumanOverride.init -> void
+Twig.RenderTree.DocumentField.Deconstruct(out string! Key, out Twig.RenderTree.RenderNode! Node, out Twig.RenderTree.RenderAudience Audience, out string? Header, out Twig.RenderTree.RenderNode? HumanOverride) -> void
+Twig.RenderTree.DocumentField.Equals(Twig.RenderTree.DocumentField? other) -> bool
+override Twig.RenderTree.DocumentField.Equals(object? obj) -> bool
+override Twig.RenderTree.DocumentField.GetHashCode() -> int
+override Twig.RenderTree.DocumentField.ToString() -> string!
+Twig.RenderTree.DocumentField.<Clone>$() -> Twig.RenderTree.DocumentField!
+static Twig.RenderTree.DocumentField.operator ==(Twig.RenderTree.DocumentField? left, Twig.RenderTree.DocumentField? right) -> bool
+static Twig.RenderTree.DocumentField.operator !=(Twig.RenderTree.DocumentField? left, Twig.RenderTree.DocumentField? right) -> bool
+Twig.RenderTree.RenderNode.Document
+Twig.RenderTree.RenderNode.Document.Document(string? Kind, System.Collections.Generic.IReadOnlyList<Twig.RenderTree.DocumentField!>! Fields) -> void
+Twig.RenderTree.RenderNode.Document.Kind.get -> string?
+Twig.RenderTree.RenderNode.Document.Kind.init -> void
+Twig.RenderTree.RenderNode.Document.Fields.get -> System.Collections.Generic.IReadOnlyList<Twig.RenderTree.DocumentField!>!
+Twig.RenderTree.RenderNode.Document.Fields.init -> void
+Twig.RenderTree.RenderNode.Document.Deconstruct(out string? Kind, out System.Collections.Generic.IReadOnlyList<Twig.RenderTree.DocumentField!>! Fields) -> void
+Twig.RenderTree.RenderNode.Document.Equals(Twig.RenderTree.RenderNode.Document? other) -> bool
+override sealed Twig.RenderTree.RenderNode.Document.Equals(Twig.RenderTree.RenderNode? other) -> bool
+override Twig.RenderTree.RenderNode.Document.Equals(object? obj) -> bool
+override Twig.RenderTree.RenderNode.Document.GetHashCode() -> int
+override Twig.RenderTree.RenderNode.Document.ToString() -> string!
+override Twig.RenderTree.RenderNode.Document.<Clone>$() -> Twig.RenderTree.RenderNode.Document!
+static Twig.RenderTree.RenderNode.Document.operator ==(Twig.RenderTree.RenderNode.Document? left, Twig.RenderTree.RenderNode.Document? right) -> bool
+static Twig.RenderTree.RenderNode.Document.operator !=(Twig.RenderTree.RenderNode.Document? left, Twig.RenderTree.RenderNode.Document? right) -> bool

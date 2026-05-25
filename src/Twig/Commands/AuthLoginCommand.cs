@@ -21,10 +21,12 @@ public sealed class AuthLoginCommand
     internal const string AzureCliClientId = "04b07795-8ddb-461a-bbee-02f9e1bf7b46";
 
     private readonly OutputFormatterFactory _formatterFactory;
+    private readonly Rendering.RendererFactory _rendererFactory;
 
-    public AuthLoginCommand(OutputFormatterFactory formatterFactory)
+    public AuthLoginCommand(OutputFormatterFactory formatterFactory, Rendering.RendererFactory? rendererFactory = null)
     {
         _formatterFactory = formatterFactory;
+        _rendererFactory = rendererFactory ?? new Rendering.RendererFactory();
     }
 
     public async Task<int> ExecuteAsync(
@@ -49,15 +51,15 @@ public sealed class AuthLoginCommand
 
         if (!result.Succeeded || result.Entry is null)
         {
-            Console.WriteLine();
-            Console.WriteLine(fmt.FormatError($"Sign-in failed: {result.ErrorMessage}"));
+            Console.Error.WriteLine();
+            Console.Error.WriteLine(fmt.FormatError($"Sign-in failed: {result.ErrorMessage}"));
             if (result.ErrorKind == InteractiveAuthErrorKind.PolicyBlocked && useDeviceCode)
             {
-                Console.WriteLine(fmt.FormatInfo("Your tenant blocks the device code grant. Try 'twig login' (loopback PKCE) instead."));
+                Console.Error.WriteLine("Your tenant blocks the device code grant. Try 'twig login' (loopback PKCE) instead.");
             }
             else if (result.ErrorKind == InteractiveAuthErrorKind.LoopbackUnavailable)
             {
-                Console.WriteLine(fmt.FormatInfo("Could not bind a loopback listener. Try 'twig login --device-code'."));
+                Console.Error.WriteLine("Could not bind a loopback listener. Try 'twig login --device-code'.");
             }
             return 1;
         }
@@ -69,7 +71,7 @@ public sealed class AuthLoginCommand
         }
         catch (Exception ex)
         {
-            Console.WriteLine(fmt.FormatError($"Sign-in succeeded but the refresh token could not be written to {store.Path}: {ex.Message}"));
+            Console.Error.WriteLine(fmt.FormatError($"Sign-in succeeded but the refresh token could not be written to {store.Path}: {ex.Message}"));
             return 1;
         }
 
@@ -78,14 +80,35 @@ public sealed class AuthLoginCommand
         // token from a previous identity).
         new TwigTokenFileCache().TryDelete();
 
-        Console.WriteLine();
-        Console.WriteLine(fmt.FormatSuccess($"Signed in as {result.Entry.UserPrincipalName ?? "(unknown)"}"));
-        Console.WriteLine($"  tenant:    {result.Entry.TenantId}");
-        Console.WriteLine($"  source:    {result.Entry.Source}");
-        Console.WriteLine($"  stored at: {store.Path}");
-        Console.WriteLine();
-        Console.WriteLine(fmt.FormatInfo("Run 'twig auth status' to verify, or any twig command to mint your first ADO access token."));
+        RenderSignedIn(result.Entry.UserPrincipalName ?? "(unknown)", result.Entry.TenantId ?? "(unknown)", result.Entry.Source?.ToString() ?? "(unknown)", store.Path, outputFormat);
         return 0;
+    }
+
+    private void RenderSignedIn(string user, string tenantId, string source, string storePath, string outputFormat)
+    {
+        var message = $"Signed in as {user}";
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        RenderTree.RenderNode node = lower switch
+        {
+            "minimal" => new RenderTree.RenderNode.Text(message),
+            "json" or "json-full" or "json-compact" or "ids" =>
+                new RenderTree.RenderNode.Record("signedIn", new Dictionary<string, RenderTree.RenderCell>(StringComparer.Ordinal)
+                {
+                    ["message"] = RenderTree.RenderCell.String(message),
+                    ["user"] = RenderTree.RenderCell.String(user),
+                    ["tenant"] = RenderTree.RenderCell.String(tenantId),
+                    ["source"] = RenderTree.RenderCell.String(source),
+                    ["storedAt"] = RenderTree.RenderCell.String(storePath),
+                }),
+            _ => new RenderTree.RenderNode.Section($"{message}", new RenderTree.RenderNode[]
+            {
+                new RenderTree.RenderNode.Text($"  tenant:    {tenantId}"),
+                new RenderTree.RenderNode.Text($"  source:    {source}"),
+                new RenderTree.RenderNode.Text($"  stored at: {storePath}"),
+                new RenderTree.RenderNode.Hint("Run 'twig auth status' to verify, or any twig command to mint your first ADO access token."),
+            }),
+        };
+        _rendererFactory.GetRenderer(outputFormat).Render(new global::Twig.RenderTree.RenderTree(new[] { node }));
     }
 
     private static async Task<InteractiveAuthResult> RunPkceAsync(string tenant, bool launchBrowser, IOutputFormatter fmt, CancellationToken ct)

@@ -56,7 +56,7 @@ public class LinkCommandTests : IDisposable
         var syncCoordinatorFactory = new SyncCoordinatorFactory(
             _workItemRepo, _adoService, protectedWriter, _pendingChangeStore, _linkRepo,
             readOnlyStaleMinutes: 30, readWriteStaleMinutes: 30);
-        return new LinkCommand(resolver, _adoService, _linkRepo, syncCoordinatorFactory, _formatterFactory, _telemetryClient, _stderr);
+        return new LinkCommand(resolver, _adoService, _linkRepo, syncCoordinatorFactory, _formatterFactory, rendererFactory: null, _telemetryClient, _stderr);
     }
 
     /// <summary>

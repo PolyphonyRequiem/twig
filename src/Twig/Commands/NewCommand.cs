@@ -11,6 +11,8 @@ using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Content;
+using Twig.RenderTree;
+using Twig.Rendering;
 
 namespace Twig.Commands;
 
@@ -24,8 +26,10 @@ public sealed class NewCommand(
     HintEngine hintEngine,
     TwigConfiguration config,
     SeedFactory seedFactory,
+    RendererFactory? rendererFactory = null,
     ContextChangeService? contextChangeService = null)
 {
+    private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
     public async Task<int> ExecuteAsync(
         string? title,
         string? type = null,
@@ -156,7 +160,7 @@ public sealed class NewCommand(
 
             if (edited is null)
             {
-                Console.WriteLine(fmt.FormatInfo("Creation cancelled (editor aborted)."));
+                RenderCancelled(outputFormat);
                 return 0;
             }
 
@@ -195,16 +199,23 @@ public sealed class NewCommand(
             await contextStore.SetActiveWorkItemIdAsync(newId, ct);
 
         var url = $"https://dev.azure.com/{Uri.EscapeDataString(config.Organization)}/{Uri.EscapeDataString(config.Project)}/_workitems/edit/{newId}";
-        Console.WriteLine(fmt.FormatCreated(fetched, url));
+        RenderCreated(fetched, url, outputFormat);
 
         var hints = hintEngine.GetHints("new",
             outputFormat: outputFormat,
             createdId: newId);
-        foreach (var hint in hints)
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        var isMachine = lower is "json" or "json-full" or "json-compact" or "minimal" or "ids";
+        if (!isMachine)
         {
-            var formatted = fmt.FormatHint(hint);
-            if (!string.IsNullOrEmpty(formatted))
-                Console.WriteLine(formatted);
+            foreach (var hint in hints)
+            {
+                if (!string.IsNullOrWhiteSpace(hint))
+                    _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(new[]
+                    {
+                        (RenderNode)new RenderNode.Hint(hint),
+                    }));
+            }
         }
 
         // Extend working set around the new item (fire-and-forget — never fails the command).
@@ -213,6 +224,52 @@ public sealed class NewCommand(
             await contextChangeService.ExtendWorkingSetAsync(newId, ct);
 
         return 0;
+    }
+
+    private void RenderCreated(WorkItem item, string url, string outputFormat)
+    {
+        var message = $"✓ Created #{item.Id} {item.Title} ({item.Type})";
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        RenderNode node = lower switch
+        {
+            "minimal" => new RenderNode.Text($"#{item.Id}"),
+            "json" or "json-full" or "json-compact" or "ids" => BuildCreatedRecord(item, url),
+            _ => new RenderNode.Text(message, Severity.Success),
+        };
+        _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(new[] { node }));
+    }
+
+    private static RenderNode BuildCreatedRecord(WorkItem item, string url)
+    {
+        var fields = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["id"] = RenderCell.Integer(item.Id),
+            ["type"] = RenderCell.String(item.Type.ToString()),
+            ["title"] = RenderCell.String(item.Title),
+            ["url"] = RenderCell.String(url),
+            ["parent"] = item.ParentId.HasValue
+                ? RenderCell.Integer(item.ParentId.Value)
+                : new RenderCell(string.Empty, new RenderValue.Null()),
+        };
+        return new RenderNode.Record("workItemCreated", fields);
+    }
+
+    private void RenderCancelled(string outputFormat)
+    {
+        const string message = "Creation cancelled (editor aborted).";
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        RenderNode node = lower switch
+        {
+            "minimal" => new RenderNode.Text(message),
+            "json" or "json-full" or "json-compact" or "ids" =>
+                new RenderNode.Record("workItemCreationCancelled", new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+                {
+                    ["cancelled"] = RenderCell.Boolean(true),
+                    ["message"] = RenderCell.String(message),
+                }),
+            _ => new RenderNode.Text(message, Severity.Info),
+        };
+        _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(new[] { node }));
     }
 
     private string? ResolveRaw(string? flag, string? configDefault, string? inheritedFromParent = null)

@@ -9,6 +9,8 @@ using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Hints;
 using Twig.Infrastructure.Config;
+using Twig.RenderTree;
+using Twig.Rendering;
 
 namespace Twig.Commands;
 
@@ -17,16 +19,24 @@ namespace Twig.Commands;
 /// Builds a WIQL query from CLI flags, executes against ADO, caches results locally,
 /// and renders output in the requested format (human table, JSON, or bare IDs).
 /// </summary>
+/// <remarks>
+/// Migrated to the AB#3301 <see cref="RendererFactory"/>/<see cref="IRenderer"/> seam:
+/// query results emit a Document with metadata (query/count/truncated) plus an items
+/// Table. <see cref="OutputFormatterFactory"/> is retained only for stderr errors,
+/// the "no items found" info message, and hints.
+/// </remarks>
 public sealed partial class QueryCommand(
     IAdoWorkItemService adoService,
     IWorkItemRepository workItemRepo,
     TwigConfiguration config,
     OutputFormatterFactory formatterFactory,
     HintEngine hintEngine,
+    RendererFactory? rendererFactory = null,
     ITelemetryClient? telemetryClient = null,
     TextWriter? stderr = null)
 {
     private readonly TextWriter _stderr = stderr ?? Console.Error;
+    private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
 
     /// <summary>Execute the query command.</summary>
     public async Task<int> ExecuteAsync(
@@ -163,13 +173,14 @@ public sealed partial class QueryCommand(
 
         if (items.Count == 0)
         {
-            Console.WriteLine(fmt.FormatInfo("No items found."));
+            _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(new[]
+            {
+                (RenderNode)new RenderNode.Text("No items found.", Severity.Info),
+            }));
         }
         else
         {
-            var output = fmt.FormatQueryResults(result);
-            if (!string.IsNullOrEmpty(output))
-                Console.WriteLine(output);
+            RenderQueryResults(result, outputFormat);
         }
 
         // 9. Emit hints (FR-19: suppressed for json/minimal by HintEngine)
@@ -178,6 +189,45 @@ public sealed partial class QueryCommand(
             Console.WriteLine(fmt.FormatHint(hint));
 
         return (0, items.Count);
+    }
+
+    private void RenderQueryResults(QueryResult result, string outputFormat)
+    {
+        var columns = new List<RenderColumn>
+        {
+            new("id", "ID"),
+            new("type", "Type"),
+            new("title", "Title"),
+            new("state", "State"),
+            new("assignedTo", "Assigned"),
+            new("areaPath", "Area"),
+            new("iterationPath", "Iteration"),
+        };
+        var rows = new List<RenderRow>(result.Items.Count);
+        foreach (var item in result.Items)
+        {
+            rows.Add(new RenderRow("queryItem", new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+            {
+                ["id"] = RenderCell.Integer(item.Id),
+                ["type"] = RenderCell.String(item.Type.ToString() ?? string.Empty),
+                ["title"] = RenderCell.String(item.Title ?? string.Empty),
+                ["state"] = RenderCell.String(item.State ?? string.Empty),
+                ["assignedTo"] = RenderCell.String(item.AssignedTo ?? string.Empty),
+                ["areaPath"] = RenderCell.String(item.AreaPath.ToString() ?? string.Empty),
+                ["iterationPath"] = RenderCell.String(item.IterationPath.ToString() ?? string.Empty),
+            }));
+        }
+        var fields = new List<DocumentField>(4)
+        {
+            new("query", new RenderNode.KeyValue("query", RenderCell.String(result.Query))),
+            new("count", new RenderNode.KeyValue("count", RenderCell.Integer(result.Items.Count))),
+            new("truncated", new RenderNode.KeyValue("truncated", RenderCell.Boolean(result.IsTruncated))),
+            new("items", new RenderNode.Table(null, columns, rows)),
+        };
+        _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(new[]
+        {
+            (RenderNode)new RenderNode.Document("queryResults", fields),
+        }));
     }
 
     // TODO(#1641): extend with || filter is not null

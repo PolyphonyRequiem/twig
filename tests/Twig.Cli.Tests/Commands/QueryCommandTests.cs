@@ -35,7 +35,7 @@ public sealed class QueryCommandTests
     }
 
     private QueryCommand CreateCommand(TextWriter? stderr = null, HintEngine? hintEngine = null, TwigConfiguration? config = null) =>
-        new(_adoService, _workItemRepo, config ?? _config, _formatterFactory, hintEngine ?? _hintEngine, _telemetryClient, stderr);
+        new(_adoService, _workItemRepo, config ?? _config, _formatterFactory, hintEngine ?? _hintEngine, rendererFactory: null, _telemetryClient, stderr);
 
     private static IReadOnlyList<WorkItem> BuildItems(params (int Id, string Title, string State)[] specs) =>
         specs.Select(s => new WorkItemBuilder(s.Id, s.Title).InState(s.State).Build()).ToList();
@@ -76,7 +76,7 @@ public sealed class QueryCommandTests
             Arg.Any<CancellationToken>());
 
         output.ShouldContain("MCP server integration");
-        output.ShouldContain("Found 1 item(s)");
+        output.ShouldContain("count: 1");
     }
 
     // FR-02–FR-06, FR-14: Combined filters with AND logic
@@ -242,7 +242,8 @@ public sealed class QueryCommandTests
             _adoService, _workItemRepo, _config,
             formatterFactory: null!,
             hintEngine: null!,
-            _telemetryClient);
+            rendererFactory: null,
+            telemetryClient: _telemetryClient);
 
         var (exitCode, output) = await CaptureOutput(() =>
             cmd.ExecuteAsync(searchText: "test", outputFormat: "ids"));
@@ -664,7 +665,7 @@ public sealed class QueryCommandTests
         var (result, output) = await CaptureOutput(() => cmd.ExecuteAsync(searchText: "test", top: 5));
 
         result.ShouldBe(0);
-        output.ShouldContain("results limited");
+        output.ShouldContain("truncated: True");
     }
 
     // --- #1640: --title and --description filters ---

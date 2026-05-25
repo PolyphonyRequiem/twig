@@ -1,0 +1,257 @@
+using System.Globalization;
+using System.IO;
+using System.Text;
+using System.Text.Json;
+
+namespace Twig.RenderTree;
+
+/// <summary>
+/// Renders a <see cref="RenderTree"/> as pretty-printed JSON suitable for piping
+/// and automation. Manually written via <see cref="Utf8JsonWriter"/> so the
+/// rendering is AOT-clean (no reflection).
+/// </summary>
+/// <remarks>
+/// <para>Projection rules:</para>
+/// <list type="bullet">
+/// <item>A tree whose single root node is a <see cref="RenderNode.Record"/> projects
+/// as a top-level JSON object whose properties are the record's
+/// <see cref="RenderNode.Record.Fields"/>. The discriminator
+/// <see cref="RenderNode.Record.Kind"/> is NOT emitted — it is a machine tag for
+/// renderer dispatch, not a wire field. This matches the legacy
+/// <c>JsonOutputFormatter.FormatSetConfirmation</c> shape that downstream
+/// consumers (MCP envelopes, shell scripts) already depend on.</item>
+/// <item>A tree whose single root node is a <see cref="RenderNode.Table"/> projects
+/// as a top-level JSON array whose elements are the table's rows projected as
+/// objects.</item>
+/// <item>A tree with multiple root nodes — or a single root that is not a Record
+/// or Table — projects as a top-level JSON array of per-node projections.</item>
+/// </list>
+/// <para>Per-node projection inside an array:</para>
+/// <list type="bullet">
+/// <item><see cref="RenderNode.Text"/> → <c>{ "text": "..." }</c>, plus
+/// <c>"severity"</c> when non-<see cref="Severity.None"/>.</item>
+/// <item><see cref="RenderNode.Hint"/> → omitted (hints are human-only).</item>
+/// <item><see cref="RenderNode.KeyValue"/> → <c>{ "key": "...", "value": ... }</c>
+/// with the value typed by <see cref="RenderCell.Value"/>.</item>
+/// <item><see cref="RenderNode.Record"/> → object of fields; <c>kind</c>
+/// emitted when set (inside an array, the kind tag carries meaning).</item>
+/// <item><see cref="RenderNode.Table"/> → <c>{ "rows": [...] }</c>; columns are
+/// metadata only, omitted from machine output (consumers use field keys).</item>
+/// <item><see cref="RenderNode.TreeView"/> → hierarchical object; each branch is
+/// <c>{ ...row.Cells, "children": [...] }</c>.</item>
+/// <item><see cref="RenderNode.Section"/> → <c>{ "header": "...", "children": [...] }</c>;
+/// header omitted when null.</item>
+/// </list>
+/// <para>
+/// <see cref="RenderValue"/> projection:
+/// <c>Integer</c>→number, <c>Decimal</c>→number, <c>Boolean</c>→bool,
+/// <c>String</c>→string, <c>DateTime</c>→ISO-8601 string, <c>Null</c>→null,
+/// <c>Absent</c>→property omitted (cells with <c>Absent</c> values do not appear
+/// in machine output; the human renderer falls back to <see cref="RenderCell.DisplayText"/>).
+/// </para>
+/// </remarks>
+public sealed class JsonRenderer(TextWriter output) : IRenderer
+{
+    private static readonly JsonWriterOptions WriterOptions = new() { Indented = true };
+
+    public void Render(RenderTree tree)
+    {
+        ArgumentNullException.ThrowIfNull(tree);
+
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream, WriterOptions))
+        {
+            this.WriteTree(writer, tree);
+        }
+
+        var json = Encoding.UTF8.GetString(stream.ToArray());
+        output.Write(json);
+    }
+
+    private void WriteTree(Utf8JsonWriter writer, RenderTree tree)
+    {
+        if (tree.Nodes.Count == 1)
+        {
+            switch (tree.Nodes[0])
+            {
+                case RenderNode.Record rec:
+                    WriteRecordFieldsAsObject(writer, rec, emitKind: false);
+                    return;
+                case RenderNode.Table table:
+                    WriteTableRowsAsArray(writer, table);
+                    return;
+            }
+        }
+
+        writer.WriteStartArray();
+        foreach (var node in tree.Nodes)
+        {
+            WriteNodeAsArrayElement(writer, node);
+        }
+        writer.WriteEndArray();
+    }
+
+    private static void WriteNodeAsArrayElement(Utf8JsonWriter writer, RenderNode node)
+    {
+        switch (node)
+        {
+            case RenderNode.Text text:
+                writer.WriteStartObject();
+                writer.WriteString("text", text.Content);
+                if (text.Severity != Severity.None)
+                {
+                    writer.WriteString("severity", text.Severity.ToString());
+                }
+                writer.WriteEndObject();
+                break;
+            case RenderNode.Hint:
+                // Hints are human-only — omitted from machine output.
+                break;
+            case RenderNode.KeyValue kv:
+                writer.WriteStartObject();
+                writer.WriteString("key", kv.Key);
+                writer.WritePropertyName("value");
+                WriteRenderValue(writer, kv.Value.Value, kv.Value.DisplayText);
+                writer.WriteEndObject();
+                break;
+            case RenderNode.Record rec:
+                WriteRecordFieldsAsObject(writer, rec, emitKind: true);
+                break;
+            case RenderNode.Table table:
+                writer.WriteStartObject();
+                writer.WritePropertyName("rows");
+                WriteTableRowsAsArray(writer, table);
+                writer.WriteEndObject();
+                break;
+            case RenderNode.TreeView treeView:
+                WriteBranch(writer, treeView.Root);
+                break;
+            case RenderNode.Section section:
+                writer.WriteStartObject();
+                if (section.Header is not null)
+                {
+                    writer.WriteString("header", section.Header);
+                }
+                writer.WriteStartArray("children");
+                foreach (var child in section.Children)
+                {
+                    WriteNodeAsArrayElement(writer, child);
+                }
+                writer.WriteEndArray();
+                writer.WriteEndObject();
+                break;
+        }
+    }
+
+    private static void WriteRecordFieldsAsObject(Utf8JsonWriter writer, RenderNode.Record rec, bool emitKind)
+    {
+        writer.WriteStartObject();
+        if (emitKind && !string.IsNullOrEmpty(rec.Kind))
+        {
+            writer.WriteString("kind", rec.Kind);
+        }
+
+        foreach (var (key, cell) in rec.Fields)
+        {
+            if (cell.Value is RenderValue.Absent)
+            {
+                continue;
+            }
+
+            writer.WritePropertyName(key);
+            WriteRenderValue(writer, cell.Value, cell.DisplayText);
+        }
+
+        writer.WriteEndObject();
+    }
+
+    private static void WriteTableRowsAsArray(Utf8JsonWriter writer, RenderNode.Table table)
+    {
+        writer.WriteStartArray();
+        foreach (var row in table.Rows)
+        {
+            writer.WriteStartObject();
+            if (!string.IsNullOrEmpty(row.Kind))
+            {
+                writer.WriteString("kind", row.Kind);
+            }
+
+            foreach (var (key, cell) in row.Cells)
+            {
+                if (cell.Value is RenderValue.Absent)
+                {
+                    continue;
+                }
+
+                writer.WritePropertyName(key);
+                WriteRenderValue(writer, cell.Value, cell.DisplayText);
+            }
+
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+    }
+
+    private static void WriteBranch(Utf8JsonWriter writer, RenderTreeBranch branch)
+    {
+        writer.WriteStartObject();
+        if (!string.IsNullOrEmpty(branch.Row.Kind))
+        {
+            writer.WriteString("kind", branch.Row.Kind);
+        }
+
+        foreach (var (key, cell) in branch.Row.Cells)
+        {
+            if (cell.Value is RenderValue.Absent)
+            {
+                continue;
+            }
+
+            writer.WritePropertyName(key);
+            WriteRenderValue(writer, cell.Value, cell.DisplayText);
+        }
+
+        if (branch.Children.Count > 0)
+        {
+            writer.WriteStartArray("children");
+            foreach (var child in branch.Children)
+            {
+                WriteBranch(writer, child);
+            }
+            writer.WriteEndArray();
+        }
+
+        writer.WriteEndObject();
+    }
+
+    private static void WriteRenderValue(Utf8JsonWriter writer, RenderValue value, string displayFallback)
+    {
+        switch (value)
+        {
+            case RenderValue.String s:
+                writer.WriteStringValue(s.Value);
+                break;
+            case RenderValue.Integer i:
+                writer.WriteNumberValue(i.Value);
+                break;
+            case RenderValue.Decimal d:
+                writer.WriteNumberValue(d.Value);
+                break;
+            case RenderValue.Boolean b:
+                writer.WriteBooleanValue(b.Value);
+                break;
+            case RenderValue.DateTime dt:
+                writer.WriteStringValue(dt.Value.ToString("o", CultureInfo.InvariantCulture));
+                break;
+            case RenderValue.Null:
+                writer.WriteNullValue();
+                break;
+            case RenderValue.Absent:
+                // Absent values are skipped by callers before reaching this method;
+                // fall back to the display text so a stray Absent doesn't crash the
+                // writer (e.g. KeyValue with Absent).
+                writer.WriteStringValue(displayFallback);
+                break;
+        }
+    }
+}

@@ -75,10 +75,41 @@ public sealed class RendererFactory
 
     private static IAnsiConsole CreateAnsiConsole(TextWriter writer)
     {
-        var console = AnsiConsole.Create(new AnsiConsoleSettings
+        // Render plain text unconditionally. Spectre's auto-detection of
+        // ANSI support keys off the TERM env var when the upstream writer
+        // is not a terminal — on Linux CI runners TERM=xterm-256color is
+        // set, so Spectre emits ANSI escape codes even when stdout has
+        // been redirected to a StringWriter (tests) or a pipe (CI logs,
+        // `twig … | cat`). On Windows TERM is unset so Spectre stays
+        // plain; the divergence breaks tests that assert on rendered
+        // output.
+        //
+        // Disabling ANSI/colour unconditionally here gives deterministic
+        // output across platforms. Box-drawing characters (tables, trees)
+        // still render via Unicode, which works fine in non-TTY contexts.
+        // HumanOutputFormatter keeps its own hardcoded ANSI codes for the
+        // legacy paths that target live terminals directly, so interactive
+        // colour output is preserved through that surface.
+        var settings = new AnsiConsoleSettings
         {
             Out = new AnsiConsoleOutput(writer),
-        });
+            Ansi = AnsiSupport.No,
+            ColorSystem = ColorSystemSupport.NoColors,
+            Interactive = InteractionSupport.No,
+        };
+        var console = AnsiConsole.Create(settings);
+        // Belt-and-braces: Spectre's `AnsiSupport.No` setting is honoured by
+        // its capability detector, but on some platforms (notably GitHub
+        // Actions Linux runners) Spectre still emits ANSI escape codes for
+        // styling markup like `[bold]…[/]` even after construction. Force
+        // the profile capabilities explicitly so the renderer never writes
+        // escape sequences.
+        console.Profile.Capabilities.Ansi = false;
+        console.Profile.Capabilities.Links = false;
+        console.Profile.Capabilities.Legacy = false;
+        console.Profile.Capabilities.Interactive = false;
+        console.Profile.Capabilities.Unicode = true;
+        console.Profile.Capabilities.ColorSystem = ColorSystem.NoColors;
         // Disable hard wrapping for migrated commands. Legacy `HumanOutputFormatter`
         // wrote raw strings via `Console.WriteLine` which never wraps, and tests
         // (plus pipelines) rely on long success messages staying on one line.

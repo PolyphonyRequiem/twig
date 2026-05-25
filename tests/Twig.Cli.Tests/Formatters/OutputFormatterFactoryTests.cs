@@ -5,10 +5,12 @@ using Xunit;
 namespace Twig.Cli.Tests.Formatters;
 
 /// <summary>
-/// After AB#3301 retired the machine-shape formatters, the factory always
-/// returns <see cref="HumanOutputFormatter"/>. These tests pin that contract
-/// so the few callers that still inject an <see cref="IOutputFormatter"/>
-/// keep getting a working instance for every documented format alias.
+/// After AB#3301 retired the machine-shape formatters,
+/// <see cref="HumanOutputFormatter"/> became the sole structured formatter.
+/// To keep stderr messages plain-text for non-interactive consumers (CI
+/// logs, jq pipelines) the factory wraps the human formatter in an
+/// ANSI-stripping <see cref="PlainOutputFormatter"/> when a machine format
+/// alias is requested. These tests pin both halves of the contract.
 /// </summary>
 public class OutputFormatterFactoryTests
 {
@@ -18,17 +20,31 @@ public class OutputFormatterFactoryTests
     [InlineData("human")]
     [InlineData("HUMAN")]
     [InlineData("Human")]
+    [InlineData("xyz")]
+    [InlineData("")]
+    public void GetFormatter_HumanOrUnknownFormat_ReturnsHumanOutputFormatter(string format)
+    {
+        _factory.GetFormatter(format).ShouldBeOfType<HumanOutputFormatter>();
+    }
+
+    [Theory]
     [InlineData("json")]
     [InlineData("JSON")]
     [InlineData("json-full")]
     [InlineData("json-compact")]
     [InlineData("minimal")]
     [InlineData("ids")]
-    [InlineData("xyz")]
-    [InlineData("")]
-    public void GetFormatter_AnyFormat_ReturnsHumanOutputFormatter(string format)
+    public void GetFormatter_MachineFormat_ReturnsPlainAnsiStrippingFormatter(string format)
     {
-        _factory.GetFormatter(format).ShouldBeOfType<HumanOutputFormatter>();
+        var fmt = _factory.GetFormatter(format);
+
+        // Sanity-check the contract by exercising a styled message: the
+        // returned formatter must emit no ANSI escape codes for machine
+        // formats, regardless of how HumanOutputFormatter would style it.
+        fmt.FormatInfo("hello").ShouldNotContain("\x1b[");
+        fmt.FormatError("boom").ShouldNotContain("\x1b[");
+        fmt.FormatSuccess("ok").ShouldNotContain("\x1b[");
+        fmt.FormatHint("tip").ShouldNotContain("\x1b[");
     }
 
     [Fact]

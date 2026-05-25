@@ -35,7 +35,7 @@ public class RenderingPipelineFactoryTests
         var factory = CreateFactory();
         var (formatter, renderer) = factory.Resolve("json");
 
-        formatter.ShouldBeOfType<HumanOutputFormatter>();
+        formatter.ShouldBeAssignableTo<IOutputFormatter>();
         renderer.ShouldBeNull();
     }
 
@@ -45,7 +45,7 @@ public class RenderingPipelineFactoryTests
         var factory = CreateFactory();
         var (formatter, renderer) = factory.Resolve("minimal");
 
-        formatter.ShouldBeOfType<HumanOutputFormatter>();
+        formatter.ShouldBeAssignableTo<IOutputFormatter>();
         renderer.ShouldBeNull();
     }
 
@@ -129,13 +129,21 @@ public class RenderingPipelineFactoryTests
     }
 
     [Fact]
-    public void Resolve_AlwaysReturnsHumanOutputFormatter()
+    public void Resolve_AlwaysReturnsHumanCompatibleFormatter()
     {
         var factory = CreateFactory();
 
+        // Human format returns the raw HumanOutputFormatter (ANSI styling preserved
+        // for interactive use). Machine formats are wrapped in a plain ANSI-stripping
+        // formatter so incidental stderr messages stay free of escape codes —
+        // both still satisfy IOutputFormatter.
         factory.Resolve("human").Formatter.ShouldBeOfType<HumanOutputFormatter>();
-        factory.Resolve("json").Formatter.ShouldBeOfType<HumanOutputFormatter>();
-        factory.Resolve("minimal").Formatter.ShouldBeOfType<HumanOutputFormatter>();
+        factory.Resolve("json").Formatter.ShouldBeAssignableTo<IOutputFormatter>();
+        factory.Resolve("minimal").Formatter.ShouldBeAssignableTo<IOutputFormatter>();
+
+        // Machine-format formatters must not emit ANSI escape sequences.
+        factory.Resolve("json").Formatter.FormatInfo("hi").ShouldNotContain("\x1b[");
+        factory.Resolve("minimal").Formatter.FormatError("boom").ShouldNotContain("\x1b[");
     }
 
     [Fact]

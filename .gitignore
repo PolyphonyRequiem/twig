@@ -70,3 +70,4 @@ desktop.ini
 # polyphony per-repo config — committed via a separate stack
 .polyphony-config/
 
+ci-log*.txt

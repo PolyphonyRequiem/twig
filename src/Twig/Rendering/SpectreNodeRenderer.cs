@@ -52,6 +52,9 @@ internal sealed class SpectreNodeRenderer(IAnsiConsole console) : IRenderer
             case RenderNode.Text text:
                 this.WriteText(text);
                 break;
+            case RenderNode.Markup markup:
+                console.MarkupLine(markup.Content);
+                break;
             case RenderNode.Hint hint:
                 console.MarkupLine($"[grey]{Markup.Escape(hint.Content)}[/]");
                 break;

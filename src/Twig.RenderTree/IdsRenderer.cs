@@ -40,10 +40,11 @@ public sealed class IdsRenderer(TextWriter output) : IRenderer
         switch (node)
         {
             case RenderNode.Text:
+            case RenderNode.Markup:
             case RenderNode.Hint:
             case RenderNode.KeyValue:
-                // Free-floating text / hints / labelled values carry no row context,
-                // so they're not eligible for ID extraction.
+                // Free-floating text / markup / hints / labelled values carry no
+                // row context, so they're not eligible for ID extraction.
                 break;
             case RenderNode.Record rec:
                 this.TryWriteId(rec.Fields);

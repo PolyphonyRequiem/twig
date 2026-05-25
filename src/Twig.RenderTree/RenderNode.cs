@@ -31,6 +31,21 @@ public abstract record RenderNode
     public sealed record Text(string Content, Severity Severity = Severity.None) : RenderNode;
 
     /// <summary>
+    /// A line of pre-styled human output expressed as Spectre.Console markup
+    /// (e.g. <c>"Set active item: #42 Title [[[green]Active[/]]]"</c>). The Spectre
+    /// node renderer passes <see cref="Content"/> straight through Spectre markup
+    /// parsing; non-Spectre renderers project this as the markup-stripped string.
+    /// </summary>
+    /// <remarks>
+    /// Commands typically choose between <see cref="Text"/> and <see cref="Markup"/>
+    /// per output format: emit <see cref="Markup"/> when the human format requires
+    /// inline color/style (e.g. coloring just the state in a single-line
+    /// confirmation), and emit <see cref="Text"/> / <see cref="Record"/> /
+    /// <see cref="Table"/> for machine formats.
+    /// </remarks>
+    public sealed record Markup(string Content) : RenderNode;
+
+    /// <summary>
     /// Secondary guidance shown dim in human output and typically suppressed in
     /// machine output (JSON / minimal / ids).
     /// </summary>

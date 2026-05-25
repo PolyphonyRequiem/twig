@@ -343,3 +343,19 @@ override Twig.RenderTree.RenderNode.Document.ToString() -> string!
 override Twig.RenderTree.RenderNode.Document.<Clone>$() -> Twig.RenderTree.RenderNode.Document!
 static Twig.RenderTree.RenderNode.Document.operator ==(Twig.RenderTree.RenderNode.Document? left, Twig.RenderTree.RenderNode.Document? right) -> bool
 static Twig.RenderTree.RenderNode.Document.operator !=(Twig.RenderTree.RenderNode.Document? left, Twig.RenderTree.RenderNode.Document? right) -> bool
+
+Twig.RenderTree.MarkupHelpers
+static Twig.RenderTree.MarkupHelpers.StripMarkup(string! markup) -> string!
+Twig.RenderTree.RenderNode.Markup
+Twig.RenderTree.RenderNode.Markup.Content.get -> string!
+Twig.RenderTree.RenderNode.Markup.Content.init -> void
+Twig.RenderTree.RenderNode.Markup.Markup(string! Content) -> void
+Twig.RenderTree.RenderNode.Markup.Deconstruct(out string! Content) -> void
+Twig.RenderTree.RenderNode.Markup.Equals(Twig.RenderTree.RenderNode.Markup? other) -> bool
+override Twig.RenderTree.RenderNode.Markup.Equals(object? obj) -> bool
+override sealed Twig.RenderTree.RenderNode.Markup.Equals(Twig.RenderTree.RenderNode? other) -> bool
+override Twig.RenderTree.RenderNode.Markup.GetHashCode() -> int
+override Twig.RenderTree.RenderNode.Markup.ToString() -> string!
+override Twig.RenderTree.RenderNode.Markup.<Clone>$() -> Twig.RenderTree.RenderNode.Markup!
+static Twig.RenderTree.RenderNode.Markup.operator ==(Twig.RenderTree.RenderNode.Markup? left, Twig.RenderTree.RenderNode.Markup? right) -> bool
+static Twig.RenderTree.RenderNode.Markup.operator !=(Twig.RenderTree.RenderNode.Markup? left, Twig.RenderTree.RenderNode.Markup? right) -> bool

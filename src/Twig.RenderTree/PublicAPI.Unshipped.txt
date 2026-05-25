@@ -359,3 +359,16 @@ override Twig.RenderTree.RenderNode.Markup.ToString() -> string!
 override Twig.RenderTree.RenderNode.Markup.<Clone>$() -> Twig.RenderTree.RenderNode.Markup!
 static Twig.RenderTree.RenderNode.Markup.operator ==(Twig.RenderTree.RenderNode.Markup? left, Twig.RenderTree.RenderNode.Markup? right) -> bool
 static Twig.RenderTree.RenderNode.Markup.operator !=(Twig.RenderTree.RenderNode.Markup? left, Twig.RenderTree.RenderNode.Markup? right) -> bool
+override sealed Twig.RenderTree.RenderValue.Object.Equals(Twig.RenderTree.RenderValue? other) -> bool
+override Twig.RenderTree.RenderValue.Object.<Clone>$() -> Twig.RenderTree.RenderValue.Object!
+override Twig.RenderTree.RenderValue.Object.Equals(object? obj) -> bool
+override Twig.RenderTree.RenderValue.Object.GetHashCode() -> int
+override Twig.RenderTree.RenderValue.Object.ToString() -> string!
+static Twig.RenderTree.RenderValue.Object.operator !=(Twig.RenderTree.RenderValue.Object? left, Twig.RenderTree.RenderValue.Object? right) -> bool
+static Twig.RenderTree.RenderValue.Object.operator ==(Twig.RenderTree.RenderValue.Object? left, Twig.RenderTree.RenderValue.Object? right) -> bool
+Twig.RenderTree.RenderValue.Object
+Twig.RenderTree.RenderValue.Object.Cells.get -> System.Collections.Generic.IReadOnlyDictionary<string!, Twig.RenderTree.RenderCell!>!
+Twig.RenderTree.RenderValue.Object.Cells.init -> void
+Twig.RenderTree.RenderValue.Object.Deconstruct(out System.Collections.Generic.IReadOnlyDictionary<string!, Twig.RenderTree.RenderCell!>! Cells) -> void
+Twig.RenderTree.RenderValue.Object.Equals(Twig.RenderTree.RenderValue.Object? other) -> bool
+Twig.RenderTree.RenderValue.Object.Object(System.Collections.Generic.IReadOnlyDictionary<string!, Twig.RenderTree.RenderCell!>! Cells) -> void

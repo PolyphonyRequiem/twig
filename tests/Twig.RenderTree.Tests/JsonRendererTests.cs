@@ -268,6 +268,56 @@ public sealed class JsonRendererTests
         doc.RootElement.GetArrayLength().ShouldBe(0);
     }
 
+    [Fact]
+    public void Object_EmitsNestedJsonObject()
+    {
+        var (renderer, writer) = CreateRenderer();
+        var inner = new Dictionary<string, RenderCell>
+        {
+            ["name"] = RenderCell.String("Predecessor"),
+        };
+        var fields = new Dictionary<string, RenderCell>
+        {
+            ["id"] = RenderCell.Integer(42),
+            ["rel"] = RenderCell.String("System.LinkTypes.Dependency-Reverse"),
+            ["attributes"] = new RenderCell(string.Empty, new RenderValue.Object(inner)),
+        };
+        var tree = new RenderTree([new RenderNode.Record(null, fields)]);
+
+        renderer.Render(tree);
+
+        using var doc = JsonDocument.Parse(writer.ToString());
+        var root = doc.RootElement;
+        root.GetProperty("id").GetInt32().ShouldBe(42);
+        root.GetProperty("rel").GetString().ShouldBe("System.LinkTypes.Dependency-Reverse");
+        var attrs = root.GetProperty("attributes");
+        attrs.ValueKind.ShouldBe(JsonValueKind.Object);
+        attrs.GetProperty("name").GetString().ShouldBe("Predecessor");
+    }
+
+    [Fact]
+    public void Object_SkipsAbsentChildCells()
+    {
+        var (renderer, writer) = CreateRenderer();
+        var inner = new Dictionary<string, RenderCell>
+        {
+            ["present"] = RenderCell.String("here"),
+            ["missing"] = RenderCell.DisplayOnly("—"),
+        };
+        var fields = new Dictionary<string, RenderCell>
+        {
+            ["obj"] = new RenderCell(string.Empty, new RenderValue.Object(inner)),
+        };
+        var tree = new RenderTree([new RenderNode.Record(null, fields)]);
+
+        renderer.Render(tree);
+
+        using var doc = JsonDocument.Parse(writer.ToString());
+        var obj = doc.RootElement.GetProperty("obj");
+        obj.TryGetProperty("present", out _).ShouldBeTrue();
+        obj.TryGetProperty("missing", out _).ShouldBeFalse();
+    }
+
     private static (JsonRenderer Renderer, StringWriter Writer) CreateRenderer()
     {
         var writer = new StringWriter();

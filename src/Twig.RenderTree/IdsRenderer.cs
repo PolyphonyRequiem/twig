@@ -93,5 +93,16 @@ public sealed class IdsRenderer(TextWriter output) : IRenderer
         {
             output.WriteLine(integer.Value.ToString(CultureInfo.InvariantCulture));
         }
+
+        // Descend into nested object cells so per-node `fields` blocks
+        // (or any other Object-typed cell) still surface their own `id`
+        // keys for shell piping.
+        foreach (var (_, c) in cells)
+        {
+            if (c.Value is RenderValue.Object obj)
+            {
+                this.TryWriteId(obj.Cells);
+            }
+        }
     }
 }

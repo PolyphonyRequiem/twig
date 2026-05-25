@@ -433,6 +433,19 @@ public sealed class ShowCommand(
             fields.Add(new DocumentField("links", new RenderNode.Section(null, linkNodes)));
         }
 
+        // Top-level `relations` array mirrors the ADO REST shape that
+        // polyphony's TwigClient reads — each entry carries `id`, `rel`
+        // (ADO reference name), `url`, and `attributes.name` (friendly
+        // name). Built from the same WorkItemLink set as `links` so
+        // consumers can pick whichever shape they prefer.
+        if (links is { Count: > 0 })
+        {
+            var relationNodes = new List<RenderNode>(links.Count);
+            foreach (var link in links)
+                relationNodes.Add(BuildRelationRecord(link));
+            fields.Add(new DocumentField("relations", new RenderNode.Section(null, relationNodes)));
+        }
+
         if (pendingChanges is { } pc && (pc.FieldCount > 0 || pc.NoteCount > 0))
         {
             var pcFields = new List<DocumentField>
@@ -492,7 +505,9 @@ public sealed class ShowCommand(
         foreach (var (refName, value) in item.Fields)
         {
             if (string.IsNullOrEmpty(value)) continue;
-            if (string.Equals(refName, "System.Tags", StringComparison.OrdinalIgnoreCase)) continue;
+            // Tags ARE emitted inside the fields block (as well as at the
+            // top level as the convenience `tags` string) so polyphony's
+            // fallback path `fields["System.Tags"]` continues to work.
             cells[refName] = RenderCell.String(value);
         }
 
@@ -532,6 +547,36 @@ public sealed class ShowCommand(
             ["sourceId"] = RenderCell.Integer(link.SourceId),
             ["targetId"] = RenderCell.Integer(link.TargetId),
             ["linkType"] = RenderCell.String(link.LinkType ?? string.Empty),
+        });
+    }
+
+    /// <summary>
+    /// Projects a <see cref="WorkItemLink"/> as an ADO-shaped relation record.
+    /// Polyphony's <c>TwigClient.ExtractPredecessors</c> reads each relation's
+    /// <c>rel</c> (ADO reference name like
+    /// <c>System.LinkTypes.Dependency-Reverse</c>), <c>attributes.name</c>
+    /// (friendly name like <c>"Predecessor"</c>), and falls back to <c>id</c>
+    /// when <c>url</c> is empty. <c>url</c> is emitted as the empty string
+    /// because twig does not persist the source ADO relation URL.
+    /// </summary>
+    private static RenderNode BuildRelationRecord(WorkItemLink link)
+    {
+        var friendlyName = link.LinkType ?? string.Empty;
+        var adoRel = !string.IsNullOrEmpty(friendlyName) && LinkTypeMapper.TryResolve(friendlyName, out var resolved)
+            ? resolved
+            : friendlyName;
+
+        var attributes = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["name"] = RenderCell.String(friendlyName),
+        };
+
+        return new RenderNode.Record(null, new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["id"] = RenderCell.Integer(link.TargetId),
+            ["rel"] = RenderCell.String(adoRel),
+            ["url"] = RenderCell.String(string.Empty),
+            ["attributes"] = new RenderCell(string.Empty, new RenderValue.Object(attributes)),
         });
     }
 

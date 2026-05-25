@@ -458,6 +458,71 @@ public sealed class ShowCommandTests : IDisposable
         output.ShouldContain("\"id\": 42");
     }
 
+    [Fact]
+    public async Task Show_JsonFormat_IncludesSystemTagsInFieldsBlock()
+    {
+        // Polyphony's TwigClient reads `item["fields"]["System.Tags"]` as a
+        // fallback for the top-level `tags` projection — exercise that the
+        // tags field is present in BOTH locations.
+        var item = new WorkItemBuilder(42, "Tagged Item")
+            .WithField("System.Tags", "polyphony:planned; needs-review")
+            .Build();
+        SetupCachedItem(item);
+
+        var output = await CaptureStdout(() => _cmd.ExecuteAsync(42, "json"));
+
+        using var doc = System.Text.Json.JsonDocument.Parse(output);
+        var root = doc.RootElement;
+        root.GetProperty("tags").GetString().ShouldBe("polyphony:planned; needs-review");
+        root.GetProperty("fields").GetProperty("System.Tags").GetString()
+            .ShouldBe("polyphony:planned; needs-review");
+    }
+
+    [Fact]
+    public async Task Show_JsonFormat_EmitsRelationsArrayForLinkedItems()
+    {
+        // Polyphony's TwigClient reads `item["relations"]` with each entry
+        // carrying `id`, `rel` (ADO reference name), `url`, and
+        // `attributes.name` (friendly name). Verify the wire shape.
+        var item = new WorkItemBuilder(42, "Item With Links").Build();
+        SetupCachedItem(item);
+        _linkRepo.GetLinksAsync(42, Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new WorkItemLink(42, 99, "Predecessor"),
+                new WorkItemLink(42, 100, "Related"),
+            });
+
+        var output = await CaptureStdout(() => _cmd.ExecuteAsync(42, "json"));
+
+        using var doc = System.Text.Json.JsonDocument.Parse(output);
+        var relations = doc.RootElement.GetProperty("relations");
+        relations.GetArrayLength().ShouldBe(2);
+
+        var first = relations[0];
+        first.GetProperty("id").GetInt32().ShouldBe(99);
+        first.GetProperty("rel").GetString().ShouldBe("System.LinkTypes.Dependency-Reverse");
+        first.GetProperty("url").GetString().ShouldBe(string.Empty);
+        first.GetProperty("attributes").GetProperty("name").GetString().ShouldBe("Predecessor");
+
+        var second = relations[1];
+        second.GetProperty("id").GetInt32().ShouldBe(100);
+        second.GetProperty("rel").GetString().ShouldBe("System.LinkTypes.Related");
+        second.GetProperty("attributes").GetProperty("name").GetString().ShouldBe("Related");
+    }
+
+    [Fact]
+    public async Task Show_JsonFormat_OmitsRelationsWhenNoLinks()
+    {
+        var item = new WorkItemBuilder(42, "Lonely Item").Build();
+        SetupCachedItem(item);
+
+        var output = await CaptureStdout(() => _cmd.ExecuteAsync(42, "json"));
+
+        using var doc = System.Text.Json.JsonDocument.Parse(output);
+        doc.RootElement.TryGetProperty("relations", out _).ShouldBeFalse();
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //  IDs output format — bare numeric ID
     // ═══════════════════════════════════════════════════════════════

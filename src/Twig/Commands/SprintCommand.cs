@@ -1,5 +1,7 @@
 using Twig.Formatters;
 using Twig.Infrastructure.Config;
+using Twig.RenderTree;
+using Twig.Rendering;
 
 namespace Twig.Commands;
 
@@ -8,11 +10,20 @@ namespace Twig.Commands;
 /// <c>add</c>, <c>remove</c>, and <c>list</c>.
 /// Sprint expressions can be relative (@current, @current±N) or absolute iteration paths.
 /// </summary>
+/// <remarks>
+/// Migrated to the AB#3301 <see cref="RendererFactory"/>/<see cref="IRenderer"/> seam:
+/// add/remove emit "sprintAdded"/"sprintRemoved" records; list emits a "sprintList" record with
+/// an entries array on machine formats and streamed lines on human format.
+/// <see cref="OutputFormatterFactory"/> is retained only for stderr error formatting.
+/// </remarks>
 public sealed class SprintCommand(
     TwigConfiguration config,
     TwigPaths paths,
-    OutputFormatterFactory formatterFactory)
+    OutputFormatterFactory formatterFactory,
+    RendererFactory? rendererFactory = null)
 {
+    private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
+
     /// <summary>Add a sprint iteration expression to the workspace configuration.</summary>
     public async Task<int> AddAsync(string expression, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
@@ -27,7 +38,6 @@ public sealed class SprintCommand(
 
         config.Workspace.Sprints ??= [];
 
-        // Duplicate check (case-insensitive)
         var existing = config.Workspace.Sprints
             .FindIndex(e => string.Equals(e.Expression, expression, StringComparison.OrdinalIgnoreCase));
 
@@ -41,7 +51,7 @@ public sealed class SprintCommand(
         config.Workspace.Sprints.Add(entry);
         await config.SaveSplitAsync(paths, ct);
 
-        Console.WriteLine(fmt.FormatSuccess($"Added sprint expression '{expression}'."));
+        RenderOutcome("sprintAdded", $"Added sprint expression '{expression}'.", expression, outputFormat, Severity.Success);
         return 0;
     }
 
@@ -68,7 +78,7 @@ public sealed class SprintCommand(
         config.Workspace.Sprints.RemoveAt(index);
         await config.SaveSplitAsync(paths, ct);
 
-        Console.WriteLine(fmt.FormatSuccess($"Removed sprint expression '{expression}'."));
+        RenderOutcome("sprintRemoved", $"Removed sprint expression '{expression}'.", expression, outputFormat, Severity.Success);
         return 0;
     }
 
@@ -76,19 +86,64 @@ public sealed class SprintCommand(
     public Task<int> ListAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
         _ = ct;
-        var fmt = formatterFactory.GetFormatter(outputFormat);
-
         var entries = config.Workspace.Sprints;
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
 
-        if (entries is not { Count: > 0 })
+        if (lower is "json" or "json-full" or "json-compact" or "ids")
         {
-            Console.WriteLine(fmt.FormatInfo("No sprint expressions configured. Use 'twig workspace sprint add <expr>' to configure."));
+            var list = entries ?? new List<SprintEntry>();
+            var columns = new List<RenderColumn> { new("expression", "Expression") };
+            var rows = new List<RenderRow>(list.Count);
+            foreach (var e in list)
+            {
+                var cells = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+                {
+                    ["expression"] = RenderCell.String(e.Expression),
+                };
+                rows.Add(new RenderRow("sprint", cells));
+            }
+
+            var fields = new List<DocumentField>(2)
+            {
+                new("count", new RenderNode.KeyValue("count", RenderCell.Integer(rows.Count))),
+                new("entries", new RenderNode.Table(null, columns, rows)),
+            };
+            var document = new RenderNode.Document("sprintList", fields);
+            _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(new[] { (RenderNode)document }));
             return Task.FromResult(0);
         }
 
+        if (entries is not { Count: > 0 })
+        {
+            _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(new[]
+            {
+                (RenderNode)new RenderNode.Text("No sprint expressions configured. Use 'twig workspace sprint add <expr>' to configure.", Severity.Info),
+            }));
+            return Task.FromResult(0);
+        }
+
+        var nodes = new List<RenderNode>();
         foreach (var entry in entries)
-            Console.WriteLine(fmt.FormatInfo(entry.Expression));
-        Console.WriteLine(fmt.FormatInfo($"{entries.Count} sprint expression(s) configured."));
+            nodes.Add(new RenderNode.Text(entry.Expression, Severity.Info));
+        nodes.Add(new RenderNode.Text($"{entries.Count} sprint expression(s) configured.", Severity.Info));
+        _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(nodes));
         return Task.FromResult(0);
+    }
+
+    private void RenderOutcome(string kind, string message, string expression, string outputFormat, Severity severity)
+    {
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        RenderNode node = lower switch
+        {
+            "minimal" => new RenderNode.Text(message),
+            "json" or "json-full" or "json-compact" or "ids" =>
+                new RenderNode.Record(kind, new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+                {
+                    ["expression"] = RenderCell.String(expression),
+                    ["message"] = RenderCell.String(message),
+                }),
+            _ => new RenderNode.Text(message, severity),
+        };
+        _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(new[] { node }));
     }
 }

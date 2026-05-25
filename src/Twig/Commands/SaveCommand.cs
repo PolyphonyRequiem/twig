@@ -1,6 +1,8 @@
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Navigation;
 using Twig.Formatters;
+using Twig.RenderTree;
+using Twig.Rendering;
 
 namespace Twig.Commands;
 
@@ -10,6 +12,12 @@ namespace Twig.Commands;
 /// Supports scoped save: active work tree (default), single item, or all dirty items.
 /// Delegates all flush logic to <see cref="IPendingChangeFlusher"/>.
 /// </summary>
+/// <remarks>
+/// Migrated to the AB#3301 <see cref="RendererFactory"/>/<see cref="IRenderer"/> seam:
+/// "Nothing to save" emits a "saveNothingPending" record. Success/failure remains
+/// signaled via exit code (flush layer owns its own output).
+/// <see cref="OutputFormatterFactory"/> is retained only for stderr error formatting.
+/// </remarks>
 public sealed class SaveCommand(
     IWorkItemRepository workItemRepo,
     IPendingChangeStore pendingChangeStore,
@@ -17,16 +25,13 @@ public sealed class SaveCommand(
     ActiveItemResolver activeItemResolver,
     OutputFormatterFactory formatterFactory,
     IPromptStateWriter? promptStateWriter = null,
-    TextWriter? stderr = null)
+    TextWriter? stderr = null,
+    RendererFactory? rendererFactory = null)
 {
     private readonly TextWriter _stderr = stderr ?? Console.Error;
+    private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
 
     /// <summary>Push pending changes to Azure DevOps.</summary>
-    /// <param name="targetId">When set, save only this single item.</param>
-    /// <param name="all">When true, save all dirty items (legacy behavior).</param>
-    /// <param name="outputFormat">Output format: human, json, or minimal.</param>
-    /// <param name="skipPromptWrite">When true, suppresses the prompt state write. Useful for callers
-    /// that perform their own prompt state write after additional operations.</param>
     public async Task<int> ExecuteAsync(
         int? targetId = null,
         bool all = false,
@@ -52,7 +57,6 @@ public sealed class SaveCommand(
             }
             else
             {
-                // Active work tree mode: active item + dirty children
                 var activeResult = await activeItemResolver.GetActiveItemAsync();
                 if (!activeResult.TryGetWorkItem(out var activeItem, out var errorId, out var errorReason))
                 {
@@ -67,7 +71,7 @@ public sealed class SaveCommand(
                 var dirtyIds = await pendingChangeStore.GetDirtyItemIdsAsync();
                 if (dirtyIds.Count == 0)
                 {
-                    Console.WriteLine(fmt.FormatInfo("Nothing to save."));
+                    RenderNothingToSave(outputFormat);
                     return 0;
                 }
 
@@ -78,17 +82,16 @@ public sealed class SaveCommand(
 
             if (itemsToSave.Count == 0)
             {
-                Console.WriteLine(fmt.FormatInfo("Nothing to save."));
+                RenderNothingToSave(outputFormat);
                 return 0;
             }
 
             result = await pendingChangeFlusher.FlushAsync(itemsToSave, outputFormat, ct);
         }
 
-        // Handle cases with no dirty items (e.g., --all with nothing pending)
         if (result.ItemsFlushed == 0 && result.Failures.Count == 0)
         {
-            Console.WriteLine(fmt.FormatInfo("Nothing to save."));
+            RenderNothingToSave(outputFormat);
             return 0;
         }
 
@@ -96,5 +99,22 @@ public sealed class SaveCommand(
             await promptStateWriter.WritePromptStateAsync();
 
         return result.Failures.Count > 0 ? 1 : 0;
+    }
+
+    private void RenderNothingToSave(string outputFormat)
+    {
+        const string message = "Nothing to save.";
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        RenderNode node = lower switch
+        {
+            "minimal" => new RenderNode.Text(message),
+            "json" or "json-full" or "json-compact" or "ids" =>
+                new RenderNode.Record("saveNothingPending", new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+                {
+                    ["message"] = RenderCell.String(message),
+                }),
+            _ => new RenderNode.Text(message, Severity.Info),
+        };
+        _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(new[] { node }));
     }
 }

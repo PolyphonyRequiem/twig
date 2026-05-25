@@ -229,6 +229,39 @@ public class SeedDiscardCommandTests
         await _seedLinkRepo.DidNotReceive().DeleteLinksForItemAsync(Arg.Any<int>(), Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task SeedDiscard_JsonOutput_EmitsSeedDiscardedRecord()
+    {
+        var seed = CreateSeed(-7, "My Seed");
+        _workItemRepo.GetByIdAsync(-7, Arg.Any<CancellationToken>()).Returns(seed);
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns([seed]);
+
+        var (result, stdout) = await StdoutCapture.RunAsync(
+            () => _cmd.ExecuteAsync(-7, yes: true, outputFormat: "json"));
+
+        result.ShouldBe(0);
+        using var doc = System.Text.Json.JsonDocument.Parse(stdout);
+        doc.RootElement.GetProperty("id").GetInt32().ShouldBe(-7);
+        doc.RootElement.GetProperty("title").GetString().ShouldBe("My Seed");
+        doc.RootElement.GetProperty("descendantCount").GetInt32().ShouldBe(0);
+        doc.RootElement.GetProperty("message").GetString()!.ShouldContain("Discarded seed #-7");
+    }
+
+    [Fact]
+    public async Task SeedDiscard_MinimalOutput_OmitsCheckmark()
+    {
+        var seed = CreateSeed(-8, "Quiet Seed");
+        _workItemRepo.GetByIdAsync(-8, Arg.Any<CancellationToken>()).Returns(seed);
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>()).Returns([seed]);
+
+        var (result, stdout) = await StdoutCapture.RunAsync(
+            () => _cmd.ExecuteAsync(-8, yes: true, outputFormat: "minimal"));
+
+        result.ShouldBe(0);
+        stdout.ShouldNotContain("✓");
+        stdout.ShouldContain("Discarded seed #-8");
+    }
+
     private static WorkItem CreateSeed(int id, string title, int parentId = 1)
     {
         return new WorkItem

@@ -19,6 +19,8 @@ namespace Twig.RenderTree;
 /// query results, link lists, validation results.</item>
 /// <item><see cref="TreeView"/> — a hierarchy of rows. Use for work trees, seed groupings.</item>
 /// <item><see cref="Section"/> — a visual grouping container that holds further nodes.</item>
+/// <item><see cref="Document"/> — a named bag of child nodes; the structured-object analog
+/// of <see cref="Section"/>'s visual grouping.</item>
 /// </list>
 /// </remarks>
 public abstract record RenderNode
@@ -74,5 +76,29 @@ public abstract record RenderNode
     public sealed record Section(
         string? Header,
         IReadOnlyList<RenderNode> Children) : RenderNode;
+
+    /// <summary>
+    /// A named bag of child nodes — the structured-object analog of
+    /// <see cref="Section"/>. The JSON renderer projects this as a top-level
+    /// (or nested) JSON object whose properties come from each
+    /// <see cref="DocumentField.Key"/>. The human renderer walks each visible
+    /// field and emits the field's optional header followed by its rendered
+    /// content (using <see cref="DocumentField.HumanOverride"/> when set).
+    /// </summary>
+    /// <remarks>
+    /// Keep <see cref="Section"/> for visual grouping (header + indented
+    /// children) and <see cref="Document"/> for structured wrapper-object
+    /// payloads. Use <see cref="RenderAudience"/> on individual
+    /// <see cref="DocumentField"/>s when a field belongs to only one audience.
+    /// </remarks>
+    /// <param name="Kind">
+    /// Optional stable discriminator the JSON renderer emits as a <c>kind</c>
+    /// property when the document is one of several roots; suppressed when
+    /// the document is the single root (matching <see cref="Record"/>).
+    /// </param>
+    /// <param name="Fields">Ordered list of named fields.</param>
+    public sealed record Document(
+        string? Kind,
+        IReadOnlyList<DocumentField> Fields) : RenderNode;
 }
 

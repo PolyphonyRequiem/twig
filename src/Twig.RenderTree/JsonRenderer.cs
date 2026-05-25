@@ -41,6 +41,12 @@ namespace Twig.RenderTree;
 /// <c>{ ...row.Cells, "children": [...] }</c>.</item>
 /// <item><see cref="RenderNode.Section"/> → <c>{ "header": "...", "children": [...] }</c>;
 /// header omitted when null.</item>
+/// <item><see cref="RenderNode.Document"/> → object whose properties come from each
+/// <see cref="DocumentField.Key"/>; the field's <see cref="DocumentField.Node"/> is
+/// projected by its type (KeyValue → scalar, Table → array, Document → nested object).
+/// Fields with <see cref="RenderAudience.HumanOnly"/> are skipped. A document at the
+/// single root projects without its <c>kind</c> tag; inside an array the tag is
+/// emitted as a discriminator (matching <see cref="RenderNode.Record"/>).</item>
 /// </list>
 /// <para>
 /// <see cref="RenderValue"/> projection:
@@ -50,22 +56,36 @@ namespace Twig.RenderTree;
 /// in machine output; the human renderer falls back to <see cref="RenderCell.DisplayText"/>).
 /// </para>
 /// </remarks>
-public sealed class JsonRenderer(TextWriter output) : IRenderer
+public sealed class JsonRenderer : IRenderer
 {
-    private static readonly JsonWriterOptions WriterOptions = new() { Indented = true };
+    private readonly TextWriter _output;
+    private readonly JsonWriterOptions _writerOptions;
+
+    /// <summary>Creates an indented (pretty-printed) JSON renderer.</summary>
+    public JsonRenderer(TextWriter output) : this(output, indented: true) { }
+
+    /// <summary>
+    /// Creates a JSON renderer. Pass <paramref name="indented"/> = false for
+    /// compact output (no whitespace beyond what JSON requires).
+    /// </summary>
+    public JsonRenderer(TextWriter output, bool indented)
+    {
+        _output = output;
+        _writerOptions = new JsonWriterOptions { Indented = indented };
+    }
 
     public void Render(RenderTree tree)
     {
         ArgumentNullException.ThrowIfNull(tree);
 
         using var stream = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(stream, WriterOptions))
+        using (var writer = new Utf8JsonWriter(stream, _writerOptions))
         {
             this.WriteTree(writer, tree);
         }
 
         var json = Encoding.UTF8.GetString(stream.ToArray());
-        output.Write(json);
+        _output.Write(json);
     }
 
     private void WriteTree(Utf8JsonWriter writer, RenderTree tree)
@@ -79,6 +99,9 @@ public sealed class JsonRenderer(TextWriter output) : IRenderer
                     return;
                 case RenderNode.Table table:
                     WriteTableRowsAsArray(writer, table);
+                    return;
+                case RenderNode.Document doc:
+                    WriteDocumentAsObject(writer, doc, emitKind: false);
                     return;
             }
         }
@@ -139,6 +162,9 @@ public sealed class JsonRenderer(TextWriter output) : IRenderer
                 }
                 writer.WriteEndArray();
                 writer.WriteEndObject();
+                break;
+            case RenderNode.Document doc:
+                WriteDocumentAsObject(writer, doc, emitKind: true);
                 break;
         }
     }
@@ -222,6 +248,69 @@ public sealed class JsonRenderer(TextWriter output) : IRenderer
         }
 
         writer.WriteEndObject();
+    }
+
+    private static void WriteDocumentAsObject(Utf8JsonWriter writer, RenderNode.Document doc, bool emitKind)
+    {
+        writer.WriteStartObject();
+        if (emitKind && !string.IsNullOrEmpty(doc.Kind))
+        {
+            writer.WriteString("kind", doc.Kind);
+        }
+
+        foreach (var field in doc.Fields)
+        {
+            if (field.Audience == RenderAudience.HumanOnly)
+            {
+                continue;
+            }
+
+            writer.WritePropertyName(field.Key);
+            WriteDocumentFieldValue(writer, field.Node);
+        }
+
+        writer.WriteEndObject();
+    }
+
+    private static void WriteDocumentFieldValue(Utf8JsonWriter writer, RenderNode node)
+    {
+        switch (node)
+        {
+            case RenderNode.KeyValue kv:
+                // Inside a Document, a KeyValue projects to its scalar value
+                // — the surrounding field already carries the property name.
+                WriteRenderValue(writer, kv.Value.Value, kv.Value.DisplayText);
+                break;
+            case RenderNode.Table table:
+                // Inside a Document, a Table projects to the raw array of
+                // rows (no enclosing object) — the surrounding field is the
+                // named property.
+                WriteTableRowsAsArray(writer, table);
+                break;
+            case RenderNode.Record rec:
+                WriteRecordFieldsAsObject(writer, rec, emitKind: true);
+                break;
+            case RenderNode.Document nestedDoc:
+                WriteDocumentAsObject(writer, nestedDoc, emitKind: true);
+                break;
+            case RenderNode.TreeView tv:
+                WriteBranch(writer, tv.Root);
+                break;
+            case RenderNode.Section section:
+                writer.WriteStartArray();
+                foreach (var child in section.Children)
+                {
+                    WriteNodeAsArrayElement(writer, child);
+                }
+                writer.WriteEndArray();
+                break;
+            case RenderNode.Text text:
+                writer.WriteStringValue(text.Content);
+                break;
+            case RenderNode.Hint:
+                writer.WriteNullValue();
+                break;
+        }
     }
 
     private static void WriteRenderValue(Utf8JsonWriter writer, RenderValue value, string displayFallback)

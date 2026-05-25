@@ -70,6 +70,9 @@ internal sealed class SpectreNodeRenderer(IAnsiConsole console) : IRenderer
             case RenderNode.Section section:
                 this.WriteSection(section);
                 break;
+            case RenderNode.Document doc:
+                this.WriteDocument(doc);
+                break;
         }
     }
 
@@ -182,6 +185,25 @@ internal sealed class SpectreNodeRenderer(IAnsiConsole console) : IRenderer
         foreach (var child in section.Children)
         {
             this.WriteNode(child);
+        }
+    }
+
+    private void WriteDocument(RenderNode.Document doc)
+    {
+        foreach (var field in doc.Fields)
+        {
+            if (field.Audience == RenderAudience.MachineOnly)
+            {
+                continue;
+            }
+
+            if (!string.IsNullOrEmpty(field.Header))
+            {
+                console.MarkupLine($"[bold]{Markup.Escape(field.Header)}[/]");
+            }
+
+            var displayNode = field.HumanOverride ?? field.Node;
+            this.WriteNode(displayNode);
         }
     }
 

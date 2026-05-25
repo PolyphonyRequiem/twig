@@ -70,6 +70,9 @@ public sealed class MinimalRenderer(TextWriter output) : IRenderer
             case RenderNode.Section section:
                 this.WriteSection(section, depth);
                 break;
+            case RenderNode.Document doc:
+                this.WriteDocument(doc, depth);
+                break;
         }
     }
 
@@ -132,6 +135,33 @@ public sealed class MinimalRenderer(TextWriter output) : IRenderer
         foreach (var child in section.Children)
         {
             this.WriteNode(child, depth);
+        }
+    }
+
+    private void WriteDocument(RenderNode.Document doc, int depth)
+    {
+        if (!string.IsNullOrEmpty(doc.Kind))
+        {
+            output.WriteLine($"kind={doc.Kind}");
+        }
+
+        foreach (var field in doc.Fields)
+        {
+            if (field.Audience == RenderAudience.HumanOnly)
+            {
+                continue;
+            }
+
+            // KeyValue inside a Document collapses to "fieldKey=value" so the
+            // surrounding field key is the machine name (not the KeyValue's
+            // own label).
+            if (field.Node is RenderNode.KeyValue kv)
+            {
+                output.WriteLine($"{field.Key}={kv.Value.DisplayText}");
+                continue;
+            }
+
+            this.WriteNode(field.Node, depth);
         }
     }
 }

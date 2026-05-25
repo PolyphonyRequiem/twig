@@ -207,4 +207,81 @@ public sealed class SpectreNodeRendererTests
 
         return (new SpectreNodeRenderer(console), console);
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Document + audience rendering
+    // ═══════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void Document_MachineOnlyField_IsSkipped()
+    {
+        var (renderer, console) = CreateRenderer();
+        var doc = new RenderNode.Document(null, [
+            new DocumentField(
+                "visibleField",
+                new RenderNode.Text("you should see this")),
+            new DocumentField(
+                "hiddenField",
+                new RenderNode.Text("YOU_SHOULD_NOT_SEE_THIS"),
+                Audience: RenderAudience.MachineOnly),
+        ]);
+
+        renderer.Render(new RenderTree.RenderTree([doc]));
+
+        console.Output.ShouldContain("you should see this");
+        console.Output.ShouldNotContain("YOU_SHOULD_NOT_SEE_THIS");
+    }
+
+    [Fact]
+    public void Document_HumanOnlyField_IsEmitted()
+    {
+        var (renderer, console) = CreateRenderer();
+        var doc = new RenderNode.Document(null, [
+            new DocumentField(
+                "humanLine",
+                new RenderNode.Text("human-only payload"),
+                Audience: RenderAudience.HumanOnly),
+        ]);
+
+        renderer.Render(new RenderTree.RenderTree([doc]));
+
+        console.Output.ShouldContain("human-only payload");
+    }
+
+    [Fact]
+    public void Document_HumanOverride_UsedInsteadOfMachineNode()
+    {
+        var (renderer, console) = CreateRenderer();
+        var doc = new RenderNode.Document(null, [
+            new DocumentField(
+                "states",
+                new RenderNode.KeyValue("states", RenderCell.String("MACHINE_PAYLOAD")),
+                HumanOverride: new RenderNode.Text("HUMAN_LINE")),
+        ]);
+
+        renderer.Render(new RenderTree.RenderTree([doc]));
+
+        console.Output.ShouldContain("HUMAN_LINE");
+        console.Output.ShouldNotContain("MACHINE_PAYLOAD");
+    }
+
+    [Fact]
+    public void Document_FieldHeader_EmittedBeforeChild()
+    {
+        var (renderer, console) = CreateRenderer();
+        var doc = new RenderNode.Document(null, [
+            new DocumentField(
+                "states",
+                new RenderNode.Text("New"),
+                Header: "States"),
+        ]);
+
+        renderer.Render(new RenderTree.RenderTree([doc]));
+
+        var output = console.Output;
+        var headerPos = output.IndexOf("States", System.StringComparison.Ordinal);
+        var contentPos = output.IndexOf("New", System.StringComparison.Ordinal);
+        headerPos.ShouldBeGreaterThanOrEqualTo(0);
+        contentPos.ShouldBeGreaterThan(headerPos);
+    }
 }

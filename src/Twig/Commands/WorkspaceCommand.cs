@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Runtime.CompilerServices;
+using Twig.Domain.Aggregates;
 using Twig.Domain.Interfaces;
 using Twig.Domain.ReadModels;
 using Twig.Domain.Services;
@@ -11,6 +12,7 @@ using Twig.Domain.ValueObjects;
 using Twig.Formatters;
 using Twig.Infrastructure.Config;
 using Twig.Rendering;
+using Twig.RenderTree;
 
 namespace Twig.Commands;
 
@@ -21,6 +23,14 @@ namespace Twig.Commands;
 /// When <c>--all</c> is specified (or via <c>twig sprint</c>), shows all team items
 /// grouped by assignee instead of filtering to the current user.
 /// </summary>
+/// <remarks>
+/// Partially migrated to the AB#3301 <see cref="RendererFactory"/>/<see cref="IRenderer"/>
+/// seam: <c>json</c>, <c>jsonc</c>, <c>minimal</c>, and <c>ids</c> output formats now project
+/// the workspace through a <see cref="Twig.RenderTree.RenderTree"/>. The <c>human</c> path
+/// continues to delegate to <see cref="HumanOutputFormatter.FormatWorkspace"/> /
+/// <see cref="HumanOutputFormatter.FormatSprintView"/> so the rich human-format
+/// rendering (active markers, dirty/stale glyphs, tree layout) stays intact.
+/// </remarks>
 public sealed class WorkspaceCommand(
     CommandContext ctx,
     IContextStore contextStore,
@@ -34,8 +44,11 @@ public sealed class WorkspaceCommand(
     ISprintHierarchyBuilder sprintHierarchyBuilder,
     SprintIterationResolver sprintIterationResolver,
     TreeRenderingService? treeRenderingService = null,
-    SyncCoordinatorFactory? syncCoordinatorFactory = null)
+    SyncCoordinatorFactory? syncCoordinatorFactory = null,
+    RendererFactory? rendererFactory = null)
 {
+    private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
+
     public async Task<int> ExecuteAsync(string outputFormat = OutputFormatterFactory.DefaultFormat, bool all = false, bool noLive = false, bool noRefresh = false, CancellationToken ct = default, bool sprintLayout = false, bool flat = false, bool tree = false)
     {
         if (tree && flat)
@@ -206,7 +219,7 @@ public sealed class WorkspaceCommand(
         }
 
         // Sync path — original implementation (JSON, minimal, --no-live, --all, sprint, piped output)
-        return await ExecuteSyncAsync(fmt, all, noRefresh, sprintLayout, flat);
+        return await ExecuteSyncAsync(fmt, outputFormat, all, noRefresh, sprintLayout, flat);
     }
 
     /// <summary>
@@ -261,7 +274,7 @@ public sealed class WorkspaceCommand(
         return 0;
     }
 
-    private async Task<int> ExecuteSyncAsync(IOutputFormatter fmt, bool all, bool noRefresh = false, bool sprintLayout = false, bool flat = false)
+    private async Task<int> ExecuteSyncAsync(IOutputFormatter fmt, string outputFormat, bool all, bool noRefresh = false, bool sprintLayout = false, bool flat = false)
     {
         // Sync-first for machine formats: ensure consumers get fresh data.
         // The human (TTY) path handles sync via the live streaming path above.
@@ -387,13 +400,20 @@ public sealed class WorkspaceCommand(
             trackedItems: trackedItems,
             excludedIds: excludedIds);
 
-        if (all || sprintLayout)
+        if (fmt is HumanOutputFormatter)
         {
-            Console.WriteLine(fmt.FormatSprintView(workspace, ctx.Config.Seed.StaleDays));
+            if (all || sprintLayout)
+            {
+                Console.WriteLine(fmt.FormatSprintView(workspace, ctx.Config.Seed.StaleDays));
+            }
+            else
+            {
+                Console.WriteLine(fmt.FormatWorkspace(workspace, ctx.Config.Seed.StaleDays));
+            }
         }
         else
         {
-            Console.WriteLine(fmt.FormatWorkspace(workspace, ctx.Config.Seed.StaleDays));
+            RenderWorkspaceAsTree(workspace, outputFormat, useSprintLayout: all || sprintLayout, ctx.Config.Seed.StaleDays, dynamicColumns);
         }
 
         // Dirty orphans: items with unsaved changes not in sprint/seed scope (EPIC-004)
@@ -613,5 +633,207 @@ public sealed class WorkspaceCommand(
         }
 
         return result;
+    }
+
+    // ── RenderTree projection for machine output formats (json/jsonc/minimal/ids) ────────
+    // The human path keeps using HumanOutputFormatter to preserve rich-format behavior
+    // (active marker, dirty/stale glyphs, tree layout). These helpers produce the
+    // structural projection consumed by the JSON / minimal / ids renderers.
+
+    private void RenderWorkspaceAsTree(
+        Workspace workspace,
+        string outputFormat,
+        bool useSprintLayout,
+        int staleDays,
+        IReadOnlyList<ColumnSpec>? dynamicColumns)
+    {
+        var doc = useSprintLayout
+            ? BuildSprintViewDocument(workspace, dynamicColumns)
+            : BuildWorkspaceDocument(workspace, staleDays, dynamicColumns);
+
+        var tree = new Twig.RenderTree.RenderTree([doc]);
+        _rendererFactory.GetRenderer(outputFormat).Render(tree);
+        Console.WriteLine();
+    }
+
+    private static RenderNode.Document BuildWorkspaceDocument(
+        Workspace workspace,
+        int staleDays,
+        IReadOnlyList<ColumnSpec>? dynamicColumns)
+    {
+        var fields = new List<DocumentField>();
+
+        // context: nested record or null KeyValue
+        fields.Add(workspace.ContextItem is not null
+            ? new DocumentField("context", BuildWorkItemRecord(workspace.ContextItem, dynamicColumns))
+            : new DocumentField("context", new RenderNode.KeyValue("context", new RenderCell(string.Empty, new RenderValue.Null()))));
+
+        fields.Add(new DocumentField("sprintItems", BuildWorkItemSection(workspace.SprintItems, dynamicColumns)));
+        fields.Add(new DocumentField("seeds", BuildWorkItemSection(workspace.Seeds, dynamicColumns)));
+
+        var staleSeeds = workspace.GetStaleSeeds(staleDays);
+        fields.Add(new DocumentField("staleSeeds", BuildIdSection(staleSeeds.Select(s => s.Id))));
+
+        if (workspace.Sections is not null)
+        {
+            fields.Add(new DocumentField("sections", BuildSectionsNode(workspace.Sections)));
+            fields.Add(new DocumentField("excludedItemIds", BuildIdSection(workspace.Sections.ExcludedItemIds)));
+        }
+
+        if (workspace.TrackedItems.Count > 0)
+            fields.Add(new DocumentField("trackedItems", BuildTrackedItemsSection(workspace.TrackedItems)));
+
+        if (workspace.ExcludedIds.Count > 0)
+            fields.Add(new DocumentField("excludedIds", BuildIdSection(workspace.ExcludedIds)));
+
+        var dirtyCount = workspace.GetDirtyItems().Count;
+        fields.Add(new DocumentField("dirtyCount", new RenderNode.KeyValue("dirtyCount", RenderCell.Integer(dirtyCount))));
+
+        return new RenderNode.Document("workspace", fields);
+    }
+
+    private static RenderNode.Document BuildSprintViewDocument(
+        Workspace workspace,
+        IReadOnlyList<ColumnSpec>? dynamicColumns)
+    {
+        var fields = new List<DocumentField>();
+
+        fields.Add(workspace.ContextItem is not null
+            ? new DocumentField("context", BuildWorkItemRecord(workspace.ContextItem, dynamicColumns))
+            : new DocumentField("context", new RenderNode.KeyValue("context", new RenderCell(string.Empty, new RenderValue.Null()))));
+
+        // sprintByAssignee: a nested Document where each field is one assignee key
+        // mapping to a Section of work-item records.
+        var grouped = new Dictionary<string, List<Domain.Aggregates.WorkItem>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in workspace.SprintItems)
+        {
+            var assignee = item.AssignedTo ?? string.Empty;
+            if (!grouped.TryGetValue(assignee, out var list))
+            {
+                list = new List<Domain.Aggregates.WorkItem>();
+                grouped[assignee] = list;
+            }
+            list.Add(item);
+        }
+        var assigneeFields = new List<DocumentField>();
+        foreach (var kvp in grouped.OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            assigneeFields.Add(new DocumentField(kvp.Key, BuildWorkItemSection(kvp.Value, dynamicColumns)));
+        }
+        fields.Add(new DocumentField("sprintByAssignee", new RenderNode.Document(null, assigneeFields)));
+
+        fields.Add(new DocumentField("totalSprintItems", new RenderNode.KeyValue("totalSprintItems", RenderCell.Integer(workspace.SprintItems.Count))));
+        fields.Add(new DocumentField("seeds", BuildWorkItemSection(workspace.Seeds, dynamicColumns)));
+
+        var dirtyCount = workspace.GetDirtyItems().Count;
+        fields.Add(new DocumentField("dirtyCount", new RenderNode.KeyValue("dirtyCount", RenderCell.Integer(dirtyCount))));
+
+        return new RenderNode.Document("sprintView", fields);
+    }
+
+    private static RenderNode.Section BuildWorkItemSection(
+        IReadOnlyList<Domain.Aggregates.WorkItem> items,
+        IReadOnlyList<ColumnSpec>? dynamicColumns)
+    {
+        var children = new List<RenderNode>(items.Count);
+        foreach (var item in items)
+            children.Add(BuildWorkItemRecord(item, dynamicColumns));
+        return new RenderNode.Section(null, children);
+    }
+
+    private static RenderNode.Record BuildWorkItemRecord(
+        Domain.Aggregates.WorkItem item,
+        IReadOnlyList<ColumnSpec>? dynamicColumns)
+    {
+        var cells = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["id"] = RenderCell.Integer(item.Id),
+            ["title"] = RenderCell.String(item.Title ?? string.Empty),
+            ["type"] = RenderCell.String(item.Type.ToString()),
+            ["state"] = RenderCell.String(item.State ?? string.Empty),
+            ["assignedTo"] = RenderCell.String(item.AssignedTo ?? string.Empty),
+            ["isDirty"] = RenderCell.Boolean(item.IsDirty),
+            ["isSeed"] = RenderCell.Boolean(item.IsSeed),
+            ["parentId"] = item.ParentId.HasValue
+                ? RenderCell.Integer(item.ParentId.Value)
+                : new RenderCell(string.Empty, new RenderValue.Null()),
+            ["tags"] = RenderCell.String(GetTags(item)),
+        };
+
+        // Inline dynamic column values when supplied; otherwise flatten populated
+        // fields (excluding System.Tags which is already promoted above). Cell keys
+        // are the ADO reference names so JSON/minimal consumers can address them
+        // directly.
+        if (dynamicColumns is { Count: > 0 })
+        {
+            foreach (var col in dynamicColumns)
+            {
+                item.Fields.TryGetValue(col.ReferenceName, out var rawValue);
+                var formatted = FormatterHelpers.FormatFieldValueForJson(rawValue, col.DataType);
+                cells[col.ReferenceName] = RenderCell.String(formatted ?? string.Empty);
+            }
+        }
+        else
+        {
+            foreach (var (refName, value) in item.Fields)
+            {
+                if (string.IsNullOrEmpty(value))
+                    continue;
+                if (string.Equals(refName, "System.Tags", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                cells.TryAdd(refName, RenderCell.String(value));
+            }
+        }
+
+        return new RenderNode.Record("workItem", cells);
+    }
+
+    private static string GetTags(Domain.Aggregates.WorkItem item)
+    {
+        item.Fields.TryGetValue("System.Tags", out var tags);
+        return tags ?? string.Empty;
+    }
+
+    private static RenderNode.Section BuildIdSection(IEnumerable<int> ids)
+    {
+        var children = new List<RenderNode>();
+        foreach (var id in ids)
+        {
+            children.Add(new RenderNode.Record(null, new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+            {
+                ["id"] = RenderCell.Integer(id),
+            }));
+        }
+        return new RenderNode.Section(null, children);
+    }
+
+    private static RenderNode.Section BuildSectionsNode(WorkspaceSections sections)
+    {
+        var children = new List<RenderNode>(sections.Sections.Count);
+        foreach (var section in sections.Sections)
+        {
+            var cells = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+            {
+                ["modeName"] = RenderCell.String(section.ModeName),
+                ["itemCount"] = RenderCell.Integer(section.Items.Count),
+            };
+            children.Add(new RenderNode.Record("workspaceSection", cells));
+        }
+        return new RenderNode.Section(null, children);
+    }
+
+    private static RenderNode.Section BuildTrackedItemsSection(IReadOnlyList<TrackedItem> tracked)
+    {
+        var children = new List<RenderNode>(tracked.Count);
+        foreach (var t in tracked)
+        {
+            children.Add(new RenderNode.Record("trackedItem", new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+            {
+                ["workItemId"] = RenderCell.Integer(t.WorkItemId),
+                ["mode"] = RenderCell.String(t.Mode.ToString()),
+                ["trackedAt"] = RenderCell.String(t.TrackedAt.ToString("O", CultureInfo.InvariantCulture)),
+            }));
+        }
+        return new RenderNode.Section(null, children);
     }
 }

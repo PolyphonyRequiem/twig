@@ -4,6 +4,8 @@ using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Mutation;
 using Twig.Formatters;
 using Twig.Infrastructure.Services.Mutation;
+using Twig.RenderTree;
+using Twig.Rendering;
 
 namespace Twig.Commands;
 
@@ -13,10 +15,12 @@ namespace Twig.Commands;
 /// Seeds are excluded — use <c>twig seed discard</c> for seeds.
 /// </summary>
 /// <remarks>
-/// Single-item discard delegates to <see cref="DiscardWorkflow"/>. The <c>--all</c>
-/// flow stays here because it uses different store methods
-/// (<c>ClearAllChangesAsync</c>, <c>ClearPhantomDirtyFlagsAsync</c>) and operates
-/// across the workspace rather than on one item.
+/// Migrated to the AB#3301 <see cref="RendererFactory"/>/<see cref="IRenderer"/> seam:
+/// non-mutating info messages (cancelled, no changes, phantom cleared) emit records.
+/// The single/all-items success JSON shape continues to be emitted by the existing
+/// <see cref="WriteJson"/> path (wire format committed) — only the human success line
+/// is routed through the renderer. <see cref="OutputFormatterFactory"/> retained for
+/// stderr error formatting.
 /// </remarks>
 public sealed class DiscardCommand(
     IWorkItemRepository workItemRepo,
@@ -25,15 +29,13 @@ public sealed class DiscardCommand(
     OutputFormatterFactory formatterFactory,
     DiscardWorkflow discardWorkflow,
     IPromptStateWriter? promptStateWriter = null,
-    ITelemetryClient? telemetryClient = null)
+    ITelemetryClient? telemetryClient = null,
+    RendererFactory? rendererFactory = null)
 {
     private static readonly JsonWriterOptions JsonWriterOptions = new() { Indented = true };
+    private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
 
     /// <summary>Discard pending changes for a single item or all dirty items.</summary>
-    /// <param name="id">The work item ID whose pending changes to discard.</param>
-    /// <param name="all">When true, discard all pending changes for non-seed items.</param>
-    /// <param name="yes">When true, skip the confirmation prompt.</param>
-    /// <param name="outputFormat">Output format: human, json, or minimal.</param>
     public async Task<int> ExecuteAsync(
         int? id = null,
         bool all = false,
@@ -86,8 +88,6 @@ public sealed class DiscardCommand(
         }
     }
 
-    // ── Single-item flow ────────────────────────────────────────────
-
     private async Task<(int ExitCode, int ItemCount)> ExecuteSingleAsync(
         int itemId,
         IOutputFormatter fmt,
@@ -102,7 +102,6 @@ public sealed class DiscardCommand(
             return (1, 0);
         }
 
-        // Seed guard — seeds use 'twig seed discard'
         if (item.IsSeed)
         {
             Console.Error.WriteLine(fmt.FormatError($"#{itemId} is a seed. Use 'twig seed discard {itemId}' instead."));
@@ -111,14 +110,12 @@ public sealed class DiscardCommand(
 
         var (notes, fieldEdits) = await pendingChangeStore.GetChangeSummaryAsync(itemId, ct);
 
-        // Pre-confirm peek for change summary text (workflow re-queries, which is
-        // acceptable since the store is local-only and cheap).
         if (item.IsDirty || notes > 0 || fieldEdits > 0)
         {
             if (notes > 0 || fieldEdits > 0)
             {
                 var summary = FormatChangeSummary(notes, fieldEdits);
-                if (!Confirm($"Discard {summary} for #{itemId} '{item.Title}'", yes, fmt))
+                if (!Confirm($"Discard {summary} for #{itemId} '{item.Title}'", yes, outputFormat))
                     return (0, 0);
             }
         }
@@ -128,11 +125,11 @@ public sealed class DiscardCommand(
         switch (outcome)
         {
             case DiscardOutcome.NoChanges:
-                Console.WriteLine(fmt.FormatInfo($"#{itemId} '{item.Title}' has no pending changes."));
+                RenderInfoRecord("discardNoChanges", $"#{itemId} '{item.Title}' has no pending changes.", itemId, outputFormat);
                 return (0, 0);
 
             case DiscardOutcome.PhantomDirtyCleared phantom:
-                Console.WriteLine(fmt.FormatInfo($"#{itemId} '{item.Title}' had a stale dirty flag (cleared)."));
+                RenderInfoRecord("discardPhantomCleared", $"#{itemId} '{item.Title}' had a stale dirty flag (cleared).", itemId, outputFormat);
                 foreach (var w in phantom.Warnings) Console.Error.WriteLine(w);
                 return (0, 0);
 
@@ -141,7 +138,7 @@ public sealed class DiscardCommand(
                 if (outputFormat.StartsWith("json", StringComparison.OrdinalIgnoreCase))
                     WriteJson([(itemId, discarded.NotesCount, discarded.FieldEditsCount)], discarded.NotesCount, discarded.FieldEditsCount);
                 else
-                    Console.WriteLine(fmt.FormatSuccess($"Discarded {summaryText} for #{itemId} '{item.Title}'."));
+                    RenderHumanSuccess($"Discarded {summaryText} for #{itemId} '{item.Title}'.", outputFormat);
                 foreach (var w in discarded.Warnings) Console.Error.WriteLine(w);
                 return (0, 1);
 
@@ -149,8 +146,6 @@ public sealed class DiscardCommand(
                 throw new System.Diagnostics.UnreachableException($"Unhandled DiscardOutcome: {outcome.GetType().Name}");
         }
     }
-
-    // ── All-items flow ──────────────────────────────────────────────
 
     private async Task<(int ExitCode, int ItemCount)> ExecuteAllAsync(
         IOutputFormatter fmt,
@@ -160,7 +155,6 @@ public sealed class DiscardCommand(
     {
         var dirtyItems = await workItemRepo.GetDirtyItemsAsync(ct);
 
-        // Exclude seeds — they are managed by 'twig seed discard'
         var nonSeedDirty = new List<(int Id, int Notes, int FieldEdits)>();
         foreach (var item in dirtyItems)
         {
@@ -171,9 +165,8 @@ public sealed class DiscardCommand(
 
         if (nonSeedDirty.Count == 0)
         {
-            // Also clean up phantom-dirty flags while we're here
             await workItemRepo.ClearPhantomDirtyFlagsAsync(ct);
-            Console.WriteLine(fmt.FormatInfo("No pending changes to discard."));
+            RenderInfoRecord("discardAllEmpty", "No pending changes to discard.", null, outputFormat);
             return (0, 0);
         }
 
@@ -182,27 +175,22 @@ public sealed class DiscardCommand(
         var totalItems = nonSeedDirty.Count;
         var aggregateSummary = $"{totalItems} item{(totalItems != 1 ? "s" : "")} ({FormatChangeSummary(totalNotes, totalFieldEdits)})";
 
-        if (!Confirm($"Discard all pending changes for {aggregateSummary}", yes, fmt))
+        if (!Confirm($"Discard all pending changes for {aggregateSummary}", yes, outputFormat))
             return (0, 0);
 
-        // Bulk clear: pending changes then atomic dirty-flag cleanup
         await pendingChangeStore.ClearAllChangesAsync(ct);
         await workItemRepo.ClearPhantomDirtyFlagsAsync(ct);
 
-        // Report
         if (outputFormat.StartsWith("json", StringComparison.OrdinalIgnoreCase))
             WriteJson(nonSeedDirty, totalNotes, totalFieldEdits);
         else
-            Console.WriteLine(fmt.FormatSuccess($"Discarded all pending changes for {aggregateSummary}."));
+            RenderHumanSuccess($"Discarded all pending changes for {aggregateSummary}.", outputFormat);
 
-        // DD-9: Update prompt state after successful discard
         if (promptStateWriter is not null)
             await promptStateWriter.WritePromptStateAsync();
 
         return (0, nonSeedDirty.Count);
     }
-
-    // ── JSON output ─────────────────────────────────────────────────
 
     private static void WriteJson(List<(int Id, int Notes, int FieldEdits)> items, int totalNotes, int totalFieldEdits)
     {
@@ -228,15 +216,46 @@ public sealed class DiscardCommand(
         Console.WriteLine(System.Text.Encoding.UTF8.GetString(stream.ToArray()));
     }
 
-    // ── Helpers──────────────────────────────────────────────────────
+    private void RenderInfoRecord(string kind, string message, int? itemId, string outputFormat)
+    {
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        RenderNode node = lower switch
+        {
+            "minimal" => new RenderNode.Text(message),
+            "json" or "json-full" or "json-compact" or "ids" =>
+                BuildInfoRecord(kind, message, itemId),
+            _ => new RenderNode.Text(message, Severity.Info),
+        };
+        _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(new[] { node }));
+    }
 
-    private bool Confirm(string prompt, bool yes, IOutputFormatter fmt)
+    private static RenderNode BuildInfoRecord(string kind, string message, int? itemId)
+    {
+        var fields = new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+        {
+            ["message"] = RenderCell.String(message),
+        };
+        if (itemId.HasValue)
+            fields["itemId"] = RenderCell.Integer(itemId.Value);
+        return new RenderNode.Record(kind, fields);
+    }
+
+    private void RenderHumanSuccess(string message, string outputFormat)
+    {
+        var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+        RenderNode node = lower == "minimal"
+            ? new RenderNode.Text(message)
+            : new RenderNode.Text(message, Severity.Success);
+        _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(new[] { node }));
+    }
+
+    private bool Confirm(string prompt, bool yes, string outputFormat)
     {
         if (yes) return true;
         Console.Write($"{prompt}? (y/N) ");
         var response = consoleInput.ReadLine();
         if (string.Equals(response?.Trim(), "y", StringComparison.OrdinalIgnoreCase)) return true;
-        Console.WriteLine(fmt.FormatInfo("Discard cancelled."));
+        RenderInfoRecord("discardCancelled", "Discard cancelled.", null, outputFormat);
         return false;
     }
 

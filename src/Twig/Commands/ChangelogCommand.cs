@@ -1,13 +1,28 @@
 using Twig.Domain.Interfaces;
 using Twig.Formatters;
+using Twig.RenderTree;
+using Twig.Rendering;
 
 namespace Twig.Commands;
 
 /// <summary>
 /// Implements <c>twig changelog</c>: displays recent release notes from GitHub Releases.
 /// </summary>
-public sealed class ChangelogCommand(IGitHubReleaseService releaseService, OutputFormatterFactory formatterFactory)
+/// <remarks>
+/// Migrated to the AB#3301 <see cref="RendererFactory"/>/<see cref="IRenderer"/> seam.
+/// The "no releases found" path emits a ``noReleasesFound`` record. The body output
+/// (release header + markdown body) is intentionally raw — it is upstream release
+/// content (markdown that should pass through verbatim to terminal/pipe) and not
+/// formatted text. <see cref="OutputFormatterFactory"/> is retained only for stderr
+/// errors and the "no release notes" empty marker on a per-release basis.
+/// </remarks>
+public sealed class ChangelogCommand(
+    IGitHubReleaseService releaseService,
+    OutputFormatterFactory formatterFactory,
+    RendererFactory? rendererFactory = null)
 {
+    private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
+
     /// <summary>Display recent release notes.</summary>
     public async Task<int> ExecuteAsync(int count = 5, string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
@@ -35,7 +50,19 @@ public sealed class ChangelogCommand(IGitHubReleaseService releaseService, Outpu
 
         if (releases.Count == 0)
         {
-            Console.WriteLine(fmt.FormatInfo("No releases found."));
+            const string message = "No releases found.";
+            var lower = (outputFormat ?? string.Empty).ToLowerInvariant();
+            RenderNode node = lower switch
+            {
+                "minimal" => new RenderNode.Text(message),
+                "json" or "json-full" or "json-compact" or "ids" =>
+                    new RenderNode.Record("noReleasesFound", new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+                    {
+                        ["message"] = RenderCell.String(message),
+                    }),
+                _ => new RenderNode.Text(message, Severity.Info),
+            };
+            _rendererFactory.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(new[] { node }));
             return 0;
         }
 

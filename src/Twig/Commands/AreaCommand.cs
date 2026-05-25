@@ -67,7 +67,7 @@ public sealed class AreaCommand(
             if (renderer is not null)
                 await renderer.RenderAreaViewAsync(areaView, ct);
             else
-                Console.WriteLine(fmt.FormatAreaView(areaView));
+                RenderAreaViewTree(areaView, outputFormat);
             return 0;
         }
 
@@ -121,9 +121,53 @@ public sealed class AreaCommand(
         }
         else
         {
-            Console.WriteLine(fmt.FormatAreaView(view));
+            RenderAreaViewTree(view, outputFormat);
         }
         return 0;
+    }
+
+    private void RenderAreaViewTree(AreaView view, string outputFormat)
+    {
+        var filterNodes = new List<RenderNode>(view.Filters.Count);
+        foreach (var filter in view.Filters)
+        {
+            filterNodes.Add(new RenderNode.Record(null, new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+            {
+                ["path"] = RenderCell.String(filter.Path ?? string.Empty),
+                ["includeChildren"] = RenderCell.Boolean(filter.IncludeChildren),
+            }));
+        }
+
+        var itemNodes = new List<RenderNode>(view.AreaItems.Count);
+        foreach (var item in view.AreaItems)
+        {
+            itemNodes.Add(new RenderNode.Record("workItem", new Dictionary<string, RenderCell>(StringComparer.Ordinal)
+            {
+                ["id"] = RenderCell.Integer(item.Id),
+                ["title"] = RenderCell.String(item.Title ?? string.Empty),
+                ["type"] = RenderCell.String(item.Type.ToString()),
+                ["state"] = RenderCell.String(item.State ?? string.Empty),
+                ["assignedTo"] = RenderCell.String(item.AssignedTo ?? string.Empty),
+                ["parentId"] = item.ParentId.HasValue
+                    ? RenderCell.Integer(item.ParentId.Value)
+                    : new RenderCell(string.Empty, new RenderValue.Null()),
+                ["areaPath"] = RenderCell.String(item.AreaPath.ToString()),
+                ["iterationPath"] = RenderCell.String(item.IterationPath.ToString()),
+                ["isDirty"] = RenderCell.Boolean(item.IsDirty),
+                ["isSeed"] = RenderCell.Boolean(item.IsSeed),
+            }));
+        }
+
+        var rootFields = new List<DocumentField>
+        {
+            new("filters", new RenderNode.Section(null, filterNodes)),
+            new("matchCount", new RenderNode.KeyValue("matchCount", RenderCell.Integer(view.MatchCount))),
+            new("items", new RenderNode.Section($"Items ({view.MatchCount})", itemNodes)),
+        };
+
+        var tree = new Twig.RenderTree.RenderTree([new RenderNode.Document(null, rootFields)]);
+        _rendererFactory.GetRenderer(outputFormat).Render(tree);
+        Console.WriteLine();
     }
 
     /// <summary>Add an area path to the workspace configuration.</summary>

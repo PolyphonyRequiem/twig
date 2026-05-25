@@ -222,7 +222,7 @@ public sealed class AreaCommandTests : IDisposable
         stdout.ShouldContain("under");
         stdout.ShouldContain(@"Project\Team B");
         stdout.ShouldContain("exact");
-        stdout.ShouldContain("2 area path(s)");
+        stdout.ShouldContain("count: 2");
     }
 
     [Fact]
@@ -731,7 +731,7 @@ public sealed class AreaCommandTests : IDisposable
             () => cmd.ListAsync());
 
         result.ShouldBe(0);
-        stdout.ShouldContain("1 area path(s)");
+        stdout.ShouldContain("count: 1");
     }
 
     [Fact]
@@ -848,7 +848,7 @@ public sealed class AreaCommandTests : IDisposable
         listStdout1.ShouldContain("under");
         listStdout1.ShouldContain(@"Project\Team B");
         listStdout1.ShouldContain("exact");
-        listStdout1.ShouldContain("2 area path(s)");
+        listStdout1.ShouldContain("count: 2");
 
         // Remove first path
         var (removeResult, _) = await StdoutCapture.RunAsync(
@@ -861,7 +861,7 @@ public sealed class AreaCommandTests : IDisposable
         listResult2.ShouldBe(0);
         listStdout2.ShouldContain(@"Project\Team B");
         listStdout2.ShouldNotContain(@"Project\Team A");
-        listStdout2.ShouldContain("1 area path(s)");
+        listStdout2.ShouldContain("count: 1");
     }
 
     [Fact]
@@ -914,7 +914,7 @@ public sealed class AreaCommandTests : IDisposable
         stdout.ShouldContain("under");
         stdout.ShouldContain(@"Project\Team Y");
         stdout.ShouldContain("exact");
-        stdout.ShouldContain("2 area path(s)");
+        stdout.ShouldContain("count: 2");
     }
 
     [Fact]

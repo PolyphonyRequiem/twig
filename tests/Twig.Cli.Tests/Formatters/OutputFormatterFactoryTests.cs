@@ -4,118 +4,35 @@ using Xunit;
 
 namespace Twig.Cli.Tests.Formatters;
 
+/// <summary>
+/// After AB#3301 retired the machine-shape formatters, the factory always
+/// returns <see cref="HumanOutputFormatter"/>. These tests pin that contract
+/// so the few callers that still inject an <see cref="IOutputFormatter"/>
+/// keep getting a working instance for every documented format alias.
+/// </summary>
 public class OutputFormatterFactoryTests
 {
-    private readonly OutputFormatterFactory _factory = new(
-        new HumanOutputFormatter(),
-        new JsonOutputFormatter(),
-        new JsonCompactOutputFormatter(new JsonOutputFormatter()),
-        new MinimalOutputFormatter(), new IdsOutputFormatter());
-
-    [Fact]
-    public void GetFormatter_Json_ReturnsJsonOutputFormatter()
-    {
-        _factory.GetFormatter("json").ShouldBeOfType<JsonOutputFormatter>();
-    }
-
-    [Fact]
-    public void GetFormatter_JsonFull_ReturnsJsonOutputFormatter()
-    {
-        _factory.GetFormatter("json-full").ShouldBeOfType<JsonOutputFormatter>();
-    }
-
-    [Fact]
-    public void GetFormatter_JsonCompact_ReturnsJsonCompactOutputFormatter()
-    {
-        _factory.GetFormatter("json-compact").ShouldBeOfType<JsonCompactOutputFormatter>();
-    }
-
-    [Fact]
-    public void GetFormatter_Minimal_ReturnsMinimalOutputFormatter()
-    {
-        _factory.GetFormatter("minimal").ShouldBeOfType<MinimalOutputFormatter>();
-    }
-
-    [Fact]
-    public void GetFormatter_Ids_ReturnsIdsOutputFormatter()
-    {
-        _factory.GetFormatter("ids").ShouldBeOfType<IdsOutputFormatter>();
-    }
-
-    [Fact]
-    public void GetFormatter_Human_ReturnsHumanOutputFormatter()
-    {
-        _factory.GetFormatter("human").ShouldBeOfType<HumanOutputFormatter>();
-    }
-
-    [Fact]
-    public void GetFormatter_UnknownString_FallsBackToHumanOutputFormatter()
-    {
-        _factory.GetFormatter("xyz").ShouldBeOfType<HumanOutputFormatter>();
-    }
+    private readonly OutputFormatterFactory _factory = new(new HumanOutputFormatter());
 
     [Theory]
-    [InlineData("JSON")]
-    [InlineData("Json")]
-    [InlineData("jSoN")]
-    public void GetFormatter_Json_CaseInsensitive(string format)
-    {
-        _factory.GetFormatter(format).ShouldBeOfType<JsonOutputFormatter>();
-    }
-
-    [Theory]
-    [InlineData("JSON-FULL")]
-    [InlineData("Json-Full")]
-    public void GetFormatter_JsonFull_CaseInsensitive(string format)
-    {
-        _factory.GetFormatter(format).ShouldBeOfType<JsonOutputFormatter>();
-    }
-
-    [Theory]
-    [InlineData("JSON-COMPACT")]
-    [InlineData("Json-Compact")]
-    public void GetFormatter_JsonCompact_CaseInsensitive(string format)
-    {
-        _factory.GetFormatter(format).ShouldBeOfType<JsonCompactOutputFormatter>();
-    }
-
-    [Theory]
-    [InlineData("MINIMAL")]
-    [InlineData("Minimal")]
-    [InlineData("mInImAl")]
-    public void GetFormatter_Minimal_CaseInsensitive(string format)
-    {
-        _factory.GetFormatter(format).ShouldBeOfType<MinimalOutputFormatter>();
-    }
-
-    [Theory]
-    [InlineData("IDS")]
-    [InlineData("Ids")]
-    [InlineData("iDs")]
-    public void GetFormatter_Ids_CaseInsensitive(string format)
-    {
-        _factory.GetFormatter(format).ShouldBeOfType<IdsOutputFormatter>();
-    }
-
-    [Theory]
+    [InlineData("human")]
     [InlineData("HUMAN")]
     [InlineData("Human")]
-    public void GetFormatter_Human_CaseInsensitive(string format)
-    {
-        _factory.GetFormatter(format).ShouldBeOfType<HumanOutputFormatter>();
-    }
-
-    [Theory]
+    [InlineData("json")]
+    [InlineData("JSON")]
+    [InlineData("json-full")]
+    [InlineData("json-compact")]
+    [InlineData("minimal")]
+    [InlineData("ids")]
+    [InlineData("xyz")]
     [InlineData("")]
-    [InlineData("unknown")]
-    [InlineData("plaintext")]
-    public void GetFormatter_InvalidFormat_FallsBackToHuman(string format)
+    public void GetFormatter_AnyFormat_ReturnsHumanOutputFormatter(string format)
     {
         _factory.GetFormatter(format).ShouldBeOfType<HumanOutputFormatter>();
     }
 
     [Fact]
-    public void GetFormatter_Null_FallsBackToHumanOutputFormatter()
+    public void GetFormatter_Null_ReturnsHumanOutputFormatter()
     {
         _factory.GetFormatter(null!).ShouldBeOfType<HumanOutputFormatter>();
     }

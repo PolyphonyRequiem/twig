@@ -57,8 +57,7 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
 
         var protectedCacheWriter = new ProtectedCacheWriter(_workItemRepo, _pendingChangeStore);
         _syncCoordinatorFactory = new SyncCoordinatorFactory(_workItemRepo, _adoService, protectedCacheWriter, _pendingChangeStore, null, 30, 30);
-        _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
+        _formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
 
         _tempDir = Path.Combine(Path.GetTempPath(), "twig-show-cache-test-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_tempDir);

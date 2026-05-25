@@ -28,8 +28,7 @@ public class SeedValidateCommandTests : IDisposable
         _rulesProvider.GetRulesAsync(Arg.Any<CancellationToken>())
             .Returns(SeedPublishRules.Default);
 
-        _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
+        _formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
 
         _cmd = new SeedValidateCommand(_workItemRepo, _rulesProvider, _formatterFactory);
     }

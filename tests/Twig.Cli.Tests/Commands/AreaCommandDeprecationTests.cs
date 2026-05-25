@@ -36,11 +36,7 @@ public sealed class AreaCommandDeprecationTests : IDisposable
     private TwigCommands CreateCommands(TwigConfiguration? config = null, IIterationService? iterationService = null)
     {
         config ??= new TwigConfiguration();
-        var formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(),
-            new JsonOutputFormatter(),
-            new JsonCompactOutputFormatter(new JsonOutputFormatter()),
-            new MinimalOutputFormatter(), new IdsOutputFormatter());
+        var formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
 
         var areaCommand = new AreaCommand(config, _paths, formatterFactory, iterationService: iterationService);
 

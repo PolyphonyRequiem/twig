@@ -44,8 +44,7 @@ public class UpdateCommandTests
 
     private UpdateCommand CreateCommand(TextReader? stdinReader = null, TextWriter? stderr = null, TextWriter? stdout = null)
     {
-        var formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
+        var formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
         var resolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
         var fieldUpdateWorkflow = new Twig.Infrastructure.Services.Mutation.FieldUpdateWorkflow(
             _workItemRepo, _adoService, _pendingChangeStore);

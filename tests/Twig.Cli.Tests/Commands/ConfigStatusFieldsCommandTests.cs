@@ -33,8 +33,7 @@ public class ConfigStatusFieldsCommandTests : IDisposable
         _globalProfileStore = Substitute.For<IGlobalProfileStore>();
         _config = new TwigConfiguration();
 
-        var formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
+        var formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
 
         _cmd = new ConfigStatusFieldsCommand(
             _fieldDefinitionStore, _editorLauncher, _paths, formatterFactory,

@@ -28,11 +28,7 @@ public sealed class ArtifactLinkCommandTests : IDisposable
         _adoService = Substitute.For<IAdoWorkItemService>();
         _telemetryClient = Substitute.For<ITelemetryClient>();
 
-        _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(),
-            new JsonOutputFormatter(),
-            new JsonCompactOutputFormatter(new JsonOutputFormatter()),
-            new MinimalOutputFormatter(), new IdsOutputFormatter());
+        _formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
 
         _stderr = new StringWriter();
         _originalOut = Console.Out;

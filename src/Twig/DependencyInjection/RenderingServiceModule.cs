@@ -17,16 +17,13 @@ public static class RenderingServiceModule
         this IServiceCollection services,
         IReadOnlyList<StateEntry>? stateEntries = null)
     {
-        // Output formatters and factory
+        // Output formatters and factory — HumanOutputFormatter is the sole
+        // surviving formatter after AB#3301 retired the machine-shape variants.
         services.AddSingleton<HumanOutputFormatter>(sp =>
         {
             var cfg = sp.GetRequiredService<TwigConfiguration>();
             return new HumanOutputFormatter(cfg.Display, cfg.TypeAppearances, stateEntries);
         });
-        services.AddSingleton<JsonOutputFormatter>();
-        services.AddSingleton<JsonCompactOutputFormatter>();
-        services.AddSingleton<MinimalOutputFormatter>();
-        services.AddSingleton<IdsOutputFormatter>();
         services.AddSingleton<OutputFormatterFactory>();
         services.AddSingleton<RendererFactory>();
 

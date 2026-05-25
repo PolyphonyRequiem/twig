@@ -31,9 +31,7 @@ public sealed class PendingChangeFlusherTests
         _adoService = Substitute.For<IAdoWorkItemService>();
         _pendingChangeStore = Substitute.For<IPendingChangeStore>();
         _consoleInput = Substitute.For<IConsoleInput>();
-        _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(),
-            new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
+        _formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
         _stderr = new StringWriter();
     }
 

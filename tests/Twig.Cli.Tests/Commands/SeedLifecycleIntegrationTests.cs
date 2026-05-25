@@ -72,8 +72,7 @@ public class SeedLifecycleIntegrationTests : IDisposable
         var tx = Substitute.For<ITransaction>();
         _unitOfWork.BeginAsync(Arg.Any<CancellationToken>()).Returns(tx);
 
-        _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
+        _formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
     }
 

@@ -86,9 +86,7 @@ public abstract class RefreshCommandTestBase : IDisposable
             .Returns(Array.Empty<int>());
         _contextStore.GetActiveWorkItemIdAsync(Arg.Any<CancellationToken>()).Returns((int?)null);
 
-        _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(),
-            new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
+        _formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
     }
 
     protected RefreshCommand CreateRefreshCommand(TextWriter? stderr = null, IGlobalProfileStore? profileStore = null)

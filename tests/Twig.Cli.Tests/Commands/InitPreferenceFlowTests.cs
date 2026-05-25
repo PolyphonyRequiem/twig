@@ -58,8 +58,7 @@ public sealed class InitPreferenceFlowTests : IDisposable
             .Returns(new ProcessConfigurationData());
 
         _paths = new TwigPaths(_twigDir, _configPath, _dbPath, startDir: _testDir);
-        _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
+        _formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
     }
 

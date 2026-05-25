@@ -29,8 +29,7 @@ public class SeedEditCommandTests
                 new("System.Description", "Description", "String", false),
             });
 
-        var formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
+        var formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
 
         _cmd = new SeedEditCommand(
             _workItemRepo, _fieldDefStore, _editorLauncher, formatterFactory);

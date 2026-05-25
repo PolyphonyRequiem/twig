@@ -1816,28 +1816,6 @@ public class HumanOutputFormatterTests
         result.ShouldContain("]");
     }
 
-    [Fact]
-    public void FormatStatusSummary_JsonFormatter_ReturnsEmpty()
-    {
-        var jsonFormatter = new JsonOutputFormatter();
-        var item = CreateWorkItem(1, "Test", "Active");
-
-        var result = jsonFormatter.FormatStatusSummary(item);
-
-        result.ShouldBeEmpty();
-    }
-
-    [Fact]
-    public void FormatStatusSummary_MinimalFormatter_ReturnsEmpty()
-    {
-        var minimalFormatter = new MinimalOutputFormatter();
-        var item = CreateWorkItem(1, "Test", "Active");
-
-        var result = minimalFormatter.FormatStatusSummary(item);
-
-        result.ShouldBeEmpty();
-    }
-
     // ── Set confirmation formatting ─────────────────────────────────
 
     [Fact]
@@ -1873,46 +1851,6 @@ public class HumanOutputFormatterTests
         var result = _formatter.FormatSetConfirmation(item);
 
         result.ShouldContain("\x1b["); // ANSI escapes present
-    }
-
-    [Fact]
-    public void FormatSetConfirmation_Json_ReturnsJsonObject()
-    {
-        var jsonFormatter = new JsonOutputFormatter();
-        var item = CreateWorkItem(42, "Fix login bug", "Active");
-
-        var result = jsonFormatter.FormatSetConfirmation(item);
-
-        result.ShouldContain("\"id\": 42");
-        result.ShouldContain("\"title\": \"Fix login bug\"");
-        result.ShouldContain("\"state\": \"Active\"");
-        result.ShouldContain("\"type\": \"Task\"");
-    }
-
-    [Fact]
-    public void FormatSetConfirmation_JsonCompact_DelegatesToJson()
-    {
-        var jsonFull = new JsonOutputFormatter();
-        var compactFormatter = new JsonCompactOutputFormatter(jsonFull);
-        var item = CreateWorkItem(42, "Fix login bug", "Active");
-
-        var result = compactFormatter.FormatSetConfirmation(item);
-
-        result.ShouldContain("\"id\": 42");
-        result.ShouldContain("\"title\": \"Fix login bug\"");
-        result.ShouldContain("\"state\": \"Active\"");
-        result.ShouldContain("\"type\": \"Task\"");
-    }
-
-    [Fact]
-    public void FormatSetConfirmation_Minimal_ReturnsIdOnly()
-    {
-        var minimalFormatter = new MinimalOutputFormatter();
-        var item = CreateWorkItem(42, "Fix login bug", "Active");
-
-        var result = minimalFormatter.FormatSetConfirmation(item);
-
-        result.ShouldBe("#42");
     }
 
     // ── Effort display in tree (EPIC-007 E2-T10) ───────────────────

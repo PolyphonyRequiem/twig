@@ -42,8 +42,7 @@ public class InitUserDetectionTests : IDisposable
             .Returns(Array.Empty<(string Path, bool IncludeChildren)>());
 
         _paths = new TwigPaths(_twigDir, _configPath, Path.Combine(_twigDir, "twig.db"), startDir: _testDir);
-        _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
+        _formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
         _hintEngine = new HintEngine(new DisplayConfig { Hints = false });
     }
 

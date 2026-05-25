@@ -40,9 +40,7 @@ public class DeleteCommandTests
         _telemetryClient = Substitute.For<ITelemetryClient>();
         _stderr = new StringWriter();
 
-        var formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(),
-            new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
+        var formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         var ctx = new CommandContext(
             new RenderingPipelineFactory(formatterFactory, null!, isOutputRedirected: () => true),
@@ -706,21 +704,12 @@ public class DeleteCommandTests
 
     // ═══════════════════════════════════════════════════════════════
     //  JSON output format — error
+    //  (After AB#3301 retired the machine-shape formatters, fmt.FormatError
+    //   always emits human-styled "✗ error: <msg>" text regardless of the
+    //   requested format. Tests pinning JSON-shaped error wrappers were
+    //   removed; the minimal-format error test still passes because the
+    //   human prefix contains "error:".)
     // ═══════════════════════════════════════════════════════════════
-
-    [Fact]
-    public async Task Execute_JsonFormat_ErrorOutputsJsonErrorStructure()
-    {
-        var seed = new WorkItemBuilder(42, "Seed Item").AsSeed().Build();
-        _workItemRepo.GetByIdAsync(42, Arg.Any<CancellationToken>()).Returns(seed);
-
-        var result = await _cmd.ExecuteAsync(42, force: true, outputFormat: "json");
-
-        result.ShouldBe(1);
-        var stderr = _stderr.ToString();
-        stderr.ShouldContain("\"error\"");
-        stderr.ShouldContain("seed");
-    }
 
     // ═══════════════════════════════════════════════════════════════
     //  Minimal output format — success
@@ -811,9 +800,7 @@ public class DeleteCommandTests
     [Fact]
     public async Task Execute_NullPromptStateWriter_DoesNotThrow()
     {
-        var formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(),
-            new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
+        var formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         var stderr = new StringWriter();
         var ctx = new CommandContext(

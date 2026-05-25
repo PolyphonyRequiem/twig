@@ -24,11 +24,7 @@ public sealed class AreaCommandTests : IDisposable
         var twigDir = Path.Combine(_testDir, ".twig");
         Directory.CreateDirectory(twigDir);
         _paths = new TwigPaths(twigDir, Path.Combine(twigDir, "config"), Path.Combine(twigDir, "twig.db"));
-        _formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(),
-            new JsonOutputFormatter(),
-            new JsonCompactOutputFormatter(new JsonOutputFormatter()),
-            new MinimalOutputFormatter(), new IdsOutputFormatter());
+        _formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
     }
 
     public void Dispose()

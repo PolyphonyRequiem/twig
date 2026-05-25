@@ -19,9 +19,7 @@ public sealed class SaveCommandDeprecationTests
         flusher.FlushAllAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(new FlushResult(0, 0, 0, []));
 
-        var formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(),
-            new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
+        var formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
 
         var saveCommand = new SaveCommand(
             Substitute.For<IWorkItemRepository>(),

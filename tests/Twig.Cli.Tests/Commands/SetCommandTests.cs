@@ -29,8 +29,7 @@ public sealed class SetCommandTests
         _adoService = Substitute.For<IAdoWorkItemService>();
         _contextStore = Substitute.For<IContextStore>();
         _activeItemResolver = new ActiveItemResolver(_contextStore, _workItemRepo, _adoService);
-        var formatterFactory = new OutputFormatterFactory(
-            new HumanOutputFormatter(), new JsonOutputFormatter(), new JsonCompactOutputFormatter(new JsonOutputFormatter()), new MinimalOutputFormatter(), new IdsOutputFormatter());
+        var formatterFactory = new OutputFormatterFactory(new HumanOutputFormatter());
         var hintEngine = new HintEngine(new DisplayConfig { Hints = false });
         var pipelineFactory = new RenderingPipelineFactory(formatterFactory, null!, isOutputRedirected: () => true);
         _ctx = new CommandContext(pipelineFactory, formatterFactory, hintEngine, new TwigConfiguration());

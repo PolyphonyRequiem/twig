@@ -278,7 +278,7 @@ public sealed class WorkspaceCommand(
     {
         // Sync-first for machine formats: ensure consumers get fresh data.
         // The human (TTY) path handles sync via the live streaming path above.
-        var isMachineFormat = fmt is JsonOutputFormatter or JsonCompactOutputFormatter or MinimalOutputFormatter or IdsOutputFormatter;
+        var isMachineFormat = IsMachineFormat(outputFormat);
         if (isMachineFormat && !noRefresh && syncCoordinatorFactory is not null)
         {
             try
@@ -333,11 +333,9 @@ public sealed class WorkspaceCommand(
         var excludedIds = await trackingService.GetExcludedIdsAsync();
 
         // Resolve dynamic columns (EPIC-004)
-        var isJsonOutput = fmt is JsonOutputFormatter;
+        var isJsonOutput = IsJsonFormat(outputFormat);
         var viewName = all ? "sprint" : "workspace";
         var dynamicColumns = await ResolveDynamicColumnsAsync(viewName, isJsonOutput, sprintItems: sprintItems);
-        if (fmt is JsonOutputFormatter jsonFmt)
-            jsonFmt.DynamicColumns = dynamicColumns;
 
         // Update freshness timestamp (sync path also tracks cache freshness)
         await contextStore.SetValueAsync("last_refreshed_at", DateTimeOffset.UtcNow.ToString("O"));
@@ -400,15 +398,15 @@ public sealed class WorkspaceCommand(
             trackedItems: trackedItems,
             excludedIds: excludedIds);
 
-        if (fmt is HumanOutputFormatter)
+        if (fmt is HumanOutputFormatter human)
         {
             if (all || sprintLayout)
             {
-                Console.WriteLine(fmt.FormatSprintView(workspace, ctx.Config.Seed.StaleDays));
+                Console.WriteLine(human.FormatSprintView(workspace, ctx.Config.Seed.StaleDays));
             }
             else
             {
-                Console.WriteLine(fmt.FormatWorkspace(workspace, ctx.Config.Seed.StaleDays));
+                Console.WriteLine(human.FormatWorkspace(workspace, ctx.Config.Seed.StaleDays));
             }
         }
         else
@@ -417,7 +415,7 @@ public sealed class WorkspaceCommand(
         }
 
         // Dirty orphans: items with unsaved changes not in sprint/seed scope (EPIC-004)
-        if (!all && fmt is not JsonOutputFormatter && fmt is not MinimalOutputFormatter && fmt is not IdsOutputFormatter)
+        if (!all && !isMachineFormat)
         {
             // Use resolved iterations for dirty orphan scope; fall back to current iteration
             IReadOnlyList<IterationPath> orphanIterations = resolvedIterations;
@@ -462,7 +460,7 @@ public sealed class WorkspaceCommand(
 
         var hints = ctx.HintEngine.GetHints("workspace",
             workspace: workspace,
-            outputFormat: fmt is JsonOutputFormatter or JsonCompactOutputFormatter ? "json" : (fmt is MinimalOutputFormatter ? "minimal" : (fmt is IdsOutputFormatter ? "ids" : "human")));
+            outputFormat: NormalizeOutputFormat(outputFormat));
         foreach (var hint in hints)
         {
             var formatted = fmt.FormatHint(hint);
@@ -487,6 +485,21 @@ public sealed class WorkspaceCommand(
             return true;
         return lastRefreshed < DateTimeOffset.UtcNow.AddMinutes(-cacheStaleMinutes);
     }
+
+    private static bool IsMachineFormat(string outputFormat) =>
+        (outputFormat ?? string.Empty).ToLowerInvariant() is "json" or "json-full" or "json-compact" or "minimal" or "ids";
+
+    private static bool IsJsonFormat(string outputFormat) =>
+        (outputFormat ?? string.Empty).ToLowerInvariant() is "json" or "json-full";
+
+    private static string NormalizeOutputFormat(string outputFormat) =>
+        (outputFormat ?? string.Empty).ToLowerInvariant() switch
+        {
+            "json" or "json-full" or "json-compact" => "json",
+            "minimal" => "minimal",
+            "ids" => "ids",
+            _ => "human",
+        };
 
     /// <summary>
     /// Resolves dynamic columns for the workspace/sprint table (EPIC-004).

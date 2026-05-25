@@ -53,11 +53,7 @@ public sealed class CommandRegistrationModuleTests
         services.AddSingleton<SprintIterationResolver>();
 
         // Formatters
-        services.AddSingleton(new OutputFormatterFactory(
-            new HumanOutputFormatter(),
-            new JsonOutputFormatter(),
-            new JsonCompactOutputFormatter(new JsonOutputFormatter()),
-            new MinimalOutputFormatter(), new IdsOutputFormatter()));
+        services.AddSingleton(new OutputFormatterFactory(new HumanOutputFormatter()));
 
         // Config
         services.AddSingleton(new TwigConfiguration

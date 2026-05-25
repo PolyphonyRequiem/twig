@@ -50,7 +50,12 @@ public sealed class MinimalRenderer(TextWriter output) : IRenderer
         switch (node)
         {
             case RenderNode.Text text:
-                output.WriteLine(text.Content);
+                // For Error severity, prefix with "error: " to match the legacy
+                // MinimalOutputFormatter contract that pipeline consumers depend on.
+                // Other severities pass content through unchanged.
+                output.WriteLine(text.Severity == Severity.Error
+                    ? $"error: {text.Content}"
+                    : text.Content);
                 break;
             case RenderNode.Markup markup:
                 output.WriteLine(MarkupHelpers.StripMarkup(markup.Content));

@@ -19,6 +19,29 @@ public sealed class MinimalRendererTests
     }
 
     [Fact]
+    public void Text_ErrorSeverity_EmitsErrorPrefix()
+    {
+        var (renderer, writer) = CreateRenderer();
+        var tree = new RenderTree([new RenderNode.Text("boom", Severity.Error)]);
+
+        renderer.Render(tree);
+
+        writer.ToString().ShouldBe("error: boom" + System.Environment.NewLine);
+    }
+
+    [Fact]
+    public void Text_SuccessSeverity_EmitsContentUnprefixed()
+    {
+        var (renderer, writer) = CreateRenderer();
+        var tree = new RenderTree([new RenderNode.Text("did the thing", Severity.Success)]);
+
+        renderer.Render(tree);
+
+        // Minimal output is pipe-friendly; only Error severity carries a prefix.
+        writer.ToString().ShouldBe("did the thing" + System.Environment.NewLine);
+    }
+
+    [Fact]
     public void Hint_IsSuppressed()
     {
         var (renderer, writer) = CreateRenderer();

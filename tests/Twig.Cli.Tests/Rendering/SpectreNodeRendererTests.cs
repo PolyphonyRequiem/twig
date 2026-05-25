@@ -313,4 +313,53 @@ public sealed class SpectreNodeRendererTests
 
         console.Output.ShouldContain("Plain [brackets] only");
     }
+
+    [Fact]
+    public void Text_SuccessSeverity_EmitsCheckmarkPrefix()
+    {
+        var (renderer, console) = CreateRenderer();
+        var tree = new RenderTree.RenderTree([new RenderNode.Text("did the thing", Severity.Success)]);
+
+        renderer.Render(tree);
+
+        console.Output.ShouldContain("✓");
+        console.Output.ShouldContain("did the thing");
+    }
+
+    [Fact]
+    public void Text_ErrorSeverity_EmitsCrossPrefix()
+    {
+        var (renderer, console) = CreateRenderer();
+        var tree = new RenderTree.RenderTree([new RenderNode.Text("oops", Severity.Error)]);
+
+        renderer.Render(tree);
+
+        console.Output.ShouldContain("✗");
+        console.Output.ShouldContain("oops");
+    }
+
+    [Fact]
+    public void Text_WarningSeverity_EmitsBangPrefix()
+    {
+        var (renderer, console) = CreateRenderer();
+        var tree = new RenderTree.RenderTree([new RenderNode.Text("be careful", Severity.Warning)]);
+
+        renderer.Render(tree);
+
+        console.Output.ShouldContain("!");
+        console.Output.ShouldContain("be careful");
+    }
+
+    [Fact]
+    public void Hint_EmitsArrowAndHintLabel()
+    {
+        var (renderer, console) = CreateRenderer();
+        var tree = new RenderTree.RenderTree([new RenderNode.Hint("try this")]);
+
+        renderer.Render(tree);
+
+        console.Output.ShouldContain("→");
+        console.Output.ShouldContain("hint:");
+        console.Output.ShouldContain("try this");
+    }
 }

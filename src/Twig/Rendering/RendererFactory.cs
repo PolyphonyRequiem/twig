@@ -31,6 +31,15 @@ public sealed class RendererFactory
     public const string DefaultFormat = "human";
 
     /// <summary>
+    /// Captured at static initialisation, before any test harness or xUnit
+    /// runner calls <see cref="Console.SetOut(TextWriter)"/>. Lets us detect
+    /// whether a caller is writing to the genuine process stdout (live
+    /// terminal candidate) or to a swapped-in capture writer (tests, MCP).
+    /// </summary>
+    private static readonly TextWriter _originalConsoleOut = Console.Out;
+    private static readonly TextWriter _originalConsoleError = Console.Error;
+
+    /// <summary>
     /// Returns an <see cref="IRenderer"/> bound to the current
     /// <c>Console.Out</c>. <see cref="JsonRenderer"/> currently emits
     /// indented (pretty) JSON for all JSON aliases — commands needing a
@@ -81,11 +90,19 @@ public sealed class RendererFactory
         // even when stdout has been redirected to a StringWriter (tests) or
         // a pipe (CI logs, `twig … | cat`). On Windows that env var is
         // unset, so Spectre stays plain. The divergence breaks tests that
-        // assert on rendered output. Explicitly disable ANSI/color when the
-        // writer is not the live terminal so behaviour is deterministic
-        // across platforms and across capture mechanisms.
-        var isLiveTerminal = ReferenceEquals(writer, Console.Out)
-            && !Console.IsOutputRedirected;
+        // assert on rendered output.
+        //
+        // To get deterministic behaviour across platforms, only enable ANSI
+        // when we can prove the writer is bound to the genuine process
+        // stdout / stderr (captured at static-init before any SetOut swap)
+        // AND that stream is not redirected at the OS level AND the host is
+        // user-interactive. Tests, MCP servers, and piped invocations all
+        // miss at least one of these gates and get plain text.
+        var isLiveTerminal =
+            (ReferenceEquals(writer, _originalConsoleOut) && !Console.IsOutputRedirected)
+            || (ReferenceEquals(writer, _originalConsoleError) && !Console.IsErrorRedirected);
+        isLiveTerminal = isLiveTerminal && Environment.UserInteractive;
+
         var settings = new AnsiConsoleSettings
         {
             Out = new AnsiConsoleOutput(writer),

@@ -9,6 +9,8 @@ using Twig.Formatters;
 using Twig.Infrastructure.Ado;
 using Twig.Infrastructure.Ado.Exceptions;
 using Twig.Infrastructure.Content;
+using Twig.RenderTree;
+using Twig.Rendering;
 
 namespace Twig.Commands;
 
@@ -29,6 +31,14 @@ public sealed record BatchItemResult(
 /// Implements <c>twig batch</c>: combines state transitions, field updates, and notes
 /// into a single CLI invocation with one fetch, one PATCH, and one cache resync per item.
 /// </summary>
+/// <remarks>
+/// Partially migrated to the AB#3301 <see cref="RendererFactory"/>/<see cref="IRenderer"/> seam:
+/// the structured JSON output continues to be emitted by the existing
+/// <see cref="FormatBatchResultJson"/> path (wire format committed). Per-item human
+/// success lines and the final summary line are now routed through the renderer using
+/// "human" format explicitly to preserve the documented "jsonc uses human-readable
+/// output" quirk. Hints and stderr errors continue to use the legacy formatter.
+/// </remarks>
 public sealed class BatchCommand(
     CommandContext ctx,
     ActiveItemResolver activeItemResolver,
@@ -39,10 +49,12 @@ public sealed class BatchCommand(
     IFieldDefinitionStore fieldDefStore,
     IConsoleInput consoleInput,
     IPromptStateWriter? promptStateWriter = null,
-    TextWriter? stdout = null)
+    TextWriter? stdout = null,
+    RendererFactory? rendererFactory = null)
 {
     private readonly TextWriter _stdout = stdout ?? Console.Out;
     private readonly TextWriter _stderr = ctx.StderrWriter;
+    private readonly RendererFactory _rendererFactory = rendererFactory ?? new RendererFactory();
 
     /// <summary>
     /// Execute a batch of state transition, field updates, and/or note on one or more work items.
@@ -260,7 +272,7 @@ public sealed class BatchCommand(
             if (failed > 0)
                 _stderr.WriteLine(fmt.FormatError($"Batch complete: {succeeded}/{results.Count} succeeded, {failed} failed."));
             else
-                _stdout.WriteLine(fmt.FormatSuccess($"Batch complete: {succeeded}/{results.Count} succeeded."));
+                RenderHumanText($"Batch complete: {succeeded}/{results.Count} succeeded.", Severity.Success);
         }
 
         if (promptStateWriter is not null) await promptStateWriter.WritePromptStateAsync();
@@ -282,7 +294,17 @@ public sealed class BatchCommand(
             parts.Add("note added");
 
         var summary = string.Join(", ", parts);
-        _stdout.WriteLine(fmt.FormatSuccess($"#{result.ItemId} {result.Title}: {summary}"));
+        RenderHumanText($"#{result.ItemId} {result.Title}: {summary}", Severity.Success);
+    }
+
+    private void RenderHumanText(string message, Severity severity)
+    {
+        // Always render as human format - the JSON branch handles json explicitly above,
+        // and jsonc/minimal intentionally use human-readable output here.
+        _rendererFactory.GetRenderer("human").Render(new RenderTree.RenderTree(new[]
+        {
+            (RenderNode)new RenderNode.Text(message, severity),
+        }));
     }
 
     private void RenderHints(Domain.Aggregates.WorkItem item, string outputFormat, string? newStateName, IOutputFormatter fmt)

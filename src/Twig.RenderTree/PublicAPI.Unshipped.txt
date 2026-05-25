@@ -300,3 +300,6 @@ Twig.RenderTree.IdsRenderer.Render(Twig.RenderTree.RenderTree! tree) -> void
 Twig.RenderTree.MinimalRenderer
 Twig.RenderTree.MinimalRenderer.MinimalRenderer(System.IO.TextWriter! output) -> void
 Twig.RenderTree.MinimalRenderer.Render(Twig.RenderTree.RenderTree! tree) -> void
+Twig.RenderTree.JsonRenderer
+Twig.RenderTree.JsonRenderer.JsonRenderer(System.IO.TextWriter! output) -> void
+Twig.RenderTree.JsonRenderer.Render(Twig.RenderTree.RenderTree! tree) -> void

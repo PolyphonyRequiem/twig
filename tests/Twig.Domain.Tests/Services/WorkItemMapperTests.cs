@@ -125,6 +125,33 @@ public sealed class WorkItemMapperTests
     }
 
     [Fact]
+    public void Map_CanonicalFieldsOverrideStaleSnapshotProperties()
+    {
+        var snapshot = new WorkItemSnapshot
+        {
+            Id = -1,
+            TypeName = "Task",
+            Title = "Seed",
+            AssignedTo = "old@example.com",
+            IterationPath = @"Project\Old Iteration",
+            AreaPath = @"Project\Old Area",
+            IsSeed = true,
+            Fields = new Dictionary<string, string?>
+            {
+                ["System.AssignedTo"] = "new@example.com",
+                ["System.IterationPath"] = @"Project\New Iteration",
+                ["System.AreaPath"] = @"Project\New Area",
+            },
+        };
+
+        var result = _mapper.Map(snapshot);
+
+        result.AssignedTo.ShouldBe("new@example.com");
+        result.IterationPath.Value.ShouldBe(@"Project\New Iteration");
+        result.AreaPath.Value.ShouldBe(@"Project\New Area");
+    }
+
+    [Fact]
     public void Map_EmptyTypeName_FallsBackToTask()
     {
         var snapshot = new WorkItemSnapshot

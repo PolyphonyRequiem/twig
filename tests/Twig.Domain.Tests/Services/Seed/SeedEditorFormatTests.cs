@@ -93,6 +93,30 @@ public class SeedEditorFormatTests
     }
 
     [Fact]
+    public void Generate_PopulatesCanonicalFieldsFromSeedProperties()
+    {
+        var fields = new List<FieldDefinition>
+        {
+            new("System.Title", "Title", "String", false),
+            new("System.AreaPath", "Area Path", "TreePath", false),
+            new("System.IterationPath", "Iteration Path", "TreePath", false),
+            new("System.AssignedTo", "Assigned To", "Identity", false),
+        };
+        var seed = new WorkItemBuilder(-1, "My Title")
+            .AsSeed()
+            .WithAreaPath(@"Project\Team A")
+            .WithIterationPath(@"Project\Sprint 2")
+            .AssignedTo("user@example.com")
+            .Build();
+
+        var result = SeedEditorFormat.Generate(seed, fields);
+
+        result.ShouldContain(@"Project\Team A");
+        result.ShouldContain(@"Project\Sprint 2");
+        result.ShouldContain("user@example.com");
+    }
+
+    [Fact]
     public void Generate_ExcludesReadOnlyFields()
     {
         var seed = new WorkItemBuilder(-1, "Test").AsSeed().Build();

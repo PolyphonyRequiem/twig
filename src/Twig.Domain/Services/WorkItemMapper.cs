@@ -11,15 +11,19 @@ public sealed class WorkItemMapper
 {
     public WorkItem Map(WorkItemSnapshot snapshot)
     {
+        var assignedTo = GetCanonicalField(snapshot, "System.AssignedTo", snapshot.AssignedTo);
+        var iterationPath = GetCanonicalField(snapshot, "System.IterationPath", snapshot.IterationPath);
+        var areaPath = GetCanonicalField(snapshot, "System.AreaPath", snapshot.AreaPath);
+
         var item = new WorkItem
         {
             Id = snapshot.Id,
             Type = ParseWorkItemType(snapshot.TypeName),
             Title = snapshot.Title,
             State = snapshot.State,
-            AssignedTo = snapshot.AssignedTo,
-            IterationPath = ParseIterationPath(snapshot.IterationPath),
-            AreaPath = ParseAreaPath(snapshot.AreaPath),
+            AssignedTo = assignedTo,
+            IterationPath = ParseIterationPath(iterationPath),
+            AreaPath = ParseAreaPath(areaPath),
             ParentId = snapshot.ParentId,
             IsSeed = snapshot.IsSeed,
             SeedCreatedAt = snapshot.SeedCreatedAt,
@@ -36,6 +40,12 @@ public sealed class WorkItemMapper
 
         return item;
     }
+
+    private static string? GetCanonicalField(
+        WorkItemSnapshot snapshot,
+        string referenceName,
+        string? fallback) =>
+        snapshot.Fields.TryGetValue(referenceName, out var value) ? value : fallback;
 
     private static WorkItemType ParseWorkItemType(string? typeName)
     {

@@ -167,7 +167,14 @@ public sealed class NewCommand(
             var parsedFields = SeedEditorFormat.Parse(edited, fieldDefs);
             var newTitle = parsedFields.TryGetValue("System.Title", out var parsedTitle) && !string.IsNullOrWhiteSpace(parsedTitle)
                 ? parsedTitle : seedTitle;
-            seed = seed.WithSeedFields(newTitle, parsedFields);
+            var updateResult = seed.TryWithSeedFields(newTitle, parsedFields);
+            if (!updateResult.IsSuccess)
+            {
+                Console.Error.WriteLine(fmt.FormatError(updateResult.Error));
+                return 1;
+            }
+
+            seed = updateResult.Value;
         }
 
         int newId;

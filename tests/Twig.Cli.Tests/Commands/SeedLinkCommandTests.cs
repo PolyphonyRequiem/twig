@@ -122,6 +122,12 @@ public class SeedLinkCommandTests
     [InlineData("parent-child")]
     public async Task Link_AllValidTypes_Accepted(string linkType)
     {
+        if (linkType == SeedLinkTypes.ParentChild)
+        {
+            _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>())
+                .Returns(new WorkItemBuilder(-1, "Child").AsSeed().Build());
+        }
+
         var result = await _cmd.LinkAsync(-1, -2, linkType);
 
         result.ShouldBe(0);
@@ -137,6 +143,74 @@ public class SeedLinkCommandTests
         result.ShouldBe(0);
         await _seedLinkRepo.Received(1).AddLinkAsync(
             Arg.Is<SeedLink>(l => l.SourceId == 42 && l.TargetId == -1),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Link_ParentChildFromSeed_SetsAuthoritativeParentId()
+    {
+        var seed = new WorkItemBuilder(-1, "Child").AsSeed().Build();
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
+        _workItemRepo.ExistsByIdAsync(100, Arg.Any<CancellationToken>()).Returns(true);
+
+        var result = await _cmd.LinkAsync(-1, 100, SeedLinkTypes.ParentChild);
+
+        result.ShouldBe(0);
+        await _workItemRepo.Received(1).SaveAsync(
+            Arg.Is<WorkItem>(w => w.Id == -1 && w.ParentId == 100),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Link_ParentChildFromSeed_ToItself_ReturnsUsageError()
+    {
+        var result = await _cmd.LinkAsync(-1, -1, SeedLinkTypes.ParentChild);
+
+        result.ShouldBe(2);
+        await _workItemRepo.DidNotReceive().SaveAsync(
+            Arg.Any<WorkItem>(),
+            Arg.Any<CancellationToken>());
+        await _seedLinkRepo.DidNotReceive().AddLinkAsync(
+            Arg.Any<SeedLink>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Link_ParentChildFromSeed_WithDifferentParent_IsRejected()
+    {
+        var seed = new WorkItemBuilder(-1, "Child").AsSeed().WithParent(50).Build();
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
+
+        var result = await _cmd.LinkAsync(-1, 100, SeedLinkTypes.ParentChild);
+
+        result.ShouldBe(1);
+        await _workItemRepo.DidNotReceive().SaveAsync(
+            Arg.Any<WorkItem>(),
+            Arg.Any<CancellationToken>());
+        await _seedLinkRepo.DidNotReceive().AddLinkAsync(
+            Arg.Any<SeedLink>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Link_ParentChildFromSeed_WithDifferentExistingLink_IsRejected()
+    {
+        var seed = new WorkItemBuilder(-1, "Child").AsSeed().Build();
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
+        _seedLinkRepo.GetLinksForItemAsync(-1, Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new SeedLink(-1, 50, SeedLinkTypes.ParentChild, DateTimeOffset.UtcNow),
+            });
+
+        var result = await _cmd.LinkAsync(-1, 100, SeedLinkTypes.ParentChild);
+
+        result.ShouldBe(1);
+        await _workItemRepo.DidNotReceive().SaveAsync(
+            Arg.Any<WorkItem>(),
+            Arg.Any<CancellationToken>());
+        await _seedLinkRepo.DidNotReceive().AddLinkAsync(
+            Arg.Any<SeedLink>(),
             Arg.Any<CancellationToken>());
     }
 
@@ -258,6 +332,20 @@ public class SeedLinkCommandTests
 
         result.ShouldBe(0);
         await _seedLinkRepo.Received(1).RemoveLinkAsync(-1, -2, SeedLinkTypes.Blocks, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Unlink_ParentChildFromSeed_ClearsAuthoritativeParentId()
+    {
+        var seed = new WorkItemBuilder(-1, "Child").AsSeed().WithParent(100).Build();
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
+
+        var result = await _cmd.UnlinkAsync(-1, 100, SeedLinkTypes.ParentChild);
+
+        result.ShouldBe(0);
+        await _workItemRepo.Received(1).SaveAsync(
+            Arg.Is<WorkItem>(w => w.Id == -1 && w.ParentId == null),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]

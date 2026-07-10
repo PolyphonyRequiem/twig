@@ -1,4 +1,5 @@
 using Twig.Domain.Aggregates;
+using Twig.Domain.Common;
 using Twig.Domain.Extensions;
 using Twig.Domain.Interfaces;
 using Twig.Domain.Services.Navigation;
@@ -84,6 +85,25 @@ public sealed class SeedPublishOrchestrator
             };
         }
 
+        var parentLinks = await _seedLinkRepo.GetLinksForItemAsync(seedId, ct);
+        var resolvedSeed = ResolveParentLink(seed, parentLinks);
+        if (!resolvedSeed.IsSuccess)
+        {
+            return new SeedPublishResult
+            {
+                OldId = seedId,
+                Title = seed.Title,
+                Status = SeedPublishStatus.Error,
+                ErrorMessage = resolvedSeed.Error,
+            };
+        }
+
+        if (resolvedSeed.Value.ParentId != seed.ParentId)
+        {
+            seed = resolvedSeed.Value;
+            await _workItemRepo.SaveAsync(seed, ct);
+        }
+
         // Step 4: Guard — parent is an unpublished seed (negative ParentId)
         if (seed.ParentId.HasValue && seed.ParentId.Value < 0)
         {
@@ -93,6 +113,18 @@ public sealed class SeedPublishOrchestrator
                 Title = seed.Title,
                 Status = SeedPublishStatus.Error,
                 ErrorMessage = $"Parent seed {seed.ParentId.Value} must be published first.",
+            };
+        }
+
+        var canonicalFieldFailures = SeedValidator.ValidateCanonicalFields(seed);
+        if (canonicalFieldFailures.Count > 0)
+        {
+            return new SeedPublishResult
+            {
+                OldId = seedId,
+                Title = seed.Title,
+                Status = SeedPublishStatus.ValidationFailed,
+                ValidationFailures = canonicalFieldFailures,
             };
         }
 
@@ -129,6 +161,9 @@ public sealed class SeedPublishOrchestrator
 
         // Step 8: Fetch back the full ADO-populated item
         var fetchedItem = await _adoService.FetchAsync(newId, ct);
+        var parentPersistenceError = seed.ParentId.HasValue && fetchedItem.ParentId != seed.ParentId
+            ? $"Work item #{newId} was created, but ADO did not persist intended parent #{seed.ParentId}."
+            : null;
 
         // Step 9: Clear seed flag — item is now a published ADO work item.
         // Provenance is tracked via publish_id_map (old negative ID → new positive ID).
@@ -168,6 +203,19 @@ public sealed class SeedPublishOrchestrator
 
         // Step 11: Promote seed links to ADO relations
         var linkWarnings = await _linkPromoter.PromoteLinksAsync(newId, ct);
+
+        if (parentPersistenceError is not null)
+        {
+            return new SeedPublishResult
+            {
+                OldId = seedId,
+                NewId = newId,
+                Title = seed.Title,
+                Status = SeedPublishStatus.Error,
+                ErrorMessage = parentPersistenceError,
+                LinkWarnings = linkWarnings,
+            };
+        }
 
         // Step 12: Best-effort backlog ordering
         await _backlogOrderer.TryOrderAsync(newId, seed.ParentId, ct);
@@ -217,6 +265,35 @@ public sealed class SeedPublishOrchestrator
 
         // Step 2: Load all seed_links
         var links = await _seedLinkRepo.GetAllSeedLinksAsync(ct);
+
+        var resolvedSeeds = new List<WorkItem>(seeds.Count);
+        var parentLinkErrors = new List<string>();
+        foreach (var seed in seeds)
+        {
+            var resolvedSeed = ResolveParentLink(seed, links);
+            if (!resolvedSeed.IsSuccess)
+            {
+                parentLinkErrors.Add(resolvedSeed.Error);
+                continue;
+            }
+
+            if (resolvedSeed.Value.ParentId != seed.ParentId)
+                await _workItemRepo.SaveAsync(resolvedSeed.Value, ct);
+
+            resolvedSeeds.Add(resolvedSeed.Value);
+        }
+
+        if (parentLinkErrors.Count > 0)
+        {
+            return new SeedPublishBatchResult
+            {
+                Results = [],
+                CycleErrors = [],
+                PreFlightErrors = parentLinkErrors,
+            };
+        }
+
+        seeds = resolvedSeeds;
 
         // Step 3: Build dependency graph and topological sort
         var (publishOrder, cyclicIds) = SeedDependencyGraph.Sort(seeds, links);
@@ -302,5 +379,38 @@ public sealed class SeedPublishOrchestrator
             CycleErrors = [],
             PreFlightErrors = [],
         };
+    }
+
+    private static Result<WorkItem> ResolveParentLink(
+        WorkItem seed,
+        IReadOnlyList<SeedLink> links)
+    {
+        var parentTargets = links
+            .Where(link =>
+                link.LinkType == SeedLinkTypes.ParentChild &&
+                link.SourceId == seed.Id)
+            .Select(link => link.TargetId)
+            .Distinct()
+            .ToArray();
+
+        if (parentTargets.Length == 0)
+            return Result.Ok(seed);
+
+        if (parentTargets.Length > 1)
+        {
+            return Result.Fail<WorkItem>(
+                $"Seed {seed.Id} ('{seed.Title}') has multiple parent-child links. Remove the extra parent links before publishing.");
+        }
+
+        var linkedParentId = parentTargets[0];
+        if (seed.ParentId.HasValue && seed.ParentId.Value != linkedParentId)
+        {
+            return Result.Fail<WorkItem>(
+                $"Seed {seed.Id} ('{seed.Title}') has conflicting parents: ParentId is {seed.ParentId.Value}, but its parent-child link targets {linkedParentId}.");
+        }
+
+        return seed.ParentId == linkedParentId
+            ? Result.Ok(seed)
+            : Result.Ok(seed.WithParentId(linkedParentId));
     }
 }

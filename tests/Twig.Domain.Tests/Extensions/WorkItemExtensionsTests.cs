@@ -195,6 +195,29 @@ public sealed class WorkItemExtensionsTests
     }
 
     [Fact]
+    public void ToCreateRequest_UsesCanonicalValuesFromEditedSeedFields()
+    {
+        var item = new WorkItemBuilder(-1, "Edited seed")
+            .AsSeed()
+            .WithAreaPath(@"Project\Old Area")
+            .WithIterationPath(@"Project\Old Iteration")
+            .AssignedTo("old@example.com")
+            .Build()
+            .WithSeedFields("Edited seed", new Dictionary<string, string?>
+            {
+                ["System.AreaPath"] = @"Project\New Area",
+                ["System.IterationPath"] = @"Project\New Iteration",
+                ["System.AssignedTo"] = "new@example.com",
+            });
+
+        var request = item.ToCreateRequest();
+
+        request.AreaPath.ShouldBe(@"Project\New Area");
+        request.IterationPath.ShouldBe(@"Project\New Iteration");
+        request.Fields["System.AssignedTo"].ShouldBe("new@example.com");
+    }
+
+    [Fact]
     public void ToCreateRequest_DoesNotIncludeId()
     {
         // CreateWorkItemRequest has no Id property — verify the seed's Id

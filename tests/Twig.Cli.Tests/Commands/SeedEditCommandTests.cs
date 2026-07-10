@@ -144,6 +144,58 @@ public class SeedEditCommandTests
             Arg.Any<CancellationToken>());
     }
 
+    [Theory]
+    [InlineData("System.AreaPath", "Area Path", "Project\\Team A")]
+    [InlineData("System.IterationPath", "Iteration Path", "Project\\Sprint 2")]
+    [InlineData("System.AssignedTo", "Assigned To", "user@example.com")]
+    public async Task SeedEdit_CanonicalFieldChange_UpdatesSavedAggregate(
+        string referenceName,
+        string displayName,
+        string editedValue)
+    {
+        _fieldDefStore.GetAllAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<FieldDefinition>
+            {
+                new("System.Title", "Title", "String", false),
+                new(referenceName, displayName, "String", false),
+            });
+        var seed = CreateSeed(-2, "My Seed");
+        _workItemRepo.GetByIdAsync(-2, Arg.Any<CancellationToken>()).Returns(seed);
+        _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns($"# Title\nMy Seed\n\n# {displayName}\n{editedValue}\n");
+
+        var result = await _cmd.ExecuteAsync(-2);
+
+        result.ShouldBe(0);
+        await _workItemRepo.Received(1).SaveAsync(
+            Arg.Is<WorkItem>(w =>
+                w.Fields[referenceName] == editedValue &&
+                GetCanonicalValue(w, referenceName) == editedValue),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SeedEdit_InvalidAreaPath_ReturnsErrorWithoutSaving()
+    {
+        _fieldDefStore.GetAllAsync(Arg.Any<CancellationToken>())
+            .Returns(new List<FieldDefinition>
+            {
+                new("System.Title", "Title", "String", false),
+                new("System.AreaPath", "Area Path", "String", false),
+            });
+        var seed = CreateSeed(-2, "My Seed");
+        _workItemRepo.GetByIdAsync(-2, Arg.Any<CancellationToken>()).Returns(seed);
+        _editorLauncher.LaunchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns("# Title\nMy Seed\n\n# Area Path\nProject\\\\Invalid\n");
+
+        var result = await _cmd.ExecuteAsync(-2);
+
+        result.ShouldBe(1);
+        await _workItemRepo.DidNotReceive().SaveAsync(
+            Arg.Any<WorkItem>(),
+            Arg.Any<CancellationToken>());
+    }
+
     [Fact]
     public async Task SeedEdit_PreservesAllSeedProperties()
     {
@@ -214,4 +266,13 @@ public class SeedEditCommandTests
             AreaPath = AreaPath.Parse("Project").Value,
         };
     }
+
+    private static string? GetCanonicalValue(WorkItem item, string referenceName) =>
+        referenceName switch
+        {
+            "System.AreaPath" => item.AreaPath.Value,
+            "System.IterationPath" => item.IterationPath.Value,
+            "System.AssignedTo" => item.AssignedTo,
+            _ => throw new ArgumentOutOfRangeException(nameof(referenceName)),
+        };
 }

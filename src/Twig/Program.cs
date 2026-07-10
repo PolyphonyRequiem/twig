@@ -403,7 +403,7 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <summary>Show process configuration: list types (no args) or type details (with type name).</summary>
     /// <param name="type">Work item type name to show details for (omit to list all types).</param>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
-    public async Task<int> Process(string? type = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    public async Task<int> Process([Argument] string? type = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<ProcessCommand>().ExecuteAsync(type, output, ct);
 
     /// <summary>List available workflow states for the active work item's type.</summary>

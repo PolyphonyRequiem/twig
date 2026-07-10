@@ -36,6 +36,22 @@ public sealed class GroupedHelpTests
             .ShouldBeFalse("SeedNew should NOT be hidden — it is the canonical seed command");
     }
 
+    [Fact]
+    public void Process_TypeParameter_HasArgumentAttribute()
+    {
+        var method = typeof(TwigCommands).GetMethod(
+            nameof(TwigCommands.Process),
+            BindingFlags.Public | BindingFlags.Instance);
+
+        method.ShouldNotBeNull("TwigCommands.Process method not found");
+        var typeParameter = method.GetParameters()
+            .Single(parameter => parameter.Name == "type");
+
+        typeParameter.GetCustomAttributes()
+            .Any(attribute => attribute.GetType().Name == "ArgumentAttribute")
+            .ShouldBeTrue("twig process <type> should accept type as a positional argument");
+    }
+
     [Theory]
     [InlineData(nameof(TwigCommands.Area))]
     [InlineData(nameof(TwigCommands.AreaAdd))]

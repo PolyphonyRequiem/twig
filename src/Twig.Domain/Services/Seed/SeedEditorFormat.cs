@@ -64,9 +64,7 @@ public static class SeedEditorFormat
             sb.Append("# ");
             sb.AppendLine(field.DisplayName);
 
-            var value = string.Equals(field.ReferenceName, "System.Title", StringComparison.OrdinalIgnoreCase)
-                ? seed.Title
-                : seed.Fields.TryGetValue(field.ReferenceName, out var v) ? v : null;
+            var value = GetEditorValue(seed, field.ReferenceName);
             if (!string.IsNullOrEmpty(value))
                 sb.AppendLine(value);
 
@@ -176,6 +174,20 @@ public static class SeedEditorFormat
         ordered.AddRange(remaining);
 
         return ordered;
+    }
+
+    private static string? GetEditorValue(WorkItem seed, string referenceName)
+    {
+        if (string.Equals(referenceName, "System.Title", StringComparison.OrdinalIgnoreCase))
+            return seed.Title;
+        if (string.Equals(referenceName, "System.AreaPath", StringComparison.OrdinalIgnoreCase))
+            return seed.AreaPath.Value;
+        if (string.Equals(referenceName, "System.IterationPath", StringComparison.OrdinalIgnoreCase))
+            return seed.IterationPath.Value;
+        if (string.Equals(referenceName, "System.AssignedTo", StringComparison.OrdinalIgnoreCase))
+            return seed.AssignedTo;
+
+        return seed.Fields.TryGetValue(referenceName, out var value) ? value : null;
     }
 
     private static string? TrimValue(StringBuilder sb)

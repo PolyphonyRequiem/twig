@@ -431,6 +431,29 @@ public class WorkItemTests
     }
 
     [Fact]
+    public void WithSeedFields_CanonicalFields_UpdateCanonicalProperties()
+    {
+        var original = new WorkItemBuilder(-1, "Seed")
+            .AsSeed()
+            .WithAreaPath(@"Project\Old Area")
+            .WithIterationPath(@"Project\Old Iteration")
+            .AssignedTo("old@example.com")
+            .Build();
+        var fields = new Dictionary<string, string?>
+        {
+            ["System.AreaPath"] = @"Project\New Area",
+            ["System.IterationPath"] = @"Project\New Iteration",
+            ["System.AssignedTo"] = "new@example.com",
+        };
+
+        var copy = original.WithSeedFields("Seed", fields);
+
+        copy.AreaPath.Value.ShouldBe(@"Project\New Area");
+        copy.IterationPath.Value.ShouldBe(@"Project\New Iteration");
+        copy.AssignedTo.ShouldBe("new@example.com");
+    }
+
+    [Fact]
     public void WithSeedFields_CopyIsNotDirty()
     {
         var original = new WorkItemBuilder(-1, "Seed").AsSeed().Build();

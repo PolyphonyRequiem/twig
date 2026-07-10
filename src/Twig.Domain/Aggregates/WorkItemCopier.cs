@@ -26,6 +26,11 @@ internal static class WorkItemCopier
     /// <param name="preserveDirty">When <c>true</c>, the source dirty flag is transferred
     /// to the copy.</param>
     /// <param name="typeOverride">If non-null, replaces the source <see cref="WorkItem.Type"/>.</param>
+    /// <param name="overrideAssignedTo">When <c>true</c>, uses <paramref name="assignedToValue"/>
+    /// instead of <c>source.AssignedTo</c>.</param>
+    /// <param name="assignedToValue">The assigned-to value when <paramref name="overrideAssignedTo"/> is <c>true</c>.</param>
+    /// <param name="areaPathOverride">If non-null, replaces the source <see cref="WorkItem.AreaPath"/>.</param>
+    /// <param name="iterationPathOverride">If non-null, replaces the source <see cref="WorkItem.IterationPath"/>.</param>
     internal static WorkItem Copy(
         WorkItem source,
         string? titleOverride = null,
@@ -35,7 +40,11 @@ internal static class WorkItemCopier
         IReadOnlyDictionary<string, string?>? fieldsOverride = null,
         bool preserveExistingFields = true,
         bool preserveDirty = false,
-        WorkItemType? typeOverride = null)
+        WorkItemType? typeOverride = null,
+        bool overrideAssignedTo = false,
+        string? assignedToValue = null,
+        AreaPath? areaPathOverride = null,
+        IterationPath? iterationPathOverride = null)
     {
         var copy = new WorkItem
         {
@@ -43,9 +52,9 @@ internal static class WorkItemCopier
             Type = typeOverride ?? source.Type,
             Title = titleOverride ?? source.Title,
             State = source.State,
-            AssignedTo = source.AssignedTo,
-            IterationPath = source.IterationPath,
-            AreaPath = source.AreaPath,
+            AssignedTo = overrideAssignedTo ? assignedToValue : source.AssignedTo,
+            IterationPath = iterationPathOverride ?? source.IterationPath,
+            AreaPath = areaPathOverride ?? source.AreaPath,
             ParentId = overrideParentId ? parentIdValue : source.ParentId,
             IsSeed = isSeedOverride ?? source.IsSeed,
             SeedCreatedAt = source.SeedCreatedAt,

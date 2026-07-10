@@ -50,6 +50,48 @@ public sealed class SeedLinkCommand(
             return 1;
         }
 
+        if (linkType == SeedLinkTypes.ParentChild && sourceId < 0)
+        {
+            if (sourceId == targetId)
+            {
+                Console.Error.WriteLine(fmt.FormatError(
+                    $"Link rejected: seed #{sourceId} cannot be its own parent."));
+                return 1;
+            }
+
+            var childSeed = await workItemRepo.GetByIdAsync(sourceId, ct);
+            if (childSeed is null || !childSeed.IsSeed)
+            {
+                Console.Error.WriteLine(fmt.FormatError(
+                    $"Seed #{sourceId} not found."));
+                return 1;
+            }
+
+            if (childSeed.ParentId.HasValue && childSeed.ParentId.Value != targetId)
+            {
+                Console.Error.WriteLine(fmt.FormatError(
+                    $"Seed #{sourceId} already has parent #{childSeed.ParentId.Value}. Remove that parent link first."));
+                return 1;
+            }
+
+            var existingParentId = (await seedLinkRepo.GetLinksForItemAsync(sourceId, ct))
+                .Where(link =>
+                    link.LinkType == SeedLinkTypes.ParentChild &&
+                    link.SourceId == sourceId &&
+                    link.TargetId != targetId)
+                .Select(link => (int?)link.TargetId)
+                .FirstOrDefault();
+            if (existingParentId.HasValue)
+            {
+                Console.Error.WriteLine(fmt.FormatError(
+                    $"Seed #{sourceId} already has parent #{existingParentId.Value}. Remove that parent link first."));
+                return 1;
+            }
+
+            if (childSeed.ParentId != targetId)
+                await workItemRepo.SaveAsync(childSeed.WithParentId(targetId), ct);
+        }
+
         if (sourceId > 0 && !await workItemRepo.ExistsByIdAsync(sourceId, ct))
         {
             Console.Error.WriteLine(fmt.FormatInfo(
@@ -119,6 +161,13 @@ public sealed class SeedLinkCommand(
         }
 
         await seedLinkRepo.RemoveLinkAsync(sourceId, targetId, linkType, ct);
+
+        if (linkType == SeedLinkTypes.ParentChild && sourceId < 0)
+        {
+            var childSeed = await workItemRepo.GetByIdAsync(sourceId, ct);
+            if (childSeed is not null && childSeed.IsSeed && childSeed.ParentId == targetId)
+                await workItemRepo.SaveAsync(childSeed.WithParentId(null), ct);
+        }
 
         RenderLinkOutcome("seedUnlinked", $"Unlinked #{sourceId} ──{linkType}──▶ #{targetId}", sourceId, targetId, linkType, outputFormat);
         return 0;

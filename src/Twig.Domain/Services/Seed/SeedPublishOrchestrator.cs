@@ -84,6 +84,25 @@ public sealed class SeedPublishOrchestrator
             };
         }
 
+        var parentLinks = await _seedLinkRepo.GetLinksForItemAsync(seedId, ct);
+        var (resolvedSeed, parentLinkError) = ResolveParentLink(seed, parentLinks);
+        if (parentLinkError is not null)
+        {
+            return new SeedPublishResult
+            {
+                OldId = seedId,
+                Title = seed.Title,
+                Status = SeedPublishStatus.Error,
+                ErrorMessage = parentLinkError,
+            };
+        }
+
+        if (resolvedSeed.ParentId != seed.ParentId)
+        {
+            seed = resolvedSeed;
+            await _workItemRepo.SaveAsync(seed, ct);
+        }
+
         // Step 4: Guard — parent is an unpublished seed (negative ParentId)
         if (seed.ParentId.HasValue && seed.ParentId.Value < 0)
         {
@@ -218,6 +237,35 @@ public sealed class SeedPublishOrchestrator
         // Step 2: Load all seed_links
         var links = await _seedLinkRepo.GetAllSeedLinksAsync(ct);
 
+        var resolvedSeeds = new List<WorkItem>(seeds.Count);
+        var parentLinkErrors = new List<string>();
+        foreach (var seed in seeds)
+        {
+            var (resolvedSeed, error) = ResolveParentLink(seed, links);
+            if (error is not null)
+            {
+                parentLinkErrors.Add(error);
+                continue;
+            }
+
+            if (resolvedSeed.ParentId != seed.ParentId)
+                await _workItemRepo.SaveAsync(resolvedSeed, ct);
+
+            resolvedSeeds.Add(resolvedSeed);
+        }
+
+        if (parentLinkErrors.Count > 0)
+        {
+            return new SeedPublishBatchResult
+            {
+                Results = [],
+                CycleErrors = [],
+                PreFlightErrors = parentLinkErrors,
+            };
+        }
+
+        seeds = resolvedSeeds;
+
         // Step 3: Build dependency graph and topological sort
         var (publishOrder, cyclicIds) = SeedDependencyGraph.Sort(seeds, links);
 
@@ -302,5 +350,38 @@ public sealed class SeedPublishOrchestrator
             CycleErrors = [],
             PreFlightErrors = [],
         };
+    }
+
+    private static (WorkItem Seed, string? Error) ResolveParentLink(
+        WorkItem seed,
+        IReadOnlyList<SeedLink> links)
+    {
+        var parentTargets = links
+            .Where(link =>
+                link.LinkType == SeedLinkTypes.ParentChild &&
+                link.SourceId == seed.Id)
+            .Select(link => link.TargetId)
+            .Distinct()
+            .ToArray();
+
+        if (parentTargets.Length == 0)
+            return (seed, null);
+
+        if (parentTargets.Length > 1)
+        {
+            return (seed,
+                $"Seed {seed.Id} ('{seed.Title}') has multiple parent-child links. Remove the extra parent links before publishing.");
+        }
+
+        var linkedParentId = parentTargets[0];
+        if (seed.ParentId.HasValue && seed.ParentId.Value != linkedParentId)
+        {
+            return (seed,
+                $"Seed {seed.Id} ('{seed.Title}') has conflicting parents: ParentId is {seed.ParentId.Value}, but its parent-child link targets {linkedParentId}.");
+        }
+
+        return seed.ParentId == linkedParentId
+            ? (seed, null)
+            : (seed.WithParentId(linkedParentId), null);
     }
 }

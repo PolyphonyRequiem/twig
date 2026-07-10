@@ -673,7 +673,7 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
         }, verbose, ct);
     }
 
-    [McpServerTool(Name = "twig_seed_link"), Description("Create a virtual typed link between two items (at least one must be a seed). Supports directional types (blocks, depends-on, successor, predecessor) with automatic cycle detection, and symmetric types (related, parent-child).")]
+    [McpServerTool(Name = "twig_seed_link"), Description("Create a virtual typed link between two items (at least one must be a seed). For parent-child links, the source is the child and the target is the parent.")]
     public async Task<CallToolResult> SeedLink(
         [Description("Source work item ID (positive for ADO items, negative for seeds).")] int sourceId,
         [Description("Target work item ID (positive for ADO items, negative for seeds).")] int targetId,
@@ -694,6 +694,36 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
         if (linkType is null)
             return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput,
                 $"Invalid link type '{rawType}'. Valid types: {string.Join(", ", SeedLinkTypes.All)}", ctx, ct);
+
+        if (linkType == SeedLinkTypes.ParentChild && sourceId < 0)
+        {
+            if (sourceId == targetId)
+                return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput,
+                    $"Seed #{sourceId} cannot be its own parent.", ctx, ct);
+
+            var childSeed = await ctx.WorkItemRepo.GetByIdAsync(sourceId, ct);
+            if (childSeed is null || !childSeed.IsSeed)
+                return await EnvelopeBuilder.ErrorAsync(McpErrorCode.ItemNotFound,
+                    $"Seed #{sourceId} not found.", ctx, ct);
+
+            if (childSeed.ParentId.HasValue && childSeed.ParentId.Value != targetId)
+                return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput,
+                    $"Seed #{sourceId} already has parent #{childSeed.ParentId.Value}. Remove that parent link first.", ctx, ct);
+
+            var existingParentId = (await ctx.SeedLinkRepo.GetLinksForItemAsync(sourceId, ct))
+                .Where(link =>
+                    link.LinkType == SeedLinkTypes.ParentChild &&
+                    link.SourceId == sourceId &&
+                    link.TargetId != targetId)
+                .Select(link => (int?)link.TargetId)
+                .FirstOrDefault();
+            if (existingParentId.HasValue)
+                return await EnvelopeBuilder.ErrorAsync(McpErrorCode.InvalidInput,
+                    $"Seed #{sourceId} already has parent #{existingParentId.Value}. Remove that parent link first.", ctx, ct);
+
+            if (childSeed.ParentId != targetId)
+                await ctx.WorkItemRepo.SaveAsync(childSeed.WithParentId(targetId), ct);
+        }
 
         // Cycle detection for directional link types
         if (linkType != SeedLinkTypes.Related && linkType != SeedLinkTypes.ParentChild)

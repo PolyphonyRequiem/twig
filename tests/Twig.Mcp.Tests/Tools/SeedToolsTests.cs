@@ -1433,4 +1433,69 @@ public sealed class SeedToolsTests : CreationToolsTestBase
         data.GetProperty("targetId").GetInt32().ShouldBe(500);
         data.GetProperty("created").GetBoolean().ShouldBeTrue();
     }
+
+    [Fact]
+    public async Task SeedLink_ParentChildFromSeed_SetsAuthoritativeParentId()
+    {
+        var seed = new WorkItemBuilder(-1, "Child").AsTask().AsSeed().Build();
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
+
+        var sut = CreateSeedSut();
+        var result = await sut.SeedLink(
+            sourceId: -1,
+            targetId: 100,
+            type: SeedLinkTypes.ParentChild);
+
+        result.IsError.ShouldBeNull();
+        await _workItemRepo.Received(1).SaveAsync(
+            Arg.Is<WorkItem>(w => w.Id == -1 && w.ParentId == 100),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SeedLink_ParentChildFromSeed_WithDifferentParent_ReturnsError()
+    {
+        var seed = new WorkItemBuilder(-1, "Child")
+            .AsTask()
+            .AsSeed()
+            .WithParent(50)
+            .Build();
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
+
+        var sut = CreateSeedSut();
+        var result = await sut.SeedLink(
+            sourceId: -1,
+            targetId: 100,
+            type: SeedLinkTypes.ParentChild);
+
+        result.IsError.ShouldBe(true);
+        GetErrorText(result).ShouldContain("already has parent #50");
+        await _seedLinkRepo.DidNotReceive().AddLinkAsync(
+            Arg.Any<SeedLink>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SeedLink_ParentChildFromSeed_WithDifferentExistingLink_ReturnsError()
+    {
+        var seed = new WorkItemBuilder(-1, "Child").AsTask().AsSeed().Build();
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
+        _seedLinkRepo.GetLinksForItemAsync(-1, Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new SeedLink(-1, 50, SeedLinkTypes.ParentChild, DateTimeOffset.UtcNow),
+            });
+
+        var sut = CreateSeedSut();
+        var result = await sut.SeedLink(
+            sourceId: -1,
+            targetId: 100,
+            type: SeedLinkTypes.ParentChild);
+
+        result.IsError.ShouldBe(true);
+        GetErrorText(result).ShouldContain("already has parent #50");
+        await _seedLinkRepo.DidNotReceive().AddLinkAsync(
+            Arg.Any<SeedLink>(),
+            Arg.Any<CancellationToken>());
+    }
 }

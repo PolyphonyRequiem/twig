@@ -115,14 +115,28 @@ public sealed class WorkItem
     /// <summary>
     /// Returns a new <see cref="WorkItem"/> with updated title and fields,
     /// preserving all other properties (Id, Type, IsSeed, SeedCreatedAt,
-    /// ParentId, AreaPath, IterationPath, State, AssignedTo, Revision).
+    /// ParentId, State, Revision). Canonical AreaPath, IterationPath, and
+    /// AssignedTo properties are synchronized when their fields are present.
     /// The new instance is not dirty.
     /// </summary>
     public WorkItem WithSeedFields(
         string title,
-        IReadOnlyDictionary<string, string?> fields) =>
-        WorkItemCopier.Copy(this, titleOverride: title,
-            preserveExistingFields: false, fieldsOverride: fields);
+        IReadOnlyDictionary<string, string?> fields)
+    {
+        var overrideAreaPath = fields.TryGetValue("System.AreaPath", out var areaPathValue);
+        var overrideIterationPath = fields.TryGetValue("System.IterationPath", out var iterationPathValue);
+        var overrideAssignedTo = fields.TryGetValue("System.AssignedTo", out var assignedToValue);
+
+        return WorkItemCopier.Copy(
+            this,
+            titleOverride: title,
+            overrideAssignedTo: overrideAssignedTo,
+            assignedToValue: assignedToValue,
+            areaPathOverride: overrideAreaPath ? ParseAreaPath(areaPathValue) : null,
+            iterationPathOverride: overrideIterationPath ? ParseIterationPath(iterationPathValue) : null,
+            preserveExistingFields: false,
+            fieldsOverride: fields);
+    }
 
     /// <summary>
     /// Returns a copy with a different <see cref="ParentId"/>.
@@ -146,4 +160,25 @@ public sealed class WorkItem
     public WorkItem WithType(WorkItemType newType) =>
         WorkItemCopier.Copy(this, typeOverride: newType, preserveDirty: true);
 
+    private static AreaPath ParseAreaPath(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return default;
+
+        var result = AreaPath.Parse(value);
+        return result.IsSuccess
+            ? result.Value
+            : throw new ArgumentException(result.Error, nameof(value));
+    }
+
+    private static IterationPath ParseIterationPath(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return default;
+
+        var result = IterationPath.Parse(value);
+        return result.IsSuccess
+            ? result.Value
+            : throw new ArgumentException(result.Error, nameof(value));
+    }
 }

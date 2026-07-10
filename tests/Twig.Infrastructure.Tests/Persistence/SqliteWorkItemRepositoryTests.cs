@@ -47,6 +47,53 @@ public class SqliteWorkItemRepositoryTests : IDisposable
     }
 
     [Fact]
+    public async Task SaveAndGetById_EditedCanonicalSeedFields_RoundTripConsistently()
+    {
+        var seed = new WorkItemBuilder(-1, "Seed")
+            .AsSeed()
+            .WithAreaPath(@"Project\Old Area")
+            .WithIterationPath(@"Project\Old Iteration")
+            .AssignedTo("old@example.com")
+            .Build()
+            .WithSeedFields("Seed", new Dictionary<string, string?>
+            {
+                ["System.AreaPath"] = @"Project\New Area",
+                ["System.IterationPath"] = @"Project\New Iteration",
+                ["System.AssignedTo"] = "new@example.com",
+            });
+
+        await _repo.SaveAsync(seed);
+        var loaded = await _repo.GetByIdAsync(-1);
+
+        loaded.ShouldNotBeNull();
+        loaded.AreaPath.Value.ShouldBe(loaded.Fields["System.AreaPath"]);
+        loaded.IterationPath.Value.ShouldBe(loaded.Fields["System.IterationPath"]);
+        loaded.AssignedTo.ShouldBe(loaded.Fields["System.AssignedTo"]);
+    }
+
+    [Fact]
+    public async Task GetById_LegacySeedWithStaleCanonicalColumns_UsesEditedFields()
+    {
+        var legacySeed = new WorkItemBuilder(-1, "Seed")
+            .AsSeed()
+            .WithAreaPath(@"Project\Old Area")
+            .WithIterationPath(@"Project\Old Iteration")
+            .AssignedTo("old@example.com")
+            .WithField("System.AreaPath", @"Project\New Area")
+            .WithField("System.IterationPath", @"Project\New Iteration")
+            .WithField("System.AssignedTo", "new@example.com")
+            .Build();
+
+        await _repo.SaveAsync(legacySeed);
+        var loaded = await _repo.GetByIdAsync(-1);
+
+        loaded.ShouldNotBeNull();
+        loaded.AreaPath.Value.ShouldBe(@"Project\New Area");
+        loaded.IterationPath.Value.ShouldBe(@"Project\New Iteration");
+        loaded.AssignedTo.ShouldBe("new@example.com");
+    }
+
+    [Fact]
     public async Task GetChildrenAsync_ReturnsChildrenOrderedByTypeTitle()
     {
         var parent = CreateWorkItem(1, "Feature", "Parent", "Active");

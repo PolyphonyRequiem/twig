@@ -572,7 +572,7 @@ public sealed class TwigCommands(IServiceProvider services)
     /// <summary>Create a virtual link between two items (at least one must be a seed).</summary>
     /// <param name="sourceId">Source item ID for the link.</param>
     /// <param name="targetId">Target item ID for the link.</param>
-    /// <param name="type">Link type (e.g., Related, Dependency).</param>
+    /// <param name="type">Link type. For parent-child, source is the child and target is the parent.</param>
     /// <param name="output">-o, Output format: human, json, jsonc, minimal.</param>
     [Command("seed link")]
     public async Task<int> SeedLink([Argument] int sourceId, [Argument] int targetId, string? type = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)

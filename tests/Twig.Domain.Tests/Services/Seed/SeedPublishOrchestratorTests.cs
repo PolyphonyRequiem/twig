@@ -271,6 +271,47 @@ public class SeedPublishOrchestratorTests
         result.Status.ShouldBe(SeedPublishStatus.Created);
     }
 
+    [Fact]
+    public async Task PublishAsync_LegacyParentChildLinkToExistingParent_UsesParentInCreateRequest()
+    {
+        var seed = new WorkItemBuilder(-1, "Child seed").AsSeed().Build();
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
+        _seedLinkRepo.GetLinksForItemAsync(-1, Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new SeedLink(-1, 100, SeedLinkTypes.ParentChild, DateTimeOffset.UtcNow),
+            });
+        SetupSuccessfulAdoFlow(-1, 500);
+
+        var result = await _orchestrator.PublishAsync(-1);
+
+        result.Status.ShouldBe(SeedPublishStatus.Created);
+        await _adoService.Received(1).CreateAsync(
+            Arg.Is<CreateWorkItemRequest>(request => request.ParentId == 100),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PublishAsync_MultipleParentChildLinks_ReturnsErrorWithoutCreating()
+    {
+        var seed = new WorkItemBuilder(-1, "Child seed").AsSeed().Build();
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
+        _seedLinkRepo.GetLinksForItemAsync(-1, Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new SeedLink(-1, 100, SeedLinkTypes.ParentChild, DateTimeOffset.UtcNow),
+                new SeedLink(-1, 200, SeedLinkTypes.ParentChild, DateTimeOffset.UtcNow),
+            });
+
+        var result = await _orchestrator.PublishAsync(-1);
+
+        result.Status.ShouldBe(SeedPublishStatus.Error);
+        result.ErrorMessage!.ShouldContain("multiple parent-child links");
+        await _adoService.DidNotReceive().CreateAsync(
+            Arg.Any<CreateWorkItemRequest>(),
+            Arg.Any<CancellationToken>());
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //  Force + Dry run → dry run wins (no API calls)
     // ═══════════════════════════════════════════════════════════════
@@ -403,6 +444,42 @@ public class SeedPublishOrchestratorTests
         result.Results[0].NewId.ShouldBe(200);
         result.Results[1].OldId.ShouldBe(-1);
         result.Results[1].NewId.ShouldBe(201);
+    }
+
+    [Fact]
+    public async Task PublishAllAsync_LegacyParentChildLink_PublishesParentFirst()
+    {
+        var parentSeed = new WorkItemBuilder(-2, "Parent").AsSeed(daysOld: 1).Build();
+        var childSeed = new WorkItemBuilder(-1, "Child").AsSeed(daysOld: 2).Build();
+        var childAfterRemap = childSeed.WithParentId(200);
+
+        _workItemRepo.GetSeedsAsync(Arg.Any<CancellationToken>())
+            .Returns(new[] { childSeed, parentSeed });
+        _seedLinkRepo.GetAllSeedLinksAsync(Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new SeedLink(-1, -2, SeedLinkTypes.ParentChild, DateTimeOffset.UtcNow),
+            });
+        _workItemRepo.GetByIdAsync(-2, Arg.Any<CancellationToken>()).Returns(parentSeed);
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(childAfterRemap);
+
+        _adoService.CreateAsync(
+                Arg.Is<CreateWorkItemRequest>(request => request.Title == "Parent"),
+                Arg.Any<CancellationToken>())
+            .Returns(200);
+        _adoService.FetchAsync(200, Arg.Any<CancellationToken>())
+            .Returns(new WorkItemBuilder(200, "Parent").Build());
+        _adoService.CreateAsync(
+                Arg.Is<CreateWorkItemRequest>(request => request.Title == "Child" && request.ParentId == 200),
+                Arg.Any<CancellationToken>())
+            .Returns(201);
+        _adoService.FetchAsync(201, Arg.Any<CancellationToken>())
+            .Returns(new WorkItemBuilder(201, "Child").Build());
+
+        var result = await _orchestrator.PublishAllAsync();
+
+        result.HasErrors.ShouldBeFalse();
+        result.Results.Select(item => item.OldId).ShouldBe(new[] { -2, -1 });
     }
 
     // ═══════════════════════════════════════════════════════════════

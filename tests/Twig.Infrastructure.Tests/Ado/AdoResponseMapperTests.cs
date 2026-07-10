@@ -348,6 +348,34 @@ public sealed class AdoResponseMapperTests
     }
 
     [Fact]
+    public void MapSeedToCreatePayload_EditedCanonicalFields_UsesEditedValues()
+    {
+        var seed = new WorkItemBuilder(-1, "Story")
+            .AsSeed()
+            .WithAreaPath(@"Project\Old Area")
+            .WithIterationPath(@"Project\Old Iteration")
+            .AssignedTo("old@example.com")
+            .Build()
+            .WithSeedFields("Story", new Dictionary<string, string?>
+            {
+                ["System.AreaPath"] = @"Project\New Area",
+                ["System.IterationPath"] = @"Project\New Iteration",
+                ["System.AssignedTo"] = "new@example.com",
+            });
+
+        var result = AdoResponseMapper.MapSeedToCreatePayload(
+            seed.ToCreateRequest(),
+            "https://dev.azure.com/org");
+
+        result.Single(op => op.Path == "/fields/System.AreaPath")
+            .Value!.GetValue<string>().ShouldBe(@"Project\New Area");
+        result.Single(op => op.Path == "/fields/System.IterationPath")
+            .Value!.GetValue<string>().ShouldBe(@"Project\New Iteration");
+        result.Single(op => op.Path == "/fields/System.AssignedTo")
+            .Value!.GetValue<string>().ShouldBe("new@example.com");
+    }
+
+    [Fact]
     public void MapSeedToCreatePayload_IncludesPopulatedFields()
     {
         var seed = new WorkItemBuilder(-1, "Task with fields").AsSeed().Build();

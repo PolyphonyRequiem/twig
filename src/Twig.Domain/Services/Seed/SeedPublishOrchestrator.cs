@@ -252,10 +252,17 @@ public sealed class SeedPublishOrchestrator
             await _workItemRepo.SaveAsync(refreshed, ct);
             await _workItemLinkRepo.SaveLinksAsync(newId, refreshedLinks, ct);
         }
-        catch
+        catch (OperationCanceledException)
         {
-            // Non-fatal: the item was published successfully.
-            // Stale cache is tolerable — the conflict retry helper covers it on next update.
+            throw;
+        }
+        catch (Exception ex)
+        {
+            linkWarnings =
+            [
+                .. linkWarnings,
+                $"Work item #{newId} was published, but relationship cache refresh failed: {ex.Message}",
+            ];
         }
 
         // Step 13: Return success result

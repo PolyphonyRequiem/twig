@@ -179,9 +179,16 @@ public sealed class ShowCommand(
         async Task<SyncResult> RefreshItemAndLinksAsync(CancellationToken refreshCt)
         {
             var linkSync = await syncCoordinatorFactory.ReadOnly.SyncRootLinksAsync(resolvedId, refreshCt);
-            return linkSync is SyncFailed
+            var itemSync = linkSync is SyncFailed
                 ? await syncCoordinatorFactory.ReadOnly.SyncItemSetAsync([resolvedId], refreshCt)
                 : linkSync;
+
+            var refreshedItem = await workItemRepo.GetByIdAsync(resolvedId, refreshCt);
+            if (refreshedItem?.ParentId is > 0)
+                await syncCoordinatorFactory.ReadOnly.SyncItemSetAsync([refreshedItem.ParentId.Value], refreshCt);
+
+            await syncCoordinatorFactory.ReadOnly.SyncChildrenAsync(resolvedId, refreshCt);
+            return itemSync;
         }
 
         // Non-TTY machine output: sync synchronously before emitting so consumers get fresh data.

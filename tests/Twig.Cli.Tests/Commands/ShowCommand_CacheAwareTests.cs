@@ -292,7 +292,7 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
     }
 
     [Fact]
-    public async Task NonTty_Json_RefreshesParentAndDependencyRelationships()
+    public async Task NonTty_Json_RefreshesHierarchyAndDependencyRelationships()
     {
         using var store = new SqliteCacheStore("Data Source=:memory:");
         var workItemRepo = new SqliteWorkItemRepository(store, new WorkItemMapper());
@@ -303,11 +303,10 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
         var freshItem = Item(1, "Published child").WithParent(100).Build();
         var parent = Item(100, "Current parent").Build();
         var predecessor = Item(99, "Current predecessor").Build();
+        var child = Item(2, "Current child").WithParent(1).Build();
         var links = new[] { new WorkItemLink(1, 99, "Predecessor") };
 
         await workItemRepo.SaveAsync(Item(1, "Published child").Build());
-        await workItemRepo.SaveAsync(parent);
-        await workItemRepo.SaveAsync(predecessor);
 
         adoService.FetchAsync(1, Arg.Any<CancellationToken>()).Returns(freshItem);
         adoService.FetchAsync(100, Arg.Any<CancellationToken>()).Returns(parent);
@@ -315,7 +314,7 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
         adoService.FetchWithLinksAsync(1, Arg.Any<CancellationToken>())
             .Returns((freshItem, links));
         adoService.FetchChildrenAsync(1, Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<WorkItem>());
+            .Returns(new[] { child });
 
         var protectedCacheWriter = new ProtectedCacheWriter(workItemRepo, pendingChangeStore);
         var syncCoordinatorFactory = new SyncCoordinatorFactory(
@@ -350,6 +349,7 @@ public sealed class ShowCommand_CacheAwareTests : IDisposable
         var relation = root.GetProperty("relations").EnumerateArray().ShouldHaveSingleItem();
         relation.GetProperty("id").GetInt32().ShouldBe(99);
         relation.GetProperty("attributes").GetProperty("name").GetString().ShouldBe("Predecessor");
+        root.GetProperty("children")[0].GetProperty("id").GetInt32().ShouldBe(2);
     }
 
     [Fact]

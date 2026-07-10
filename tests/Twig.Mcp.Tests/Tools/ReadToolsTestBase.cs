@@ -196,7 +196,7 @@ public abstract class ReadToolsTestBase
 
         return new WorkspaceContext(
             key, config, paths, cacheStore,
-            workItemRepo, contextStore, pendingChangeStore,
+            workItemRepo, linkRepo, contextStore, pendingChangeStore,
             adoService, iterationService, processConfigProvider,
             activeItemResolver, syncFactory, contextChange,
             workingSet, flusher, promptStateWriter, parentPropagation,

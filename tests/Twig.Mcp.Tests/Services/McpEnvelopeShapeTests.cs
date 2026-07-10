@@ -475,7 +475,7 @@ public sealed class McpEnvelopeShapeTests
 
         return new WorkspaceContext(
             key, config, paths, cacheStore,
-            _workItemRepo, _contextStore, _pendingChangeStore,
+            _workItemRepo, linkRepo, _contextStore, _pendingChangeStore,
             adoService, iterationService, processConfigProvider,
             activeItemResolver, syncFactory, contextChange,
             workingSet, flusher, promptStateWriter, parentPropagation,

@@ -701,7 +701,7 @@ public class SeedPublishOrchestratorTests
     }
 
     [Fact]
-    public async Task PublishAsync_RefreshFailure_StillReturnsSuccess()
+    public async Task PublishAsync_RefreshFailure_ReturnsSuccessWithWarning()
     {
         var seed = new WorkItemBuilder(-1, "My seed").AsSeed().Build();
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
@@ -721,9 +721,28 @@ public class SeedPublishOrchestratorTests
         result.Status.ShouldBe(SeedPublishStatus.Created);
         result.NewId.ShouldBe(500);
         result.IsSuccess.ShouldBeTrue();
+        result.LinkWarnings.ShouldContain(
+            warning => warning.Contains("relationship cache refresh failed", StringComparison.OrdinalIgnoreCase));
 
         // SaveAsync called only once (transactional save); refresh save never reached
         await _workItemRepo.Received(1).SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PublishAsync_RefreshCancellation_Propagates()
+    {
+        var seed = new WorkItemBuilder(-1, "My seed").AsSeed().Build();
+        _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
+
+        var fetchedItem = new WorkItemBuilder(500, "Fetched").Build();
+        _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(500);
+        _adoService.FetchAsync(500, Arg.Any<CancellationToken>()).Returns(fetchedItem);
+        _adoService.FetchWithLinksAsync(500, Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<(WorkItem, IReadOnlyList<WorkItemLink>)>(
+                new OperationCanceledException()));
+
+        await Should.ThrowAsync<OperationCanceledException>(
+            () => _orchestrator.PublishAsync(-1));
     }
 
     [Fact]

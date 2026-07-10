@@ -176,13 +176,21 @@ public sealed class ShowCommand(
             ? () => _pendingChangeStore.GetChangesAsync(item.Id)
             : () => Task.FromResult<IReadOnlyList<PendingChangeRecord>>([]);
 
+        async Task<SyncResult> RefreshItemAndLinksAsync(CancellationToken refreshCt)
+        {
+            var linkSync = await syncCoordinatorFactory.ReadOnly.SyncRootLinksAsync(resolvedId, refreshCt);
+            return linkSync is SyncFailed
+                ? await syncCoordinatorFactory.ReadOnly.SyncItemSetAsync([resolvedId], refreshCt)
+                : linkSync;
+        }
+
         // Non-TTY machine output: sync synchronously before emitting so consumers get fresh data.
         // The TTY path handles sync via RenderWithSyncAsync (two-pass: cached → sync → revised).
         if (renderer is null && !noRefresh)
         {
             try
             {
-                await syncCoordinatorFactory.ReadOnly.SyncItemSetAsync([resolvedId]);
+                await RefreshItemAndLinksAsync(ct);
 
                 // Reload data from cache after sync
                 var freshItem = await workItemRepo.GetByIdAsync(resolvedId, ct);
@@ -239,7 +247,7 @@ public sealed class ShowCommand(
                 {
                     await renderer.RenderWithSyncAsync(
                         buildCachedView: () => BuildView(item, parent, children, childProgress),
-                        performSync: () => syncCoordinatorFactory.ReadOnly.SyncItemSetAsync([resolvedId]),
+                        performSync: () => RefreshItemAndLinksAsync(CancellationToken.None),
                         buildRevisedView: async _ =>
                         {
                             var freshItem = await workItemRepo.GetByIdAsync(resolvedId, CancellationToken.None);

@@ -7,6 +7,7 @@ using Twig.Domain.Services.Seed;
 using Twig.Domain.Services.Workspace;
 using Twig.Domain.ValueObjects;
 using Twig.Infrastructure.Content;
+using Twig.Infrastructure.Persistence;
 using Twig.Mcp.Services;
 
 namespace Twig.Mcp.Tools;
@@ -202,6 +203,7 @@ public sealed class SeedTools(WorkspaceResolver resolver, SeedFactory seedFactor
             ctx.WorkItemRepo,
             ctx.AdoService,
             ctx.SeedLinkRepo,
+            new SqliteWorkItemLinkRepository(ctx.CacheStore),
             ctx.PublishIdMapRepo,
             ctx.SeedPublishRulesProvider,
             ctx.UnitOfWork,

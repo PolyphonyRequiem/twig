@@ -22,6 +22,7 @@ public sealed class SeedParentLinkPublishingTests : IDisposable
     public async Task ParentChildLinkToExistingItem_PublishesParentInCreateRequest()
     {
         var workItemRepo = new SqliteWorkItemRepository(_store, new WorkItemMapper());
+        var workItemLinkRepo = new SqliteWorkItemLinkRepository(_store);
         var seedLinkRepo = new SqliteSeedLinkRepository(_store);
         var publishIdMapRepo = new SqlitePublishIdMapRepository(_store);
         var unitOfWork = new SqliteUnitOfWork(_store);
@@ -51,6 +52,7 @@ public sealed class SeedParentLinkPublishingTests : IDisposable
             workItemRepo,
             adoService,
             seedLinkRepo,
+            workItemLinkRepo,
             publishIdMapRepo,
             rulesProvider,
             unitOfWork,
@@ -61,6 +63,53 @@ public sealed class SeedParentLinkPublishingTests : IDisposable
         publishResult.Status.ShouldBe(SeedPublishStatus.Created);
         createRequest.ShouldNotBeNull();
         createRequest.ParentId.ShouldBe(100);
+    }
+
+    [Fact]
+    public async Task PublishedDependencyLink_IsAvailableFromLocalRelationshipCache()
+    {
+        var workItemRepo = new SqliteWorkItemRepository(_store, new WorkItemMapper());
+        var workItemLinkRepo = new SqliteWorkItemLinkRepository(_store);
+        var seedLinkRepo = new SqliteSeedLinkRepository(_store);
+        var publishIdMapRepo = new SqlitePublishIdMapRepository(_store);
+        var unitOfWork = new SqliteUnitOfWork(_store);
+        var adoService = Substitute.For<IAdoWorkItemService>();
+        var rulesProvider = Substitute.For<ISeedPublishRulesProvider>();
+        var fieldDefinitionStore = Substitute.For<IFieldDefinitionStore>();
+        rulesProvider.GetRulesAsync(Arg.Any<CancellationToken>())
+            .Returns(SeedPublishRules.Default);
+
+        await workItemRepo.SaveAsync(new WorkItemBuilder(99, "Existing predecessor").Build());
+        await workItemRepo.SaveAsync(new WorkItemBuilder(-1, "Dependent seed").AsSeed().Build());
+        await seedLinkRepo.AddLinkAsync(
+            new SeedLink(-1, 99, SeedLinkTypes.BlockedBy, DateTimeOffset.UtcNow));
+
+        var publishedItem = new WorkItemBuilder(500, "Dependent seed").Build();
+        var publishedLinks = new[] { new WorkItemLink(500, 99, "Predecessor") };
+        adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>())
+            .Returns(500);
+        adoService.FetchAsync(500, Arg.Any<CancellationToken>())
+            .Returns(publishedItem);
+        adoService.FetchWithLinksAsync(500, Arg.Any<CancellationToken>())
+            .Returns((publishedItem, publishedLinks));
+
+        var orchestrator = new SeedPublishOrchestrator(
+            workItemRepo,
+            adoService,
+            seedLinkRepo,
+            workItemLinkRepo,
+            publishIdMapRepo,
+            rulesProvider,
+            unitOfWork,
+            new BacklogOrderer(adoService, fieldDefinitionStore));
+
+        var publishResult = await orchestrator.PublishAsync(-1);
+        var cachedLinks = await workItemLinkRepo.GetLinksAsync(500);
+
+        publishResult.Status.ShouldBe(SeedPublishStatus.Created);
+        var cachedLink = cachedLinks.ShouldHaveSingleItem();
+        cachedLink.TargetId.ShouldBe(99);
+        cachedLink.LinkType.ShouldBe("Predecessor");
     }
 
     public void Dispose() => _store.Dispose();

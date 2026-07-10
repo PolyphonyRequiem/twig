@@ -19,6 +19,7 @@ public class SeedPublishOrchestratorTests
     private readonly IWorkItemRepository _workItemRepo = Substitute.For<IWorkItemRepository>();
     private readonly IAdoWorkItemService _adoService = Substitute.For<IAdoWorkItemService>();
     private readonly ISeedLinkRepository _seedLinkRepo = Substitute.For<ISeedLinkRepository>();
+    private readonly IWorkItemLinkRepository _workItemLinkRepo = Substitute.For<IWorkItemLinkRepository>();
     private readonly IPublishIdMapRepository _publishIdMapRepo = Substitute.For<IPublishIdMapRepository>();
     private readonly ISeedPublishRulesProvider _rulesProvider = Substitute.For<ISeedPublishRulesProvider>();
     private readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
@@ -37,6 +38,7 @@ public class SeedPublishOrchestratorTests
             _workItemRepo,
             _adoService,
             _seedLinkRepo,
+            _workItemLinkRepo,
             _publishIdMapRepo,
             _rulesProvider,
             _unitOfWork,
@@ -206,6 +208,8 @@ public class SeedPublishOrchestratorTests
         var fetchedItem = new WorkItemBuilder(500, "Seed").Build(); // IsSeed = false from ADO
         _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(500);
         _adoService.FetchAsync(500, Arg.Any<CancellationToken>()).Returns(fetchedItem);
+        _adoService.FetchWithLinksAsync(500, Arg.Any<CancellationToken>())
+            .Returns((fetchedItem, Array.Empty<WorkItemLink>()));
 
         var result = await _orchestrator.PublishAsync(-1);
 
@@ -420,6 +424,8 @@ public class SeedPublishOrchestratorTests
         var fetchedItem = fetchedItemBuilder.Build();
         _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(newId);
         _adoService.FetchAsync(newId, Arg.Any<CancellationToken>()).Returns(fetchedItem);
+        _adoService.FetchWithLinksAsync(newId, Arg.Any<CancellationToken>())
+            .Returns((fetchedItem, Array.Empty<WorkItemLink>()));
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -662,20 +668,23 @@ public class SeedPublishOrchestratorTests
         var seed = new WorkItemBuilder(-1, "My seed").AsSeed().Build();
         _workItemRepo.GetByIdAsync(-1, Arg.Any<CancellationToken>()).Returns(seed);
 
-        // First fetch (step 8) returns Rev 1; second fetch (step 12b refresh) returns Rev 3
+        // Initial fetch returns Rev 1; post-publish relationship refresh returns Rev 3.
         var fetchedItem = new WorkItemBuilder(500, "Fetched").Build();
         fetchedItem.MarkSynced(1);
         var refreshedItem = new WorkItemBuilder(500, "Refreshed").Build();
         refreshedItem.MarkSynced(3);
+        var refreshedLinks = new[] { new WorkItemLink(500, 200, "Predecessor") };
         _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(500);
-        _adoService.FetchAsync(500, Arg.Any<CancellationToken>()).Returns(fetchedItem, refreshedItem);
+        _adoService.FetchAsync(500, Arg.Any<CancellationToken>()).Returns(fetchedItem);
+        _adoService.FetchWithLinksAsync(500, Arg.Any<CancellationToken>())
+            .Returns((refreshedItem, refreshedLinks));
 
         var result = await _orchestrator.PublishAsync(-1);
 
         result.Status.ShouldBe(SeedPublishStatus.Created);
 
-        // FetchAsync called twice: once at step 8 (initial), once at step 12b (refresh)
-        await _adoService.Received(2).FetchAsync(500, Arg.Any<CancellationToken>());
+        await _adoService.Received(1).FetchAsync(500, Arg.Any<CancellationToken>());
+        await _adoService.Received(1).FetchWithLinksAsync(500, Arg.Any<CancellationToken>());
 
         // SaveAsync called twice: once at step 10e (transaction), once at step 12b (refresh)
         await _workItemRepo.Received(2).SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>());
@@ -683,6 +692,11 @@ public class SeedPublishOrchestratorTests
         // Second SaveAsync receives the higher-revision item from post-publish refresh with IsSeed cleared
         await _workItemRepo.Received(1).SaveAsync(
             Arg.Is<WorkItem>(w => w.Id == 500 && w.Revision == 3 && !w.IsSeed),
+            Arg.Any<CancellationToken>());
+        await _workItemLinkRepo.Received(1).SaveLinksAsync(
+            500,
+            Arg.Is<IReadOnlyList<WorkItemLink>>(links =>
+                links.Count == 1 && links[0].TargetId == 200 && links[0].LinkType == "Predecessor"),
             Arg.Any<CancellationToken>());
     }
 
@@ -696,11 +710,10 @@ public class SeedPublishOrchestratorTests
         fetchedItem.MarkSynced(1);
         _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(500);
 
-        // First FetchAsync succeeds (step 8), second throws (step 12b post-publish refresh)
-        _adoService.FetchAsync(500, Arg.Any<CancellationToken>())
-            .Returns(
-                _ => fetchedItem,
-                _ => throw new InvalidOperationException("ADO unavailable"));
+        _adoService.FetchAsync(500, Arg.Any<CancellationToken>()).Returns(fetchedItem);
+        _adoService.FetchWithLinksAsync(500, Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<(WorkItem, IReadOnlyList<WorkItemLink>)>(
+                new InvalidOperationException("ADO unavailable")));
 
         var result = await _orchestrator.PublishAsync(-1);
 
@@ -722,7 +735,9 @@ public class SeedPublishOrchestratorTests
         var fetchedItem = new WorkItemBuilder(500, "Fetched").Build();
         var refreshedItem = new WorkItemBuilder(500, "Refreshed").Build();
         _adoService.CreateAsync(Arg.Any<CreateWorkItemRequest>(), Arg.Any<CancellationToken>()).Returns(500);
-        _adoService.FetchAsync(500, Arg.Any<CancellationToken>()).Returns(fetchedItem, refreshedItem);
+        _adoService.FetchAsync(500, Arg.Any<CancellationToken>()).Returns(fetchedItem);
+        _adoService.FetchWithLinksAsync(500, Arg.Any<CancellationToken>())
+            .Returns((refreshedItem, Array.Empty<WorkItemLink>()));
 
         // First SaveAsync succeeds (step 10e in transaction), second throws (step 12b refresh)
         _workItemRepo.SaveAsync(Arg.Any<WorkItem>(), Arg.Any<CancellationToken>())

@@ -18,6 +18,7 @@ public class SeedPublishCommandTests : IDisposable
     private readonly IWorkItemRepository _workItemRepo;
     private readonly IAdoWorkItemService _adoService;
     private readonly ISeedLinkRepository _seedLinkRepo;
+    private readonly IWorkItemLinkRepository _workItemLinkRepo;
     private readonly IPublishIdMapRepository _publishIdMapRepo;
     private readonly ISeedPublishRulesProvider _rulesProvider;
     private readonly IUnitOfWork _unitOfWork;
@@ -36,6 +37,7 @@ public class SeedPublishCommandTests : IDisposable
         _workItemRepo = Substitute.For<IWorkItemRepository>();
         _adoService = Substitute.For<IAdoWorkItemService>();
         _seedLinkRepo = Substitute.For<ISeedLinkRepository>();
+        _workItemLinkRepo = Substitute.For<IWorkItemLinkRepository>();
         _publishIdMapRepo = Substitute.For<IPublishIdMapRepository>();
         _rulesProvider = Substitute.For<ISeedPublishRulesProvider>();
         _unitOfWork = Substitute.For<IUnitOfWork>();
@@ -52,7 +54,7 @@ public class SeedPublishCommandTests : IDisposable
 
         var backlogOrderer = new BacklogOrderer(_adoService, _fieldDefStore);
         var orchestrator = new SeedPublishOrchestrator(
-            _workItemRepo, _adoService, _seedLinkRepo, _publishIdMapRepo,
+            _workItemRepo, _adoService, _seedLinkRepo, _workItemLinkRepo, _publishIdMapRepo,
             _rulesProvider, _unitOfWork, backlogOrderer);
 
         _cmd = new SeedPublishCommand(orchestrator, _contextStore, _formatterFactory, new RendererFactory(), _adoService);
@@ -433,7 +435,7 @@ public class SeedPublishCommandTests : IDisposable
     {
         var backlogOrderer = new BacklogOrderer(_adoService, _fieldDefStore);
         var orchestrator = new SeedPublishOrchestrator(
-            _workItemRepo, _adoService, _seedLinkRepo, _publishIdMapRepo,
+            _workItemRepo, _adoService, _seedLinkRepo, _workItemLinkRepo, _publishIdMapRepo,
             _rulesProvider, _unitOfWork, backlogOrderer);
         return new SeedPublishCommand(orchestrator, _contextStore, _formatterFactory, new RendererFactory(), _adoService, gitService);
     }
@@ -1114,4 +1116,3 @@ public class SeedPublishCommandTests : IDisposable
         await gitService.DidNotReceive().GetRepositoryIdAsync(Arg.Any<CancellationToken>());
     }
 }
-
